@@ -32,6 +32,8 @@ CI also builds the zip with the BigWigs packager that releases use, and fails if
 
 ## Releasing (maintainer)
 
+Pull requests between releases add their `CHANGELOG.md` notes under a `### Unreleased` heading at the top; the release PR renames it to `## x.y.z`.
+
 1. In a PR: bump `## Version` in `FriendlyForever.toc` and add the release notes as a new `## 1.6.0` section at the top of `CHANGELOG.md`. CurseForge shows only that section (`make release-notes` previews it).
 2. After it merges, tag the merge commit and push the tag: `git tag v1.6.0 && git push origin v1.6.0`. Version tags can't be moved or deleted once pushed, so double-check the commit first.
 3. The Release workflow's `verify` job checks that the tag is on `main` and matches the TOC, then runs lint and tests with no secrets. After that, the `release` job waits for your approval in the `release` environment, checks that the CurseForge project ID and key are set, and uploads.
