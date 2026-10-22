@@ -162,19 +162,22 @@ local function HelloOpts(delay)
         vars = function() return {} end,
         isValid = function()
             if not IsInGroup() then return false, "you left the group" end
+            if Greeter.InBattleground() then return false, "in a battleground" end
             return true
         end,
     }
 end
 
--- Runs once the Party Hello delay is over, when the leader is more likely to
--- be readable than on the roster update that showed the group.
-local function SayHello()
+-- Runs once the shorter of the two hello delays is over, when the leader is
+-- more likely to be readable than on the roster update that showed the group.
+-- waited: seconds since joining; the chosen type then waits out the rest.
+local function SayHello(waited)
     local key = Greeter.GroupLeaderName()
     if not key then
         -- Without a leader this group can't be told from any other: a plain
         -- hello, and nothing remembered for "hello again".
-        ns.Announcer.Schedule("partyHello", "unknown leader", HelloOpts(0))
+        ns.Announcer.Schedule("partyHello", "unknown leader",
+            HelloOpts(math.max(0, ns.db.partyHello.delay - waited)))
         return
     end
     -- A group is told apart by its leader. Rejoining a leader's group this
@@ -189,11 +192,7 @@ local function SayHello()
         ns.Diag.Log(msgType, "not sending for %s: rejoined within %ss", key, cooldown)
         return
     end
-    -- Party Hello's delay has passed already; Hello Again waits out the rest of its own.
-    local delay = 0
-    if msgType == "partyHelloAgain" then
-        delay = math.max(0, ns.db.partyHelloAgain.delay - ns.db.partyHello.delay)
-    end
+    local delay = math.max(0, ns.db[msgType].delay - waited)
     if ns.Announcer.Schedule(msgType, key, HelloOpts(delay)) then helloedLeaders[key] = GetTime() end
 end
 
@@ -223,14 +222,15 @@ function Greeter.OnGroupRosterUpdate()
         ns.Diag.Log("partyHello", "joined a group; no hello: %s", ns.Announcer.ActiveState())
         return
     end
-    -- Hello or hello again is decided after the delay (see SayHello).
+    -- Hello or hello again is decided after a delay (see SayHello).
     local change = groupChanges
-    C_Timer.After(ns.db.partyHello.delay, ns.Diag.Wrap(function()
+    local wait = math.min(ns.db.partyHello.delay, ns.db.partyHelloAgain.delay)
+    C_Timer.After(wait, ns.Diag.Wrap(function()
         if change ~= groupChanges then
             ns.Diag.Log("partyHello", "no hello: you left or changed group before the delay ran out")
             return
         end
-        SayHello()
+        SayHello(wait)
     end))
 end
 
@@ -257,8 +257,34 @@ end
 -- default 2s delay. A forming raid takes invites in longer waves.
 Greeter.PARTY_MERGE_WINDOW = 3
 Greeter.RAID_MERGE_WINDOW = 5
+-- Names listed in one line before the rest become "and N others", so a long
+-- list can't push the end of the line past the chat length limit.
+Greeter.MAX_LISTED = 5
 
-local joinBatch -- { names = {} } for the merged welcome waiting to go out
+local joinBatch -- { names = {}, createdAt = t } for the merged welcome waiting to go out
+
+-- A batch normally ends when its welcome is sent or dropped. One older than
+-- this has lost its message (an error, say) and must not hold up new welcomes.
+local function BatchExpired(batch)
+    return GetTime() - batch.createdAt > Greeter.RAID_MERGE_WINDOW + ns.ChatQueue.MAX_AGE
+end
+
+-- "A, B, C, D, E and 7 others" past MAX_LISTED names (one extra is listed).
+local function ListNames(names)
+    if #names <= Greeter.MAX_LISTED + 1 then return Util.JoinList(names) end
+    local shown = {}
+    for i = 1, Greeter.MAX_LISTED do shown[i] = names[i] end
+    shown[#shown + 1] = (#names - Greeter.MAX_LISTED) .. " others"
+    return Util.JoinList(shown)
+end
+
+-- "X has joined the raid group." lines: when a party becomes a raid, the game
+-- may print one for everyone already in the party.
+local raidJoinPattern
+local function IsRaidJoinLine(msg)
+    raidJoinPattern = raidJoinPattern or Util.FormatToPattern(ERR_RAID_MEMBER_ADDED_S) or false
+    return raidJoinPattern and msg:match(raidJoinPattern) ~= nil
+end
 
 -- Don't welcome someone who already left. If we can't tell (names
 -- restricted in combat), keep the welcome.
@@ -266,13 +292,21 @@ local function StillInGroup(name)
     return Greeter.IsInMyGroup(name) ~= false
 end
 
-local function WelcomeJoin(name)
+local function WelcomeJoin(name, raidLine)
     local cfg = ns.db.partyJoin
-    if convertedAt and GetTime() - convertedAt <= Greeter.CONVERT_WINDOW and convertedMembers[name] then
+    -- The roster update for the conversion can come before or after these
+    -- lines, so check both the party as it is now and as it was just before.
+    local converted = convertedAt and GetTime() - convertedAt <= Greeter.CONVERT_WINDOW and convertedMembers[name]
+    if raidLine and (partyMembers[name] or converted) then
         ns.Diag.Log("partyJoin", "not welcoming %s: was already in the party before it became a raid", name)
         return
     end
     local batch = joinBatch
+    if batch and BatchExpired(batch) then
+        ns.Diag.Log("partyJoin", "a welcome waiting since %ss ago never finished; starting a new one",
+            GetTime() - batch.createdAt)
+        joinBatch, batch = nil, nil
+    end
     if batch then
         for _, n in ipairs(batch.names) do
             if n == name then return end
@@ -288,7 +322,7 @@ local function WelcomeJoin(name)
         return
     end
 
-    batch = { names = { name } }
+    batch = { names = { name }, createdAt = GetTime() }
     joinBatch = batch
     local function Present()
         local present = {}
@@ -305,9 +339,10 @@ local function WelcomeJoin(name)
             for i, n in ipairs(Present()) do
                 first[i], full[i] = Util.FirstName(n), Util.DisplayName(n)
             end
-            return { name = Util.JoinList(first), fullname = Util.JoinList(full) }
+            return { name = ListNames(first), fullname = ListNames(full) }
         end,
         isValid = function()
+            if Greeter.InBattleground() then return false, "in a battleground" end
             if #Present() == 0 then
                 local verb = #batch.names > 1 and " are" or " is"
                 return false, Util.JoinList(batch.names) .. verb .. " no longer in your group"
@@ -359,6 +394,6 @@ function Greeter.OnSystemMessage(msg)
             ns.Diag.Log("partyJoin", "not welcoming %s: you're in a battleground", name)
             return
         end
-        WelcomeJoin(name)
+        WelcomeJoin(name, IsRaidJoinLine(msg))
     end
 end
