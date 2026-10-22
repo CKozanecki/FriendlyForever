@@ -2,8 +2,8 @@
 
 ### Unreleased
 
-- Fix: a buff from someone the game can't name could be credited to another player who had just cast the same spell on someone else (for example, mages buffing in a city). A cast now only names the caster when it was aimed at you. If the game won't say who the cast was aimed at, nobody is credited.
-- Fix: a /say thank-you waiting for a key press could go out up to 2 minutes late, after the buffer had moved on. It's now dropped after 30 seconds. Whispers and other messages still wait up to 2 minutes.
+- Fix: a buff from someone the game can't name could be credited to another player who had just cast the same spell on someone else (for example, mages buffing in a city). A cast now only names its caster when it was aimed at you. A cast aimed at someone else, or one where the game won't say who it was aimed at, is ignored. Out in the world, a buff whose caster can't be identified still gets the "friend" thank-you in /say (if that is switched on). In a group or battleground it is skipped, as before.
+- Fix: a /say thank-you waiting for a key press could go out up to 2 minutes late, after the buffer had moved on. It's now dropped if it waits more than 30 seconds, counted from when it's ready to send (after the configured delay). Whispers and other messages still wait up to 2 minutes.
 
 ## 1.5.0
 

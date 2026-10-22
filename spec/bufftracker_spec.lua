@@ -301,16 +301,53 @@ describe("Buff thanks", function()
             assert.are.equal(0, #wow.sent, "group member's cast is not mistaken for a stranger")
         end)
 
-        -- Codebase review B3: in a city, Alice buffs someone else and Bob,
-        -- whom the game can't name, buffs us with the same spell.
-        it("not from a cast aimed at someone else (Alice isn't thanked for Bob's buff)", function()
+        -- Codebase review B3: in a city, Alice buffs Dave and Bob, whom the
+        -- game can't name, buffs us with the same spell. Alice's cast isn't
+        -- remembered, so Bob's buff gets the usual "friend" fallback.
+        local function aliceBuffsDave()
             wow.addUnit("nameplate2", { name = "Dave" })
             wow.addUnit("nameplate7", { name = "Alice", target = "nameplate2" })
             wow.fire("UNIT_SPELLCAST_SUCCEEDED", "nameplate7", "g", 1459)
             wow.advance(0.5)
+            wow.gainBuff({ name = "Arcane Intellect", spellId = 1459, isFromPlayerOrPlayerPet = true })
+            settle()
+        end
+
+        it("not from a cast aimed at someone else: Bob's buff is thanked as 'friend', not Alice", function()
+            aliceBuffsDave()
+            assert.are.same({ "Thank you for the Arcane Intellect, friend!" }, wow.sentTo("SAY"))
+            assert.are.equal(1, #wow.sent)
+        end)
+
+        it("not from a cast aimed at someone else, with the /say fallback off: nobody is thanked", function()
+            ns.db.buff.fallbackToSay = false
+            aliceBuffsDave()
+            assert.are.equal(0, #wow.sent)
+        end)
+
+        it("not from a cast aimed at someone else, while grouped: nobody is thanked", function()
+            wow.state.groupType = "party"
+            aliceBuffsDave()
+            assert.are.equal(0, #wow.sent)
+        end)
+
+        it("not from a cast aimed at someone else, in a battleground (instance group): nobody is thanked", function()
+            wow.state.groupType = "instance"
+            wow.state.inInstance = true
+            aliceBuffsDave()
+            assert.are.equal(0, #wow.sent)
+        end)
+
+        it("a cast aimed at someone else doesn't replace an earlier one aimed at you", function()
+            buffer("nameplate3", "Bob")
+            wow.addUnit("nameplate2", { name = "Dave" })
+            wow.addUnit("nameplate7", { name = "Alice", target = "nameplate2" })
+            wow.fire("UNIT_SPELLCAST_SUCCEEDED", "nameplate3", "g", 1459)
+            wow.advance(0.2)
+            wow.fire("UNIT_SPELLCAST_SUCCEEDED", "nameplate7", "g", 1459)
             wow.gainBuff({ name = "Arcane Intellect", spellId = 1459 })
             settle()
-            assert.are.equal(0, #wow.sent)
+            assert.are.same({ "Thank you for the Arcane Intellect, Bob!" }, wow.sentTo("SAY"))
         end)
 
         it("from a cast aimed at you, by nameplate", function()
@@ -322,15 +359,16 @@ describe("Buff thanks", function()
             assert.are.same({ "Thank you for the Arcane Intellect, Alice!" }, wow.sentTo("SAY"))
         end)
 
-        it("not when the caster's target is secret", function()
+        it("not when the caster's target is secret: 'friend' is thanked instead", function()
             wow.addUnit("nameplate7", { name = "Alice", target = "player", targetUnreadable = true })
             wow.fire("UNIT_SPELLCAST_SUCCEEDED", "nameplate7", "g", 1459)
-            wow.gainBuff({ name = "Arcane Intellect", spellId = 1459 })
+            wow.gainBuff({ name = "Arcane Intellect", spellId = 1459, isFromPlayerOrPlayerPet = true })
             settle()
-            assert.are.equal(0, #wow.sent)
+            assert.are.same({ "Thank you for the Arcane Intellect, friend!" }, wow.sentTo("SAY"))
+            assert.are.equal(1, #wow.sent)
         end)
 
-        it("not when the game gives no answer about the caster's target", function()
+        it("not when the game gives no answer about the caster's target: 'friend' is thanked instead", function()
             buffer("nameplate7", "Alice")
             local isUnit = _G.UnitIsUnit
             _G.UnitIsUnit = function(a, b)
@@ -338,9 +376,10 @@ describe("Buff thanks", function()
                 return isUnit(a, b)
             end
             wow.fire("UNIT_SPELLCAST_SUCCEEDED", "nameplate7", "g", 1459)
-            wow.gainBuff({ name = "Arcane Intellect", spellId = 1459 })
+            wow.gainBuff({ name = "Arcane Intellect", spellId = 1459, isFromPlayerOrPlayerPet = true })
             settle()
-            assert.are.equal(0, #wow.sent)
+            assert.are.same({ "Thank you for the Arcane Intellect, friend!" }, wow.sentTo("SAY"))
+            assert.are.equal(1, #wow.sent)
         end)
 
         it("ignores casts from group unit tokens", function()
@@ -594,6 +633,19 @@ describe("Buff thanks", function()
             wow.state.lockdown = false
             wow.advance(ns.ChatQueue.RETRY_DELAY)
             assert.are.same({ "Thank you for the Fort, Bob!" }, wow.sentTo("WHISPER"))
+        end)
+
+        it("drops the /say fallback for a failed whisper after the /say limit, and logs it", function()
+            ns.db.debug = true
+            stranger()
+            wow.gainBuff({ sourceUnit = "target", name = "Fort" })
+            wow.advance(ns.db.buff.delay + 0.01)
+            wow.systemMessage("No player named 'Bob' is currently playing.")
+            wow.advance(ns.db.buff.delay + ns.BuffTracker.SAY_MAX_AGE + ns.ChatQueue.RETRY_DELAY + 1)
+            wow.keyDown()
+            assert.are.equal(0, #wow.sentTo("SAY"))
+            assert.is_true(logHas("dropped buff for whisper failed:Bob: waited too long ("
+                .. ns.BuffTracker.SAY_MAX_AGE .. "s)"))
         end)
 
         it("still batches several buffs into one whisper", function()

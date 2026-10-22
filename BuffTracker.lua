@@ -6,7 +6,8 @@
 --      for them (target, mouseover, focus, nameplate, party/raid member...).
 --   2. A matching UNIT_SPELLCAST_SUCCEEDED we saw from a non-group unit token
 --      in the last moment, aimed at us (covers tokens that vanished before the
---      aura landed).
+--      aura landed). A cast we can't see was aimed at us isn't remembered, so
+--      it never names the caster and the buff goes on to step 3.
 --   3. Neither, and we're not in a group: the aura came from another player
 --      (isFromPlayerOrPlayerPet) we have no unit for, thanked as "friend"
 --      (configurable). While grouped this fallback is off, because party-wide
@@ -70,9 +71,11 @@ end
 
 -- Readable and true only when the unit's target is us. Casters in cities buff
 -- in batches, so a same-spell cast aimed at someone else must not name the
--- caster of a buff we got from someone we can't see.
+-- caster of a buff we got from someone we can't see. Such a cast is simply
+-- not remembered: it doesn't block the "friend" fallback either.
 local function AimedAtMe(unit)
     local aimed = UnitIsUnit(unit .. "target", "player")
+    -- Check for a secret first: comparing one is an error in the real client.
     return not Util.IsSecret(aimed) and aimed == true
 end
 
@@ -88,7 +91,11 @@ function BuffTracker.OnSpellcastSucceeded(unit, _, spellId)
     if not IsCastUnit(unit) then return end
     local caster = BuffTracker.Classify(unit)
     if caster == nil then return end
-    if caster and not AimedAtMe(unit) then caster = false end
+    -- caster == false (us, pet, group, NPC, hostile) is kept: a real "don't thank".
+    if caster and not AimedAtMe(unit) then
+        ns.Diag.Log("buff", "cast %s by %s isn't aimed at you (or can't tell); not remembered", spellId, caster)
+        return
+    end
     local now = GetTime()
     PruneCasts(now)
     recentCasts[spellId] = { time = now, caster = caster }
@@ -204,7 +211,7 @@ local function FindCaster(aura, spellId, now)
     local cast = spellId and recentCasts[spellId]
     if cast and now - cast.time <= BuffTracker.CAST_MATCH_WINDOW then
         if cast.caster then return cast.caster, "matched a cast at you just before" end
-        return nil, "matched a cast by someone we don't thank, or not aimed at you"
+        return nil, "matched a cast by someone we don't thank"
     end
 
     -- Party-wide buffs (totems, auras, shouts) can arrive with no caster unit
