@@ -1,0 +1,36 @@
+name: Release
+
+# Pushing a version tag (v1.5.0) builds the addon with the BigWigs packager
+# (which reads .pkgmeta) and uploads it to CurseForge. Needs the repository
+# secret CF_API_KEY and ## X-Curse-Project-ID in the TOC.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    env:
+      CF_API_KEY: ${{ secrets.CF_API_KEY }}
+      GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Lint and test before releasing
+        run: |
+          make setup TOOLS="$RUNNER_TEMP/lua"
+          make lint TOOLS="$RUNNER_TEMP/lua"
+          make test TOOLS="$RUNNER_TEMP/lua"
+
+      - name: Package and upload
+        uses: BigWigsMods/packager@v2

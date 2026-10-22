@@ -1,0 +1,324 @@
+-- Thanks players outside your group who buff you, out in the world.
+--
+-- No combat log is involved. New buffs come from UNIT_AURA on "player", and
+-- the caster is found in this order:
+--   1. aura.sourceUnit: the game names the caster when it has a unit token
+--      for them (target, mouseover, focus, nameplate, party/raid member...).
+--   2. A matching UNIT_SPELLCAST_SUCCEEDED we saw from a non-group unit token
+--      in the last moment (covers tokens that vanished before the aura landed).
+--   3. Neither, and we're not in a group: the aura came from another player
+--      (isFromPlayerOrPlayerPet) we have no unit for, thanked as "friend"
+--      (configurable). While grouped this fallback is off, because party-wide
+--      buffs such as a groupmate's totems can arrive with no caster unit.
+-- All buffs from one caster that arrive before the thank-you goes out are
+-- merged into that single message, and the repeat cooldown stops a second one.
+-- With "whisper instead of say" on, thanks are whispered to the caster (no key
+-- press needed). Casters that can't be named, and whispers the game can't
+-- deliver, fall back to a "friend" thank-you in /say (if that is switched on).
+local _, ns = ...
+local Util = ns.Util
+
+local BuffTracker = {}
+ns.BuffTracker = BuffTracker
+
+BuffTracker.CAST_MATCH_WINDOW = 1.5  -- seconds between cast and aura to match them
+BuffTracker.UNKNOWN_COOLDOWN = 30    -- seconds between "friend" thank-yous
+BuffTracker.UNKNOWN_KEY = "?unknown"
+BuffTracker.WHISPER_FAIL_WINDOW = 5 -- seconds a "no player named" reply counts as our whisper failing
+-- A buff cast longer ago than this is one we already had, re-sent by the game
+-- (logging in, reconnecting, zoning). The login grace period alone isn't
+-- enough: a slow loading screen can outlast it.
+BuffTracker.STALE_AFTER = 5
+
+-- Unit tokens whose casts we remember. Group tokens are skipped because
+-- group members are never thanked.
+local CAST_UNIT_PREFIXES = { "target", "focus", "mouseover", "nameplate", "softfriend" }
+
+local batches = {}      -- [caster key] = { names = {}, seen = {}, count = 0 }
+local recentCasts = {}  -- [spellId] = { time = t, caster = shortName or false }
+
+local function AnySecret(...)
+    for i = 1, select("#", ...) do
+        if Util.IsSecret((select(i, ...))) then return true end
+    end
+    return false
+end
+
+-- Name if this unit is a player we should thank; false if it is a caster we
+-- must not thank (us, our pet, group, NPC, hostile); nil if we can't tell.
+-- The full First-Surname name, which is also the whisper target.
+function BuffTracker.Classify(unit)
+    if Util.IsSecret(unit) or type(unit) ~= "string" then return nil end
+    local isPlayer, isMe, isPet = UnitIsPlayer(unit), UnitIsUnit(unit, "player"), UnitIsUnit(unit, "pet")
+    local inParty, inRaid, hostile = UnitInParty(unit), UnitInRaid(unit), UnitCanAttack("player", unit)
+    if AnySecret(isPlayer, isMe, isPet, inParty, inRaid, hostile) then return nil end
+    if isMe or isPet or inParty or inRaid or hostile or not isPlayer then return false end
+    return Util.UnitFullName(unit) or nil
+end
+
+local function IsCastUnit(unit)
+    for _, prefix in ipairs(CAST_UNIT_PREFIXES) do
+        if unit:sub(1, #prefix) == prefix then return true end
+    end
+    return false
+end
+
+local function PruneCasts(now)
+    for spellId, cast in pairs(recentCasts) do
+        if now - cast.time > BuffTracker.CAST_MATCH_WINDOW then recentCasts[spellId] = nil end
+    end
+end
+
+function BuffTracker.OnSpellcastSucceeded(unit, _, spellId)
+    if not ns.db or not ns.db.buff.enabled then return end
+    if AnySecret(unit, spellId) or type(unit) ~= "string" or type(spellId) ~= "number" then return end
+    if not IsCastUnit(unit) then return end
+    local caster = BuffTracker.Classify(unit)
+    if caster == nil then return end
+    local now = GetTime()
+    PruneCasts(now)
+    recentCasts[spellId] = { time = now, caster = caster }
+end
+
+local function DescribeBuffs(batch)
+    if ns.db.buff.listBuffNames and #batch.names > 0 then
+        return Util.JoinList(batch.names)
+    end
+    return batch.count > 1 and "buffs" or "buff"
+end
+
+local function AddToBatch(batch, buffKey, spellName)
+    if batch.seen[buffKey] then return end
+    batch.seen[buffKey] = true
+    batch.count = batch.count + 1
+    if spellName then batch.names[#batch.names + 1] = spellName end
+end
+
+local function FallbackName()
+    local name = ns.db.buff.unknownName
+    if name == nil or name == "" then name = ns.Config.DEFAULTS.buff.unknownName end
+    return name
+end
+
+local function FallbackVars(batch)
+    local name = FallbackName()
+    return { name = name, fullname = name, buff = DescribeBuffs(batch) }
+end
+
+local recentWhispers = {} -- [full name] = { time, batch } for whispers just sent
+
+local function RememberWhisper(caster, batch)
+    local now = GetTime()
+    for name, w in pairs(recentWhispers) do
+        if now - w.time > BuffTracker.WHISPER_FAIL_WINDOW then recentWhispers[name] = nil end
+    end
+    recentWhispers[caster] = { time = now, batch = batch }
+end
+
+-- caster: full player name (also the whisper target), or BuffTracker.UNKNOWN_KEY.
+function BuffTracker.AddBuff(caster, buffKey, spellName)
+    local existing = batches[caster]
+    if existing then
+        AddToBatch(existing, buffKey, spellName)
+        ns.Diag.Log("buff", "added to the thank-you already waiting for %s", caster)
+        return
+    end
+
+    local cfg = ns.db.buff
+    local unknown = caster == BuffTracker.UNKNOWN_KEY
+    if unknown and not cfg.fallbackToSay then
+        ns.Diag.Log("buff", "not thanking: caster can't be named and the /say fallback is off")
+        return
+    end
+
+    local batch = { names = {}, seen = {}, count = 0 }
+    AddToBatch(batch, buffKey, spellName)
+    batches[caster] = batch
+
+    -- Someone we can't name can't be whispered: they get the /say fallback.
+    local whisper = cfg.useWhisper and not unknown
+    local scheduled = ns.Announcer.Schedule("buff", caster, {
+        channel = whisper and "WHISPER" or "SAY",
+        target = whisper and caster or nil,
+        cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
+        vars = function()
+            if unknown then return FallbackVars(batch) end
+            local vars = Util.NameVars(caster)
+            vars.buff = DescribeBuffs(batch)
+            return vars
+        end,
+        onDone = function(sent)
+            if batches[caster] == batch then batches[caster] = nil end
+            if sent and whisper then RememberWhisper(caster, batch) end
+        end,
+    })
+    if not scheduled then batches[caster] = nil end
+end
+
+-- The game answers a whisper to someone it can't find with a system message
+-- ("No player named 'X' is currently playing."). If that follows one of our
+-- thank-you whispers, thank them in /say instead, as the fallback name.
+function BuffTracker.OnWhisperFailed(name)
+    local w = recentWhispers[name]
+    if not w or GetTime() - w.time > BuffTracker.WHISPER_FAIL_WINDOW then return end
+    recentWhispers[name] = nil
+    if not ns.db.buff.fallbackToSay then
+        ns.Diag.Log("buff", "whisper to %s failed; the /say fallback is off", name)
+        return
+    end
+    ns.Diag.Log("buff", "whisper to %s failed; thanking in /say instead", name)
+    ns.Announcer.Schedule("buff", "whisper failed:" .. name, {
+        channel = "SAY",
+        cooldown = 0, -- the caster's own cooldown already stops repeats
+        vars = function() return FallbackVars(w.batch) end,
+    })
+end
+
+-- Returns caster (name or UNKNOWN_KEY) or nil, and the reason in words.
+local function FindCaster(aura, spellId, now)
+    local src = aura.sourceUnit
+    if Util.IsSecret(src) then return nil, "caster unit is secret (restricted)" end
+    if src ~= nil then
+        local caster = BuffTracker.Classify(src)
+        if caster then return caster, "caster unit " .. src end
+        if caster == false then return nil, "caster " .. src .. " is you, your pet, your group, an NPC or hostile" end
+        return nil, "caster " .. src .. " can't be identified"
+    end
+
+    local cast = spellId and recentCasts[spellId]
+    if cast and now - cast.time <= BuffTracker.CAST_MATCH_WINDOW then
+        if cast.caster then return cast.caster, "matched a cast just before" end
+        return nil, "matched a cast by someone we don't thank"
+    end
+
+    -- Party-wide buffs (totems, auras, shouts) can arrive with no caster unit
+    -- at all, so in a group an unnamed buff may well be from a groupmate.
+    -- Those buffs can't reach us when ungrouped, so only fall back then.
+    if IsInGroup() then return nil, "no caster unit, and you're in a group (could be a groupmate's totem)" end
+
+    local fromPlayer = aura.isFromPlayerOrPlayerPet
+    if not Util.IsSecret(fromPlayer) and fromPlayer == true then
+        return BuffTracker.UNKNOWN_KEY, "no caster unit; from a player outside your group"
+    end
+    return nil, "no caster unit, and not from a player"
+end
+
+local function IsReadable(aura)
+    return type(aura) == "table" and not Util.IsSecret(aura)
+end
+
+-- The event's copy of an aura can be locked while the game's own query is
+-- readable; the instance ID is never secret. Errors (when restricted) are
+-- caught and treated as "can't read it".
+local function ReadAuraId(aura)
+    local ok, id = pcall(function() return aura.auraInstanceID end)
+    if ok and not Util.IsSecret(id) and type(id) == "number" then return id end
+end
+
+local function QueryAura(id)
+    local api = C_UnitAuras and C_UnitAuras.GetAuraDataByAuraInstanceID
+    if not api or not id then return nil end
+    local ok, data = pcall(api, "player", id)
+    if ok and IsReadable(data) then return data end
+end
+
+local knownAuraIds = {} -- auras we have already seen on the player
+
+-- Seconds since the aura was cast, from its full duration and expiry time.
+-- nil when that can't be told (no duration, or values are secret).
+function BuffTracker.AuraAge(aura, now)
+    local duration, expires = aura.duration, aura.expirationTime
+    if AnySecret(duration, expires) then return nil end
+    if type(duration) ~= "number" or type(expires) ~= "number" then return nil end
+    if duration <= 0 or expires <= 0 then return nil end
+    return math.floor(now - (expires - duration))
+end
+
+local function HandleAddedAura(aura, now)
+    if not IsReadable(aura) then
+        local id = ReadAuraId(aura)
+        aura = QueryAura(id)
+        if not aura then
+            ns.Diag.Log("buff", "skipped aura %s: its data is locked (restricted)", id)
+            return
+        end
+    end
+
+    local helpful, spellId, spellName = aura.isHelpful, aura.spellId, aura.name
+    if Util.IsSecret(spellId) or type(spellId) ~= "number" then spellId = nil end
+    if Util.IsSecret(spellName) or type(spellName) ~= "string" then spellName = nil end
+    if Util.IsSecret(helpful) or helpful ~= true then return end -- debuffs are never thanked
+
+    ns.Diag.Count("buffsSeen")
+    local age = BuffTracker.AuraAge(aura, now)
+    if age and age > BuffTracker.STALE_AFTER then
+        ns.Diag.Log("buff", "%s (spell %s): cast %ds ago, so I already had it -> skip", spellName or "?", spellId, age)
+        return
+    end
+    local caster, reason = FindCaster(aura, spellId, now)
+    ns.Diag.Log("buff", "%s (spell %s): %s -> %s", spellName or "?", spellId, reason,
+        caster and ("thank " .. caster) or "skip")
+    if caster then
+        BuffTracker.AddBuff(caster, spellName or spellId or aura.auraInstanceID or "?", spellName)
+    end
+end
+
+-- Instance IDs of the player's current buffs; calls onNew(aura) for each one
+-- not in knownAuraIds. Unreadable entries are skipped.
+local function ScanBuffs(onNew)
+    local current = {}
+    local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    if not api then return current end
+    for i = 1, 255 do
+        local ok, aura = pcall(api, "player", i, "HELPFUL")
+        if not ok or aura == nil then break end
+        local id = IsReadable(aura) and ReadAuraId(aura)
+        if id then
+            current[id] = true
+            if onNew and not knownAuraIds[id] then onNew(aura) end
+        end
+    end
+    return current
+end
+
+function BuffTracker.OnPlayerAura(updateInfo)
+    if not ns.db then return end
+    if Util.IsSecret(updateInfo) or type(updateInfo) ~= "table" then
+        ns.Diag.Log("buff", "aura update payload is locked (restricted); skipped")
+        return
+    end
+
+    -- In combat (and other restricted moments) the fields themselves can be
+    -- secret even though the table isn't; touching them would be an error.
+    local fullUpdate, s1 = Util.Readable(updateInfo.isFullUpdate)
+    local added, s2 = Util.Readable(updateInfo.addedAuras)
+    local removed, s3 = Util.Readable(updateInfo.removedAuraInstanceIDs)
+    if s1 or s2 or s3 then
+        ns.Diag.Count("restrictedAuraUpdates")
+        ns.Diag.Log("buff", "aura update is restricted (combat?); skipped")
+        return
+    end
+
+    local active = ns.db.buff.enabled and ns.Announcer.IsActive()
+    local now = GetTime()
+
+    -- A full update gives no list of what is new, so compare against the
+    -- buffs we already knew about (zoning re-sends everything you have).
+    if fullUpdate then
+        knownAuraIds = ScanBuffs(active and function(aura) HandleAddedAura(aura, now) end or nil)
+        return
+    end
+
+    if type(removed) == "table" then
+        for _, id in ipairs(removed) do
+            if not Util.IsSecret(id) then knownAuraIds[id] = nil end
+        end
+    end
+
+    if type(added) ~= "table" then return end
+    for _, aura in ipairs(added) do
+        local id = ReadAuraId(aura)
+        if id then knownAuraIds[id] = true end
+        if active then HandleAddedAura(aura, now) end
+    end
+end

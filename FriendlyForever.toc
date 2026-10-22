@@ -1,0 +1,24 @@
+## Interface: 16001
+## Title: Friendly Forever
+## Notes: Greets guildmates who log in, welcomes new guild and party members, and thanks people who buff you.
+## Author: Chris Kozanecki
+## Version: 1.5.0
+## IconTexture: Interface\Icons\Achievement_Reputation_01
+## SavedVariables: FriendlyForeverDB
+## Category: Chat
+## X-License: MIT
+
+Util.lua
+Config.lua
+Diagnostics.lua
+Messages.lua
+Cooldowns.lua
+Nameplates.lua
+ChatQueue.lua
+Parser.lua
+Announcer.lua
+Greeter.lua
+BuffTracker.lua
+Options.lua
+Minimap.lua
+Core.lua

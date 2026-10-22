@@ -1,0 +1,19 @@
+# CurseForge / BigWigs packager configuration. The packager zips this
+# repository as a single FriendlyForever/ folder, minus the paths below.
+package-as: FriendlyForever
+
+ignore:
+  - spec
+  - scripts
+  - dist
+  - .github
+  - .vscode
+  - .busted
+  - .luacheckrc
+  - .gitignore
+  - Makefile
+
+# Release notes on CurseForge come from the changelog.
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
