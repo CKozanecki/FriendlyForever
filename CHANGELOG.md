@@ -1,5 +1,11 @@
 # Changelog
 
+### Unreleased
+
+- Fix: Party Hello could say "Hello again" to a group you'd never been in. When the group leader couldn't be read, every such group counted as the same one, so a new group got "Nice to see you all again!", or no hello at all if it came within 30 seconds. The hello type is now chosen when the hello is sent, after the delay, when the leader is more likely to be readable. If the leader still can't be read, the group gets a plain hello and isn't remembered for Hello Again.
+- Fix: Party Join no longer welcomes players who join a battleground. Each joiner got their own line in battleground chat, from every addon user. Party Hello also checks the zone now, in case the game doesn't mark a battleground group as one.
+- Raid joins no longer flood raid chat while a raid forms. Players who join within 5 seconds of the first one are welcomed in one line, such as "Welcome to the group, Ann, Bob and Cid!". `{name}` and `{fullname}` list everyone in it, so your own messages work unchanged. Each player keeps their own repeat cooldown, and anyone who leaves before the line is sent is left out. Party members aren't welcomed again when the party becomes a raid. Party joins are unchanged.
+
 ## 1.5.0
 
 - 30 messages per type (was 10), with 20 new default lines for each. Your current 10 are kept as they are; the new lines fill slots 11–30.

@@ -161,18 +161,125 @@ describe("Greetings", function()
             assert.are.same({ "Welcome to the group, Anduin!" }, wow.sentTo("PARTY"))
         end)
 
-        it("uses raid chat in a raid", function()
+        it("uses raid chat in a raid, after the merge window", function()
             join("Sylvanas", "raid")
             wow.systemMessage("Sylvanas has joined the raid group.")
-            wow.advance(ns.db.partyJoin.delay + 0.1)
+            wow.advance(ns.Greeter.RAID_MERGE_WINDOW - 0.5)
+            assert.are.equal(0, #wow.sent)
+            wow.advance(0.6)
             assert.are.same({ "Welcome to the group, Sylvanas!" }, wow.sentTo("RAID"))
         end)
 
-        it("uses instance chat in a group finder group", function()
-            join("Varian", "instance")
-            wow.systemMessage("Varian has joined the instance group.")
-            wow.advance(ns.db.partyJoin.delay + 0.1)
-            assert.are.same({ "Welcome to the group, Varian!" }, wow.sentTo("INSTANCE_CHAT"))
+        -- Classic Era has no group finder: its instance groups are battlegrounds.
+        it("doesn't welcome anyone in a battleground (raid-sized instance group)", function()
+            wow.state.inInstance, wow.state.instanceType = true, "pvp"
+            wow.setGroup("instance", { "Varian-Wrynn", "Jaina-Proudmoore", "Thrall-Durotan" }, true)
+            wow.systemMessage("Varian Wrynn has joined the instance group.")
+            wow.systemMessage("Jaina Proudmoore has joined the raid group.")
+            wow.advance(30)
+            assert.are.equal(0, #wow.sent)
+        end)
+
+        it("doesn't welcome in a battleground the game doesn't call an instance group", function()
+            wow.state.inInstance, wow.state.instanceType = true, "pvp"
+            wow.setGroup("raid", { "Varian-Wrynn", "Jaina-Proudmoore" })
+            wow.systemMessage("Varian Wrynn has joined the raid group.")
+            wow.advance(30)
+            assert.are.equal(0, #wow.sent)
+        end)
+
+        it("still welcomes in a raid dungeon", function()
+            wow.state.inInstance = true
+            join("Sylvanas-Windrunner", "raid")
+            wow.systemMessage("Sylvanas Windrunner has joined the raid group.")
+            wow.advance(30)
+            assert.are.same({ "Welcome to the group, Sylvanas!" }, wow.sentTo("RAID"))
+        end)
+
+        describe("raid joins close together", function()
+            local names = { "Ann-Aa", "Bob-Bb", "Cid-Cc", "Dot-Dd", "Eve-Ee" }
+
+            local function joinRaid(list)
+                wow.setGroup("raid", list)
+            end
+
+            local function raidJoin(full)
+                wow.systemMessage(full:gsub("%-", " ") .. " has joined the raid group.")
+            end
+
+            it("share one welcome line", function()
+                joinRaid(names)
+                for _, full in ipairs(names) do
+                    raidJoin(full)
+                    wow.advance(1)
+                end
+                wow.advance(10)
+                assert.are.same({ "Welcome to the group, Ann, Bob, Cid, Dot and Eve!" }, wow.sentTo("RAID"))
+            end)
+
+            it("list everyone in {fullname} too", function()
+                ns.db.partyJoin.messages = { "Hi {fullname}!" }
+                joinRaid(names)
+                raidJoin(names[1])
+                raidJoin(names[2])
+                wow.advance(10)
+                assert.are.same({ "Hi Ann Aa and Bob Bb!" }, wow.sentTo("RAID"))
+            end)
+
+            it("start a new line for a join after the welcome went out", function()
+                joinRaid(names)
+                raidJoin(names[1])
+                raidJoin(names[2])
+                wow.advance(10)
+                raidJoin(names[3])
+                wow.advance(10)
+                assert.are.same({ "Welcome to the group, Ann and Bob!", "Welcome to the group, Cid!" },
+                    wow.sentTo("RAID"))
+            end)
+
+            it("leave out someone who left before it was sent", function()
+                joinRaid(names)
+                raidJoin(names[1])
+                raidJoin(names[2])
+                raidJoin(names[3])
+                joinRaid({ names[1], names[3] }) -- Bob left
+                wow.advance(10)
+                assert.are.same({ "Welcome to the group, Ann and Cid!" }, wow.sentTo("RAID"))
+            end)
+
+            it("send nothing if everyone in it left", function()
+                joinRaid(names)
+                raidJoin(names[1])
+                raidJoin(names[2])
+                joinRaid({ names[3] })
+                wow.advance(10)
+                assert.are.equal(0, #wow.sent)
+            end)
+
+            it("keep each player's repeat cooldown", function()
+                joinRaid(names)
+                raidJoin(names[1])
+                wow.advance(10)
+                raidJoin(names[2])
+                raidJoin(names[1]) -- left and came back
+                wow.advance(10)
+                assert.are.same({ "Welcome to the group, Ann!", "Welcome to the group, Bob!" }, wow.sentTo("RAID"))
+            end)
+
+            it("don't welcome the party again when it becomes a raid", function()
+                wow.state.isLeader = true
+                wow.setGroup("party", { names[1], names[2] })
+                wow.fire("GROUP_ROSTER_UPDATE")
+                joinRaid({ names[1], names[2] })
+                wow.fire("GROUP_ROSTER_UPDATE")
+                raidJoin(names[1])
+                raidJoin(names[2])
+                joinRaid({ names[1], names[2], names[3] })
+                wow.fire("GROUP_ROSTER_UPDATE")
+                raidJoin(names[3])
+                wow.advance(10)
+                assert.are.same({ "Welcome to the group, Cid!" }, wow.sentTo("RAID"))
+            end)
         end)
 
         it("doesn't welcome someone who left before the delay ran out", function()
@@ -217,7 +324,7 @@ describe("Greetings", function()
             names[25] = "Varian-Wrynn"
             wow.setGroup("raid", names)
             wow.systemMessage("Varian Wrynn has joined the raid group.")
-            wow.advance(ns.db.partyJoin.delay + 0.1)
+            wow.advance(ns.Greeter.RAID_MERGE_WINDOW + 0.1)
             assert.are.same({ "Welcome to the group, Varian!" }, wow.sentTo("RAID"))
         end)
 
@@ -303,6 +410,13 @@ describe("Greetings", function()
             assert.are.equal(0, #wow.sent)
         end)
 
+        it("doesn't say hello in a battleground the game doesn't call an instance group", function()
+            wow.state.inInstance, wow.state.instanceType = true, "pvp"
+            joinGroup("raid")
+            wow.advance(10)
+            assert.are.equal(0, #wow.sent)
+        end)
+
         it("doesn't say hello if leadership can't be read (combat)", function()
             wow.state.unitsRestricted = true
             joinGroup()
@@ -339,6 +453,44 @@ describe("Greetings", function()
             joinGroup()
             wow.advance(10)
             assert.are.same({ "Hi all! Thanks for the invite.", "Nice to see you all again!" }, wow.sentTo("PARTY"))
+        end)
+
+        it("says a plain hello to each group whose leader can't be read", function()
+            wow.state.leaderUnreadable = true
+            joinGroup("party", { "Rlain-Stormblessed" })
+            wow.advance(10)
+            leaveGroup()
+            wow.advance(ns.db.partyHello.repeatCooldown + 30)
+            joinGroup("party", { "Allister-Reaper" })
+            wow.advance(10)
+            leaveGroup()
+            wow.advance(5) -- well within the repeat cooldown
+            joinGroup("party", { "Kaladin-Stormblessed" })
+            wow.advance(10)
+            assert.are.same({ "Hi all! Thanks for the invite.", "Hi all! Thanks for the invite.",
+                "Hi all! Thanks for the invite." }, wow.sentTo("PARTY"))
+        end)
+
+        it("decides on hello again after the delay, when the leader can be read", function()
+            joinGroup()
+            wow.advance(10)
+            leaveGroup()
+            wow.advance(ns.db.partyHello.repeatCooldown)
+            wow.state.leaderUnreadable = true
+            joinGroup()
+            wow.advance(1)
+            wow.state.leaderUnreadable = false
+            wow.advance(10)
+            assert.are.same({ "Hi all! Thanks for the invite.", "Nice to see you all again!" }, wow.sentTo("PARTY"))
+        end)
+
+        it("doesn't carry a hello over to a group I form before the delay runs out", function()
+            joinGroup()
+            leaveGroup()
+            wow.advance(1)
+            joinGroup("party", { "Anduin" }, true)
+            wow.advance(10)
+            assert.are.equal(0, #wow.sent)
         end)
 
         it("doesn't repeat for a rapid leave and rejoin of the same group", function()

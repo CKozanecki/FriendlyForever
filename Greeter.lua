@@ -107,25 +107,107 @@ function Greeter.OnRosterUpdate()
     pendingOnline, pendingCount = {}, 0
 end
 
+-- Battlegrounds put you in an instance group, but Forever may not use the
+-- instance category for them, so the zone type is checked too.
+function Greeter.InBattleground()
+    if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then return true end
+    return select(2, IsInInstance()) == "pvp"
+end
+
 -- Joining someone else's group. There is no "you joined" system message for
 -- the joiner, so watch the group appear: not grouped -> grouped, with someone
 -- else leading (when I lead, I invited them, and the party welcome covers it).
--- Battlegrounds put you in an instance group; no hello there.
+-- No hello in battlegrounds.
 local wasInGroup = false
 local helloedLeaders = {}
+local groupChanges = 0 -- bumped on every join and leave, so a stale hello timer can tell
+
+-- Party to raid conversion: the game may announce everyone already in the
+-- party as joining the raid. Remember who was in the party just before.
+Greeter.CONVERT_WINDOW = 10 -- seconds after a conversion that those names are ignored
+local wasInRaid = false
+local partyMembers = {}
+local convertedMembers, convertedAt = {}, nil
+
+local function PartyNames()
+    local names = {}
+    for i = 1, 4 do
+        local name = Util.UnitFullName("party" .. i)
+        if name then names[name] = true end
+    end
+    return names
+end
+
+local function TrackConversion(inGroup, wasGrouped)
+    local inRaid = IsInRaid() and true or false
+    if inRaid and not wasInRaid and inGroup and wasGrouped then
+        convertedMembers, convertedAt = partyMembers, GetTime()
+        ns.Diag.Log("partyJoin", "party became a raid; not welcoming its members again")
+    end
+    wasInRaid = inRaid
+    partyMembers = (inGroup and not inRaid) and PartyNames() or {}
+end
 
 function Greeter.OnEnteringWorld()
     wasInGroup = IsInGroup() and true or false
+    wasInRaid = IsInRaid() and true or false
+    partyMembers = (wasInGroup and not wasInRaid) and PartyNames() or {}
+end
+
+local function HelloOpts(delay)
+    return {
+        cooldown = 0,
+        delay = delay,
+        channel = Greeter.GroupChannel,
+        vars = function() return {} end,
+        isValid = function()
+            if not IsInGroup() then return false, "you left the group" end
+            return true
+        end,
+    }
+end
+
+-- Runs once the Party Hello delay is over, when the leader is more likely to
+-- be readable than on the roster update that showed the group.
+local function SayHello()
+    local key = Greeter.GroupLeaderName()
+    if not key then
+        -- Without a leader this group can't be told from any other: a plain
+        -- hello, and nothing remembered for "hello again".
+        ns.Announcer.Schedule("partyHello", "unknown leader", HelloOpts(0))
+        return
+    end
+    -- A group is told apart by its leader. Rejoining a leader's group this
+    -- session gets a "hello again" line instead (if that type is on).
+    -- One repeat timer per leader covers both types, so a rapid leave and
+    -- rejoin can't follow a hello with a hello again.
+    local last = helloedLeaders[key]
+    local msgType = "partyHello"
+    if last and ns.db.partyHelloAgain.enabled then msgType = "partyHelloAgain" end
+    local cooldown = ns.db[msgType].repeatCooldown
+    if last and GetTime() - last < cooldown then
+        ns.Diag.Log(msgType, "not sending for %s: rejoined within %ss", key, cooldown)
+        return
+    end
+    -- Party Hello's delay has passed already; Hello Again waits out the rest of its own.
+    local delay = 0
+    if msgType == "partyHelloAgain" then
+        delay = math.max(0, ns.db.partyHelloAgain.delay - ns.db.partyHello.delay)
+    end
+    if ns.Announcer.Schedule(msgType, key, HelloOpts(delay)) then helloedLeaders[key] = GetTime() end
 end
 
 function Greeter.OnGroupRosterUpdate()
     local inGroup = IsInGroup() and true or false
-    local joined = inGroup and not wasInGroup
+    local wasGrouped = wasInGroup
+    local joined = inGroup and not wasGrouped
+    if inGroup ~= wasGrouped then groupChanges = groupChanges + 1 end
     wasInGroup = inGroup
+    TrackConversion(inGroup, wasGrouped)
     if not joined then return end
 
-    if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
-        ns.Diag.Log("partyHello", "joined an instance group (battleground?); no hello")
+    if Greeter.InBattleground() then
+        ns.Diag.Log("partyHello", "joined a battleground group; no hello")
         return
     end
     local leader, secret = Util.Readable(UnitIsGroupLeader("player"))
@@ -137,29 +219,19 @@ function Greeter.OnGroupRosterUpdate()
         ns.Diag.Log("partyHello", "formed a group I lead (someone accepted my invite); no hello")
         return
     end
-    -- A group is told apart by its leader. Rejoining a leader's group this
-    -- session gets a "hello again" line instead (if that type is on).
-    -- One repeat timer per leader covers both types, so a rapid leave and
-    -- rejoin can't follow a hello with a hello again.
-    local key = Greeter.GroupLeaderName() or "unknown leader"
-    local last = helloedLeaders[key]
-    local msgType = "partyHello"
-    if last and ns.db.partyHelloAgain.enabled then msgType = "partyHelloAgain" end
-    local cooldown = ns.db[msgType].repeatCooldown
-    if last and GetTime() - last < cooldown then
-        ns.Diag.Log(msgType, "not sending for %s: rejoined within %ss", key, cooldown)
+    if not ns.Announcer.IsActive() then
+        ns.Diag.Log("partyHello", "joined a group; no hello: %s", ns.Announcer.ActiveState())
         return
     end
-    local scheduled = ns.Announcer.Schedule(msgType, key, {
-        cooldown = 0,
-        channel = Greeter.GroupChannel,
-        vars = function() return {} end,
-        isValid = function()
-            if not IsInGroup() then return false, "you left the group" end
-            return true
-        end,
-    })
-    if scheduled then helloedLeaders[key] = GetTime() end
+    -- Hello or hello again is decided after the delay (see SayHello).
+    local change = groupChanges
+    C_Timer.After(ns.db.partyHello.delay, ns.Diag.Wrap(function()
+        if change ~= groupChanges then
+            ns.Diag.Log("partyHello", "no hello: you left or changed group before the delay ran out")
+            return
+        end
+        SayHello()
+    end))
 end
 
 -- Full name of whoever leads my group, or nil if no slot can be read.
@@ -174,6 +246,75 @@ function Greeter.GroupLeaderName()
             if name then return name end
         end
     end
+end
+
+-- Raid joins that arrive close together share one welcome ("Welcome, A, B
+-- and C!") instead of flooding raid chat while a raid forms. The welcome goes
+-- out this long after the first joiner (or after the Party Join delay, if
+-- that is longer), and everyone who joins before it is sent is added to it.
+-- {name} and {fullname} then list all of them, so every template still reads.
+Greeter.RAID_MERGE_WINDOW = 5
+
+local raidBatch -- { names = {} } for the merged raid welcome waiting to go out
+
+-- Don't welcome someone who already left. If we can't tell (names
+-- restricted in combat), keep the welcome.
+local function StillInGroup(name)
+    return Greeter.IsInMyGroup(name) ~= false
+end
+
+local function WelcomeRaidJoin(name)
+    local cfg = ns.db.partyJoin
+    if convertedAt and GetTime() - convertedAt <= Greeter.CONVERT_WINDOW and convertedMembers[name] then
+        ns.Diag.Log("partyJoin", "not welcoming %s: was already in the party before it became a raid", name)
+        return
+    end
+    local batch = raidBatch
+    if batch then
+        for _, n in ipairs(batch.names) do
+            if n == name then return end
+        end
+        -- The same per-player repeat cooldown as a welcome of their own.
+        if not ns.Cooldowns.TryClaim("partyJoin:" .. name, cfg.repeatCooldown, GetTime()) then
+            ns.Diag.Log("partyJoin", "not sending for %s: repeat cooldown (%ss) still running",
+                name, cfg.repeatCooldown)
+            return
+        end
+        batch.names[#batch.names + 1] = name
+        ns.Diag.Log("partyJoin", "added %s to the raid welcome already waiting", name)
+        return
+    end
+
+    batch = { names = { name } }
+    raidBatch = batch
+    local function Present()
+        local present = {}
+        for _, n in ipairs(batch.names) do
+            if StillInGroup(n) then present[#present + 1] = n end
+        end
+        return present
+    end
+    local scheduled = ns.Announcer.Schedule("partyJoin", name, {
+        delay = math.max(cfg.delay, Greeter.RAID_MERGE_WINDOW),
+        channel = Greeter.GroupChannel,
+        vars = function()
+            local first, full = {}, {}
+            for i, n in ipairs(Present()) do
+                first[i], full[i] = Util.FirstName(n), Util.DisplayName(n)
+            end
+            return { name = Util.JoinList(first), fullname = Util.JoinList(full) }
+        end,
+        isValid = function()
+            if #Present() == 0 then
+                return false, "no one in it is still in your group (" .. Util.JoinList(batch.names) .. ")"
+            end
+            return true
+        end,
+        onDone = function()
+            if raidBatch == batch then raidBatch = nil end
+        end,
+    })
+    if not scheduled then raidBatch = nil end
 end
 
 function Greeter.OnSystemMessage(msg)
@@ -209,12 +350,19 @@ function Greeter.OnSystemMessage(msg)
         members[name] = true
         ns.Announcer.Schedule("guildJoin", name, { channel = GuildChannel })
     elseif kind == "partyJoin" then
+        -- Every joiner would be welcomed, by every addon user, in /bg.
+        if Greeter.InBattleground() then
+            ns.Diag.Log("partyJoin", "not welcoming %s: you're in a battleground", name)
+            return
+        end
+        if IsInRaid() then
+            WelcomeRaidJoin(name)
+            return
+        end
         ns.Announcer.Schedule("partyJoin", name, {
             channel = Greeter.GroupChannel,
-            -- Don't welcome someone who already left. If we can't tell (names
-            -- restricted in combat), keep the welcome.
             isValid = function()
-                if Greeter.IsInMyGroup(name) == false then
+                if not StillInGroup(name) then
                     return false, name .. " is no longer in your group"
                 end
                 return true
