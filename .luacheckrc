@@ -3,7 +3,7 @@
 -- (which can taint Blizzard UI code) fail the lint.
 std = "lua51"
 max_line_length = 120
-exclude_files = { ".tools/**", "dist/**" }
+exclude_files = { ".tools/**", "dist/**", ".release/**" }
 
 -- The addon may only create these globals.
 globals = {

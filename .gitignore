@@ -2,3 +2,5 @@ dist/
 .tools/
 .DS_Store
 .vscode/
+.release/
+RELEASE_NOTES.md
