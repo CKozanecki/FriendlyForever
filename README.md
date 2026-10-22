@@ -83,14 +83,15 @@ make check     # lint + tests + package
 - `make test`: busted suite in `spec/` against a simulated WoW client (`spec/support/wow.lua`)
 - `make package`: builds `dist/FriendlyForever-<version>.zip` in the standard addon layout. `.pkgmeta` gives the same result with the CurseForge packager.
 
-CI (`.github/workflows/ci.yml`) runs all three on every push.
+CI (`.github/workflows/ci.yml`) runs all three on every pull request and every push to `main`. It also builds the zip with the BigWigs packager that releases use (without uploading) and fails if its files differ from `make package`'s.
 
 ### Releasing to CurseForge
 
-1. Bump `## Version` in `FriendlyForever.toc` and add a matching `## <version>` section at the top of `CHANGELOG.md` (the tests check they agree).
-2. `make check`, then upload `dist/FriendlyForever-<version>.zip` on the project's Files page, with game version WoW Forever (interface 16001) and the changelog section as release notes.
+Pushing a version tag runs `.github/workflows/release.yml`, which builds with the BigWigs packager and uploads to CurseForge. [CONTRIBUTING.md](CONTRIBUTING.md#releasing-maintainer) has the full steps; in short:
 
-Automated alternative: once the code is on GitHub and `## X-Curse-Project-ID` is in the TOC, pushing a tag (`git tag v1.5.0 && git push --tags`) runs `.github/workflows/release.yml`, which builds with the BigWigs packager and uploads to CurseForge. It needs a CurseForge API token in the repository secret `CF_API_KEY`.
+1. In a pull request, bump `## Version` in `FriendlyForever.toc` and add a matching `## <version>` section at the top of `CHANGELOG.md` (the tests check they agree). That section becomes the CurseForge release notes.
+2. After it merges, tag the merge commit and push only that tag: `git tag vX.Y.Z && git push origin vX.Y.Z` (not `--tags`). Version tags can't be moved or deleted once pushed.
+3. The workflow checks that the tag is on `main` and matches the TOC version, then runs lint and tests with no secrets. Only then does the upload job wait for approval in the `release` environment. The CurseForge API token is the secret `CF_API_KEY` in that environment, and the TOC needs `## X-Curse-Project-ID`.
 
 ## License
 

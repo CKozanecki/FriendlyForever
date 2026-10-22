@@ -23,6 +23,21 @@ describe("Config", function()
         end
     end)
 
+    it("takes its default messages from Defaults.lua, same types and line counts as before the move", function()
+        local ns = wow.load()
+        local expected = { guildLogin = 30, buff = 30, guildJoin = 30, partyJoin = 30, partyHello = 30, partyHelloAgain = 30 }
+        local function counts(byType, get)
+            local out = {}
+            for msgType, value in pairs(byType) do out[msgType] = #get(value) end
+            return out
+        end
+        assert.are.same(expected, counts(ns.Config.DEFAULTS, function(d) return d.messages end))
+        assert.are.same(expected, counts(ns.DefaultMessages, function(list) return list end))
+        for _, msgType in ipairs(ns.Config.TYPES) do
+            assert.are.equal(ns.DefaultMessages[msgType], ns.Config.DEFAULTS[msgType].messages, msgType)
+        end
+    end)
+
     it("defaults the repeat cooldown to 3 minutes (30s per group leader for hellos)", function()
         local db = Config.Load(nil)
         for _, msgType in ipairs(Config.TYPES) do
@@ -85,6 +100,19 @@ describe("Config", function()
         assert.are.equal("my own line, {name}", db.guildLogin.messages[2])
         assert.are.equal(Config.DEFAULTS.guildLogin.messages[3], db.guildLogin.messages[3])
         assert.are.equal("", db.guildLogin.messages[4])
+    end)
+
+    it("upgrades a 1.4.2 file to the shipped 1.5.0 lines, not just whatever DEFAULTS holds", function()
+        local saved = { "Welcome back, {name}!", "my own line, {name}" }
+        for i = 3, 10 do saved[i] = "" end
+        local db = Config.Load({ schemaVersion = 4, guildLogin = { messages = saved },
+            buff = { messages = { "Thanks, {name}!" } } })
+        assert.are.equal("{name} has logged in. Quick, everyone look busy.", db.guildLogin.messages[1])
+        assert.are.equal("my own line, {name}", db.guildLogin.messages[2])
+        assert.are.equal("Ah, {name}. Right on time. Probably.", db.guildLogin.messages[11])
+        assert.are.equal("Welcome back, {name}. The fishing spot is free. For now.", db.guildLogin.messages[30])
+        assert.are.equal("Thanks, {name}!", db.buff.messages[1])
+        assert.are.equal("Thanks so much for the {buff}, {name}!", db.buff.messages[11])
     end)
 
     it("keeps a valid message rotation and repairs a broken one", function()

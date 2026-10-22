@@ -1,5 +1,10 @@
 # Changelog
 
+### Unreleased
+
+- README: CI runs on pull requests and pushes to `main`, and the release section now matches the tag-and-approve workflow (see CONTRIBUTING.md).
+- The default message lines moved from Config.lua to a new Defaults.lua, loaded just before it. No change in game.
+
 ## 1.5.0
 
 - 30 messages per type (was 10), with 20 new default lines for each. Your current 10 are kept as they are; the new lines fill slots 11–30.
