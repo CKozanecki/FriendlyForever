@@ -19,6 +19,18 @@ describe("Buff thanks", function()
         wow.addUnit(token or "target", { name = name or "Bob" })
     end
 
+    -- A stranger whose target is us, so their casts can name a buff's caster.
+    local function buffer(token, name)
+        wow.addUnit(token, { name = name, target = "player" })
+    end
+
+    local function logHas(fragment)
+        for _, line in ipairs(ns.db.diagLog) do
+            if line:find(fragment, 1, true) then return true end
+        end
+        return false
+    end
+
     before_each(function() boot() end)
 
     describe("thanks someone outside the group", function()
@@ -262,7 +274,7 @@ describe("Buff thanks", function()
 
     describe("caster found from a recent cast", function()
         it("when the aura doesn't name its caster", function()
-            stranger("mouseover", "Carol")
+            buffer("mouseover", "Carol")
             wow.fire("UNIT_SPELLCAST_SUCCEEDED", "mouseover", "cast-guid", 1459)
             wow.gainBuff({ name = "Arcane Intellect", spellId = 1459, isFromPlayerOrPlayerPet = true })
             settle()
@@ -271,7 +283,7 @@ describe("Buff thanks", function()
 
         it("not when the cast was too long ago", function()
             ns.db.buff.fallbackToSay = false
-            stranger("mouseover", "Carol")
+            buffer("mouseover", "Carol")
             wow.fire("UNIT_SPELLCAST_SUCCEEDED", "mouseover", "cast-guid", 1459)
             wow.advance(ns.BuffTracker.CAST_MATCH_WINDOW + 1)
             wow.gainBuff({ name = "Arcane Intellect", spellId = 1459 })
@@ -287,6 +299,48 @@ describe("Buff thanks", function()
             wow.gainBuff({ name = "Arcane Intellect", spellId = 1459 })
             settle()
             assert.are.equal(0, #wow.sent, "group member's cast is not mistaken for a stranger")
+        end)
+
+        -- Codebase review B3: in a city, Alice buffs someone else and Bob,
+        -- whom the game can't name, buffs us with the same spell.
+        it("not from a cast aimed at someone else (Alice isn't thanked for Bob's buff)", function()
+            wow.addUnit("nameplate2", { name = "Dave" })
+            wow.addUnit("nameplate7", { name = "Alice", target = "nameplate2" })
+            wow.fire("UNIT_SPELLCAST_SUCCEEDED", "nameplate7", "g", 1459)
+            wow.advance(0.5)
+            wow.gainBuff({ name = "Arcane Intellect", spellId = 1459 })
+            settle()
+            assert.are.equal(0, #wow.sent)
+        end)
+
+        it("from a cast aimed at you, by nameplate", function()
+            buffer("nameplate7", "Alice")
+            wow.fire("UNIT_SPELLCAST_SUCCEEDED", "nameplate7", "g", 1459)
+            wow.advance(0.5)
+            wow.gainBuff({ name = "Arcane Intellect", spellId = 1459 })
+            settle()
+            assert.are.same({ "Thank you for the Arcane Intellect, Alice!" }, wow.sentTo("SAY"))
+        end)
+
+        it("not when the caster's target is secret", function()
+            wow.addUnit("nameplate7", { name = "Alice", target = "player", targetUnreadable = true })
+            wow.fire("UNIT_SPELLCAST_SUCCEEDED", "nameplate7", "g", 1459)
+            wow.gainBuff({ name = "Arcane Intellect", spellId = 1459 })
+            settle()
+            assert.are.equal(0, #wow.sent)
+        end)
+
+        it("not when the game gives no answer about the caster's target", function()
+            buffer("nameplate7", "Alice")
+            local isUnit = _G.UnitIsUnit
+            _G.UnitIsUnit = function(a, b)
+                if a == "nameplate7target" then return nil end
+                return isUnit(a, b)
+            end
+            wow.fire("UNIT_SPELLCAST_SUCCEEDED", "nameplate7", "g", 1459)
+            wow.gainBuff({ name = "Arcane Intellect", spellId = 1459 })
+            settle()
+            assert.are.equal(0, #wow.sent)
         end)
 
         it("ignores casts from group unit tokens", function()
@@ -411,7 +465,7 @@ describe("Buff thanks", function()
 
         it("still thanks a stranger found from a recent cast", function()
             joinGroup()
-            stranger("mouseover", "Carol")
+            buffer("mouseover", "Carol")
             wow.fire("UNIT_SPELLCAST_SUCCEEDED", "mouseover", "g", 1459)
             wow.gainBuff({ name = "Arcane Intellect", spellId = 1459 })
             settle()
@@ -428,6 +482,27 @@ describe("Buff thanks", function()
             wow.gainBuff({ name = "Arcane Intellect" })
             settle()
             assert.are.same({ "Thank you for the Arcane Intellect, friend!" }, wow.sentTo("SAY"))
+        end)
+    end)
+
+    describe("a /say thank-you nobody presses a key for", function()
+        it("is dropped once it has waited longer than its own limit, and logged", function()
+            ns.db.debug = true
+            stranger()
+            wow.gainBuff({ sourceUnit = "target", name = "Fort" })
+            wow.advance(ns.db.buff.delay + ns.BuffTracker.SAY_MAX_AGE + ns.ChatQueue.RETRY_DELAY + 1)
+            assert.are.equal(0, ns.ChatQueue.Count())
+            wow.keyDown()
+            assert.are.equal(0, #wow.sent)
+            assert.is_true(logHas("dropped buff for Bob: waited too long (" .. ns.BuffTracker.SAY_MAX_AGE .. "s)"))
+        end)
+
+        it("still goes out within that limit", function()
+            stranger()
+            wow.gainBuff({ sourceUnit = "target", name = "Fort" })
+            wow.advance(ns.db.buff.delay + ns.BuffTracker.SAY_MAX_AGE - 1)
+            wow.keyDown()
+            assert.are.same({ "Thank you for the Fort, Bob!" }, wow.sentTo("SAY"))
         end)
     end)
 
@@ -511,6 +586,16 @@ describe("Buff thanks", function()
             assert.are.equal(1, #wow.sentTo("SAY"))
         end)
 
+        it("a whisper waiting longer than the /say limit still goes out", function()
+            stranger()
+            wow.state.lockdown = true
+            wow.gainBuff({ sourceUnit = "target", name = "Fort" })
+            wow.advance(ns.db.buff.delay + ns.BuffTracker.SAY_MAX_AGE + 30)
+            wow.state.lockdown = false
+            wow.advance(ns.ChatQueue.RETRY_DELAY)
+            assert.are.same({ "Thank you for the Fort, Bob!" }, wow.sentTo("WHISPER"))
+        end)
+
         it("still batches several buffs into one whisper", function()
             stranger()
             wow.gainBuff({ sourceUnit = "target", name = "A" })
@@ -521,7 +606,7 @@ describe("Buff thanks", function()
         end)
 
         it("whispers a caster found from a recent cast", function()
-            stranger("mouseover", "Carol")
+            buffer("mouseover", "Carol")
             wow.fire("UNIT_SPELLCAST_SUCCEEDED", "mouseover", "g", 1459)
             wow.gainBuff({ name = "Arcane Intellect", spellId = 1459 })
             wow.advance(ns.db.buff.delay + 0.01)
@@ -587,7 +672,8 @@ describe("Buff thanks", function()
 
         it("forgets removed buffs so a recast is seen as new", function()
             stranger()
-            local aura = wow.gainBuff({ sourceUnit = "target", name = "Fort" })
+            -- No duration: the same aura comes back later and must not look stale.
+            local aura = wow.gainBuff({ sourceUnit = "target", name = "Fort", duration = 0, expirationTime = 0 })
             settle()
             wow.state.playerAuras = {}
             wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = { aura.auraInstanceID } })
@@ -640,7 +726,7 @@ describe("Buff thanks", function()
 
         it("ignores secret cast events", function()
             ns.db.buff.fallbackToSay = false
-            stranger("mouseover", "Carol")
+            buffer("mouseover", "Carol")
             wow.fire("UNIT_SPELLCAST_SUCCEEDED", "mouseover", "g", wow.secret(1459))
             wow.gainBuff({ name = "A", spellId = 1459 })
             settle()

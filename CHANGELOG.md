@@ -1,5 +1,10 @@
 # Changelog
 
+### Unreleased
+
+- Fix: a buff from someone the game can't name could be credited to another player who had just cast the same spell on someone else (for example, mages buffing in a city). A cast now only names the caster when it was aimed at you. If the game won't say who the cast was aimed at, nobody is credited.
+- Fix: a /say thank-you waiting for a key press could go out up to 2 minutes late, after the buffer had moved on. It's now dropped after 30 seconds. Whispers and other messages still wait up to 2 minutes.
+
 ## 1.5.0
 
 - 30 messages per type (was 10), with 20 new default lines for each. Your current 10 are kept as they are; the new lines fill slots 11–30.
