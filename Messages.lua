@@ -25,7 +25,8 @@ local function Shuffled(list)
     return list
 end
 
-function Messages.Pick(msgType, messages)
+-- The non-blank lines: a set of their indexes, and the indexes in order.
+local function Usable(messages)
     local usable = {}
     local candidates = {}
     for i = 1, #messages do
@@ -35,6 +36,20 @@ function Messages.Pick(msgType, messages)
             candidates[#candidates + 1] = i
         end
     end
+    return usable, candidates
+end
+
+-- A random non-blank line for previews (/friendly test, "Preview random").
+-- Leaves the saved bag alone, so previews don't use up the real rotation.
+function Messages.Preview(messages)
+    local _, candidates = Usable(messages)
+    if #candidates == 0 then return nil end
+    local index = candidates[Messages.random(#candidates)]
+    return messages[index], index
+end
+
+function Messages.Pick(msgType, messages)
+    local usable, candidates = Usable(messages)
     if #candidates == 0 then return nil end
 
     local bags = Bags()

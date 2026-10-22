@@ -80,8 +80,23 @@ local function Stepper(parent, text, field)
     return s
 end
 
-function Options.Refresh()
-    if not panel then return end
+-- Leave alone a box the player is typing in: rewriting it would undo their
+-- edit and move the cursor to the start.
+local function FillBox(box, text)
+    if not box:HasFocus() then SetBoxText(box, text) end
+end
+
+-- Finish any edit in progress (a number box saves when it loses focus)
+-- before a tab switch or reset gives the boxes new contents.
+local function ClearEditFocus()
+    local boxes = { widgets.steppers.delay.box, widgets.steppers.repeatCooldown.box, widgets.unknownName }
+    for _, edit in ipairs(widgets.edits) do boxes[#boxes + 1] = edit end
+    for _, box in ipairs(boxes) do
+        if box:HasFocus() then box:ClearFocus() end
+    end
+end
+
+local function Fill()
     local cfg = ns.db[currentType]
     local info = Config.TYPE_INFO[currentType]
     local isBuff = currentType == "buff"
@@ -92,8 +107,8 @@ function Options.Refresh()
     widgets.header:SetText(info.label .. "  |cff999999(sent to " .. info.channel .. ")|r")
     widgets.help:SetText(info.help)
     widgets.enabled:SetChecked(cfg.enabled)
-    SetBoxText(widgets.steppers.delay.box, tostring(cfg.delay))
-    SetBoxText(widgets.steppers.repeatCooldown.box, tostring(cfg.repeatCooldown))
+    FillBox(widgets.steppers.delay.box, tostring(cfg.delay))
+    FillBox(widgets.steppers.repeatCooldown.box, tostring(cfg.repeatCooldown))
 
     widgets.listNames:SetShown(isBuff)
     widgets.whisper:SetShown(isBuff)
@@ -103,7 +118,7 @@ function Options.Refresh()
         widgets.listNames:SetChecked(cfg.listBuffNames)
         widgets.whisper:SetChecked(cfg.useWhisper)
         widgets.fallback:SetChecked(cfg.fallbackToSay)
-        SetBoxText(widgets.unknownName, cfg.unknownName)
+        FillBox(widgets.unknownName, cfg.unknownName)
     end
 
     -- Without friendly nameplates the game can rarely name a buffer.
@@ -112,7 +127,7 @@ function Options.Refresh()
     widgets.nameplateButton:SetShown(warn)
 
     for i, edit in ipairs(widgets.edits) do
-        SetBoxText(edit, cfg.messages[i] or "")
+        FillBox(edit, cfg.messages[i] or "")
     end
 
     ns.Diag.Log("options", "filled %s tab: delay %s (box shows '%s'), repeat %s (box shows '%s')",
@@ -120,16 +135,22 @@ function Options.Refresh()
         cfg.repeatCooldown, widgets.steppers.repeatCooldown.box:GetText())
 end
 
+-- Settings changes (CVAR_UPDATE, slash commands, the minimap button) call
+-- this while the panel may be closed; OnShow fills it when it opens.
+function Options.Refresh()
+    if not panel or not panel:IsVisible() then return end
+    Fill()
+end
+
 -- Fill the panel whenever it is shown, and once more on the next frame:
 -- the settings window may still be laying itself out when OnShow fires.
 local function OnPanelShow()
-    Options.Refresh()
-    C_Timer.After(0, ns.Diag.Wrap(function()
-        if panel:IsVisible() then Options.Refresh() end
-    end))
+    Fill()
+    C_Timer.After(0, ns.Diag.Wrap(function() Options.Refresh() end))
 end
 
 function Options.SelectType(msgType)
+    ClearEditFocus()
     currentType = msgType
     Options.Refresh()
 end
@@ -244,7 +265,7 @@ function Options.Create()
     end
 
     widgets.preview = Button(content, "Preview random", 130, function()
-        local template = ns.Messages.Pick(currentType, ns.db[currentType].messages)
+        local template = ns.Messages.Preview(ns.db[currentType].messages)
         local vars = ns.Util.NameVars(ns.Util.UnitFullName("player") or "Nikki-Shifts")
         vars.buff = "Power Word: Fortitude and Arcane Intellect"
         local text = template and ns.Util.Render(template, vars)
@@ -253,6 +274,7 @@ function Options.Create()
     widgets.preview:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -16)
 
     widgets.reset = Button(content, "Reset this tab to defaults", 190, function()
+        ClearEditFocus()
         ns.ResetType(currentType)
         Options.Refresh()
     end)
@@ -275,7 +297,7 @@ function Options.Create()
     end
 
     -- Filled straight away too, so nothing can ever show empty boxes.
-    Options.Refresh()
+    Fill()
 end
 
 function Options.Open()

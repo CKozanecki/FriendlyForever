@@ -179,7 +179,7 @@ local commands = {
     end,
     test = function()
         for _, msgType in ipairs(ns.Config.TYPES) do
-            local template = ns.Messages.Pick(msgType, ns.db[msgType].messages)
+            local template = ns.Messages.Preview(ns.db[msgType].messages)
             local text = template and ns.Util.Render(template, SAMPLE_VARS) or "(no messages)"
             ns.Print(ns.Config.TYPE_INFO[msgType].label .. ": " .. text)
         end

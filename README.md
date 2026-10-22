@@ -50,7 +50,7 @@ No combat log is used. New buffs come from `UNIT_AURA`, and the caster is identi
 
 **Turn on friendly player nameplates.** The game can only name a caster it has a unit for. Without friendly player nameplates, most strangers who buff you can't be named. The buff tab warns you when they're off, and its **"Show friendly player names"** button (or `/friendly nameplates`) turns them on as names only. The addon never changes this setting by itself.
 
-**Say or whisper.** The game only allows addons to use `/say` outdoors right after a key press. Say thanks therefore wait and go out on your next key press, or when you type `/friendly say`. Turn on **"Whisper the caster instead of /say"** to whisper them immediately instead.
+**Say or whisper.** The game only allows addons to use `/say` outdoors right after a key press. Say thanks therefore wait and go out on your next key press, or when you type `/friendly say`. Turn on **"Whisper the caster instead of /say"** to whisper them immediately instead. While the interface is hidden (Alt+Z), key presses don't send waiting say thanks. Show it again and they go out on your next key press, unless they've waited longer than 2 minutes.
 
 **The "friend" fallback** (on by default) thanks in `/say` as **"friend"** (wording configurable) when:
 - the caster is unidentified, in either mode, or

@@ -88,6 +88,14 @@ function methods:SetText(text)
     self.cursor = #self.text -- the game moves an edit box's cursor to the end
 end
 function methods:SetCursorPosition(pos) self.cursor = pos end
+-- Keyboard focus: losing it runs OnEditFocusLost, as in the game.
+function methods:SetFocus() self.focused = true end
+function methods:HasFocus() return self.focused == true end
+function methods:ClearFocus()
+    if not self.focused then return end
+    self.focused = false
+    if self.scripts.OnEditFocusLost then self.scripts.OnEditFocusLost(self) end
+end
 function methods:GetText() return self.text end
 function methods:SetChecked(on) self.checked = on and true or false end
 function methods:GetChecked() return self.checked end

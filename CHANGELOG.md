@@ -1,5 +1,11 @@
 # Changelog
 
+### Unreleased
+
+- Fix: `/friendly test` and the options panel's **Preview random** used up lines from the message rotation, so previewed lines were then skipped when sending for real. Previews now pick a line without touching the saved rotation.
+- Fix: typing in an options box could be undone, with the cursor jumping to the start, whenever a game setting changed (for example through a keybind or another addon). The panel is no longer refilled while it's closed, and the box you're typing in is left alone. Switching tabs or resetting a tab saves your edit first.
+- README: say thanks waiting for a key press aren't sent while the interface is hidden (Alt+Z).
+
 ## 1.5.0
 
 - 30 messages per type (was 10), with 20 new default lines for each. Your current 10 are kept as they are; the new lines fill slots 11–30.
