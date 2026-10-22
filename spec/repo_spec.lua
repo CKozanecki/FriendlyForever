@@ -16,6 +16,15 @@ local function lines(path) return splitLines(wow.readFile(path)) end
 local function indentOf(line) return #line:match("^( *)") end
 local function isBlank(line) return line:match("^%s*$") or line:match("^%s*#") end
 
+-- Workflow text without comment-only lines, so prose can't satisfy or trip a check.
+local function withoutComments(text)
+    local kept = {}
+    for _, line in ipairs(splitLines(text)) do
+        if not line:match("^%s*#") then kept[#kept + 1] = line end
+    end
+    return table.concat(kept, "\n")
+end
+
 -- Splits workflow text into jobs, each with its full text, its job-level keys
 -- and its steps in order. Works from indentation, so any consistent YAML
 -- indent is fine.
@@ -24,7 +33,7 @@ local function parseText(text)
     local inJobs, jobIndent, job = false, nil, nil
     local stepsKey, stepIndent, step
 
-    for _, line in ipairs(splitLines(text)) do
+    for _, line in ipairs(splitLines(withoutComments(text))) do
         if not inJobs then
             inJobs = line:match("^jobs:%s*$") ~= nil
         elseif not isBlank(line) then
@@ -127,6 +136,15 @@ describe("Workflows", function()
         end
     end)
 
+    it("keep secrets and blanket write access out of workflow-level settings", function()
+        for _, path in ipairs(workflowFiles()) do
+            local text = withoutComments(wow.readFile(path))
+            local header = text:match("^(.-)\njobs:") or text
+            assert.is_falsy(header:find("secrets%."), path .. " exposes secrets to every job")
+            assert.is_falsy(text:find("write%-all"), path .. " grants write-all")
+        end
+    end)
+
     it("install the readline headers before building Lua, in the same job", function()
         local found = 0
         for _, path in ipairs(workflowFiles()) do
@@ -189,7 +207,7 @@ describe("Release workflow", function()
         end
         assert.is_falsy(verify.text:find("secrets%."), "the test job can read secrets")
         assert.is_falsy(verify.text:find("environment:"), "approval is asked before the checks run")
-        assert.is_falsy(verify.text:find("contents:%s*write"), "the test job has write access")
+        assert.is_falsy(verify.text:find(":%s*write"), "the test job has write access")
     end)
 
     it("uploads only from an approved job that needs the verify job", function()
@@ -297,7 +315,9 @@ describe("Release scripts", function()
         local _, same = run('./scripts/compare-packages.sh "' .. zip .. '" "' .. zip .. '"')
         assert.are.equal(0, same)
 
-        local short = os.tmpname() .. ".zip"
+        local base = os.tmpname()
+        os.remove(base)
+        local short = base .. ".zip"
         run('cp "' .. zip .. '" "' .. short .. '" && zip -qd "' .. short .. '" FriendlyForever/Core.lua')
         local out, differ = run('./scripts/compare-packages.sh "' .. zip .. '" "' .. short .. '"')
         os.remove(short)

@@ -33,8 +33,8 @@ jobs:
           path: ${{ runner.temp }}/lua
           key: lua-tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
 
+      # Always installed: cached Lua still links against readline at run time.
       - name: Install build dependencies
-        if: steps.tools.outputs.cache-hit != 'true'
         run: sudo apt-get update -q && sudo apt-get install -yq libreadline-dev
 
       - name: Install Lua 5.1, busted and luacheck
