@@ -4,7 +4,10 @@
 -- lines live in Defaults.lua.
 local _, ns = ...
 local Util = ns.Util
+-- Missing only when the game was /reloaded after an update that added the
+-- file: the client reads the file list at start-up, so it needs a restart.
 local DefaultMessages = ns.DefaultMessages
+    or error("FriendlyForever: Defaults.lua isn't loaded. Restart the game after updating the addon.")
 
 local Config = {}
 ns.Config = Config
