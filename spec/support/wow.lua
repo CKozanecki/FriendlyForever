@@ -318,6 +318,9 @@ function M.reset()
     _G.UnitExists = restricted(function(unit) return M.state.units[unit] ~= nil end)
     _G.IsInGroup = function(category)
         if category == _G.LE_PARTY_CATEGORY_INSTANCE then return M.state.groupType == "instance" end
+        if category == _G.LE_PARTY_CATEGORY_HOME then
+            return M.state.groupType ~= nil and M.state.groupType ~= "instance"
+        end
         return M.state.groupType ~= nil
     end
     _G.IsInRaid = function() return M.state.groupType == "raid" end

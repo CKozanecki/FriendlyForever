@@ -92,10 +92,7 @@ function BuffTracker.OnSpellcastSucceeded(unit, _, spellId)
     local caster = BuffTracker.Classify(unit)
     if caster == nil then return end
     -- caster == false (us, pet, group, NPC, hostile) is kept: a real "don't thank".
-    if caster and not AimedAtMe(unit) then
-        ns.Diag.Log("buff", "cast %s by %s isn't aimed at you (or can't tell); not remembered", spellId, caster)
-        return
-    end
+    if caster and not AimedAtMe(unit) then return end
     local now = GetTime()
     PruneCasts(now)
     recentCasts[spellId] = { time = now, caster = caster }
