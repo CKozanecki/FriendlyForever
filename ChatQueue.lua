@@ -5,8 +5,10 @@
 --   * holds messages while the game's chat lockdown is active,
 --   * holds /say outside instances until a hardware event (key press),
 --     which the game requires for that channel,
---   * re-checks each message is still wanted right before sending.
+--   * re-checks each message is still wanted right before sending,
+--   * drops automatic messages that come due while you're AFK (an option).
 local _, ns = ...
+local Util = ns.Util
 
 local ChatQueue = {}
 ns.ChatQueue = ChatQueue
@@ -31,6 +33,21 @@ end
 function ChatQueue.NeedsHardwareEvent(channel)
     if channel ~= "SAY" and channel ~= "YELL" then return false end
     return not IsInInstance()
+end
+
+-- True only when the game readably says I'm AFK. Unreadable (secret) or
+-- missing counts as not AFK, so messages still go out.
+function ChatQueue.IsPlayerAFK()
+    if not UnitIsAFK then return false end
+    local afk, secret = Util.Readable(UnitIsAFK("player"))
+    if secret then return false end
+    return afk and true or false
+end
+
+-- Checked at the moment of sending, after the holds, so a /say waiting for
+-- a key press is judged by the press: if it cleared AFK, the message goes.
+local function SkipForAFK(item)
+    return item.automatic and ns.db ~= nil and ns.db.skipWhileAFK and ChatQueue.IsPlayerAFK()
 end
 
 local function RawSend(text, channel, target)
@@ -102,8 +119,11 @@ function ChatQueue.Pump(hardware)
             i = i + 1
         else
             table.remove(pending, i)
-            local text = item.getText()
-            if text == nil then
+            local afk = SkipForAFK(item)
+            local text = not afk and item.getText() or nil
+            if afk then
+                Drop(item, "you are AFK (\"Don't send messages while I'm AFK\" is on)")
+            elseif text == nil then
                 Drop(item, "message rendered empty")
             else
                 local ok, err = RawSend(text, channel, item.target)
@@ -145,6 +165,8 @@ end
 --   isValid  = optional function() -> ok, reason (reason is logged when not ok),
 --   onDone   = optional function(sent),
 --   label    = optional text naming the message in diagnostics,
+--   automatic = optional true for messages the addon sends by itself (skipped
+--               while AFK if that option is on; /friendly selftest is not),
 -- }
 function ChatQueue.Push(item)
     item.label = item.label or "message"

@@ -50,6 +50,67 @@ describe("Greetings", function()
             assert.are.equal(0, #wow.sent)
         end)
 
+        -- Issue #7: a roster update that came before the refreshed roster
+        -- used to drop the pending name, so the greeting was lost.
+        it("keeps a pending login through a roster update that doesn't list it yet", function()
+            online("Newbie")
+            wow.rosterUpdate({ "Thrall", "Jaina" })
+            assert.are.equal(1, ns.Greeter.PendingCount())
+            wow.rosterUpdate({ "Thrall", "Jaina", "Newbie" })
+            wow.advance(ns.db.guildLogin.delay + 0.1)
+            assert.are.same({ "Newbie has logged in. Quick, everyone look busy." }, wow.sentTo("GUILD"))
+            -- Exactly once, however many updates follow.
+            wow.rosterUpdate({ "Thrall", "Jaina", "Newbie" })
+            wow.advance(ns.Greeter.PENDING_TIMEOUT)
+            assert.are.equal(1, #wow.sent)
+            assert.are.equal(0, ns.Greeter.PendingCount())
+        end)
+
+        it("greets with Show Offline Members off, when updates arrive out of order", function()
+            wow.state.showOffline = false
+            wow.state.guildOffline = { Newbie = true }
+            wow.rosterUpdate({ "Thrall", "Jaina", "Newbie" })
+            assert.are.equal(2, ns.Greeter.MemberCount(), "only online members are listed")
+
+            wow.state.rosterReplyDelay = 2 -- the server answers our request after 2s
+            online("Newbie")
+            wow.queueRosterUpdate({ "Thrall", "Jaina", "Newbie" }, 1) -- stale, from someone else's request
+            wow.advance(1)
+            assert.are.equal(1, ns.Greeter.PendingCount())
+            wow.state.guildOffline = {}
+            wow.advance(1 + ns.db.guildLogin.delay + 0.1)
+            assert.are.same({ "Newbie has logged in. Quick, everyone look busy." }, wow.sentTo("GUILD"))
+        end)
+
+        it("never greets a friend outside the guild, and forgets them after the timeout", function()
+            ns.db.debug = true
+            online("Stranger")
+            wow.rosterUpdate({ "Thrall", "Jaina" })
+            wow.rosterUpdate({ "Thrall", "Jaina" })
+            assert.are.equal(1, ns.Greeter.PendingCount())
+            -- No further roster update: the timeout alone cleans up.
+            wow.advance(ns.Greeter.PENDING_TIMEOUT)
+            assert.are.equal(0, ns.Greeter.PendingCount())
+            local logged = false
+            for _, line in ipairs(ns.db.diagLog) do
+                if line:find("Stranger is not in the guild roster (a friend?)", 1, true) then logged = true end
+            end
+            assert.is_true(logged)
+            wow.advance(30)
+            assert.are.equal(0, #wow.sent)
+        end)
+
+        it("doesn't greet a name confirmed after the timeout, even with roster updates in between", function()
+            online("Newbie")
+            wow.rosterUpdate({ "Thrall", "Jaina" })
+            wow.advance(ns.Greeter.PENDING_TIMEOUT - 1)
+            wow.rosterUpdate({ "Thrall", "Jaina" })
+            wow.advance(2)
+            wow.rosterUpdate({ "Thrall", "Jaina", "Newbie" })
+            wow.advance(10)
+            assert.are.equal(0, #wow.sent)
+        end)
+
         it("doesn't repeat within the cooldown (default 3 minutes)", function()
             online("Thrall")
             wow.advance(5)

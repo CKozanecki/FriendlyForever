@@ -1,5 +1,11 @@
 # Changelog
 
+### Unreleased
+
+- Fix: guild login greetings were missed when a guild roster update arrived before the refreshed roster (common with "Show Offline Members" off, or when other addons or the guild frame ask for the roster). A login waiting for the roster now stays waiting until the roster confirms it or 30 seconds pass; friends outside the guild are still never greeted.
+- New option **Don't send messages while I'm AFK** (on by default): greetings and buff thanks that come due while you're AFK are dropped instead of sent. A /say thank-you waiting for a key press still goes out if that key press brings you back. `/friendly test` and `/friendly selftest` aren't affected.
+- Tests: the simulated guild roster can hide offline members and deliver roster updates late or out of order.
+
 ## 1.5.0
 
 - 30 messages per type (was 10), with 20 new default lines for each. Your current 10 are kept as they are; the new lines fill slots 11–30.

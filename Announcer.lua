@@ -78,6 +78,7 @@ function Announcer.Schedule(msgType, key, opts)
             end,
             onDone = opts.onDone,
             label = msgType .. " for " .. key,
+            automatic = true,
         })
     end))
     return true

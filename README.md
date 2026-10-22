@@ -30,6 +30,7 @@ World of Warcraft/_classic_beta_/Interface/AddOns/
 - **Options:** Esc → Options → AddOns → Friendly Forever, or type `/friendly`
 - **Minimap button:** left-click opens options, right-click turns the addon on or off, drag to move it
 - `/friendly on | off | toggle | test | say | minimap | help` (`/ffr` also works)
+- **Don't send messages while I'm AFK** (on by default, at the top of the options): a greeting or thank-you that comes due while you're AFK is dropped, not saved for later. `/friendly test` and `/friendly selftest` still work.
 
 ## Troubleshooting
 

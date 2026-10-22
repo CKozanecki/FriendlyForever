@@ -68,7 +68,10 @@ describe("Diagnostics", function()
             ns.db.guildLogin.enabled = true
             online("Stranger")
             wow.fire("GUILD_ROSTER_UPDATE")
-            assert.is_true(logHas("Stranger is not in the guild roster"))
+            -- Said when the wait for the roster runs out, not on the first update.
+            assert.is_false(logHas("Stranger is not in the guild roster"))
+            wow.advance(ns.Greeter.PENDING_TIMEOUT)
+            assert.is_true(logHas("Stranger is not in the guild roster (a friend?)"))
         end)
 
         it("logs events ignored during the login grace period", function()

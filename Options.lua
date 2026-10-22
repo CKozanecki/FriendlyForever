@@ -89,6 +89,7 @@ function Options.Refresh()
     for msgType, tab in pairs(widgets.tabs) do tab:SetEnabled(msgType ~= currentType) end
 
     widgets.master:SetChecked(ns.db.enabled)
+    widgets.skipAFK:SetChecked(ns.db.skipWhileAFK)
     widgets.header:SetText(info.label .. "  |cff999999(sent to " .. info.channel .. ")|r")
     widgets.help:SetText(info.help)
     widgets.enabled:SetChecked(cfg.enabled)
@@ -158,6 +159,9 @@ function Options.Create()
 
     widgets.master = Checkbox(content, "Addon enabled", function(on) ns.SetEnabled(on) end)
     widgets.master:SetPoint("TOPRIGHT", -150, -10)
+    -- On the master switch's row; its label ends just left of that switch.
+    widgets.skipAFK = Checkbox(content, "Don't send messages while I'm AFK", function(on) ns.db.skipWhileAFK = on end)
+    widgets.skipAFK:SetPoint("RIGHT", widgets.master, "LEFT", -210, 0)
 
     local prev
     for _, msgType in ipairs(Config.TYPES) do
