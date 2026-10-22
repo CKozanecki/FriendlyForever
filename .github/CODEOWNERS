@@ -1,0 +1,3 @@
+# Requests a review from the maintainer on every pull request. Not enforced:
+# with a single maintainer, main requires passing CI, not an approval.
+* @CKozanecki

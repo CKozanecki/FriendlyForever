@@ -3,12 +3,12 @@
 TOOLS ?= $(HOME)/.cache/friendlyforever
 BIN := $(TOOLS)/lua51/bin
 
-.PHONY: setup lint test package check clean
+.PHONY: setup lint test package release-notes check clean
 
 setup:
 	python3 -m venv "$(TOOLS)/venv"
 	"$(TOOLS)/venv/bin/pip" install -q hererocks==0.25.1
-	"$(TOOLS)/venv/bin/hererocks" "$(TOOLS)/lua51" -l 5.1 -r latest
+	"$(TOOLS)/venv/bin/hererocks" "$(TOOLS)/lua51" -l 5.1 -r 3.8.0
 	"$(BIN)/luarocks" install busted 2.2.0-1
 	"$(BIN)/luarocks" install luacheck 1.2.0-1
 
@@ -21,7 +21,10 @@ test:
 package:
 	./scripts/package.sh
 
+release-notes:
+	./scripts/release-notes.sh
+
 check: lint test package
 
 clean:
-	rm -rf dist
+	rm -rf dist .release RELEASE_NOTES.md

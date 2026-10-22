@@ -2,7 +2,12 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -11,13 +16,29 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
+      # The tools are pinned in the Makefile, so it keys the cache.
+      - name: Cache Lua tools
+        id: tools
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/lua
+          key: lua-tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+
+      # Always installed: cached Lua still links against readline at run time.
+      - name: Install build dependencies
+        run: sudo apt-get update -q && sudo apt-get install -yq libreadline-dev
+
       - name: Install Lua 5.1, busted and luacheck
+        if: steps.tools.outputs.cache-hit != 'true'
         run: make setup TOOLS="$RUNNER_TEMP/lua"
 
       - name: Lint
@@ -29,7 +50,24 @@ jobs:
       - name: Package
         run: make package
 
-      - uses: actions/upload-artifact@v4
+      # Build the zip the way a release does (no upload, no secrets) and check
+      # it holds the same files as scripts/package.sh's.
+      - name: Write this version's release notes
+        run: make release-notes
+
+      - name: Build with the release packager
+        uses: BigWigsMods/packager@e50a250f8705041e40f2fa1ddcb280a686d65aa0 # v2.6.1
+        with:
+          args: -d
+          pandoc: "false"
+
+      - name: Compare release and local packages
+        run: ./scripts/compare-packages.sh dist/FriendlyForever-*.zip .release/FriendlyForever-*.zip
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: FriendlyForever
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            .release/*.zip
+          include-hidden-files: true

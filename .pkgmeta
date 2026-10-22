@@ -12,8 +12,12 @@ ignore:
   - .luacheckrc
   - .gitignore
   - Makefile
+  - CONTRIBUTING.md
+  - SECURITY.md
+  - RELEASE_NOTES.md
 
-# Release notes on CurseForge come from the changelog.
+# Release notes on CurseForge are this version's section of the changelog,
+# written by scripts/release-notes.sh (make release-notes) before packaging.
 manual-changelog:
-  filename: CHANGELOG.md
+  filename: RELEASE_NOTES.md
   markup-type: markdown
