@@ -12,6 +12,8 @@ ignore:
   - .luacheckrc
   - .gitignore
   - Makefile
+  - CONTRIBUTING.md
+  - SECURITY.md
 
 # Release notes on CurseForge come from the changelog.
 manual-changelog:

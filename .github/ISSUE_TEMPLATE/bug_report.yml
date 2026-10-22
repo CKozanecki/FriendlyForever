@@ -1,0 +1,35 @@
+name: Bug report
+description: Something the addon did wrong, or a Lua error
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what the addon did instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Addon version
+      description: Shown at the top of /friendly status
+      placeholder: "1.5.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: game
+    attributes:
+      label: Where
+      options:
+        - WoW Forever (live)
+        - WoW Forever beta / stress test
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: /friendly status output
+      description: Paste the output, and any Lua error (turn errors on with /console scriptErrors 1).
+      render: text

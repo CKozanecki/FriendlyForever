@@ -1,8 +1,9 @@
 name: Release
 
 # Pushing a version tag (v1.5.0) builds the addon with the BigWigs packager
-# (which reads .pkgmeta) and uploads it to CurseForge. Needs the repository
-# secret CF_API_KEY and ## X-Curse-Project-ID in the TOC.
+# (which reads .pkgmeta) and uploads it to CurseForge. Needs the secret
+# CF_API_KEY in the "release" environment and ## X-Curse-Project-ID in the TOC.
+# Only tags on a commit already merged to main, matching the TOC version, ship.
 on:
   push:
     tags:
@@ -14,17 +15,27 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-24.04
+    environment: release
     env:
       CF_API_KEY: ${{ secrets.CF_API_KEY }}
       GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
+
+      - name: Check the tag is on main and matches the TOC version
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::$GITHUB_REF_NAME is not on main"; exit 1; }
+          toc="$(sed -n 's/^## Version:[[:space:]]*\([^[:space:]]*\).*/\1/p' FriendlyForever.toc)"
+          [[ "v$toc" == "$GITHUB_REF_NAME" ]] \
+            || { echo "::error::Tag $GITHUB_REF_NAME does not match TOC version $toc"; exit 1; }
 
       - name: Lint and test before releasing
         run: |
@@ -33,4 +44,4 @@ jobs:
           make test TOOLS="$RUNNER_TEMP/lua"
 
       - name: Package and upload
-        uses: BigWigsMods/packager@v2
+        uses: BigWigsMods/packager@e50a250f8705041e40f2fa1ddcb280a686d65aa0 # v2.6.1
