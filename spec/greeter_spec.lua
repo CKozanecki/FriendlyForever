@@ -154,11 +154,58 @@ describe("Greetings", function()
             wow.setGroup(groupType or "party", { name })
         end
 
-        it("welcomes in party chat", function()
+        it("welcomes in party chat, after the party merge window", function()
             join("Anduin")
             wow.systemMessage("Anduin joins the party.")
-            wow.advance(ns.db.partyJoin.delay + 0.1)
+            wow.advance(ns.Greeter.PARTY_MERGE_WINDOW - 0.5)
+            assert.are.equal(0, #wow.sent)
+            wow.advance(0.6)
             assert.are.same({ "Welcome to the group, Anduin!" }, wow.sentTo("PARTY"))
+        end)
+
+        it("keeps a single party welcome within a second of the Party Join delay", function()
+            assert.is_true(ns.Greeter.PARTY_MERGE_WINDOW - ns.db.partyJoin.delay <= 1)
+        end)
+
+        describe("party joins close together", function()
+            local names = { "Ann-Aa", "Bob-Bb", "Cid-Cc", "Dot-Dd" }
+
+            local function partyJoin(full)
+                wow.systemMessage(full:gsub("%-", " ") .. " joins the party.")
+            end
+
+            it("share one welcome line", function()
+                wow.setGroup("party", { names[1], names[2], names[3] })
+                partyJoin(names[1])
+                wow.advance(1)
+                partyJoin(names[2])
+                wow.advance(1)
+                partyJoin(names[3])
+                wow.advance(10)
+                assert.are.same({ "Welcome to the group, Ann, Bob and Cid!" }, wow.sentTo("PARTY"))
+            end)
+
+            it("start a new line for a join after the welcome went out", function()
+                wow.setGroup("party", { names[1], names[2], names[3], names[4] })
+                partyJoin(names[1])
+                partyJoin(names[2])
+                wow.advance(10)
+                partyJoin(names[3])
+                partyJoin(names[4])
+                wow.advance(10)
+                assert.are.same({ "Welcome to the group, Ann and Bob!", "Welcome to the group, Cid and Dot!" },
+                    wow.sentTo("PARTY"))
+            end)
+
+            it("leave out someone who left before it was sent", function()
+                wow.setGroup("party", { names[1], names[2], names[3] })
+                partyJoin(names[1])
+                partyJoin(names[2])
+                partyJoin(names[3])
+                wow.setGroup("party", { names[1], names[3] }) -- Bob left
+                wow.advance(10)
+                assert.are.same({ "Welcome to the group, Ann and Cid!" }, wow.sentTo("PARTY"))
+            end)
         end)
 
         it("uses raid chat in a raid, after the merge window", function()
@@ -314,7 +361,7 @@ describe("Greetings", function()
         it("welcomes a Forever-named player who is in a group slot (the in-game bug)", function()
             wow.setGroup("party", { "Dax-Windstrike", "Smoakkin-Chaos", "Sorum-Md" })
             wow.systemMessage("Sorum Md joins the party.")
-            wow.advance(ns.db.partyJoin.delay + 0.1)
+            wow.advance(ns.Greeter.PARTY_MERGE_WINDOW + 0.1)
             assert.are.same({ "Welcome to the group, Sorum!" }, wow.sentTo("PARTY"))
         end)
 

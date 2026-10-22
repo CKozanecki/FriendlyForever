@@ -7,7 +7,7 @@ A courtesy addon for **World of Warcraft: Forever** (TOC interface `16001`).
 | Guild member logs in | Guild chat | `{name}`, `{fullname}` |
 | A player outside your group buffs you | Say, or a whisper to them | `{name}`, `{fullname}`, `{buff}` |
 | New member joins the guild | Guild chat | `{name}`, `{fullname}` |
-| Player joins your group (not in battlegrounds; raid joins a few seconds apart share one line, which lists them all) | Party or raid chat | `{name}`, `{fullname}` |
+| Player joins your group (not in battlegrounds; joins a few seconds apart share one line, which lists them all) | Party or raid chat | `{name}`, `{fullname}` |
 | You join someone else's group | Party or raid chat | none |
 | You rejoin a group (same leader) this session | Party or raid chat | none |
 

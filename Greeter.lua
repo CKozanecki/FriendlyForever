@@ -248,14 +248,17 @@ function Greeter.GroupLeaderName()
     end
 end
 
--- Raid joins that arrive close together share one welcome ("Welcome, A, B
--- and C!") instead of flooding raid chat while a raid forms. The welcome goes
--- out this long after the first joiner (or after the Party Join delay, if
--- that is longer), and everyone who joins before it is sent is added to it.
--- {name} and {fullname} then list all of them, so every template still reads.
+-- Joins that arrive close together share one welcome ("Welcome, A, B and
+-- C!") instead of a line each. The welcome goes out this long after the
+-- first joiner (or after the Party Join delay, if that is longer), and
+-- everyone who joins before it is sent is added to it. {name} and {fullname}
+-- then list all of them, so every template still reads.
+-- A party fills with a few quick invites: 3s is one second more than the
+-- default 2s delay. A forming raid takes invites in longer waves.
+Greeter.PARTY_MERGE_WINDOW = 3
 Greeter.RAID_MERGE_WINDOW = 5
 
-local raidBatch -- { names = {} } for the merged raid welcome waiting to go out
+local joinBatch -- { names = {} } for the merged welcome waiting to go out
 
 -- Don't welcome someone who already left. If we can't tell (names
 -- restricted in combat), keep the welcome.
@@ -263,13 +266,13 @@ local function StillInGroup(name)
     return Greeter.IsInMyGroup(name) ~= false
 end
 
-local function WelcomeRaidJoin(name)
+local function WelcomeJoin(name)
     local cfg = ns.db.partyJoin
     if convertedAt and GetTime() - convertedAt <= Greeter.CONVERT_WINDOW and convertedMembers[name] then
         ns.Diag.Log("partyJoin", "not welcoming %s: was already in the party before it became a raid", name)
         return
     end
-    local batch = raidBatch
+    local batch = joinBatch
     if batch then
         for _, n in ipairs(batch.names) do
             if n == name then return end
@@ -281,12 +284,12 @@ local function WelcomeRaidJoin(name)
             return
         end
         batch.names[#batch.names + 1] = name
-        ns.Diag.Log("partyJoin", "added %s to the raid welcome already waiting", name)
+        ns.Diag.Log("partyJoin", "added %s to the welcome already waiting", name)
         return
     end
 
     batch = { names = { name } }
-    raidBatch = batch
+    joinBatch = batch
     local function Present()
         local present = {}
         for _, n in ipairs(batch.names) do
@@ -295,7 +298,7 @@ local function WelcomeRaidJoin(name)
         return present
     end
     local scheduled = ns.Announcer.Schedule("partyJoin", name, {
-        delay = math.max(cfg.delay, Greeter.RAID_MERGE_WINDOW),
+        delay = math.max(cfg.delay, IsInRaid() and Greeter.RAID_MERGE_WINDOW or Greeter.PARTY_MERGE_WINDOW),
         channel = Greeter.GroupChannel,
         vars = function()
             local first, full = {}, {}
@@ -306,15 +309,16 @@ local function WelcomeRaidJoin(name)
         end,
         isValid = function()
             if #Present() == 0 then
-                return false, "no one in it is still in your group (" .. Util.JoinList(batch.names) .. ")"
+                local verb = #batch.names > 1 and " are" or " is"
+                return false, Util.JoinList(batch.names) .. verb .. " no longer in your group"
             end
             return true
         end,
         onDone = function()
-            if raidBatch == batch then raidBatch = nil end
+            if joinBatch == batch then joinBatch = nil end
         end,
     })
-    if not scheduled then raidBatch = nil end
+    if not scheduled then joinBatch = nil end
 end
 
 function Greeter.OnSystemMessage(msg)
@@ -355,18 +359,6 @@ function Greeter.OnSystemMessage(msg)
             ns.Diag.Log("partyJoin", "not welcoming %s: you're in a battleground", name)
             return
         end
-        if IsInRaid() then
-            WelcomeRaidJoin(name)
-            return
-        end
-        ns.Announcer.Schedule("partyJoin", name, {
-            channel = Greeter.GroupChannel,
-            isValid = function()
-                if not StillInGroup(name) then
-                    return false, name .. " is no longer in your group"
-                end
-                return true
-            end,
-        })
+        WelcomeJoin(name)
     end
 end

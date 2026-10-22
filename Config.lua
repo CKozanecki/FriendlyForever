@@ -39,7 +39,7 @@ Config.TYPE_INFO = {
     partyJoin = {
         label   = "Party Join",
         channel = "Party chat",
-        help    = "Welcomes players who join your group. Raid joins seconds apart share one line. "
+        help    = "Welcomes players who join your group. Joins seconds apart share one line. "
             .. "Placeholders: {name}, {fullname}",
     },
     partyHello = {
