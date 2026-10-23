@@ -5,7 +5,9 @@
 --   1. aura.sourceUnit: the game names the caster when it has a unit token
 --      for them (target, mouseover, focus, nameplate, party/raid member...).
 --   2. A matching UNIT_SPELLCAST_SUCCEEDED we saw from a non-group unit token
---      in the last moment (covers tokens that vanished before the aura landed).
+--      in the last moment, aimed at us (covers tokens that vanished before the
+--      aura landed). A cast we can't see was aimed at us isn't remembered, so
+--      it never names the caster and the buff goes on to step 3.
 --   3. Neither, and we're not in a group: the aura came from another player
 --      (isFromPlayerOrPlayerPet) we have no unit for, thanked as "friend"
 --      (configurable). While grouped this fallback is off, because party-wide
@@ -29,6 +31,10 @@ BuffTracker.WHISPER_FAIL_WINDOW = 5 -- seconds a "no player named" reply counts 
 -- (logging in, reconnecting, zoning). The login grace period alone isn't
 -- enough: a slow loading screen can outlast it.
 BuffTracker.STALE_AFTER = 5
+-- A /say thank-you waits for a key press. Past this many seconds the buffer
+-- has likely moved on, so it is dropped rather than said late. Whispers keep
+-- the chat queue's usual limit.
+BuffTracker.SAY_MAX_AGE = 30
 
 -- Unit tokens whose casts we remember. Group tokens are skipped because
 -- group members are never thanked.
@@ -63,6 +69,16 @@ local function IsCastUnit(unit)
     return false
 end
 
+-- Readable and true only when the unit's target is us. Casters in cities buff
+-- in batches, so a same-spell cast aimed at someone else must not name the
+-- caster of a buff we got from someone we can't see. Such a cast is simply
+-- not remembered: it doesn't block the "friend" fallback either.
+local function AimedAtMe(unit)
+    local aimed = UnitIsUnit(unit .. "target", "player")
+    -- Check for a secret first: comparing one is an error in the real client.
+    return not Util.IsSecret(aimed) and aimed == true
+end
+
 local function PruneCasts(now)
     for spellId, cast in pairs(recentCasts) do
         if now - cast.time > BuffTracker.CAST_MATCH_WINDOW then recentCasts[spellId] = nil end
@@ -75,6 +91,8 @@ function BuffTracker.OnSpellcastSucceeded(unit, _, spellId)
     if not IsCastUnit(unit) then return end
     local caster = BuffTracker.Classify(unit)
     if caster == nil then return end
+    -- caster == false (us, pet, group, NPC, hostile) is kept: a real "don't thank".
+    if caster and not AimedAtMe(unit) then return end
     local now = GetTime()
     PruneCasts(now)
     recentCasts[spellId] = { time = now, caster = caster }
@@ -141,6 +159,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName)
         channel = whisper and "WHISPER" or "SAY",
         target = whisper and caster or nil,
         cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
+        maxAge = (not whisper) and BuffTracker.SAY_MAX_AGE or nil,
         vars = function()
             if unknown then return FallbackVars(batch) end
             local vars = Util.NameVars(caster)
@@ -170,6 +189,7 @@ function BuffTracker.OnWhisperFailed(name)
     ns.Announcer.Schedule("buff", "whisper failed:" .. name, {
         channel = "SAY",
         cooldown = 0, -- the caster's own cooldown already stops repeats
+        maxAge = BuffTracker.SAY_MAX_AGE,
         vars = function() return FallbackVars(w.batch) end,
     })
 end
@@ -187,7 +207,7 @@ local function FindCaster(aura, spellId, now)
 
     local cast = spellId and recentCasts[spellId]
     if cast and now - cast.time <= BuffTracker.CAST_MATCH_WINDOW then
-        if cast.caster then return cast.caster, "matched a cast just before" end
+        if cast.caster then return cast.caster, "matched a cast at you just before" end
         return nil, "matched a cast by someone we don't thank"
     end
 

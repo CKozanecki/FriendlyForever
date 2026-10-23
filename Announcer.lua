@@ -42,6 +42,7 @@ end
 --   isValid  = optional function() -> ok, reason; re-checked before sending,
 --   cooldown = optional seconds (default: the type's repeatCooldown),
 --   onDone   = optional function(sent), always called once if this returns true,
+--   maxAge   = optional seconds the queued message may wait (default: ChatQueue.MAX_AGE),
 -- }
 -- Returns true if a message was scheduled.
 local function Skip(msgType, key, reason)
@@ -77,6 +78,7 @@ function Announcer.Schedule(msgType, key, opts)
                 return true
             end,
             onDone = opts.onDone,
+            maxAge = opts.maxAge,
             label = msgType .. " for " .. key,
         })
     end))

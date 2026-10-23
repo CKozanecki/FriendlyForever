@@ -60,6 +60,20 @@ describe("ChatQueue", function()
         assert.are.equal(0, Q.Count())
     end)
 
+    it("expires a message after its own max age, others after the usual one", function()
+        wow.state.lockdown = true
+        local short, long
+        push("SAY", "quick", { maxAge = 30, onDone = function(sent) short = sent end })
+        push("WHISPER", "slow", { target = "Bob", onDone = function(sent) long = sent end })
+        wow.advance(30 + Q.RETRY_DELAY + 1)
+        assert.is_false(short)
+        assert.is_nil(long, "still waiting")
+        wow.state.lockdown = false
+        wow.advance(Q.RETRY_DELAY)
+        assert.is_true(long)
+        assert.are.same({ "slow" }, wow.sentTo("WHISPER"))
+    end)
+
     it("waits for a key press before /say outside instances", function()
         push("SAY", "thanks")
         wow.advance(10)
