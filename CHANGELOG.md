@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- `/friendly status` shows the "Don't send messages while I'm AFK" option and whether you're AFK, and says when automatic messages are being dropped because of it.
+
 - Fix: `/friendly test` and the options panel's **Preview random** used up lines from the message rotation, so previewed lines were then skipped when sending for real. Previews now pick a line without touching the saved rotation.
 - Fix: typing in an options box could be undone, with the cursor jumping to the start, whenever a game setting changed (for example through a keybind or another addon). The panel is no longer refilled while it's closed, and the box you're typing in is left alone. Switching tabs or resetting a tab finishes your edit first.
 - README: say thanks waiting for a key press aren't sent while the interface is hidden (Alt+Z).
