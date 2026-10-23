@@ -82,6 +82,7 @@ function Announcer.Schedule(msgType, key, opts)
             onDone = opts.onDone,
             maxAge = opts.maxAge,
             label = msgType .. " for " .. key,
+            automatic = true,
         })
     end))
     return true

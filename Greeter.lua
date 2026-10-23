@@ -81,10 +81,54 @@ local function Greet(name)
     ns.Announcer.Schedule("guildLogin", name, { channel = GuildChannel })
 end
 
+-- A pending name stays until a roster update confirms it (greeted) or it
+-- expires. Roster updates can arrive before the refreshed roster (other
+-- addons and the guild frame ask for them too), so an update that doesn't
+-- list the name yet proves nothing.
+local function Expired(t, now)
+    return now - t >= Greeter.PENDING_TIMEOUT
+end
+
+local function RemovePending(name)
+    pendingOnline[name] = nil
+    pendingCount = pendingCount - 1
+end
+
+-- Drop an expired name. Never greets: a confirmation that came too late is
+-- not worth a greeting.
+local function ExpireOne(name)
+    if members[name] then
+        ns.Diag.Log("guildLogin", "roster confirmed %s too late", name)
+    else
+        ns.Diag.Log("guildLogin", "%s is not in the guild roster (a friend?)", name)
+    end
+    RemovePending(name)
+end
+
+local function ExpirePending()
+    local now = GetTime()
+    for name, t in pairs(pendingOnline) do
+        if Expired(t, now) then ExpireOne(name) end
+    end
+end
+
 local function AddPending(name, now)
-    if pendingCount >= Greeter.MAX_PENDING then return end
+    if not pendingOnline[name] and pendingCount >= Greeter.MAX_PENDING then
+        ns.Diag.Log("guildLogin", "too many logins waiting for the roster; not tracking %s", name)
+        return
+    end
     if not pendingOnline[name] then pendingCount = pendingCount + 1 end
     pendingOnline[name] = now
+    -- Another roster update may never come, so expiry has its own timer. It
+    -- is this login's timer: a relog since then has its own, so the time
+    -- stamp tells (no comparing GetTime() against the timer's own clock).
+    C_Timer.After(Greeter.PENDING_TIMEOUT, ns.Diag.Wrap(function()
+        if pendingOnline[name] == now then ExpireOne(name) end
+    end))
+end
+
+function Greeter.PendingCount()
+    return pendingCount
 end
 
 function Greeter.OnRosterUpdate()
@@ -99,17 +143,13 @@ function Greeter.OnRosterUpdate()
     ns.Diag.Count("rosterUpdates")
     ns.Diag.Log("guild", "roster update: %s members known", Greeter.MemberCount())
 
-    local now = GetTime()
-    for name, t in pairs(pendingOnline) do
-        if not members[name] then
-            ns.Diag.Log("guildLogin", "%s is not in the guild roster (a friend?)", name)
-        elseif now - t > Greeter.PENDING_TIMEOUT then
-            ns.Diag.Log("guildLogin", "roster confirmed %s too late", name)
-        else
+    ExpirePending()
+    for name in pairs(pendingOnline) do
+        if members[name] then
+            RemovePending(name)
             Greet(name)
         end
     end
-    pendingOnline, pendingCount = {}, 0
 end
 
 -- Battlegrounds put you in an instance group, but Forever may not use the

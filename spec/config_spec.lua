@@ -26,13 +26,15 @@ describe("Config", function()
     it("takes its default messages from Defaults.lua, same types and line counts as before the move", function()
         local ns = wow.load()
         local expected = { guildLogin = 30, buff = 30, guildJoin = 30, partyJoin = 30, partyHello = 30, partyHelloAgain = 30 }
-        local function counts(byType, get)
-            local out = {}
-            for msgType, value in pairs(byType) do out[msgType] = #get(value) end
-            return out
+        local fromDefaults, fromFile = {}, {}
+        -- Config.DEFAULTS also holds general settings, so go by Config.TYPES.
+        for _, msgType in ipairs(ns.Config.TYPES) do
+            fromDefaults[msgType] = #ns.Config.DEFAULTS[msgType].messages
         end
-        assert.are.same(expected, counts(ns.Config.DEFAULTS, function(d) return d.messages end))
-        assert.are.same(expected, counts(ns.DefaultMessages, function(list) return list end))
+        -- Defaults.lua holds only message types; pairs also catches an extra one.
+        for msgType, list in pairs(ns.DefaultMessages) do fromFile[msgType] = #list end
+        assert.are.same(expected, fromDefaults)
+        assert.are.same(expected, fromFile)
         for _, msgType in ipairs(ns.Config.TYPES) do
             assert.are.equal(ns.DefaultMessages[msgType], ns.Config.DEFAULTS[msgType].messages, msgType)
         end

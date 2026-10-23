@@ -146,6 +146,8 @@ end
 -- A real key press: the only thing that counts as a hardware event here.
 function M.keyDown(key)
     M.hardware = true
+    -- state.keyClearsAFK: the press brings me back from AFK before any addon sees it.
+    if M.state.keyClearsAFK then M.state.afk = false end
     for _, f in ipairs(M.frames) do
         if f.keyboard and f.shown and f.scripts.OnKeyDown then f.scripts.OnKeyDown(f, key or "W") end
     end
@@ -238,6 +240,37 @@ local function restricted(fn)
     end
 end
 
+
+------------------------------------------------------------------------
+-- Guild roster
+------------------------------------------------------------------------
+
+-- state.guildRoster is the roster the client has cached. With "Show Offline
+-- Members" off (state.showOffline == false) it lists only members not in
+-- state.guildOffline, as the guild frame does.
+function M.visibleRoster()
+    local out = {}
+    for _, name in ipairs(M.state.guildRoster) do
+        if M.state.showOffline ~= false or not M.state.guildOffline[name] then out[#out + 1] = name end
+    end
+    return out
+end
+
+-- A roster update carrying this snapshot. Updates can be stale or arrive out
+-- of order (other addons and the guild frame request them too), so the
+-- snapshot may be older than what the client last showed.
+function M.rosterUpdate(names)
+    local copy = {}
+    for i, name in ipairs(names) do copy[i] = name end
+    M.state.guildRoster = copy
+    M.fire("GUILD_ROSTER_UPDATE")
+end
+
+-- A roster update that arrives after `delay` seconds. Queue several with
+-- different delays to deliver them out of order.
+function M.queueRosterUpdate(names, delay)
+    _G.C_Timer.After(delay, function() M.rosterUpdate(names) end)
+end
 
 ------------------------------------------------------------------------
 -- Reset / install
@@ -357,9 +390,25 @@ function M.reset()
     _G.InCombatLockdown = function() return M.state.inCombat end
 
     _G.IsInGuild = function() return M.state.inGuild end
-    _G.GetNumGuildMembers = function() return #M.state.guildRoster end
-    _G.GetGuildRosterInfo = function(i) return M.state.guildRoster[i] end
-    _G.C_GuildInfo = { GuildRoster = function() M.rosterRequests = M.rosterRequests + 1 end }
+    M.state.guildOffline = {}
+    _G.GetNumGuildMembers = function() return #M.visibleRoster() end
+    -- name, rank, rankIndex, level, class, zone, note, officerNote, online
+    _G.GetGuildRosterInfo = function(i)
+        local name = M.visibleRoster()[i]
+        if name == nil then return nil end
+        return name, "Member", 1, 60, "Warrior", "Elwynn Forest", "", "", not M.state.guildOffline[name]
+    end
+    -- state.rosterReplyDelay: answer a roster request with a roster update
+    -- after that many seconds, as the server does.
+    _G.C_GuildInfo = {
+        GuildRoster = function()
+            M.rosterRequests = M.rosterRequests + 1
+            local delay = M.state.rosterReplyDelay
+            if delay then _G.C_Timer.After(delay, function() M.fire("GUILD_ROSTER_UPDATE") end) end
+        end,
+    }
+    -- state.afk: whether I'm AFK. Secret while units are restricted.
+    _G.UnitIsAFK = restricted(function(unit) return unit == "player" and M.state.afk == true end)
 
     _G.GetCursorPosition = function() return M.state.cursorX, M.state.cursorY end
     _G.date = function() return "12:00:00" end

@@ -13,6 +13,9 @@
 - Party Join welcomes players who join close together in one line, such as "Welcome to the group, Ann, Bob and Cid!", instead of a line each. In a party, that's everyone who joins within 3 seconds of the first one, so a single joiner is welcomed a second later than before. In a raid it's 5 seconds. `{name}` and `{fullname}` list everyone in the line, so your own messages work unchanged. After five names the rest are counted ("Ann, Bob, Cid, Dot, Eve and 7 others"), so a long list can't cut off the end of the line. Each player keeps their own repeat cooldown, and anyone who leaves before the line is sent is left out. Party members aren't welcomed again when the party becomes a raid.
 - Fix: a forming raid flooded raid chat with a welcome line for every joiner, sent by every addon user in the raid. In a raid, only the raid leader now welcomes joiners, and at most one welcome line goes out every 30 seconds. Anyone who joins in between is added to the next line, so everyone is still welcomed.
 - Fix: a Party Hello that was never sent (you left the group or entered a battleground first) no longer turns your next hello to that group into "Hello again".
+- Fix: guild login greetings were missed when a guild roster update arrived before the refreshed roster (common with "Show Offline Members" off, or when other addons or the guild frame ask for the roster). A login waiting for the roster now stays waiting until the roster confirms it or 30 seconds pass; friends outside the guild are still never greeted.
+- New option **Don't send messages while I'm AFK** (on by default): greetings and buff thanks that come due while you're AFK are dropped instead of sent. A /say thank-you waiting for a key press still goes out if that key press brings you back. `/friendly test` and `/friendly selftest` aren't affected.
+- Tests: the simulated guild roster can hide offline members and deliver roster updates late or out of order.
 
 ## 1.5.0
 

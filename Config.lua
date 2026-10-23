@@ -59,7 +59,12 @@ Config.TYPE_INFO = {
     },
 }
 
+-- Not every entry is a message type (skipWhileAFK isn't), so loop over
+-- Config.TYPES for the types, never pairs(Config.DEFAULTS).
 Config.DEFAULTS = {
+    -- General switch (not a message type): drop automatic messages that
+    -- come due while you're AFK, instead of greeting people for hours.
+    skipWhileAFK = true,
     guildLogin = {
         enabled = true,
         delay = 3,
@@ -175,8 +180,8 @@ local MIGRATIONS = {
         end
         -- Up to 1.4.2 each type had 10 lines; now 30. Keep the saved 10 (edits
         -- included) and fill the new slots with the new default lines.
-        for msgType, defaults in pairs(Config.DEFAULTS) do
-            local cfg = db[msgType]
+        for _, msgType in ipairs(Config.TYPES) do
+            local defaults, cfg = Config.DEFAULTS[msgType], db[msgType]
             if type(cfg) == "table" and type(cfg.messages) == "table" then
                 for i = 11, #defaults.messages do
                     if cfg.messages[i] == nil then cfg.messages[i] = defaults.messages[i] end
@@ -219,6 +224,7 @@ function Config.Load(saved)
     db.schemaVersion = Config.SCHEMA_VERSION
 
     if type(db.enabled) ~= "boolean" then db.enabled = true end
+    if type(db.skipWhileAFK) ~= "boolean" then db.skipWhileAFK = Config.DEFAULTS.skipWhileAFK end
 
     if type(db.minimap) ~= "table" then db.minimap = {} end
     db.minimap.angle = Util.ClampNumber(db.minimap.angle, 0, 360, 220)
