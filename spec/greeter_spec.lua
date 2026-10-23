@@ -445,6 +445,41 @@ describe("Greetings", function()
                 assert.are.equal(0, #wow.sent)
             end)
 
+            it("still welcome if the game has no instance group constant", function()
+                _G.LE_PARTY_CATEGORY_INSTANCE = nil -- IsInGroup(nil) would mean any group
+                joinRaid(names)
+                raidJoin(names[1])
+                wow.advance(10)
+                assert.are.same({ "Welcome to the group, Ann!" }, wow.sentTo("RAID"))
+            end)
+
+            it("add a joiner to a line still held by chat lockdown after a long delay", function()
+                ns.db.partyJoin.delay = 60
+                wow.state.lockdown = true
+                joinRaid(names)
+                raidJoin(names[1])
+                wow.advance(130) -- the line has waited in the queue since 60s
+                raidJoin(names[2])
+                wow.advance(20)
+                wow.state.lockdown = false
+                wow.advance(100)
+                assert.are.same({ "Welcome to the group, Ann and Bob!" }, wow.sentTo("RAID"))
+            end)
+
+            it("don't make a new raid wait out the last one's interval", function()
+                joinRaid(names)
+                wow.fire("GROUP_ROSTER_UPDATE")
+                raidJoin(names[1])
+                wow.advance(ns.Greeter.RAID_MERGE_WINDOW + 0.1)
+                wow.setGroup(nil, {})
+                wow.fire("GROUP_ROSTER_UPDATE")
+                joinRaid({ names[2] })
+                wow.fire("GROUP_ROSTER_UPDATE")
+                raidJoin(names[2])
+                wow.advance(ns.Greeter.RAID_MERGE_WINDOW + 0.1)
+                assert.are.same({ "Welcome to the group, Ann!", "Welcome to the group, Bob!" }, wow.sentTo("RAID"))
+            end)
+
             -- What flooded raid chat in 1.5.0: a raid filling up one by one,
             -- each join further apart than the merge window.
             it("go out at most once per RAID_MIN_INTERVAL while a raid forms slowly", function()
@@ -457,7 +492,7 @@ describe("Greetings", function()
                 end
                 wow.advance(ns.Greeter.RAID_MIN_INTERVAL)
                 local sent = wow.sentTo("RAID")
-                assert.is_true(#sent <= 6, #sent .. " lines")
+                assert.are.equal(6, #sent) -- 20 lines in 1.5.0
                 -- Everyone is still welcomed, in some line.
                 local all = table.concat(sent, " ")
                 for i = 1, 20 do

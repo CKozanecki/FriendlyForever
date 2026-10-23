@@ -18,8 +18,13 @@ local function GuildChannel()
     if IsInGuild() then return "GUILD" end
 end
 
+-- IsInGroup(nil) means any group, so a missing constant must not get there.
+local function InInstanceGroup()
+    return LE_PARTY_CATEGORY_INSTANCE ~= nil and IsInGroup(LE_PARTY_CATEGORY_INSTANCE)
+end
+
 function Greeter.GroupChannel()
-    if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then return "INSTANCE_CHAT" end
+    if InInstanceGroup() then return "INSTANCE_CHAT" end
     if IsInRaid() then return "RAID" end
     if IsInGroup() then return "PARTY" end
 end
@@ -110,8 +115,7 @@ end
 -- Battlegrounds put you in an instance group, but Forever may not use the
 -- instance category for them, so the zone type is checked too.
 function Greeter.InBattleground()
-    -- IsInGroup(nil) means any group, so a missing constant must not get there.
-    if LE_PARTY_CATEGORY_INSTANCE and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then return true end
+    if InInstanceGroup() then return true end
     return select(2, IsInInstance()) == "pvp"
 end
 
@@ -139,6 +143,8 @@ local function PartyNames()
     return names
 end
 
+local lastRaidWelcomeAt -- when the last raid welcome was sent; see RAID_MIN_INTERVAL
+
 local function TrackConversion(inGroup, wasGrouped)
     local inRaid = IsInRaid() and true or false
     if inRaid and not wasInRaid and inGroup and wasGrouped then
@@ -147,6 +153,8 @@ local function TrackConversion(inGroup, wasGrouped)
     end
     wasInRaid = inRaid
     partyMembers = (inGroup and not inRaid) and PartyNames() or {}
+    -- A new raid needn't wait out the last one's interval.
+    if not inGroup then lastRaidWelcomeAt = nil end
 end
 
 function Greeter.OnEnteringWorld()
@@ -269,7 +277,6 @@ Greeter.RAID_MERGE_WINDOW = 5
 -- so raid welcomes also go out at most this often. Joiners in between wait
 -- and share the next line.
 Greeter.RAID_MIN_INTERVAL = 30
-local lastRaidWelcomeAt -- when the last raid welcome was sent
 -- Names listed in one line before the rest become "and N others", so a long
 -- list can't push the end of the line past the chat length limit.
 Greeter.MAX_LISTED = 5
