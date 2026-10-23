@@ -264,6 +264,117 @@ describe("Addon", function()
             wow.run(w.master, "OnClick")
             assert.is_false(ns.db.enabled)
         end)
+
+        -- CVAR_UPDATE fires for any game setting change, panel open or not.
+        it("doesn't refill while the panel is hidden, and catches up when shown", function()
+            local panel = _G.FriendlyForeverOptionsPanel
+            panel:Hide()
+            ns.db.guildLogin.delay = 42
+            ns.db.guildLogin.messages[1] = "changed elsewhere"
+            wow.fire("CVAR_UPDATE", "nameplateShowFriends", "1")
+            assert.are_not.equal("42", w.steppers.delay.box:GetText())
+            assert.are_not.equal("changed elsewhere", w.edits[1]:GetText())
+            panel:Show()
+            wow.run(panel, "OnShow")
+            assert.are.equal("42", w.steppers.delay.box:GetText())
+            assert.are.equal("changed elsewhere", w.edits[1]:GetText())
+        end)
+
+        it("leaves the box being typed in alone, and refills the rest", function()
+            w.edits[3]:SetFocus()
+            w.edits[3]:SetText("Half-typed wel")
+            ns.db.guildLogin.delay = 42
+            ns.db.guildLogin.messages[4] = "changed elsewhere"
+            wow.fire("CVAR_UPDATE", "nameplateShowFriends", "1")
+            assert.are.equal("Half-typed wel", w.edits[3]:GetText())
+            assert.are.equal(14, w.edits[3].cursor, "the cursor stays where the player was typing")
+            assert.are.equal("42", w.steppers.delay.box:GetText())
+            assert.are.equal("changed elsewhere", w.edits[4]:GetText())
+        end)
+
+        it("saves a number being typed to its own tab when switching tabs", function()
+            w.steppers.repeatCooldown.box:SetFocus()
+            w.steppers.repeatCooldown.box:SetText("300")
+            wow.run(w.tabs.partyJoin, "OnClick")
+            assert.are.equal(300, ns.db.guildLogin.repeatCooldown, "the typed number is saved to the tab it was typed on")
+            assert.are_not.equal(300, ns.db.partyJoin.repeatCooldown)
+            assert.are.equal(tostring(ns.db.partyJoin.repeatCooldown), w.steppers.repeatCooldown.box:GetText())
+        end)
+
+        it("doesn't carry a message being typed into the next tab", function()
+            local partyLine = ns.db.partyJoin.messages[3]
+            assert.are_not.equal(ns.db.guildLogin.messages[3], partyLine)
+            w.edits[3]:SetFocus()
+            wow.run(w.tabs.partyJoin, "OnClick")
+            assert.are.equal(partyLine, w.edits[3]:GetText())
+            assert.is_false(w.edits[3]:HasFocus())
+        end)
+
+        it("finishes an edit in progress before resetting a tab", function()
+            wow.run(w.tabs.partyJoin, "OnClick")
+            ns.db.partyJoin.messages[3] = "custom"
+            w.edits[3]:SetFocus()
+            w.edits[3]:SetText("custom")
+            wow.run(w.reset, "OnClick")
+            assert.are.equal(ns.Config.DEFAULTS.partyJoin.messages[3], w.edits[3]:GetText())
+            assert.is_false(w.edits[3]:HasFocus())
+        end)
+    end)
+
+    -- /friendly test and "Preview random" only show a line; the shuffle bag
+    -- (saved in FriendlyForeverDB) is for lines that are really sent.
+    describe("previews and the message rotation", function()
+        local ns
+
+        local function copy(t)
+            if type(t) ~= "table" then return t end
+            local out = {}
+            for k, v in pairs(t) do out[k] = copy(v) end
+            return out
+        end
+
+        before_each(function()
+            ns = wow.boot({ before = function(state) state.guildRoster = { "Thrall" } end })
+            wow.fire("GUILD_ROSTER_UPDATE")
+            -- Start mid-round, so a preview that took a line would show.
+            for _, msgType in ipairs(ns.Config.TYPES) do ns.Messages.Pick(msgType, ns.db[msgType].messages) end
+        end)
+
+        it("/friendly test leaves the saved rotation unchanged", function()
+            local before = copy(ns.db.messageBags)
+            for _ = 1, 5 do _G.SlashCmdList.FRIENDLYFOREVER("test") end
+            assert.are.equal(5 * #ns.Config.TYPES, #wow.printed)
+            assert.are.same(before, ns.db.messageBags)
+        end)
+
+        it("Preview random leaves the saved rotation unchanged on every tab", function()
+            local w = ns.Options.widgets
+            local before = copy(ns.db.messageBags)
+            for _, msgType in ipairs(ns.Config.TYPES) do
+                wow.run(w.tabs[msgType], "OnClick")
+                for _ = 1, 5 do wow.run(w.preview, "OnClick") end
+            end
+            assert.are.equal(5 * #ns.Config.TYPES, #wow.printed)
+            assert.are.same(before, ns.db.messageBags)
+        end)
+
+        it("real sends still go through the rotation", function()
+            _G.SlashCmdList.FRIENDLYFOREVER("test")
+            local left = #ns.db.messageBags.guildJoin.left
+            wow.systemMessage("Varian has joined the guild.")
+            wow.advance(30)
+            wow.systemMessage("Anduin has joined the guild.")
+            wow.advance(30)
+            local sent = wow.sentTo("GUILD")
+            assert.are.equal(2, #sent)
+            assert.are.equal(left - 2, #ns.db.messageBags.guildJoin.left)
+            assert.are_not.equal(sent[1]:gsub("Varian", "{name}"), sent[2]:gsub("Anduin", "{name}"))
+        end)
+
+        it("previews only non-blank lines, and nothing when all are blank", function()
+            assert.are.equal("only", ns.Messages.Preview({ "", "  ", "only" }))
+            assert.is_nil(ns.Messages.Preview({ "", " " }))
+        end)
     end)
 
     describe("minimap button", function()
