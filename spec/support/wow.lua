@@ -331,21 +331,29 @@ function M.reset()
     end)
     _G.UnitExists = restricted(function(unit) return M.state.units[unit] ~= nil end)
     _G.IsInGroup = function(category)
-        if category == _G.LE_PARTY_CATEGORY_INSTANCE then return M.state.groupType == "instance" end
-        if category == _G.LE_PARTY_CATEGORY_HOME then
+        -- IsInGroup(nil) is any group, as in the game.
+        if category ~= nil and category == _G.LE_PARTY_CATEGORY_INSTANCE then return M.state.groupType == "instance" end
+        if category ~= nil and category == _G.LE_PARTY_CATEGORY_HOME then
             return M.state.groupType ~= nil and M.state.groupType ~= "instance"
         end
         return M.state.groupType ~= nil
     end
-    _G.IsInRaid = function() return M.state.groupType == "raid" end
+    _G.IsInRaid = function() return M.state.groupType == "raid" or (M.state.groupType == "instance" and M.state.raidSized == true) end
     -- state.isLeader: I lead. state.leader: full name of the group member who does.
+    -- state.leaderUnreadable: other members' leadership reads as a secret.
+    -- state.isLeaderUnreadable: so does mine.
     _G.UnitIsGroupLeader = restricted(function(unit)
         if M.state.groupType == nil then return false end
-        if unit == "player" then return M.state.isLeader == true end
+        if unit == "player" then
+            if M.state.isLeaderUnreadable then return M.secret(M.state.isLeader == true) end
+            return M.state.isLeader == true
+        end
+        if M.state.leaderUnreadable then return M.secret(false) end
         local u = M.state.units[unit]
         return u ~= nil and M.state.leader ~= nil and u.id == M.state.leader
     end)
-    _G.IsInInstance = function() return M.state.inInstance, M.state.inInstance and "party" or "none" end
+    -- state.instanceType: "pvp" for a battleground (default "party").
+    _G.IsInInstance = function() return M.state.inInstance, M.state.inInstance and (M.state.instanceType or "party") or "none" end
     _G.InCombatLockdown = function() return M.state.inCombat end
 
     _G.IsInGuild = function() return M.state.inGuild end
@@ -465,13 +473,15 @@ end
 -- Put players in your group the way the game does: in party1..4 (or
 -- raid1..40) slots, with UnitName returning first name and surname apart.
 -- names are full names ("Sorum-Md"). groupType: "party", "raid", "instance".
-function M.setGroup(groupType, names)
+-- raidSized: an instance group in raid slots, as battlegrounds are.
+function M.setGroup(groupType, names, raidSized)
     for token in pairs(M.state.units) do
         if token:find("^party%d") or token:find("^raid%d") then M.state.units[token] = nil end
     end
     M.state.groupType = groupType
+    M.state.raidSized = raidSized == true
     M.state.groupMembers = {}
-    local prefix = groupType == "raid" and "raid" or "party"
+    local prefix = (groupType == "raid" or M.state.raidSized) and "raid" or "party"
     for i, full in ipairs(names or {}) do
         local first, last = full:match("^([^%-]+)%-(.+)$")
         M.state.groupMembers[full] = true
