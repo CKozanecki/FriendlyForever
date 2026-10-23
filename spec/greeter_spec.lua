@@ -139,6 +139,24 @@ describe("Greetings", function()
             assert.are.equal(0, ns.Greeter.PendingCount())
         end)
 
+        it("refreshes a relog at the MAX_PENDING cap", function()
+            local function newbie(i)
+                return "Newbie" .. string.char(97 + math.floor((i - 1) / 26), 97 + (i - 1) % 26)
+            end
+            for i = 1, ns.Greeter.MAX_PENDING do online(newbie(i)) end
+            wow.advance(20)
+            online(newbie(1)) -- relogged, at the cap
+            wow.advance(ns.Greeter.PENDING_TIMEOUT - 20 + 1) -- the others have expired
+            assert.are.equal(1, ns.Greeter.PendingCount())
+        end)
+
+        it("expires on its own timer even when GetTime() lags the timer's clock", function()
+            online("Stranger")
+            _G.GetTime = function() return wow.now - 0.005 end -- frame time just behind the timer clock
+            wow.advance(ns.Greeter.PENDING_TIMEOUT)
+            assert.are.equal(0, ns.Greeter.PendingCount())
+        end)
+
         it("doesn't repeat within the cooldown (default 3 minutes)", function()
             online("Thrall")
             wow.advance(5)
