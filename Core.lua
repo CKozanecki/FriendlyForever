@@ -15,6 +15,7 @@ end
 
 function ns.SetEnabled(on)
     ns.db.enabled = on and true or false
+    ns.RefreshEvents()
     ns.Print(ns.db.enabled and "|cff00ff00enabled|r" or "|cffff4040disabled|r")
     ns.Minimap.Refresh()
     ns.Options.Refresh()
@@ -22,10 +23,23 @@ end
 
 function ns.ResetType(msgType)
     ns.db[msgType] = ns.Config.DefaultsFor(msgType)
+    ns.RefreshEvents()
 end
 
 local frame = CreateFrame("Frame")
 local handlers = {}
+
+-- UNIT_SPELLCAST_SUCCEEDED fires for every cast the client sees, and only
+-- buff thanks use it, so it is registered only while they can be sent.
+-- Call this whenever the master switch or Buff Thanks' switch changes.
+function ns.RefreshEvents()
+    if not ns.db then return end
+    if ns.db.enabled and ns.db.buff.enabled then
+        frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+    else
+        frame:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+    end
+end
 
 local function Register(event, handler, unit)
     handlers[event] = handler
@@ -59,7 +73,8 @@ function handlers.ADDON_LOADED(name)
     Register("GUILD_ROSTER_UPDATE", ns.Greeter.OnRosterUpdate)
     Register("PLAYER_GUILD_UPDATE", ns.Greeter.RequestRoster)
     Register("UNIT_AURA", function(_, updateInfo) ns.BuffTracker.OnPlayerAura(updateInfo) end, "player")
-    Register("UNIT_SPELLCAST_SUCCEEDED", ns.BuffTracker.OnSpellcastSucceeded)
+    handlers.UNIT_SPELLCAST_SUCCEEDED = ns.BuffTracker.OnSpellcastSucceeded
+    ns.RefreshEvents()
     Register("CVAR_UPDATE", function() ns.Options.Refresh() end)
     Register("ADDON_ACTION_BLOCKED", function(addon, func) ns.OnActionBlocked("blocked", addon, func) end)
     Register("ADDON_ACTION_FORBIDDEN", function(addon, func) ns.OnActionBlocked("forbidden", addon, func) end)

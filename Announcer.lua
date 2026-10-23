@@ -35,6 +35,10 @@ local function TypeEnabled(msgType)
     return ns.db.enabled and ns.db[msgType].enabled
 end
 
+-- key: who or what the cooldown is for. Without opts.vars it is also the
+-- player whose name fills {name} and {fullname}. So a key that isn't the
+-- player the message names (a group leader for hellos, "whisper failed:X",
+-- the first name of a merged welcome) must come with vars.
 -- opts = {
 --   channel  = string | function() -> channel or nil,
 --   target   = optional whisper target,

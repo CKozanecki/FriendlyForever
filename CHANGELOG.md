@@ -2,6 +2,9 @@
 
 ### Unreleased
 
+- Faster in busy places: Friendly Forever only listens for other players' spellcasts while Buff Thanks is on, rejects casts from your group and other units it never thanks before doing any work, and no longer makes new tables for every event it handles. Nothing it sends changes.
+- Note: going back to a 1.4.x version keeps only the first 10 lines of each message type, so if you then upgrade again, lines 11 to 30 are back to the defaults.
+
 - Fix: `/friendly test` and the options panel's **Preview random** used up lines from the message rotation, so previewed lines were then skipped when sending for real. Previews now pick a line without touching the saved rotation.
 - Fix: typing in an options box could be undone, with the cursor jumping to the start, whenever a game setting changed (for example through a keybind or another addon). The panel is no longer refilled while it's closed, and the box you're typing in is left alone. Switching tabs or resetting a tab finishes your edit first.
 - README: say thanks waiting for a key press aren't sent while the interface is hidden (Alt+Z).
