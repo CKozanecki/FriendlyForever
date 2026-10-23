@@ -35,8 +35,6 @@ function ChatQueue.NeedsHardwareEvent(channel)
     return not IsInInstance()
 end
 
--- True only when the game readably says I'm AFK. Unreadable (secret) or
--- missing counts as not AFK, so messages still go out.
 -- true or false, or nil when the game won't say (a secret value). A client
 -- without UnitIsAFK counts as not AFK.
 function ChatQueue.ReadPlayerAFK()
@@ -46,7 +44,8 @@ function ChatQueue.ReadPlayerAFK()
     return afk and true or false
 end
 
--- Can't tell counts as not AFK: the message is sent.
+-- True only when the game readably says I'm AFK. Unreadable (secret) or
+-- missing counts as not AFK, so messages still go out.
 function ChatQueue.IsPlayerAFK()
     return ChatQueue.ReadPlayerAFK() == true
 end
