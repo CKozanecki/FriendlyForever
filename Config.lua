@@ -53,6 +53,8 @@ Config.TYPE_INFO = {
     },
 }
 
+-- Not every entry is a message type (skipWhileAFK isn't), so loop over
+-- Config.TYPES for the types, never pairs(Config.DEFAULTS).
 Config.DEFAULTS = {
     -- General switch (not a message type): drop automatic messages that
     -- come due while you're AFK, instead of greeting people for hours.

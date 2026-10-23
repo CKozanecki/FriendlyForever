@@ -44,6 +44,18 @@ describe("Don't send messages while I'm AFK", function()
             assert.are.equal(0, #wow.sent, "not sent later either")
         end)
 
+        it("doesn't hold up the next message after a drop", function()
+            wow.state.afk = true
+            online("Thrall")
+            wow.advance(10)
+            wow.state.afk = false
+            wow.state.guildRoster[#wow.state.guildRoster + 1] = "Jaina"
+            wow.fire("GUILD_ROSTER_UPDATE")
+            online("Jaina")
+            wow.advance(10)
+            assert.are.equal(1, #wow.sentTo("GUILD"))
+        end)
+
         it("drops party welcomes and buff thanks too", function()
             wow.state.afk = true
             wow.setGroup("party", { "Sorum-Md" })

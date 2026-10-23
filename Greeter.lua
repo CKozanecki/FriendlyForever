@@ -89,28 +89,37 @@ local function RemovePending(name)
     pendingCount = pendingCount - 1
 end
 
--- Drop expired names. Never greets: a confirmation that came too late is
+-- Drop an expired name. Never greets: a confirmation that came too late is
 -- not worth a greeting.
+local function ExpireOne(name)
+    if members[name] then
+        ns.Diag.Log("guildLogin", "roster confirmed %s too late", name)
+    else
+        ns.Diag.Log("guildLogin", "%s is not in the guild roster (a friend?)", name)
+    end
+    RemovePending(name)
+end
+
 local function ExpirePending()
     local now = GetTime()
     for name, t in pairs(pendingOnline) do
-        if Expired(t, now) then
-            if members[name] then
-                ns.Diag.Log("guildLogin", "roster confirmed %s too late", name)
-            else
-                ns.Diag.Log("guildLogin", "%s is not in the guild roster (a friend?)", name)
-            end
-            RemovePending(name)
-        end
+        if Expired(t, now) then ExpireOne(name) end
     end
 end
 
 local function AddPending(name, now)
-    if pendingCount >= Greeter.MAX_PENDING then return end
+    if not pendingOnline[name] and pendingCount >= Greeter.MAX_PENDING then
+        ns.Diag.Log("guildLogin", "too many logins waiting for the roster; not tracking %s", name)
+        return
+    end
     if not pendingOnline[name] then pendingCount = pendingCount + 1 end
     pendingOnline[name] = now
-    -- Another roster update may never come, so expiry has its own timer.
-    C_Timer.After(Greeter.PENDING_TIMEOUT, ns.Diag.Wrap(ExpirePending))
+    -- Another roster update may never come, so expiry has its own timer. It
+    -- is this login's timer: a relog since then has its own, so the time
+    -- stamp tells (no comparing GetTime() against the timer's own clock).
+    C_Timer.After(Greeter.PENDING_TIMEOUT, ns.Diag.Wrap(function()
+        if pendingOnline[name] == now then ExpireOne(name) end
+    end))
 end
 
 function Greeter.PendingCount()

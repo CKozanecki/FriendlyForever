@@ -111,6 +111,34 @@ describe("Greetings", function()
             assert.are.equal(0, #wow.sent)
         end)
 
+        it("keeps a relog within the timeout pending until its own timeout", function()
+            online("Newbie")
+            wow.advance(20)
+            online("Newbie") -- logged out and back in
+            wow.advance(ns.Greeter.PENDING_TIMEOUT - 20 + 1) -- the first login's timer has run
+            assert.are.equal(1, ns.Greeter.PendingCount())
+            wow.rosterUpdate({ "Thrall", "Jaina", "Newbie" })
+            wow.advance(ns.db.guildLogin.delay + 0.1)
+            assert.are.same({ "Newbie has logged in. Quick, everyone look busy." }, wow.sentTo("GUILD"))
+        end)
+
+        it("tracks at most MAX_PENDING logins, and logs the ones it can't", function()
+            ns.db.debug = true
+            -- Names are letters only: "Newbieaa", "Newbieab", ...
+            local function newbie(i)
+                return "Newbie" .. string.char(97 + math.floor((i - 1) / 26), 97 + (i - 1) % 26)
+            end
+            for i = 1, ns.Greeter.MAX_PENDING + 1 do online(newbie(i)) end
+            assert.are.equal(ns.Greeter.MAX_PENDING, ns.Greeter.PendingCount())
+            local logged = false
+            for _, line in ipairs(ns.db.diagLog) do
+                if line:find("not tracking " .. newbie(ns.Greeter.MAX_PENDING + 1), 1, true) then logged = true end
+            end
+            assert.is_true(logged)
+            wow.advance(ns.Greeter.PENDING_TIMEOUT)
+            assert.are.equal(0, ns.Greeter.PendingCount())
+        end)
+
         it("doesn't repeat within the cooldown (default 3 minutes)", function()
             online("Thrall")
             wow.advance(5)

@@ -159,9 +159,11 @@ function Options.Create()
 
     widgets.master = Checkbox(content, "Addon enabled", function(on) ns.SetEnabled(on) end)
     widgets.master:SetPoint("TOPRIGHT", -150, -10)
-    -- On the master switch's row; its label ends just left of that switch.
+    -- On the master switch's row; its label ends just left of that switch,
+    -- however wide the font makes it.
     widgets.skipAFK = Checkbox(content, "Don't send messages while I'm AFK", function(on) ns.db.skipWhileAFK = on end)
-    widgets.skipAFK:SetPoint("RIGHT", widgets.master, "LEFT", -210, 0)
+    local labelWidth = widgets.skipAFK.label:GetStringWidth() or 0
+    widgets.skipAFK:SetPoint("RIGHT", widgets.master, "LEFT", -(labelWidth + 16), 0)
 
     local prev
     for _, msgType in ipairs(Config.TYPES) do

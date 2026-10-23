@@ -119,12 +119,15 @@ function ChatQueue.Pump(hardware)
             i = i + 1
         else
             table.remove(pending, i)
-            local afk = SkipForAFK(item)
-            local text = not afk and item.getText() or nil
-            if afk then
-                Drop(item, "you are AFK (\"Don't send messages while I'm AFK\" is on)")
-            elseif text == nil then
-                Drop(item, "message rendered empty")
+            local text, skip
+            if SkipForAFK(item) then
+                skip = "you are AFK (\"Don't send messages while I'm AFK\" is on)"
+            else
+                text = item.getText()
+                if text == nil then skip = "message rendered empty" end
+            end
+            if skip then
+                Drop(item, skip)
             else
                 local ok, err = RawSend(text, channel, item.target)
                 if ok then
