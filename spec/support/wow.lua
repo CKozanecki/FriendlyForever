@@ -305,9 +305,13 @@ function M.reset()
     _G.IsInRaid = function() return M.state.groupType == "raid" or (M.state.groupType == "instance" and M.state.raidSized == true) end
     -- state.isLeader: I lead. state.leader: full name of the group member who does.
     -- state.leaderUnreadable: other members' leadership reads as a secret.
+    -- state.isLeaderUnreadable: so does mine.
     _G.UnitIsGroupLeader = restricted(function(unit)
         if M.state.groupType == nil then return false end
-        if unit == "player" then return M.state.isLeader == true end
+        if unit == "player" then
+            if M.state.isLeaderUnreadable then return M.secret(M.state.isLeader == true) end
+            return M.state.isLeader == true
+        end
         if M.state.leaderUnreadable then return M.secret(false) end
         local u = M.state.units[unit]
         return u ~= nil and M.state.leader ~= nil and u.id == M.state.leader

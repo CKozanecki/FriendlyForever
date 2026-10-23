@@ -110,7 +110,8 @@ end
 -- Battlegrounds put you in an instance group, but Forever may not use the
 -- instance category for them, so the zone type is checked too.
 function Greeter.InBattleground()
-    if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then return true end
+    -- IsInGroup(nil) means any group, so a missing constant must not get there.
+    if LE_PARTY_CATEGORY_INSTANCE and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then return true end
     return select(2, IsInInstance()) == "pvp"
 end
 
@@ -154,10 +155,11 @@ function Greeter.OnEnteringWorld()
     partyMembers = (wasInGroup and not wasInRaid) and PartyNames() or {}
 end
 
-local function HelloOpts(delay)
+local function HelloOpts(delay, onDone)
     return {
         cooldown = 0,
         delay = delay,
+        onDone = onDone,
         channel = Greeter.GroupChannel,
         vars = function() return {} end,
         isValid = function()
@@ -193,7 +195,13 @@ local function SayHello(waited)
         return
     end
     local delay = math.max(0, ns.db[msgType].delay - waited)
-    if ns.Announcer.Schedule(msgType, key, HelloOpts(delay)) then helloedLeaders[key] = GetTime() end
+    local now = GetTime()
+    -- A hello that was dropped (you left, a battleground, AFK) was never
+    -- said, so it mustn't make the next one a "hello again".
+    local function onDone(sent)
+        if not sent and helloedLeaders[key] == now then helloedLeaders[key] = last end
+    end
+    if ns.Announcer.Schedule(msgType, key, HelloOpts(delay, onDone)) then helloedLeaders[key] = now end
 end
 
 function Greeter.OnGroupRosterUpdate()
@@ -257,16 +265,22 @@ end
 -- default 2s delay. A forming raid takes invites in longer waves.
 Greeter.PARTY_MERGE_WINDOW = 3
 Greeter.RAID_MERGE_WINDOW = 5
+-- A raid forms over minutes, with joins further apart than any merge window,
+-- so raid welcomes also go out at most this often. Joiners in between wait
+-- and share the next line.
+Greeter.RAID_MIN_INTERVAL = 30
+local lastRaidWelcomeAt -- when the last raid welcome was sent
 -- Names listed in one line before the rest become "and N others", so a long
 -- list can't push the end of the line past the chat length limit.
 Greeter.MAX_LISTED = 5
 
-local joinBatch -- { names = {}, createdAt = t } for the merged welcome waiting to go out
+local joinBatch -- { names = {}, createdAt = t, expiresAt = t } for the merged welcome waiting to go out
 
--- A batch normally ends when its welcome is sent or dropped. One older than
--- this has lost its message (an error, say) and must not hold up new welcomes.
+-- A batch normally ends when its welcome is sent or dropped. One still here
+-- after its delay plus the queue's longest wait has lost its message (an
+-- error, say) and must not hold up new welcomes.
 local function BatchExpired(batch)
-    return GetTime() - batch.createdAt > Greeter.RAID_MERGE_WINDOW + ns.ChatQueue.MAX_AGE
+    return GetTime() > batch.expiresAt
 end
 
 -- "A, B, C, D, E and 7 others" past MAX_LISTED names (one extra is listed).
@@ -301,6 +315,13 @@ local function WelcomeJoin(name, raidLine)
         ns.Diag.Log("partyJoin", "not welcoming %s: was already in the party before it became a raid", name)
         return
     end
+    -- Every addon user in a raid sees the same join lines. Only the leader,
+    -- who sent the invites, welcomes, so each line goes out once.
+    local inRaid = raidLine or IsInRaid()
+    if inRaid and not Util.Readable(UnitIsGroupLeader("player")) then
+        ns.Diag.Log("partyJoin", "not welcoming %s: in a raid only the leader welcomes", name)
+        return
+    end
     local batch = joinBatch
     if batch and BatchExpired(batch) then
         ns.Diag.Log("partyJoin", "a welcome waiting since %ss ago never finished; starting a new one",
@@ -311,7 +332,9 @@ local function WelcomeJoin(name, raidLine)
         for _, n in ipairs(batch.names) do
             if n == name then return end
         end
-        -- The same per-player repeat cooldown as a welcome of their own.
+        -- The same per-player repeat cooldown as a welcome of their own. It is
+        -- claimed now, so if the line is dropped they aren't welcomed until it
+        -- runs out, as with the first name's claim in Announcer.Schedule.
         if not ns.Cooldowns.TryClaim("partyJoin:" .. name, cfg.repeatCooldown, GetTime()) then
             ns.Diag.Log("partyJoin", "not sending for %s: repeat cooldown (%ss) still running",
                 name, cfg.repeatCooldown)
@@ -322,7 +345,12 @@ local function WelcomeJoin(name, raidLine)
         return
     end
 
-    batch = { names = { name }, createdAt = GetTime() }
+    local now = GetTime()
+    local delay = math.max(cfg.delay, inRaid and Greeter.RAID_MERGE_WINDOW or Greeter.PARTY_MERGE_WINDOW)
+    if inRaid and lastRaidWelcomeAt then
+        delay = math.max(delay, lastRaidWelcomeAt + Greeter.RAID_MIN_INTERVAL - now)
+    end
+    batch = { names = { name }, createdAt = now, expiresAt = now + delay + ns.ChatQueue.MAX_AGE }
     joinBatch = batch
     local function Present()
         local present = {}
@@ -332,7 +360,7 @@ local function WelcomeJoin(name, raidLine)
         return present
     end
     local scheduled = ns.Announcer.Schedule("partyJoin", name, {
-        delay = math.max(cfg.delay, IsInRaid() and Greeter.RAID_MERGE_WINDOW or Greeter.PARTY_MERGE_WINDOW),
+        delay = delay,
         channel = Greeter.GroupChannel,
         vars = function()
             local first, full = {}, {}
@@ -349,8 +377,9 @@ local function WelcomeJoin(name, raidLine)
             end
             return true
         end,
-        onDone = function()
+        onDone = function(sent)
             if joinBatch == batch then joinBatch = nil end
+            if sent and inRaid then lastRaidWelcomeAt = GetTime() end
         end,
     })
     if not scheduled then joinBatch = nil end

@@ -232,6 +232,7 @@ describe("Greetings", function()
                 for i = 1, 12 do
                     long[i] = "Bartholomew" .. string.char(96 + i) .. "-Featherstonehaugh"
                 end
+                wow.state.isLeader = true
                 wow.setGroup("raid", long)
                 for _, full in ipairs(long) do
                     wow.systemMessage(full:gsub("%-", " ") .. " has joined the raid group.")
@@ -246,6 +247,7 @@ describe("Greetings", function()
 
             it("list one extra name rather than \"and 1 others\"", function()
                 local six = { "Ann-Aa", "Bob-Bb", "Cid-Cc", "Dot-Dd", "Eve-Ee", "Fay-Ff" }
+                wow.state.isLeader = true
                 wow.setGroup("raid", six)
                 for _, full in ipairs(six) do
                     wow.systemMessage(full:gsub("%-", " ") .. " has joined the raid group.")
@@ -269,6 +271,7 @@ describe("Greetings", function()
         end)
 
         it("uses raid chat in a raid, after the merge window", function()
+            wow.state.isLeader = true
             join("Sylvanas", "raid")
             wow.systemMessage("Sylvanas has joined the raid group.")
             wow.advance(ns.Greeter.RAID_MERGE_WINDOW - 0.5)
@@ -296,7 +299,7 @@ describe("Greetings", function()
         end)
 
         it("still welcomes in a raid dungeon", function()
-            wow.state.inInstance = true
+            wow.state.inInstance, wow.state.isLeader = true, true
             join("Sylvanas-Windrunner", "raid")
             wow.systemMessage("Sylvanas Windrunner has joined the raid group.")
             wow.advance(30)
@@ -313,6 +316,11 @@ describe("Greetings", function()
             local function raidJoin(full)
                 wow.systemMessage(full:gsub("%-", " ") .. " has joined the raid group.")
             end
+
+            -- Only the raid leader welcomes (see "only the leader" below).
+            before_each(function()
+                wow.state.isLeader = true
+            end)
 
             it("share one welcome line", function()
                 joinRaid(names)
@@ -339,7 +347,7 @@ describe("Greetings", function()
                 raidJoin(names[2])
                 wow.advance(10)
                 raidJoin(names[3])
-                wow.advance(10)
+                wow.advance(ns.Greeter.RAID_MIN_INTERVAL)
                 assert.are.same({ "Welcome to the group, Ann and Bob!", "Welcome to the group, Cid!" },
                     wow.sentTo("RAID"))
             end)
@@ -369,7 +377,7 @@ describe("Greetings", function()
                 wow.advance(10)
                 raidJoin(names[2])
                 raidJoin(names[1]) -- left and came back
-                wow.advance(10)
+                wow.advance(ns.Greeter.RAID_MIN_INTERVAL)
                 assert.are.same({ "Welcome to the group, Ann!", "Welcome to the group, Bob!" }, wow.sentTo("RAID"))
             end)
 
@@ -420,6 +428,42 @@ describe("Greetings", function()
                 wow.advance(10)
                 assert.are.same({ "Welcome to the group, Cid!" }, wow.sentTo("RAID"))
             end)
+
+            it("are only sent by the raid leader", function()
+                wow.state.isLeader = false
+                joinRaid(names)
+                raidJoin(names[1])
+                wow.advance(30)
+                assert.are.equal(0, #wow.sent)
+            end)
+
+            it("aren't sent when you can't tell if you lead the raid", function()
+                wow.state.isLeader, wow.state.isLeaderUnreadable = true, true
+                joinRaid(names)
+                raidJoin(names[1])
+                wow.advance(30)
+                assert.are.equal(0, #wow.sent)
+            end)
+
+            -- What flooded raid chat in 1.5.0: a raid filling up one by one,
+            -- each join further apart than the merge window.
+            it("go out at most once per RAID_MIN_INTERVAL while a raid forms slowly", function()
+                local list = {}
+                for i = 1, 20 do
+                    list[i] = "P" .. string.char(96 + i) .. "-Xx"
+                    joinRaid(list)
+                    raidJoin(list[i])
+                    wow.advance(8)
+                end
+                wow.advance(ns.Greeter.RAID_MIN_INTERVAL)
+                local sent = wow.sentTo("RAID")
+                assert.is_true(#sent <= 6, #sent .. " lines")
+                -- Everyone is still welcomed, in some line.
+                local all = table.concat(sent, " ")
+                for i = 1, 20 do
+                    assert.truthy(all:find("P" .. string.char(96 + i), 1, true))
+                end
+            end)
         end)
 
         it("doesn't welcome someone who left before the delay ran out", function()
@@ -462,6 +506,7 @@ describe("Greetings", function()
             local names = {}
             for i = 1, 25 do names[i] = "Member-" .. string.rep(string.char(96 + (i % 26) + 1), 3) end
             names[25] = "Varian-Wrynn"
+            wow.state.isLeader = true
             wow.setGroup("raid", names)
             wow.systemMessage("Varian Wrynn has joined the raid group.")
             wow.advance(ns.Greeter.RAID_MERGE_WINDOW + 0.1)
@@ -534,6 +579,19 @@ describe("Greetings", function()
             wow.advance(10)
             wow.setGroup("party", { "Alex-Roberts", "Udders-Healz" })
             wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(10)
+            assert.are.same({ "Hi all! Thanks for the invite." }, wow.sentTo("PARTY"))
+        end)
+
+        it("doesn't count a dropped hello toward Hello Again", function()
+            joinGroup()
+            wow.advance(0.1)
+            wow.state.inInstance, wow.state.instanceType = true, "pvp" -- dropped at send time
+            wow.advance(10)
+            assert.are.equal(0, #wow.sent)
+            wow.state.inInstance = false
+            leaveGroup()
+            joinGroup()
             wow.advance(10)
             assert.are.same({ "Hi all! Thanks for the invite." }, wow.sentTo("PARTY"))
         end)
