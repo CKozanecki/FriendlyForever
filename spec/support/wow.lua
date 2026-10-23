@@ -88,6 +88,19 @@ function methods:SetText(text)
     self.cursor = #self.text -- the game moves an edit box's cursor to the end
 end
 function methods:SetCursorPosition(pos) self.cursor = pos end
+-- Keyboard focus: one edit box at a time, as in the game. Focusing a box
+-- takes focus from the last one, and losing focus runs OnEditFocusLost.
+function methods:SetFocus()
+    if M.focusedBox == self then return end
+    if M.focusedBox then M.focusedBox:ClearFocus() end
+    M.focusedBox = self
+end
+function methods:HasFocus() return M.focusedBox == self end
+function methods:ClearFocus()
+    if M.focusedBox ~= self then return end
+    M.focusedBox = nil
+    if self.scripts.OnEditFocusLost then self.scripts.OnEditFocusLost(self) end
+end
 function methods:GetText() return self.text end
 function methods:SetChecked(on) self.checked = on and true or false end
 function methods:GetChecked() return self.checked end
@@ -200,6 +213,22 @@ local function unitField(unit, field)
     return value
 end
 
+-- "<unit>target" resolves to the unit that unit targets: spec.target holds
+-- its token ("player"). spec.targetUnreadable makes the answer a secret.
+local function resolveUnit(token)
+    local u = M.state.units[token]
+    if u or type(token) ~= "string" then return u end
+    local base = token:match("^(.+)target$")
+    local owner = base and M.state.units[base]
+    return owner and owner.target and M.state.units[owner.target] or nil
+end
+
+local function targetUnreadable(token)
+    local base = type(token) == "string" and not M.state.units[token] and token:match("^(.+)target$")
+    local owner = base and M.state.units[base]
+    return owner and owner.targetUnreadable == true or false
+end
+
 -- Wrap a unit query so it answers with a secret while units are restricted.
 local function restricted(fn)
     return function(...)
@@ -223,6 +252,7 @@ function M.reset()
     M.now = 1000
     M.timers, M.frames, M.sent, M.blocked, M.printed = {}, {}, {}, {}, {}
     M.hardware = false
+    M.focusedBox = nil
     M.rosterRequests = 0
     M.settings = { categories = {} }
     M.state = {
@@ -275,8 +305,10 @@ function M.reset()
     _G.GetUnitName = function(unit) return unitField(unit, "name") end
     _G.UnitIsPlayer = function(unit) return unitField(unit, "isPlayer") end
     _G.UnitIsUnit = restricted(function(a, b)
-        local ua, ub = M.state.units[a], M.state.units[b]
-        return ua ~= nil and ub ~= nil and ua.id == ub.id
+        local ua, ub = resolveUnit(a), resolveUnit(b)
+        local same = ua ~= nil and ub ~= nil and ua.id == ub.id
+        if targetUnreadable(a) or targetUnreadable(b) then return M.secret(same) end
+        return same
     end)
     _G.UnitCanAttack = restricted(function(_, unit)
         local u = M.state.units[unit]
@@ -301,6 +333,9 @@ function M.reset()
     _G.IsInGroup = function(category)
         -- IsInGroup(nil) is any group, as in the game.
         if category ~= nil and category == _G.LE_PARTY_CATEGORY_INSTANCE then return M.state.groupType == "instance" end
+        if category ~= nil and category == _G.LE_PARTY_CATEGORY_HOME then
+            return M.state.groupType ~= nil and M.state.groupType ~= "instance"
+        end
         return M.state.groupType ~= nil
     end
     _G.IsInRaid = function() return M.state.groupType == "raid" or (M.state.groupType == "instance" and M.state.raidSized == true) end
@@ -459,11 +494,15 @@ function M.systemMessage(text)
 end
 
 local nextAuraId = 1
+-- Default aura length, like a real buff just cast. Pass duration = 0 and
+-- expirationTime = 0 for an aura with no duration.
+M.AURA_DURATION = 1800
 -- aura fields override the defaults of a helpful buff cast by a player.
 function M.gainBuff(aura)
     aura = aura or {}
     local full = { isHelpful = true, isFromPlayerOrPlayerPet = true, auraInstanceID = nextAuraId }
     nextAuraId = nextAuraId + 1
+    full.duration, full.expirationTime = M.AURA_DURATION, M.now + M.AURA_DURATION
     for k, v in pairs(aura) do full[k] = v end
     M.state.playerAuras[#M.state.playerAuras + 1] = full
     M.fire("UNIT_AURA", "player", { addedAuras = { full } })
@@ -475,6 +514,7 @@ function M.gainBuffs(auras)
     for i, aura in ipairs(auras) do
         local full = { isHelpful = true, isFromPlayerOrPlayerPet = true, auraInstanceID = nextAuraId }
         nextAuraId = nextAuraId + 1
+        full.duration, full.expirationTime = M.AURA_DURATION, M.now + M.AURA_DURATION
         for k, v in pairs(aura) do full[k] = v end
         list[i] = full
         M.state.playerAuras[#M.state.playerAuras + 1] = full
