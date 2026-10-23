@@ -204,7 +204,10 @@ function Options.Create()
     widgets.help:SetPoint("TOPLEFT", widgets.header, "BOTTOMLEFT", 0, -4)
 
     -- Row 1: enabled, delay
-    widgets.enabled = Checkbox(content, "Enabled", function(on) ns.db[currentType].enabled = on end)
+    widgets.enabled = Checkbox(content, "Enabled", function(on)
+        ns.db[currentType].enabled = on
+        ns.RefreshEvents()
+    end)
     widgets.enabled:SetPoint("TOPLEFT", widgets.help, "BOTTOMLEFT", -4, -8)
     local delay = Stepper(content, "Delay after event (seconds):", "delay")
     delay.label:SetPoint("LEFT", widgets.enabled.label, "RIGHT", 40, 0)
