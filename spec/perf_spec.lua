@@ -120,6 +120,20 @@ describe("Hot paths", function()
         assert.is_true(grown < 1, string.format("grew %.1fKB", grown))
     end)
 
+    it("hands a system message's handler only the message, so it takes the fast path", function()
+        local counts = {}
+        local call = ns.Diag.Call
+        ns.Diag.Call = function(fn, ...)
+            counts[#counts + 1] = select("#", ...)
+            return call(fn, ...)
+        end
+        local extra = {}
+        for i = 1, 16 do extra[i] = "x" end
+        wow.fire("CHAT_MSG_SYSTEM", "|Hplayer:Thrall|h[Thrall]|h has come online.", unpack(extra))
+        assert.are.same({ 1 }, counts)
+        assert.are.equal(1, ns.Diag.Counters().systemMessages)
+    end)
+
     describe("Diag.Call", function()
         it("passes up to four arguments, and more, through unchanged", function()
             local got

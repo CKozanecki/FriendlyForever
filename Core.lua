@@ -96,9 +96,18 @@ function ns.OnActionBlocked(kind, addon, func)
 end
 
 frame:RegisterEvent("ADDON_LOADED")
+-- Events whose handler only reads the first argument. CHAT_MSG_SYSTEM
+-- brings about 17, which would miss Diag.Call's fast path (four or fewer).
+local FIRST_ARG_ONLY = { CHAT_MSG_SYSTEM = true }
+
 frame:SetScript("OnEvent", function(_, event, ...)
     local handler = handlers[event]
-    if handler then ns.Diag.Call(handler, ...) end
+    if not handler then return end
+    if FIRST_ARG_ONLY[event] then
+        ns.Diag.Call(handler, (...))
+    else
+        ns.Diag.Call(handler, ...)
+    end
 end)
 
 ------------------------------------------------------------------------
