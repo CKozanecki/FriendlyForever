@@ -33,16 +33,24 @@ local function IsMe(name)
     return name == Util.UnitFullName("player")
 end
 
+-- The unit tokens of my group's other members' slots: party1..4, or
+-- raid1..40 in a raid (which include me). Built once, so walking the group
+-- doesn't build a token string per slot.
+local PARTY_UNITS, RAID_UNITS = {}, {}
+for i = 1, 4 do PARTY_UNITS[i] = "party" .. i end
+for i = 1, 40 do RAID_UNITS[i] = "raid" .. i end
+
+local function GroupUnits()
+    return IsInRaid() and RAID_UNITS or PARTY_UNITS
+end
+
 -- Is this full name in my group right now? Walks the actual group slots
 -- and compares the names the game reports for them, so it never depends on
 -- which name format a by-name query happens to accept. Returns true, false,
 -- or nil when it can't tell (names are restricted, e.g. in combat).
 function Greeter.IsInMyGroup(name)
-    local prefix, slots = "party", 4
-    if IsInRaid() then prefix, slots = "raid", 40 end
     local unreadable = false
-    for i = 1, slots do
-        local unit = prefix .. i
+    for _, unit in ipairs(GroupUnits()) do
         local exists, secret = Util.Readable(UnitExists(unit))
         if secret then
             unreadable = true
@@ -176,8 +184,8 @@ local convertedMembers, convertedAt = {}, nil
 
 local function PartyNames()
     local names = {}
-    for i = 1, 4 do
-        local name = Util.UnitFullName("party" .. i)
+    for _, unit in ipairs(PARTY_UNITS) do
+        local name = Util.UnitFullName(unit)
         if name then names[name] = true end
     end
     return names
@@ -292,10 +300,7 @@ end
 
 -- Full name of whoever leads my group, or nil if no slot can be read.
 function Greeter.GroupLeaderName()
-    local prefix, slots = "party", 4
-    if IsInRaid() then prefix, slots = "raid", 40 end
-    for i = 1, slots do
-        local unit = prefix .. i
+    for _, unit in ipairs(GroupUnits()) do
         local leads = Util.Readable(UnitIsGroupLeader(unit))
         if leads then
             local name = Util.UnitFullName(unit)

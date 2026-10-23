@@ -39,6 +39,14 @@ BuffTracker.SAY_MAX_AGE = 30
 -- Unit tokens whose casts we remember. Group tokens are skipped because
 -- group members are never thanked.
 local CAST_UNIT_PREFIXES = { "target", "focus", "mouseover", "nameplate", "softfriend" }
+-- Each prefix starts with a different letter, so a token's first byte picks
+-- the only prefix it could have. Most tokens (party, raid, player, arena)
+-- are then rejected without any string work.
+local CAST_UNIT_PREFIX_BY_BYTE = {}
+for _, prefix in ipairs(CAST_UNIT_PREFIXES) do
+    assert(not CAST_UNIT_PREFIX_BY_BYTE[prefix:byte(1)], "cast unit prefixes must start with different letters")
+    CAST_UNIT_PREFIX_BY_BYTE[prefix:byte(1)] = prefix
+end
 
 local batches = {}      -- [caster key] = { names = {}, seen = {}, count = 0 }
 local recentCasts = {}  -- [spellId] = { time = t, caster = shortName or false }
@@ -63,10 +71,8 @@ function BuffTracker.Classify(unit)
 end
 
 local function IsCastUnit(unit)
-    for _, prefix in ipairs(CAST_UNIT_PREFIXES) do
-        if unit:sub(1, #prefix) == prefix then return true end
-    end
-    return false
+    local prefix = CAST_UNIT_PREFIX_BY_BYTE[unit:byte(1)]
+    return prefix ~= nil and unit:find(prefix, 1, true) == 1
 end
 
 -- Readable and true only when the unit's target is us. Casters in cities buff
@@ -79,23 +85,36 @@ local function AimedAtMe(unit)
     return not Util.IsSecret(aimed) and aimed == true
 end
 
+-- Lookups check the time themselves, so old casts only need clearing out
+-- now and then, not on every event.
+local lastPrune = 0
 local function PruneCasts(now)
+    if now - lastPrune <= BuffTracker.CAST_MATCH_WINDOW then return end
+    lastPrune = now
     for spellId, cast in pairs(recentCasts) do
         if now - cast.time > BuffTracker.CAST_MATCH_WINDOW then recentCasts[spellId] = nil end
     end
 end
 
+-- This fires for every cast the client sees (nameplates in a city or a
+-- raid), so the cheap checks come first. Core only registers it while buff
+-- thanks are on; the enabled checks here cover the moment in between.
 function BuffTracker.OnSpellcastSucceeded(unit, _, spellId)
-    if not ns.db or not ns.db.buff.enabled then return end
-    if AnySecret(unit, spellId) or type(unit) ~= "string" or type(spellId) ~= "number" then return end
-    if not IsCastUnit(unit) then return end
+    if not ns.db or not ns.db.enabled or not ns.db.buff.enabled then return end
+    if Util.IsSecret(unit) or type(unit) ~= "string" or not IsCastUnit(unit) then return end
+    if Util.IsSecret(spellId) or type(spellId) ~= "number" then return end
     local caster = BuffTracker.Classify(unit)
     if caster == nil then return end
     -- caster == false (us, pet, group, NPC, hostile) is kept: a real "don't thank".
     if caster and not AimedAtMe(unit) then return end
     local now = GetTime()
     PruneCasts(now)
-    recentCasts[spellId] = { time = now, caster = caster }
+    local cast = recentCasts[spellId]
+    if cast then
+        cast.time, cast.caster = now, caster
+    else
+        recentCasts[spellId] = { time = now, caster = caster }
+    end
 end
 
 local function DescribeBuffs(batch)

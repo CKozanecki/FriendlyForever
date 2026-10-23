@@ -50,8 +50,29 @@ end
 
 -- Run fn(...) and, if it raises a Lua error, count and log it, then hand it
 -- to the game's normal error display (so nothing is hidden).
+-- Lua 5.1's xpcall passes no arguments, so they go through these upvalues.
+-- That keeps the hot events (auras, spellcasts, roster updates) from making a
+-- table and a closure every time. The trampoline copies them out before
+-- calling fn, so a Diag.Call made inside fn can't overwrite them.
+local callFn, callN, arg1, arg2, arg3, arg4
+local function Trampoline()
+    local fn, n, a1, a2, a3, a4 = callFn, callN, arg1, arg2, arg3, arg4
+    callFn, arg1, arg2, arg3, arg4 = nil, nil, nil, nil, nil
+    -- Exactly as many arguments as were given, as select("#", ...) sees them.
+    if n == 0 then return fn() end
+    if n == 1 then return fn(a1) end
+    if n == 2 then return fn(a1, a2) end
+    if n == 3 then return fn(a1, a2, a3) end
+    return fn(a1, a2, a3, a4)
+end
+
 function Diag.Call(fn, ...)
-    local n, args = select("#", ...), { ... }
+    local n = select("#", ...)
+    if n <= 4 then
+        callFn, callN, arg1, arg2, arg3, arg4 = fn, n, ...
+        return xpcall(Trampoline, Diag.OnError)
+    end
+    local args = { ... }
     return xpcall(function() return fn(unpack(args, 1, n)) end, Diag.OnError)
 end
 
