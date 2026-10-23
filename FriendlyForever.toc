@@ -9,6 +9,7 @@
 ## X-License: MIT
 
 Util.lua
+Defaults.lua
 Config.lua
 Diagnostics.lua
 Messages.lua

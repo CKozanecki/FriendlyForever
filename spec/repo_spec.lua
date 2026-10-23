@@ -309,6 +309,14 @@ describe("Release scripts", function()
         assert.is_truthy(wow.readFile("CHANGELOG.md"):find(notes, 1, true), "notes aren't a verbatim slice of the changelog")
     end)
 
+    -- Notes for the next release sit under "### Unreleased" until the
+    -- release PR renames it; they must never reach a CurseForge upload.
+    it("release notes leave out the Unreleased section", function()
+        local _, code = run("./scripts/release-notes.sh")
+        assert.are.equal(0, code)
+        assert.is_nil(wow.readFile("RELEASE_NOTES.md"):find("Unreleased", 1, true))
+    end)
+
     it("package comparison passes on matching zips and fails on different ones", function()
         local zip = run("./scripts/package.sh"):match("([^\n]*%.zip)")
         assert.is_truthy(zip, "package script did not report a zip")

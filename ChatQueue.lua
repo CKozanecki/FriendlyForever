@@ -15,7 +15,7 @@ ns.ChatQueue = ChatQueue
 
 ChatQueue.MIN_INTERVAL = 1.5  -- seconds between any two sends
 ChatQueue.MAX_PENDING = 25
-ChatQueue.MAX_AGE = 120       -- seconds a message may wait before it is dropped
+ChatQueue.MAX_AGE = 120       -- seconds a message may wait before it is dropped (unless item.maxAge)
 ChatQueue.RETRY_DELAY = 2
 
 local pending = {}
@@ -91,8 +91,9 @@ function ChatQueue.Pump(hardware)
         local channel = ResolveChannel(item)
 
         local dropReason
-        if now - item.created > ChatQueue.MAX_AGE then
-            dropReason = "waited too long (" .. ChatQueue.MAX_AGE .. "s)"
+        local maxAge = item.maxAge or ChatQueue.MAX_AGE
+        if now - item.created > maxAge then
+            dropReason = "waited too long (" .. maxAge .. "s)"
         elseif not channel then
             dropReason = "no channel (not in a guild/group any more?)"
         elseif channel == "WHISPER" and type(item.target) ~= "string" then
@@ -167,6 +168,7 @@ end
 --   getText  = function() -> text or nil (called right before sending),
 --   isValid  = optional function() -> ok, reason (reason is logged when not ok),
 --   onDone   = optional function(sent),
+--   maxAge   = optional seconds it may wait before it is dropped (default MAX_AGE),
 --   label    = optional text naming the message in diagnostics,
 --   automatic = optional true for messages the addon sends by itself (skipped
 --               while AFK if that option is on; /friendly selftest is not),

@@ -41,7 +41,9 @@ end
 --   vars     = optional function() -> placeholder table (default: key's name vars),
 --   isValid  = optional function() -> ok, reason; re-checked before sending,
 --   cooldown = optional seconds (default: the type's repeatCooldown),
+--   delay    = optional seconds (default: the type's delay),
 --   onDone   = optional function(sent), always called once if this returns true,
+--   maxAge   = optional seconds the queued message may wait (default: ChatQueue.MAX_AGE),
 -- }
 -- Returns true if a message was scheduled.
 local function Skip(msgType, key, reason)
@@ -62,9 +64,10 @@ function Announcer.Schedule(msgType, key, opts)
     local template = ns.Messages.Pick(msgType, cfg.messages)
     if not template then return Skip(msgType, key, "all message lines are blank") end
 
-    ns.Diag.Log(msgType, "scheduled for %s in %ss", key, cfg.delay)
+    local delay = opts.delay or cfg.delay
+    ns.Diag.Log(msgType, "scheduled for %s in %ss", key, delay)
 
-    C_Timer.After(cfg.delay, ns.Diag.Wrap(function()
+    C_Timer.After(delay, ns.Diag.Wrap(function()
         ns.ChatQueue.Push({
             channel = opts.channel,
             target = opts.target,
@@ -77,6 +80,7 @@ function Announcer.Schedule(msgType, key, opts)
                 return true
             end,
             onDone = opts.onDone,
+            maxAge = opts.maxAge,
             label = msgType .. " for " .. key,
             automatic = true,
         })
