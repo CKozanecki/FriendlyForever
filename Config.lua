@@ -39,8 +39,8 @@ Config.TYPE_INFO = {
     partyJoin = {
         label   = "Party Join",
         channel = "Party chat",
-        help    = "Welcomes players who join your group, several per line; in raids, only the leader. "
-            .. "Placeholders: {name}, {fullname}",
+        help    = "Welcomes joiners, several per line; in raids, only the leader. "
+            .. "Placeholders: {name} (first name), {fullname}",
     },
     partyHello = {
         label   = "Party Hello",
