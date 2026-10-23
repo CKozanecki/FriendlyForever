@@ -2,8 +2,6 @@
 
 ### Unreleased
 
-- `/friendly status` shows the "Don't send messages while I'm AFK" option and whether you're AFK, and says when automatic messages are being dropped because of it.
-
 - Fix: `/friendly test` and the options panel's **Preview random** used up lines from the message rotation, so previewed lines were then skipped when sending for real. Previews now pick a line without touching the saved rotation.
 - Fix: typing in an options box could be undone, with the cursor jumping to the start, whenever a game setting changed (for example through a keybind or another addon). The panel is no longer refilled while it's closed, and the box you're typing in is left alone. Switching tabs or resetting a tab finishes your edit first.
 - README: say thanks waiting for a key press aren't sent while the interface is hidden (Alt+Z).
@@ -16,7 +14,7 @@
 - Fix: a forming raid flooded raid chat with a welcome line for every joiner, sent by every addon user in the raid. In a raid, only the raid leader now welcomes joiners, and at most one welcome line goes out every 30 seconds. Anyone who joins in between is added to the next line, so everyone is still welcomed.
 - Fix: a Party Hello that was never sent (you left the group or entered a battleground first) no longer turns your next hello to that group into "Hello again".
 - Fix: guild login greetings were missed when a guild roster update arrived before the refreshed roster (common with "Show Offline Members" off, or when other addons or the guild frame ask for the roster). A login waiting for the roster now stays waiting until the roster confirms it or 30 seconds pass; friends outside the guild are still never greeted.
-- New option **Don't send messages while I'm AFK** (on by default): greetings and buff thanks that come due while you're AFK are dropped instead of sent. A /say thank-you waiting for a key press still goes out if that key press brings you back. `/friendly test` and `/friendly selftest` aren't affected.
+- New option **Don't send messages while I'm AFK** (on by default): greetings and buff thanks that come due while you're AFK are dropped instead of sent. A /say thank-you waiting for a key press still goes out if that key press brings you back. `/friendly test` and `/friendly selftest` aren't affected. `/friendly status` shows whether it's on, whether you're AFK, and when messages are being dropped because of it.
 - Tests: the simulated guild roster can hide offline members and deliver roster updates late or out of order.
 
 ## 1.5.0

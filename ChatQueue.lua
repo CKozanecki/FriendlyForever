@@ -37,11 +37,18 @@ end
 
 -- True only when the game readably says I'm AFK. Unreadable (secret) or
 -- missing counts as not AFK, so messages still go out.
-function ChatQueue.IsPlayerAFK()
+-- true or false, or nil when the game won't say (a secret value). A client
+-- without UnitIsAFK counts as not AFK.
+function ChatQueue.ReadPlayerAFK()
     if not UnitIsAFK then return false end
     local afk, secret = Util.Readable(UnitIsAFK("player"))
-    if secret then return false end
+    if secret then return nil end
     return afk and true or false
+end
+
+-- Can't tell counts as not AFK: the message is sent.
+function ChatQueue.IsPlayerAFK()
+    return ChatQueue.ReadPlayerAFK() == true
 end
 
 -- Checked at the moment of sending, after the holds, so a /say waiting for
