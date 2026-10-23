@@ -88,6 +88,19 @@ function methods:SetText(text)
     self.cursor = #self.text -- the game moves an edit box's cursor to the end
 end
 function methods:SetCursorPosition(pos) self.cursor = pos end
+-- Keyboard focus: one edit box at a time, as in the game. Focusing a box
+-- takes focus from the last one, and losing focus runs OnEditFocusLost.
+function methods:SetFocus()
+    if M.focusedBox == self then return end
+    if M.focusedBox then M.focusedBox:ClearFocus() end
+    M.focusedBox = self
+end
+function methods:HasFocus() return M.focusedBox == self end
+function methods:ClearFocus()
+    if M.focusedBox ~= self then return end
+    M.focusedBox = nil
+    if self.scripts.OnEditFocusLost then self.scripts.OnEditFocusLost(self) end
+end
 function methods:GetText() return self.text end
 function methods:SetChecked(on) self.checked = on and true or false end
 function methods:GetChecked() return self.checked end
@@ -239,6 +252,7 @@ function M.reset()
     M.now = 1000
     M.timers, M.frames, M.sent, M.blocked, M.printed = {}, {}, {}, {}, {}
     M.hardware = false
+    M.focusedBox = nil
     M.rosterRequests = 0
     M.settings = { categories = {} }
     M.state = {
