@@ -179,6 +179,25 @@ describe("Diagnostics", function()
             assert.is_true(printedHas("lockdown |cff00ff00on|r, 1 waiting"))
         end)
 
+        it("shows the AFK option, and says when it is dropping messages", function()
+            slash("status")
+            assert.is_true(printedHas("skip while AFK: |cff00ff00on|r (you're not AFK)"))
+            wow.state.afk = true
+            slash("status")
+            assert.is_true(printedHas("skip while AFK: |cff00ff00on|r (you're AFK: automatic messages are being dropped)"))
+            ns.db.skipWhileAFK = false
+            wow.printed = {}
+            slash("status")
+            assert.is_true(printedHas("skip while AFK: |cffff4040off|r (you're AFK)"))
+            assert.is_false(printedHas("being dropped"))
+        end)
+
+        it("says when it can't tell whether you're AFK", function()
+            wow.state.afk, wow.state.unitsRestricted = true, true
+            slash("status")
+            assert.is_true(printedHas("(can't tell if you're AFK right now, so messages are sent)"))
+        end)
+
         it("works outside a guild and group", function()
             wow.state.inGuild = false
             slash("status")

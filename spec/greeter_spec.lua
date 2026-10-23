@@ -738,6 +738,18 @@ describe("Greetings", function()
             assert.are.same({ "Hi all! Thanks for the invite." }, wow.sentTo("PARTY"))
         end)
 
+        it("doesn't count a hello dropped while AFK toward Hello Again", function()
+            wow.state.afk = true
+            joinGroup()
+            wow.advance(10)
+            assert.are.equal(0, #wow.sent)
+            wow.state.afk = false
+            leaveGroup()
+            joinGroup()
+            wow.advance(10)
+            assert.are.same({ "Hi all! Thanks for the invite." }, wow.sentTo("PARTY"))
+        end)
+
         it("doesn't say hello when someone accepts my invite (I lead)", function()
             joinGroup("party", { "Anduin" }, true)
             wow.advance(10)

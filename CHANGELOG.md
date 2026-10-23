@@ -16,7 +16,7 @@
 - Fix: a forming raid flooded raid chat with a welcome line for every joiner, sent by every addon user in the raid. In a raid, only the raid leader now welcomes joiners, and at most one welcome line goes out every 30 seconds. Anyone who joins in between is added to the next line, so everyone is still welcomed.
 - Fix: a Party Hello that was never sent (you left the group or entered a battleground first) no longer turns your next hello to that group into "Hello again".
 - Fix: guild login greetings were missed when a guild roster update arrived before the refreshed roster (common with "Show Offline Members" off, or when other addons or the guild frame ask for the roster). A login waiting for the roster now stays waiting until the roster confirms it or 30 seconds pass; friends outside the guild are still never greeted.
-- New option **Don't send messages while I'm AFK** (on by default): greetings and buff thanks that come due while you're AFK are dropped instead of sent. A /say thank-you waiting for a key press still goes out if that key press brings you back. `/friendly test` and `/friendly selftest` aren't affected.
+- New option **Don't send messages while I'm AFK** (on by default): greetings and buff thanks that come due while you're AFK are dropped instead of sent. A /say thank-you waiting for a key press still goes out if that key press brings you back. `/friendly test` and `/friendly selftest` aren't affected. `/friendly status` shows whether it's on, whether you're AFK, and when messages are being dropped because of it.
 - Tests: the simulated guild roster can hide offline members and deliver roster updates late or out of order.
 
 ## 1.5.0

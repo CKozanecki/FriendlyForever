@@ -123,6 +123,14 @@ local function PrintStatus()
     local function c(key) return n[key] or 0 end
     ns.Print("version " .. ns.VERSION .. ", debug " .. OnOff(db.debug))
     ns.Print("state: " .. ns.Announcer.ActiveState())
+    -- "Why didn't it greet?" is often this, since the option is on by default.
+    local afk, afkText = Q.ReadPlayerAFK(), "you're not AFK"
+    if afk == nil then
+        afkText = "can't tell if you're AFK right now, so messages are sent"
+    elseif afk then
+        afkText = db.skipWhileAFK and "you're AFK: automatic messages are being dropped" or "you're AFK"
+    end
+    ns.Print("skip while AFK: " .. OnOff(db.skipWhileAFK) .. " (" .. afkText .. ")")
     for _, msgType in ipairs(ns.Config.TYPES) do
         local cfg = db[msgType]
         ns.Print(string.format("  %s: %s, delay %ss, repeat %ss", ns.Config.TYPE_INFO[msgType].label,
