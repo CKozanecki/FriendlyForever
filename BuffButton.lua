@@ -229,23 +229,31 @@ local function ShowResult(text, alsoInChat)
 end
 
 local NoAnswer
+local downHalfSeen = false -- a down half began this press; its up half isn't a new one
 
 -- Before the secure action runs. Which half of a press (down or up) the game
 -- acts on depends on the input and its settings, so this runs for both
--- halves: re-arm at the last moment (your target may have changed; it does
--- nothing when nothing changed) and remember the press, to match the game's
--- answer to it. A press that gets no answer is reported (NoAnswer).
-local function OnPreClick(_, mouseButton)
+-- halves and re-arms each time, at the last moment (your target may have
+-- changed; it does nothing when nothing changed).
+--
+-- The press itself is recorded once per physical press, to match the game's
+-- answer to it: on the down half, or on the up half when no down half came
+-- first (a click delivered on release only). A press that gets no answer is
+-- reported (NoAnswer).
+local function OnPreClick(_, mouseButton, isDown)
     if mouseButton ~= "LeftButton" then return end
     ArmButton()
-    if not armedOffer then return end
-    local press = pressAwaitingAnswer
-    if not (press and press.name == armedOffer.name and GetTime() - press.pressedAt < 1) then
-        press = { name = armedOffer.name, spell = armedOffer.spell, buff = armedOffer.buff }
-        pressAwaitingAnswer = press
-        ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
+    local newPress = true
+    if isDown == true then
+        downHalfSeen = true
+    elseif isDown == false then
+        newPress = not downHalfSeen
+        downHalfSeen = false
     end
-    press.pressedAt = GetTime()
+    if not newPress or not armedOffer then return end
+    local press = { name = armedOffer.name, spell = armedOffer.spell, buff = armedOffer.buff, pressedAt = GetTime() }
+    pressAwaitingAnswer = press
+    ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
     C_Timer.After(BuffButton.ANSWER_WINDOW_SECONDS + 0.1, ns.Diag.Wrap(function() NoAnswer(press) end))
 end
 

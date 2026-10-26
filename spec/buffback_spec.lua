@@ -395,6 +395,54 @@ describe("Buff back", function()
                 button.result:GetText())
         end)
 
+        describe("never reports 'No answer' for a press the game answered", function()
+            local function noAnswerPrinted()
+                return printedHas("No answer")
+            end
+
+            it("a refused cast", function()
+                wow.state.castFailures["Bob-Stone"] = "Out of range."
+                stranger()
+                buffedBy()
+                wow.press(button)
+                wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+                assert.is_true(printedHas("Couldn't buff Bob Stone: Out of range."))
+                assert.is_false(noAnswerPrinted())
+            end)
+
+            it("a cast the game didn't name", function()
+                wow.state.sentTargetForm = "none"
+                stranger()
+                buffedBy()
+                wow.press(button)
+                wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+                assert.is_false(noAnswerPrinted())
+                assert.is_truthy(ns.BuffButton.StatusLines()[#ns.BuffButton.StatusLines()]:find("didn't say", 1, true))
+            end)
+
+            it("a return with another favour waiting behind it", function()
+                stranger("nameplate2", { name = "Ann", surname = "Vale" })
+                buffedBy("nameplate2")
+                stranger("nameplate1")
+                buffedBy("nameplate1")
+                wow.press(button)
+                assert.are.equal(1, #wow.casts)
+                wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+                assert.is_false(noAnswerPrinted())
+                assert.are.equal("Ann-Vale", ns.BuffButton.ArmedOffer().name, "Ann is next")
+            end)
+
+            it("when the game acts on key up", function()
+                wow.state.cvars.ActionButtonUseKeyDown = "0"
+                stranger()
+                buffedBy()
+                wow.press(button)
+                wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+                assert.are.equal(1, #wow.casts)
+                assert.is_false(noAnswerPrinted())
+            end)
+        end)
+
         it("reports a press that got no answer (they couldn't be found)", function()
             stranger("nameplate1")
             buffedBy("nameplate1")
@@ -581,8 +629,9 @@ describe("Buff back", function()
         -- A seeded storm of everything that can happen around the button, in
         -- random order: it must never error, never touch the button in combat,
         -- and keep its own bookkeeping consistent.
-        it("survives a random storm of events, presses, fights and settings changes", function()
-            math.randomseed(20261026)
+        local function storm(seed)
+            boot()
+            math.randomseed(seed)
             ns.db.buffBack.sayLine = true
             local names = { "Bob", "Ann", "Cid", "Dot", "Eve", "Fay" }
             local actions = {
@@ -612,31 +661,68 @@ describe("Buff back", function()
                 function() wow.state.unitsRestricted = math.random() < 0.2 end,
                 function() wow.fire("SPELLS_CHANGED") end,
             }
-            for _ = 1, 3000 do
+            -- Presses the game left unanswered (no cast or error from them): only
+            -- those may be reported as "No answer".
+            local unanswered = 0
+            local realPress = wow.press
+            local function countedPress(b, mouseButton, mods)
+                local casts, errors = #wow.casts, 0
+                local frame = CreateFrame("Frame")
+                frame:RegisterEvent("UI_ERROR_MESSAGE")
+                frame:SetScript("OnEvent", function() errors = errors + 1 end)
+                realPress(b, mouseButton, mods)
+                frame:UnregisterEvent("UI_ERROR_MESSAGE")
+                if (mouseButton or "LeftButton") == "LeftButton" and #wow.casts == casts and errors == 0 then
+                    unanswered = unanswered + 1
+                end
+            end
+            actions[3] = function()
+                countedPress(button, math.random() < 0.8 and "LeftButton" or "RightButton",
+                    math.random() < 0.3 and { shift = true } or nil)
+            end
+            for step = 1, 1500 do
                 actions[math.random(#actions)]()
                 if wow.state.inCombat then
-                    assert.is_nil(macro(), "the button holds nothing in a fight")
+                    assert.is_nil(macro(), "seed " .. seed .. ", step " .. step .. ": armed in a fight")
                 end
-                assert.is_true(ns.Offers.Count() <= ns.Offers.MAX)
+                assert.is_true(ns.Offers.Count() <= ns.Offers.MAX, "seed " .. seed)
             end
-            assert.are.same({}, wow.errors)
+            assert.are.same({}, wow.errors, "seed " .. seed)
             local s = ns.Ledger.Summary()
-            assert.is_true(s.returned <= s.received, "never more returned than received")
-            -- The storm really exercised the button, not just the edges.
-            assert.is_true(s.received > 50, "favours received: " .. s.received)
-            assert.is_true(#wow.casts > 10, "casts: " .. #wow.casts)
-            assert.is_true(s.returned > 0, "favours returned: " .. s.returned)
+            assert.is_true(s.returned <= s.received, "seed " .. seed .. ": more returned than received")
+            local noAnswers = 0
+            for _, line in ipairs(wow.printed) do
+                if line:find("No answer", 1, true) then noAnswers = noAnswers + 1 end
+            end
+            assert.is_true(noAnswers <= unanswered,
+                ("seed %d: %d 'No answer' lines for %d unanswered presses"):format(seed, noAnswers, unanswered))
+            return s
+        end
+
+        it("survives random storms of events, presses, fights and settings changes", function()
+            local received, casts, returned = 0, 0, 0
+            for _, seed in ipairs({ 1, 7, 42, 2026, 31337 }) do
+                local s = storm(seed)
+                received, casts, returned = received + s.received, casts + #wow.casts, returned + s.returned
+            end
+            -- The storms really exercised the button, not just the edges.
+            assert.is_true(received > 100, "favours received: " .. received)
+            assert.is_true(casts > 20, "casts: " .. casts)
+            assert.is_true(returned > 0, "favours returned: " .. returned)
         end)
 
         it("keeps working when its settings are damaged mid-session, and a reload heals them", function()
             stranger()
             buffedBy()
             ns.db.buffBack.messages = "not a list"
-            ns.db.buffBack.sayLine = true
+            ns.db.buffBack.sayLine = "yes"
             ns.db.buffBack.owedMinutes = "ten"
             wow.fire("PLAYER_TARGET_CHANGED")
             wow.advance(30)
-            wow.press(button) -- nothing here may throw out of an event or a press
+            assert.is_truthy(macro(), "still armed, damaged values read as their defaults")
+            wow.press(button)
+            assert.are.equal("Mark of the Wild", wow.casts[#wow.casts].spell, "still casts before any reload")
+            assert.are.same({}, wow.errors)
             wow.printed = {}
             slash("status")
             assert.is_true(#wow.printed > 0, "the addon still answers")

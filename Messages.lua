@@ -26,9 +26,11 @@ local function Shuffled(list)
 end
 
 -- The non-blank lines: a set of their indexes, and the indexes in order.
+-- (A list that isn't a table, from damaged settings, has no usable lines.)
 local function Usable(messages)
     local usable = {}
     local candidates = {}
+    if type(messages) ~= "table" then return usable, candidates end
     for i = 1, #messages do
         local text = messages[i]
         if type(text) == "string" and text:find("%S") then

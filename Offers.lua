@@ -107,7 +107,11 @@ end
 
 -- Forget favours older than the setting. Returns true if any went.
 local function Expire(now)
-    local limit = ns.db.buffBack.owedMinutes * 60
+    -- Read defensively: settings damaged mid-session mustn't stop the button.
+    local limits = ns.Config.LIMITS.owedMinutes
+    local minutes = Util.ClampNumber(ns.db.buffBack.owedMinutes, limits.min, limits.max,
+        ns.Config.DEFAULTS.buffBack.owedMinutes)
+    local limit = minutes * 60
     local any = false
     for i = #favours, 1, -1 do
         if now - favours[i].owedAt > limit then
