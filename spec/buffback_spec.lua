@@ -1053,6 +1053,35 @@ describe("Buff back", function()
             end
         end)
 
+        it("one error text answers one failure, and never one pressed after it", function()
+            stranger()
+            buffedBy()
+            half(true); half(false)
+            wow.fire("UNIT_SPELLCAST_SENT", "player", "Bob", "Cast-1", MOTW)
+            half(true); half(false)
+            wow.fire("UNIT_SPELLCAST_SENT", "player", "Bob", "Cast-2", MOTW)
+            wow.advance(1) -- the server's refusals come late, error text first
+            wow.uiError("Target not in line of sight")
+            wow.fire("UNIT_SPELLCAST_FAILED", "player", "Cast-1", MOTW)
+            wow.fire("UNIT_SPELLCAST_FAILED", "player", "Cast-2", MOTW)
+            local n = 0
+            for _, line in ipairs(wow.printed) do
+                if line:find("Target not in line of sight", 1, true) then n = n + 1 end
+            end
+            assert.are.equal(1, n)
+        end)
+
+        it("an error from just before a press isn't taken as its reason", function()
+            stranger()
+            buffedBy()
+            wow.uiError("Not enough energy") -- from your action bar
+            wow.advance(0.2)
+            half(true); half(false)
+            wow.fire("UNIT_SPELLCAST_SENT", "player", "Bob", "Cast-1", MOTW)
+            wow.fire("UNIT_SPELLCAST_FAILED", "player", "Cast-1", MOTW)
+            assert.is_false(printedHas("Not enough energy"))
+        end)
+
         it("an old unclaimed error isn't taken by a later failure", function()
             stranger()
             buffedBy()
