@@ -85,6 +85,9 @@ function Profiles.Import(text)
         return nil, "that line is from a version of Friendly Forever this one can't read"
     end
     local before = Profiles.Snapshot(ns.db)
+    -- A line without a version was written by hand or before versions were
+    -- stored: take it as current rather than running every old migration.
+    if data.settings.schemaVersion == nil then data.settings.schemaVersion = ns.Config.SCHEMA_VERSION end
     Apply(data.settings)
     ns.db.importUndo = {
         profile = ns.db.activeProfile, settings = before, ignoreAdded = MergeIgnore(data.settings.ignore),

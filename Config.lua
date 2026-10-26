@@ -259,6 +259,7 @@ function Config.Migrate(db)
 end
 
 -- The ignore list's key for a full name: names match whatever their case.
+-- (Lua's lower() folds only A-Z: "élodie" and "Élodie" stay different.)
 function Config.IgnoreKey(fullName)
     return fullName:lower()
 end

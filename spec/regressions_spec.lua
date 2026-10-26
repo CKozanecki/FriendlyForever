@@ -67,6 +67,12 @@ describe("Regressions", function()
             assert.are.same(ns.DefaultMessages.guildJoin, ns.db.guildJoin.messages)
         end)
 
+        it("takes a line without a version as current (no old migrations)", function()
+            ns.Profiles.Import(ns.Serialize.Encode({ v = 1, settings = { guildLogin = { messages = { "Hi {name}" } } } }))
+            assert.are.equal("Hi {name}", ns.db.guildLogin.messages[1])
+            assert.are.equal("", ns.db.guildLogin.messages[11])
+        end)
+
         it("stores the settings version in profiles and exports", function()
             ns.Profiles.New("P")
             assert.are.equal(ns.Config.SCHEMA_VERSION, ns.db.profiles.P.schemaVersion)
