@@ -193,10 +193,28 @@ describe("Buff back", function()
             buffedBy()
             wow.state.units.nameplate1 = nil
             wow.fire("NAME_PLATE_UNIT_REMOVED", "nameplate1")
+            wow.advance(0) -- on the next frame
             assert.is_nil(macro())
             stranger("nameplate3")
             wow.fire("NAME_PLATE_UNIT_ADDED", "nameplate3")
+            wow.advance(0) -- on the next frame
             assert.is_truthy(macro())
+        end)
+
+        it("re-arms once for many nameplate events in a frame, and not at all while nobody is owed", function()
+            local reads = 0
+            local realName = _G.UnitName
+            finally(function() _G.UnitName = realName end)
+            _G.UnitName = function(...) reads = reads + 1 return realName(...) end
+            for i = 1, 100 do wow.fire("NAME_PLATE_UNIT_ADDED", "nameplate" .. (i % 40 + 1)) end
+            wow.advance(0)
+            assert.are.equal(0, reads, "nobody owed: nothing read")
+            stranger()
+            buffedBy()
+            reads = 0
+            for i = 1, 100 do wow.fire("NAME_PLATE_UNIT_ADDED", "nameplate" .. (i % 40 + 1)) end
+            wow.advance(0)
+            assert.is_true(reads <= 2 * (3 + ns.Offers.MAX_NAMEPLATES), "one re-arm, not a hundred: " .. reads)
         end)
 
         it("still refuses a flagged player after their nameplate is gone", function()
@@ -838,6 +856,147 @@ describe("Buff back", function()
             assert.are.equal("Ann-Vale", ns.BuffButton.ArmedOffer().name)
         end)
 
+        it("a refusal before anything is sent is reported once, not also as 'No answer' (key down)", function()
+            stranger()
+            buffedBy()
+            half(true)
+            ns.BuffButton.OnUIError(0, "Out of range.") -- refused on the spot: no SENT, no FAILED
+            half(false)
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+            assert.is_false(printedHas("No answer"))
+            assert.are.equal("Couldn't buff Bob Stone: Out of range.", button.result:GetText())
+        end)
+
+        it("a cast of the same spell sent some other way doesn't answer a press it wasn't sent for", function()
+            stranger()
+            buffedBy()
+            half(true); half(false)
+            ns.BuffButton.OnSpellcastSent("player", "Bob", "Cast-1", MOTW)
+            ns.BuffButton.OnSpellcastSent("player", "Ann", "Cast-2", MOTW)       -- your action bar, on Ann
+            ns.BuffButton.OnSpellcastSucceeded("player", "Cast-2", MOTW)
+            assert.is_nil(ns.db.ledger.entries[1].returned, "Cast-2 went to Ann")
+            ns.BuffButton.OnSpellcastFailed("player", "Cast-1", MOTW)
+            ns.BuffButton.OnUIError(0, "Target not in line of sight")
+            assert.are.equal("Couldn't buff Bob Stone: Target not in line of sight", button.result:GetText())
+            assert.are.equal(1, ns.Offers.Count())
+        end)
+
+        it("a second cast sent before the first lands doesn't take over the first press", function()
+            stranger()
+            buffedBy()
+            half(true); half(false)
+            ns.BuffButton.OnSpellcastSent("player", "Bob", "g1", MOTW)
+            ns.BuffButton.OnSpellcastSent("player", "Ann", "g2", MOTW)
+            ns.BuffButton.OnSpellcastSucceeded("player", "g1", MOTW)
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned)
+        end)
+
+        it("a cast of another of your buffs doesn't answer the press", function()
+            stranger()
+            buffedBy()
+            half(true); half(false)
+            ns.BuffButton.OnSpellcastSent("player", "Bob", "g", THORNS)
+            ns.BuffButton.OnSpellcastSucceeded("player", "g", THORNS)
+            assert.is_nil(ns.db.ledger.entries[1].returned)
+        end)
+
+        it("a sent cast the server is slow to answer is never called 'No answer', and is still credited", function()
+            wow.state.castLatency = 4
+            stranger()
+            buffedBy()
+            wow.press(button)
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 0.5)
+            assert.is_false(printedHas("No answer"))
+            wow.advance(1)
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned)
+        end)
+
+        it("says so when a sent cast is never answered at all", function()
+            wow.state.castLatency = ns.BuffButton.SENT_ANSWER_SECONDS + 10
+            stranger()
+            buffedBy()
+            wow.press(button)
+            wow.advance(ns.BuffButton.SENT_ANSWER_SECONDS + 1)
+            assert.are.equal("No word back on Mark of the Wild for Bob Stone. If it didn't land, press again.",
+                button.result:GetText())
+            assert.is_false(printedHas("No answer"))
+        end)
+
+        it("a key held before release (key up) still gets its late answer", function()
+            wow.state.cvars.ActionButtonUseKeyDown = "0"
+            wow.state.castLatency = 1.5
+            stranger()
+            buffedBy()
+            half(true)
+            wow.advance(2)
+            wow.hardware = true; half(false); wow.runMacro(macro()); wow.hardware = false
+            wow.advance(2)
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned)
+        end)
+
+        it("a retry replaces the press that found nobody: no 'No answer' once the retry casts", function()
+            stranger()
+            buffedBy()
+            wow.state.targetNameForm = "hyphen"
+            wow.press(button)
+            wow.state.targetNameForm = "space"
+            wow.advance(1)
+            wow.press(button)
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned)
+            assert.is_false(printedHas("No answer"))
+        end)
+
+        it("a press already sent keeps its favour when another arrives while the key is held (key down)", function()
+            wow.state.castLatency = 1
+            stranger()
+            buffedBy()
+            wow.hardware = true; half(true); wow.runMacro(macro()); wow.hardware = false
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2")
+            half(false)
+            wow.advance(2)
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned, "Bob's favour credited")
+            assert.is_false(printedHas("went to"))
+            assert.is_false(printedHas("No answer"))
+        end)
+
+        it("an error just after a press was answered isn't blamed on it", function()
+            stranger()
+            buffedBy()
+            wow.press(button)
+            ns.BuffButton.OnUIError(0, "Not enough energy")
+            assert.is_false(printedHas("Couldn't buff"))
+        end)
+
+        it("a refusal is reported once; a later error isn't blamed on it", function()
+            wow.state.castFailures["Bob-Stone"] = "Out of range."
+            stranger()
+            buffedBy()
+            wow.press(button)
+            wow.advance(1)
+            wow.uiError("Not enough energy")
+            local n = 0
+            for _, line in ipairs(wow.printed) do
+                if line:find("Couldn't buff", 1, true) then n = n + 1 end
+            end
+            assert.are.equal(1, n)
+        end)
+
+        it("a quiet failure answers the press, and a later error isn't blamed on it", function()
+            stranger()
+            buffedBy()
+            half(true); half(false)
+            ns.BuffButton.OnSpellcastSent("player", "Bob", "Cast-1", MOTW)
+            ns.BuffButton.OnSpellcastFailedQuiet("player", "Cast-1", MOTW)
+            wow.advance(2)
+            wow.uiError("Not enough energy")
+            assert.is_false(printedHas("Couldn't buff"))
+            wow.advance(ns.BuffButton.SENT_ANSWER_SECONDS)
+            assert.is_false(printedHas("No word back"))
+            assert.are.equal(1, ns.Offers.Count(), "still owed")
+        end)
+
         it("keeps your target when the game won't say whether you have one", function()
             wow.addUnit("wolf", { name = "Wolf", isPlayer = false, hostile = true })
             wow.state.units.target = wow.state.units.wolf
@@ -1002,6 +1161,20 @@ describe("Buff back", function()
             wow.press(button)
             assert.are.equal("Mark of the Wild", wow.casts[1].spell)
             assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned)
+        end)
+
+        it("an unrelated error doesn't change the ledger, and repairs run at most once a second", function()
+            local entry = ns.Ledger.Received("Ann-Vale", "Arcane Intellect") -- a thank-you pending
+            local loads = 0
+            local realLoad = ns.Profiles.Validate
+            finally(function() ns.Profiles.Validate = realLoad end)
+            ns.Profiles.Validate = function(...) loads = loads + 1 return realLoad(...) end
+            for _ = 1, 50 do ns.Diag.Call(function() error("not about settings") end) end
+            assert.are.equal(ns.Ledger.PENDING, entry.result, "a live thank-you isn't marked missed")
+            assert.are.equal(1, loads, "one repair for fifty errors in one moment")
+            wow.advance(ns.Config.REPAIR_INTERVAL_SECONDS)
+            ns.Diag.Call(function() error("again") end)
+            assert.are.equal(2, loads)
         end)
 
         it("credits a return even when the ledger was damaged mid-session", function()

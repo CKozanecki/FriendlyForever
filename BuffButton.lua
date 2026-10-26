@@ -18,7 +18,8 @@ local BuffButton = {}
 ns.BuffButton = BuffButton
 
 BuffButton.FRAME_NAME = "FriendlyForeverBuffButton"
-BuffButton.ANSWER_WINDOW_SECONDS = 3   -- after a press, a cast this soon is its answer
+BuffButton.ANSWER_WINDOW_SECONDS = 3   -- after a press, a cast going out this soon is its answer
+BuffButton.SENT_ANSWER_SECONDS = 15    -- after a cast goes out, how long the server may take to answer
 BuffButton.ERROR_ANSWER_SECONDS = 0.5  -- the game's error text this soon after a press acts is about it
 BuffButton.MAX_PRESSES_WATCHED = 5     -- presses waiting for an answer at once (keys mashed)
 BuffButton.RESULT_SHOWN_SECONDS = 4    -- how long "Returned ..." stays under the button
@@ -238,12 +239,15 @@ local function ShowResult(text, alsoInChat)
 end
 
 -- Presses waiting for the game's answer, newest last. Each is
--- { name, spell, buff, lastHalfAt, complete, sent, failed, castGUID, castTargetName }:
+-- { name, spell, buff, lastHalfAt, complete, sent, failed, expired, watch, castGUID, castTargetName }:
+--   lastHalfAt      GetTime() of the press's latest half (when it acted)
 --   complete        both halves of the press arrived (a press released off
 --                   the button never completes, and was no attempt)
 --   sent            the game said a cast of the buff went out for it
 --                   (UNIT_SPELLCAST_SENT), naming castGUID and castTargetName
 --   failed          the game said that cast failed; its error text follows
+--   expired         its wait for an answer ran out (see Unanswered)
+--   watch           identifies its current wait (WatchForAnswer)
 -- More than one is kept so a second press while the first cast is in flight
 -- doesn't lose the first one's answer.
 local presses = {}
@@ -260,22 +264,29 @@ local function ForgetPress(press)
 end
 
 -- No answer in time. A complete press the game never sent a cast for found
--- nobody to cast on; anything else is let go quietly.
+-- nobody to cast on. A cast sent but never answered (a long lag spike) may
+-- or may not have landed. A press never completed was no attempt.
 local function Unanswered(press)
     if not ForgetPress(press) then return end
-    if press.complete and not press.sent then
-        ShowResult("No answer: couldn't find " .. Util.DisplayName(press.name) .. " (out of sight?).", true)
-        BuffButton.Refresh()
+    press.expired = true
+    local who = Util.DisplayName(press.name)
+    if press.sent then
+        ShowResult("No word back on " .. press.spell .. " for " .. who .. ". If it didn't land, press again.")
+    elseif press.complete then
+        ShowResult("No answer: couldn't find " .. who .. " (out of sight?).", true)
+    else
+        return
     end
+    BuffButton.Refresh()
 end
 
--- (Re)start the wait for this press's answer. A later restart supersedes an
--- earlier one.
-local function WatchForAnswer(press)
-    local since = GetTime()
-    press.lastHalfAt = since
-    C_Timer.After(BuffButton.ANSWER_WINDOW_SECONDS + 0.1, ns.Diag.Wrap(function()
-        if press.lastHalfAt == since then Unanswered(press) end
+-- (Re)start the wait for this press's answer, for seconds (by default the
+-- time a press has to send a cast). A later restart supersedes an earlier one.
+local function WatchForAnswer(press, seconds)
+    local watch = {}
+    press.watch = watch
+    C_Timer.After((seconds or BuffButton.ANSWER_WINDOW_SECONDS) + 0.1, ns.Diag.Wrap(function()
+        if press.watch == watch then Unanswered(press) end
     end))
 end
 
@@ -291,7 +302,7 @@ end
 local function AddPress(complete)
     local newest = presses[#presses]
     if newest and not newest.sent then table.remove(presses) end
-    local press = TakeArmedOffer({ complete = complete })
+    local press = TakeArmedOffer({ complete = complete, lastHalfAt = GetTime() })
     presses[#presses + 1] = press
     while #presses > BuffButton.MAX_PRESSES_WATCHED do table.remove(presses, 1) end
     WatchForAnswer(press)
@@ -322,15 +333,18 @@ local function OnPreClick(_, mouseButton, isDown)
         return
     end
     if not ForgetPress(press) then
-        -- Already answered (the down half acted), or given up on (held too long).
-        if armedOffer and not press.sent then AddPress(true) end
+        -- Answered already (the down half acted), or given up on while the
+        -- key was held: only then is this half a press of its own.
+        if press.expired and not press.sent and armedOffer then AddPress(true) end
         return
     end
     presses[#presses + 1] = press
-    if not press.sent and armedOffer and (armedOffer.name ~= press.name or armedOffer.spell ~= press.spell) then
+    press.complete = true
+    if press.sent then return end -- the down half acted; its wait continues
+    if armedOffer and (armedOffer.name ~= press.name or armedOffer.spell ~= press.spell) then
         TakeArmedOffer(press)
     end
-    press.complete = true
+    press.lastHalfAt = GetTime()
     WatchForAnswer(press)
 end
 
@@ -390,6 +404,7 @@ function BuffButton.OnSpellcastSent(unit, castTargetName, castGUID, spellId)
     press.sent = true
     press.castGUID = ReadableText(castGUID)
     press.castTargetName = ReadableText(castTargetName)
+    WatchForAnswer(press, BuffButton.SENT_ANSWER_SECONDS)
 end
 
 -- The cast landed. It counts as returned only when the game says it went to
@@ -421,6 +436,15 @@ function BuffButton.OnSpellcastFailed(unit, castGUID, spellId)
     if not press then return end
     press.sent, press.failed = true, true
     lastResultText = "the cast of " .. press.spell .. " failed"
+end
+
+-- The cast failed with nothing to say (cancelled, say): no error text
+-- follows, so the press is simply answered.
+function BuffButton.OnSpellcastFailedQuiet(unit, castGUID, spellId)
+    local press = PressForCast(unit, castGUID, spellId)
+    if not press then return end
+    ForgetPress(press)
+    lastResultText = "the cast of " .. press.spell .. " stopped"
 end
 
 -- The press the game's red error text answers: the newest whose cast just
@@ -483,6 +507,18 @@ local function ShowTooltip(self)
     GameTooltip:Show()
 end
 
+-- One re-arm on the next frame for any number of events now (nameplates come
+-- and go by the dozen in a city).
+local refreshSoonScheduled = false
+local function RefreshSoon()
+    if refreshSoonScheduled or ns.Offers.Count() == 0 then return end
+    refreshSoonScheduled = true
+    C_Timer.After(0, ns.Diag.Wrap(function()
+        refreshSoonScheduled = false
+        BuffButton.Refresh()
+    end))
+end
+
 local function OnSpellsChanged()
     ns.BuffData.SpellsChanged()
     BuffButton.Refresh()
@@ -494,12 +530,12 @@ local function CreateEventFrame()
         UNIT_SPELLCAST_SENT = BuffButton.OnSpellcastSent,
         UNIT_SPELLCAST_SUCCEEDED = BuffButton.OnSpellcastSucceeded,
         UNIT_SPELLCAST_FAILED = BuffButton.OnSpellcastFailed,
-        UNIT_SPELLCAST_FAILED_QUIET = BuffButton.OnSpellcastFailed,
+        UNIT_SPELLCAST_FAILED_QUIET = BuffButton.OnSpellcastFailedQuiet,
         UI_ERROR_MESSAGE = BuffButton.OnUIError,
         PLAYER_TARGET_CHANGED = BuffButton.Refresh,
         -- Someone owed may come into view (or go): their PvP flag can be read only then.
-        NAME_PLATE_UNIT_ADDED = BuffButton.Refresh,
-        NAME_PLATE_UNIT_REMOVED = BuffButton.Refresh,
+        NAME_PLATE_UNIT_ADDED = RefreshSoon,
+        NAME_PLATE_UNIT_REMOVED = RefreshSoon,
         PLAYER_REGEN_DISABLED = BuffButton.OnCombatStart,
         PLAYER_REGEN_ENABLED = BuffButton.Refresh,
         SPELLS_CHANGED = OnSpellsChanged,

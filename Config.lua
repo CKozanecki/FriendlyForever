@@ -14,10 +14,12 @@ local CasualMessages = ns.CasualMessages
 local Config = {}
 ns.Config = Config
 
+
 Config.SCHEMA_VERSION = 6
 Config.NUM_MESSAGES = 30
 Config.MAX_LOG = 400 -- diagnostic log lines kept in saved variables
 Config.MAX_IGNORED = 500
+Config.REPAIR_INTERVAL_SECONDS = 1 -- the shortest time between mid-session repairs (Config.Repair)
 Config.SNOOZE_MAX_SECONDS = 24 * 60 * 60
 Config.THANK_STYLES = { message = true, emote = true, both = true }
 
@@ -331,10 +333,9 @@ function Config.IgnoreEntry(key, value)
     if full and Config.IgnoreKey(full) == key then return full end
 end
 
-function Config.Load(saved)
-    local db = type(saved) == "table" and saved or {}
-    Config.Migrate(db)
-
+-- Everything in the saved file but the ledger (which checks itself as it's
+-- used, and whose live entries a full check would change: see Ledger.Data).
+local function ValidateSettings(db)
     if type(db.enabled) ~= "boolean" then db.enabled = true end
     if type(db.skipWhileAFK) ~= "boolean" then db.skipWhileAFK = Config.DEFAULTS.skipWhileAFK end
 
@@ -396,7 +397,6 @@ function Config.Load(saved)
     end
     db.ignore = ignore
 
-    db.ledger = ns.Ledger.Validate(db.ledger)
     ns.Profiles.Validate(db)
 
     -- Snooze: wall-clock time (time()) it ends, or nil.
@@ -407,14 +407,28 @@ function Config.Load(saved)
     else
         db.snoozeUntil = math.min(db.snoozeUntil, time() + Config.SNOOZE_MAX_SECONDS)
     end
+end
+
+-- The saved file as loaded: migrated, every value checked. Returns it.
+function Config.Load(saved)
+    local db = type(saved) == "table" and saved or {}
+    Config.Migrate(db)
+    ValidateSettings(db)
+    db.ledger = ns.Ledger.Validate(db.ledger)
     return db
 end
 
 -- Check the live settings again: after an error (Diag.OnError), since damage
 -- done mid-session (another addon, a bad /run) can cause one, so it heals at
--- once instead of at the next reload.
+-- once instead of at the next reload. At most once a second, so an error
+-- repeating every frame doesn't re-check the whole file every frame.
+local lastRepairAt
 function Config.Repair()
-    if type(ns.db) == "table" then Config.Load(ns.db) end
+    if type(ns.db) ~= "table" then return end
+    local now = GetTime()
+    if lastRepairAt and now - lastRepairAt < Config.REPAIR_INTERVAL_SECONDS then return end
+    lastRepairAt = now
+    ValidateSettings(ns.db)
 end
 
 -- Fresh copy of one type's defaults.
