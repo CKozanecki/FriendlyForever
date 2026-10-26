@@ -1,5 +1,7 @@
 -- Minimap button: left-click opens options, right-click turns the addon
--- on/off, drag moves it around the minimap edge.
+-- on/off, drag moves it around the minimap edge. The same entry goes in the
+-- addon compartment (the drop-down of addons by the minimap), where the
+-- client has one.
 local _, ns = ...
 
 local MinimapButton = {}
@@ -40,13 +42,25 @@ end
 function MinimapButton.Refresh()
     if not button then return end
     button:SetShown(not ns.db.minimap.hide)
-    button.icon:SetDesaturated(not ns.db.enabled)
+    button.icon:SetDesaturated(not ns.db.enabled or ns.Announcer.SnoozeLeft() ~= nil)
+end
+
+local function FillTooltip(tooltip)
+    tooltip:AddLine(ns.TITLE)
+    local snoozed = ns.Announcer.SnoozeLeft()
+    if not ns.db.enabled then
+        tooltip:AddLine("|cffff4040Disabled|r")
+    elseif snoozed then
+        tooltip:AddLine(string.format("|cffffd040Snoozed|r (%d min left)", math.ceil(snoozed / 60)))
+    else
+        tooltip:AddLine("|cff00ff00Enabled|r")
+    end
+    tooltip:AddLine(ns.LedgerSummaryText(), 0.8, 0.8, 0.8, true)
 end
 
 local function OnEnter(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-    GameTooltip:AddLine(ns.TITLE)
-    GameTooltip:AddLine(ns.db.enabled and "|cff00ff00Enabled|r" or "|cffff4040Disabled|r")
+    FillTooltip(GameTooltip)
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("|cffffffffLeft-click:|r open options", 0.8, 0.8, 0.8)
     GameTooltip:AddLine("|cffffffffRight-click:|r turn on/off", 0.8, 0.8, 0.8)
@@ -98,4 +112,34 @@ function MinimapButton.Create()
 
     UpdatePosition()
     MinimapButton.Refresh()
+    MinimapButton.RegisterCompartment()
+end
+
+local compartment
+
+-- The addon compartment's entry: left-click opens options, right-click
+-- turns the addon on or off, as on the minimap button.
+function MinimapButton.RegisterCompartment()
+    local frame = AddonCompartmentFrame
+    if compartment or type(frame) ~= "table" or type(frame.RegisterAddon) ~= "function" then return false end
+    compartment = {
+        text = ns.TITLE,
+        icon = MinimapButton.ICON,
+        notCheckable = true,
+        registerForAnyClick = true,
+        func = ns.Diag.Wrap(function(_, input)
+            local which = type(input) == "table" and input.buttonName or "LeftButton"
+            MinimapButton.OnClick(nil, which)
+        end),
+        funcOnEnter = ns.Diag.Wrap(function(owner)
+            GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
+            FillTooltip(GameTooltip)
+            GameTooltip:AddLine("|cffffffffClick:|r options  |cffffffffRight-click:|r on/off", 0.8, 0.8, 0.8)
+            GameTooltip:Show()
+        end),
+        funcOnLeave = function() GameTooltip:Hide() end,
+    }
+    local ok = pcall(frame.RegisterAddon, frame, compartment)
+    if not ok then compartment = nil end
+    return ok
 end

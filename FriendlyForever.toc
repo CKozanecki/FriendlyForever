@@ -18,12 +18,15 @@ Flavour.lua
 Cooldowns.lua
 Ignore.lua
 Ledger.lua
+Serialize.lua
+Profiles.lua
 Nameplates.lua
 ChatQueue.lua
 Parser.lua
 Announcer.lua
 Greeter.lua
 BuffTracker.lua
+Window.lua
 Options.lua
 Minimap.lua
 Core.lua

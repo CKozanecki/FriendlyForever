@@ -306,6 +306,7 @@ function Config.Load(saved)
     db.ignore = ignore
 
     db.ledger = ns.Ledger.Validate(db.ledger)
+    ns.Profiles.Validate(db)
 
     -- Snooze: wall-clock time (time()) it ends, or nil.
     if type(db.snoozeUntil) ~= "number" or db.snoozeUntil ~= db.snoozeUntil then db.snoozeUntil = nil end
