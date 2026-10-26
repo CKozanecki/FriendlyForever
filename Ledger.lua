@@ -119,6 +119,8 @@ function Ledger.Settle(entry, thanked, note)
     if entry.result == Ledger.THANKED then return end
     if thanked then
         entry.result, entry.note = Ledger.THANKED, nil
+        -- A favour from before the ledger was cleared isn't counted again.
+        if entry.cleared then return end
         local data = Data()
         data.totals.thanked = data.totals.thanked + 1
         local today = TodayCounts()
@@ -129,6 +131,7 @@ function Ledger.Settle(entry, thanked, note)
 end
 
 function Ledger.Clear()
+    for _, e in ipairs(Data().entries) do e.cleared = true end
     ns.db.ledger = Ledger.Validate(nil)
 end
 

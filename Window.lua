@@ -5,10 +5,14 @@ local _, ns = ...
 local Window = {}
 ns.Window = Window
 
+Window.NAME = "FriendlyForeverTextWindow"
+
 local frame
 
 local function Create()
-    frame = CreateFrame("Frame", nil, UIParent, "BasicFrameTemplateWithInset")
+    frame = CreateFrame("Frame", Window.NAME, UIParent, "BasicFrameTemplateWithInset")
+    -- Esc closes frames listed here, as it does the game's own windows.
+    if type(UISpecialFrames) == "table" then table.insert(UISpecialFrames, Window.NAME) end
     frame:SetSize(520, 360)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")

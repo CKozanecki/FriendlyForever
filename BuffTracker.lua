@@ -119,9 +119,11 @@ function BuffTracker.OnSpellcastSucceeded(unit, _, spellId)
     end
 end
 
--- The unit's class as players read it ("mage"), or nil.
-local function ClassText(unit)
-    if not unit then return nil end
+-- The caster's class as players read it ("mage"), or nil. Only while the
+-- token is still them: a mouseover or nameplate token may be someone else
+-- by the time the buff lands.
+local function ClassText(unit, caster)
+    if not unit or Util.UnitFullName(unit) ~= caster then return nil end
     local ok, class = pcall(UnitClass, unit)
     if not ok or Util.IsSecret(class) or type(class) ~= "string" or class == "" then return nil end
     return class:lower()
@@ -216,7 +218,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
         return
     end
 
-    local batch = { names = {}, seen = {}, count = 0, entry = entry, class = ClassText(unit) }
+    local batch = { names = {}, seen = {}, count = 0, entry = entry, class = ClassText(unit, caster) }
     AddToBatch(batch, buffKey, spellName)
     batches[caster] = batch
 
@@ -253,6 +255,9 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
             end,
             onDone = function(sent, reason2)
                 if sent and whisper then RememberWhisper(caster, batch) end
+                -- The line is said: later buffs start a favour of their own,
+                -- even while a /thank for this one still waits.
+                if batches[caster] == batch then batches[caster] = nil end
                 Done(sent, reason2)
             end,
         })

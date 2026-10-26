@@ -61,9 +61,7 @@ describe("Ignore list", function()
     it("removes a name, and says when it wasn't there", function()
         ns.Ignore.Add("Nikki Shifts")
         slash("unignore nikki shifts")
-        assert.is_true(ns.Ignore.Has("Nikki-Shifts"), "names are matched exactly, as the game does")
-        slash("unignore Nikki Shifts")
-        assert.is_false(ns.Ignore.Has("Nikki-Shifts"))
+        assert.is_false(ns.Ignore.Has("Nikki-Shifts"), "names match whatever their case")
         slash("unignore Nikki Shifts")
         assert.is_true(printedHas("isn't on the list"))
     end)
@@ -109,7 +107,8 @@ describe("Ignore list", function()
     end)
 
     it("is saved, and survives a reload with a damaged entry dropped", function()
-        local db = { ignore = { ["Bob-Stone"] = true, ["not a name!"] = true, ["Ann-Vale"] = "yes" } }
+        local db = { ignore = { ["Bob-Stone"] = true, ["not a name!"] = true, ["Ann-Vale"] = "yes",
+            ["cid-moon"] = "Ann-Vale" } }
         ns = wow.boot({ db = db })
         assert.is_true(ns.Ignore.Has("Bob-Stone"))
         assert.are.same({ "Bob Stone" }, ns.Ignore.List())

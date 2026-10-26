@@ -38,7 +38,7 @@ function Announcer.Snooze(minutes)
         ns.db.snoozeUntil = nil
         return nil
     end
-    minutes = math.min(math.floor(minutes), Announcer.SNOOZE_MAX)
+    minutes = math.min(math.max(1, math.ceil(minutes)), Announcer.SNOOZE_MAX)
     ns.db.snoozeUntil = time() + minutes * 60
     return minutes
 end

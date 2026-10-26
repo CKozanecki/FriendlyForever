@@ -99,7 +99,7 @@ function Serialize.Decode(text)
         if tag == "F" then return false end
         if tag == "N" then
             local n = tonumber(Until(";"))
-            if not n or n ~= n then Fail("a number is damaged") end
+            if not n or n ~= n or n == math.huge or n == -math.huge then Fail("a number is damaged") end
             return n
         end
         if tag == "S" then return DecodeString(Until(";")) end

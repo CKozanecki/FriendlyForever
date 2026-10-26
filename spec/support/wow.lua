@@ -279,7 +279,7 @@ end
 
 local ADDON_GLOBALS = {
     "FriendlyForeverDB", "SLASH_FRIENDLYFOREVER1", "SLASH_FRIENDLYFOREVER2",
-    "FriendlyForeverMinimapButton", "FriendlyForeverOptionsPanel",
+    "FriendlyForeverMinimapButton", "FriendlyForeverOptionsPanel", "FriendlyForeverTextWindow",
 }
 
 function M.reset()
@@ -314,6 +314,7 @@ function M.reset()
     _G.wipe = function(t) for k in pairs(t) do t[k] = nil end return t end
 
     _G.UIParent = M.newFrame("Frame", "UIParent")
+    _G.UISpecialFrames = {}
     _G.Minimap = M.newFrame("Frame", "Minimap")
     _G.Minimap.width = 140
     _G.GameTooltip = M.newFrame("GameTooltip", "GameTooltip")

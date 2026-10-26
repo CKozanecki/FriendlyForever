@@ -1,13 +1,16 @@
 -- Players the addon never greets, welcomes or thanks. Kept by full name
--- ("Nikki-Shifts"): a first name alone could be anybody.
+-- ("Nikki-Shifts"): a first name alone could be anybody. Matching ignores
+-- case, so "nikki shifts" typed in chat still matches the game's "Nikki-Shifts".
 local _, ns = ...
 local Util = ns.Util
 
 local Ignore = {}
 ns.Ignore = Ignore
 
+local Key = function(fullName) return ns.Config.IgnoreKey(fullName) end
+
 function Ignore.Has(fullName)
-    return ns.db ~= nil and fullName ~= nil and ns.db.ignore[fullName] == true
+    return ns.db ~= nil and fullName ~= nil and ns.db.ignore[Key(fullName)] ~= nil
 end
 
 -- Accepts "Nikki Shifts", "Nikki-Shifts" or a unit token's player.
@@ -28,12 +31,12 @@ end
 function Ignore.Add(input)
     local name, why = Resolve(input)
     if not name then return nil, why end
-    if not ns.db.ignore[name] then
+    if not ns.db.ignore[Key(name)] then
         local n = 0
         for _ in pairs(ns.db.ignore) do n = n + 1 end
         if n >= ns.Config.MAX_IGNORED then return nil, "the list is full (" .. n .. " names)" end
     end
-    ns.db.ignore[name] = true
+    ns.db.ignore[Key(name)] = name
     return name
 end
 
@@ -41,15 +44,16 @@ end
 function Ignore.Remove(input)
     local name, why = Resolve(input)
     if not name then return nil, why end
-    if not ns.db.ignore[name] then return nil, Util.DisplayName(name) .. " isn't on the list" end
-    ns.db.ignore[name] = nil
-    return name
+    local listed = ns.db.ignore[Key(name)]
+    if not listed then return nil, Util.DisplayName(name) .. " isn't on the list" end
+    ns.db.ignore[Key(name)] = nil
+    return listed
 end
 
 -- Display names, sorted.
 function Ignore.List()
     local out = {}
-    for name in pairs(ns.db.ignore) do out[#out + 1] = Util.DisplayName(name) end
+    for _, name in pairs(ns.db.ignore) do out[#out + 1] = Util.DisplayName(name) end
     table.sort(out)
     return out
 end

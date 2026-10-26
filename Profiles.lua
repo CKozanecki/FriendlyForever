@@ -10,6 +10,9 @@
 -- A profile holds those settings under a name. Each character remembers the
 -- profile it last used and switches to it at login. Changes are saved into
 -- the active profile when you switch and when you log out.
+--
+-- Snapshots and exported lines carry the settings version they were made
+-- with, and are brought up to date (Config.Migrate) before they are used.
 local _, ns = ...
 local Util = ns.Util
 
@@ -20,39 +23,48 @@ Profiles.DEFAULT = "Default"
 Profiles.MAX = 20
 Profiles.MAX_NAME = 32
 
-local function Copy(value)
-    if type(value) ~= "table" then return value end
-    local out = {}
-    for k, v in pairs(value) do out[k] = Copy(v) end
-    return out
-end
+local Copy = Util.DeepCopy
 
 -- The portable settings of db, as a plain table.
 function Profiles.Snapshot(db, withIgnore)
-    local out = { skipWhileAFK = db.skipWhileAFK }
+    local out = { schemaVersion = ns.Config.SCHEMA_VERSION, skipWhileAFK = db.skipWhileAFK }
     for _, msgType in ipairs(ns.Config.TYPES) do out[msgType] = Copy(db[msgType]) end
     if withIgnore then out.ignore = Copy(db.ignore) end
     return out
 end
 
--- Put a snapshot's settings into ns.db, checked by Config.Load first.
--- ignoreMode: nil leaves your ignore list alone, "merge" adds its names,
--- "replace" makes it exactly the snapshot's.
-local function Apply(snapshot, ignoreMode)
+-- Ignored names in a snapshot's list that aren't on yours, up to the cap:
+-- yours always stay. Returns the names added (their list keys).
+local function MergeIgnore(list)
+    local added = {}
+    if type(list) ~= "table" then return added end
+    local n = 0
+    for _ in pairs(ns.db.ignore) do n = n + 1 end
+    for key, value in pairs(list) do
+        local full = ns.Config.IgnoreEntry(key, value)
+        local k = full and ns.Config.IgnoreKey(full)
+        if k and not ns.db.ignore[k] and n < ns.Config.MAX_IGNORED then
+            ns.db.ignore[k] = full
+            added[#added + 1] = k
+            n = n + 1
+        end
+    end
+    return added
+end
+
+-- Put a snapshot's message settings and Skip while AFK into ns.db: brought
+-- up to date, then checked by Config.Load, like the saved file.
+local function Apply(snapshot)
+    local snap = Copy(snapshot)
+    ns.Config.Migrate(snap)
     local candidate = Copy(ns.db)
     for _, msgType in ipairs(ns.Config.TYPES) do
-        if snapshot[msgType] ~= nil then candidate[msgType] = Copy(snapshot[msgType]) end
+        if snap[msgType] ~= nil then candidate[msgType] = snap[msgType] end
     end
-    if snapshot.skipWhileAFK ~= nil then candidate.skipWhileAFK = snapshot.skipWhileAFK end
-    if ignoreMode == "replace" then
-        candidate.ignore = Copy(snapshot.ignore) or {}
-    elseif ignoreMode == "merge" and type(snapshot.ignore) == "table" then
-        for name, on in pairs(snapshot.ignore) do candidate.ignore[name] = on end
-    end
+    if snap.skipWhileAFK ~= nil then candidate.skipWhileAFK = snap.skipWhileAFK end
     candidate = ns.Config.Load(candidate)
     for _, msgType in ipairs(ns.Config.TYPES) do ns.db[msgType] = candidate[msgType] end
     ns.db.skipWhileAFK = candidate.skipWhileAFK
-    ns.db.ignore = candidate.ignore
     ns.RefreshEvents()
 end
 
@@ -64,25 +76,34 @@ function Profiles.Export()
     return ns.Serialize.Encode({ v = 1, settings = Profiles.Snapshot(ns.db, true) })
 end
 
--- Returns true, or nil and why not. The settings you had are kept for undo.
+-- Returns true, or nil and why not. The settings you had are kept for undo,
+-- along with the profile they belong to and the ignored names it added.
 function Profiles.Import(text)
     local data, why = ns.Serialize.Decode(text)
     if not data then return nil, why end
     if type(data) ~= "table" or data.v ~= 1 or type(data.settings) ~= "table" then
         return nil, "that line is from a version of Friendly Forever this one can't read"
     end
-    ns.db.importUndo = Profiles.Snapshot(ns.db, true)
-    Apply(data.settings, "merge")
+    local before = Profiles.Snapshot(ns.db)
+    Apply(data.settings)
+    ns.db.importUndo = {
+        profile = ns.db.activeProfile, settings = before, ignoreAdded = MergeIgnore(data.settings.ignore),
+    }
     return true
 end
 
+-- Undo is for the profile the import went into, until you switch profiles.
 function Profiles.CanUndoImport()
-    return type(ns.db.importUndo) == "table"
+    local undo = ns.db.importUndo
+    return undo ~= nil and undo.profile == ns.db.activeProfile
 end
 
 function Profiles.UndoImport()
     if not Profiles.CanUndoImport() then return nil, "there's no import to undo" end
-    Apply(ns.db.importUndo, "replace")
+    local undo = ns.db.importUndo
+    Apply(undo.settings)
+    -- Only the names the import added come off; ones you added since stay.
+    for _, key in ipairs(undo.ignoreAdded) do ns.db.ignore[key] = nil end
     ns.db.importUndo = nil
     return true
 end
@@ -123,7 +144,18 @@ function Profiles.Validate(db)
         end
     end
     db.charProfiles = chars
-    if type(db.importUndo) ~= "table" then db.importUndo = nil end
+    local undo = db.importUndo
+    if type(undo) ~= "table" or type(undo.settings) ~= "table" or type(undo.profile) ~= "string" then
+        db.importUndo = nil
+    else
+        local added = {}
+        if type(undo.ignoreAdded) == "table" then
+            for _, key in ipairs(undo.ignoreAdded) do
+                if type(key) == "string" then added[#added + 1] = key end
+            end
+        end
+        undo.ignoreAdded = added
+    end
 end
 
 function Profiles.Active()
@@ -171,6 +203,7 @@ function Profiles.New(input)
     ns.db.profiles[ns.db.activeProfile] = Profiles.Snapshot(ns.db)
     ns.db.profiles[name] = Profiles.Snapshot(ns.db)
     ns.db.activeProfile = name
+    ns.db.importUndo = nil
     RememberForCharacter(name)
     return name
 end
@@ -189,6 +222,7 @@ function Profiles.Use(input)
     Profiles.SaveActive()
     Apply(target)
     ns.db.activeProfile = name
+    ns.db.importUndo = nil
     RememberForCharacter(name)
     return name
 end

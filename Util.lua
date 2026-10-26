@@ -130,6 +130,14 @@ function Util.UnitFullName(unit)
     return Util.FullName(UnitName(unit))
 end
 
+-- A copy of a value, tables copied all the way down (plain data only).
+function Util.DeepCopy(value)
+    if type(value) ~= "table" then return value end
+    local out = {}
+    for k, v in pairs(value) do out[k] = Util.DeepCopy(v) end
+    return out
+end
+
 -- Whole number within [min, max]; anything that isn't a number gets default.
 function Util.ClampNumber(value, min, max, default)
     if type(value) ~= "number" or value ~= value then return default end

@@ -36,18 +36,9 @@ for _, slot in ipairs(Text.SLOTS) do SLOT[slot] = true end
 
 local recent = {} -- [slot] = list of fragments used lately, newest last
 
--- A value from the game, or nil when it is missing, secret or throws.
+-- Up to three values from the game, each nil when missing or secret; all
+-- nil when the function is missing or throws.
 local function Ask(fn, ...)
-    if type(fn) ~= "function" then return nil end
-    local ok, a, b = pcall(fn, ...)
-    if not ok then return nil end
-    if Util.IsSecret(a) then a = nil end
-    if Util.IsSecret(b) then b = nil end
-    return a, b
-end
-
--- Ask, for a function with a third return worth reading (UnitRace's race ID).
-local function Ask3(fn, ...)
     if type(fn) ~= "function" then return nil end
     local ok, a, b, c = pcall(fn, ...)
     if not ok then return nil end
@@ -89,7 +80,7 @@ end
 
 -- What the moment is, read once per message.
 function Flavour.Context()
-    local _, race, raceId = Ask3(UnitRace, "player")
+    local _, race, raceId = Ask(UnitRace, "player")
     local className, class = Ask(UnitClass, "player")
     local faction = Ask(UnitFactionGroup, "player")
     local zone = Text1(Ask(GetRealZoneText)) or Text1(Ask(GetZoneText))

@@ -54,6 +54,16 @@ function handlers.ADDON_LOADED(name)
     if name ~= ADDON_NAME then return end
     frame:UnregisterEvent("ADDON_LOADED")
 
+    -- The game reads the file list only at start-up: after an update that
+    -- added files, /reload runs the new code without them. Stay inert and
+    -- say so, rather than erroring on every event.
+    for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window" }) do
+        if ns[module] == nil then
+            ns.Print("|cffff4040this update added files. Restart the game (not /reload) to finish updating.|r")
+            return
+        end
+    end
+
     FriendlyForeverDB = ns.Config.Load(FriendlyForeverDB)
     ns.db = FriendlyForeverDB
 
@@ -435,6 +445,10 @@ local commands = {
 SLASH_FRIENDLYFOREVER1 = "/friendly"
 SLASH_FRIENDLYFOREVER2 = "/ffr"
 SlashCmdList.FRIENDLYFOREVER = function(input)
+    if not ns.db then
+        ns.Print("not loaded. If you just updated the addon, restart the game (not /reload).")
+        return
+    end
     local cmd, args = (input or ""):match("^%s*(%S*)%s*(.-)%s*$")
     cmd = (cmd or ""):lower()
     local command = commands[cmd]
