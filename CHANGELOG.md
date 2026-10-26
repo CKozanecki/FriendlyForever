@@ -1,5 +1,19 @@
 # Changelog
 
+### Unreleased
+
+- This version adds files. After updating, restart the game; /reload isn't enough.
+- New default lines for every message type, in a Warcraft fantasy voice. Saved lines still on the old defaults are switched to the new ones; lines you edited are kept. The old lines are still there: each tab's **Load casual lines (1.6)** button puts them back.
+- Flavour placeholders change with the moment: `{greeting}`, `{thanks}`, `{blessing}` and `{cheer}` follow your race, faction, where you are and the hour ("Throm-ka, Thrall! Strength and honor."), and `{zone}`, `{timeofday}`, `{myclass}` and `{class}` (theirs, when the game says) fill in the details. Use them in your own lines too.
+- Favour ledger: who buffed you, with what, and whether you thanked them, or why not. Today's count and all-time totals, on the new **Favour Ledger** options page or with `/friendly ledger`.
+- Buff Thanks can `/thank` the caster instead of, or as well as, saying a line (**How to thank** on the Buff Thanks tab).
+- Ignore list: `/friendly ignore <name>` (or your target) means that player is never greeted, welcomed or thanked.
+- `/friendly snooze [minutes]`: send nothing for a while (15 minutes by default).
+- Profiles: `/friendly profile new | use | delete <name>`. Each character switches to the profile it used last when it logs in.
+- `/friendly export` and `/friendly import`: your settings as one line of text, to keep or share. Importing never turns the addon on or off and only adds to your ignore list. `/friendly import undo` puts your settings back.
+- `/friendly report` and **Copy for a bug report**: the status and debug log as text to copy.
+- New **General** options page with all of the above as buttons. Friendly Forever is also in the addon compartment (the addon drop-down by the minimap) where the game has one, and the minimap tooltip shows snooze and today's favours.
+
 ## 1.6.0
 
 - This version adds a file (Defaults.lua, which now holds the default messages). After updating, restart the game; /reload isn't enough. Messages and settings are unchanged.

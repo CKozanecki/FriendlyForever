@@ -15,6 +15,25 @@ A courtesy addon for **World of Warcraft: Forever** (TOC interface `16001`).
 
 Each type has its own on/off switch, a delay, a "don't repeat to the same player" cooldown (default 3 minutes; for the two hellos it's per group leader and 30 seconds) and 30 editable messages. Lines are used in a shuffled rotation: every line comes up once before any repeats, a new round never starts with the line that just ended the last one, and the rotation carries over across reloads and logins.
 
+## Flavour
+
+The default lines are written in a Warcraft fantasy voice, and some words in them change with the moment:
+
+| Placeholder | Becomes |
+|---|---|
+| `{greeting}` | A greeting in your race's voice: "Well met", "Throm-ka", "Ishnu-alah", "Good to see ye"… |
+| `{thanks}` | A thank-you in your race's voice: "Thank ye kindly", "My thanks"… |
+| `{blessing}` | A parting wish chosen by your race, faction, where you are and the hour: "Elune light your path.", "Safe travels through Westfall.", "Rest well tonight." |
+| `{cheer}` | A rallying cry: "For the Horde!", "For Khaz Modan!" |
+| `{zone}` | Where you are ("Elwynn Forest"; "these lands" if the game doesn't say) |
+| `{timeofday}` | "morning", "afternoon" or "evening", by the game's clock |
+| `{myclass}` | Your class ("mage") |
+| `{class}` | Their class, when the game says (a guildmate from the roster, or whoever buffed you); otherwise "friend" |
+
+So "{greeting}, {name}! {blessing}" comes out as "Throm-ka, Thrall! Strength and honor." from an orc, or "Ishnu-alah, Thrall! Elune light your path." from a night elf. The same words aren't used again until a few others have been. Use these in your own lines too.
+
+The 1.5 to 1.6 default lines are still there: each tab's **Load casual lines (1.6)** button puts them back, and **Load fantasy lines** loads the new ones. Lines you edited are never replaced by an update.
+
 ## Install
 
 With the CurseForge app, search for **Friendly Forever** and install it for WoW Forever.
@@ -30,10 +49,17 @@ World of Warcraft/_classic_beta_/Interface/AddOns/
 - **Options:** Esc → Options → AddOns → Friendly Forever, or type `/friendly`
 - **Minimap button:** left-click opens options, right-click turns the addon on or off, drag to move it
 - `/friendly on | off | toggle | test | say | minimap | help` (`/ffr` also works)
+- `/friendly snooze [minutes] | off`: send nothing for a while (15 minutes by default, up to a day). It holds across a reload.
+- `/friendly ignore [name]` and `/friendly unignore <name>`: never greet, welcome or thank a player. Use the full name ("Nikki Shifts"); with no name it takes your target, or lists the names when you have no target.
+- `/friendly ledger [count] | clear`: the favour ledger (see below).
+- `/friendly profile [new | use | delete] <name>`: profiles. Each character switches to the profile it used last when it logs in.
+- `/friendly export` and `/friendly import [undo]`: your settings as one line of text, to keep or share. Importing never turns the addon on or off and only adds to your ignore list; `import undo` puts your settings back.
+- The **General** page under Friendly Forever in the AddOns options has all of these as buttons.
 - **Don't send messages while I'm AFK** (on by default, at the top of the options): a greeting or thank-you that comes due while you're AFK is dropped, not saved for later. `/friendly test` and `/friendly selftest` still work.
 
 ## Troubleshooting
 
+- `/friendly report` (or **Copy for a bug report** on the General page) shows the status and the debug log as text to copy into a bug report.
 - `/friendly status` shows whether the addon is active, the login grace period, guild roster size, chat lockdown, what it has seen and sent, send errors, calls the game blocked, and Lua errors.
 - `/friendly selftest` whispers you through the real send path, to prove sending works.
 - `/friendly nameplates` turns on friendly player names, which the game needs to name casters.
@@ -61,6 +87,12 @@ It's off while you're in a group, because party-wide buffs such as a groupmate's
 
 Buffs from one person that arrive before the thank-you goes out are combined: *"Thank you for the Power Word: Fortitude and Divine Spirit, Bob!"*. The repeat cooldown then stops any second thank-you.
 
+**How to thank** (on the Buff Thanks tab): a line in /say or a whisper (the default), a `/thank` emote, or both. The emote is aimed at the caster while the game still has them on a nameplate or as your target, and is a plain `/thank` otherwise. It waits for a key press, like /say. Whether the game requires that for emotes hasn't been tested yet, so the addon plays it safe.
+
+## Favour ledger
+
+Every buff from someone outside your group, while Buff Thanks is on, goes in the ledger: who it was, which buffs, and whether you thanked them, or why not ("thanked them a moment ago", "snoozed", "you were AFK", "on your ignore list"). It counts today's favours and your all-time totals. See it on the **Favour Ledger** page or with `/friendly ledger`. The newest 200 are kept.
+
 ## Safety
 
 - Everything sent is cleaned first. `|` escape codes and control characters are removed, and each message is cut to 255 bytes without splitting characters.
@@ -70,6 +102,7 @@ Buffs from one person that arrive before the thank-you goes out are combined: *"
 - Saved settings are type-checked and clamped on load, so a corrupted or hand-edited file can't break the addon.
 - "Secret" values from the Midnight-era API are detected and never used.
 - The addon never runs text as code and doesn't read whispers or addon messages, so other players have no way to control it.
+- A pasted settings line (`/friendly import`) is read as data only, with limits on its size and depth, and every value in it is checked like the saved file before it's used.
 
 ## Development
 
