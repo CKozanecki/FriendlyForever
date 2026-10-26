@@ -139,6 +139,7 @@ local NOTES = {
     { "waited too long", "no key press in time" },
     { "blank", "no message lines" },
     { "queue full", "too many messages waiting" },
+    { "ignore list", "on your ignore list" },
 }
 function BuffTracker.NoteFor(reason)
     if type(reason) ~= "string" then return "not sent" end
@@ -237,6 +238,12 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
         end
     end
 
+    -- Checked again just before sending: they may have been ignored meanwhile.
+    local function NotIgnored()
+        if not unknown and ns.Ignore.Has(caster) then return false, "on your ignore list" end
+        return true
+    end
+
     -- Someone we can't name can't be whispered: they get the /say fallback.
     local whisper = cfg.useWhisper and not unknown
     local scheduled, why = false, nil
@@ -246,6 +253,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
             target = whisper and caster or nil,
             cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
             maxAge = (not whisper) and BuffTracker.SAY_MAX_AGE or nil,
+            isValid = NotIgnored,
             vars = function()
                 if unknown then return FallbackVars(batch) end
                 local vars = Util.NameVars(caster)
@@ -269,6 +277,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
             emoteTarget = EmoteTarget(caster, unit),
             cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
             maxAge = BuffTracker.SAY_MAX_AGE,
+            isValid = NotIgnored,
             onDone = Done,
         })
         if ok then waiting, scheduled = waiting + 1, true else why = why or reason end

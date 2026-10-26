@@ -92,6 +92,14 @@ local function Ignored(msgType, name)
     return true
 end
 
+-- Checked again just before sending: they may have been ignored meanwhile.
+local function NotIgnored(name)
+    return function()
+        if ns.Ignore.Has(name) then return false, "on your ignore list" end
+        return true
+    end
+end
+
 -- {name}, {fullname} and, when the roster says, {class}.
 local function MemberVars(name)
     local vars = Util.NameVars(name)
@@ -101,7 +109,9 @@ end
 
 local function Greet(name)
     if Ignored("guildLogin", name) then return end
-    ns.Announcer.Schedule("guildLogin", name, { channel = GuildChannel, vars = function() return MemberVars(name) end })
+    ns.Announcer.Schedule("guildLogin", name, {
+        channel = GuildChannel, vars = function() return MemberVars(name) end, isValid = NotIgnored(name),
+    })
 end
 
 -- A pending name stays until a roster update confirms it (greeted) or it
@@ -371,10 +381,11 @@ local function IsRaidJoinLine(msg)
     return raidJoinPattern and msg:match(raidJoinPattern) ~= nil
 end
 
--- Don't welcome someone who already left. If we can't tell (names
--- restricted in combat), keep the welcome.
+-- Don't welcome someone who already left, or whom you've ignored since they
+-- joined. If we can't tell who's in the group (names restricted in combat),
+-- keep the welcome.
 local function StillInGroup(name)
-    return Greeter.IsInMyGroup(name) ~= false
+    return Greeter.IsInMyGroup(name) ~= false and not ns.Ignore.Has(name)
 end
 
 local function WelcomeJoin(name, raidLine)
@@ -489,7 +500,7 @@ function Greeter.OnSystemMessage(msg)
     elseif kind == "guildJoin" then
         members[name] = members[name] or true
         if Ignored("guildJoin", name) then return end
-        ns.Announcer.Schedule("guildJoin", name, { channel = GuildChannel })
+        ns.Announcer.Schedule("guildJoin", name, { channel = GuildChannel, isValid = NotIgnored(name) })
     elseif kind == "partyJoin" then
         -- Every joiner would be welcomed, by every addon user, in /bg.
         if Greeter.InBattleground() then

@@ -18,6 +18,7 @@ Config.SCHEMA_VERSION = 6
 Config.NUM_MESSAGES = 30
 Config.MAX_LOG = 400 -- diagnostic log lines kept in saved variables
 Config.MAX_IGNORED = 500
+Config.SNOOZE_MAX_SECONDS = 24 * 60 * 60
 Config.THANK_STYLES = { message = true, emote = true, both = true }
 
 Config.LIMITS = {
@@ -343,7 +344,13 @@ function Config.Load(saved)
     ns.Profiles.Validate(db)
 
     -- Snooze: wall-clock time (time()) it ends, or nil.
-    if type(db.snoozeUntil) ~= "number" or db.snoozeUntil ~= db.snoozeUntil then db.snoozeUntil = nil end
+    -- Never further off than the longest snooze (a damaged file, or a clock
+    -- that was wrong when you snoozed, mustn't mute the addon for good).
+    if type(db.snoozeUntil) ~= "number" or db.snoozeUntil ~= db.snoozeUntil then
+        db.snoozeUntil = nil
+    else
+        db.snoozeUntil = math.min(db.snoozeUntil, time() + Config.SNOOZE_MAX_SECONDS)
+    end
     return db
 end
 

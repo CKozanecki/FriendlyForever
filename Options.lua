@@ -16,6 +16,7 @@ local widgets = { tabs = {}, edits = {}, steppers = {}, general = {}, ledger = {
 Options.widgets = widgets -- exposed for tests
 
 Options.LEDGER_ROWS = 25
+Options.IGNORE_SHOWN = 12 -- names listed on the General page; the rest are counted
 
 -- How to thank someone who buffs you, in the order the button cycles.
 Options.THANK_STYLES = { "message", "emote", "both" }
@@ -487,8 +488,17 @@ FillGeneral = function()
     w.snoozeState:SetText(left and string.format("Snoozed: nothing is sent for %d more min.", math.ceil(left / 60))
         or "Awake: messages are sent as usual.")
     w.wake:SetEnabled(left ~= nil)
+    -- A few names and a count, so a long list can't push the page's other
+    -- controls out of sight (the page doesn't scroll).
     local names = ns.Ignore.List()
-    w.ignoreList:SetText(#names == 0 and "Nobody." or table.concat(names, ", "))
+    local text = "Nobody."
+    if #names > Options.IGNORE_SHOWN then
+        text = table.concat(names, ", ", 1, Options.IGNORE_SHOWN) .. string.format(
+            " and %d more (/friendly ignore list shows them all).", #names - Options.IGNORE_SHOWN)
+    elseif #names > 0 then
+        text = table.concat(names, ", ")
+    end
+    w.ignoreList:SetText(text)
     w.profileState:SetText("Using " .. ns.Profiles.Active() .. ". All profiles: "
         .. table.concat(ns.Profiles.List(), ", "))
     w.undoImport:SetEnabled(ns.Profiles.CanUndoImport())

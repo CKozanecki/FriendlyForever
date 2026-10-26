@@ -14,7 +14,7 @@ Announcer.LOGIN_GRACE = 10
 -- Snooze: /friendly snooze [minutes]. Wall-clock time, so it holds across a
 -- reload or relog.
 Announcer.SNOOZE_DEFAULT = 15 -- minutes
-Announcer.SNOOZE_MAX = 1440   -- minutes (a day)
+Announcer.SNOOZE_MAX = ns.Config.SNOOZE_MAX_SECONDS / 60 -- minutes (a day)
 
 local activeAt = math.huge
 

@@ -41,7 +41,8 @@ function Ledger.Validate(saved)
     local entries = {}
     if type(ledger.entries) == "table" then
         for _, e in ipairs(ledger.entries) do
-            if type(e) == "table" and type(e.t) == "number" and e.t == e.t then
+            if type(e) == "table" and type(e.t) == "number" and e.t == e.t
+                and e.t ~= math.huge and e.t ~= -math.huge then
                 local who = e.who == Ledger.UNKNOWN and Ledger.UNKNOWN or Util.FullName(e.who)
                 if who then
                     local buffs = {}

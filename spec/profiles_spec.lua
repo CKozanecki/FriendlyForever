@@ -46,10 +46,41 @@ describe("Serialize", function()
         assert.is_nil(_G.HACKED)
     end)
 
-    it("refuses lines that nest too deeply, hold too much or are too long", function()
-        assert.is_nil(S.Decode("FF1:" .. string.rep("{Sa;", 10) .. "T" .. string.rep("}", 10)))
-        assert.is_nil(S.Decode("FF1:{" .. string.rep("N1;T", 4000) .. "}"))
-        assert.is_nil(S.Decode("FF1:S" .. string.rep("a", S.MAX_BYTES) .. ";"))
+    it("reads up to its limits and refuses just past them, saying why", function()
+        local function nested(n) -- n tables, one inside the next
+            return "FF1:" .. string.rep("{Sa;", n - 1) .. "{}" .. string.rep("}", n - 1)
+        end
+        assert.is_table(S.Decode(nested(S.MAX_DEPTH)))
+        local value, why = S.Decode(nested(S.MAX_DEPTH + 1))
+        assert.is_nil(value)
+        assert.are.equal("it nests too deeply", why)
+
+        -- A table of n pairs is 1 + 2n values.
+        local pairs = math.floor((S.MAX_ITEMS - 1) / 2)
+        assert.is_table(S.Decode("FF1:{" .. string.rep("N1;T", pairs) .. "}"))
+        value, why = S.Decode("FF1:{" .. string.rep("N1;T", pairs + 1) .. "}")
+        assert.is_nil(value)
+        assert.are.equal("too many values", why)
+
+        local long = "FF1:S" .. string.rep("a", S.MAX_BYTES - 6) .. ";"
+        assert.are.equal(S.MAX_BYTES, #long)
+        assert.is_string(S.Decode(long))
+        value, why = S.Decode(long .. " " .. "x")
+        assert.is_nil(value)
+        assert.are.equal("that text is too long", why)
+    end)
+
+    it("never errors on random input, only returns a reason", function()
+        local A = { "{", "}", "S", "N", "T", "F", ";", "%", "%4", "1", "e", "-", ".", "x", " " }
+        math.randomseed(1)
+        for _ = 1, 5000 do
+            local p = { "FF1:" }
+            for _ = 1, math.random(0, 30) do p[#p + 1] = A[math.random(#A)] end
+            local text = table.concat(p)
+            local ok, value, why = pcall(S.Decode, text)
+            assert(ok, text)
+            assert(value ~= nil or type(why) == "string", text)
+        end
     end)
 
     it("won't encode functions or broken numbers", function()
@@ -216,20 +247,26 @@ describe("Profiles", function()
     end)
 
     it("switches each character to the profile it used last, at login", function()
-        ns.db.guildLogin.delay = 2
-        slash("profile new Raiding") -- Nikki uses Raiding
-        ns.db.guildLogin.delay = 8 -- an edit, saved into Raiding
+        local function bootAs(first, surname, db)
+            ns = wow.boot({ db = db, before = function(state)
+                state.units.player = { name = first, surname = surname, id = first .. "-" .. surname, isPlayer = true }
+            end })
+        end
+        bootAs("Nikki", "Shifts")
+        ns.db.guildLogin.delay = 8
+        slash("profile new Raiding")
+        wow.fire("PLAYER_LOGOUT")
+        bootAs("Ann", "Vale", _G.FriendlyForeverDB)
         slash("profile use Default")
-        assert.are.equal(2, ns.db.guildLogin.delay)
+        ns.db.guildLogin.delay = 2
         wow.fire("PLAYER_LOGOUT")
-        local saved = _G.FriendlyForeverDB
-        boot(saved) -- Nikki logs in again
-        assert.are.equal("Default", ns.Profiles.Active(), "Nikki's last choice was Default")
-        slash("profile use Raiding")
-        wow.fire("PLAYER_LOGOUT")
-        boot(_G.FriendlyForeverDB)
+        bootAs("Nikki", "Shifts", _G.FriendlyForeverDB)
         assert.are.equal("Raiding", ns.Profiles.Active())
         assert.are.equal(8, ns.db.guildLogin.delay)
+        wow.fire("PLAYER_LOGOUT")
+        bootAs("Ann", "Vale", _G.FriendlyForeverDB)
+        assert.are.equal("Default", ns.Profiles.Active())
+        assert.are.equal(2, ns.db.guildLogin.delay)
     end)
 
     it("leaves a character with no saved choice on the active profile", function()

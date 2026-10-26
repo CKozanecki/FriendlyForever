@@ -72,8 +72,13 @@ end
 -- Export / import
 ------------------------------------------------------------------------
 
+-- The settings line, or nil and why not: never a line import would refuse.
 function Profiles.Export()
-    return ns.Serialize.Encode({ v = 1, settings = Profiles.Snapshot(ns.db, true) })
+    local text, why = ns.Serialize.Encode({ v = 1, settings = Profiles.Snapshot(ns.db, true) })
+    if text and #text > ns.Serialize.MAX_BYTES then
+        return nil, "your settings are too long to share as one line (mostly symbols such as % and ;)"
+    end
+    return text, why
 end
 
 -- Returns true, or nil and why not. The settings you had are kept for undo,
@@ -124,22 +129,29 @@ function Profiles.CleanName(name)
     return name
 end
 
--- Saved data, checked on load (Config.Load calls this).
+-- Saved data, checked on load (Config.Load calls this). Over the cap, the
+-- active profile is kept first, then names in sorted order.
 function Profiles.Validate(db)
-    local profiles = {}
-    local n = 0
-    if type(db.profiles) == "table" then
-        for name, snapshot in pairs(db.profiles) do
-            local clean = Profiles.CleanName(name)
-            if clean and clean == name and type(snapshot) == "table" and n < Profiles.MAX then
-                profiles[name] = snapshot
-                n = n + 1
-            end
-        end
-    end
-    db.profiles = profiles
     local active = Profiles.CleanName(db.activeProfile)
     db.activeProfile = active or Profiles.DEFAULT
+    local profiles, n = {}, 0
+    local function Keep(name, snapshot)
+        if n < Profiles.MAX and not profiles[name] and type(snapshot) == "table"
+            and Profiles.CleanName(name) == name then
+            profiles[name] = snapshot
+            n = n + 1
+        end
+    end
+    if type(db.profiles) == "table" then
+        Keep(db.activeProfile, db.profiles[db.activeProfile])
+        local names = {}
+        for name in pairs(db.profiles) do
+            if type(name) == "string" then names[#names + 1] = name end
+        end
+        table.sort(names)
+        for _, name in ipairs(names) do Keep(name, db.profiles[name]) end
+    end
+    db.profiles = profiles
     local chars = {}
     if type(db.charProfiles) == "table" then
         for who, name in pairs(db.charProfiles) do
