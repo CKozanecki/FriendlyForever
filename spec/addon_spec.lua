@@ -71,6 +71,7 @@ describe("Addon", function()
             local allowed = {
                 FriendlyForeverDB = true, SLASH_FRIENDLYFOREVER1 = true, SLASH_FRIENDLYFOREVER2 = true,
                 FriendlyForeverMinimapButton = true, FriendlyForeverOptionsPanel = true,
+                FriendlyForeverBuffButton = true, ["BINDING_NAME_CLICK FriendlyForeverBuffButton:LeftButton"] = true,
             }
             for k in pairs(_G) do
                 if not before[k] then assert.is_true(allowed[k], "unexpected global: " .. tostring(k)) end

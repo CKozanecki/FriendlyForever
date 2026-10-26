@@ -22,17 +22,28 @@ describe("Hot paths", function()
         ns = wow.boot()
     end)
 
-    describe("spellcasts are only listened for while buff thanks can be sent", function()
+    describe("spellcasts are only listened for while Buff Thanks or Buff Back is on", function()
         it("on by default", function()
             assert.is_true(listensForCasts())
         end)
 
-        it("not when Buff Thanks was off at login", function()
+        it("not when both were off at login", function()
+            ns = wow.boot({ db = { buff = { enabled = false }, buffBack = { offer = false } } })
+            assert.is_false(listensForCasts())
+        end)
+
+        it("while Buff Back offers, even with Buff Thanks off", function()
             ns = wow.boot({ db = { buff = { enabled = false } } })
+            assert.is_true(listensForCasts())
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffBack, "OnClick")
+            w.offer:SetChecked(false)
+            wow.run(w.offer, "OnClick")
             assert.is_false(listensForCasts())
         end)
 
         it("follows the Buff Thanks checkbox", function()
+            ns.db.buffBack.offer = false
             local w = ns.Options.widgets
             wow.run(w.tabs.buff, "OnClick")
             w.enabled:SetChecked(false)
@@ -85,8 +96,9 @@ describe("Hot paths", function()
             assert.are.equal(5, classified)
         end)
 
-        it("isn't looked at while Buff Thanks is off, even if one arrives", function()
+        it("isn't looked at while Buff Thanks and Buff Back are off, even if one arrives", function()
             ns.db.buff.enabled = false
+            ns.db.buffBack.offer = false
             wow.addUnit("target", { name = "Bob" })
             ns.BuffTracker.OnSpellcastSucceeded("target", "g", 1459)
             assert.are.equal(0, classified)

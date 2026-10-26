@@ -70,9 +70,22 @@ function methods:UnregisterEvent(event) self.events[event] = nil end
 function methods:IsEventRegistered(event) return self.events[event] ~= nil end
 function methods:SetScript(name, fn) self.scripts[name] = fn end
 function methods:GetScript(name) return self.scripts[name] end
-function methods:Show() self.shown = true end
-function methods:Hide() self.shown = false end
-function methods:SetShown(on) self.shown = on and true or false end
+-- Secure (protected) frames can't be shown, hidden or changed in combat.
+local function guardProtected(frame, what)
+    if frame.protected and M.state.inCombat then error(what .. " on a protected frame in combat") end
+end
+function methods:Show() guardProtected(self, "Show"); self.shown = true end
+function methods:Hide() guardProtected(self, "Hide"); self.shown = false end
+function methods:SetShown(on) guardProtected(self, "SetShown"); self.shown = on and true or false end
+function methods:SetAttribute(key, value)
+    guardProtected(self, "SetAttribute")
+    self.attributes = self.attributes or {}
+    self.attributes[key] = value
+end
+function methods:GetAttribute(key) return self.attributes and self.attributes[key] end
+function methods:RegisterForClicks(...) self.clicks = { ... } end
+function methods:SetAlpha(a) self.alpha = a end
+function methods:GetAlpha() return self.alpha or 1 end
 function methods:IsShown() return self.shown end
 -- Visible = shown, and every parent shown too. (A string in .parent is the
 -- old options API's parent category name, not a frame.)
@@ -115,6 +128,12 @@ function methods:GetEffectiveScale() return self.scale or 1 end
 function methods:SetDesaturated(on) self.desaturated = on and true or false end
 function methods:SetTexture(path) self.texture = path end
 function methods:SetPoint(...) self.point = { ... } end
+-- point, relativeTo, relativePoint, x, y (as SetPoint was given them).
+function methods:GetPoint()
+    local p = self.point
+    if not p then return nil end
+    return p[1], p[2], p[3], p[4], p[5]
+end
 function methods:EnableKeyboard(on) self.keyboard = on and true or false end
 function methods:SetPropagateKeyboardInput(on)
     if M.state.inCombat then error("SetPropagateKeyboardInput is protected in combat") end
@@ -152,6 +171,141 @@ function M.keyDown(key)
     for _, f in ipairs(M.frames) do
         if f.keyboard and f.shown and f.scripts.OnKeyDown then f.scripts.OnKeyDown(f, key or "W") end
     end
+    M.hardware = false
+end
+
+------------------------------------------------------------------------
+-- Spells and secure buttons
+------------------------------------------------------------------------
+
+-- Names of the buff spells the specs use, by ID. Kept apart from the addon's
+-- own table (BuffData.lua) so the specs check it rather than echo it.
+M.SPELL_NAMES = {}
+local function nameSpell(name, ids) for _, id in ipairs(ids) do M.SPELL_NAMES[id] = name end end
+nameSpell("Mark of the Wild", { 9885, 9884, 8907, 5234, 6756, 5232, 1126 })
+nameSpell("Gift of the Wild", { 21850, 21849 })
+nameSpell("Thorns", { 9910, 9756, 8914, 1075, 782, 467 })
+nameSpell("Arcane Intellect", { 10157, 10156, 1461, 1460, 1459 })
+nameSpell("Arcane Brilliance", { 23028 })
+nameSpell("Power Word: Fortitude", { 10938, 10937, 2791, 1245, 1244, 1243 })
+nameSpell("Divine Spirit", { 27841, 14819, 14818, 14752 })
+nameSpell("Shadow Protection", { 10958, 10957, 976 })
+nameSpell("Blessing of Kings", { 20217 })
+nameSpell("Blessing of Might", { 25291, 19838, 19837, 19836, 19835, 19834, 19740 })
+nameSpell("Blessing of Wisdom", { 25290, 19854, 19853, 19852, 19850, 19742 })
+nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
+
+-- The name /target matches, from a unit: state.targetNameForm decides which
+-- spelling the client accepts ("space": "Nikki Shifts", "hyphen": "Nikki-Shifts").
+-- Which one WoW Forever accepts is not known yet; this lets specs try both.
+local function targetableName(u)
+    if not u.surname then return u.name end
+    return u.name .. (M.state.targetNameForm == "hyphen" and "-" or " ") .. u.surname
+end
+
+-- /target: the first unit whose name starts with the text (as the game's
+-- /target matches a prefix), ignoring case. Nothing found: target unchanged.
+local function targetByName(text)
+    text = text:lower()
+    local tokens = {}
+    for token in pairs(M.state.units) do tokens[#tokens + 1] = token end
+    table.sort(tokens)
+    for _, token in ipairs(tokens) do
+        local u = M.state.units[token]
+        if token ~= "target" and u.isPlayer and targetableName(u):lower():sub(1, #text) == text then
+            return u
+        end
+    end
+end
+
+-- The highest known rank of a spell name, or nil.
+local function knownRank(name)
+    local best
+    for id, n in pairs(M.SPELL_NAMES) do
+        if n == name and M.state.knownSpells[id] and (not best or id > best) then best = id end
+    end
+    return best
+end
+
+local castCount = 0
+local function cast(name)
+    local id = knownRank(name)
+    if not id then
+        M.uiError("Unknown spell")
+        return
+    end
+    local target = M.state.units.target
+    if not (target and target.isPlayer and not target.hostile) then target = M.state.units.player end
+    local failure = M.state.castFailures[target.id]
+    castCount = castCount + 1
+    local guid = "Cast-" .. castCount
+    -- UNIT_SPELLCAST_SENT's target name: state.sentTargetForm "first" (the
+    -- default), "full" ("First Surname") or "none" (the game doesn't say).
+    local form = M.state.sentTargetForm
+    local sentTo = ""
+    if form == "first" then
+        sentTo = target.name
+    elseif form == "full" then
+        sentTo = target.surname and (target.name .. " " .. target.surname) or target.name
+    end
+    M.fire("UNIT_SPELLCAST_SENT", "player", sentTo, guid, id)
+    if failure then
+        M.casts[#M.casts + 1] = { spell = name, id = id, target = target.id, failed = failure }
+        M.fire("UNIT_SPELLCAST_FAILED", "player", guid, id)
+        M.uiError(failure)
+        return
+    end
+    M.casts[#M.casts + 1] = { spell = name, id = id, target = target.id }
+    M.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, id)
+end
+
+function M.uiError(message)
+    M.fire("UI_ERROR_MESSAGE", 0, message)
+end
+
+-- Run a macro's lines as the game would, inside one key press.
+function M.runMacro(text)
+    assert(#text <= 255, "macro longer than 255 characters: " .. #text)
+    for line in text:gmatch("[^\n]+") do
+        local cmd, rest = line:match("^(/%S+)%s*(.-)%s*$")
+        if cmd == "/target" or cmd == "/tar" then
+            local u = targetByName(rest)
+            if u then
+                M.state.lastTarget = M.state.units.target
+                M.state.units.target = u
+            end
+        elseif cmd == "/targetlasttarget" then
+            M.state.units.target, M.state.lastTarget = M.state.lastTarget, M.state.units.target
+        elseif cmd == "/cleartarget" then
+            M.state.lastTarget, M.state.units.target = M.state.units.target, nil
+        elseif cmd == "/cast" then
+            cast(rest)
+        elseif cmd == "/s" or cmd == "/say" then
+            _G.SendChatMessage(rest, "SAY")
+        else
+            error("the simulated client doesn't know " .. tostring(cmd))
+        end
+    end
+end
+
+-- A press of a secure button by a key binding or the mouse: PreClick, the
+-- secure action (a macro), PostClick. mouseButton defaults to "LeftButton".
+function M.press(button, mouseButton)
+    mouseButton = mouseButton or "LeftButton"
+    assert(button.clicks and #button.clicks > 0, "button isn't registered for clicks")
+    M.hardware = true
+    if button.scripts.PreClick then button.scripts.PreClick(button, mouseButton, true) end
+    if button.protected then
+        local n = ({ LeftButton = "1", RightButton = "2", MiddleButton = "3" })[mouseButton] or ""
+        local a = button.attributes or {}
+        local kind = a["type" .. n] or a["*type" .. n] or a.type
+        if kind == "macro" then
+            local text = a["macrotext" .. n] or a.macrotext
+            if text then M.runMacro(text) end
+        end
+    end
+    if button.scripts.OnClick then button.scripts.OnClick(button, mouseButton, true) end
+    if button.scripts.PostClick then button.scripts.PostClick(button, mouseButton, true) end
     M.hardware = false
 end
 
@@ -280,11 +434,13 @@ end
 local ADDON_GLOBALS = {
     "FriendlyForeverDB", "SLASH_FRIENDLYFOREVER1", "SLASH_FRIENDLYFOREVER2",
     "FriendlyForeverMinimapButton", "FriendlyForeverOptionsPanel", "FriendlyForeverTextWindow",
+    "FriendlyForeverBuffButton", "BINDING_NAME_CLICK FriendlyForeverBuffButton:LeftButton",
 }
 
 function M.reset()
     M.now = 1000
     M.timers, M.frames, M.sent, M.blocked, M.printed = {}, {}, {}, {}, {}
+    M.casts = {}
     M.hardware = false
     M.focusedBox = nil
     M.rosterRequests = 0
@@ -296,6 +452,7 @@ function M.reset()
         units = {}, cursorX = 0, cursorY = 0,
         playerAuras = {}, aurasRestricted = false,
         today = "2026-10-26", clock = 1793000000,
+        knownSpells = {}, castFailures = {}, targetNameForm = "space", sentTargetForm = "first",
         race = "Human", class = "MAGE", faction = "Alliance", zone = "Elwynn Forest", hour = 14,
         cvars = { nameplateShowFriendlyPlayers = "1", nameplateShowOnlyNameForFriendlyPlayerUnits = "0" },
     }
@@ -319,7 +476,12 @@ function M.reset()
     _G.Minimap.width = 140
     _G.GameTooltip = M.newFrame("GameTooltip", "GameTooltip")
     _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, msg) M.printed[#M.printed + 1] = msg end }
-    _G.CreateFrame = function(kind, name, parent) return M.newFrame(kind, name, parent) end
+    _G.CreateFrame = function(kind, name, parent, template)
+        local f = M.newFrame(kind, name, parent)
+        f.template = template
+        if type(template) == "string" and template:find("Secure") then f.protected = true end
+        return f
+    end
     _G.SlashCmdList = {}
 
     _G.C_ChatInfo = {
@@ -464,6 +626,31 @@ function M.reset()
     end
     M.blockedEmotes = {}
     _G.C_ChatInfo.PerformEmote = PerformEmote
+
+    -- Spells: state.knownSpells[id] = true for spells in my spellbook.
+    -- state.inRange[unitId] = false puts that player out of range.
+    _G.C_Spell = {
+        GetSpellName = function(id) return M.SPELL_NAMES[id] end,
+        GetSpellTexture = function(id) return M.SPELL_NAMES[id] and ("icon:" .. id) or nil end,
+        IsSpellInRange = function(_, unit)
+            local u = M.state.units[unit]
+            if not u then return nil end
+            if M.state.unitsRestricted then return M.secret(true) end
+            return not (M.state.inRange and M.state.inRange[u.id] == false)
+        end,
+    }
+    _G.C_SpellBook = {
+        IsSpellInSpellBook = function(id) return M.state.knownSpells[id] == true end,
+    }
+    _G.UnitIsDeadOrGhost = restricted(function(unit)
+        local u = M.state.units[unit]
+        return u ~= nil and u.dead == true
+    end)
+    _G.UnitIsPVP = restricted(function(unit)
+        if unit == "player" then return M.state.pvp == true end
+        local u = M.state.units[unit]
+        return u ~= nil and u.pvp == true
+    end)
     -- Game settings. Unknown names return nil; nameplate settings are locked in combat.
     _G.C_CVar = {
         GetCVar = function(name) return M.state.cvars[name] end,
@@ -488,7 +675,14 @@ function M.reset()
     _G.C_UnitAuras = {
         GetAuraDataByIndex = function(unit, index)
             if M.state.aurasRestricted then error("aura data is restricted") end
-            if unit ~= "player" then return nil end
+            if unit ~= "player" then
+                -- Other players: spec.auras = { spellId, ... } (secret while units are restricted).
+                local u = M.state.units[unit]
+                local id = u and u.auras and u.auras[index]
+                if id == nil then return nil end
+                if M.state.unitsRestricted then return M.secret({ spellId = id }) end
+                return { spellId = id, isHelpful = true }
+            end
             local helpful = {}
             for _, a in ipairs(M.state.playerAuras) do
                 if a.isHelpful == true then helpful[#helpful + 1] = a end

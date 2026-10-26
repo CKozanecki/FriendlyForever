@@ -102,11 +102,16 @@ end
 -- Finish any edit in progress (a number box saves when it loses focus)
 -- before a tab switch or reset gives the boxes new contents.
 local function ClearEditFocus()
-    local boxes = { widgets.steppers.delay.box, widgets.steppers.repeatCooldown.box, widgets.unknownName }
+    local boxes = { widgets.steppers.delay.box, widgets.steppers.repeatCooldown.box,
+        widgets.steppers.owedMinutes.box, widgets.unknownName }
     for _, edit in ipairs(widgets.edits) do boxes[#boxes + 1] = edit end
     for _, box in ipairs(boxes) do
         if box:HasFocus() then box:ClearFocus() end
     end
+end
+
+local function ShowStepper(stepper, shown)
+    for _, part in ipairs({ stepper.label, stepper.minus, stepper.box, stepper.plus }) do part:SetShown(shown) end
 end
 
 local function Fill()
@@ -121,8 +126,20 @@ local function Fill()
     widgets.header:SetText(info.label .. "  |cff999999(sent to " .. info.channel .. ")|r")
     widgets.help:SetText(info.help)
     widgets.enabled:SetChecked(cfg.enabled)
+    widgets.enabled.label:SetText(info.enabledLabel or "Enabled")
+    -- Buff Back's line is said by your own press: no delay or repeat cooldown.
+    ShowStepper(widgets.steppers.delay, not info.noTiming)
+    ShowStepper(widgets.steppers.repeatCooldown, not info.noTiming)
     FillBox(widgets.steppers.delay.box, tostring(cfg.delay))
     FillBox(widgets.steppers.repeatCooldown.box, tostring(cfg.repeatCooldown))
+
+    local isBuffBack = currentType == "buffBack"
+    widgets.offer:SetShown(isBuffBack)
+    ShowStepper(widgets.steppers.owedMinutes, isBuffBack)
+    if isBuffBack then
+        widgets.offer:SetChecked(cfg.offer)
+        FillBox(widgets.steppers.owedMinutes.box, tostring(cfg.owedMinutes))
+    end
 
     widgets.listNames:SetShown(isBuff)
     widgets.thankStyle:SetShown(isBuff)
@@ -206,7 +223,7 @@ function Options.Create()
 
     local prev
     for _, msgType in ipairs(Config.TYPES) do
-        local tab = Button(content, Config.TYPE_INFO[msgType].label, 92, function() Options.SelectType(msgType) end)
+        local tab = Button(content, Config.TYPE_INFO[msgType].label, 84, function() Options.SelectType(msgType) end)
         if prev then
             tab:SetPoint("LEFT", prev, "RIGHT", 6, 0)
         else
@@ -241,6 +258,17 @@ function Options.Create()
         ns.db.buff.listBuffNames = on
     end)
     widgets.listNames:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
+
+    -- Buff Back tab only, in the buff tab's rows: show the button, and for how long.
+    widgets.offer = Checkbox(content, "Offer to buff back players who buff me", function(on)
+        ns.db.buffBack.offer = on
+        ns.RefreshEvents()
+        ns.BuffButton.Refresh()
+    end)
+    widgets.offer:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
+    local owedMinutes = Stepper(content, "Offer for (minutes):", "owedMinutes")
+    owedMinutes.label:SetPoint("LEFT", widgets.offer.label, "RIGHT", 40, 0)
+    widgets.steppers.owedMinutes = owedMinutes
 
     -- Same row: a line, a /thank emote, or both (click to cycle).
     widgets.thankStyle = Button(content, Options.THANK_STYLE_TEXT.message, 290, function()

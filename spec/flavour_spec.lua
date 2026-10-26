@@ -304,6 +304,32 @@ describe("Flavour", function()
             assert.is_true(checked > 1000, "checked " .. checked .. " combinations")
         end)
 
+        it("every Buff Back line fits the buff-back macro, at the longest name, spell and words", function()
+            local text = ns.FlavourText
+            local longest = {}
+            for _, slot in ipairs(text.SLOTS) do
+                local best = ""
+                for _, f in ipairs(AllFragments(text, slot)) do
+                    local r = f:gsub("{zone}", LONG.zone)
+                    if #r > #best then best = r end
+                end
+                longest[slot] = best
+            end
+            local spell = "Power Word: Fortitude" -- the longest buff name a class gives
+            local bare = ns.BuffButton.BuildCastMacro("Abcdefghijkl-Mnopqrstuvwx", spell, nil, false, true)
+            local room = ns.BuffButton.MACRO_MAX_LENGTH - #bare - #"\n/s "
+            for _, set in ipairs({ ns.DefaultMessages, ns.CasualMessages }) do
+                for _, line in ipairs(set.buffBack) do
+                    local vars = { name = LONG.name, fullname = LONG.fullname, buff = spell, zone = LONG.zone,
+                        timeofday = "afternoon", class = LONG.class, myclass = LONG.myclass }
+                    for k, v in pairs(longest) do vars[k] = v end
+                    local out = ns.Util.Render(line, vars)
+                    assert.is_true(#out <= room, ("%q is %d long; the macro has room for %d"):format(out, #out, room))
+                    assert.is_true(ns.BuffButton.IsSafeMacroPart(out), out)
+                end
+            end
+        end)
+
         it("fantasy buff lines never say '{buff} is' (it may be several buffs)", function()
             for _, line in ipairs(ns.DefaultMessages.buff) do
                 assert.is_nil(line:find("{buff} is", 1, true), line)

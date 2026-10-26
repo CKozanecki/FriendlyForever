@@ -130,6 +130,18 @@ function Util.UnitFullName(unit)
     return Util.FullName(UnitName(unit))
 end
 
+-- Up to three values from a game function, for reads that may fail: each is
+-- nil when secret, and all are nil when the function is missing or throws.
+function Util.Ask(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, a, b, c = pcall(fn, ...)
+    if not ok then return nil end
+    if Util.IsSecret(a) then a = nil end
+    if Util.IsSecret(b) then b = nil end
+    if Util.IsSecret(c) then c = nil end
+    return a, b, c
+end
+
 -- A copy of a value, tables copied all the way down (plain data only).
 function Util.DeepCopy(value)
     if type(value) ~= "table" then return value end

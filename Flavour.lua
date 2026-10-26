@@ -36,17 +36,7 @@ for _, slot in ipairs(Text.SLOTS) do SLOT[slot] = true end
 
 local recent = {} -- [slot] = list of fragments used lately, newest last
 
--- Up to three values from the game, each nil when missing or secret; all
--- nil when the function is missing or throws.
-local function Ask(fn, ...)
-    if type(fn) ~= "function" then return nil end
-    local ok, a, b, c = pcall(fn, ...)
-    if not ok then return nil end
-    if Util.IsSecret(a) then a = nil end
-    if Util.IsSecret(b) then b = nil end
-    if Util.IsSecret(c) then c = nil end
-    return a, b, c
-end
+local Ask = Util.Ask
 
 local function Text1(value)
     if type(value) == "string" and value ~= "" then return value end

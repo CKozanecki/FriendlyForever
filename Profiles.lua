@@ -25,6 +25,10 @@ Profiles.MAX_NAME = 32
 
 local Copy = Util.DeepCopy
 
+-- Settings about this screen, not about how you talk: an export leaves them
+-- out, and applying a profile or an import keeps yours.
+Profiles.LOCAL_ONLY = { buffBack = { "position", "unlocked" } }
+
 -- The portable settings of db, as a plain table.
 function Profiles.Snapshot(db, withIgnore)
     local out = { schemaVersion = ns.Config.SCHEMA_VERSION, skipWhileAFK = db.skipWhileAFK }
@@ -62,6 +66,11 @@ local function Apply(snapshot)
         if snap[msgType] ~= nil then candidate[msgType] = snap[msgType] end
     end
     if snap.skipWhileAFK ~= nil then candidate.skipWhileAFK = snap.skipWhileAFK end
+    for msgType, keys in pairs(Profiles.LOCAL_ONLY) do
+        if type(candidate[msgType]) == "table" then
+            for _, key in ipairs(keys) do candidate[msgType][key] = Copy(ns.db[msgType][key]) end
+        end
+    end
     candidate = ns.Config.Load(candidate)
     for _, msgType in ipairs(ns.Config.TYPES) do ns.db[msgType] = candidate[msgType] end
     ns.db.skipWhileAFK = candidate.skipWhileAFK
@@ -74,7 +83,11 @@ end
 
 -- The settings line, or nil and why not: never a line import would refuse.
 function Profiles.Export()
-    local text, why = ns.Serialize.Encode({ v = 1, settings = Profiles.Snapshot(ns.db, true) })
+    local settings = Profiles.Snapshot(ns.db, true)
+    for msgType, keys in pairs(Profiles.LOCAL_ONLY) do
+        for _, key in ipairs(keys) do settings[msgType][key] = nil end
+    end
+    local text, why = ns.Serialize.Encode({ v = 1, settings = settings })
     if text and #text > ns.Serialize.MAX_BYTES then
         return nil, "your settings are too long to share as one line (mostly symbols such as % and ;)"
     end

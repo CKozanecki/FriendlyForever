@@ -25,7 +25,8 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     mkdir -p "$STAGE/$ADDON/$(dirname "$file")"
     cp "$ROOT/$file" "$STAGE/$ADDON/$file"
 done < "$TOC"
-for extra in README.md CHANGELOG.md LICENSE; do
+# Bindings.xml isn't listed in the TOC: the game loads it by itself.
+for extra in README.md CHANGELOG.md LICENSE Bindings.xml; do
     [[ -f "$ROOT/$extra" ]] && cp "$ROOT/$extra" "$STAGE/$ADDON/"
 done
 

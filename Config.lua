@@ -25,10 +25,11 @@ Config.LIMITS = {
     delay          = { min = 0, max = 60 },    -- seconds
     repeatCooldown = { min = 0, max = 3600 },  -- seconds
     unknownName    = { maxBytes = 24 },
+    owedMinutes    = { min = 1, max = 60 },  -- how long a favour stays on the buff-back button
 }
 
 -- Order of message types (also the order of the options tabs).
-Config.TYPES = { "guildLogin", "buff", "guildJoin", "partyJoin", "partyHello", "partyHelloAgain" }
+Config.TYPES = { "guildLogin", "buff", "guildJoin", "partyJoin", "partyHello", "partyHelloAgain", "buffBack" }
 
 Config.TYPE_INFO = {
     guildLogin = {
@@ -61,6 +62,16 @@ Config.TYPE_INFO = {
         label   = "Hello Again",
         channel = "Party chat",
         help    = "Said instead of Party Hello when you rejoin a group (same leader) this session.",
+    },
+    -- Not sent by itself: the line goes in the buff-back button's macro and is
+    -- said by your own press, so it has no delay or repeat cooldown.
+    buffBack = {
+        label   = "Buff Back",
+        channel = "/say, as you cast",
+        help    = "Said as you buff someone back with the buff-back button (if switched on). "
+            .. "Placeholders: {name}, {fullname}, {buff} (the spell you cast)",
+        noTiming = true,
+        enabledLabel = "Say a line as I buff them back",
     },
 }
 
@@ -116,7 +127,39 @@ Config.DEFAULTS = {
         repeatCooldown = 30,
         messages = DefaultMessages.partyHelloAgain,
     },
+    -- enabled: say a line as you cast. offer: show the buff-back button.
+    buffBack = {
+        enabled = false,
+        delay = 0,
+        repeatCooldown = 0,
+        offer = true,
+        owedMinutes = 10,
+        unlocked = false,
+        position = { point = "CENTER", x = 0, y = -180 },
+        messages = DefaultMessages.buffBack,
+    },
 }
+
+-- Screen anchors a saved frame position may use.
+Config.ANCHORS = {
+    CENTER = true, TOP = true, BOTTOM = true, LEFT = true, RIGHT = true,
+    TOPLEFT = true, TOPRIGHT = true, BOTTOMLEFT = true, BOTTOMRIGHT = true,
+}
+Config.MAX_OFFSET = 4000 -- pixels from the anchor, either way
+
+-- A saved frame position { point, x, y }, checked; the default if unusable.
+function Config.CleanPosition(position)
+    local default = Config.DEFAULTS.buffBack.position
+    if type(position) ~= "table" or not Config.ANCHORS[position.point] then
+        return { point = default.point, x = default.x, y = default.y }
+    end
+    local limit = Config.MAX_OFFSET
+    return {
+        point = position.point,
+        x = Util.ClampNumber(type(position.x) == "number" and math.floor(position.x + 0.5) or nil, -limit, limit, 0),
+        y = Util.ClampNumber(type(position.y) == "number" and math.floor(position.y + 0.5) or nil, -limit, limit, 0),
+    }
+end
 
 local function CopyList(list)
     local out = {}
@@ -134,41 +177,35 @@ function Config.CleanUnknownName(text)
     return Util.Utf8Truncate(Util.StripChat(text), Config.LIMITS.unknownName.maxBytes)
 end
 
--- A clean copy of one type's settings: only the fields that type has, each
--- checked. Unknown keys (a hand-edited file, a pasted settings line) are
--- dropped, so nothing else can grow the saved file.
+-- A clean copy of one type's settings: exactly the fields its defaults
+-- have, each checked against its default's kind. Unknown keys (a hand-edited
+-- file, a pasted settings line) are dropped, so nothing else can grow the
+-- saved file.
 local function ValidateType(saved, defaults)
-    local cfg, src = {}, type(saved) == "table" and saved or {}
-    for _, key in ipairs({ "enabled", "delay", "repeatCooldown", "messages",
-        "listBuffNames", "useWhisper", "fallbackToSay", "thankStyle", "unknownName" }) do
-        cfg[key] = src[key]
-    end
-    local limits = Config.LIMITS
-
-    if type(cfg.enabled) ~= "boolean" then cfg.enabled = defaults.enabled end
-    cfg.delay = Util.ClampNumber(cfg.delay, limits.delay.min, limits.delay.max, defaults.delay)
-    cfg.repeatCooldown = Util.ClampNumber(cfg.repeatCooldown,
-        limits.repeatCooldown.min, limits.repeatCooldown.max, defaults.repeatCooldown)
-
-    for _, flag in ipairs({ "listBuffNames", "useWhisper", "fallbackToSay" }) do
-        if defaults[flag] ~= nil and type(cfg[flag]) ~= "boolean" then cfg[flag] = defaults[flag] end
-    end
-    if defaults.thankStyle ~= nil and not Config.THANK_STYLES[cfg.thankStyle] then
-        cfg.thankStyle = defaults.thankStyle
-    end
-    if defaults.unknownName ~= nil then
-        cfg.unknownName = cfg.unknownName == nil and defaults.unknownName or Config.CleanUnknownName(cfg.unknownName)
-    end
-    for _, key in ipairs({ "listBuffNames", "useWhisper", "fallbackToSay", "thankStyle", "unknownName" }) do
-        if defaults[key] == nil then cfg[key] = nil end
-    end
-
-    if type(cfg.messages) ~= "table" then
-        cfg.messages = CopyList(defaults.messages)
-    else
-        local clean = {}
-        for i = 1, Config.NUM_MESSAGES do clean[i] = Config.CleanMessage(cfg.messages[i]) end
-        cfg.messages = clean
+    local src = type(saved) == "table" and saved or {}
+    local cfg = {}
+    for key, default in pairs(defaults) do
+        local value = src[key]
+        if key == "messages" then
+            if type(value) ~= "table" then
+                cfg.messages = CopyList(default)
+            else
+                local clean = {}
+                for i = 1, Config.NUM_MESSAGES do clean[i] = Config.CleanMessage(value[i]) end
+                cfg.messages = clean
+            end
+        elseif key == "thankStyle" then
+            cfg.thankStyle = Config.THANK_STYLES[value] and value or default
+        elseif key == "unknownName" then
+            cfg.unknownName = value == nil and default or Config.CleanUnknownName(value)
+        elseif key == "position" then
+            cfg.position = Config.CleanPosition(value)
+        elseif type(default) == "boolean" then
+            if type(value) == "boolean" then cfg[key] = value else cfg[key] = default end
+        elseif type(default) == "number" then
+            local limits = Config.LIMITS[key]
+            cfg[key] = Util.ClampNumber(value, limits.min, limits.max, default)
+        end
     end
     return cfg
 end
@@ -197,7 +234,7 @@ local MIGRATIONS = {
             local cfg = db[msgType]
             if type(cfg) == "table" and type(cfg.messages) == "table" then
                 local old, new = CasualMessages[msgType], DefaultMessages[msgType]
-                for i = 1, Config.NUM_MESSAGES do
+                for i = 1, old and Config.NUM_MESSAGES or 0 do
                     if cfg.messages[i] ~= nil and cfg.messages[i] == old[i] then cfg.messages[i] = new[i] end
                 end
             end
@@ -217,7 +254,7 @@ local MIGRATIONS = {
         -- included) and fill the new slots with the 1.5.0 default lines.
         for _, msgType in ipairs(Config.TYPES) do
             local defaults, cfg = CasualMessages[msgType], db[msgType]
-            if type(cfg) == "table" and type(cfg.messages) == "table" then
+            if defaults and type(cfg) == "table" and type(cfg.messages) == "table" then
                 for i = 11, #defaults do
                     if cfg.messages[i] == nil then cfg.messages[i] = defaults[i] end
                 end

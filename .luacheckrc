@@ -9,6 +9,7 @@ exclude_files = { ".tools/**", "dist/**", ".release/**" }
 globals = {
     "FriendlyForeverDB",
     "FriendlyForeverTextWindow",
+    "FriendlyForeverBuffButton",
     "SLASH_FRIENDLYFOREVER1",
     "SLASH_FRIENDLYFOREVER2",
     SlashCmdList = { fields = { "FRIENDLYFOREVER" } },
@@ -30,6 +31,8 @@ read_globals = {
     "C_CVar", "GetCVar", "SetCVar",
     "time", "DoEmote", "UnitClass", "UnitRace", "UnitFactionGroup", "GetRealZoneText", "GetZoneText",
     "GetGameTime", "IsResting", "AddonCompartmentFrame", "UISpecialFrames",
+    "C_Spell", "C_SpellBook", "Enum", "GetSpellInfo", "GetSpellTexture", "IsSpellKnown", "IsPlayerSpell",
+    "UnitIsDeadOrGhost", "UnitIsPVP",
 }
 
 -- Tests run in plain Lua with busted and install the mock WoW API globally.

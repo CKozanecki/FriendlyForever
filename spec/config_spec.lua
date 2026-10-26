@@ -27,7 +27,8 @@ describe("Config", function()
 
     it("takes its default messages from Defaults.lua, same types and line counts as before the move", function()
         local ns = wow.load()
-        local expected = { guildLogin = 30, buff = 30, guildJoin = 30, partyJoin = 30, partyHello = 30, partyHelloAgain = 30 }
+        local expected = { guildLogin = 30, buff = 30, guildJoin = 30, partyJoin = 30, partyHello = 30, partyHelloAgain = 30,
+            buffBack = 30 }
         local fromDefaults, fromFile = {}, {}
         -- Config.DEFAULTS also holds general settings, so go by Config.TYPES.
         for _, msgType in ipairs(ns.Config.TYPES) do
@@ -46,6 +47,7 @@ describe("Config", function()
         local db = Config.Load(nil)
         for _, msgType in ipairs(Config.TYPES) do
             local expected = msgType:find("^partyHello") and 30 or 180
+            if msgType == "buffBack" then expected = 0 end -- said by your own press: no cooldown
             assert.are.equal(expected, db[msgType].repeatCooldown, msgType)
         end
     end)
@@ -71,7 +73,7 @@ describe("Config", function()
         assert.are.same({ angle = 220, hide = false }, db.minimap)
         for _, msgType in ipairs(Config.TYPES) do
             assert.are.same(Config.DEFAULTS[msgType].messages, db[msgType].messages)
-            assert.is_true(db[msgType].enabled)
+            assert.are.equal(Config.DEFAULTS[msgType].enabled, db[msgType].enabled, msgType)
         end
     end)
 
