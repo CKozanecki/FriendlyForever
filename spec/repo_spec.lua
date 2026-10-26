@@ -266,8 +266,10 @@ describe("CurseForge packager config", function()
     it("ignores every top-level file the TOC doesn't ship", function()
         local ignored = pkgmeta()
         assert.is_truthy(next(ignored), ".pkgmeta has no ignore list")
+        -- The TOC itself and scripts/package.sh's extras (Bindings.xml is
+        -- loaded by the game without being listed in the TOC).
         local shipped = { ["FriendlyForever.toc"] = true, ["README.md"] = true,
-            ["CHANGELOG.md"] = true, ["LICENSE"] = true }
+            ["CHANGELOG.md"] = true, ["LICENSE"] = true, ["Bindings.xml"] = true }
         local _, files = wow.parseToc()
         for _, file in ipairs(files) do shipped[file:match("^[^/]+")] = true end
 
