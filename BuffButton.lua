@@ -245,13 +245,16 @@ end
 --                   the button never completes, and was no attempt)
 --   sent            the game said a cast of the buff went out for it
 --                   (UNIT_SPELLCAST_SENT), naming castGUID and castTargetName
---   failed          the game said that cast failed; its error text follows
+--   failed          the game said that cast failed (at failedAt); its error text follows
 --   expired         its wait for an answer ran out (see Unanswered)
+--   unsure          the button filled between the halves of the press, so it
+--                   may have done nothing: no "No answer" is reported for it
 --   watch           identifies its current wait (WatchForAnswer)
 -- More than one is kept so a second press while the first cast is in flight
 -- doesn't lose the first one's answer.
 local presses = {}
 local pressFromDownHalf -- the press begun by the last down half, until its up half
+local downHalfFoundNothing = false -- the last down half came with the button empty
 
 local function ForgetPress(press)
     for i, waiting in ipairs(presses) do
@@ -270,9 +273,11 @@ local function Unanswered(press)
     if not ForgetPress(press) then return end
     press.expired = true
     local who = Util.DisplayName(press.name)
-    if press.sent then
+    if press.failed then
+        ShowResult("Couldn't buff " .. who .. " (the game gave no reason).", true)
+    elseif press.sent then
         ShowResult("No word back on " .. press.spell .. " for " .. who .. ". If it didn't land, press again.")
-    elseif press.complete then
+    elseif press.complete and not press.unsure then
         ShowResult("No answer: couldn't find " .. who .. " (out of sight?).", true)
     else
         return
@@ -299,10 +304,10 @@ end
 
 -- A new press of the armed favour. A newest press the game never sent a
 -- cast for is replaced: this one is the retry.
-local function AddPress(complete)
+local function AddPress(complete, unsure)
     local newest = presses[#presses]
     if newest and not newest.sent then table.remove(presses) end
-    local press = TakeArmedOffer({ complete = complete, lastHalfAt = GetTime() })
+    local press = TakeArmedOffer({ complete = complete, unsure = unsure, lastHalfAt = GetTime() })
     presses[#presses + 1] = press
     while #presses > BuffButton.MAX_PRESSES_WATCHED do table.remove(presses, 1) end
     WatchForAnswer(press)
@@ -323,13 +328,17 @@ local function OnPreClick(_, mouseButton, isDown)
     ArmButton()
     if isDown == true then
         pressFromDownHalf = armedOffer and AddPress(false) or nil
+        downHalfFoundNothing = not armedOffer
         return
     end
     local press = pressFromDownHalf
-    pressFromDownHalf = nil
+    local downHalfWasEmpty = downHalfFoundNothing
+    pressFromDownHalf, downHalfFoundNothing = nil, false
     if not press then
-        -- No down half, or it had nothing armed: this half is the press.
-        if armedOffer then AddPress(true) end
+        -- No down half, or it had nothing armed: this half is the press. If
+        -- the down half came with the button empty, the game may have acted
+        -- on it (doing nothing), so silence isn't reported as "No answer".
+        if armedOffer then AddPress(true, downHalfWasEmpty) end
         return
     end
     if not ForgetPress(press) then
@@ -434,7 +443,7 @@ end
 function BuffButton.OnSpellcastFailed(unit, castGUID, spellId)
     local press = PressForCast(unit, castGUID, spellId)
     if not press then return end
-    press.sent, press.failed = true, true
+    press.sent, press.failed, press.failedAt = true, true, GetTime()
     lastResultText = "the cast of " .. press.spell .. " failed"
 end
 
@@ -448,15 +457,17 @@ function BuffButton.OnSpellcastFailedQuiet(unit, castGUID, spellId)
 end
 
 -- The press the game's red error text answers: the newest whose cast just
--- failed (the server's refusal, however late), or else the newest pressed a
--- moment ago (a refusal before anything was sent: "Out of range."). Errors
--- any later are about something else.
+-- failed (the server's refusal, however late the failure came), or else the
+-- newest pressed a moment ago (a refusal before anything was sent: "Out of
+-- range."). Errors any later are about something else.
 local function PressForError()
+    local now = GetTime()
     for i = #presses, 1, -1 do
-        if presses[i].failed then return presses[i] end
+        local press = presses[i]
+        if press.failed and now - press.failedAt <= BuffButton.ERROR_ANSWER_SECONDS then return press end
     end
     local newest = presses[#presses]
-    if newest and GetTime() - newest.lastHalfAt <= BuffButton.ERROR_ANSWER_SECONDS then return newest end
+    if newest and now - newest.lastHalfAt <= BuffButton.ERROR_ANSWER_SECONDS then return newest end
 end
 
 function BuffButton.OnUIError(_, message)
