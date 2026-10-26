@@ -21,7 +21,7 @@ describe("Forever first name + surname", function()
         end })
         wow.fire("GUILD_ROSTER_UPDATE")
         for _, msgType in ipairs(ns.Config.TYPES) do
-            ns.db[msgType].messages = { ns.Config.DEFAULTS[msgType].messages[1] }
+            ns.db[msgType].messages = { ns.CasualMessages[msgType][1] } -- fixed wording
         end
     end)
 

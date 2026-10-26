@@ -128,7 +128,8 @@ function Announcer.Schedule(msgType, key, opts)
             emote = opts.emote,
             getTarget = opts.emoteTarget,
             getText = function()
-                return Util.Render(template, opts.vars and opts.vars() or Util.NameVars(key))
+                local vars = opts.vars and opts.vars() or Util.NameVars(key)
+                return Util.Render(template, ns.Flavour.Vars(vars))
             end,
             isValid = function()
                 local ok, why = StillWanted(msgType)

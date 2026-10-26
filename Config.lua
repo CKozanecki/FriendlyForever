@@ -8,11 +8,12 @@ local Util = ns.Util
 -- file: the client reads the file list at start-up, so it needs a restart.
 local DefaultMessages = ns.DefaultMessages
     or error("FriendlyForever: Defaults.lua isn't loaded. Restart the game after updating the addon.")
+local CasualMessages = ns.CasualMessages
 
 local Config = {}
 ns.Config = Config
 
-Config.SCHEMA_VERSION = 5
+Config.SCHEMA_VERSION = 6
 Config.NUM_MESSAGES = 30
 Config.MAX_LOG = 400 -- diagnostic log lines kept in saved variables
 Config.MAX_IGNORED = 500
@@ -176,22 +177,37 @@ local OLD_GUILD_LOGIN = {
 
 -- Each entry upgrades a saved file from version (key - 1) to key.
 local MIGRATIONS = {
+    [6] = function(db)
+        -- 1.7.0 replaced every type's default lines with fantasy ones. A saved
+        -- line still exactly the old (casual) default becomes the new one in
+        -- its slot; lines you edited stay. The casual set can be loaded again.
+        for _, msgType in ipairs(Config.TYPES) do
+            local cfg = db[msgType]
+            if type(cfg) == "table" and type(cfg.messages) == "table" then
+                local old, new = CasualMessages[msgType], DefaultMessages[msgType]
+                for i = 1, Config.NUM_MESSAGES do
+                    if cfg.messages[i] ~= nil and cfg.messages[i] == old[i] then cfg.messages[i] = new[i] end
+                end
+            end
+        end
+    end,
     [5] = function(db)
         -- Guild login lines were rewritten: a saved line still exactly the old
-        -- default becomes the new one in its slot; lines you edited stay.
+        -- default becomes the 1.5.0 one in its slot; lines you edited stay.
+        -- 1.5.0's lines are the casual set, so migration 6 takes it from there.
         if type(db.guildLogin) == "table" and type(db.guildLogin.messages) == "table" then
             local msgs = db.guildLogin.messages
             for i, old in ipairs(OLD_GUILD_LOGIN) do
-                if msgs[i] == old then msgs[i] = Config.DEFAULTS.guildLogin.messages[i] end
+                if msgs[i] == old then msgs[i] = CasualMessages.guildLogin[i] end
             end
         end
         -- Up to 1.4.2 each type had 10 lines; now 30. Keep the saved 10 (edits
-        -- included) and fill the new slots with the new default lines.
+        -- included) and fill the new slots with the 1.5.0 default lines.
         for _, msgType in ipairs(Config.TYPES) do
-            local defaults, cfg = Config.DEFAULTS[msgType], db[msgType]
+            local defaults, cfg = CasualMessages[msgType], db[msgType]
             if type(cfg) == "table" and type(cfg.messages) == "table" then
-                for i = 11, #defaults.messages do
-                    if cfg.messages[i] == nil then cfg.messages[i] = defaults.messages[i] end
+                for i = 11, #defaults do
+                    if cfg.messages[i] == nil then cfg.messages[i] = defaults[i] end
                 end
             end
         end

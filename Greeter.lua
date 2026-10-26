@@ -10,7 +10,7 @@ ns.Greeter = Greeter
 Greeter.PENDING_TIMEOUT = 30
 Greeter.MAX_PENDING = 100
 
-local members = {}
+local members = {} -- [full name] = their class as players read it ("warrior"), or true
 local pendingOnline = {}
 local pendingCount = 0
 
@@ -68,7 +68,7 @@ function Greeter.IsInMyGroup(name)
 end
 
 function Greeter.IsGuildMember(name)
-    return members[name] == true
+    return members[name] ~= nil
 end
 
 function Greeter.MemberCount()
@@ -92,9 +92,16 @@ local function Ignored(msgType, name)
     return true
 end
 
+-- {name}, {fullname} and, when the roster says, {class}.
+local function MemberVars(name)
+    local vars = Util.NameVars(name)
+    if type(members[name]) == "string" then vars.class = members[name] end
+    return vars
+end
+
 local function Greet(name)
     if Ignored("guildLogin", name) then return end
-    ns.Announcer.Schedule("guildLogin", name, { channel = GuildChannel })
+    ns.Announcer.Schedule("guildLogin", name, { channel = GuildChannel, vars = function() return MemberVars(name) end })
 end
 
 -- A pending name stays until a roster update confirms it (greeted) or it
@@ -151,8 +158,12 @@ function Greeter.OnRosterUpdate()
     members = {}
     if IsInGuild() then
         for i = 1, GetNumGuildMembers() or 0 do
-            local name = Util.FullName((GetGuildRosterInfo(i)))
-            if name then members[name] = true end
+            local rawName, _, _, _, class = GetGuildRosterInfo(i)
+            local name = Util.FullName(rawName)
+            if name then
+                class = Util.Readable(class)
+                members[name] = type(class) == "string" and class ~= "" and class:lower() or true
+            end
         end
     end
 
@@ -476,7 +487,7 @@ function Greeter.OnSystemMessage(msg)
             Greeter.RequestRoster()
         end
     elseif kind == "guildJoin" then
-        members[name] = true
+        members[name] = members[name] or true
         if Ignored("guildJoin", name) then return end
         ns.Announcer.Schedule("guildJoin", name, { channel = GuildChannel })
     elseif kind == "partyJoin" then

@@ -282,7 +282,9 @@ local commands = {
     test = function()
         for _, msgType in ipairs(ns.Config.TYPES) do
             local template = ns.Messages.Preview(ns.db[msgType].messages)
-            local text = template and ns.Util.Render(template, SAMPLE_VARS) or "(no messages)"
+            local vars = {}
+            for k, v in pairs(SAMPLE_VARS) do vars[k] = v end
+            local text = template and ns.Util.Render(template, ns.Flavour.Vars(vars)) or "(no messages)"
             ns.Print(ns.Config.TYPE_INFO[msgType].label .. ": " .. text)
         end
     end,

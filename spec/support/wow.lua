@@ -568,7 +568,24 @@ function M.boot(opts)
     _G.FriendlyForeverDB = opts.db
     local ns = M.load()
     ns.Messages.random = function() return 1 end
+    ns.Flavour.random = function() return 1 end
     M.fire("ADDON_LOADED", M.ADDON_NAME)
+    -- Most specs check behaviour, not wording, and were written against the
+    -- casual lines: types still on the shipped defaults use those (fixed
+    -- text). spec/flavour_spec.lua covers the shipped lines. opts.shippedLines
+    -- keeps them.
+    if not opts.shippedLines then
+        for _, msgType in ipairs(ns.Config.TYPES) do
+            local msgs, shipped = ns.db[msgType].messages, ns.DefaultMessages[msgType]
+            local untouched = #msgs == #shipped
+            for i = 1, #shipped do untouched = untouched and msgs[i] == shipped[i] end
+            if untouched then
+                local casual = {}
+                for i, line in ipairs(ns.CasualMessages[msgType]) do casual[i] = line end
+                ns.db[msgType].messages = casual
+            end
+        end
+    end
     M.fire("PLAYER_ENTERING_WORLD", true, false)
     if not opts.noGrace then M.advance(ns.Announcer.LOGIN_GRACE) end
     return ns

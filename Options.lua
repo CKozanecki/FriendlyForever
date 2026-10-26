@@ -277,7 +277,7 @@ function Options.Create()
         local template = ns.Messages.Preview(ns.db[currentType].messages)
         local vars = ns.Util.NameVars(ns.Util.UnitFullName("player") or "Nikki-Shifts")
         vars.buff = "Power Word: Fortitude and Arcane Intellect"
-        local text = template and ns.Util.Render(template, vars)
+        local text = template and ns.Util.Render(template, ns.Flavour.Vars(vars))
         ns.Print(text or "(no messages)")
     end)
     widgets.preview:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -16)

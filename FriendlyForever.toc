@@ -10,9 +10,11 @@
 
 Util.lua
 Defaults.lua
+FlavourText.lua
 Config.lua
 Diagnostics.lua
 Messages.lua
+Flavour.lua
 Cooldowns.lua
 Ignore.lua
 Ledger.lua

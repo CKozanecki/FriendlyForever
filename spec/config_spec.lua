@@ -13,8 +13,10 @@ describe("Config", function()
             assert.are.equal(Config.NUM_MESSAGES, #Config.DEFAULTS[msgType].messages, msgType)
             for _, text in ipairs(Config.DEFAULTS[msgType].messages) do
                 if msgType == "partyHello" or msgType == "partyHelloAgain" then
-                    -- Said to the whole group: there's no one name to fill in.
-                    assert.is_nil(text:find("{"), msgType .. ": " .. text)
+                    -- Said to the whole group: there's no one name to fill in
+                    -- (flavour placeholders are fine).
+                    assert.is_nil(text:find("{name}", 1, true), msgType .. ": " .. text)
+                    assert.is_nil(text:find("{fullname}", 1, true), msgType .. ": " .. text)
                 else
                     assert.is_truthy(text:find("{name}"), msgType .. ": " .. text)
                 end
@@ -104,17 +106,50 @@ describe("Config", function()
         assert.are.equal("", db.guildLogin.messages[4])
     end)
 
-    it("upgrades a 1.4.2 file to the shipped 1.5.0 lines, not just whatever DEFAULTS holds", function()
+    it("upgrades a 1.4.2 file through 1.5.0's lines to the 1.7.0 ones, keeping edits", function()
         local saved = { "Welcome back, {name}!", "my own line, {name}" }
         for i = 3, 10 do saved[i] = "" end
         local db = Config.Load({ schemaVersion = 4, guildLogin = { messages = saved },
             buff = { messages = { "Thanks, {name}!" } } })
-        assert.are.equal("{name} has logged in. Quick, everyone look busy.", db.guildLogin.messages[1])
+        local fantasy = wow.load().DefaultMessages
+        assert.are.equal(fantasy.guildLogin[1], db.guildLogin.messages[1])
         assert.are.equal("my own line, {name}", db.guildLogin.messages[2])
-        assert.are.equal("Ah, {name}. Right on time. Probably.", db.guildLogin.messages[11])
-        assert.are.equal("Welcome back, {name}. The fishing spot is free. For now.", db.guildLogin.messages[30])
+        assert.are.equal(fantasy.guildLogin[11], db.guildLogin.messages[11])
+        assert.are.equal(fantasy.guildLogin[30], db.guildLogin.messages[30])
         assert.are.equal("Thanks, {name}!", db.buff.messages[1])
-        assert.are.equal("Thanks so much for the {buff}, {name}!", db.buff.messages[11])
+        assert.are.equal(fantasy.buff[11], db.buff.messages[11])
+    end)
+
+    it("migration 5 still gives 1.5.0's exact lines (the casual set), whatever DEFAULTS holds", function()
+        local casual = wow.load().CasualMessages
+        assert.are.equal("{name} has logged in. Quick, everyone look busy.", casual.guildLogin[1])
+        assert.are.equal("Ah, {name}. Right on time. Probably.", casual.guildLogin[11])
+        assert.are.equal("Welcome back, {name}. The fishing spot is free. For now.", casual.guildLogin[30])
+        assert.are.equal("Thanks so much for the {buff}, {name}!", casual.buff[11])
+    end)
+
+    it("swaps untouched 1.6 default lines for the 1.7.0 ones, keeping edits, blanks and moved lines", function()
+        local ns = wow.load()
+        local casual, fantasy = ns.CasualMessages, ns.DefaultMessages
+        local saved = {}
+        for i = 1, 30 do saved[i] = casual.buff[i] end
+        saved[2] = "my own thanks, {name}"
+        saved[3] = ""
+        saved[4] = casual.buff[5] -- a default line moved to another slot counts as yours
+        local db = Config.Load({ schemaVersion = 5, buff = { messages = saved },
+            partyHello = { messages = casual.partyHello } })
+        assert.are.equal(fantasy.buff[1], db.buff.messages[1])
+        assert.are.equal("my own thanks, {name}", db.buff.messages[2])
+        assert.are.equal("", db.buff.messages[3])
+        assert.are.equal(casual.buff[5], db.buff.messages[4])
+        assert.are.equal(fantasy.buff[30], db.buff.messages[30])
+        assert.are.same(fantasy.partyHello, db.partyHello.messages)
+    end)
+
+    it("leaves a 1.7.0 file's lines alone, even ones matching the casual set", function()
+        local ns = wow.load()
+        local db = Config.Load({ schemaVersion = 6, guildLogin = { messages = ns.CasualMessages.guildLogin } })
+        assert.are.same(ns.CasualMessages.guildLogin, db.guildLogin.messages)
     end)
 
     it("keeps a valid message rotation and repairs a broken one", function()
