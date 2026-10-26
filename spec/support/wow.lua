@@ -210,6 +210,15 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         picks (Blizzard's 10.x template may act on the up half
 --                         for mouse clicks; the addon re-arms on both halves)
 --   Text emotes need a key press outdoors, like /say (see PerformEmote).
+--   state.castLatency     seconds before the server answers a cast
+--                         (SUCCEEDED or FAILED and its error text); 0 (default)
+--                         answers inside the press. SENT is always at once.
+--   /targetexact skips the "target" token: a player known only as your
+--                         target can't be found by name after /cleartarget
+--                         (the pessimistic choice; the real client may find them).
+--   A secret value used as a table key reads as missing (byAuraId[secret]
+--                         is nil); the real client may raise an error instead,
+--                         which the addon's callers also survive.
 ------------------------------------------------------------------------
 
 local function targetableName(u)
@@ -291,14 +300,31 @@ local function cast(args)
         sentTo = target.surname and (target.name .. " " .. target.surname) or target.name
     end
     M.fire("UNIT_SPELLCAST_SENT", "player", sentTo, guid, id)
-    if failure then
-        M.casts[#M.casts + 1] = { spell = name, id = id, target = target.id, failed = failure }
-        M.fire("UNIT_SPELLCAST_FAILED", "player", guid, id)
-        M.uiError(failure)
-        return
+    local record = { spell = name, id = id, target = target.id, failed = failure,
+        targetDead = target.dead or nil, targetHostile = target.hostile or nil }
+    M.casts[#M.casts + 1] = record
+    -- Helping a player flagged for PvP flags you too (as things stand when
+    -- the cast goes out).
+    local flags = not failure and target.pvp and target ~= M.state.units.player and not M.state.pvp
+    -- The server's answer: at once, or after state.castLatency seconds.
+    local function answer()
+        if failure then
+            M.fire("UNIT_SPELLCAST_FAILED", "player", guid, id)
+            M.uiError(failure)
+            return
+        end
+        if flags then
+            M.state.pvp = true
+            M.flaggedBy[#M.flaggedBy + 1] = target.id
+        end
+        M.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, id)
     end
-    M.casts[#M.casts + 1] = { spell = name, id = id, target = target.id }
-    M.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, id)
+    local latency = M.state.castLatency or 0
+    if latency > 0 then
+        _G.C_Timer.After(latency, answer)
+    else
+        answer()
+    end
 end
 
 function M.uiError(message)
@@ -530,6 +556,7 @@ function M.reset()
     M.now = 1000
     M.timers, M.frames, M.sent, M.blocked, M.printed = {}, {}, {}, {}, {}
     M.casts = {}
+    M.flaggedBy = {} -- players whose PvP flag a buff of yours caught (see cast)
     M.hardware = false
     M.focusedBox = nil
     M.rosterRequests = 0

@@ -410,6 +410,13 @@ function Config.Load(saved)
     return db
 end
 
+-- Check the live settings again: after an error (Diag.OnError), since damage
+-- done mid-session (another addon, a bad /run) can cause one, so it heals at
+-- once instead of at the next reload.
+function Config.Repair()
+    if type(ns.db) == "table" then Config.Load(ns.db) end
+end
+
 -- Fresh copy of one type's defaults.
 function Config.DefaultsFor(msgType)
     return ValidateType(nil, Config.DEFAULTS[msgType])

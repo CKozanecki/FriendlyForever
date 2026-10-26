@@ -7,11 +7,12 @@
 -- ones their class has no use for (Intellect to a warrior), and ones they
 -- already wear when the game lets us see.
 --
--- Safety: buffing a player flagged for PvP flags you too. Their flag is read
--- when they buff you (their unit is known then) and again whenever their
--- unit is known; a favour is offered only when a reading from the last
--- minute said "not flagged", or you are flagged yourself. Without a recent
--- reading it isn't (targeting them gives one).
+-- Safety: buffing a player flagged for PvP flags you too. A favour is offered
+-- only when you are flagged yourself, or the game shows them right now (on a
+-- nameplate, as your target, focus or under your mouse) and says they aren't
+-- flagged. The flag is read each time the button is armed, which includes
+-- the moment you press it; an earlier reading is never trusted, since anyone
+-- can flag at any time.
 --
 -- Favours are kept in memory only: a /reload or logout forgets them.
 local _, ns = ...
@@ -24,9 +25,9 @@ ns.Offers = Offers
 Offers.MAX = 20                 -- favours kept at once; the oldest goes first
 Offers.MAX_AURAS = 40           -- buffs read per player when checking what they wear
 Offers.RETURNED_RECENTLY = 600  -- seconds after you return a favour that their buff back isn't a new one
-Offers.PVP_READING_FRESH = 60   -- seconds a PvP flag reading is trusted
+Offers.MAX_NAMEPLATES = 40      -- nameplate tokens looked through for a player
 
-local favours = {}          -- newest last: { name, unit, class, pvp, pvpReadAt, owedAt, ledgerEntry }
+local favours = {}          -- newest last: { name, unit, class, owedAt, ledgerEntry }
 local returnedAt = {}       -- [full name] = GetTime() you last returned their favour
 local listeners = {}
 
@@ -45,28 +46,54 @@ local function IndexOf(name)
     end
 end
 
--- Tokens that may hold them later: you can target or mouse over them to
--- give a fresh reading.
-local OTHER_TOKENS = { "target", "mouseover", "focus" }
+-- Tokens that may show them, in the order they're checked: you can target
+-- or mouse over them, and they may show on a nameplate (whose numbers the
+-- game hands out afresh all the time).
+local LOOKUP_TOKENS = { "target", "mouseover", "focus" }
+for i = 1, Offers.MAX_NAMEPLATES do LOOKUP_TOKENS[#LOOKUP_TOKENS + 1] = "nameplate" .. i end
 
--- A unit token that is them now: the one they were seen under, or your
--- target, mouseover or focus if that's them. nil if none is.
-local function LiveUnit(favour)
-    if favour.unit and Util.UnitFullName(favour.unit) == favour.name then return favour.unit end
-    for _, token in ipairs(OTHER_TOKENS) do
-        if Util.UnitFullName(token) == favour.name then return token end
+-- Who the game shows right now: [full name] = the unit tokens showing them.
+-- Read once per check of the favours, not once per favour.
+local function VisiblePlayers()
+    local visible = {}
+    for _, token in ipairs(LOOKUP_TOKENS) do
+        local name = Util.UnitFullName(token)
+        if name then
+            visible[name] = visible[name] or {}
+            table.insert(visible[name], token)
+        end
     end
-    return nil
+    return visible
 end
 
--- Read what we can about them from a live unit: class and PvP flag.
-local function Observe(favour)
-    local unit = LiveUnit(favour)
-    if not unit then return nil end
+-- The unit tokens that are them now: the one they were last seen under, and
+-- any other showing them (the first becomes the one they were seen under).
+-- Empty if none is.
+local function LiveUnits(favour, visible)
+    local units = {}
+    if favour.unit and Util.UnitFullName(favour.unit) == favour.name then units[1] = favour.unit end
+    for _, token in ipairs((visible or VisiblePlayers())[favour.name] or {}) do
+        if token ~= units[1] then units[#units + 1] = token end
+    end
+    if units[1] then favour.unit = units[1] end
+    return units
+end
+
+-- Read what we can about them now. Returns a unit token that is them (or
+-- nil), and whether they're flagged for PvP: true if any token showing them
+-- says so, false if every one says not, nil if none can say.
+local function Observe(favour, visible)
+    local units = LiveUnits(favour, visible)
+    local unit = units[1]
+    if not unit then return nil, nil end
     if not favour.class then favour.class = select(2, Util.UnitClassIf(unit, favour.name)) end
-    local pvp = Read(UnitIsPVP, unit)
-    if type(pvp) == "boolean" then favour.pvp, favour.pvpReadAt = pvp, GetTime() end
-    return unit
+    local flagged
+    for _, token in ipairs(units) do
+        local pvp = Read(UnitIsPVP, token)
+        if pvp == true then return unit, true end
+        if pvp == false then flagged = false end
+    end
+    return unit, flagged
 end
 
 -- true / false whether the unit wears this buff (any rank, group version or
@@ -126,13 +153,14 @@ local function Expire(now)
 end
 
 -- The buff to give this favour, or nil and why not.
-local function ChooseBuff(favour, myBuffs)
-    local unit = Observe(favour)
+local function ChooseBuff(favour, myBuffs, visible)
+    local unit, flagged = Observe(favour, visible)
     if unit and Read(UnitIsDeadOrGhost, unit) == true then return nil, "they're dead" end
     if Read(UnitIsPVP, "player") ~= true then
-        local fresh = favour.pvpReadAt and GetTime() - favour.pvpReadAt <= Offers.PVP_READING_FRESH
-        if fresh and favour.pvp then return nil, "they're flagged for PvP and you aren't" end
-        if not fresh then return nil, "can't tell if they're flagged for PvP (target them to check)" end
+        if flagged then return nil, "they're flagged for PvP and you aren't" end
+        if flagged == nil then
+            return nil, "can't see whether they're flagged for PvP (target them, or show friendly nameplates)"
+        end
     end
     if #myBuffs == 0 then return nil, "you know no buffs to give" end
     local suitable = 0
@@ -155,10 +183,11 @@ function Offers.Current()
     Expire(GetTime())
     if #favours == 0 then return nil, "nobody is owed a buff" end
     local myBuffs = ns.BuffData.Mine()
+    local visible = VisiblePlayers()
     local firstReason
     for i = #favours, 1, -1 do
         local favour = favours[i]
-        local buff, reason = ChooseBuff(favour, myBuffs)
+        local buff, reason = ChooseBuff(favour, myBuffs, visible)
         local spell = buff and ns.BuffData.SpellName(buff)
         if spell then return { name = favour.name, buff = buff, spell = spell } end
         firstReason = firstReason

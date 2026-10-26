@@ -90,6 +90,7 @@ describe("Flavour", function()
         end)
 
         it("tells the Skyborne apart by faction when the race ID isn't given", function()
+            boot()
             assert.are.equal("HighOrder", ns.Flavour.Voice("Skyborne", nil, "Alliance"))
             assert.are.equal("Windshaper", ns.Flavour.Voice("Skyborne", nil, "Horde"))
             assert.is_nil(ns.Flavour.Voice("Skyborne", nil, nil), "neither: general lines, never a guess")
@@ -316,7 +317,7 @@ describe("Flavour", function()
                 longest[slot] = best
             end
             local spell = "Power Word: Fortitude" -- the longest buff name a class gives
-            local bare = ns.BuffButton.BuildCastMacro("Abcdefghijkl-Mnopqrstuvwx", spell, nil, false, true)
+            local bare = ns.BuffButton.BuildCastMacro("Abcdefghijkl-Mnopqrstuvwx", spell, nil, false)
             local room = ns.BuffButton.MACRO_MAX_LENGTH - #bare - #"\n/s "
             for _, set in ipairs({ ns.DefaultMessages, ns.CasualMessages }) do
                 for _, line in ipairs(set.buffBack) do

@@ -491,7 +491,7 @@ SlashCmdList.FRIENDLYFOREVER = function(input)
     cmd = (cmd or ""):lower()
     local command = commands[cmd]
     if command then
-        command(args or "")
+        ns.Diag.Call(command, args or "")
     elseif cmd == "" then
         ns.Options.Open()
     else

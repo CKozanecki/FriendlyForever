@@ -99,8 +99,23 @@ describe("Buff back", function()
             ns.db.buffBack.enabled = false
             stranger()
             buffedBy()
+            assert.are.equal(0, ns.Offers.Count(), "not even collected")
             assert.is_nil(ns.Offers.Current())
             assert.is_false(button:IsShown())
+        end)
+
+        it("empties as soon as Buff Back is switched off with a favour owed", function()
+            stranger()
+            buffedBy()
+            assert.is_truthy(macro())
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffBack, "OnClick")
+            w.enabled:SetChecked(false)
+            wow.run(w.enabled, "OnClick")
+            assert.is_nil(macro())
+            assert.is_false(button:IsShown())
+            wow.press(button)
+            assert.are.equal(0, #wow.casts)
         end)
 
         it("not to someone the game can't name, or someone on your ignore list", function()
@@ -152,17 +167,36 @@ describe("Buff back", function()
             assert.is_table(ns.Offers.Current())
         end)
 
-        it("doesn't trust a PvP reading older than a minute", function()
+        it("never trusts an earlier PvP reading: offers only while the game shows them", function()
+            stranger("nameplate1")
+            buffedBy()
+            assert.is_table(ns.Offers.Current(), "shown, and not flagged")
+            wow.state.units.nameplate1 = nil
+            local offer, why = ns.Offers.Current()
+            assert.is_nil(offer, "they may have flagged since")
+            assert.is_truthy(why:find("can't see whether", 1, true))
+            stranger("target") -- you target them: the game shows them again
+            assert.is_table(ns.Offers.Current())
+        end)
+
+        it("refuses when any unit showing them says they're flagged", function()
+            stranger("nameplate1")
+            stranger("nameplate2", { pvp = true }) -- the same player, read differently
+            buffedBy("nameplate1")
+            assert.is_nil(ns.Offers.Current())
+            wow.press(button)
+            assert.are.equal(0, #wow.casts)
+        end)
+
+        it("re-arms when a nameplate appears", function()
             stranger("nameplate1")
             buffedBy()
             wow.state.units.nameplate1 = nil
-            assert.is_table(ns.Offers.Current(), "read unflagged just now")
-            wow.advance(ns.Offers.PVP_READING_FRESH + 1)
-            local offer, why = ns.Offers.Current()
-            assert.is_nil(offer)
-            assert.is_truthy(why:find("can't tell", 1, true))
-            stranger("target") -- you target them: a fresh reading
-            assert.is_table(ns.Offers.Current())
+            wow.fire("NAME_PLATE_UNIT_REMOVED", "nameplate1")
+            assert.is_nil(macro())
+            stranger("nameplate3")
+            wow.fire("NAME_PLATE_UNIT_ADDED", "nameplate3")
+            assert.is_truthy(macro())
         end)
 
         it("still refuses a flagged player after their nameplate is gone", function()
@@ -183,15 +217,63 @@ describe("Buff back", function()
             buffedBy()
             local offer, why = ns.Offers.Current()
             assert.is_nil(offer)
-            assert.is_truthy(why:find("can't tell if they're flagged", 1, true))
+            assert.is_truthy(why:find("can't see whether they're flagged", 1, true))
             _G.UnitIsPVP = function() return false end
             assert.is_table(ns.Offers.Current(), "read while their unit is known")
+        end)
+
+        it("re-reads the PvP flag when they move to another nameplate, and never buffs them flagged", function()
+            stranger("nameplate1")
+            buffedBy("nameplate1")                                         -- read unflagged
+            wow.advance(20)
+            stranger("nameplate1", { name = "Ann", surname = "Vale" })     -- plates reshuffle
+            stranger("nameplate4", { pvp = true })                         -- Bob, now flagged
+            wow.press(button)
+            assert.are.equal(0, #wow.casts)
+            assert.is_truthy(select(2, ns.Offers.Current()):find("flagged for PvP", 1, true))
+        end)
+
+        it("one favour per player, however often they buff you", function()
+            ns.db.buff.enabled = false
+            stranger()
+            buffedBy()
+            wow.advance(60)
+            buffedBy()
+            assert.are.equal(1, ns.Offers.Count())
+        end)
+
+        it("never offers a self-cast buff (Battle Shout) or a party-only one (Salvation) to a stranger", function()
+            boot({ class = "WARRIOR", known = { [6673] = true } })
+            stranger()
+            buffedBy()
+            local offer, why = ns.Offers.Current()
+            assert.is_nil(offer)
+            assert.is_truthy(why:find("none of your buffs suit them", 1, true))
+            wow.SPELL_NAMES[1038] = "Blessing of Salvation"
+            finally(function() wow.SPELL_NAMES[1038] = nil end)
+            boot({ class = "PALADIN", known = { [1038] = true } })
+            stranger()
+            buffedBy()
+            assert.is_nil(ns.Offers.Current(), "Salvation would cut a tank's threat")
+        end)
+
+        it("can't tell what someone wears when the whole aura, or its spell ID, is secret", function()
+            local real = _G.C_UnitAuras.GetAuraDataByIndex
+            finally(function() _G.C_UnitAuras.GetAuraDataByIndex = real end)
+            local motw = ns.BuffData.CLASSES.DRUID[1]
+            _G.C_UnitAuras.GetAuraDataByIndex = function() return wow.secret({ spellId = MOTW }) end
+            assert.is_nil(ns.Offers.Wears("nameplate1", motw))
+            _G.C_UnitAuras.GetAuraDataByIndex = function(_, i)
+                if i == 1 then return { spellId = wow.secret(MOTW) } end
+            end
+            assert.is_nil(ns.Offers.Wears("nameplate1", motw))
         end)
 
         it("doesn't read a unit token that now belongs to someone else", function()
             stranger("nameplate1", { auras = { MOTW, THORNS }, class = "WARRIOR" })
             buffedBy()
             wow.addUnit("nameplate1", { name = "Ann", surname = "Vale", dead = true, auras = { MOTW, THORNS } })
+            wow.state.pvp = true -- you're flagged: no need to see Bob to offer
             local offer = ns.Offers.Current()
             assert.are.equal("Bob-Stone", offer.name, "Ann's state says nothing about Bob")
             assert.are.equal("Mark of the Wild", offer.spell)
@@ -201,7 +283,9 @@ describe("Buff back", function()
         it("treats buffs hidden in a fight as not worn", function()
             stranger("nameplate1", { auras = { MOTW } })
             buffedBy()
-            wow.state.unitsRestricted = true
+            local real = _G.C_UnitAuras.GetAuraDataByIndex
+            finally(function() _G.C_UnitAuras.GetAuraDataByIndex = real end)
+            _G.C_UnitAuras.GetAuraDataByIndex = function() return wow.secret({ spellId = MOTW }) end
             assert.are.equal("Mark of the Wild", ns.Offers.Current().spell)
         end)
 
@@ -359,10 +443,20 @@ describe("Buff back", function()
         it("doesn't count it returned when the game says the cast went to someone else", function()
             stranger()
             buffedBy()
+            button.scripts.PreClick(button, "LeftButton", true)
             -- The game reports another name for the cast (a same-named player elsewhere, say).
+            ns.BuffButton.OnSpellcastSent("player", "Ann Vale", "Cast-1", MOTW)
+            ns.BuffButton.OnSpellcastSucceeded("player", "Cast-1", MOTW)
+            assert.is_nil(ns.db.ledger.entries[1].returned)
+            assert.are.equal(1, ns.Offers.Count(), "still owed")
+            assert.is_true(printedHas("Mark of the Wild went to Ann Vale, not Bob Stone."))
+        end)
+
+        it("counts it returned when the game gives the full name, and ignores a cast report before any press", function()
+            stranger()
+            buffedBy()
             wow.state.sentTargetForm = "full"
-            local realCast = wow.press
-            realCast(button)
+            wow.press(button)
             assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned, "Bob Stone: right person")
             stranger("nameplate2", { name = "Ann", surname = "Vale" })
             buffedBy("nameplate2")
@@ -446,7 +540,7 @@ describe("Buff back", function()
         it("says nothing about a mouse press released off the button (nothing was attempted)", function()
             stranger("nameplate1")
             buffedBy("nameplate1")
-            wow.state.units.nameplate1 = nil
+            wow.state.targetNameForm = "hyphen" -- /targetexact can't find them
             -- Only the down half reaches the button.
             button.scripts.PreClick(button, "LeftButton", true)
             wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
@@ -456,7 +550,7 @@ describe("Buff back", function()
         it("reports a press that got no answer (they couldn't be found)", function()
             stranger("nameplate1")
             buffedBy("nameplate1")
-            wow.state.units.nameplate1 = nil -- gone from sight
+            wow.state.targetNameForm = "hyphen" -- /targetexact can't find them by the name given
             wow.press(button)
             assert.are.equal(0, #wow.casts)
             wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 0.2)
@@ -613,6 +707,149 @@ describe("Buff back", function()
         end)
     end)
 
+    describe("presses and the game's answers", function()
+        local function half(isDown) button.scripts.PreClick(button, "LeftButton", isDown) end
+
+        it("a second press while the first cast is in flight doesn't lose the first one's credit", function()
+            stranger()
+            buffedBy()
+            half(true); half(false)                                       -- press 1
+            ns.BuffButton.OnSpellcastSent("player", "Bob", "Cast-1", MOTW)
+            half(true); half(false)                                       -- press 2, mashed
+            ns.BuffButton.OnUIError(0, "Spell is not ready yet.")         -- the cooldown refuses press 2
+            ns.BuffButton.OnSpellcastSucceeded("player", "Cast-1", MOTW)  -- press 1 lands
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned)
+            assert.are.equal(0, ns.Offers.Count())
+        end)
+
+        it("matches a late answer to its own press, with no error text in between", function()
+            stranger()
+            buffedBy()
+            half(true); half(false)
+            ns.BuffButton.OnSpellcastSent("player", "Bob", "Cast-1", MOTW)
+            half(true); half(false)
+            ns.BuffButton.OnSpellcastSucceeded("player", "Cast-1", MOTW)
+            assert.are.equal("Returned Mark of the Wild to Bob Stone.", button.result:GetText())
+        end)
+
+        it("credits casts the server answers late, pressed twice", function()
+            wow.state.castLatency = 0.3
+            stranger()
+            buffedBy()
+            wow.press(button)
+            wow.press(button) -- before the first answer: casts again (the favour is still owed)
+            wow.advance(1)
+            assert.are.equal(2, #wow.casts)
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned)
+            assert.are.equal(1, ns.Ledger.Summary().returned, "returned once")
+            assert.is_false(printedHas("No answer"))
+        end)
+
+        it("says why the server refused a cast, however late its answer", function()
+            wow.state.castLatency = 1.5
+            wow.state.castFailures["Bob-Stone"] = "Target not in line of sight"
+            stranger()
+            buffedBy()
+            wow.press(button)
+            wow.advance(2)
+            assert.are.equal("Couldn't buff Bob Stone: Target not in line of sight", button.result:GetText())
+            assert.are.equal(1, ns.Offers.Count(), "still owed")
+        end)
+
+        it("credits the favour the game acted on when another arrives while the key is held (key up)", function()
+            wow.state.cvars.ActionButtonUseKeyDown = "0"
+            stranger("nameplate1")
+            buffedBy("nameplate1")
+            half(true)                                    -- key down: Bob armed
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2")                        -- Ann's buff lands while the key is held
+            wow.hardware = true
+            half(false)                                   -- re-armed for Ann; the macro runs now
+            wow.runMacro(macro())
+            wow.hardware = false
+            assert.are.equal("Ann-Vale", wow.casts[1].target)
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[2].returned, "Ann's favour credited")
+            assert.is_false(printedHas("went to Ann"))
+        end)
+
+        it("still records the press when the key is held past the answer window (key up)", function()
+            wow.state.cvars.ActionButtonUseKeyDown = "0"
+            stranger()
+            buffedBy()
+            half(true)
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+            assert.is_false(printedHas("No answer"), "a press not yet released isn't reported")
+            wow.hardware = true
+            half(false)
+            wow.runMacro(macro())
+            wow.hardware = false
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned)
+        end)
+
+        it("reports 'No answer' for a click delivered on release only", function()
+            stranger("nameplate1")
+            buffedBy("nameplate1")
+            wow.state.targetNameForm = "hyphen" -- /targetexact can't find them
+            half(false) -- no down half
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 0.2)
+            assert.is_true(printedHas("No answer: couldn't find Bob Stone"))
+        end)
+
+        it("doesn't blame a later error on a press", function()
+            stranger("nameplate1")
+            buffedBy("nameplate1")
+            half(true) -- down half only (released off the button)
+            wow.advance(ns.BuffButton.ERROR_ANSWER_SECONDS + 0.1)
+            wow.uiError("Not enough energy")
+            assert.is_false(printedHas("Couldn't buff"))
+            half(true); half(false)
+            wow.advance(ns.BuffButton.ERROR_ANSWER_SECONDS + 0.1)
+            wow.uiError("Not enough energy")
+            assert.is_false(printedHas("Couldn't buff"), "nor on a complete press that found nobody")
+        end)
+
+        it("shows the game's error text without escape codes", function()
+            wow.state.castFailures["Bob-Stone"] = "|cffff0000Out of range.|r"
+            stranger()
+            buffedBy()
+            wow.press(button)
+            assert.are.equal("Couldn't buff Bob Stone: cffff0000Out of range.r", button.result:GetText())
+        end)
+
+        it("only your own cast of the armed buff answers a press", function()
+            stranger()
+            buffedBy()
+            half(true)
+            ns.BuffButton.OnSpellcastSent("target", "Bob", "x", MOTW)   -- someone else's cast
+            ns.BuffButton.OnSpellcastSucceeded("target", "x", MOTW)
+            ns.BuffButton.OnSpellcastSent("player", "Bob", "y", 5185)   -- your Healing Touch on Bob
+            ns.BuffButton.OnSpellcastSucceeded("player", "y", 5185)
+            assert.is_nil(ns.db.ledger.entries[1].returned)
+            assert.are.equal(1, ns.Offers.Count())
+        end)
+
+        it("one right-click lets one favour go", function()
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2")
+            stranger("nameplate1")
+            buffedBy("nameplate1")
+            wow.press(button, "RightButton")
+            assert.are.equal(1, ns.Offers.Count())
+            assert.are.equal("Ann-Vale", ns.BuffButton.ArmedOffer().name)
+        end)
+
+        it("keeps your target when the game won't say whether you have one", function()
+            wow.addUnit("wolf", { name = "Wolf", isPlayer = false, hostile = true })
+            wow.state.units.target = wow.state.units.wolf
+            _G.UnitExists = function() return wow.secret(true) end
+            stranger()
+            buffedBy()
+            wow.press(button)
+            assert.are.equal(1, #wow.casts)
+            assert.are.equal("Wolf", wow.state.units.target.name)
+        end)
+    end)
+
     describe("starting up mid-fight (a /reload in combat)", function()
         it("waits to make the button until the fight ends, and everything else still starts", function()
             ns = wow.boot({ before = function(state)
@@ -670,6 +907,7 @@ describe("Buff back", function()
                 function() wow.state.pvp = math.random() < 0.2 end,
                 function() wow.state.unitsRestricted = math.random() < 0.2 end,
                 function() wow.fire("SPELLS_CHANGED") end,
+                function() wow.state.castLatency = ({ 0, 0, 0.2, 1.5 })[math.random(4)] end,
             }
             -- Presses the game left unanswered (no cast or error from them): only
             -- those may be reported as "No answer".
@@ -691,11 +929,20 @@ describe("Buff back", function()
                     math.random() < 0.3 and { shift = true } or nil)
             end
             for step = 1, 1500 do
-                actions[math.random(#actions)]()
+                local which = math.random(#actions)
+                actions[which]()
                 if wow.state.inCombat then
                     assert.is_nil(macro(), "seed " .. seed .. ", step " .. step .. ": armed in a fight")
                 end
                 assert.is_true(ns.Offers.Count() <= ns.Offers.MAX, "seed " .. seed)
+                -- The feature's safety rules: a buff never flags you for PvP,
+                -- never lands on you, a dead or a hostile unit.
+                assert.are.same({}, wow.flaggedBy, "seed " .. seed .. ", step " .. step .. ": flagged for PvP")
+                local last = wow.casts[#wow.casts]
+                if last then
+                    assert.are_not.equal("Me", last.target, "seed " .. seed .. ": cast on yourself")
+                    assert.is_falsy(last.targetDead or last.targetHostile, "seed " .. seed .. ": dead or hostile target")
+                end
             end
             assert.are.same({}, wow.errors, "seed " .. seed)
             local s = ns.Ledger.Summary()
@@ -711,7 +958,7 @@ describe("Buff back", function()
 
         it("survives random storms of events, presses, fights and settings changes", function()
             local received, casts, returned = 0, 0, 0
-            for _, seed in ipairs({ 1, 7, 42, 2026, 31337 }) do
+            for _, seed in ipairs({ 1, 7, 42, 99, 404, 777, 2026, 4242, 31337, 65535 }) do
                 local s = storm(seed)
                 received, casts, returned = received + s.received, casts + #wow.casts, returned + s.returned
             end
@@ -719,6 +966,59 @@ describe("Buff back", function()
             assert.is_true(received > 100, "favours received: " .. received)
             assert.is_true(casts > 20, "casts: " .. casts)
             assert.is_true(returned > 0, "favours returned: " .. returned)
+        end)
+
+        it("a damaged sayLine doesn't switch on talking", function()
+            ns.db.buffBack.messages = { "For you, {name}!" }
+            ns.db.buffBack.sayLine = "yes" -- damaged mid-session; the default is false
+            stranger()
+            buffedBy()
+            wow.press(button)
+            assert.are.equal(1, #wow.casts)
+            assert.are.same({}, wow.sentTo("SAY"))
+        end)
+
+        it("keeps casting when its line list is damaged into a number mid-session", function()
+            ns.db.buffBack.sayLine = true
+            ns.db.buffBack.messages = 42
+            stranger()
+            buffedBy()
+            wow.press(button)
+            assert.are.equal(1, #wow.casts)
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("heals at once, without a reload, when its whole settings table is lost", function()
+            stranger()
+            buffedBy()
+            ns.db.buffBack = nil
+            slash("buffback") -- fails once (the error is caught), and the settings are repaired
+            assert.are.equal(1, #wow.errors)
+            assert.is_table(ns.db.buffBack)
+            wow.errors = {}
+            slash("buffback")
+            assert.are.same({}, wow.errors)
+            wow.fire("PLAYER_TARGET_CHANGED")
+            wow.press(button)
+            assert.are.equal("Mark of the Wild", wow.casts[1].spell)
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned)
+        end)
+
+        it("credits a return even when the ledger was damaged mid-session", function()
+            for _, damage in ipairs({
+                function() ns.db.ledger = nil end,
+                function() ns.db.ledger.totals.returned = "x" end,
+                function() ns.db.ledger.today = 7 end,
+            }) do
+                boot()
+                stranger()
+                buffedBy()
+                damage()
+                wow.press(button)
+                assert.are.same({}, wow.errors)
+                assert.are.equal(0, ns.Offers.Count(), "returned, not lost")
+                assert.are.equal(1, ns.Ledger.Summary().returned, "and counted")
+            end
         end)
 
         it("keeps working when its settings are damaged mid-session, and a reload heals them", function()
@@ -803,6 +1103,20 @@ describe("Buff back", function()
             ns.Ledger.Returned(entry, "Mark of the Wild")
             ns.Ledger.Returned(entry, "Thorns")
             assert.are.equal(1, ns.Ledger.Summary().returned)
+        end)
+
+        it("a return after /friendly ledger clear isn't counted again", function()
+            local entry = ns.Ledger.Received("Bob-Stone", "Arcane Intellect")
+            ns.Ledger.Clear()
+            ns.Ledger.Returned(entry, "Mark of the Wild")
+            assert.are.equal(0, ns.Ledger.Summary().returned)
+        end)
+
+        it("a returned favour never gets a 'not returned' note", function()
+            local entry = ns.Ledger.Received("Bob-Stone", "Arcane Intellect")
+            ns.Ledger.Returned(entry, "Mark of the Wild")
+            ns.Ledger.NoteNotReturned(entry, "you let it go")
+            assert.is_nil(entry.returnNote)
         end)
 
         it("has no title before the first, and none past the last", function()

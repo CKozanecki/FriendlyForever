@@ -66,10 +66,16 @@ function Ledger.Validate(saved)
                     local result = RESULTS[e.result] and e.result or Ledger.NOT_THANKED
                     -- A favour still pending when the game closed never got its thanks.
                     if result == Ledger.PENDING then result = Ledger.NOT_THANKED end
-                    entries[#entries + 1] = {
+                    local clean = {
                         t = math.floor(e.t), who = who, buffs = buffs, result = result, note = CleanText(e.note),
                         returned = CleanText(e.returned), returnNote = CleanText(e.returnNote),
+                        cleared = e.cleared == true or nil,
                     }
+                    -- The same table, cleaned: a favour still owed holds it,
+                    -- and must still find it after a repair mid-session.
+                    for key in pairs(e) do e[key] = nil end
+                    for key, value in pairs(clean) do e[key] = value end
+                    entries[#entries + 1] = e
                 end
             end
         end
@@ -89,7 +95,24 @@ function Ledger.Validate(saved)
     }
 end
 
+-- Whether the ledger has the shape the counting code relies on. Checked on
+-- every use (it's a few type checks), so damage done mid-session is
+-- repaired before it can break a count.
+local function Healthy(ledger)
+    if type(ledger) ~= "table" or type(ledger.entries) ~= "table" then return false end
+    local totals, today = ledger.totals, ledger.today
+    if type(totals) ~= "table" or type(today) ~= "table" or type(today.day) ~= "string" then return false end
+    for _, key in ipairs({ "received", "thanked", "returned" }) do
+        if type(totals[key]) ~= "number" or type(today[key]) ~= "number" then return false end
+    end
+    return true
+end
+
 local function Data()
+    if not Healthy(ns.db.ledger) then
+        ns.Diag.Log("ledger", "the ledger was damaged; repaired")
+        ns.db.ledger = Ledger.Validate(ns.db.ledger)
+    end
     return ns.db.ledger
 end
 

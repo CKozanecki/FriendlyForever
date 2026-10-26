@@ -18,7 +18,9 @@ local BuffButton = {}
 ns.BuffButton = BuffButton
 
 BuffButton.FRAME_NAME = "FriendlyForeverBuffButton"
-BuffButton.ANSWER_WINDOW_SECONDS = 3   -- after a press, a cast or a refusal this soon is its answer
+BuffButton.ANSWER_WINDOW_SECONDS = 3   -- after a press, a cast this soon is its answer
+BuffButton.ERROR_ANSWER_SECONDS = 0.5  -- the game's error text this soon after a press acts is about it
+BuffButton.MAX_PRESSES_WATCHED = 5     -- presses waiting for an answer at once (keys mashed)
 BuffButton.RESULT_SHOWN_SECONDS = 4    -- how long "Returned ..." stays under the button
 BuffButton.RECHECK_SECONDS = 5         -- how often favours are re-checked while any are owed
 -- Macros are kept within 255 characters, the game's macro editor limit (the
@@ -43,7 +45,6 @@ _G["BINDING_NAME_CLICK " .. BuffButton.FRAME_NAME .. ":LeftButton"] = "Friendly 
 local button, eventFrame
 local armedOffer          -- what the button holds: { name, spell, buff, spokenLine, macroText }
 local appliedMacroText    -- the macro text last written to the button (to skip rewriting it)
-local pressAwaitingAnswer -- a press not yet answered by the game: { name, spell, buff, pressedAt, castTargetName }
 local chosenLine          -- the line picked for one favour and spell: { key, text }
 local shownResult         -- the last result under the button: { text, shownAt }
 local lastResultText = "nothing pressed yet"
@@ -96,7 +97,7 @@ end
 -- Whether a line may be said now: the same rules as the addon's own
 -- messages (not snoozed or in the login grace, not AFK if that's set).
 local function MaySpeak()
-    if not ns.db.buffBack.sayLine or not ns.Announcer.IsActive() then return false end
+    if ns.db.buffBack.sayLine ~= true or not ns.Announcer.IsActive() then return false end
     return not (ns.db.skipWhileAFK and ns.ChatQueue.IsPlayerAFK())
 end
 
@@ -160,6 +161,14 @@ local function Empty(reason, keepShown)
     button:SetShown(keepShown and true or false)
 end
 
+-- Whether you have a target. When the game won't say, assume you do: then
+-- the macro ends with /targetlasttarget, which can't drop a target you had.
+local function HasTarget()
+    local ok, exists = pcall(UnitExists, "target")
+    if not ok or Util.IsSecret(exists) then return true end
+    return exists and true or false
+end
+
 -- Write the newest favour you can return onto the button, or empty it.
 -- Out of combat only: the game locks secure buttons in a fight.
 local function ArmButton()
@@ -177,7 +186,7 @@ local function ArmButton()
     local offer, reason = ns.Offers.Current()
     if not offer then return Empty(reason, showingResult) end
 
-    local hadTarget = Util.ReadGameValues(UnitExists, "target") == true
+    local hadTarget = HasTarget()
     local withoutLine = BuffButton.BuildCastMacro(offer.name, offer.spell, nil, hadTarget)
     if not withoutLine then return Empty("the name or spell can't be put in a macro safely", showingResult) end
     local room = BuffButton.MACRO_MAX_LENGTH - #withoutLine - #"\n/s "
@@ -228,39 +237,101 @@ local function ShowResult(text, alsoInChat)
     if alsoInChat then ns.Print(text) end
 end
 
-local NoAnswer
-local downHalfSeen = false -- a down half began this press; its up half isn't a new one
+-- Presses waiting for the game's answer, newest last. Each is
+-- { name, spell, buff, lastHalfAt, complete, sent, failed, castGUID, castTargetName }:
+--   complete        both halves of the press arrived (a press released off
+--                   the button never completes, and was no attempt)
+--   sent            the game said a cast of the buff went out for it
+--                   (UNIT_SPELLCAST_SENT), naming castGUID and castTargetName
+--   failed          the game said that cast failed; its error text follows
+-- More than one is kept so a second press while the first cast is in flight
+-- doesn't lose the first one's answer.
+local presses = {}
+local pressFromDownHalf -- the press begun by the last down half, until its up half
+
+local function ForgetPress(press)
+    for i, waiting in ipairs(presses) do
+        if waiting == press then
+            table.remove(presses, i)
+            return true
+        end
+    end
+    return false
+end
+
+-- No answer in time. A complete press the game never sent a cast for found
+-- nobody to cast on; anything else is let go quietly.
+local function Unanswered(press)
+    if not ForgetPress(press) then return end
+    if press.complete and not press.sent then
+        ShowResult("No answer: couldn't find " .. Util.DisplayName(press.name) .. " (out of sight?).", true)
+        BuffButton.Refresh()
+    end
+end
+
+-- (Re)start the wait for this press's answer. A later restart supersedes an
+-- earlier one.
+local function WatchForAnswer(press)
+    local since = GetTime()
+    press.lastHalfAt = since
+    C_Timer.After(BuffButton.ANSWER_WINDOW_SECONDS + 0.1, ns.Diag.Wrap(function()
+        if press.lastHalfAt == since then Unanswered(press) end
+    end))
+end
+
+-- Fill a press from what the button holds now.
+local function TakeArmedOffer(press)
+    press.name, press.spell, press.buff = armedOffer.name, armedOffer.spell, armedOffer.buff
+    ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
+    return press
+end
+
+-- A new press of the armed favour. A newest press the game never sent a
+-- cast for is replaced: this one is the retry.
+local function AddPress(complete)
+    local newest = presses[#presses]
+    if newest and not newest.sent then table.remove(presses) end
+    local press = TakeArmedOffer({ complete = complete })
+    presses[#presses + 1] = press
+    while #presses > BuffButton.MAX_PRESSES_WATCHED do table.remove(presses, 1) end
+    WatchForAnswer(press)
+    return press
+end
 
 -- Before the secure action runs. Which half of a press (down or up) the game
 -- acts on depends on the input and its settings, so this runs for both
 -- halves and re-arms each time, at the last moment (your target may have
 -- changed; it does nothing when nothing changed).
 --
--- The press itself is recorded once per physical press, to match the game's
--- answer to it: on the down half, or on the up half when no down half came
--- first (a click delivered on release only). A press that gets no answer is
--- reported (NoAnswer).
-local function WatchForAnswer(press)
-    C_Timer.After(BuffButton.ANSWER_WINDOW_SECONDS + 0.1, ns.Diag.Wrap(function() NoAnswer(press) end))
-end
-
+-- A press is recorded on its down half, or on its up half when no down half
+-- came first (a click delivered on release only). On the up half it is
+-- brought up to date: if the game hasn't cast for it yet and the button now
+-- holds another favour, that favour is what the up half casts.
 local function OnPreClick(_, mouseButton, isDown)
     if mouseButton ~= "LeftButton" then return end
     ArmButton()
-    if isDown == false and downHalfSeen then
-        -- The press is complete: only now can it have gone unanswered. (A
-        -- mouse press released off the button never gets here, and was no
-        -- attempt, so it isn't reported.)
-        downHalfSeen = false
-        if pressAwaitingAnswer then WatchForAnswer(pressAwaitingAnswer) end
+    if isDown == true then
+        pressFromDownHalf = armedOffer and AddPress(false) or nil
         return
     end
-    downHalfSeen = isDown == true
-    if not armedOffer then return end
-    local press = { name = armedOffer.name, spell = armedOffer.spell, buff = armedOffer.buff, pressedAt = GetTime() }
-    pressAwaitingAnswer = press
-    ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
-    if isDown ~= true then WatchForAnswer(press) end
+    local press = pressFromDownHalf
+    pressFromDownHalf = nil
+    if not press then
+        -- No down half, or it had nothing armed: this half is the press.
+        if armedOffer then AddPress(true) end
+        return
+    end
+    if not ForgetPress(press) then
+        -- Already answered (the down half acted), or given up on (held too long).
+        if armedOffer and not press.sent then AddPress(true) end
+        return
+    end
+    presses[#presses + 1] = press
+    if not press.sent and armedOffer and (armedOffer.name ~= press.name or armedOffer.spell ~= press.spell) then
+        TakeArmedOffer(press)
+    end
+    press.complete = true
+    WatchForAnswer(press)
 end
 
 -- Right-click lets the shown favour go (once, as the button comes up).
@@ -272,18 +343,33 @@ local function OnPostClick(_, mouseButton, isDown)
     BuffButton.Refresh()
 end
 
--- The press still waiting for its answer, if it was recent enough.
-local function RecentPress()
-    if pressAwaitingAnswer and GetTime() - pressAwaitingAnswer.pressedAt <= BuffButton.ANSWER_WINDOW_SECONDS then
-        return pressAwaitingAnswer
-    end
-    pressAwaitingAnswer = nil
+-- A game value usable as a key or text: a non-empty string that isn't secret.
+local function ReadableText(value)
+    if Util.IsSecret(value) or type(value) ~= "string" or value == "" then return nil end
+    return value
 end
 
--- Whether one of our casts (a spell ID) answers this press.
-local function AnswersPress(press, unit, spellId)
-    return press ~= nil and unit == "player" and not Util.IsSecret(spellId)
-        and ns.BuffData.ForCast(spellId) == press.buff
+-- The newest waiting press that one of our casts (unit, spell ID) could
+-- answer, for which wanted(press) holds.
+local function NewestPressFor(unit, spellId, wanted)
+    if unit ~= "player" or Util.IsSecret(spellId) then return nil end
+    local buff = ns.BuffData.ForCast(spellId)
+    if not buff then return nil end
+    for i = #presses, 1, -1 do
+        local press = presses[i]
+        if press.buff == buff and wanted(press) then return press end
+    end
+end
+
+-- The press a cast (castGUID, unit, spell ID) answers: the one it was sent
+-- for, or when the game didn't say, the newest that matches.
+local function PressForCast(unit, castGUID, spellId)
+    local guid = ReadableText(castGUID)
+    if guid then
+        local sentFor = NewestPressFor(unit, spellId, function(press) return press.castGUID == guid end)
+        if sentFor then return sentFor end
+    end
+    return NewestPressFor(unit, spellId, function(press) return press.castGUID == nil end)
 end
 
 -- Whether the name the game says a cast went to is the intended player.
@@ -292,27 +378,27 @@ end
 function BuffButton.IsIntendedPlayer(reportedName, intendedFullName)
     local reported = Util.FullName(reportedName)
     if not reported then return nil end
-    if reported == intendedFullName then return true end
-    return not reported:find("-", 1, true) and reported == Util.FirstName(intendedFullName)
+    return reported == intendedFullName or reported == Util.FirstName(intendedFullName)
 end
 
--- UNIT_SPELLCAST_SENT can name who the cast is going to: a second check on
--- top of /targetexact.
-function BuffButton.OnSpellcastSent(unit, castTargetName, _, spellId)
-    local press = RecentPress()
-    if not AnswersPress(press, unit, spellId) then return end
-    if not Util.IsSecret(castTargetName) and type(castTargetName) == "string" and castTargetName ~= "" then
-        press.castTargetName = castTargetName
-    end
+-- UNIT_SPELLCAST_SENT: the game is sending a cast of the buff for the newest
+-- press not yet sent, and may name who it is going to (a second check on top
+-- of /targetexact).
+function BuffButton.OnSpellcastSent(unit, castTargetName, castGUID, spellId)
+    local press = NewestPressFor(unit, spellId, function(waiting) return not waiting.sent end)
+    if not press then return end
+    press.sent = true
+    press.castGUID = ReadableText(castGUID)
+    press.castTargetName = ReadableText(castTargetName)
 end
 
 -- The cast landed. It counts as returned only when the game says it went to
 -- them (UNIT_SPELLCAST_SENT's target): a cast of the same spell made some
 -- other way in the same moment mustn't be credited to the favour.
-function BuffButton.OnSpellcastSucceeded(unit, _, spellId)
-    local press = RecentPress()
-    if not AnswersPress(press, unit, spellId) then return end
-    pressAwaitingAnswer = nil
+function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
+    local press = PressForCast(unit, castGUID, spellId)
+    if not press then return end
+    ForgetPress(press)
     local who = Util.DisplayName(press.name)
     local reachedThem = press.castTargetName and BuffButton.IsIntendedPlayer(press.castTargetName, press.name)
     if reachedThem == false then
@@ -328,27 +414,33 @@ function BuffButton.OnSpellcastSucceeded(unit, _, spellId)
     BuffButton.Refresh()
 end
 
--- A press the game never answered: the macro found nobody to cast on.
-NoAnswer = function(press)
-    if pressAwaitingAnswer ~= press or GetTime() - press.pressedAt < BuffButton.ANSWER_WINDOW_SECONDS then return end
-    pressAwaitingAnswer = nil
-    ShowResult("No answer: couldn't find " .. Util.DisplayName(press.name) .. " (out of sight?).", true)
-    BuffButton.Refresh()
-end
-
-function BuffButton.OnSpellcastFailed(unit, _, spellId)
-    local press = RecentPress()
-    if not AnswersPress(press, unit, spellId) then return end
-    -- The game's error text (UI_ERROR_MESSAGE) usually follows with the reason.
+-- The cast failed. The game's error text (UI_ERROR_MESSAGE) usually follows
+-- with the reason, and answers the press then.
+function BuffButton.OnSpellcastFailed(unit, castGUID, spellId)
+    local press = PressForCast(unit, castGUID, spellId)
+    if not press then return end
+    press.sent, press.failed = true, true
     lastResultText = "the cast of " .. press.spell .. " failed"
 end
 
--- The game's red error text ("Out of range.") just after a press answers it.
+-- The press the game's red error text answers: the newest whose cast just
+-- failed (the server's refusal, however late), or else the newest pressed a
+-- moment ago (a refusal before anything was sent: "Out of range."). Errors
+-- any later are about something else.
+local function PressForError()
+    for i = #presses, 1, -1 do
+        if presses[i].failed then return presses[i] end
+    end
+    local newest = presses[#presses]
+    if newest and GetTime() - newest.lastHalfAt <= BuffButton.ERROR_ANSWER_SECONDS then return newest end
+end
+
 function BuffButton.OnUIError(_, message)
-    local press = RecentPress()
-    if not press or Util.IsSecret(message) or type(message) ~= "string" then return end
-    pressAwaitingAnswer = nil
-    ShowResult("Couldn't buff " .. Util.DisplayName(press.name) .. ": " .. Util.StripChat(message), true)
+    local text = ReadableText(message)
+    local press = text and PressForError()
+    if not press then return end
+    ForgetPress(press)
+    ShowResult("Couldn't buff " .. Util.DisplayName(press.name) .. ": " .. Util.StripChat(text), true)
     BuffButton.Refresh()
 end
 
@@ -405,6 +497,9 @@ local function CreateEventFrame()
         UNIT_SPELLCAST_FAILED_QUIET = BuffButton.OnSpellcastFailed,
         UI_ERROR_MESSAGE = BuffButton.OnUIError,
         PLAYER_TARGET_CHANGED = BuffButton.Refresh,
+        -- Someone owed may come into view (or go): their PvP flag can be read only then.
+        NAME_PLATE_UNIT_ADDED = BuffButton.Refresh,
+        NAME_PLATE_UNIT_REMOVED = BuffButton.Refresh,
         PLAYER_REGEN_DISABLED = BuffButton.OnCombatStart,
         PLAYER_REGEN_ENABLED = BuffButton.Refresh,
         SPELLS_CHANGED = OnSpellsChanged,
@@ -443,7 +538,7 @@ function BuffButton.Create()
     button:SetMovable(true)
     button:SetClampedToScreen(true)
     -- Both halves of a press arrive; the secure template acts on the one the
-    -- game's key-down setting says (see IsThePress).
+    -- game's key-down setting says (see OnPreClick).
     button:RegisterForClicks("AnyUp", "AnyDown")
     button:SetScript("PreClick", ns.Diag.Wrap(OnPreClick))
     button:SetScript("PostClick", ns.Diag.Wrap(OnPostClick))
