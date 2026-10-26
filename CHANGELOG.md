@@ -4,7 +4,7 @@
 
 - This version adds files. After updating, restart the game; /reload isn't enough.
 - New default lines for every message type, in a Warcraft fantasy voice. Saved lines still on the old defaults are switched to the new ones; lines you edited are kept. The old lines are still there: each tab's **Load casual lines (1.6)** button puts them back.
-- Flavour placeholders change with the moment: `{greeting}`, `{thanks}`, `{blessing}` and `{cheer}` follow your race, faction, where you are and the hour ("Throm-ka, Thrall! Strength and honor."), and `{zone}`, `{timeofday}`, `{myclass}` and `{class}` (theirs, when the game says) fill in the details. Use them in your own lines too.
+- Flavour placeholders change with the moment: `{greeting}`, `{thanks}`, `{blessing}` and `{cheer}` follow your race, faction, where you are and the hour ("Throm-ka, Thrall! Strength and honor."), and `{zone}`, `{timeofday}`, `{myclass}` and `{class}` (theirs, when the game says) fill in the details. Use them in your own lines too. Every Forever race has its own voice, including separate ones for the High Order and Windshaper Skyborne.
 - Favour ledger: who buffed you, with what, and whether you thanked them, or why not. Today's count and all-time totals, on the new **Favour Ledger** options page or with `/friendly ledger`.
 - Buff Thanks can `/thank` the caster instead of, or as well as, saying a line (**How to thank** on the Buff Thanks tab).
 - Ignore list: `/friendly ignore <name>` (or your target) means that player is never greeted, welcomed or thanked.

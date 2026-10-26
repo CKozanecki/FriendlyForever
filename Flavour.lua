@@ -46,6 +46,17 @@ local function Ask(fn, ...)
     return a, b
 end
 
+-- Ask, for a function with a third return worth reading (UnitRace's race ID).
+local function Ask3(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, a, b, c = pcall(fn, ...)
+    if not ok then return nil end
+    if Util.IsSecret(a) then a = nil end
+    if Util.IsSecret(b) then b = nil end
+    if Util.IsSecret(c) then c = nil end
+    return a, b, c
+end
+
 local function Text1(value)
     if type(value) == "string" and value ~= "" then return value end
 end
@@ -59,9 +70,26 @@ function Flavour.PartOfDay(hour)
     return "evening"
 end
 
+-- WoW Forever's Skyborne: one race file name, two peoples (ChrRaces 95 and 96).
+Flavour.SKYBORNE = { [95] = "HighOrder", [96] = "Windshaper" }
+local SKYBORNE_BY_FACTION = { Alliance = "HighOrder", Horde = "Windshaper" }
+
+-- Whose lines you speak with: the race file name, or for the Skyborne which
+-- of the two peoples (by race ID, else by faction). nil if unknown.
+function Flavour.Voice(race, raceId, faction)
+    if type(race) ~= "string" or race == "" then return nil end
+    local plain = race:lower():gsub("[^%a]", "")
+    if plain:find("skyborne", 1, true) or plain:find("highorder", 1, true) or plain:find("windshaper", 1, true) then
+        if plain:find("highorder", 1, true) then return "HighOrder" end
+        if plain:find("windshaper", 1, true) then return "Windshaper" end
+        return Flavour.SKYBORNE[raceId] or SKYBORNE_BY_FACTION[faction]
+    end
+    return race
+end
+
 -- What the moment is, read once per message.
 function Flavour.Context()
-    local _, race = Ask(UnitRace, "player")
+    local _, race, raceId = Ask3(UnitRace, "player")
     local className, class = Ask(UnitClass, "player")
     local faction = Ask(UnitFactionGroup, "player")
     local zone = Text1(Ask(GetRealZoneText)) or Text1(Ask(GetZoneText))
@@ -72,9 +100,10 @@ function Flavour.Context()
     elseif Ask(IsResting) == true then
         place = "city"
     end
+    faction = Text1(faction)
     return {
-        race = Text1(race), class = Text1(class), className = Text1(className),
-        faction = Text1(faction), zone = zone, place = place,
+        race = Flavour.Voice(race, raceId, faction), class = Text1(class), className = Text1(className),
+        faction = faction, zone = zone, place = place,
         partOfDay = Flavour.PartOfDay((Ask(GetGameTime))),
     }
 end

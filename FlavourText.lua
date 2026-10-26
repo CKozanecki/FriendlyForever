@@ -1,8 +1,14 @@
 -- The words Flavour.lua chooses from for the flavour placeholders in message
--- lines. Each slot has pools: by your race (the file name the game gives,
--- such as "Scourge" for the Forsaken), by your faction, by where you are,
--- by the hour, and general lines for anybody. A race without lines of its
--- own speaks with its faction's lines and the general ones.
+-- lines. Each slot has pools: by your race's voice, by your faction, by where
+-- you are, by the hour, and general lines for anybody. A race without lines
+-- of its own speaks with its faction's lines and the general ones.
+--
+-- Voices are the game's race file names ("Scourge" for the Forsaken), except
+-- the Skyborne: both of WoW Forever's Skyborne races share the file name
+-- "Skyborne", but the High Order (Alliance; descended from the Highborne
+-- scholars of Eldre'Thalas, keepers of the arcane) and the Windshapers (Horde;
+-- shamans holding to the wind spirits' gift of skysight) speak quite
+-- differently. Flavour.Voice tells them apart: "HighOrder" and "Windshaper".
 --
 -- How each slot is used in a line, which every fragment must fit:
 --   {greeting}  "{greeting}, {name}!" and "{greeting}!": a salutation, no
@@ -34,6 +40,8 @@ FlavourText.greeting = {
         Scourge = { "Hail", "Greetings", "Well met", "Dark Lady watch over you" },
         Tauren = { "Well met", "Peace be with you", "Greetings", "Earth Mother guide you" },
         Troll = { "Greetings", "Well met", "Hail", "Spirits be with ya" },
+        HighOrder = { "Well met", "Greetings", "Knowledge and light to you", "The High Order greets you" },
+        Windshaper = { "Winds guide you", "The winds greet you", "Well met", "Breath of the sky to you" },
     },
 }
 
@@ -48,6 +56,10 @@ FlavourText.thanks = {
         Scourge = { "My thanks", "You have my gratitude", "How very kind, thank you", "Thank you" },
         Tauren = { "My thanks", "You honor me, thank you", "You have my gratitude", "Thank you kindly" },
         Troll = { "Thank ya", "Ya have my thanks", "Many thanks", "Thank ya kindly" },
+        HighOrder = {
+            "My thanks", "You have the High Order's thanks", "Most gracious, thank you", "A scholar's thanks",
+        },
+        Windshaper = { "The winds carry my thanks", "My thanks", "The spirits and I thank you", "Many thanks" },
     },
 }
 
@@ -92,6 +104,15 @@ FlavourText.blessing = {
             "Da loa be watchin' over ya.", "Walk wit' da spirits.", "Stay sharp, mon.",
             "May ya never go hungry.",
         },
+        HighOrder = {
+            "May the ley lines guide you.", "Knowledge is the truest shield.", "Remember Eldre'Thalas.",
+            "May your mind stay as sharp as your spells.", "The arcane remembers its friends.",
+        },
+        Windshaper = {
+            "May the winds be at your back.", "The spirits of the air watch over you.",
+            "May your sight be as clear as the open sky.", "Let the winds carry you home.",
+            "Walk on air, friend.",
+        },
     },
     place = {
         city = { "Enjoy the comforts of {zone}.", "Rest well while you can.", "Rest easy in {zone}." },
@@ -122,6 +143,8 @@ FlavourText.cheer = {
         Scourge = { "For the Dark Lady!", "Victory for Sylvanas!", "For the Forsaken!" },
         Tauren = { "For Thunder Bluff!", "For the Horde!", "Earth Mother guide us!" },
         Troll = { "For da Darkspear!", "For the Horde!" },
+        HighOrder = { "For the High Order!", "For Eldre'Thalas!", "For the Alliance!" },
+        Windshaper = { "For the Windshapers!", "By the four winds!", "For Zephras!", "For the Horde!" },
     },
 }
 

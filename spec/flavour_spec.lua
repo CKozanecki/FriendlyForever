@@ -77,6 +77,49 @@ describe("Flavour", function()
             assert.are.equal("For the Horde!", render("{cheer}"))
         end)
 
+        it("a High Order Skyborne (race 95) speaks as the High Order", function()
+            boot({ race = "Skyborne", raceId = 95, faction = "Alliance" })
+            choose(1, 1)
+            assert.are.equal("For the High Order!", render("{cheer}"))
+        end)
+
+        it("a Windshaper Skyborne (race 96) speaks as a Windshaper", function()
+            boot({ race = "Skyborne", raceId = 96, faction = "Horde" })
+            choose(1, 1)
+            assert.are.equal("Winds guide you, Nikki!", render("{greeting}, {name}!"))
+        end)
+
+        it("tells the Skyborne apart by faction when the race ID isn't given", function()
+            assert.are.equal("HighOrder", ns.Flavour.Voice("Skyborne", nil, "Alliance"))
+            assert.are.equal("Windshaper", ns.Flavour.Voice("Skyborne", nil, "Horde"))
+            assert.is_nil(ns.Flavour.Voice("Skyborne", nil, nil), "neither: general lines, never a guess")
+            assert.are.equal("Windshaper", ns.Flavour.Voice("Skyborne", 96, "Alliance"), "the race ID wins")
+        end)
+
+        it("also knows the Skyborne by other spellings of the race name", function()
+            assert.are.equal("HighOrder", ns.Flavour.Voice("HighOrderSkyborne"))
+            assert.are.equal("Windshaper", ns.Flavour.Voice("Windshaper Skyborne"))
+            assert.are.equal("Orc", ns.Flavour.Voice("Orc", 2, "Horde"))
+        end)
+
+        it("has lines of its own for every Forever race, in every slot", function()
+            local races = { "Human", "Dwarf", "NightElf", "Gnome", "Orc", "Scourge", "Tauren", "Troll",
+                "HighOrder", "Windshaper" }
+            for _, slot in ipairs(ns.FlavourText.SLOTS) do
+                for _, race in ipairs(races) do
+                    local pool = ns.FlavourText[slot].race[race]
+                    assert.is_true(pool ~= nil and #pool >= 2, slot .. " has no lines for " .. race)
+                end
+            end
+        end)
+
+        it("/friendly status says how the game reports your race and whose voice you use", function()
+            boot({ race = "Skyborne", raceId = 96, faction = "Horde" })
+            _G.SlashCmdList.FRIENDLYFOREVER("status")
+            local all = table.concat(wow.printed, "\n")
+            assert.is_truthy(all:find("your race: Skyborne (id 96, Horde), speaking as Windshaper", 1, true))
+        end)
+
         it("an unreadable race, class and faction fall back to general lines without errors", function()
             boot()
             _G.UnitRace = function() return wow.secret("Dwarf"), wow.secret("Dwarf") end

@@ -30,6 +30,8 @@ The default lines are written in a Warcraft fantasy voice, and some words in the
 | `{myclass}` | Your class ("mage") |
 | `{class}` | Their class, when the game says (a guildmate from the roster, or whoever buffed you); otherwise "friend" |
 
+Every Forever race has its own voice: the eight original races, and both Skyborne peoples. The High Order (Alliance) speaks of ley lines and Eldre'Thalas, the Windshapers (Horde) of the winds and the sky spirits. They share one race name in the game, so the addon tells them apart by race ID, or by faction. `/friendly status` shows how the game reports your race and whose voice you're using.
+
 So "{greeting}, {name}! {blessing}" comes out as "Throm-ka, Thrall! Strength and honor." from an orc, or "Ishnu-alah, Thrall! Elune light your path." from a night elf. The same words aren't used again until a few others have been. Use these in your own lines too.
 
 The 1.5 to 1.6 default lines are still there: each tab's **Load casual lines (1.6)** button puts them back, and **Load fantasy lines** loads the new ones. Lines you edited are never replaced by an update.

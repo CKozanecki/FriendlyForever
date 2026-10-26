@@ -429,10 +429,11 @@ function M.reset()
         WARRIOR = "Warrior", MAGE = "Mage", PRIEST = "Priest", DRUID = "Druid", PALADIN = "Paladin",
         WARLOCK = "Warlock", ROGUE = "Rogue", HUNTER = "Hunter", SHAMAN = "Shaman",
     }
+    -- state.raceId: UnitRace's third return (95 and 96 are Forever's Skyborne).
     _G.UnitRace = function(unit)
         local race = unit == "player" and M.state.race or unitField(unit, "race")
         if race == nil then return nil end
-        return race, race
+        return race, race, unit == "player" and M.state.raceId or nil
     end
     _G.UnitClass = function(unit)
         local class = unit == "player" and M.state.class or unitField(unit, "class")

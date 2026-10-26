@@ -143,6 +143,10 @@ local function StatusLines()
         add(string.format("  %s: %s, delay %ss, repeat %ss", ns.Config.TYPE_INFO[msgType].label,
             OnOff(cfg.enabled), cfg.delay, cfg.repeatCooldown))
     end
+    local _, race, raceId = UnitRace("player")
+    local faction = UnitFactionGroup("player")
+    add(string.format("your race: %s (id %s, %s), speaking as %s", ns.Diag.Safe(race), ns.Diag.Safe(raceId),
+        ns.Diag.Safe(faction), ns.Diag.Safe(ns.Flavour.Context().race or "general lines")))
     add(string.format("buff thanks: %s; whisper %s; profile %s; %d ignored", db.buff.thankStyle,
         OnOff(db.buff.useWhisper), ns.Diag.Safe(ns.Profiles.Active()), #ns.Ignore.List()))
     add(string.format("guild: %s, %d members known, %d roster updates",
