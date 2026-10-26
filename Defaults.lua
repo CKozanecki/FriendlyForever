@@ -2,12 +2,225 @@
 -- wording changes stay out of the validation code (and could be localized
 -- later). Config.DEFAULTS points each type's messages at these lists; the
 -- other settings and their defaults stay in Config.lua.
+--
+-- DefaultMessages: the fantasy lines (1.7.0 on), using the flavour
+-- placeholders from Flavour.lua. CasualMessages: the 1.5.0-1.6.x defaults,
+-- kept word for word: anyone can load them again, and the 1.7.0 migration
+-- recognises them in saved files.
 local _, ns = ...
 
 local DefaultMessages = {}
 ns.DefaultMessages = DefaultMessages
+local CasualMessages = {}
+ns.CasualMessages = CasualMessages
 
 DefaultMessages.guildLogin = {
+    "{greeting}, {name}! Welcome back to the guild.",
+    "Welcome back, {name}. {blessing}",
+    "Good {timeofday}, {name}! The guild is glad to see you.",
+    "{name} has returned! {cheer}",
+    "Hail and well met, {name}. Your guild awaits.",
+    "Welcome home, {name}. The hearth is warm and the tankards are full.",
+    "{greeting}, {name}! What adventures await today?",
+    "Ah, {name} returns. Azeroth is a little safer already.",
+    "Welcome back, {name}! May your bags fill with fine loot.",
+    "Good {timeofday}, {name}. {blessing}",
+    "{name}! The guild hall feels fuller with you here.",
+    "Welcome back, {name}. Sharpen your blade, there's work to be done.",
+    "Hail, {name}! The banners fly a little higher today.",
+    "{greeting}, {name}. Good to have you back among us.",
+    "Welcome back, {name}! {cheer}",
+    "The road brings you back to us, {name}. Welcome.",
+    "{name} answers the call! Welcome back.",
+    "Welcome back, {name}. Rest a moment by the fire before you ride out.",
+    "Good {timeofday} to you, {name}! Glad you could join us.",
+    "Welcome, {name}! Many quests and good fortune to you today.",
+    "{greeting}, {name}! May your hearthstone always bring you home.",
+    "{name} has arrived. Let the adventures begin!",
+    "Welcome back, {name}! The guild stands stronger with you here.",
+    "Hail, {name}! May the road treat you kindly today.",
+    "It's good to see you, {name}. {blessing}",
+    "{name} returns to Azeroth! Well met, friend.",
+    "Welcome, {name}. Your guildmates have kept a seat for you.",
+    "Good {timeofday}, {name}! Ready to ride?",
+    "{greeting}, {name}! The guild hall welcomes you home.",
+    "Welcome back, {name}! May fortune favor you today.",
+}
+
+-- {buff} becomes "Arcane Intellect" or "Arcane Intellect and Mark of
+-- the Wild" (or "buff"/"buffs" when listing names is off), so every
+-- line must read naturally with one or several buffs: no "{buff} is".
+DefaultMessages.buff = {
+    "{thanks} for the {buff}, {name}! Most welcome.",
+    "{thanks} for the {buff}, {name}. {blessing}",
+    "{greeting}, {name}, and thank you for the {buff}!",
+    "{name}, thank you for the {buff}. {blessing}",
+    "{thanks}, {name}. I'll carry your {buff} with pride.",
+    "What a fine gift, {name}. Thank you for the {buff}!",
+    "{thanks} for the {buff}, {name}! {cheer}",
+    "A generous {class} you are, {name}. Thank you for the {buff}!",
+    "Many thanks for the {buff}, {name}. May your mana never run dry.",
+    "{thanks}, {name}. The {buff} will serve me well out here.",
+    "Thank you for the {buff}, {name}! Safe travels.",
+    "{name}, you have my gratitude for the {buff}. {blessing}",
+    "{thanks}, {name}! I'll return the kindness when I can.",
+    "Well met, {name}, and thank you for the {buff}.",
+    "Thank you for the {buff}, {name}. A welcome blessing!",
+    "{thanks} for the {buff}, {name}. Good hunting!",
+    "Kind of you, {name}. Thank you for the {buff}!",
+    "{thanks}, {name}! Azeroth needs more like you.",
+    "Thank you, {name}. The {buff} came at just the right moment.",
+    "{greeting}, {name}! Your {buff} won't be forgotten.",
+    "Grateful for the {buff}, {name}. {blessing}",
+    "{thanks}, {name}. May your kindness return to you tenfold.",
+    "Thank you for the {buff}, {name}! Fight well.",
+    "{name}, you have my thanks for the {buff}.",
+    "{thanks}, {name}! A {class} after my own heart.",
+    "You honor me with the {buff}, {name}. Thank you.",
+    "{thanks}, {name}! With your {buff}, I fear nothing.",
+    "Thank you, {name}. {blessing}",
+    "Fine work with the {buff}, {name}! You have my gratitude.",
+    "{thanks} for the {buff}, {name}. Safe travels through {zone}.",
+}
+
+DefaultMessages.guildJoin = {
+    "Welcome to the guild, {name}! {blessing}",
+    "{greeting}, {name}, and welcome to our ranks!",
+    "A new banner joins ours. Welcome, {name}!",
+    "Welcome, {name}! May your time with us bring glory and good company.",
+    "Raise your tankards for {name}, our newest member!",
+    "Welcome to the guild, {name}. Ask, and we'll help however we can.",
+    "{name} has joined our ranks! {cheer}",
+    "Well met, {name}! The guild welcomes you.",
+    "Welcome, {name}. Your adventures with us begin today.",
+    "A warm welcome to {name}! May you find friends and fortune here.",
+    "Welcome to the family, {name}. Our hearth is your hearth.",
+    "{greeting}, {name}! Glad you chose to ride with us.",
+    "Welcome, {name}! Together we'll take on whatever Azeroth throws at us.",
+    "All hail {name}, the newest of our guild!",
+    "Welcome aboard, {name}. Don't hesitate to call on us.",
+    "Our ranks grow stronger. Welcome, {name}! {blessing}",
+    "Good {timeofday}, {name}, and welcome to the guild!",
+    "Welcome, {name}! May your blade stay sharp and your bags stay full.",
+    "{name} joins the guild! Make them welcome, everyone.",
+    "Welcome, {name}. Every hero needs companions, and you've found yours.",
+    "A new ally! Welcome to the guild, {name}.",
+    "Welcome, {name}! Pull up a chair by the fire.",
+    "{greeting}, {name}! The guild is glad to have you.",
+    "Welcome to our ranks, {name}. {cheer}",
+    "Welcome, {name}! May your first adventure with us be a grand one.",
+    "Hail, {name}! A fine day when a new friend joins the guild.",
+    "Welcome, {name}. Ask anything, any time; we're here to help.",
+    "Welcome to the guild, {name}! Glory and good fortune await.",
+    "{name} has found a home with us. Welcome!",
+    "Welcome, {name}! Together we are stronger.",
+}
+
+-- {name} may be several joiners ("Ann, Bob and Cid"), so lines read with
+-- one name or a list.
+DefaultMessages.partyJoin = {
+    "Welcome to the group, {name}! {blessing}",
+    "{greeting}, {name}! Glad to have you with us.",
+    "Welcome, {name}. Stay close and we'll see this through.",
+    "Well met, {name}! Let's make this a good run.",
+    "Welcome aboard, {name}. {cheer}",
+    "Good to have you, {name}. Shout if you need anything.",
+    "Welcome, {name}! Together we'll make short work of this.",
+    "{greeting}, {name}. Ready your weapons.",
+    "Welcome to the party, {name}! May fortune favor us all.",
+    "Glad you could join us, {name}. Let's ride!",
+    "Welcome, {name}. Our blades are stronger together.",
+    "Hail, {name}! Welcome to the group.",
+    "Welcome, {name}! Let's see what {zone} has in store for us.",
+    "Well met, {name}! Glory awaits.",
+    "Welcome, {name}. May our loot be plentiful and our repairs cheap.",
+    "{name}, welcome! Stay together and we'll be fine.",
+    "Good {timeofday}, {name}! Welcome to the group.",
+    "Welcome to the group, {name}. {cheer}",
+    "Welcome, {name}! Many hands make light work.",
+    "Greetings, {name}! Glad to fight alongside you.",
+    "Welcome, {name}. Let's make this adventure one to remember.",
+    "{greeting}, {name}! The more, the mightier.",
+    "Welcome along, {name}. May the road be kind to us.",
+    "Welcome to the group, {name}! Let us know when you're ready.",
+    "Glad to have you, {name}. {blessing}",
+    "Welcome, {name}! Fortune favors the bold.",
+    "Hail and welcome, {name}! Let's be off.",
+    "Welcome, {name}. Watch our backs and we'll watch yours.",
+    "{greeting}, {name}! A fine addition to the company.",
+    "Welcome to the group, {name}! Onward to victory.",
+}
+
+-- Said to the whole group: no {name}.
+DefaultMessages.partyHello = {
+    "{greeting}, everyone! Thanks for the invite.",
+    "Well met, all! Glad to join you.",
+    "Hail, friends! Thanks for having me along.",
+    "{greeting}! Ready when you are.",
+    "Thanks for the invite! {cheer}",
+    "Good {timeofday}, everyone! Glad to be in the company.",
+    "Greetings, all. Lead the way and I'll follow.",
+    "Thanks for the invite, friends. {blessing}",
+    "Well met! Let's make this a good one.",
+    "Hello, everyone! I'm at your service.",
+    "Hail, all! Glad to fight alongside you.",
+    "{greeting}, friends! Where are we headed?",
+    "Thanks for having me! Let's see what {zone} has in store.",
+    "Greetings! Ready to ride.",
+    "Well met, all! Glad to lend a hand.",
+    "Good {timeofday}! Thanks for the invite.",
+    "{greeting}, everyone. Let's win some glory.",
+    "Hail and well met! I'm ready when you are.",
+    "Thanks for the invite, all! {cheer}",
+    "Hello, friends! Happy to join the company.",
+    "Greetings, all. May fortune favor us.",
+    "{greeting}! Glad to be part of the group.",
+    "Well met, everyone! Lead on.",
+    "Thanks for having me along. {blessing}",
+    "Hail, friends! Let's make this a run worth telling.",
+    "Good {timeofday}, all! Happy to help however I can.",
+    "{greeting}, everyone! The more, the mightier.",
+    "Thanks for the invite! Onward!",
+    "Greetings, all! Let's be off.",
+    "Well met, friends! Glad to stand with you.",
+}
+
+DefaultMessages.partyHelloAgain = {
+    "Well met again, friends!",
+    "Well met again, everyone! Good to be back.",
+    "Back with the company! Thanks for having me again.",
+    "Hail again, all! Let's pick up where we left off.",
+    "The band rides together again! {cheer}",
+    "Good to see you all again. {blessing}",
+    "Back again! Thanks for the invite.",
+    "Greetings once more, friends!",
+    "Together again! Let's finish what we started.",
+    "Good {timeofday} again, everyone! Glad to be back.",
+    "Well met again! The road brought me back to you.",
+    "Hello again, all! Ready when you are.",
+    "Back among friends. Thanks for having me!",
+    "Hail again! Where were we?",
+    "Hail once more, companions!",
+    "Reunited! Let's make it count.",
+    "Good to ride with you all again!",
+    "Back again, friends! {cheer}",
+    "Hello again, everyone! Thanks for the second invite.",
+    "Well met once more! Lead the way.",
+    "Back with the company. {blessing}",
+    "Greetings again, all! Glad to rejoin you.",
+    "Here once more! Let's see this through.",
+    "Hail again, friends! Good to stand together again.",
+    "Back for another round! Thanks for the invite.",
+    "Good to see familiar faces again!",
+    "Greetings again, companions! Onward!",
+    "Hello again! Glad the road led me back to you.",
+    "Together once more, friends!",
+    "Back again, everyone! Ready to ride.",
+}
+
+-- The casual set: the defaults from 1.5.0 to 1.6.x, unchanged.
+
+CasualMessages.guildLogin = {
     "{name} has logged in. Quick, everyone look busy.",
     "Welcome back, {name}. Your bags are still full, sorry.",
     "{name} is online! Hide the good loot.",
@@ -40,10 +253,7 @@ DefaultMessages.guildLogin = {
     "Welcome back, {name}. The fishing spot is free. For now.",
 }
 
--- {buff} becomes "Arcane Intellect" or "Arcane Intellect and Mark of
--- the Wild" (or "buff"/"buffs" when listing names is off), so every
--- line must read naturally with one or several buffs.
-DefaultMessages.buff = {
+CasualMessages.buff = {
     "Thank you for the {buff}, {name}!",
     "Thanks for the {buff}, {name}! Much appreciated.",
     "{name}, thank you kindly for the {buff}!",
@@ -76,7 +286,7 @@ DefaultMessages.buff = {
     "Thanks, {name}! Happy hunting!",
 }
 
-DefaultMessages.guildJoin = {
+CasualMessages.guildJoin = {
     "Welcome to the guild, {name}! We're glad to have you.",
     "Hi {name}, and welcome aboard! Feel free to ask if you need anything.",
     "A warm welcome to {name}, our newest member!",
@@ -109,7 +319,7 @@ DefaultMessages.guildJoin = {
     "Hi {name}, welcome! We're glad you found your way here.",
 }
 
-DefaultMessages.partyJoin = {
+CasualMessages.partyJoin = {
     "Welcome to the group, {name}!",
     "Hi {name}, glad to have you with us!",
     "Welcome, {name}! Let's have a good run.",
@@ -142,7 +352,7 @@ DefaultMessages.partyJoin = {
     "Welcome along, {name}! Safe travels with us.",
 }
 
-DefaultMessages.partyHello = {
+CasualMessages.partyHello = {
     "Hi all! Thanks for the invite.",
     "Hello everyone! Glad to join you.",
     "Hey all, thanks for having me!",
@@ -175,7 +385,7 @@ DefaultMessages.partyHello = {
     "Hey all! Nice to be grouped with you.",
 }
 
-DefaultMessages.partyHelloAgain = {
+CasualMessages.partyHelloAgain = {
     "Nice to see you all again!",
     "Back again! Thanks for having me.",
     "Hello again, everyone!",

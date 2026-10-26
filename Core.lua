@@ -54,6 +54,16 @@ function handlers.ADDON_LOADED(name)
     if name ~= ADDON_NAME then return end
     frame:UnregisterEvent("ADDON_LOADED")
 
+    -- The game reads the file list only at start-up: after an update that
+    -- added files, /reload runs the new code without them. Stay inert and
+    -- say so, rather than erroring on every event.
+    for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window" }) do
+        if ns[module] == nil then
+            ns.Print("|cffff4040this update added files. Restart the game (not /reload) to finish updating.|r")
+            return
+        end
+    end
+
     FriendlyForeverDB = ns.Config.Load(FriendlyForeverDB)
     ns.db = FriendlyForeverDB
 
@@ -63,6 +73,7 @@ function handlers.ADDON_LOADED(name)
 
     Register("PLAYER_ENTERING_WORLD", function(isLogin, isReload)
         if isLogin or isReload then
+            ns.Profiles.OnLogin()
             ns.Announcer.OnEnteringWorld()
             ns.Greeter.OnEnteringWorld()
             ns.Greeter.RequestRoster()
@@ -76,6 +87,8 @@ function handlers.ADDON_LOADED(name)
     handlers.UNIT_SPELLCAST_SUCCEEDED = ns.BuffTracker.OnSpellcastSucceeded
     ns.RefreshEvents()
     Register("CVAR_UPDATE", function() ns.Options.Refresh() end)
+    -- Edits made since the last switch go into the active profile.
+    Register("PLAYER_LOGOUT", function() ns.Profiles.SaveActive() end)
     Register("ADDON_ACTION_BLOCKED", function(addon, func) ns.OnActionBlocked("blocked", addon, func) end)
     Register("ADDON_ACTION_FORBIDDEN", function(addon, func) ns.OnActionBlocked("forbidden", addon, func) end)
 
@@ -118,11 +131,15 @@ local SAMPLE_VARS = { name = "Nikki", fullname = "Nikki Shifts", buff = "Power W
 
 local function OnOff(value) return value and "|cff00ff00on|r" or "|cffff4040off|r" end
 
-local function PrintStatus()
+-- What the addon has seen and done, one line each (for /friendly status
+-- and the bug report).
+local function StatusLines()
     local db, n, Q = ns.db, ns.Diag.Counters(), ns.ChatQueue
+    local out = {}
+    local function add(line) out[#out + 1] = line end
     local function c(key) return n[key] or 0 end
-    ns.Print("version " .. ns.VERSION .. ", debug " .. OnOff(db.debug))
-    ns.Print("state: " .. ns.Announcer.ActiveState())
+    add("version " .. ns.VERSION .. ", debug " .. OnOff(db.debug))
+    add("state: " .. ns.Announcer.ActiveState())
     -- "Why didn't it greet?" is often this, since the option is on by default.
     local afk, afkText = Q.ReadPlayerAFK(), "you're not AFK"
     if afk == nil then
@@ -130,32 +147,96 @@ local function PrintStatus()
     elseif afk then
         afkText = db.skipWhileAFK and "you're AFK: automatic messages are being dropped" or "you're AFK"
     end
-    ns.Print("skip while AFK: " .. OnOff(db.skipWhileAFK) .. " (" .. afkText .. ")")
+    add("skip while AFK: " .. OnOff(db.skipWhileAFK) .. " (" .. afkText .. ")")
     for _, msgType in ipairs(ns.Config.TYPES) do
         local cfg = db[msgType]
-        ns.Print(string.format("  %s: %s, delay %ss, repeat %ss", ns.Config.TYPE_INFO[msgType].label,
+        add(string.format("  %s: %s, delay %ss, repeat %ss", ns.Config.TYPE_INFO[msgType].label,
             OnOff(cfg.enabled), cfg.delay, cfg.repeatCooldown))
     end
-    ns.Print(string.format("guild: %s, %d members known, %d roster updates",
+    local _, race, raceId = UnitRace("player")
+    local faction = UnitFactionGroup("player")
+    add(string.format("your race: %s (id %s, %s), speaking as %s", ns.Diag.Safe(race), ns.Diag.Safe(raceId),
+        ns.Diag.Safe(faction), ns.Diag.Safe(ns.Flavour.Context().race or "general lines")))
+    add(string.format("buff thanks: %s; whisper %s; profile %s; %d ignored", db.buff.thankStyle,
+        OnOff(db.buff.useWhisper), ns.Diag.Safe(ns.Profiles.Active()), #ns.Ignore.List()))
+    add(string.format("guild: %s, %d members known, %d roster updates",
         IsInGuild() and "yes" or "no", ns.Greeter.MemberCount(), c("rosterUpdates")))
     local shown = ns.Nameplates.FriendlyShown()
-    ns.Print("friendly player nameplates: " .. (shown == nil and "not available"
+    add("friendly player nameplates: " .. (shown == nil and "not available"
         or shown and "|cff00ff00on|r (casters can be named)"
         or "|cffff4040off|r (most casters can't be named; /friendly nameplates turns them on)"))
-    ns.Print("group chat channel: " .. (ns.Greeter.GroupChannel() or "none (not grouped)"))
-    ns.Print(string.format("chat: lockdown %s, %d waiting, waiting for key press %s, key listener %s",
+    add("group chat channel: " .. (ns.Greeter.GroupChannel() or "none (not grouped)"))
+    add(string.format("chat: lockdown %s, %d waiting, waiting for key press %s, key listener %s",
         OnOff(Q.InChatLockdown()), Q.Count(), OnOff(Q.IsWaitingForHardware()), OnOff(Q.IsKeyboardReady())))
-    ns.Print(string.format("seen: %d system messages (%d recognised), %d buffs, %d restricted buff updates skipped",
+    add(string.format("seen: %d system messages (%d recognised), %d buffs, %d restricted buff updates skipped",
         c("systemMessages"), c("systemMatched"), c("buffsSeen"), c("restrictedAuraUpdates")))
-    ns.Print(string.format("sending: %d queued, %d sent, %d dropped, %d send errors, %d blocked by the game",
+    add(string.format("sending: %d queued, %d sent, %d dropped, %d send errors, %d blocked by the game",
         c("queued"), c("sent"), c("dropped"), c("sendErrors"), c("actionsBlocked")))
-    ns.Print(string.format("Lua errors in this addon: %d%s", c("luaErrors"),
+    add(string.format("Lua errors in this addon: %d%s", c("luaErrors"),
         ns.Diag.lastError and (" (last: " .. ns.Diag.lastError .. ")") or ""))
-    ns.Print(string.format("APIs: SendChatMessage %s, chat lockdown check %s, aura query %s, secret check %s",
+    add(string.format("APIs: SendChatMessage %s, chat lockdown check %s, aura query %s, secret check %s, emote %s",
         OnOff(C_ChatInfo and C_ChatInfo.SendChatMessage or SendChatMessage),
         OnOff(C_ChatInfo and C_ChatInfo.InChatMessagingLockdown),
         OnOff(C_UnitAuras and C_UnitAuras.GetAuraDataByAuraInstanceID),
-        OnOff(issecretvalue)))
+        OnOff(issecretvalue), OnOff(C_ChatInfo and C_ChatInfo.PerformEmote or DoEmote)))
+    return out
+end
+
+local function PrintStatus()
+    for _, line in ipairs(StatusLines()) do ns.Print(line) end
+end
+
+ns.REPORT_LOG_LINES = 60
+
+-- Plain text for a bug report: status, then the latest debug log lines.
+function ns.BugReport()
+    local lines = { ns.TITLE .. " bug report", "" }
+    for _, line in ipairs(StatusLines()) do
+        lines[#lines + 1] = (line:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+    end
+    local log = ns.db.diagLog
+    lines[#lines + 1] = ""
+    if #log == 0 then
+        lines[#lines + 1] = "debug log: empty. Turn on /friendly debug, make the problem happen, then copy this again."
+    else
+        lines[#lines + 1] = "debug log (latest " .. math.min(#log, ns.REPORT_LOG_LINES) .. " lines):"
+        for i = math.max(1, #log - ns.REPORT_LOG_LINES + 1), #log do lines[#lines + 1] = log[i] end
+    end
+    return table.concat(lines, "\n")
+end
+
+function ns.ShowBugReport()
+    ns.Window.Show({
+        title = "Friendly Forever: copy for a bug report",
+        hint = "Press Ctrl+C to copy, then paste it into your bug report.",
+        text = ns.BugReport(),
+    })
+end
+
+function ns.ShowExport()
+    local text, why = ns.Profiles.Export()
+    if not text then return ns.Print("couldn't export: " .. why) end
+    ns.Window.Show({
+        title = "Friendly Forever: export settings",
+        hint = "Press Ctrl+C to copy. Paste it into /friendly import on another character or account.",
+        text = text,
+    })
+end
+
+function ns.ShowImport()
+    ns.Window.Show({
+        title = "Friendly Forever: import settings",
+        hint = "Paste a settings line (Ctrl+V), then Import. Your on/off switch stays as it is; "
+            .. "/friendly import undo puts your settings back.",
+        acceptText = "Import",
+        onAccept = function(text)
+            local ok, why = ns.Profiles.Import(text)
+            if not ok then return ns.Print("couldn't import: " .. why) end
+            ns.Window.Hide()
+            ns.Print("settings imported. /friendly import undo puts yours back.")
+            ns.Options.Refresh()
+        end,
+    })
 end
 
 -- Exactly what the game returns for names, so the format is never guessed.
@@ -200,6 +281,111 @@ local function SelfTest()
     })
 end
 
+local function PrintIgnoreList()
+    local names = ns.Ignore.List()
+    if #names == 0 then
+        ns.Print("nobody is on your ignore list. /friendly ignore <name> adds someone (or your target).")
+    else
+        ns.Print("never greeted or thanked (" .. #names .. "): " .. table.concat(names, ", "))
+    end
+end
+
+local function IgnoreCommand(args)
+    if args == "" and not ns.Util.UnitFullName("target") then return PrintIgnoreList() end
+    if args:lower() == "list" then return PrintIgnoreList() end
+    local name, why = ns.Ignore.Add(args)
+    if not name then return ns.Print("couldn't add: " .. why) end
+    ns.Print(ns.Util.DisplayName(name) .. " won't be greeted or thanked. /friendly unignore "
+        .. ns.Util.DisplayName(name) .. " undoes it.")
+    if ns.Ignore.LacksSurname(name) then
+        ns.Print("|cffff8040Note:|r WoW Forever names have a surname. Add it (\"" .. name
+            .. " Surname\"), or nobody will match.")
+    end
+    ns.Options.Refresh()
+end
+
+local function UnignoreCommand(args)
+    local name, why = ns.Ignore.Remove(args)
+    if not name then return ns.Print("couldn't remove: " .. why) end
+    ns.Print(ns.Util.DisplayName(name) .. " is off your ignore list.")
+    ns.Options.Refresh()
+end
+
+function ns.SnoozeFor(minutes)
+    local set = ns.Announcer.Snooze(minutes)
+    if set then
+        ns.Print(string.format("snoozed for %d min: nothing is sent until then. /friendly snooze off wakes it.", set))
+    else
+        ns.Print("awake: messages are sent again.")
+    end
+    ns.Minimap.Refresh()
+    ns.Options.Refresh()
+end
+
+local function SnoozeCommand(args)
+    args = args:lower()
+    if args == "off" or args == "0" then return ns.SnoozeFor(nil) end
+    local minutes = args == "" and ns.Announcer.SNOOZE_DEFAULT or tonumber(args)
+    if not minutes or minutes <= 0 then
+        return ns.Print("usage: /friendly snooze [minutes, up to " .. ns.Announcer.SNOOZE_MAX .. "] | off")
+    end
+    ns.SnoozeFor(minutes)
+end
+
+function ns.LedgerSummaryText()
+    local s = ns.Ledger.Summary()
+    return string.format("today: buffed by %d, thanked %d. All time: buffed by %d, thanked %d.",
+        s.todayReceived, s.todayThanked, s.received, s.thanked)
+end
+
+local function LedgerCommand(args)
+    if args:lower() == "clear" then
+        ns.Ledger.Clear()
+        ns.Options.Refresh()
+        return ns.Print("favour ledger cleared.")
+    end
+    local limit = ns.Util.ClampNumber(tonumber(args), 1, ns.Ledger.MAX_ENTRIES, 10)
+    ns.Print("favour ledger: " .. ns.LedgerSummaryText())
+    local lines = ns.Ledger.Lines(limit)
+    if #lines == 0 then ns.Print("  nobody outside your group has buffed you yet.") end
+    for _, line in ipairs(lines) do ns.Print("  " .. ns.Diag.Safe(line)) end
+end
+
+local function ProfileCommand(args)
+    local verb, name = args:match("^(%S*)%s*(.-)$")
+    verb = (verb or ""):lower()
+    local P = ns.Profiles
+    local done, why
+    if verb == "" or verb == "list" then
+        ns.Print("profiles: " .. table.concat(P.List(), ", ") .. " (using " .. P.Active() .. ")")
+        ns.Print("/friendly profile new <name> | use <name> | delete <name>")
+        return
+    elseif verb == "new" then
+        done, why = P.New(name)
+        if done then ns.Print("now using the new profile " .. done .. ", a copy of your settings.") end
+    elseif verb == "use" then
+        done, why = P.Use(name)
+        if done then ns.Print("now using profile " .. done .. " (this character will use it at login).") end
+    elseif verb == "delete" then
+        done, why = P.Delete(name)
+        if done then ns.Print("deleted profile " .. done .. ".") end
+    else
+        why = "unknown profile command '" .. ns.Util.StripChat(verb) .. "'"
+    end
+    if not done then ns.Print("profile: " .. why) end
+    ns.Options.Refresh()
+end
+
+local function ImportCommand(args)
+    if args:lower() == "undo" then
+        local ok, why = ns.Profiles.UndoImport()
+        ns.Print(ok and "your settings from before the import are back." or ("couldn't undo: " .. why))
+        ns.Options.Refresh()
+        return
+    end
+    ns.ShowImport()
+end
+
 local commands = {
     on = function() ns.SetEnabled(true) end,
     off = function() ns.SetEnabled(false) end,
@@ -212,7 +398,9 @@ local commands = {
     test = function()
         for _, msgType in ipairs(ns.Config.TYPES) do
             local template = ns.Messages.Preview(ns.db[msgType].messages)
-            local text = template and ns.Util.Render(template, SAMPLE_VARS) or "(no messages)"
+            local vars = {}
+            for k, v in pairs(SAMPLE_VARS) do vars[k] = v end
+            local text = template and ns.Util.Render(template, ns.Flavour.Vars(vars)) or "(no messages)"
             ns.Print(ns.Config.TYPE_INFO[msgType].label .. ": " .. text)
         end
     end,
@@ -236,16 +424,36 @@ local commands = {
         ns.Print("/friendly test - preview one message of each type (only you see it)")
         ns.Print("/friendly say - send a waiting buff thank-you now")
         ns.Print("/friendly minimap - show or hide the minimap button")
+        ns.Print("/friendly snooze [minutes] | off - send nothing for a while (default 15 minutes)")
+        ns.Print("/friendly ignore [name] - never greet or thank this player (or your target); no name lists them")
+        ns.Print("/friendly unignore <name> - take a player off that list")
+        ns.Print("/friendly ledger [count] | clear - who buffed you and whether you thanked them")
+        ns.Print("/friendly profile [new | use | delete] <name> - switch between sets of settings")
+        ns.Print("/friendly export | import [undo] - your settings as one line of text, to keep or share")
+        ns.Print("/friendly report - status and debug log as text to copy into a bug report")
     end,
+    profile = ProfileCommand,
+    export = function() ns.ShowExport() end,
+    import = ImportCommand,
+    report = function() ns.ShowBugReport() end,
+    snooze = SnoozeCommand,
+    ignore = IgnoreCommand,
+    unignore = UnignoreCommand,
+    ledger = LedgerCommand,
 }
 
 SLASH_FRIENDLYFOREVER1 = "/friendly"
 SLASH_FRIENDLYFOREVER2 = "/ffr"
 SlashCmdList.FRIENDLYFOREVER = function(input)
-    local cmd = (input or ""):lower():match("^%s*(%S*)")
+    if not ns.db then
+        ns.Print("not loaded. If you just updated the addon, restart the game (not /reload).")
+        return
+    end
+    local cmd, args = (input or ""):match("^%s*(%S*)%s*(.-)%s*$")
+    cmd = (cmd or ""):lower()
     local command = commands[cmd]
     if command then
-        command()
+        command(args or "")
     elseif cmd == "" then
         ns.Options.Open()
     else

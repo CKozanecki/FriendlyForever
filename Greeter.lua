@@ -10,7 +10,7 @@ ns.Greeter = Greeter
 Greeter.PENDING_TIMEOUT = 30
 Greeter.MAX_PENDING = 100
 
-local members = {}
+local members = {} -- [full name] = their class as players read it ("warrior"), or true
 local pendingOnline = {}
 local pendingCount = 0
 
@@ -68,7 +68,7 @@ function Greeter.IsInMyGroup(name)
 end
 
 function Greeter.IsGuildMember(name)
-    return members[name] == true
+    return members[name] ~= nil
 end
 
 function Greeter.MemberCount()
@@ -85,8 +85,33 @@ function Greeter.RequestRoster()
     end
 end
 
+-- Players on the ignore list are never greeted or welcomed.
+local function Ignored(msgType, name)
+    if not ns.Ignore.Has(name) then return false end
+    ns.Diag.Log(msgType, "not sending for %s: on your ignore list", name)
+    return true
+end
+
+-- Checked again just before sending: they may have been ignored meanwhile.
+local function NotIgnored(name)
+    return function()
+        if ns.Ignore.Has(name) then return false, "on your ignore list" end
+        return true
+    end
+end
+
+-- {name}, {fullname} and, when the roster says, {class}.
+local function MemberVars(name)
+    local vars = Util.NameVars(name)
+    if type(members[name]) == "string" then vars.class = members[name] end
+    return vars
+end
+
 local function Greet(name)
-    ns.Announcer.Schedule("guildLogin", name, { channel = GuildChannel })
+    if Ignored("guildLogin", name) then return end
+    ns.Announcer.Schedule("guildLogin", name, {
+        channel = GuildChannel, vars = function() return MemberVars(name) end, isValid = NotIgnored(name),
+    })
 end
 
 -- A pending name stays until a roster update confirms it (greeted) or it
@@ -143,8 +168,12 @@ function Greeter.OnRosterUpdate()
     members = {}
     if IsInGuild() then
         for i = 1, GetNumGuildMembers() or 0 do
-            local name = Util.FullName((GetGuildRosterInfo(i)))
-            if name then members[name] = true end
+            local rawName, _, _, _, class = GetGuildRosterInfo(i)
+            local name = Util.FullName(rawName)
+            if name then
+                class = Util.Readable(class)
+                members[name] = type(class) == "string" and class ~= "" and class:lower() or true
+            end
         end
     end
 
@@ -352,13 +381,15 @@ local function IsRaidJoinLine(msg)
     return raidJoinPattern and msg:match(raidJoinPattern) ~= nil
 end
 
--- Don't welcome someone who already left. If we can't tell (names
--- restricted in combat), keep the welcome.
+-- Don't welcome someone who already left, or whom you've ignored since they
+-- joined. If we can't tell who's in the group (names restricted in combat),
+-- keep the welcome.
 local function StillInGroup(name)
-    return Greeter.IsInMyGroup(name) ~= false
+    return Greeter.IsInMyGroup(name) ~= false and not ns.Ignore.Has(name)
 end
 
 local function WelcomeJoin(name, raidLine)
+    if Ignored("partyJoin", name) then return end
     local cfg = ns.db.partyJoin
     -- The roster update for the conversion can come before or after these
     -- lines, so check both the party as it is now and as it was just before.
@@ -467,8 +498,9 @@ function Greeter.OnSystemMessage(msg)
             Greeter.RequestRoster()
         end
     elseif kind == "guildJoin" then
-        members[name] = true
-        ns.Announcer.Schedule("guildJoin", name, { channel = GuildChannel })
+        members[name] = members[name] or true
+        if Ignored("guildJoin", name) then return end
+        ns.Announcer.Schedule("guildJoin", name, { channel = GuildChannel, isValid = NotIgnored(name) })
     elseif kind == "partyJoin" then
         -- Every joiner would be welcomed, by every addon user, in /bg.
         if Greeter.InBattleground() then

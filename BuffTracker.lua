@@ -17,6 +17,8 @@
 -- With "whisper instead of say" on, thanks are whispered to the caster (no key
 -- press needed). Casters that can't be named, and whispers the game can't
 -- deliver, fall back to a "friend" thank-you in /say (if that is switched on).
+-- "How to thank" can add, or swap the line for, a /thank emote.
+-- Every favour goes into the ledger (Ledger.lua), thanked or not.
 local _, ns = ...
 local Util = ns.Util
 
@@ -48,8 +50,8 @@ for _, prefix in ipairs(CAST_UNIT_PREFIXES) do
     CAST_UNIT_PREFIX_BY_BYTE[prefix:byte(1)] = prefix
 end
 
-local batches = {}      -- [caster key] = { names = {}, seen = {}, count = 0 }
-local recentCasts = {}  -- [spellId] = { time = t, caster = shortName or false }
+local batches = {}      -- [caster key] = { names = {}, seen = {}, count = 0, entry = ledger entry }
+local recentCasts = {}  -- [spellId] = { time = t, caster = full name or false, unit = token }
 
 local function AnySecret(...)
     for i = 1, select("#", ...) do
@@ -111,10 +113,40 @@ function BuffTracker.OnSpellcastSucceeded(unit, _, spellId)
     PruneCasts(now)
     local cast = recentCasts[spellId]
     if cast then
-        cast.time, cast.caster = now, caster
+        cast.time, cast.caster, cast.unit = now, caster, unit
     else
-        recentCasts[spellId] = { time = now, caster = caster }
+        recentCasts[spellId] = { time = now, caster = caster, unit = unit }
     end
+end
+
+-- The caster's class as players read it ("mage"), or nil. Only while the
+-- token is still them: a mouseover or nameplate token may be someone else
+-- by the time the buff lands.
+local function ClassText(unit, caster)
+    if not unit or Util.UnitFullName(unit) ~= caster then return nil end
+    local ok, class = pcall(UnitClass, unit)
+    if not ok or Util.IsSecret(class) or type(class) ~= "string" or class == "" then return nil end
+    return class:lower()
+end
+
+-- Why a favour wasn't thanked, in the ledger's words.
+local NOTES = {
+    { "repeat cooldown", "thanked them a moment ago" },
+    { "snoozed", "snoozed" },
+    { "switched off", "Buff Thanks is off" },
+    { "login grace", "just logged in" },
+    { "AFK", "you were AFK" },
+    { "waited too long", "no key press in time" },
+    { "blank", "no message lines" },
+    { "queue full", "too many messages waiting" },
+    { "ignore list", "on your ignore list" },
+}
+function BuffTracker.NoteFor(reason)
+    if type(reason) ~= "string" then return "not sent" end
+    for _, n in ipairs(NOTES) do
+        if reason:find(n[1], 1, true) then return n[2] end
+    end
+    return reason
 end
 
 local function DescribeBuffs(batch)
@@ -152,45 +184,108 @@ local function RememberWhisper(caster, batch)
     recentWhispers[caster] = { time = now, batch = batch }
 end
 
+-- The /thank goes to the caster's unit token while it is still them;
+-- otherwise it is a plain /thank ("You thank everyone around you.").
+local function EmoteTarget(caster, unit)
+    return function()
+        if unit and Util.UnitFullName(unit) == caster then return unit end
+        return nil
+    end
+end
+
 -- caster: full player name (also the whisper target), or BuffTracker.UNKNOWN_KEY.
-function BuffTracker.AddBuff(caster, buffKey, spellName)
+-- unit: the token the caster was seen under, if any (for the /thank emote).
+function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
     local existing = batches[caster]
     if existing then
         AddToBatch(existing, buffKey, spellName)
+        ns.Ledger.AddBuff(existing.entry, spellName)
         ns.Diag.Log("buff", "added to the thank-you already waiting for %s", caster)
         return
     end
 
-    local cfg = ns.db.buff
     local unknown = caster == BuffTracker.UNKNOWN_KEY
+    local entry = ns.Ledger.Received(unknown and ns.Ledger.UNKNOWN or caster, spellName)
+
+    if not unknown and ns.Ignore.Has(caster) then
+        ns.Diag.Log("buff", "not thanking %s: on your ignore list", caster)
+        ns.Ledger.Settle(entry, false, "on your ignore list")
+        return
+    end
+    local cfg = ns.db.buff
     if unknown and not cfg.fallbackToSay then
         ns.Diag.Log("buff", "not thanking: caster can't be named and the /say fallback is off")
+        ns.Ledger.Settle(entry, false, "couldn't tell who it was")
         return
     end
 
-    local batch = { names = {}, seen = {}, count = 0 }
+    local batch = { names = {}, seen = {}, count = 0, entry = entry, class = ClassText(unit, caster) }
     AddToBatch(batch, buffKey, spellName)
     batches[caster] = batch
 
+    local style = cfg.thankStyle
+    local withLine = style ~= "emote"
+    local withEmote = style ~= "message"
+    -- Done once every thank-you scheduled for this favour has gone or been dropped.
+    local waiting, firstReason = 0, nil
+    local function Done(sent, reason)
+        waiting = waiting - 1
+        if sent then ns.Ledger.Settle(entry, true) end
+        firstReason = firstReason or reason
+        if waiting == 0 then
+            if batches[caster] == batch then batches[caster] = nil end
+            ns.Ledger.Settle(entry, false, BuffTracker.NoteFor(firstReason))
+        end
+    end
+
+    -- Checked again just before sending: they may have been ignored meanwhile.
+    local function NotIgnored()
+        if not unknown and ns.Ignore.Has(caster) then return false, "on your ignore list" end
+        return true
+    end
+
     -- Someone we can't name can't be whispered: they get the /say fallback.
     local whisper = cfg.useWhisper and not unknown
-    local scheduled = ns.Announcer.Schedule("buff", caster, {
-        channel = whisper and "WHISPER" or "SAY",
-        target = whisper and caster or nil,
-        cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
-        maxAge = (not whisper) and BuffTracker.SAY_MAX_AGE or nil,
-        vars = function()
-            if unknown then return FallbackVars(batch) end
-            local vars = Util.NameVars(caster)
-            vars.buff = DescribeBuffs(batch)
-            return vars
-        end,
-        onDone = function(sent)
-            if batches[caster] == batch then batches[caster] = nil end
-            if sent and whisper then RememberWhisper(caster, batch) end
-        end,
-    })
-    if not scheduled then batches[caster] = nil end
+    local scheduled, why = false, nil
+    if withLine then
+        local ok, reason = ns.Announcer.Schedule("buff", caster, {
+            channel = whisper and "WHISPER" or "SAY",
+            target = whisper and caster or nil,
+            cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
+            maxAge = (not whisper) and BuffTracker.SAY_MAX_AGE or nil,
+            isValid = NotIgnored,
+            vars = function()
+                if unknown then return FallbackVars(batch) end
+                local vars = Util.NameVars(caster)
+                vars.buff = DescribeBuffs(batch)
+                vars.class = batch.class
+                return vars
+            end,
+            onDone = function(sent, reason2)
+                if sent and whisper then RememberWhisper(caster, batch) end
+                -- The line is said: later buffs start a favour of their own,
+                -- even while a /thank for this one still waits.
+                if batches[caster] == batch then batches[caster] = nil end
+                Done(sent, reason2)
+            end,
+        })
+        if ok then waiting, scheduled = waiting + 1, true else why = reason end
+    end
+    if withEmote then
+        local ok, reason = ns.Announcer.Schedule("buff", caster, {
+            emote = "THANK",
+            emoteTarget = EmoteTarget(caster, unit),
+            cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
+            maxAge = BuffTracker.SAY_MAX_AGE,
+            isValid = NotIgnored,
+            onDone = Done,
+        })
+        if ok then waiting, scheduled = waiting + 1, true else why = why or reason end
+    end
+    if not scheduled then
+        batches[caster] = nil
+        ns.Ledger.Settle(entry, false, BuffTracker.NoteFor(why))
+    end
 end
 
 -- The game answers a whisper to someone it can't find with a system message
@@ -213,20 +308,21 @@ function BuffTracker.OnWhisperFailed(name)
     })
 end
 
--- Returns caster (name or UNKNOWN_KEY) or nil, and the reason in words.
+-- Returns caster (name or UNKNOWN_KEY) or nil, the reason in words, and the
+-- unit token the caster was seen under (if any).
 local function FindCaster(aura, spellId, now)
     local src = aura.sourceUnit
     if Util.IsSecret(src) then return nil, "caster unit is secret (restricted)" end
     if src ~= nil then
         local caster = BuffTracker.Classify(src)
-        if caster then return caster, "caster unit " .. src end
+        if caster then return caster, "caster unit " .. src, src end
         if caster == false then return nil, "caster " .. src .. " is you, your pet, your group, an NPC or hostile" end
         return nil, "caster " .. src .. " can't be identified"
     end
 
     local cast = spellId and recentCasts[spellId]
     if cast and now - cast.time <= BuffTracker.CAST_MATCH_WINDOW then
-        if cast.caster then return cast.caster, "matched a cast at you just before" end
+        if cast.caster then return cast.caster, "matched a cast at you just before", cast.unit end
         return nil, "matched a cast by someone we don't thank"
     end
 
@@ -294,11 +390,11 @@ local function HandleAddedAura(aura, now)
         ns.Diag.Log("buff", "%s (spell %s): cast %ds ago, so I already had it -> skip", spellName or "?", spellId, age)
         return
     end
-    local caster, reason = FindCaster(aura, spellId, now)
+    local caster, reason, unit = FindCaster(aura, spellId, now)
     ns.Diag.Log("buff", "%s (spell %s): %s -> %s", spellName or "?", spellId, reason,
         caster and ("thank " .. caster) or "skip")
     if caster then
-        BuffTracker.AddBuff(caster, spellName or spellId or aura.auraInstanceID or "?", spellName)
+        BuffTracker.AddBuff(caster, spellName or spellId or aura.auraInstanceID or "?", spellName, unit)
     end
 end
 
@@ -338,7 +434,7 @@ function BuffTracker.OnPlayerAura(updateInfo)
         return
     end
 
-    local active = ns.db.buff.enabled and ns.Announcer.IsActive()
+    local active = ns.db.buff.enabled and ns.Announcer.IsWatching()
     local now = GetTime()
 
     -- A full update gives no list of what is new, so compare against the

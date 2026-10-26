@@ -4,7 +4,8 @@
 --   * bounds how much can be waiting and how long it may wait,
 --   * holds messages while the game's chat lockdown is active,
 --   * holds /say outside instances until a hardware event (key press),
---     which the game requires for that channel,
+--     which the game requires for that channel (text emotes such as /thank
+--     wait the same way, to be safe),
 --   * re-checks each message is still wanted right before sending,
 --   * drops automatic messages that come due while you're AFK (an option).
 local _, ns = ...
@@ -30,8 +31,10 @@ function ChatQueue.InChatLockdown()
     return info ~= nil and info.InChatMessagingLockdown ~= nil and info.InChatMessagingLockdown() == true
 end
 
+-- "EMOTE" is a text emote (/thank). Whether the game holds those back like
+-- /say is untested, so they wait for a key press outdoors too.
 function ChatQueue.NeedsHardwareEvent(channel)
-    if channel ~= "SAY" and channel ~= "YELL" then return false end
+    if channel ~= "SAY" and channel ~= "YELL" and channel ~= "EMOTE" then return false end
     return not IsInInstance()
 end
 
@@ -61,14 +64,27 @@ local function RawSend(text, channel, target)
     return pcall(send, text, channel, nil, target)
 end
 
-local function Finish(item, sent)
-    if item.onDone then item.onDone(sent) end
+-- Blizzard's chat box calls C_ChatInfo.PerformEmote; DoEmote is the older
+-- name. Returns ok, err. The call answers true when the game held the emote
+-- back, so that counts as not sent.
+local function RawEmote(token, target)
+    local info = C_ChatInfo
+    local emote = (info and info.PerformEmote) or DoEmote
+    if not emote then return false, "this game client has no emote function" end
+    local ok, restricted = pcall(emote, token, target)
+    if not ok then return false, restricted end
+    if not Util.IsSecret(restricted) and restricted == true then return false, "the game held the emote back" end
+    return true
+end
+
+local function Finish(item, sent, reason)
+    if item.onDone then item.onDone(sent, reason) end
 end
 
 local function Drop(item, reason)
     ns.Diag.Count("dropped")
     ns.Diag.Log("send", "dropped %s: %s", item.label, reason)
-    Finish(item, false)
+    Finish(item, false, reason)
 end
 
 -- Log why a message is waiting, once per reason change (not every pump).
@@ -102,6 +118,8 @@ function ChatQueue.Pump(hardware)
             dropReason = "waited too long (" .. maxAge .. "s)"
         elseif not channel then
             dropReason = "no channel (not in a guild/group any more?)"
+        elseif channel == "EMOTE" and type(item.emote) ~= "string" then
+            dropReason = "emote without a name"
         elseif channel == "WHISPER" and type(item.target) ~= "string" then
             dropReason = "whisper without a target"
         else
@@ -129,6 +147,8 @@ function ChatQueue.Pump(hardware)
             local text, skip
             if SkipForAFK(item) then
                 skip = "you are AFK (\"Don't send messages while I'm AFK\" is on)"
+            elseif channel == "EMOTE" then
+                text = "/" .. item.emote:lower()
             else
                 text = item.getText()
                 if text == nil then skip = "message rendered empty" end
@@ -136,7 +156,15 @@ function ChatQueue.Pump(hardware)
             if skip then
                 Drop(item, skip)
             else
-                local ok, err = RawSend(text, channel, item.target)
+                local ok, err
+                if channel == "EMOTE" then
+                    -- target: a unit token, or nil for "You thank everyone around you."
+                    local target = item.getTarget and item.getTarget() or nil
+                    ok, err = RawEmote(item.emote, target)
+                    if target then text = text .. " " .. target end
+                else
+                    ok, err = RawSend(text, channel, item.target)
+                end
                 if ok then
                     lastSendTime = now
                     sent = true
@@ -147,7 +175,7 @@ function ChatQueue.Pump(hardware)
                 else
                     ns.Diag.Count("sendErrors")
                     ns.Diag.Log("send", "ERROR sending %s to %s: %s", item.label, channel, err)
-                    Finish(item, false)
+                    Finish(item, false, "the game refused it")
                 end
             end
         end
@@ -169,11 +197,13 @@ SchedulePump = function()
 end
 
 -- item = {
---   channel  = "GUILD" | function() -> channel or nil,
+--   channel  = "GUILD" | function() -> channel or nil; "EMOTE" for a text emote,
 --   target   = player name to whisper when channel is WHISPER,
---   getText  = function() -> text or nil (called right before sending),
+--   getText  = function() -> text or nil (called right before sending; not for emotes),
+--   emote    = emote token ("THANK") when channel is EMOTE,
+--   getTarget = optional function() -> unit token the emote is aimed at, or nil,
 --   isValid  = optional function() -> ok, reason (reason is logged when not ok),
---   onDone   = optional function(sent),
+--   onDone   = optional function(sent, reason), reason saying why it wasn't sent,
 --   maxAge   = optional seconds it may wait before it is dropped (default MAX_AGE),
 --   label    = optional text naming the message in diagnostics,
 --   automatic = optional true for messages the addon sends by itself (skipped

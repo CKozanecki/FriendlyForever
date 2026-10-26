@@ -8,13 +8,18 @@ local Util = ns.Util
 -- file: the client reads the file list at start-up, so it needs a restart.
 local DefaultMessages = ns.DefaultMessages
     or error("FriendlyForever: Defaults.lua isn't loaded. Restart the game after updating the addon.")
+local CasualMessages = ns.CasualMessages
+    or error("FriendlyForever: Defaults.lua is out of date. Restart the game after updating the addon.")
 
 local Config = {}
 ns.Config = Config
 
-Config.SCHEMA_VERSION = 5
+Config.SCHEMA_VERSION = 6
 Config.NUM_MESSAGES = 30
 Config.MAX_LOG = 400 -- diagnostic log lines kept in saved variables
+Config.MAX_IGNORED = 500
+Config.SNOOZE_MAX_SECONDS = 24 * 60 * 60
+Config.THANK_STYLES = { message = true, emote = true, both = true }
 
 Config.LIMITS = {
     delay          = { min = 0, max = 60 },    -- seconds
@@ -81,6 +86,8 @@ Config.DEFAULTS = {
         -- calling them unknownName.
         fallbackToSay = true,
         unknownName = "friend",
+        -- "message" (a line in /say or a whisper), "emote" (/thank them) or "both".
+        thankStyle = "message",
         messages = DefaultMessages.buff,
     },
     guildJoin = {
@@ -127,8 +134,15 @@ function Config.CleanUnknownName(text)
     return Util.Utf8Truncate(Util.StripChat(text), Config.LIMITS.unknownName.maxBytes)
 end
 
+-- A clean copy of one type's settings: only the fields that type has, each
+-- checked. Unknown keys (a hand-edited file, a pasted settings line) are
+-- dropped, so nothing else can grow the saved file.
 local function ValidateType(saved, defaults)
-    local cfg = type(saved) == "table" and saved or {}
+    local cfg, src = {}, type(saved) == "table" and saved or {}
+    for _, key in ipairs({ "enabled", "delay", "repeatCooldown", "messages",
+        "listBuffNames", "useWhisper", "fallbackToSay", "thankStyle", "unknownName" }) do
+        cfg[key] = src[key]
+    end
     local limits = Config.LIMITS
 
     if type(cfg.enabled) ~= "boolean" then cfg.enabled = defaults.enabled end
@@ -139,8 +153,14 @@ local function ValidateType(saved, defaults)
     for _, flag in ipairs({ "listBuffNames", "useWhisper", "fallbackToSay" }) do
         if defaults[flag] ~= nil and type(cfg[flag]) ~= "boolean" then cfg[flag] = defaults[flag] end
     end
+    if defaults.thankStyle ~= nil and not Config.THANK_STYLES[cfg.thankStyle] then
+        cfg.thankStyle = defaults.thankStyle
+    end
     if defaults.unknownName ~= nil then
         cfg.unknownName = cfg.unknownName == nil and defaults.unknownName or Config.CleanUnknownName(cfg.unknownName)
+    end
+    for _, key in ipairs({ "listBuffNames", "useWhisper", "fallbackToSay", "thankStyle", "unknownName" }) do
+        if defaults[key] == nil then cfg[key] = nil end
     end
 
     if type(cfg.messages) ~= "table" then
@@ -169,22 +189,37 @@ local OLD_GUILD_LOGIN = {
 
 -- Each entry upgrades a saved file from version (key - 1) to key.
 local MIGRATIONS = {
+    [6] = function(db)
+        -- 1.7.0 replaced every type's default lines with fantasy ones. A saved
+        -- line still exactly the old (casual) default becomes the new one in
+        -- its slot; lines you edited stay. The casual set can be loaded again.
+        for _, msgType in ipairs(Config.TYPES) do
+            local cfg = db[msgType]
+            if type(cfg) == "table" and type(cfg.messages) == "table" then
+                local old, new = CasualMessages[msgType], DefaultMessages[msgType]
+                for i = 1, Config.NUM_MESSAGES do
+                    if cfg.messages[i] ~= nil and cfg.messages[i] == old[i] then cfg.messages[i] = new[i] end
+                end
+            end
+        end
+    end,
     [5] = function(db)
         -- Guild login lines were rewritten: a saved line still exactly the old
-        -- default becomes the new one in its slot; lines you edited stay.
+        -- default becomes the 1.5.0 one in its slot; lines you edited stay.
+        -- 1.5.0's lines are the casual set, so migration 6 takes it from there.
         if type(db.guildLogin) == "table" and type(db.guildLogin.messages) == "table" then
             local msgs = db.guildLogin.messages
             for i, old in ipairs(OLD_GUILD_LOGIN) do
-                if msgs[i] == old then msgs[i] = Config.DEFAULTS.guildLogin.messages[i] end
+                if msgs[i] == old then msgs[i] = CasualMessages.guildLogin[i] end
             end
         end
         -- Up to 1.4.2 each type had 10 lines; now 30. Keep the saved 10 (edits
-        -- included) and fill the new slots with the new default lines.
+        -- included) and fill the new slots with the 1.5.0 default lines.
         for _, msgType in ipairs(Config.TYPES) do
-            local defaults, cfg = Config.DEFAULTS[msgType], db[msgType]
+            local defaults, cfg = CasualMessages[msgType], db[msgType]
             if type(cfg) == "table" and type(cfg.messages) == "table" then
-                for i = 11, #defaults.messages do
-                    if cfg.messages[i] == nil then cfg.messages[i] = defaults.messages[i] end
+                for i = 11, #defaults do
+                    if cfg.messages[i] == nil then cfg.messages[i] = defaults[i] end
                 end
             end
         end
@@ -214,14 +249,35 @@ local MIGRATIONS = {
     end,
 }
 
-function Config.Load(saved)
-    local db = type(saved) == "table" and saved or {}
-
+-- Bring settings saved by an older version up to date. Also used on profile
+-- snapshots and pasted settings lines, which carry the version they came from.
+function Config.Migrate(db)
     local version = Util.ClampNumber(db.schemaVersion, 1, Config.SCHEMA_VERSION, 1)
     for v = version + 1, Config.SCHEMA_VERSION do
         if MIGRATIONS[v] then MIGRATIONS[v](db) end
     end
     db.schemaVersion = Config.SCHEMA_VERSION
+end
+
+-- The ignore list's key for a full name: names match whatever their case.
+-- (Lua's lower() folds only A-Z: "élodie" and "Élodie" stay different.)
+function Config.IgnoreKey(fullName)
+    return fullName:lower()
+end
+
+-- The full name an ignore-list entry holds, or nil if it is damaged. Entries
+-- are [key] = full name, the key being the name's IgnoreKey; [full name] = true
+-- (how this list was first saved) is read too.
+function Config.IgnoreEntry(key, value)
+    if type(key) ~= "string" then return nil end
+    if value == true then return Util.FullName(key) end
+    local full = type(value) == "string" and Util.FullName(value)
+    if full and Config.IgnoreKey(full) == key then return full end
+end
+
+function Config.Load(saved)
+    local db = type(saved) == "table" and saved or {}
+    Config.Migrate(db)
 
     if type(db.enabled) ~= "boolean" then db.enabled = true end
     if type(db.skipWhileAFK) ~= "boolean" then db.skipWhileAFK = Config.DEFAULTS.skipWhileAFK end
@@ -267,6 +323,34 @@ function Config.Load(saved)
         end
     end
     db.messageBags = bags
+
+    -- Players never greeted or thanked: [lowercased full name] = the full name
+    -- as typed (shown in lists). Keys are rebuilt from the names, so a damaged
+    -- key can't hide an entry.
+    local ignore = {}
+    if type(db.ignore) == "table" then
+        local n = 0
+        for key, value in pairs(db.ignore) do
+            local full = Config.IgnoreEntry(key, value)
+            if full and n < Config.MAX_IGNORED and not ignore[Config.IgnoreKey(full)] then
+                ignore[Config.IgnoreKey(full)] = full
+                n = n + 1
+            end
+        end
+    end
+    db.ignore = ignore
+
+    db.ledger = ns.Ledger.Validate(db.ledger)
+    ns.Profiles.Validate(db)
+
+    -- Snooze: wall-clock time (time()) it ends, or nil.
+    -- Never further off than the longest snooze (a damaged file, or a clock
+    -- that was wrong when you snoozed, mustn't mute the addon for good).
+    if type(db.snoozeUntil) ~= "number" or db.snoozeUntil ~= db.snoozeUntil then
+        db.snoozeUntil = nil
+    else
+        db.snoozeUntil = math.min(db.snoozeUntil, time() + Config.SNOOZE_MAX_SECONDS)
+    end
     return db
 end
 

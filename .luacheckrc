@@ -8,6 +8,7 @@ exclude_files = { ".tools/**", "dist/**", ".release/**" }
 -- The addon may only create these globals.
 globals = {
     "FriendlyForeverDB",
+    "FriendlyForeverTextWindow",
     "SLASH_FRIENDLYFOREVER1",
     "SLASH_FRIENDLYFOREVER2",
     SlashCmdList = { fields = { "FRIENDLYFOREVER" } },
@@ -27,6 +28,8 @@ read_globals = {
     "ERR_FRIEND_ONLINE_SS", "ERR_GUILD_JOIN_S", "ERR_JOINED_GROUP_S",
     "ERR_RAID_MEMBER_ADDED_S", "ERR_INSTANCE_GROUP_ADDED_S", "ERR_CHAT_PLAYER_NOT_FOUND_S",
     "C_CVar", "GetCVar", "SetCVar",
+    "time", "DoEmote", "UnitClass", "UnitRace", "UnitFactionGroup", "GetRealZoneText", "GetZoneText",
+    "GetGameTime", "IsResting", "AddonCompartmentFrame", "UISpecialFrames",
 }
 
 -- Tests run in plain Lua with busted and install the mock WoW API globally.
