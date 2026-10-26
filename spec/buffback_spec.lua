@@ -1011,6 +1011,59 @@ describe("Buff back", function()
             assert.is_true(printedHas("Couldn't buff Bob Stone (the game gave no reason)."))
         end)
 
+        it("a quiet failure is never reported later as a failure with no reason", function()
+            stranger()
+            buffedBy()
+            half(true); half(false)
+            wow.fire("UNIT_SPELLCAST_SENT", "player", "Bob", "Cast-1", MOTW)
+            wow.fire("UNIT_SPELLCAST_FAILED_QUIET", "player", "Cast-1", MOTW)
+            wow.advance(ns.BuffButton.SENT_ANSWER_SECONDS + 1)
+            assert.is_false(printedHas("Couldn't buff"))
+        end)
+
+        it("an empty down half doesn't make a later release-only click 'unsure'", function()
+            stranger()
+            buffedBy()
+            wow.state.targetNameForm = "hyphen" -- visible, but /targetexact won't find him
+            local bob = wow.state.units.nameplate1
+            wow.state.units.nameplate1 = nil
+            wow.advance(6)                     -- the button empties (Bob out of view)
+            half(true); half(false)            -- a press on the empty button: nothing
+            wow.state.units.nameplate1 = bob
+            wow.advance(1)                     -- back in view: armed
+            wow.hardware = true; half(false); wow.runMacro(macro()); wow.hardware = false
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+            assert.is_true(printedHas("No answer: couldn't find Bob Stone"))
+        end)
+
+        it("gives the game's reason for a late refusal whichever comes first, the error or the failure", function()
+            for _, errorFirst in ipairs({ false, true }) do
+                boot()
+                wow.state.errorBeforeFailed = errorFirst
+                wow.state.castLatency = 1.5
+                wow.state.castFailures["Bob-Stone"] = "Target not in line of sight"
+                stranger()
+                buffedBy()
+                wow.press(button)
+                wow.advance(2)
+                assert.are.equal("Couldn't buff Bob Stone: Target not in line of sight", button.result:GetText(),
+                    "error first: " .. tostring(errorFirst))
+                wow.advance(ns.BuffButton.SENT_ANSWER_SECONDS)
+                assert.is_false(printedHas("gave no reason"))
+            end
+        end)
+
+        it("an old unclaimed error isn't taken by a later failure", function()
+            stranger()
+            buffedBy()
+            wow.uiError("Not enough energy")
+            wow.advance(5)
+            half(true); half(false)
+            wow.fire("UNIT_SPELLCAST_SENT", "player", "Bob", "Cast-1", MOTW)
+            wow.fire("UNIT_SPELLCAST_FAILED", "player", "Cast-1", MOTW)
+            assert.is_false(printedHas("Not enough energy"))
+        end)
+
         it("in key-up mode a refusal is matched to the half that acted, however long the key was held", function()
             wow.state.cvars.ActionButtonUseKeyDown = "0"
             stranger()
@@ -1119,6 +1172,7 @@ describe("Buff back", function()
                 function() wow.state.unitsRestricted = math.random() < 0.2 end,
                 function() wow.fire("SPELLS_CHANGED") end,
                 function() wow.state.castLatency = ({ 0, 0, 0.2, 1.5 })[math.random(4)] end,
+                function() wow.state.errorBeforeFailed = math.random() < 0.5 end,
             }
             -- Presses the game left unanswered (no cast or error from them): only
             -- those may be reported as "No answer".

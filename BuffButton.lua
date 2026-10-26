@@ -440,11 +440,24 @@ end
 
 -- The cast failed. The game's error text (UI_ERROR_MESSAGE) usually follows
 -- with the reason, and answers the press then.
+-- The last error text no press took, in case its failure comes just after
+-- it (the order of the two isn't known for Forever): { text, at }.
+local unclaimedError
+
+local function ReportRefusal(press, text)
+    ForgetPress(press)
+    ShowResult("Couldn't buff " .. Util.DisplayName(press.name) .. ": " .. Util.StripChat(text), true)
+    BuffButton.Refresh()
+end
+
 function BuffButton.OnSpellcastFailed(unit, castGUID, spellId)
     local press = PressForCast(unit, castGUID, spellId)
     if not press then return end
     press.sent, press.failed, press.failedAt = true, true, GetTime()
     lastResultText = "the cast of " .. press.spell .. " failed"
+    local recent = unclaimedError
+    unclaimedError = nil
+    if recent and GetTime() - recent.at <= BuffButton.ERROR_ANSWER_SECONDS then ReportRefusal(press, recent.text) end
 end
 
 -- The cast failed with nothing to say (cancelled, say): no error text
@@ -472,11 +485,13 @@ end
 
 function BuffButton.OnUIError(_, message)
     local text = ReadableText(message)
-    local press = text and PressForError()
-    if not press then return end
-    ForgetPress(press)
-    ShowResult("Couldn't buff " .. Util.DisplayName(press.name) .. ": " .. Util.StripChat(text), true)
-    BuffButton.Refresh()
+    if not text then return end
+    local press = PressForError()
+    if press then
+        ReportRefusal(press, text)
+    else
+        unclaimedError = { text = text, at = GetTime() }
+    end
 end
 
 ------------------------------------------------------------------------

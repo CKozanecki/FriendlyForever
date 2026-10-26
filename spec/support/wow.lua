@@ -210,6 +210,9 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         picks (Blizzard's 10.x template may act on the up half
 --                         for mouse clicks; the addon re-arms on both halves)
 --   Text emotes need a key press outdoors, like /say (see PerformEmote).
+--   state.errorBeforeFailed  a refused cast's error text (UI_ERROR_MESSAGE)
+--                         comes before UNIT_SPELLCAST_FAILED instead of after
+--                         (default false); the addon accepts either order
 --   state.castLatency     seconds before the server answers a cast
 --                         (SUCCEEDED or FAILED and its error text); 0 (default)
 --                         answers inside the press. SENT is always at once.
@@ -309,8 +312,9 @@ local function cast(args)
     -- The server's answer: at once, or after state.castLatency seconds.
     local function answer()
         if failure then
+            if M.state.errorBeforeFailed then M.uiError(failure) end
             M.fire("UNIT_SPELLCAST_FAILED", "player", guid, id)
-            M.uiError(failure)
+            if not M.state.errorBeforeFailed then M.uiError(failure) end
             return
         end
         if flags then
