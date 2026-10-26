@@ -69,26 +69,36 @@ local function TextBox(parent, width, maxLetters)
 end
 
 -- Label, [-] [number] [+], bound to ns.db[currentType][field] within limits.
+-- Does nothing on a type without that field (its stepper is hidden there).
 local function Stepper(parent, text, field)
     local limits = Config.LIMITS[field]
     local s = {}
 
     local function Set(value)
         local cfg = ns.db[currentType]
+        if cfg[field] == nil then
+            SetBoxText(s.box, "")
+            return
+        end
         cfg[field] = ns.Util.ClampNumber(value, limits.min, limits.max, cfg[field])
         SetBoxText(s.box, tostring(cfg[field]))
     end
     s.Set = Set
 
+    local function Step(by)
+        local current = ns.db[currentType][field]
+        if current ~= nil then Set(current + by) end
+    end
+
     s.label = Label(parent, text)
-    s.minus = Button(parent, "-", 24, function() Set(ns.db[currentType][field] - 1) end)
+    s.minus = Button(parent, "-", 24, function() Step(-1) end)
     s.minus:SetPoint("LEFT", s.label, "RIGHT", 8, 0)
     s.box = TextBox(parent, 44, 4)
     s.box:SetNumeric(true)
     s.box:SetJustifyH("CENTER")
     s.box:SetPoint("LEFT", s.minus, "RIGHT", 8, 0)
     s.box:SetScript("OnEditFocusLost", function(self) Set(tonumber(self:GetText())) end)
-    s.plus = Button(parent, "+", 24, function() Set(ns.db[currentType][field] + 1) end)
+    s.plus = Button(parent, "+", 24, function() Step(1) end)
     s.plus:SetPoint("LEFT", s.box, "RIGHT", 4, 0)
     return s
 end
@@ -130,14 +140,14 @@ local function Fill()
     -- Buff Back's line is said by your own press: no delay or repeat cooldown.
     ShowStepper(widgets.steppers.delay, not info.noTiming)
     ShowStepper(widgets.steppers.repeatCooldown, not info.noTiming)
-    FillBox(widgets.steppers.delay.box, tostring(cfg.delay))
-    FillBox(widgets.steppers.repeatCooldown.box, tostring(cfg.repeatCooldown))
+    FillBox(widgets.steppers.delay.box, cfg.delay and tostring(cfg.delay) or "")
+    FillBox(widgets.steppers.repeatCooldown.box, cfg.repeatCooldown and tostring(cfg.repeatCooldown) or "")
 
     local isBuffBack = currentType == "buffBack"
-    widgets.offer:SetShown(isBuffBack)
+    widgets.sayLine:SetShown(isBuffBack)
     ShowStepper(widgets.steppers.owedMinutes, isBuffBack)
     if isBuffBack then
-        widgets.offer:SetChecked(cfg.offer)
+        widgets.sayLine:SetChecked(cfg.sayLine)
         FillBox(widgets.steppers.owedMinutes.box, tostring(cfg.owedMinutes))
     end
 
@@ -242,6 +252,7 @@ function Options.Create()
     widgets.enabled = Checkbox(content, "Enabled", function(on)
         ns.db[currentType].enabled = on
         ns.RefreshEvents()
+        ns.BuffButton.Refresh()
     end)
     widgets.enabled:SetPoint("TOPLEFT", widgets.help, "BOTTOMLEFT", -4, -8)
     local delay = Stepper(content, "Delay after event (seconds):", "delay")
@@ -259,15 +270,14 @@ function Options.Create()
     end)
     widgets.listNames:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
 
-    -- Buff Back tab only, in the buff tab's rows: show the button, and for how long.
-    widgets.offer = Checkbox(content, "Offer to buff back players who buff me", function(on)
-        ns.db.buffBack.offer = on
-        ns.RefreshEvents()
+    -- Buff Back tab only, in the buff tab's rows: the line, and how long favours last.
+    widgets.sayLine = Checkbox(content, "Say a line as I buff them back", function(on)
+        ns.db.buffBack.sayLine = on
         ns.BuffButton.Refresh()
     end)
-    widgets.offer:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
+    widgets.sayLine:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
     local owedMinutes = Stepper(content, "Offer for (minutes):", "owedMinutes")
-    owedMinutes.label:SetPoint("LEFT", widgets.offer.label, "RIGHT", 40, 0)
+    owedMinutes.label:SetPoint("LEFT", widgets.sayLine.label, "RIGHT", 40, 0)
     widgets.steppers.owedMinutes = owedMinutes
 
     -- Same row: a line, a /thank emote, or both (click to cycle).

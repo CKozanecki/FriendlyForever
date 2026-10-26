@@ -1,9 +1,8 @@
 -- The buffs each class gives other players on WoW Forever, by spell ID.
 --
--- The IDs are Classic Era's (1.15). Another addon (Manners) reports that
--- Forever drops Blessing of Sanctuary and trains Kings and Divine Spirit
--- rather than making them talents; that is unverified here, and harmless
--- either way: a buff whose spell you don't know is never offered.
+-- The IDs are Classic Era's (1.15). Forever may differ (a buff removed, a
+-- talent made trainable); that can only mean a buff isn't offered, because a
+-- buff whose spell you don't know never is.
 --
 -- Each buff:
 --   key       our name for it (saved settings, buff order)
@@ -81,13 +80,13 @@ function BuffData.ForCast(spellId)
     return byRankId[spellId]
 end
 
-local Ask = Util.Ask
+local Read = Util.ReadGameValues
 
 -- The buff's name as the game spells it ("Mark of the Wild"), for /cast and
 -- for showing. Every rank has the same name, so the first one the client knows.
 function BuffData.SpellName(buff)
     for _, id in ipairs(buff.ranks) do
-        local name = Ask(C_Spell and C_Spell.GetSpellName, id) or Ask(GetSpellInfo, id)
+        local name = Read(C_Spell and C_Spell.GetSpellName, id) or Read(GetSpellInfo, id)
         if type(name) == "string" and name ~= "" then return name end
     end
 end
@@ -95,21 +94,21 @@ end
 -- The icon of the buff's lowest rank, for the button.
 function BuffData.Icon(buff)
     local id = buff.ranks[#buff.ranks]
-    return Ask(C_Spell and C_Spell.GetSpellTexture, id) or Ask(GetSpellTexture, id)
+    return Read(C_Spell and C_Spell.GetSpellTexture, id) or Read(GetSpellTexture, id)
 end
 
--- Whether you know spell `id`. Forever keeps IsSpellKnown and IsPlayerSpell
--- only as shims behind a setting that may be off, so the spellbook is asked
--- first (as Manners found).
+-- Whether you know spell `id`: any of the client's answers that says yes.
+-- C_SpellBook is the current API; IsSpellKnown and IsPlayerSpell are the
+-- older ones, kept for clients that still have them.
 local function Known(id)
     local book = C_SpellBook
     if type(book) == "table" then
         local bank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player or 0
-        if Ask(book.IsSpellInSpellBook, id, bank, false) == true or Ask(book.IsSpellKnown, id, bank) == true then
+        if Read(book.IsSpellInSpellBook, id, bank, false) == true or Read(book.IsSpellKnown, id, bank) == true then
             return true
         end
     end
-    return Ask(IsSpellKnown, id) == true or Ask(IsPlayerSpell, id) == true
+    return Read(IsSpellKnown, id) == true or Read(IsPlayerSpell, id) == true
 end
 
 function BuffData.IsKnown(buff)
@@ -119,15 +118,24 @@ function BuffData.IsKnown(buff)
     return false
 end
 
--- Your class's buffs that you know, in order.
+-- Your class's buffs that you know, in order. Kept until your spells change
+-- (BuffData.SpellsChanged), since it takes a spellbook call per rank.
+local mine
 function BuffData.Mine()
-    local _, class = UnitClass("player")
-    if Util.IsSecret(class) then return {} end
+    if mine then return mine end
+    local _, class = Read(UnitClass, "player")
     local out = {}
-    for _, buff in ipairs(BuffData.CLASSES[class] or {}) do
+    for _, buff in ipairs(class and BuffData.CLASSES[class] or {}) do
         if BuffData.IsKnown(buff) then out[#out + 1] = buff end
     end
+    -- An unreadable class isn't remembered: the next call asks again.
+    if class then mine = out end
     return out
+end
+
+-- Call when the spellbook changes (SPELLS_CHANGED, a spell learned).
+function BuffData.SpellsChanged()
+    mine = nil
 end
 
 -- Whether a class wants this buff. class: their file name ("WARRIOR") or nil

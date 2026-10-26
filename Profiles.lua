@@ -75,6 +75,7 @@ local function Apply(snapshot)
     for _, msgType in ipairs(ns.Config.TYPES) do ns.db[msgType] = candidate[msgType] end
     ns.db.skipWhileAFK = candidate.skipWhileAFK
     ns.RefreshEvents()
+    ns.BuffButton.Refresh()
 end
 
 ------------------------------------------------------------------------

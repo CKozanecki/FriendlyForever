@@ -43,7 +43,7 @@ describe("Buff back", function()
         wow.gainBuff({ sourceUnit = token or "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
     end
 
-    local function macro() return button:GetAttribute("macrotext1") end
+    local function macro() return button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText) end
 
     before_each(function() boot() end)
 
@@ -96,7 +96,7 @@ describe("Buff back", function()
         end)
 
         it("not when Buff Back's offer is off", function()
-            ns.db.buffBack.offer = false
+            ns.db.buffBack.enabled = false
             stranger()
             buffedBy()
             assert.is_nil(ns.Offers.Current())
@@ -152,6 +152,29 @@ describe("Buff back", function()
             assert.is_table(ns.Offers.Current())
         end)
 
+        it("still refuses a flagged player after their nameplate is gone", function()
+            stranger("nameplate1", { pvp = true })
+            buffedBy()
+            wow.state.units.nameplate1 = nil
+            local offer, why = ns.Offers.Current()
+            assert.is_nil(offer)
+            assert.is_truthy(why:find("flagged for PvP", 1, true))
+        end)
+
+        it("refuses when their flag was never readable, until it is", function()
+            stranger("nameplate1")
+            _G.UnitIsPVP = function(unit)
+                if unit == "player" then return false end
+                return wow.secret(false)
+            end
+            buffedBy()
+            local offer, why = ns.Offers.Current()
+            assert.is_nil(offer)
+            assert.is_truthy(why:find("can't tell if they're flagged", 1, true))
+            _G.UnitIsPVP = function() return false end
+            assert.is_table(ns.Offers.Current(), "read while their unit is known")
+        end)
+
         it("doesn't read a unit token that now belongs to someone else", function()
             stranger("nameplate1", { auras = { MOTW, THORNS }, class = "WARRIOR" })
             buffedBy()
@@ -195,49 +218,60 @@ describe("Buff back", function()
     end)
 
     describe("the macro", function()
-        it("targets by name, casts, and clears the target when you had none", function()
-            assert.are.equal("/target Bob Stone\n/cast Mark of the Wild\n/cleartarget",
-                ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", nil, false, false))
+        local MACRO = "/cleartarget\n/targetexact Bob Stone\n/cast [help,nodead] Mark of the Wild\n"
+
+        it("clears your target, targets them by exact name, casts only on a friendly living target", function()
+            assert.are.equal(MACRO .. "/cleartarget",
+                ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", nil, false))
         end)
 
         it("gives you your target back when you had one", function()
-            assert.are.equal("/target Bob Stone\n/cast Mark of the Wild\n/targetlasttarget",
-                ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", nil, false, true))
+            assert.are.equal(MACRO .. "/targetlasttarget",
+                ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", nil, true))
         end)
 
-        it("just casts when they're already your target", function()
-            assert.are.equal("/cast Mark of the Wild\n/s Here you go!",
-                ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", "Here you go!", true, true))
+        it("says the line after the cast", function()
+            assert.are.equal(MACRO .. "/s Here you go!\n/targetlasttarget",
+                ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", "Here you go!", true))
         end)
 
         it("refuses any part that could end its line or start a command", function()
             local build = ns.BuffButton.BuildCastMacro
-            assert.is_nil(build("Bob-Stone", "Mark\n/cast Pyroblast", nil, false, false))
-            assert.is_nil(build("Bob-Stone", "Mark of the Wild", "hi\n/dance", false, false))
-            assert.is_nil(build("Bob-Stone", "Mark of the Wild", "/yell boo", false, false))
-            assert.is_nil(build("Bob-Stone", "Mark of the Wild", "a |cffff0000red|r line", false, false))
-            assert.is_nil(build("Bob-Stone", "", nil, false, false))
+            assert.is_nil(build("Bob-Stone", "Mark\n/cast Pyroblast", nil, false))
+            assert.is_nil(build("Bob-Stone", "Mark of the Wild", "hi\n/dance", false))
+            assert.is_nil(build("Bob-Stone", "Mark of the Wild", "/yell boo", false))
+            assert.is_nil(build("Bob-Stone", "Mark of the Wild", "a |cffff0000red|r line", false))
+            assert.is_nil(build("Bob-Stone", "", nil, false))
         end)
 
-        it("refuses a macro longer than the game allows", function()
-            assert.is_nil(ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", string.rep("x", 250),
-                false, false))
+        it("refuses macro option syntax in a name or spell, but allows it in the line", function()
+            local build = ns.BuffButton.BuildCastMacro
+            assert.is_nil(build("Bob-Stone", "Mark of the Wild; Pyroblast", nil, false))
+            assert.is_nil(build("Bob-Stone", "[harm] Mark", nil, false))
+            assert.is_truthy(build("Bob-Stone", "Mark of the Wild", "Well met; safe travels [friend]", false))
+        end)
+
+        it("refuses a macro longer than 255 characters", function()
+            assert.is_nil(ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", string.rep("x", 250), false))
         end)
     end)
 
     describe("the button", function()
+        local A = function() return ns.BuffButton.SECURE_ATTRIBUTE end
+
         it("is hidden and empty while nobody is owed", function()
             assert.is_false(button:IsShown())
             assert.is_nil(macro())
         end)
 
-        it("shows the favour and holds its macro, on the left button only", function()
+        it("shows the favour and holds its macro for the left button, with any modifier keys", function()
             stranger()
             buffedBy()
             assert.is_true(button:IsShown())
-            assert.are.equal("macro", button:GetAttribute("type1"))
-            assert.are.equal("/target Bob Stone\n/cast Mark of the Wild\n/cleartarget", macro())
-            assert.is_nil(button:GetAttribute("type"), "no action for every mouse button")
+            assert.are.equal("*type1", A().leftButtonActionType)
+            assert.are.equal("macro", button:GetAttribute("*type1"))
+            assert.is_truthy(macro():find("/targetexact Bob Stone", 1, true))
+            assert.is_nil(button:GetAttribute("type"), "no action for other mouse buttons")
             assert.are.equal("Bob Stone", button.title:GetText())
         end)
 
@@ -256,31 +290,82 @@ describe("Buff back", function()
             assert.is_false(button:IsShown())
         end)
 
-        it("can be pressed by its key binding: the binding presses the left button", function()
-            local xml = wow.readFile("Bindings.xml")
-            assert.is_truthy(xml:find('name="CLICK FriendlyForeverBuffButton:LeftButton"', 1, true))
-            assert.are.equal("Friendly Forever: buff back", _G["BINDING_NAME_CLICK FriendlyForeverBuffButton:LeftButton"])
-        end)
-
-        it("doesn't mark it returned when the cast went to someone else", function()
-            -- If the game's /target wants another spelling, it finds nobody and
-            -- the buff lands on you instead.
-            wow.state.targetNameForm = "hyphen"
+        it("leaves you with no target when you had none", function()
             stranger()
             buffedBy()
             wow.press(button)
-            assert.are.equal("Me", wow.casts[1].target)
-            assert.is_nil(ns.db.ledger.entries[1].returned)
-            assert.are.equal(1, ns.Offers.Count(), "still owed")
-            assert.is_true(printedHas("Mark of the Wild went to Me, not Bob Stone."))
+            assert.are.equal(1, #wow.casts)
+            assert.is_nil(wow.state.units.target)
         end)
 
-        it("trusts the cast when the game doesn't say who it went to", function()
-            wow.state.sentTargetForm = "none"
+        it("works with a modifier held (a Shift+key binding)", function()
+            stranger()
+            buffedBy()
+            wow.press(button, "LeftButton", { shift = true })
+            assert.are.equal(1, #wow.casts)
+        end)
+
+        it("acts once per press, on key up when the game is set to cast on key up", function()
+            wow.state.cvars.ActionButtonUseKeyDown = "0"
             stranger()
             buffedBy()
             wow.press(button)
+            assert.are.equal(1, #wow.casts)
             assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned)
+        end)
+
+        it("has the key binding for its left button", function()
+            local xml = wow.readFile("Bindings.xml")
+            assert.is_truthy(xml:find('name="CLICK ' .. ns.BuffButton.FRAME_NAME .. ':LeftButton"', 1, true))
+            assert.are.equal("Friendly Forever: buff back",
+                _G["BINDING_NAME_CLICK " .. ns.BuffButton.FRAME_NAME .. ":LeftButton"])
+        end)
+
+        it("never buffs someone whose name only starts the same", function()
+            wow.addUnit("nameplate5", { name = "Bob", surname = "Stonewall", id = "Bob-Stonewall" })
+            stranger("nameplate9")
+            buffedBy("nameplate9")
+            wow.state.units.nameplate9 = nil -- Bob Stone walks off; Bob Stonewall is still near
+            wow.press(button)
+            assert.are.equal(0, #wow.casts, "nothing cast")
+            assert.is_nil(ns.db.ledger.entries[1].returned)
+        end)
+
+        it("casts nothing, and gives your target back, when they can't be found", function()
+            wow.state.targetNameForm = "hyphen" -- if the game wanted another spelling
+            stranger()
+            buffedBy()
+            wow.addUnit("target", { name = "Ann", surname = "Vale", id = "Ann-Vale" })
+            wow.fire("PLAYER_TARGET_CHANGED")
+            wow.press(button)
+            assert.are.equal(0, #wow.casts, "not on Ann, not on you")
+            assert.are.equal("Ann-Vale", wow.state.units.target.id)
+            assert.are.equal(1, ns.Offers.Count(), "still owed")
+        end)
+
+        it("doesn't count it returned when the game says the cast went to someone else", function()
+            stranger()
+            buffedBy()
+            -- The game reports another name for the cast (a same-named player elsewhere, say).
+            wow.state.sentTargetForm = "full"
+            local realCast = wow.press
+            realCast(button)
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned, "Bob Stone: right person")
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2")
+            ns.BuffButton.OnSpellcastSent("player", "Cid Moon", nil, MOTW) -- before a press: ignored
+            wow.press(button)
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[2].returned)
+        end)
+
+        it("says so when a cast lands but no favour was waiting any more", function()
+            stranger()
+            buffedBy()
+            local name = ns.BuffButton.ArmedOffer().name
+            ns.Offers.LetGo(name)
+            -- The press still holds the old macro (as if pressed in the same moment).
+            ns.BuffButton.OnSpellcastSucceeded("player", "x", MOTW)
+            assert.are.equal(0, ns.Ledger.Summary().returned)
         end)
 
         it("says why the game refused a cast, and keeps the favour", function()
@@ -314,35 +399,63 @@ describe("Buff back", function()
             assert.are.equal("you let it go", ns.db.ledger.entries[1].returnNote)
         end)
 
-        it("keeps what it holds through a fight, and catches up after", function()
+        it("empties itself as a fight starts, so nothing armed outside it is cast in it", function()
             stranger("nameplate1")
             buffedBy("nameplate1")
-            local before = macro()
-            wow.state.inCombat = true
-            stranger("nameplate2", { name = "Ann", surname = "Vale" })
-            buffedBy("nameplate2") -- would error if it touched the button now
-            assert.are.equal(before, macro())
+            wow.enterCombat()
+            assert.is_nil(macro())
+            assert.is_false(button:IsShown())
+            wow.addUnit("target", { name = "Wolf", isPlayer = false, hostile = true, id = "wolf" })
             wow.press(button)
-            assert.are.equal("Bob-Stone", wow.casts[1].target, "the frozen macro still casts")
-            wow.state.inCombat = false
-            wow.fire("PLAYER_REGEN_ENABLED")
-            assert.is_truthy(macro():find("/target Ann Vale", 1, true))
+            assert.are.equal(0, #wow.casts)
+            assert.are.equal("wolf", wow.state.units.target.id, "your fight target is left alone")
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2") -- would error if it touched the button in combat
+            wow.leaveCombat()
+            assert.is_truthy(macro():find("/targetexact Ann Vale", 1, true))
             assert.are.same({}, wow.errors)
         end)
 
+        it("only rewrites the button when its macro changes", function()
+            stranger()
+            buffedBy()
+            local writes = 0
+            local set = button.SetAttribute
+            button.SetAttribute = function(self, k, v) writes = writes + 1; return set(self, k, v) end
+            wow.advance(ns.BuffButton.RECHECK_SECONDS * 3)
+            wow.fire("PLAYER_TARGET_CHANGED")
+            assert.are.equal(0, writes)
+        end)
+
         it("says a line as you cast, when switched on", function()
-            ns.db.buffBack.enabled = true
+            ns.db.buffBack.sayLine = true
             ns.db.buffBack.messages = { "For you, {name}: {buff}!" }
             stranger()
             buffedBy()
-            assert.are.equal("/target Bob Stone\n/cast Mark of the Wild\n/s For you, Bob: Mark of the Wild!\n/cleartarget",
-                macro())
+            assert.is_truthy(macro():find("\n/s For you, Bob: Mark of the Wild!\n", 1, true))
             wow.press(button)
             assert.are.same({ "For you, Bob: Mark of the Wild!" }, wow.sentTo("SAY"))
         end)
 
+        it("doesn't say the line while snoozed or AFK", function()
+            ns.db.buffBack.sayLine = true
+            ns.db.buffBack.messages = { "For you, {name}!" }
+            stranger()
+            buffedBy()
+            ns.Announcer.Snooze(15)
+            wow.press(button)
+            assert.are.same({}, wow.sentTo("SAY"))
+            assert.are.equal(1, #wow.casts, "the cast still goes")
+            ns.Announcer.Snooze(nil)
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2")
+            wow.state.afk = true
+            wow.press(button)
+            assert.are.same({}, wow.sentTo("SAY"))
+        end)
+
         it("keeps the same line while re-arming, so the rotation isn't used up", function()
-            ns.db.buffBack.enabled = true
+            ns.db.buffBack.sayLine = true
             ns.db.buffBack.messages = { "One {name}", "Two {name}" }
             stranger()
             buffedBy()
@@ -353,11 +466,24 @@ describe("Buff back", function()
         end)
 
         it("skips a line that starts a command or won't fit, and casts anyway", function()
-            ns.db.buffBack.enabled = true
+            ns.db.buffBack.sayLine = true
             ns.db.buffBack.messages = { "/yell {name}", string.rep("long ", 60) }
             stranger()
             buffedBy()
-            assert.are.equal("/target Bob Stone\n/cast Mark of the Wild\n/cleartarget", macro())
+            assert.is_nil(macro():find("/s ", 1, true))
+        end)
+
+        it("empties when the addon is switched off, and when the favour's player is ignored", function()
+            stranger()
+            buffedBy()
+            slash("off")
+            assert.is_nil(macro())
+            assert.is_false(button:IsShown())
+            slash("on")
+            assert.is_truthy(macro())
+            slash("ignore Bob Stone")
+            assert.is_nil(macro())
+            assert.are.equal(0, ns.Offers.Count())
         end)
 
         it("/friendly buffback says what is armed and why not", function()
@@ -367,7 +493,17 @@ describe("Buff back", function()
             stranger()
             buffedBy()
             slash("buffback")
-            assert.is_true(printedHas("macro: /target Bob Stone ; /cast Mark of the Wild ; /cleartarget"))
+            assert.is_true(printedHas("macro: /cleartarget ; /targetexact Bob Stone ; /cast [help,nodead] Mark of the Wild ; /cleartarget"))
+        end)
+
+        it("notices newly learned buffs", function()
+            boot({ known = { [MOTW_1] = true } })
+            stranger("nameplate1", { auras = { MOTW } })
+            buffedBy()
+            assert.is_nil(ns.Offers.Current(), "only the Mark known, and they have it")
+            wow.state.knownSpells[THORNS_1] = true
+            wow.fire("SPELLS_CHANGED")
+            assert.are.equal("Thorns", ns.Offers.Current().spell)
         end)
     end)
 
@@ -386,7 +522,7 @@ describe("Buff back", function()
         end)
 
         it("can't be unlocked in combat", function()
-            wow.state.inCombat = true
+            wow.enterCombat()
             slash("move")
             assert.is_false(ns.db.buffBack.unlocked)
             assert.is_true(printedHas("can't be moved in combat"))
@@ -399,13 +535,15 @@ describe("Buff back", function()
             assert.are.same({ point = "TOP", x = ns.Config.MAX_OFFSET, y = 0 }, ns.db.buffBack.position)
         end)
 
-        it("isn't moved by importing someone's settings", function()
+        it("isn't moved by importing someone's settings, or by resetting the tab", function()
             ns.db.buffBack.position = { point = "TOP", x = 5, y = 5 }
             local line = ns.Profiles.Export()
             assert.is_nil(ns.Serialize.Decode(line).settings.buffBack.position)
             boot()
             ns.db.buffBack.position = { point = "LEFT", x = 1, y = 2 }
             ns.Profiles.Import(line)
+            assert.are.same({ point = "LEFT", x = 1, y = 2 }, ns.db.buffBack.position)
+            ns.ResetType("buffBack")
             assert.are.same({ point = "LEFT", x = 1, y = 2 }, ns.db.buffBack.position)
         end)
     end)
@@ -415,10 +553,7 @@ describe("Buff back", function()
             for _ = 1, 10 do
                 ns.Ledger.Returned(ns.Ledger.Received("Bob-Stone", "Thorns"), "Mark of the Wild")
             end
-            local title, nextTitle, more = ns.Ledger.Title()
-            assert.are.equal("Courteous", title)
-            assert.are.equal("Well-Mannered", nextTitle)
-            assert.are.equal(15, more)
+            assert.are.same({ title = "Courteous", nextTitle = "Well-Mannered", returnsToNext = 15 }, ns.Ledger.Title())
             assert.is_truthy(ns.LedgerSummaryText():find("returned 10", 1, true))
             assert.is_truthy(ns.Ledger.Lines(1)[1]:find("returned Mark of the Wild", 1, true))
         end)
@@ -431,13 +566,23 @@ describe("Buff back", function()
         end)
 
         it("has no title before the first, and none past the last", function()
-            local title, nextTitle = ns.Ledger.Title()
-            assert.is_nil(title)
-            assert.are.equal("Courteous", nextTitle)
+            assert.are.same({ nextTitle = "Courteous", returnsToNext = 10 }, ns.Ledger.Title())
             ns.db.ledger.totals.returned = 5000
-            title, nextTitle = ns.Ledger.Title()
-            assert.are.equal("Friend to All Azeroth", title)
-            assert.is_nil(nextTitle)
+            assert.are.same({ title = "Friend to All Azeroth" }, ns.Ledger.Title())
+        end)
+
+        it("their buff back after you returned theirs isn't a new favour (no endless trading)", function()
+            ns.db.buff.enabled = false -- no thank-you waiting to merge the buffs into one favour
+            stranger()
+            buffedBy()
+            wow.press(button)
+            wow.advance(10)
+            buffedBy() -- they answer your buff
+            assert.are.equal(0, ns.Offers.Count())
+            assert.are.equal("it answered your buff to them", ns.db.ledger.entries[2].returnNote)
+            wow.advance(ns.Offers.RETURNED_RECENTLY + 1)
+            buffedBy()
+            assert.are.equal(1, ns.Offers.Count(), "much later, it's a favour again")
         end)
     end)
 
@@ -447,12 +592,15 @@ describe("Buff back", function()
             wow.run(w.tabs.buffBack, "OnClick")
             assert.is_false(w.steppers.delay.box:IsShown())
             assert.is_false(w.steppers.repeatCooldown.box:IsShown())
-            assert.is_true(w.offer:IsShown())
+            assert.is_true(w.sayLine:IsShown())
             assert.is_true(w.steppers.owedMinutes.box:IsShown())
-            assert.are.equal("Say a line as I buff them back", w.enabled.label:GetText())
+            assert.are.equal("Offer to buff back players who buff me", w.enabled.label:GetText())
+            w.sayLine:SetChecked(true)
+            wow.run(w.sayLine, "OnClick")
+            assert.is_true(ns.db.buffBack.sayLine)
             wow.run(w.tabs.guildLogin, "OnClick")
             assert.is_true(w.steppers.delay.box:IsShown())
-            assert.is_false(w.offer:IsShown())
+            assert.is_false(w.sayLine:IsShown())
         end)
     end)
 end)

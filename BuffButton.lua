@@ -4,13 +4,13 @@
 -- presses, so this module decides who and what, writes it onto the button as
 -- a macro, and the game does the casting.
 --
--- The macro targets them by name, casts, and gives you your own target back.
--- Its shape is built in one function (BuildCastMacro) so it can be changed
--- in one place if WoW Forever turns out to want something else.
--- /friendly buffback shows exactly what the button holds, for testing in game.
+-- The macro (BuildCastMacro) clears your target, targets them by exact name,
+-- casts only if that found a friendly, living player, then gives you your
+-- target back. If they can't be found, nothing is cast. /friendly buffback
+-- shows exactly what the button holds, for testing in game.
 --
--- Secure buttons can't be changed in combat: whatever the button holds when
--- a fight starts stays on it until the fight ends.
+-- Secure buttons can't be changed in combat. The button empties itself as a
+-- fight starts (the game still allows that then) and fills again after.
 local _, ns = ...
 local Util = ns.Util
 
@@ -21,17 +21,19 @@ BuffButton.FRAME_NAME = "FriendlyForeverBuffButton"
 BuffButton.ANSWER_WINDOW_SECONDS = 3   -- after a press, a cast or a refusal this soon is its answer
 BuffButton.RESULT_SHOWN_SECONDS = 4    -- how long "Returned ..." stays under the button
 BuffButton.RECHECK_SECONDS = 5         -- how often favours are re-checked while any are owed
-BuffButton.MACRO_MAX_LENGTH = 255      -- the game's limit for macro text
+-- Macros are kept within 255 characters, the game's macro editor limit (the
+-- secure attribute's own limit isn't documented, so we stay inside this one).
+BuffButton.MACRO_MAX_LENGTH = 255
 BuffButton.PLACEHOLDER_ICON = "Interface\\Icons\\Spell_Nature_Regeneration"
 
 -- Attribute names of Blizzard's SecureActionButtonTemplate
--- (https://warcraft.wiki.gg/wiki/SecureActionButtonTemplate). The "1" suffix
--- means the left mouse button, which is also what a key binding to
--- "CLICK <button>:LeftButton" presses. Right-click has no secure action, so it
--- does nothing secure; we use it (in PostClick) to let a favour go.
+-- (https://warcraft.wiki.gg/wiki/SecureActionButtonTemplate). "*" matches any
+-- modifier keys held (so Shift+key bindings work too); "1" is the left mouse
+-- button, which is also what the "CLICK <button>:LeftButton" key binding
+-- presses. No other button has a secure action: right-click is ours (PostClick).
 local SECURE_ATTRIBUTE = {
-    leftButtonActionType = "type1",
-    leftButtonMacroText = "macrotext1",
+    leftButtonActionType = "*type1",
+    leftButtonMacroText = "*macrotext1",
 }
 local MACRO_ACTION_TYPE = "macro"
 
@@ -40,6 +42,7 @@ _G["BINDING_NAME_CLICK " .. BuffButton.FRAME_NAME .. ":LeftButton"] = "Friendly 
 
 local button, eventFrame
 local armedOffer          -- what the button holds: { name, spell, buff, spokenLine, macroText }
+local appliedMacroText    -- the macro text last written to the button (to skip rewriting it)
 local pressAwaitingAnswer -- a press not yet answered by the game: { name, spell, buff, pressedAt, castTargetName }
 local chosenLine          -- the line picked for one favour and spell: { key, text }
 local shownResult         -- the last result under the button: { text, shownAt }
@@ -51,37 +54,56 @@ local recheckScheduled = false
 -- The macro
 ------------------------------------------------------------------------
 
--- A piece of macro text is safe when it can't end its line or start another
--- command: no line breaks or control characters, no "|" escape codes, and not
--- starting with "/". Names, spell names and spoken lines are all checked.
+-- A piece of macro text that can't end its line or start another command:
+-- no control characters (so no line breaks), no "|" escape codes, and not
+-- starting with "/".
 function BuffButton.IsSafeMacroPart(text)
     return type(text) == "string" and text ~= "" and not text:find("[%c|]") and text:sub(1, 1) ~= "/"
 end
 
+-- A name or spell given to a command: safe as above, and also free of the
+-- characters macro options use (";" between options, "[" "]" conditions).
+function BuffButton.IsSafeMacroArgument(text)
+    return BuffButton.IsSafeMacroPart(text) and not text:find("[;%[%]]")
+end
+
 -- The macro that casts spellName on the player playerFullName, says
--- spokenLine (or nothing), and restores your target afterwards. Returns nil
--- when any part isn't safe to put in a macro.
---   alreadyTargeted: they are your target now, so there's nothing to restore.
---   hadTarget: you have a target now; without one, the target is cleared after.
-function BuffButton.BuildCastMacro(playerFullName, spellName, spokenLine, alreadyTargeted, hadTarget)
+-- spokenLine (or nothing), and leaves you with the target you had (hadTarget)
+-- or none. Returns nil when a part isn't safe or it would be too long.
+--
+-- /cleartarget first makes your current target the "last target", so
+-- /targetlasttarget brings it back whether or not /targetexact found them;
+-- [help,nodead] casts only on a friendly, living target, so a failed
+-- /targetexact casts nothing rather than on someone else.
+function BuffButton.BuildCastMacro(playerFullName, spellName, spokenLine, hadTarget)
     local targetName = Util.DisplayName(playerFullName)
-    if not BuffButton.IsSafeMacroPart(targetName) or not BuffButton.IsSafeMacroPart(spellName) then return nil end
+    if not BuffButton.IsSafeMacroArgument(targetName) or not BuffButton.IsSafeMacroArgument(spellName) then
+        return nil
+    end
     if spokenLine ~= nil and not BuffButton.IsSafeMacroPart(spokenLine) then return nil end
-    local lines = {}
-    if not alreadyTargeted then lines[#lines + 1] = "/target " .. targetName end
-    lines[#lines + 1] = "/cast " .. spellName
+    local lines = {
+        "/cleartarget",
+        "/targetexact " .. targetName,
+        "/cast [help,nodead] " .. spellName,
+    }
     if spokenLine then lines[#lines + 1] = "/s " .. spokenLine end
-    if not alreadyTargeted then lines[#lines + 1] = hadTarget and "/targetlasttarget" or "/cleartarget" end
+    lines[#lines + 1] = hadTarget and "/targetlasttarget" or "/cleartarget"
     local macroText = table.concat(lines, "\n")
     if #macroText > BuffButton.MACRO_MAX_LENGTH then return nil end
     return macroText
 end
 
+-- Whether a line may be said now: the same rules as the addon's own
+-- messages (not snoozed or in the login grace, not AFK if that's set).
+local function MaySpeak()
+    if not ns.db.buffBack.sayLine or not ns.Announcer.IsActive() then return false end
+    return not (ns.db.skipWhileAFK and ns.ChatQueue.IsPlayerAFK())
+end
+
 -- The line to say, no longer than maxLength, or nil. Picked once per favour
 -- and spell, so re-arming (your target changing) doesn't use up the rotation.
 local function SpokenLineFor(offer, maxLength)
-    local settings = ns.db.buffBack
-    if not settings.enabled or maxLength <= 0 then return nil end
+    if maxLength <= 0 or not MaySpeak() then return nil end
     local key = offer.name .. "\1" .. offer.spell
     if chosenLine and chosenLine.key == key then
         if chosenLine.text and #chosenLine.text <= maxLength then return chosenLine.text end
@@ -89,7 +111,7 @@ local function SpokenLineFor(offer, maxLength)
     end
     local text
     for _ = 1, 5 do -- a few tries for a line short enough
-        local template = ns.Messages.Pick("buffBack", settings.messages)
+        local template = ns.Messages.Pick("buffBack", ns.db.buffBack.messages)
         if not template then break end
         local vars = Util.NameVars(offer.name)
         vars.buff = offer.spell
@@ -107,9 +129,12 @@ end
 -- Arming the button
 ------------------------------------------------------------------------
 
+-- Write the macro (or nothing) to the button, only when it changed.
 local function SetSecureMacro(macroText)
+    if macroText == appliedMacroText then return end
     button:SetAttribute(SECURE_ATTRIBUTE.leftButtonActionType, macroText and MACRO_ACTION_TYPE or nil)
     button:SetAttribute(SECURE_ATTRIBUTE.leftButtonMacroText, macroText)
+    appliedMacroText = macroText
 end
 
 local function SetLabels(title, subtitle)
@@ -128,48 +153,40 @@ local function ShowRecentResult()
     return false
 end
 
+local function Empty(reason, keepShown)
+    armedOffer = nil
+    notArmedReason = reason
+    SetSecureMacro(nil)
+    button:SetShown(keepShown and true or false)
+end
+
 -- Write the newest favour you can return onto the button, or empty it.
 -- Out of combat only: the game locks secure buttons in a fight.
 local function ArmButton()
     if not button or InCombatLockdown() then return end
-    local unlocked = ns.db.buffBack.unlocked
-    local offer, reason
-    if unlocked then
-        reason = "the button is unlocked for moving"
-    else
-        offer, reason = ns.Offers.Current()
-    end
     local showingResult = ShowRecentResult()
-
-    local macroText
-    if offer then
-        local alreadyTargeted = Util.UnitFullName("target") == offer.name
-        local hadTarget = Util.Readable(UnitExists("target")) == true
-        local withoutLine = BuffButton.BuildCastMacro(offer.name, offer.spell, nil, alreadyTargeted, hadTarget)
-        if withoutLine then
-            local room = BuffButton.MACRO_MAX_LENGTH - #withoutLine - #"\n/s "
-            local spokenLine = SpokenLineFor(offer, room)
-            macroText = BuffButton.BuildCastMacro(offer.name, offer.spell, spokenLine, alreadyTargeted, hadTarget)
-            armedOffer = { name = offer.name, spell = offer.spell, buff = offer.buff, spokenLine = spokenLine,
-                macroText = macroText }
-        else
-            reason = "the name or spell can't be put in a macro safely"
-        end
-    end
-
-    if not macroText then
-        armedOffer = nil
-        SetSecureMacro(nil)
-        notArmedReason = reason
-        if unlocked then
-            SetLabels("Buff back", "Drag to move, then /friendly move to lock")
-            button.icon:SetTexture(BuffButton.PLACEHOLDER_ICON)
-        end
-        button:SetShown(unlocked or showingResult)
+    if ns.db.buffBack.unlocked then
+        Empty("the button is unlocked for moving", true)
+        SetLabels("Buff back", "Drag to move, then /friendly move to lock")
+        button.icon:SetTexture(BuffButton.PLACEHOLDER_ICON)
         return
     end
+    -- Nothing owed: skip the spellbook and aura reads entirely.
+    if ns.Offers.Count() == 0 then return Empty("nobody is owed a buff", showingResult) end
+
+    local offer, reason = ns.Offers.Current()
+    if not offer then return Empty(reason, showingResult) end
+
+    local hadTarget = Util.ReadGameValues(UnitExists, "target") == true
+    local withoutLine = BuffButton.BuildCastMacro(offer.name, offer.spell, nil, hadTarget)
+    if not withoutLine then return Empty("the name or spell can't be put in a macro safely", showingResult) end
+    local room = BuffButton.MACRO_MAX_LENGTH - #withoutLine - #"\n/s "
+    local spokenLine = SpokenLineFor(offer, room)
+    local macroText = BuffButton.BuildCastMacro(offer.name, offer.spell, spokenLine, hadTarget)
 
     SetSecureMacro(macroText)
+    armedOffer = { name = offer.name, spell = offer.spell, buff = offer.buff, spokenLine = spokenLine,
+        macroText = macroText }
     notArmedReason = nil
     button.icon:SetTexture(ns.BuffData.Icon(offer.buff) or BuffButton.PLACEHOLDER_ICON)
     SetLabels(Util.DisplayName(offer.name), "buffed you - give " .. offer.spell)
@@ -186,11 +203,18 @@ local function ScheduleRecheck()
 end
 
 -- Re-arm now (out of combat), and keep re-checking while favours are owed
--- or a result is showing: favours expire, targets and ranges change.
+-- or a result is showing: favours expire, targets and flags change.
 function BuffButton.Refresh()
     if not button then return end
     ArmButton()
     if ns.Offers.Count() > 0 or shownResult then ScheduleRecheck() end
+end
+
+-- A fight is starting: empty the button while the game still allows it, so
+-- nothing armed for the world outside the fight is cast in it.
+function BuffButton.OnCombatStart()
+    if not button then return end
+    Empty("in combat: the button is empty until the fight ends", false)
 end
 
 ------------------------------------------------------------------------
@@ -204,10 +228,21 @@ local function ShowResult(text, alsoInChat)
     if alsoInChat then ns.Print(text) end
 end
 
--- Before the secure action runs: re-arm at the last moment (a nameplate or
--- your target may have changed) and remember the press to match its answer.
+-- The secure button acts once per press: as the key or mouse button goes
+-- down when the game's "Cast action keybinds on key down" setting
+-- (ActionButtonUseKeyDown) is on, as it comes up when it's off. Our scripts
+-- see both halves; this says which one is the press.
+local function IsThePress(isDown)
+    if isDown == nil then return true end -- a press made by a script has no halves
+    local cvar = C_CVar and C_CVar.GetCVarBool or GetCVarBool
+    local keyDown = cvar and Util.ReadGameValues(cvar, "ActionButtonUseKeyDown")
+    return isDown == (keyDown ~= false)
+end
+
+-- Before the secure action runs: re-arm at the last moment (your target may
+-- have changed) and remember the press to match the game's answer to it.
 local function OnPreClick(_, mouseButton, isDown)
-    if isDown == false or mouseButton ~= "LeftButton" then return end
+    if mouseButton ~= "LeftButton" or not IsThePress(isDown) then return end
     ArmButton()
     if armedOffer then
         pressAwaitingAnswer = { name = armedOffer.name, spell = armedOffer.spell, buff = armedOffer.buff,
@@ -218,9 +253,9 @@ end
 
 -- Right-click lets the shown favour go.
 local function OnPostClick(_, mouseButton, isDown)
-    if isDown == false or mouseButton ~= "RightButton" or not armedOffer then return end
+    if mouseButton ~= "RightButton" or not IsThePress(isDown) or not armedOffer then return end
     local name = armedOffer.name
-    ns.Offers.Skip(name)
+    ns.Offers.LetGo(name)
     ShowResult("Let " .. Util.DisplayName(name) .. " go.")
     BuffButton.Refresh()
 end
@@ -249,8 +284,8 @@ function BuffButton.IsIntendedPlayer(reportedName, intendedFullName)
     return not reported:find("-", 1, true) and reported == Util.FirstName(intendedFullName)
 end
 
--- UNIT_SPELLCAST_SENT can name who the cast is going to. If it does, it
--- tells us whether /target found the right person.
+-- UNIT_SPELLCAST_SENT can name who the cast is going to: a second check on
+-- top of /targetexact.
 function BuffButton.OnSpellcastSent(unit, castTargetName, _, spellId)
     local press = RecentPress()
     if not AnswersPress(press, unit, spellId) then return end
@@ -259,16 +294,20 @@ function BuffButton.OnSpellcastSent(unit, castTargetName, _, spellId)
     end
 end
 
+-- The cast landed. /targetexact and [help,nodead] mean it can only have gone
+-- to the player named; when the game also names who, that's checked too.
 function BuffButton.OnSpellcastSucceeded(unit, _, spellId)
     local press = RecentPress()
     if not AnswersPress(press, unit, spellId) then return end
     pressAwaitingAnswer = nil
+    local who = Util.DisplayName(press.name)
     if press.castTargetName and BuffButton.IsIntendedPlayer(press.castTargetName, press.name) == false then
-        ShowResult(string.format("%s went to %s, not %s.", press.spell, Util.StripChat(press.castTargetName),
-            Util.DisplayName(press.name)), true)
+        local actual = Util.StripChat(press.castTargetName)
+        ShowResult(string.format("%s went to %s, not %s.", press.spell, actual, who), true)
+    elseif ns.Offers.MarkReturned(press.name, press.spell) then
+        ShowResult("Returned " .. press.spell .. " to " .. who .. ".")
     else
-        ns.Offers.Returned(press.name, press.spell)
-        ShowResult("Returned " .. press.spell .. " to " .. Util.DisplayName(press.name) .. ".")
+        ShowResult("Cast " .. press.spell .. " on " .. who .. " (no favour was waiting).")
     end
     BuffButton.Refresh()
 end
@@ -304,7 +343,8 @@ function BuffButton.SetUnlocked(unlock)
         button:RegisterForDrag()
         local point, _, _, x, y = button:GetPoint()
         if point then
-            ns.db.buffBack.position = ns.Config.CleanPosition({ point = point, x = x, y = y })
+            ns.db.buffBack.position = ns.Config.CleanPosition({ point = point, x = x, y = y },
+                ns.Config.DEFAULTS.buffBack.position)
         end
     end
     BuffButton.Refresh()
@@ -327,6 +367,11 @@ local function ShowTooltip(self)
     GameTooltip:Show()
 end
 
+local function OnSpellsChanged()
+    ns.BuffData.SpellsChanged()
+    BuffButton.Refresh()
+end
+
 local function CreateEventFrame()
     eventFrame = CreateFrame("Frame")
     local handlers = {
@@ -336,7 +381,9 @@ local function CreateEventFrame()
         UNIT_SPELLCAST_FAILED_QUIET = BuffButton.OnSpellcastFailed,
         UI_ERROR_MESSAGE = BuffButton.OnUIError,
         PLAYER_TARGET_CHANGED = BuffButton.Refresh,
+        PLAYER_REGEN_DISABLED = BuffButton.OnCombatStart,
         PLAYER_REGEN_ENABLED = BuffButton.Refresh,
+        SPELLS_CHANGED = OnSpellsChanged,
     }
     for event in pairs(handlers) do
         if event:find("^UNIT_") then
@@ -357,16 +404,19 @@ function BuffButton.Create()
     button:SetFrameStrata("MEDIUM")
     button:SetMovable(true)
     button:SetClampedToScreen(true)
-    -- Like the game's own action buttons: the action runs as the key or mouse
-    -- button goes down.
-    button:RegisterForClicks("AnyDown")
-    button:SetAttribute("pressAndHoldAction", true)
+    -- Both halves of a press arrive; the secure template acts on the one the
+    -- game's key-down setting says (see IsThePress).
+    button:RegisterForClicks("AnyUp", "AnyDown")
     button:SetScript("PreClick", ns.Diag.Wrap(OnPreClick))
     button:SetScript("PostClick", ns.Diag.Wrap(OnPostClick))
     button:SetScript("OnDragStart", function(self)
         if ns.db.buffBack.unlocked and not InCombatLockdown() then self:StartMoving() end
     end)
-    button:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+    button:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        -- Our saved position is the one to use, not the game's layout cache.
+        self:SetUserPlaced(false)
+    end)
     button:SetScript("OnEnter", ShowTooltip)
     button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
@@ -388,6 +438,7 @@ function BuffButton.Create()
     button:Hide()
 
     CreateEventFrame()
+    ns.Offers.OnChange(BuffButton.Refresh)
     BuffButton.Refresh()
 end
 
@@ -397,10 +448,11 @@ end
 
 function BuffButton.Frame() return button end
 function BuffButton.ArmedOffer() return armedOffer end
+BuffButton.SECURE_ATTRIBUTE = SECURE_ATTRIBUTE
 
 function BuffButton.StatusLines()
     local out = {}
-    out[#out + 1] = string.format("buff back: %s, %d favour(s) owed", ns.db.buffBack.offer and "on" or "off",
+    out[#out + 1] = string.format("buff back: %s, %d favour(s) owed", ns.db.buffBack.enabled and "on" or "off",
         ns.Offers.Count())
     local names = {}
     for _, buff in ipairs(ns.BuffData.Mine()) do names[#names + 1] = ns.BuffData.SpellName(buff) or buff.key end
@@ -412,7 +464,7 @@ function BuffButton.StatusLines()
     else
         out[#out + 1] = "not armed: " .. tostring(notArmedReason or "nothing to offer")
     end
-    if InCombatLockdown() then out[#out + 1] = "in combat: the button keeps what it had until the fight ends" end
+    if InCombatLockdown() then out[#out + 1] = "in combat: the button stays empty until the fight ends" end
     out[#out + 1] = "last result: " .. lastResultText
     return out
 end

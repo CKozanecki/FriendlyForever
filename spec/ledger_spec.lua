@@ -80,7 +80,7 @@ describe("Favour ledger", function()
 
     it("records nothing while Buff Thanks and Buff Back are off (buffs aren't watched then)", function()
         ns.db.buff.enabled = false
-        ns.db.buffBack.offer = false
+        ns.db.buffBack.enabled = false
         stranger("target", "Bob", "Stone")
         wow.gainBuff({ sourceUnit = "target", name = "Arcane Intellect" })
         settle()

@@ -28,7 +28,7 @@ describe("Hot paths", function()
         end)
 
         it("not when both were off at login", function()
-            ns = wow.boot({ db = { buff = { enabled = false }, buffBack = { offer = false } } })
+            ns = wow.boot({ db = { buff = { enabled = false }, buffBack = { enabled = false } } })
             assert.is_false(listensForCasts())
         end)
 
@@ -37,13 +37,13 @@ describe("Hot paths", function()
             assert.is_true(listensForCasts())
             local w = ns.Options.widgets
             wow.run(w.tabs.buffBack, "OnClick")
-            w.offer:SetChecked(false)
-            wow.run(w.offer, "OnClick")
+            w.enabled:SetChecked(false)
+            wow.run(w.enabled, "OnClick")
             assert.is_false(listensForCasts())
         end)
 
         it("follows the Buff Thanks checkbox", function()
-            ns.db.buffBack.offer = false
+            ns.db.buffBack.enabled = false
             local w = ns.Options.widgets
             wow.run(w.tabs.buff, "OnClick")
             w.enabled:SetChecked(false)
@@ -98,7 +98,7 @@ describe("Hot paths", function()
 
         it("isn't looked at while Buff Thanks and Buff Back are off, even if one arrives", function()
             ns.db.buff.enabled = false
-            ns.db.buffBack.offer = false
+            ns.db.buffBack.enabled = false
             wow.addUnit("target", { name = "Bob" })
             ns.BuffTracker.OnSpellcastSucceeded("target", "g", 1459)
             assert.are.equal(0, classified)

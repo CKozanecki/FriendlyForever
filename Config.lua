@@ -71,7 +71,7 @@ Config.TYPE_INFO = {
         help    = "Said as you buff someone back with the buff-back button (if switched on). "
             .. "Placeholders: {name}, {fullname}, {buff} (the spell you cast)",
         noTiming = true,
-        enabledLabel = "Say a line as I buff them back",
+        enabledLabel = "Offer to buff back players who buff me",
     },
 }
 
@@ -127,12 +127,11 @@ Config.DEFAULTS = {
         repeatCooldown = 30,
         messages = DefaultMessages.partyHelloAgain,
     },
-    -- enabled: say a line as you cast. offer: show the buff-back button.
+    -- enabled: offer to buff back (show the button). sayLine: say a line as
+    -- you cast. No delay or repeat cooldown: the line is said by your press.
     buffBack = {
-        enabled = false,
-        delay = 0,
-        repeatCooldown = 0,
-        offer = true,
+        enabled = true,
+        sayLine = false,
         owedMinutes = 10,
         unlocked = false,
         position = { point = "CENTER", x = 0, y = -180 },
@@ -147,9 +146,8 @@ Config.ANCHORS = {
 }
 Config.MAX_OFFSET = 4000 -- pixels from the anchor, either way
 
--- A saved frame position { point, x, y }, checked; the default if unusable.
-function Config.CleanPosition(position)
-    local default = Config.DEFAULTS.buffBack.position
+-- A saved frame position { point, x, y }, checked; a copy of default if unusable.
+function Config.CleanPosition(position, default)
     if type(position) ~= "table" or not Config.ANCHORS[position.point] then
         return { point = default.point, x = default.x, y = default.y }
     end
@@ -177,34 +175,56 @@ function Config.CleanUnknownName(text)
     return Util.Utf8Truncate(Util.StripChat(text), Config.LIMITS.unknownName.maxBytes)
 end
 
--- A clean copy of one type's settings: exactly the fields its defaults
--- have, each checked against its default's kind. Unknown keys (a hand-edited
--- file, a pasted settings line) are dropped, so nothing else can grow the
--- saved file.
+-- How each field of a message type's settings is checked: function(value,
+-- default) -> the value to keep. Every field in Config.DEFAULTS must have one
+-- (spec/config_spec.lua checks), so a new field can't slip in unchecked.
+local function Bool(value, default)
+    if type(value) == "boolean" then return value end
+    return default
+end
+local function Limited(field)
+    return function(value, default)
+        local limits = Config.LIMITS[field]
+        return Util.ClampNumber(value, limits.min, limits.max, default)
+    end
+end
+Config.FIELD_VALIDATORS = {
+    enabled = Bool,
+    sayLine = Bool,
+    offer = Bool,
+    unlocked = Bool,
+    listBuffNames = Bool,
+    useWhisper = Bool,
+    fallbackToSay = Bool,
+    delay = Limited("delay"),
+    repeatCooldown = Limited("repeatCooldown"),
+    owedMinutes = Limited("owedMinutes"),
+    thankStyle = function(value, default) return Config.THANK_STYLES[value] and value or default end,
+    unknownName = function(value, default)
+        if value == nil then return default end
+        return Config.CleanUnknownName(value)
+    end,
+    position = function(value, default) return Config.CleanPosition(value, default) end,
+    messages = function(value, default)
+        if type(value) ~= "table" then return CopyList(default) end
+        local clean = {}
+        for i = 1, Config.NUM_MESSAGES do clean[i] = Config.CleanMessage(value[i]) end
+        return clean
+    end,
+}
+
+-- A clean copy of one type's settings: exactly the fields its defaults have,
+-- each through its validator. Unknown keys (a hand-edited file, a pasted
+-- settings line) are dropped, so nothing else can grow the saved file.
 local function ValidateType(saved, defaults)
     local src = type(saved) == "table" and saved or {}
     local cfg = {}
     for key, default in pairs(defaults) do
-        local value = src[key]
-        if key == "messages" then
-            if type(value) ~= "table" then
-                cfg.messages = CopyList(default)
-            else
-                local clean = {}
-                for i = 1, Config.NUM_MESSAGES do clean[i] = Config.CleanMessage(value[i]) end
-                cfg.messages = clean
-            end
-        elseif key == "thankStyle" then
-            cfg.thankStyle = Config.THANK_STYLES[value] and value or default
-        elseif key == "unknownName" then
-            cfg.unknownName = value == nil and default or Config.CleanUnknownName(value)
-        elseif key == "position" then
-            cfg.position = Config.CleanPosition(value)
-        elseif type(default) == "boolean" then
-            if type(value) == "boolean" then cfg[key] = value else cfg[key] = default end
-        elseif type(default) == "number" then
-            local limits = Config.LIMITS[key]
-            cfg[key] = Util.ClampNumber(value, limits.min, limits.max, default)
+        local validate = Config.FIELD_VALIDATORS[key]
+        if validate then
+            cfg[key] = validate(src[key], default)
+        else
+            cfg[key] = Util.DeepCopy(default) -- unreachable while the spec holds
         end
     end
     return cfg

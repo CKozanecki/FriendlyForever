@@ -93,17 +93,19 @@ Buffs from one person that arrive before the thank-you goes out are combined: *"
 
 ## Buff back
 
-When someone outside your group buffs you, a small button appears with their name and the buff you can give back. Press it, or the key you set for it in **Key Bindings > AddOns** ("Friendly Forever: buff back"), and it casts your buff on them and gives you your own target back. The game only lets an addon cast through a button you press, so nothing is ever cast without your key press or click.
+When someone outside your group buffs you, a small button appears with their name and the buff you can give back. Press it, or the key you set for it in **Key Bindings > AddOns** ("Friendly Forever: buff back", with or without Shift/Ctrl/Alt), and it casts your buff on them and gives you your own target back. The game only lets an addon cast through a button you press, so nothing is ever cast without your key press or click.
 
 - **Which buff:** your class's buffs that you know, in order. It skips any they already wear (when the game lets the addon see), mana buffs for classes without mana, and buffs that only reach your own party. A druid gives Mark of the Wild, or Thorns to someone who already has the Mark.
-- **Who:** the newest favour first. It waits while they're dead, and never offers a buff to someone flagged for PvP unless you're flagged too, since buffing them would flag you. Favours are dropped after 10 minutes (adjustable on the **Buff Back** tab).
+- **Who:** the newest favour first. It waits while they're dead. It never offers a buff to someone flagged for PvP unless you're flagged too, since buffing them would flag you: their flag is read when they buff you and whenever the game has them on a nameplate or as your target, and a favour whose flag was never readable isn't offered. Favours are dropped after 10 minutes (adjustable on the **Buff Back** tab), and are forgotten on a reload or logout.
+- **No endless trading:** when another player answers your buff with one of theirs, that isn't a new favour (for 10 minutes).
 - **Right-click** the button to let a favour go.
 - **Feedback:** "Returned Mark of the Wild to Bob Stone." under the button when the cast lands. If the game refuses it ("Out of range."), the reason is shown in chat and the favour stays. If the game reports the cast went to someone else, it isn't counted as returned.
 - **Say a line as you cast** (off by default, on the **Buff Back** tab): 30 editable lines, with the flavour placeholders and `{buff}`.
-- **In combat** the button keeps what it showed when the fight started, and catches up afterwards. The game locks secure buttons in fights.
+- **In combat** the button is empty: it clears itself as a fight starts and fills again afterwards. The game locks secure buttons in fights, so whatever it held would otherwise stay on it, aimed at the world outside the fight.
+- **Say a line** only while the addon may speak: not while snoozed, or AFK with "Don't send messages while I'm AFK" on.
 - `/friendly move` unlocks the button so you can drag it, and locks it again. `/friendly buffback` shows exactly what the button holds and why, for checking in game.
 
-Not yet tested in WoW Forever (it hasn't launched): the button targets the player by name with `/target First Surname`, casts, then `/targetlasttarget` (or `/cleartarget` if you had no target). If Forever wants something else, that shape lives in one function and is a small change.
+The button's macro is `/cleartarget`, `/targetexact First Surname`, `/cast [help,nodead] <buff>`, then `/targetlasttarget` (or `/cleartarget` if you had no target). Targeting the exact name means a player whose name only starts the same is never buffed, and the cast only goes off on a friendly, living target, so if they can't be found nothing is cast and your target comes back. Not yet tested in WoW Forever (it hasn't launched); the macro lives in one function, so adjusting it after the first test is a small change.
 
 ## Favour ledger
 

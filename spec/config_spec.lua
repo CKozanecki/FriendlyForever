@@ -47,7 +47,7 @@ describe("Config", function()
         local db = Config.Load(nil)
         for _, msgType in ipairs(Config.TYPES) do
             local expected = msgType:find("^partyHello") and 30 or 180
-            if msgType == "buffBack" then expected = 0 end -- said by your own press: no cooldown
+            if Config.TYPE_INFO[msgType].noTiming then expected = nil end -- said by your own press
             assert.are.equal(expected, db[msgType].repeatCooldown, msgType)
         end
     end)
@@ -64,6 +64,14 @@ describe("Config", function()
         assert.is_false(db.buff.useWhisper)
         assert.are.equal("friend", db.buff.unknownName)
         assert.is_true(db.buff.listBuffNames)
+    end)
+
+    it("has a validator for every field a message type has", function()
+        for _, msgType in ipairs(Config.TYPES) do
+            for key in pairs(Config.DEFAULTS[msgType]) do
+                assert.is_function(Config.FIELD_VALIDATORS[key], msgType .. "." .. key .. " has no validator")
+            end
+        end
     end)
 
     it("builds a complete database from nothing", function()

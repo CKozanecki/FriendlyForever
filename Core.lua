@@ -16,14 +16,19 @@ end
 function ns.SetEnabled(on)
     ns.db.enabled = on and true or false
     ns.RefreshEvents()
+    ns.BuffButton.Refresh()
     ns.Print(ns.db.enabled and "|cff00ff00enabled|r" or "|cffff4040disabled|r")
     ns.Minimap.Refresh()
     ns.Options.Refresh()
 end
 
+-- Back to defaults, keeping settings about this screen (the button's place).
 function ns.ResetType(msgType)
-    ns.db[msgType] = ns.Config.DefaultsFor(msgType)
+    local fresh = ns.Config.DefaultsFor(msgType)
+    for _, key in ipairs(ns.Profiles.LOCAL_ONLY[msgType] or {}) do fresh[key] = ns.db[msgType][key] end
+    ns.db[msgType] = fresh
     ns.RefreshEvents()
+    ns.BuffButton.Refresh()
 end
 
 local frame = CreateFrame("Frame")
@@ -153,8 +158,13 @@ local function StatusLines()
     add("skip while AFK: " .. OnOff(db.skipWhileAFK) .. " (" .. afkText .. ")")
     for _, msgType in ipairs(ns.Config.TYPES) do
         local cfg = db[msgType]
-        add(string.format("  %s: %s, delay %ss, repeat %ss", ns.Config.TYPE_INFO[msgType].label,
-            OnOff(cfg.enabled), cfg.delay, cfg.repeatCooldown))
+        local info = ns.Config.TYPE_INFO[msgType]
+        if info.noTiming then
+            add(string.format("  %s: %s", info.label, OnOff(cfg.enabled)))
+        else
+            add(string.format("  %s: %s, delay %ss, repeat %ss", info.label, OnOff(cfg.enabled), cfg.delay,
+                cfg.repeatCooldown))
+        end
     end
     local _, race, raceId = UnitRace("player")
     local faction = UnitFactionGroup("player")
@@ -324,6 +334,7 @@ function ns.SnoozeFor(minutes)
     end
     ns.Minimap.Refresh()
     ns.Options.Refresh()
+    ns.BuffButton.Refresh()
 end
 
 local function SnoozeCommand(args)
@@ -341,9 +352,11 @@ function ns.LedgerSummaryText()
     local text = string.format("today: buffed by %d, thanked %d, returned %d. "
         .. "All time: buffed by %d, thanked %d, returned %d.",
         s.todayReceived, s.todayThanked, s.todayReturned, s.received, s.thanked, s.returned)
-    local title, nextTitle, more = ns.Ledger.Title()
-    if title then text = text .. " Title: " .. title .. "." end
-    if nextTitle then text = text .. string.format(" %d more to %s.", more, nextTitle) end
+    local standing = ns.Ledger.Title()
+    if standing.title then text = text .. " Title: " .. standing.title .. "." end
+    if standing.nextTitle then
+        text = text .. string.format(" %d more to %s.", standing.returnsToNext, standing.nextTitle)
+    end
     return text
 end
 

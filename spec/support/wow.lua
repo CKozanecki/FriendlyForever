@@ -195,27 +195,45 @@ nameSpell("Blessing of Might", { 25291, 19838, 19837, 19836, 19835, 19834, 19740
 nameSpell("Blessing of Wisdom", { 25290, 19854, 19853, 19852, 19850, 19742 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 
--- The name /target matches, from a unit: state.targetNameForm decides which
--- spelling the client accepts ("space": "Nikki Shifts", "hyphen": "Nikki-Shifts").
--- Which one WoW Forever accepts is not known yet; this lets specs try both.
+------------------------------------------------------------------------
+-- ASSUMPTIONS ABOUT WOW FOREVER, to check in game. Each is a state setting
+-- so specs can try the alternatives; the defaults are guesses, not facts.
+--   state.targetNameForm  how /target and /targetexact spell a two-part
+--                         name: "space" ("Nikki Shifts", default) or "hyphen"
+--   state.sentTargetForm  what UNIT_SPELLCAST_SENT gives as the target:
+--                         "first" (default), "full" or "none"
+--   state.cvars.ActionButtonUseKeyDown  "1" (default): secure buttons act
+--                         on key down; "0": on key up
+--   Text emotes need a key press outdoors, like /say (see PerformEmote).
+------------------------------------------------------------------------
+
 local function targetableName(u)
     if not u.surname then return u.name end
     return u.name .. (M.state.targetNameForm == "hyphen" and "-" or " ") .. u.surname
 end
 
--- /target: the first unit whose name starts with the text (as the game's
--- /target matches a prefix), ignoring case. Nothing found: target unchanged.
-local function targetByName(text)
+-- /target matches the start of a name, /targetexact the whole name (both
+-- ignoring case), over every unit the client knows, players or not. The
+-- first match in token order wins.
+local function targetByName(text, exact)
     text = text:lower()
     local tokens = {}
     for token in pairs(M.state.units) do tokens[#tokens + 1] = token end
     table.sort(tokens)
     for _, token in ipairs(tokens) do
         local u = M.state.units[token]
-        if token ~= "target" and u.isPlayer and targetableName(u):lower():sub(1, #text) == text then
+        local name = targetableName(u):lower()
+        if token ~= "target" and token ~= "player" and (exact and name == text or not exact and name:sub(1, #text) == text) then
             return u
         end
     end
+end
+
+-- Targeting as the game does it: the old target becomes the "last target"
+-- (if there was one).
+local function setTarget(u)
+    if M.state.units.target then M.state.lastTarget = M.state.units.target end
+    M.state.units.target = u
 end
 
 -- The highest known rank of a spell name, or nil.
@@ -227,20 +245,39 @@ local function knownRank(name)
     return best
 end
 
+-- Macro conditions on the current target: help (friendly), nodead.
+local CONDITIONS = {
+    help = function(t) return t ~= nil and not t.hostile end,
+    nodead = function(t) return t ~= nil and not t.dead end,
+}
+local function conditionsHold(list)
+    for cond in list:gmatch("[^,%s]+") do
+        local check = CONDITIONS[cond]
+        if not check then error("the simulated client doesn't know the macro condition " .. cond) end
+        if not check(M.state.units.target) then return false end
+    end
+    return true
+end
+
 local castCount = 0
-local function cast(name)
+local function cast(args)
+    local conds, name = args:match("^%[(.-)%]%s*(.+)$")
+    if conds then
+        if not conditionsHold(conds) then return end
+    else
+        name = args
+    end
     local id = knownRank(name)
     if not id then
         M.uiError("Unknown spell")
         return
     end
+    -- A helpful spell with no friendly target lands on yourself.
     local target = M.state.units.target
-    if not (target and target.isPlayer and not target.hostile) then target = M.state.units.player end
+    if not (target and not target.hostile) then target = M.state.units.player end
     local failure = M.state.castFailures[target.id]
     castCount = castCount + 1
     local guid = "Cast-" .. castCount
-    -- UNIT_SPELLCAST_SENT's target name: state.sentTargetForm "first" (the
-    -- default), "full" ("First Surname") or "none" (the game doesn't say).
     local form = M.state.sentTargetForm
     local sentTo = ""
     if form == "first" then
@@ -263,21 +300,21 @@ function M.uiError(message)
     M.fire("UI_ERROR_MESSAGE", 0, message)
 end
 
--- Run a macro's lines as the game would, inside one key press.
+-- Run a macro's lines as the game would, inside one key press. (255 is the
+-- addon's own limit for its macros, checked here too.)
 function M.runMacro(text)
     assert(#text <= 255, "macro longer than 255 characters: " .. #text)
     for line in text:gmatch("[^\n]+") do
         local cmd, rest = line:match("^(/%S+)%s*(.-)%s*$")
-        if cmd == "/target" or cmd == "/tar" then
-            local u = targetByName(rest)
-            if u then
-                M.state.lastTarget = M.state.units.target
-                M.state.units.target = u
-            end
+        if cmd == "/target" or cmd == "/tar" or cmd == "/targetexact" then
+            local u = targetByName(rest, cmd == "/targetexact")
+            if u then setTarget(u) end
         elseif cmd == "/targetlasttarget" then
-            M.state.units.target, M.state.lastTarget = M.state.lastTarget, M.state.units.target
+            local last = M.state.lastTarget
+            if last then setTarget(last) end
         elseif cmd == "/cleartarget" then
-            M.state.lastTarget, M.state.units.target = M.state.units.target, nil
+            if M.state.units.target then M.state.lastTarget = M.state.units.target end
+            M.state.units.target = nil
         elseif cmd == "/cast" then
             cast(rest)
         elseif cmd == "/s" or cmd == "/say" then
@@ -288,25 +325,72 @@ function M.runMacro(text)
     end
 end
 
--- A press of a secure button by a key binding or the mouse: PreClick, the
--- secure action (a macro), PostClick. mouseButton defaults to "LeftButton".
-function M.press(button, mouseButton)
-    mouseButton = mouseButton or "LeftButton"
-    assert(button.clicks and #button.clicks > 0, "button isn't registered for clicks")
-    M.hardware = true
-    if button.scripts.PreClick then button.scripts.PreClick(button, mouseButton, true) end
-    if button.protected then
-        local n = ({ LeftButton = "1", RightButton = "2", MiddleButton = "3" })[mouseButton] or ""
-        local a = button.attributes or {}
-        local kind = a["type" .. n] or a["*type" .. n] or a.type
-        if kind == "macro" then
-            local text = a["macrotext" .. n] or a.macrotext
+-- The modifier prefix for an attribute lookup ("shift-", "ctrl-shift-"...).
+local function modifierPrefix(mods)
+    local out = ""
+    for _, m in ipairs({ "alt", "ctrl", "shift" }) do
+        if mods and mods[m] then out = out .. m .. "-" end
+    end
+    return out
+end
+
+-- Blizzard's secure attribute lookup (SecureButton_GetModifiedAttribute):
+-- prefix..name..suffix, "*"..name..suffix, prefix..name.."*",
+-- "*"..name.."*", then name alone.
+function M.modifiedAttribute(button, name, mouseButton, mods)
+    local a = button.attributes or {}
+    local suffix = ({ LeftButton = "1", RightButton = "2", MiddleButton = "3" })[mouseButton] or mouseButton
+    local prefix = modifierPrefix(mods)
+    for _, key in ipairs({ prefix .. name .. suffix, "*" .. name .. suffix, prefix .. name .. "*",
+        "*" .. name .. "*", name }) do
+        if a[key] ~= nil then return a[key] end
+    end
+end
+
+local function registeredFor(button, mouseButton, isDown)
+    local half = isDown and "Down" or "Up"
+    for _, kind in ipairs(button.clicks or {}) do
+        if kind == "Any" .. half or kind == mouseButton .. half then return true end
+    end
+    return false
+end
+
+-- One half of a press: the scripts run if the button is registered for it,
+-- and the secure action runs on the half the key-down setting chooses.
+local function pressHalf(button, mouseButton, isDown, mods)
+    if not registeredFor(button, mouseButton, isDown) then return end
+    if button.scripts.PreClick then button.scripts.PreClick(button, mouseButton, isDown) end
+    local actsOnDown = M.state.cvars.ActionButtonUseKeyDown ~= "0"
+    if button.protected and isDown == actsOnDown then
+        if M.modifiedAttribute(button, "type", mouseButton, mods) == "macro" then
+            local text = M.modifiedAttribute(button, "macrotext", mouseButton, mods)
             if text then M.runMacro(text) end
         end
     end
-    if button.scripts.OnClick then button.scripts.OnClick(button, mouseButton, true) end
-    if button.scripts.PostClick then button.scripts.PostClick(button, mouseButton, true) end
+    if button.scripts.OnClick then button.scripts.OnClick(button, mouseButton, isDown) end
+    if button.scripts.PostClick then button.scripts.PostClick(button, mouseButton, isDown) end
+end
+
+-- A press of a button by a key binding or the mouse: the down half, then the
+-- up half. mouseButton defaults to "LeftButton"; mods = { shift = true, ... }.
+function M.press(button, mouseButton, mods)
+    mouseButton = mouseButton or "LeftButton"
+    M.hardware = true
+    pressHalf(button, mouseButton, true, mods)
+    pressHalf(button, mouseButton, false, mods)
     M.hardware = false
+end
+
+-- Combat as the game starts and ends it: PLAYER_REGEN_DISABLED fires just
+-- before lockdown begins, so its handlers may still change secure frames.
+function M.enterCombat()
+    M.fire("PLAYER_REGEN_DISABLED")
+    M.state.inCombat = true
+end
+
+function M.leaveCombat()
+    M.state.inCombat = false
+    M.fire("PLAYER_REGEN_ENABLED")
 end
 
 ------------------------------------------------------------------------
@@ -454,7 +538,8 @@ function M.reset()
         today = "2026-10-26", clock = 1793000000,
         knownSpells = {}, castFailures = {}, targetNameForm = "space", sentTargetForm = "first",
         race = "Human", class = "MAGE", faction = "Alliance", zone = "Elwynn Forest", hour = 14,
-        cvars = { nameplateShowFriendlyPlayers = "1", nameplateShowOnlyNameForFriendlyPlayerUnits = "0" },
+        cvars = { nameplateShowFriendlyPlayers = "1", nameplateShowOnlyNameForFriendlyPlayerUnits = "0",
+            ActionButtonUseKeyDown = "1" },
     }
     M.addUnit("player", { name = "Me" })
     for _, g in ipairs(ADDON_GLOBALS) do _G[g] = nil end
@@ -628,16 +713,9 @@ function M.reset()
     _G.C_ChatInfo.PerformEmote = PerformEmote
 
     -- Spells: state.knownSpells[id] = true for spells in my spellbook.
-    -- state.inRange[unitId] = false puts that player out of range.
     _G.C_Spell = {
         GetSpellName = function(id) return M.SPELL_NAMES[id] end,
         GetSpellTexture = function(id) return M.SPELL_NAMES[id] and ("icon:" .. id) or nil end,
-        IsSpellInRange = function(_, unit)
-            local u = M.state.units[unit]
-            if not u then return nil end
-            if M.state.unitsRestricted then return M.secret(true) end
-            return not (M.state.inRange and M.state.inRange[u.id] == false)
-        end,
     }
     _G.C_SpellBook = {
         IsSpellInSpellBook = function(id) return M.state.knownSpells[id] == true end,
@@ -654,6 +732,11 @@ function M.reset()
     -- Game settings. Unknown names return nil; nameplate settings are locked in combat.
     _G.C_CVar = {
         GetCVar = function(name) return M.state.cvars[name] end,
+        GetCVarBool = function(name)
+            local v = M.state.cvars[name]
+            if v == nil then return nil end
+            return v == "1"
+        end,
         SetCVar = function(name, value)
             if M.state.inCombat and name:find("^nameplate") then error("can't change nameplates in combat") end
             if M.state.cvars[name] == nil then return false end

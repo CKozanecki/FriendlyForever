@@ -161,8 +161,8 @@ function Ledger.NoteNotReturned(entry, note)
     entry.returnNote = CleanText(note)
 end
 
--- Your title and the next: title (or nil before the first), next title, how
--- many more returns it takes (nil at the top).
+-- Your standing: { title (nil before the first), nextTitle (nil at the top),
+-- returnsToNext (favours still to return for it) }.
 function Ledger.Title()
     local returned = Data().totals.returned
     local title, nextTitle
@@ -173,8 +173,11 @@ function Ledger.Title()
             nextTitle = t
         end
     end
-    if nextTitle then return title, nextTitle.title, nextTitle.at - returned end
-    return title, nil, nil
+    return {
+        title = title,
+        nextTitle = nextTitle and nextTitle.title,
+        returnsToNext = nextTitle and (nextTitle.at - returned),
+    }
 end
 
 function Ledger.Clear()
