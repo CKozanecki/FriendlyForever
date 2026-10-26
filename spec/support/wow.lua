@@ -74,10 +74,11 @@ function methods:Show() self.shown = true end
 function methods:Hide() self.shown = false end
 function methods:SetShown(on) self.shown = on and true or false end
 function methods:IsShown() return self.shown end
--- Visible = shown, and every parent shown too.
+-- Visible = shown, and every parent shown too. (A string in .parent is the
+-- old options API's parent category name, not a frame.)
 function methods:IsVisible()
     local f = self
-    while f do
+    while type(f) == "table" do
         if not f.shown then return false end
         f = f.parent
     end

@@ -1,17 +1,29 @@
 -- Options panel: Esc > Options > AddOns > Friendly Forever.
 -- One tab per message type: on/off, delay, repeat cooldown, the 30 messages.
+-- Two pages under it: General (snooze, ignore list, profiles, export/import,
+-- bug report) and Favour Ledger.
 local _, ns = ...
 local Config = ns.Config
 
 local Options = {}
 ns.Options = Options
 
-Options.CONTENT_HEIGHT = 1380
+Options.CONTENT_HEIGHT = 1470
 
-local panel, category
+local panel, category, generalPage, ledgerPage
 local currentType = Config.TYPES[1]
-local widgets = { tabs = {}, edits = {}, steppers = {} }
+local widgets = { tabs = {}, edits = {}, steppers = {}, general = {}, ledger = {} }
 Options.widgets = widgets -- exposed for tests
+
+Options.LEDGER_ROWS = 25
+
+-- How to thank someone who buffs you, in the order the button cycles.
+Options.THANK_STYLES = { "message", "emote", "both" }
+Options.THANK_STYLE_TEXT = {
+    message = "How to thank: a line in /say or a whisper",
+    emote = "How to thank: a /thank emote",
+    both = "How to thank: a line and a /thank emote",
+}
 
 local function Label(parent, text, font)
     local fs = parent:CreateFontString(nil, "ARTWORK", font or "GameFontHighlight")
@@ -112,11 +124,13 @@ local function Fill()
     FillBox(widgets.steppers.repeatCooldown.box, tostring(cfg.repeatCooldown))
 
     widgets.listNames:SetShown(isBuff)
+    widgets.thankStyle:SetShown(isBuff)
     widgets.whisper:SetShown(isBuff)
     widgets.fallback:SetShown(isBuff)
     widgets.unknownName:SetShown(isBuff)
     if isBuff then
         widgets.listNames:SetChecked(cfg.listBuffNames)
+        widgets.thankStyle:SetText(Options.THANK_STYLE_TEXT[cfg.thankStyle])
         widgets.whisper:SetChecked(cfg.useWhisper)
         widgets.fallback:SetChecked(cfg.fallbackToSay)
         FillBox(widgets.unknownName, cfg.unknownName)
@@ -136,11 +150,14 @@ local function Fill()
         cfg.repeatCooldown, widgets.steppers.repeatCooldown.box:GetText())
 end
 
+local FillGeneral, FillLedger
+
 -- Settings changes (CVAR_UPDATE, slash commands, the minimap button) call
 -- this while the panel may be closed; OnShow fills it when it opens.
 function Options.Refresh()
-    if not panel or not panel:IsVisible() then return end
-    Fill()
+    if panel and panel:IsVisible() then Fill() end
+    if generalPage and generalPage:IsVisible() then FillGeneral() end
+    if ledgerPage and ledgerPage:IsVisible() then FillLedger() end
 end
 
 -- Fill the panel whenever it is shown, and once more on the next frame:
@@ -224,6 +241,19 @@ function Options.Create()
     end)
     widgets.listNames:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
 
+    -- Same row: a line, a /thank emote, or both (click to cycle).
+    widgets.thankStyle = Button(content, Options.THANK_STYLE_TEXT.message, 290, function()
+        local cfg = ns.db.buff
+        for i, style in ipairs(Options.THANK_STYLES) do
+            if style == cfg.thankStyle then
+                cfg.thankStyle = Options.THANK_STYLES[i % #Options.THANK_STYLES + 1]
+                break
+            end
+        end
+        Options.Refresh()
+    end)
+    widgets.thankStyle:SetPoint("LEFT", widgets.listNames.label, "RIGHT", 30, 0)
+
     -- Row 4: whisper instead of say
     widgets.whisper = Checkbox(content, "Whisper the caster instead of /say (sends without a key press)",
         function(on) ns.db.buff.useWhisper = on end)
@@ -289,10 +319,31 @@ function Options.Create()
     end)
     widgets.reset:SetPoint("LEFT", widgets.preview, "RIGHT", 10, 0)
 
+    -- Swap only this tab's 30 lines for a shipped set.
+    local function LoadLines(set)
+        ClearEditFocus()
+        local lines = {}
+        for i, line in ipairs(set[currentType]) do lines[i] = line end
+        ns.db[currentType].messages = lines
+        Options.Refresh()
+    end
+    widgets.loadFantasy = Button(content, "Load fantasy lines", 150, function() LoadLines(ns.DefaultMessages) end)
+    widgets.loadFantasy:SetPoint("TOPLEFT", widgets.preview, "BOTTOMLEFT", 0, -8)
+    widgets.loadCasual = Button(content, "Load casual lines (1.6)", 170, function() LoadLines(ns.CasualMessages) end)
+    widgets.loadCasual:SetPoint("LEFT", widgets.loadFantasy, "RIGHT", 10, 0)
+
+    local flavour = Label(content, "Flavour: {greeting} {thanks} {blessing} {cheer} change with your race, "
+        .. "faction, where you are and the hour. Also {zone}, {timeofday}, {myclass}, and {class} (theirs, "
+        .. "when the game says; otherwise \"friend\").", "GameFontHighlightSmall")
+    flavour:SetPoint("TOPLEFT", widgets.loadFantasy, "BOTTOMLEFT", 0, -12)
+    flavour:SetPoint("RIGHT", content, "RIGHT", -24, 0)
+    flavour:SetWordWrap(true)
+
     local note = Label(content, "Buff thanks in /say: the game only allows /say after a key press, so they wait "
-        .. "and go out on your next key press (or type /friendly say). Whispers need no key press.",
+        .. "and go out on your next key press (or type /friendly say). Whispers need no key press. "
+        .. "A /thank emote waits for a key press too.",
         "GameFontDisableSmall")
-    note:SetPoint("TOPLEFT", widgets.preview, "BOTTOMLEFT", 0, -12)
+    note:SetPoint("TOPLEFT", flavour, "BOTTOMLEFT", 0, -10)
     note:SetPoint("RIGHT", content, "RIGHT", -24, 0)
     note:SetWordWrap(true)
 
@@ -305,9 +356,181 @@ function Options.Create()
         InterfaceOptions_AddCategory(panel)
     end
 
+    Options.CreateGeneralPage()
+    Options.CreateLedgerPage()
+
     -- Filled straight away too, so nothing can ever show empty boxes.
     Fill()
 end
+
+-- A page listed under Friendly Forever in the AddOns options.
+local function SubPage(name, title)
+    local page = CreateFrame("Frame", nil)
+    page.name = name
+    page.parent = ns.TITLE
+    local heading = Label(page, ns.TITLE .. ": " .. title, "GameFontNormalLarge")
+    heading:SetPoint("TOPLEFT", 16, -16)
+    page.heading = heading
+    if Settings and Settings.RegisterCanvasLayoutSubcategory and category then
+        page.category = Settings.RegisterCanvasLayoutSubcategory(category, page, name)
+    elseif InterfaceOptions_AddCategory then
+        InterfaceOptions_AddCategory(page)
+    end
+    return page
+end
+
+local function Section(page, anchor, text, gap)
+    local label = Label(page, text, "GameFontNormal")
+    label:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -(gap or 20))
+    return label
+end
+
+local function Note(page, anchor, text)
+    local label = Label(page, text, "GameFontHighlightSmall")
+    label:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -6)
+    label:SetPoint("RIGHT", page, "RIGHT", -24, 0)
+    label:SetWordWrap(true)
+    return label
+end
+
+local function Say(ok, why, success)
+    ns.Print(ok and success or why)
+    Options.Refresh()
+end
+
+function Options.CreateGeneralPage()
+    local w = widgets.general
+    generalPage = SubPage("General", "General")
+    local page = generalPage
+
+    -- Snooze
+    local snooze = Section(page, page.heading, "Snooze", 16)
+    w.snoozeState = Note(page, snooze, "")
+    w.snooze15 = Button(page, "15 minutes", 110, function() ns.SnoozeFor(15) end)
+    w.snooze15:SetPoint("TOPLEFT", w.snoozeState, "BOTTOMLEFT", 0, -6)
+    w.snooze60 = Button(page, "1 hour", 90, function() ns.SnoozeFor(60) end)
+    w.snooze60:SetPoint("LEFT", w.snooze15, "RIGHT", 8, 0)
+    w.wake = Button(page, "Wake up", 90, function() ns.SnoozeFor(nil) end)
+    w.wake:SetPoint("LEFT", w.snooze60, "RIGHT", 8, 0)
+
+    -- Ignore list
+    local ignore = Section(page, w.snooze15, "Never greet or thank")
+    w.ignoreList = Note(page, ignore, "")
+    w.ignoreBox = TextBox(page, 220, 60)
+    w.ignoreBox:SetPoint("TOPLEFT", w.ignoreList, "BOTTOMLEFT", 6, -8)
+    w.ignoreAdd = Button(page, "Add", 70, function()
+        local name, why = ns.Ignore.Add(w.ignoreBox:GetText())
+        if name then w.ignoreBox:SetText("") end
+        Say(name, "couldn't add: " .. tostring(why),
+            name and (ns.Util.DisplayName(name) .. " won't be greeted or thanked."))
+    end)
+    w.ignoreAdd:SetPoint("LEFT", w.ignoreBox, "RIGHT", 8, 0)
+    w.ignoreRemove = Button(page, "Remove", 80, function()
+        local name, why = ns.Ignore.Remove(w.ignoreBox:GetText())
+        if name then w.ignoreBox:SetText("") end
+        Say(name, "couldn't remove: " .. tostring(why), name and (ns.Util.DisplayName(name) .. " is off the list."))
+    end)
+    w.ignoreRemove:SetPoint("LEFT", w.ignoreAdd, "RIGHT", 6, 0)
+    local ignoreHelp = Note(page, w.ignoreBox, "Full names, such as Nikki Shifts. Leave the box empty and click Add "
+        .. "to add your target.")
+    ignoreHelp:SetPoint("TOPLEFT", w.ignoreBox, "BOTTOMLEFT", -6, -6)
+
+    -- Profiles
+    local profiles = Section(page, ignoreHelp, "Profiles")
+    w.profileState = Note(page, profiles, "")
+    w.profileBox = TextBox(page, 160, ns.Profiles.MAX_NAME)
+    w.profileBox:SetPoint("TOPLEFT", w.profileState, "BOTTOMLEFT", 6, -8)
+    local function ProfileButton(text, width, fn, success)
+        return Button(page, text, width, function()
+            local name, why = fn(w.profileBox:GetText())
+            if name then w.profileBox:SetText("") end
+            Say(name, "profile: " .. tostring(why), name and success(name))
+        end)
+    end
+    w.profileNew = ProfileButton("New", 60, ns.Profiles.New, function(n) return "now using the new profile " .. n end)
+    w.profileNew:SetPoint("LEFT", w.profileBox, "RIGHT", 8, 0)
+    w.profileUse = ProfileButton("Use", 60, ns.Profiles.Use, function(n) return "now using profile " .. n end)
+    w.profileUse:SetPoint("LEFT", w.profileNew, "RIGHT", 6, 0)
+    w.profileDelete = ProfileButton("Delete", 70, ns.Profiles.Delete, function(n) return "deleted profile " .. n end)
+    w.profileDelete:SetPoint("LEFT", w.profileUse, "RIGHT", 6, 0)
+    local profileHelp = Note(page, w.profileBox, "Type a name, then New (a copy of your settings) or Use. "
+        .. "Each character switches to the profile it used last when it logs in.")
+    profileHelp:SetPoint("TOPLEFT", w.profileBox, "BOTTOMLEFT", -6, -6)
+
+    -- Export / import
+    local share = Section(page, profileHelp, "Share your settings")
+    w.export = Button(page, "Export", 90, function() ns.ShowExport() end)
+    w.export:SetPoint("TOPLEFT", share, "BOTTOMLEFT", 0, -8)
+    w.import = Button(page, "Import", 90, function() ns.ShowImport() end)
+    w.import:SetPoint("LEFT", w.export, "RIGHT", 8, 0)
+    w.undoImport = Button(page, "Undo import", 110, function()
+        local ok, why = ns.Profiles.UndoImport()
+        Say(ok, "couldn't undo: " .. tostring(why), "your settings from before the import are back.")
+    end)
+    w.undoImport:SetPoint("LEFT", w.import, "RIGHT", 8, 0)
+    local shareHelp = Note(page, w.export, "One line of text with your messages and options. Importing never turns "
+        .. "the addon on or off and only adds to your ignore list.")
+
+    -- Bug report
+    local help = Section(page, shareHelp, "Something not working?")
+    w.report = Button(page, "Copy for a bug report", 180, function() ns.ShowBugReport() end)
+    w.report:SetPoint("TOPLEFT", help, "BOTTOMLEFT", 0, -8)
+    Note(page, w.report, "Shows /friendly status and the debug log as text to copy. Turn on /friendly debug "
+        .. "and make the problem happen first, so the log shows it.")
+
+    page:SetScript("OnShow", function() FillGeneral() end)
+end
+
+FillGeneral = function()
+    local w = widgets.general
+    local left = ns.Announcer.SnoozeLeft()
+    w.snoozeState:SetText(left and string.format("Snoozed: nothing is sent for %d more min.", math.ceil(left / 60))
+        or "Awake: messages are sent as usual.")
+    w.wake:SetEnabled(left ~= nil)
+    local names = ns.Ignore.List()
+    w.ignoreList:SetText(#names == 0 and "Nobody." or table.concat(names, ", "))
+    w.profileState:SetText("Using " .. ns.Profiles.Active() .. ". All profiles: "
+        .. table.concat(ns.Profiles.List(), ", "))
+    w.undoImport:SetEnabled(ns.Profiles.CanUndoImport())
+end
+
+function Options.CreateLedgerPage()
+    local w = widgets.ledger
+    ledgerPage = SubPage("Favour Ledger", "Favour Ledger")
+    local page = ledgerPage
+    w.summary = Note(page, page.heading, "")
+    local anchor = w.summary
+    w.rows = {}
+    for i = 1, Options.LEDGER_ROWS do
+        local row = Label(page, "", "GameFontHighlightSmall")
+        row:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, i == 1 and -12 or -4)
+        row:SetPoint("RIGHT", page, "RIGHT", -24, 0)
+        w.rows[i] = row
+        anchor = row
+    end
+    w.clear = Button(page, "Clear the ledger", 140, function()
+        ns.Ledger.Clear()
+        Options.Refresh()
+    end)
+    w.clear:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -14)
+    Note(page, w.clear, "Buffs from players outside your group, while Buff Thanks is on. "
+        .. "The newest " .. ns.Ledger.MAX_ENTRIES .. " are kept; /friendly ledger shows them in chat.")
+    page:SetScript("OnShow", function() FillLedger() end)
+end
+
+FillLedger = function()
+    local w = widgets.ledger
+    w.summary:SetText(ns.LedgerSummaryText())
+    local lines = ns.Ledger.Lines(Options.LEDGER_ROWS)
+    for i, row in ipairs(w.rows) do
+        local line = lines[i]
+        row:SetText(line and ns.Diag.Safe(line) or (i == 1 and "Nobody outside your group has buffed you yet." or ""))
+    end
+end
+
+function Options.FillGeneral() FillGeneral() end
+function Options.FillLedger() FillLedger() end
+function Options.Pages() return generalPage, ledgerPage end
 
 function Options.Open()
     if category and Settings and Settings.OpenToCategory then
