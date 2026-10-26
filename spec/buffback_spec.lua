@@ -443,6 +443,16 @@ describe("Buff back", function()
             end)
         end)
 
+        it("says nothing about a mouse press released off the button (nothing was attempted)", function()
+            stranger("nameplate1")
+            buffedBy("nameplate1")
+            wow.state.units.nameplate1 = nil
+            -- Only the down half reaches the button.
+            button.scripts.PreClick(button, "LeftButton", true)
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+            assert.is_false(printedHas("No answer"))
+        end)
+
         it("reports a press that got no answer (they couldn't be found)", function()
             stranger("nameplate1")
             buffedBy("nameplate1")

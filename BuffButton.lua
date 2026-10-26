@@ -240,21 +240,27 @@ local downHalfSeen = false -- a down half began this press; its up half isn't a 
 -- answer to it: on the down half, or on the up half when no down half came
 -- first (a click delivered on release only). A press that gets no answer is
 -- reported (NoAnswer).
+local function WatchForAnswer(press)
+    C_Timer.After(BuffButton.ANSWER_WINDOW_SECONDS + 0.1, ns.Diag.Wrap(function() NoAnswer(press) end))
+end
+
 local function OnPreClick(_, mouseButton, isDown)
     if mouseButton ~= "LeftButton" then return end
     ArmButton()
-    local newPress = true
-    if isDown == true then
-        downHalfSeen = true
-    elseif isDown == false then
-        newPress = not downHalfSeen
+    if isDown == false and downHalfSeen then
+        -- The press is complete: only now can it have gone unanswered. (A
+        -- mouse press released off the button never gets here, and was no
+        -- attempt, so it isn't reported.)
         downHalfSeen = false
+        if pressAwaitingAnswer then WatchForAnswer(pressAwaitingAnswer) end
+        return
     end
-    if not newPress or not armedOffer then return end
+    downHalfSeen = isDown == true
+    if not armedOffer then return end
     local press = { name = armedOffer.name, spell = armedOffer.spell, buff = armedOffer.buff, pressedAt = GetTime() }
     pressAwaitingAnswer = press
     ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
-    C_Timer.After(BuffButton.ANSWER_WINDOW_SECONDS + 0.1, ns.Diag.Wrap(function() NoAnswer(press) end))
+    if isDown ~= true then WatchForAnswer(press) end
 end
 
 -- Right-click lets the shown favour go (once, as the button comes up).
