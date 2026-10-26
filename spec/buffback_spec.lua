@@ -152,6 +152,19 @@ describe("Buff back", function()
             assert.is_table(ns.Offers.Current())
         end)
 
+        it("doesn't trust a PvP reading older than a minute", function()
+            stranger("nameplate1")
+            buffedBy()
+            wow.state.units.nameplate1 = nil
+            assert.is_table(ns.Offers.Current(), "read unflagged just now")
+            wow.advance(ns.Offers.PVP_READING_FRESH + 1)
+            local offer, why = ns.Offers.Current()
+            assert.is_nil(offer)
+            assert.is_truthy(why:find("can't tell", 1, true))
+            stranger("target") -- you target them: a fresh reading
+            assert.is_table(ns.Offers.Current())
+        end)
+
         it("still refuses a flagged player after their nameplate is gone", function()
             stranger("nameplate1", { pvp = true })
             buffedBy()
@@ -361,11 +374,46 @@ describe("Buff back", function()
         it("says so when a cast lands but no favour was waiting any more", function()
             stranger()
             buffedBy()
-            local name = ns.BuffButton.ArmedOffer().name
-            ns.Offers.LetGo(name)
-            -- The press still holds the old macro (as if pressed in the same moment).
-            ns.BuffButton.OnSpellcastSucceeded("player", "x", MOTW)
+            -- The favour is let go between the cast going out and landing.
+            local spoiler = CreateFrame("Frame")
+            spoiler:RegisterEvent("UNIT_SPELLCAST_SENT")
+            spoiler:SetScript("OnEvent", function() ns.Offers.LetGo("Bob-Stone") end)
+            wow.press(button)
+            assert.are.equal(1, #wow.casts)
             assert.are.equal(0, ns.Ledger.Summary().returned)
+            assert.are.equal("Cast Mark of the Wild on Bob Stone (no favour was waiting).", button.result:GetText())
+        end)
+
+        it("counts it returned only when the game says who the cast reached", function()
+            wow.state.sentTargetForm = "none"
+            stranger()
+            buffedBy()
+            wow.press(button)
+            assert.are.equal(1, #wow.casts)
+            assert.is_nil(ns.db.ledger.entries[1].returned)
+            assert.are.equal("Cast Mark of the Wild, but the game didn't say it reached Bob Stone.",
+                button.result:GetText())
+        end)
+
+        it("reports a press that got no answer (they couldn't be found)", function()
+            stranger("nameplate1")
+            buffedBy("nameplate1")
+            wow.state.units.nameplate1 = nil -- gone from sight
+            wow.press(button)
+            assert.are.equal(0, #wow.casts)
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 0.2)
+            assert.is_true(printedHas("No answer: couldn't find Bob Stone (out of sight?)."))
+        end)
+
+        it("doesn't credit a favour with a cast made some other way after a press that cast nothing", function()
+            wow.state.sentTargetForm = "none"
+            stranger("nameplate1")
+            buffedBy("nameplate1")
+            wow.state.units.nameplate1 = nil
+            wow.press(button) -- finds nobody, casts nothing
+            wow.fire("UNIT_SPELLCAST_SENT", "player", "", "manual", MOTW)
+            wow.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "manual", MOTW) -- your own cast, from your bar
+            assert.is_nil(ns.db.ledger.entries[1].returned)
         end)
 
         it("says why the game refused a cast, and keeps the favour", function()
@@ -504,6 +552,102 @@ describe("Buff back", function()
             wow.state.knownSpells[THORNS_1] = true
             wow.fire("SPELLS_CHANGED")
             assert.are.equal("Thorns", ns.Offers.Current().spell)
+        end)
+    end)
+
+    describe("starting up mid-fight (a /reload in combat)", function()
+        it("waits to make the button until the fight ends, and everything else still starts", function()
+            ns = wow.boot({ before = function(state)
+                state.class = "DRUID"
+                state.knownSpells = { [MOTW] = true }
+                state.inCombat = true
+            end })
+            assert.are.same({}, wow.errors)
+            assert.is_nil(ns.BuffButton.Frame())
+            ns.db.guildJoin.messages = { "Welcome {name}" }
+            wow.systemMessage("Ann-Vale has joined the guild.")
+            wow.advance(10)
+            assert.are.same({ "Welcome Ann" }, wow.sentTo("GUILD"), "the rest of the addon started")
+            stranger()
+            buffedBy()
+            wow.leaveCombat()
+            button = ns.BuffButton.Frame()
+            assert.is_truthy(button)
+            assert.is_truthy(macro():find("/targetexact Bob Stone", 1, true))
+        end)
+    end)
+
+    describe("chaos (red tests)", function()
+        -- A seeded storm of everything that can happen around the button, in
+        -- random order: it must never error, never touch the button in combat,
+        -- and keep its own bookkeeping consistent.
+        it("survives a random storm of events, presses, fights and settings changes", function()
+            math.randomseed(20261026)
+            ns.db.buffBack.sayLine = true
+            local names = { "Bob", "Ann", "Cid", "Dot", "Eve", "Fay" }
+            local actions = {
+                function() -- someone buffs you, maybe with a stale or missing token
+                    local token = "nameplate" .. math.random(1, 8)
+                    local name = names[math.random(#names)]
+                    wow.addUnit(token, { name = name, surname = "Stone", id = name .. "-Stone",
+                        class = ({ "MAGE", "WARRIOR", "PRIEST" })[math.random(3)], pvp = math.random() < 0.2,
+                        dead = math.random() < 0.1, auras = math.random() < 0.3 and { MOTW } or nil })
+                    wow.gainBuff({ sourceUnit = math.random() < 0.8 and token or nil, name = "Arcane Intellect",
+                        spellId = INTELLECT })
+                end,
+                function() wow.state.units["nameplate" .. math.random(1, 8)] = nil end,
+                function() wow.press(button, math.random() < 0.8 and "LeftButton" or "RightButton",
+                    math.random() < 0.3 and { shift = true } or nil) end,
+                function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
+                function() wow.advance(math.random() * 20) end,
+                function() wow.fire("PLAYER_TARGET_CHANGED") end,
+                function() wow.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "x", ({ MOTW, THORNS, 12345 })[math.random(3)]) end,
+                function() wow.uiError("Out of range.") end,
+                function() wow.state.sentTargetForm = ({ "first", "full", "none" })[math.random(3)] end,
+                function() wow.state.targetNameForm = math.random() < 0.8 and "space" or "hyphen" end,
+                function() wow.state.castFailures["Bob-Stone"] = math.random() < 0.5 and "Out of range." or nil end,
+                function() slash(({ "off", "on", "snooze 1", "snooze off", "buffback", "ledger" })[math.random(6)]) end,
+                function() ns.db.buffBack.enabled = math.random() < 0.8 end,
+                function() wow.state.pvp = math.random() < 0.2 end,
+                function() wow.state.unitsRestricted = math.random() < 0.2 end,
+                function() wow.fire("SPELLS_CHANGED") end,
+            }
+            for _ = 1, 3000 do
+                actions[math.random(#actions)]()
+                if wow.state.inCombat then
+                    assert.is_nil(macro(), "the button holds nothing in a fight")
+                end
+                assert.is_true(ns.Offers.Count() <= ns.Offers.MAX)
+            end
+            assert.are.same({}, wow.errors)
+            local s = ns.Ledger.Summary()
+            assert.is_true(s.returned <= s.received, "never more returned than received")
+            -- The storm really exercised the button, not just the edges.
+            assert.is_true(s.received > 50, "favours received: " .. s.received)
+            assert.is_true(#wow.casts > 10, "casts: " .. #wow.casts)
+            assert.is_true(s.returned > 0, "favours returned: " .. s.returned)
+        end)
+
+        it("keeps working when its settings are damaged mid-session, and a reload heals them", function()
+            stranger()
+            buffedBy()
+            ns.db.buffBack.messages = "not a list"
+            ns.db.buffBack.sayLine = true
+            ns.db.buffBack.owedMinutes = "ten"
+            wow.fire("PLAYER_TARGET_CHANGED")
+            wow.advance(30)
+            wow.press(button) -- nothing here may throw out of an event or a press
+            wow.printed = {}
+            slash("status")
+            assert.is_true(#wow.printed > 0, "the addon still answers")
+            local saved = _G.FriendlyForeverDB
+            boot({ db = saved })
+            assert.are.equal(ns.Config.NUM_MESSAGES, #ns.db.buffBack.messages)
+            assert.are.equal(10, ns.db.buffBack.owedMinutes)
+            stranger()
+            buffedBy()
+            wow.press(button)
+            assert.are.equal("Mark of the Wild", wow.casts[#wow.casts].spell, "working again after the reload")
         end)
     end)
 

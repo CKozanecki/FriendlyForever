@@ -204,6 +204,11 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         "first" (default), "full" or "none"
 --   state.cvars.ActionButtonUseKeyDown  "1" (default): secure buttons act
 --                         on key down; "0": on key up
+--   /cleartarget then /targetexact X leaves your old target as the "last
+--                         target", so /targetlasttarget brings it back (setTarget)
+--   Mouse clicks, like key presses, act on the half the key-down setting
+--                         picks (Blizzard's 10.x template may act on the up half
+--                         for mouse clicks; the addon re-arms on both halves)
 --   Text emotes need a key press outdoors, like /say (see PerformEmote).
 ------------------------------------------------------------------------
 

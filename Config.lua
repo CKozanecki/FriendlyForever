@@ -191,7 +191,6 @@ end
 Config.FIELD_VALIDATORS = {
     enabled = Bool,
     sayLine = Bool,
-    offer = Bool,
     unlocked = Bool,
     listBuffNames = Bool,
     useWhisper = Bool,

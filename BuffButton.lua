@@ -228,32 +228,30 @@ local function ShowResult(text, alsoInChat)
     if alsoInChat then ns.Print(text) end
 end
 
--- The secure button acts once per press: as the key or mouse button goes
--- down when the game's "Cast action keybinds on key down" setting
--- (ActionButtonUseKeyDown) is on, as it comes up when it's off. Our scripts
--- see both halves; this says which one is the press.
-local function IsThePress(isDown)
-    if isDown == nil then return true end -- a press made by a script has no halves
-    local cvar = C_CVar and C_CVar.GetCVarBool or GetCVarBool
-    local keyDown = cvar and Util.ReadGameValues(cvar, "ActionButtonUseKeyDown")
-    return isDown == (keyDown ~= false)
-end
+local NoAnswer
 
--- Before the secure action runs: re-arm at the last moment (your target may
--- have changed) and remember the press to match the game's answer to it.
-local function OnPreClick(_, mouseButton, isDown)
-    if mouseButton ~= "LeftButton" or not IsThePress(isDown) then return end
+-- Before the secure action runs. Which half of a press (down or up) the game
+-- acts on depends on the input and its settings, so this runs for both
+-- halves: re-arm at the last moment (your target may have changed; it does
+-- nothing when nothing changed) and remember the press, to match the game's
+-- answer to it. A press that gets no answer is reported (NoAnswer).
+local function OnPreClick(_, mouseButton)
+    if mouseButton ~= "LeftButton" then return end
     ArmButton()
-    if armedOffer then
-        pressAwaitingAnswer = { name = armedOffer.name, spell = armedOffer.spell, buff = armedOffer.buff,
-            pressedAt = GetTime() }
+    if not armedOffer then return end
+    local press = pressAwaitingAnswer
+    if not (press and press.name == armedOffer.name and GetTime() - press.pressedAt < 1) then
+        press = { name = armedOffer.name, spell = armedOffer.spell, buff = armedOffer.buff }
+        pressAwaitingAnswer = press
         ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
     end
+    press.pressedAt = GetTime()
+    C_Timer.After(BuffButton.ANSWER_WINDOW_SECONDS + 0.1, ns.Diag.Wrap(function() NoAnswer(press) end))
 end
 
--- Right-click lets the shown favour go.
+-- Right-click lets the shown favour go (once, as the button comes up).
 local function OnPostClick(_, mouseButton, isDown)
-    if mouseButton ~= "RightButton" or not IsThePress(isDown) or not armedOffer then return end
+    if mouseButton ~= "RightButton" or isDown == true or not armedOffer then return end
     local name = armedOffer.name
     ns.Offers.LetGo(name)
     ShowResult("Let " .. Util.DisplayName(name) .. " go.")
@@ -294,21 +292,33 @@ function BuffButton.OnSpellcastSent(unit, castTargetName, _, spellId)
     end
 end
 
--- The cast landed. /targetexact and [help,nodead] mean it can only have gone
--- to the player named; when the game also names who, that's checked too.
+-- The cast landed. It counts as returned only when the game says it went to
+-- them (UNIT_SPELLCAST_SENT's target): a cast of the same spell made some
+-- other way in the same moment mustn't be credited to the favour.
 function BuffButton.OnSpellcastSucceeded(unit, _, spellId)
     local press = RecentPress()
     if not AnswersPress(press, unit, spellId) then return end
     pressAwaitingAnswer = nil
     local who = Util.DisplayName(press.name)
-    if press.castTargetName and BuffButton.IsIntendedPlayer(press.castTargetName, press.name) == false then
+    local reachedThem = press.castTargetName and BuffButton.IsIntendedPlayer(press.castTargetName, press.name)
+    if reachedThem == false then
         local actual = Util.StripChat(press.castTargetName)
         ShowResult(string.format("%s went to %s, not %s.", press.spell, actual, who), true)
+    elseif reachedThem == nil then
+        ShowResult("Cast " .. press.spell .. ", but the game didn't say it reached " .. who .. ".")
     elseif ns.Offers.MarkReturned(press.name, press.spell) then
         ShowResult("Returned " .. press.spell .. " to " .. who .. ".")
     else
         ShowResult("Cast " .. press.spell .. " on " .. who .. " (no favour was waiting).")
     end
+    BuffButton.Refresh()
+end
+
+-- A press the game never answered: the macro found nobody to cast on.
+NoAnswer = function(press)
+    if pressAwaitingAnswer ~= press or GetTime() - press.pressedAt < BuffButton.ANSWER_WINDOW_SECONDS then return end
+    pressAwaitingAnswer = nil
+    ShowResult("No answer: couldn't find " .. Util.DisplayName(press.name) .. " (out of sight?).", true)
     BuffButton.Refresh()
 end
 
@@ -395,8 +405,22 @@ local function CreateEventFrame()
     eventFrame:SetScript("OnEvent", function(_, event, ...) ns.Diag.Call(handlers[event], ...) end)
 end
 
+-- Made out of combat only: a secure frame can't be shown, hidden or set up in
+-- a fight (a /reload mid-fight lands here), so then it waits for the end.
+local waitingToCreate
 function BuffButton.Create()
     if button then return end
+    if InCombatLockdown() then
+        if not waitingToCreate then
+            waitingToCreate = CreateFrame("Frame")
+            waitingToCreate:RegisterEvent("PLAYER_REGEN_ENABLED")
+            waitingToCreate:SetScript("OnEvent", function(self)
+                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+                ns.Diag.Call(BuffButton.Create)
+            end)
+        end
+        return
+    end
     button = CreateFrame("Button", BuffButton.FRAME_NAME, UIParent, "SecureActionButtonTemplate")
     button:SetSize(220, 44)
     local position = ns.db.buffBack.position
@@ -464,6 +488,7 @@ function BuffButton.StatusLines()
     else
         out[#out + 1] = "not armed: " .. tostring(notArmedReason or "nothing to offer")
     end
+    if not button then out[#out + 1] = "the button is made when this fight ends" end
     if InCombatLockdown() then out[#out + 1] = "in combat: the button stays empty until the fight ends" end
     out[#out + 1] = "last result: " .. lastResultText
     return out

@@ -74,6 +74,16 @@ describe("Config", function()
         end
     end)
 
+    it("has no validator for a field no message type has", function()
+        local used = {}
+        for _, msgType in ipairs(Config.TYPES) do
+            for key in pairs(Config.DEFAULTS[msgType]) do used[key] = true end
+        end
+        for key in pairs(Config.FIELD_VALIDATORS) do
+            assert.is_true(used[key] == true, key .. " has a validator but no default")
+        end
+    end)
+
     it("builds a complete database from nothing", function()
         local db = Config.Load(nil)
         assert.are.equal(Config.SCHEMA_VERSION, db.schemaVersion)

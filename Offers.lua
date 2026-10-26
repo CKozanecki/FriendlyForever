@@ -9,8 +9,9 @@
 --
 -- Safety: buffing a player flagged for PvP flags you too. Their flag is read
 -- when they buff you (their unit is known then) and again whenever their
--- unit is known; a favour is offered only when the last reading said "not
--- flagged", or you are flagged yourself. With no reading at all it isn't.
+-- unit is known; a favour is offered only when a reading from the last
+-- minute said "not flagged", or you are flagged yourself. Without a recent
+-- reading it isn't (targeting them gives one).
 --
 -- Favours are kept in memory only: a /reload or logout forgets them.
 local _, ns = ...
@@ -23,8 +24,9 @@ ns.Offers = Offers
 Offers.MAX = 20                 -- favours kept at once; the oldest goes first
 Offers.MAX_AURAS = 40           -- buffs read per player when checking what they wear
 Offers.RETURNED_RECENTLY = 600  -- seconds after you return a favour that their buff back isn't a new one
+Offers.PVP_READING_FRESH = 60   -- seconds a PvP flag reading is trusted
 
-local favours = {}          -- newest last: { name, unit, class, pvp, owedAt, ledgerEntry }
+local favours = {}          -- newest last: { name, unit, class, pvp, pvpReadAt, owedAt, ledgerEntry }
 local returnedAt = {}       -- [full name] = GetTime() you last returned their favour
 local listeners = {}
 
@@ -43,9 +45,17 @@ local function IndexOf(name)
     end
 end
 
--- The favour's unit token, only while it is still them.
+-- Tokens that may hold them later: you can target or mouse over them to
+-- give a fresh reading.
+local OTHER_TOKENS = { "target", "mouseover", "focus" }
+
+-- A unit token that is them now: the one they were seen under, or your
+-- target, mouseover or focus if that's them. nil if none is.
 local function LiveUnit(favour)
     if favour.unit and Util.UnitFullName(favour.unit) == favour.name then return favour.unit end
+    for _, token in ipairs(OTHER_TOKENS) do
+        if Util.UnitFullName(token) == favour.name then return token end
+    end
     return nil
 end
 
@@ -55,7 +65,7 @@ local function Observe(favour)
     if not unit then return nil end
     if not favour.class then favour.class = select(2, Util.UnitClassIf(unit, favour.name)) end
     local pvp = Read(UnitIsPVP, unit)
-    if type(pvp) == "boolean" then favour.pvp = pvp end
+    if type(pvp) == "boolean" then favour.pvp, favour.pvpReadAt = pvp, GetTime() end
     return unit
 end
 
@@ -115,9 +125,10 @@ end
 local function ChooseBuff(favour, myBuffs)
     local unit = Observe(favour)
     if unit and Read(UnitIsDeadOrGhost, unit) == true then return nil, "they're dead" end
-    if Read(UnitIsPVP, "player") ~= true and favour.pvp ~= false then
-        if favour.pvp then return nil, "they're flagged for PvP and you aren't" end
-        return nil, "can't tell if they're flagged for PvP (target them to check)"
+    if Read(UnitIsPVP, "player") ~= true then
+        local fresh = favour.pvpReadAt and GetTime() - favour.pvpReadAt <= Offers.PVP_READING_FRESH
+        if fresh and favour.pvp then return nil, "they're flagged for PvP and you aren't" end
+        if not fresh then return nil, "can't tell if they're flagged for PvP (target them to check)" end
     end
     if #myBuffs == 0 then return nil, "you know no buffs to give" end
     local suitable = 0
@@ -155,7 +166,11 @@ end
 -- You buffed them back with spell: the favour is returned. false if they
 -- weren't owed (it expired or was let go before the cast landed).
 function Offers.MarkReturned(name, spell)
-    returnedAt[name] = GetTime()
+    local now = GetTime()
+    for who, at in pairs(returnedAt) do
+        if now - at > Offers.RETURNED_RECENTLY then returnedAt[who] = nil end
+    end
+    returnedAt[name] = now
     local i = IndexOf(name)
     if not i then return false end
     local favour = table.remove(favours, i)
