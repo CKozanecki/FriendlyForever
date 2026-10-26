@@ -200,6 +200,76 @@ local function SelfTest()
     })
 end
 
+local function PrintIgnoreList()
+    local names = ns.Ignore.List()
+    if #names == 0 then
+        ns.Print("nobody is on your ignore list. /friendly ignore <name> adds someone (or your target).")
+    else
+        ns.Print("never greeted or thanked (" .. #names .. "): " .. table.concat(names, ", "))
+    end
+end
+
+local function IgnoreCommand(args)
+    if args == "" and not ns.Util.UnitFullName("target") then return PrintIgnoreList() end
+    if args:lower() == "list" then return PrintIgnoreList() end
+    local name, why = ns.Ignore.Add(args)
+    if not name then return ns.Print("couldn't add: " .. why) end
+    ns.Print(ns.Util.DisplayName(name) .. " won't be greeted or thanked. /friendly unignore "
+        .. ns.Util.DisplayName(name) .. " undoes it.")
+    if ns.Ignore.LacksSurname(name) then
+        ns.Print("|cffff8040Note:|r WoW Forever names have a surname. Add it (\"" .. name
+            .. " Surname\"), or nobody will match.")
+    end
+    ns.Options.Refresh()
+end
+
+local function UnignoreCommand(args)
+    local name, why = ns.Ignore.Remove(args)
+    if not name then return ns.Print("couldn't remove: " .. why) end
+    ns.Print(ns.Util.DisplayName(name) .. " is off your ignore list.")
+    ns.Options.Refresh()
+end
+
+function ns.SnoozeFor(minutes)
+    local set = ns.Announcer.Snooze(minutes)
+    if set then
+        ns.Print(string.format("snoozed for %d min: nothing is sent until then. /friendly snooze off wakes it.", set))
+    else
+        ns.Print("awake: messages are sent again.")
+    end
+    ns.Minimap.Refresh()
+    ns.Options.Refresh()
+end
+
+local function SnoozeCommand(args)
+    args = args:lower()
+    if args == "off" or args == "0" then return ns.SnoozeFor(nil) end
+    local minutes = args == "" and ns.Announcer.SNOOZE_DEFAULT or tonumber(args)
+    if not minutes or minutes <= 0 then
+        return ns.Print("usage: /friendly snooze [minutes, up to " .. ns.Announcer.SNOOZE_MAX .. "] | off")
+    end
+    ns.SnoozeFor(minutes)
+end
+
+function ns.LedgerSummaryText()
+    local s = ns.Ledger.Summary()
+    return string.format("today: buffed by %d, thanked %d. All time: buffed by %d, thanked %d.",
+        s.todayReceived, s.todayThanked, s.received, s.thanked)
+end
+
+local function LedgerCommand(args)
+    if args:lower() == "clear" then
+        ns.Ledger.Clear()
+        ns.Options.Refresh()
+        return ns.Print("favour ledger cleared.")
+    end
+    local limit = ns.Util.ClampNumber(tonumber(args), 1, ns.Ledger.MAX_ENTRIES, 10)
+    ns.Print("favour ledger: " .. ns.LedgerSummaryText())
+    local lines = ns.Ledger.Lines(limit)
+    if #lines == 0 then ns.Print("  nobody outside your group has buffed you yet.") end
+    for _, line in ipairs(lines) do ns.Print("  " .. ns.Diag.Safe(line)) end
+end
+
 local commands = {
     on = function() ns.SetEnabled(true) end,
     off = function() ns.SetEnabled(false) end,
@@ -236,16 +306,25 @@ local commands = {
         ns.Print("/friendly test - preview one message of each type (only you see it)")
         ns.Print("/friendly say - send a waiting buff thank-you now")
         ns.Print("/friendly minimap - show or hide the minimap button")
+        ns.Print("/friendly snooze [minutes] | off - send nothing for a while (default 15 minutes)")
+        ns.Print("/friendly ignore [name] - never greet or thank this player (or your target); no name lists them")
+        ns.Print("/friendly unignore <name> - take a player off that list")
+        ns.Print("/friendly ledger [count] | clear - who buffed you and whether you thanked them")
     end,
+    snooze = SnoozeCommand,
+    ignore = IgnoreCommand,
+    unignore = UnignoreCommand,
+    ledger = LedgerCommand,
 }
 
 SLASH_FRIENDLYFOREVER1 = "/friendly"
 SLASH_FRIENDLYFOREVER2 = "/ffr"
 SlashCmdList.FRIENDLYFOREVER = function(input)
-    local cmd = (input or ""):lower():match("^%s*(%S*)")
+    local cmd, args = (input or ""):match("^%s*(%S*)%s*(.-)%s*$")
+    cmd = (cmd or ""):lower()
     local command = commands[cmd]
     if command then
-        command()
+        command(args or "")
     elseif cmd == "" then
         ns.Options.Open()
     else

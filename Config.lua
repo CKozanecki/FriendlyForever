@@ -15,6 +15,8 @@ ns.Config = Config
 Config.SCHEMA_VERSION = 5
 Config.NUM_MESSAGES = 30
 Config.MAX_LOG = 400 -- diagnostic log lines kept in saved variables
+Config.MAX_IGNORED = 500
+Config.THANK_STYLES = { message = true, emote = true, both = true }
 
 Config.LIMITS = {
     delay          = { min = 0, max = 60 },    -- seconds
@@ -81,6 +83,8 @@ Config.DEFAULTS = {
         -- calling them unknownName.
         fallbackToSay = true,
         unknownName = "friend",
+        -- "message" (a line in /say or a whisper), "emote" (/thank them) or "both".
+        thankStyle = "message",
         messages = DefaultMessages.buff,
     },
     guildJoin = {
@@ -138,6 +142,9 @@ local function ValidateType(saved, defaults)
 
     for _, flag in ipairs({ "listBuffNames", "useWhisper", "fallbackToSay" }) do
         if defaults[flag] ~= nil and type(cfg[flag]) ~= "boolean" then cfg[flag] = defaults[flag] end
+    end
+    if defaults.thankStyle ~= nil and not Config.THANK_STYLES[cfg.thankStyle] then
+        cfg.thankStyle = defaults.thankStyle
     end
     if defaults.unknownName ~= nil then
         cfg.unknownName = cfg.unknownName == nil and defaults.unknownName or Config.CleanUnknownName(cfg.unknownName)
@@ -267,6 +274,25 @@ function Config.Load(saved)
         end
     end
     db.messageBags = bags
+
+    -- Players never greeted or thanked: full names only, as set keys.
+    local ignore = {}
+    if type(db.ignore) == "table" then
+        local n = 0
+        for name, on in pairs(db.ignore) do
+            local full = on == true and Util.FullName(name)
+            if full and n < Config.MAX_IGNORED and not ignore[full] then
+                ignore[full] = true
+                n = n + 1
+            end
+        end
+    end
+    db.ignore = ignore
+
+    db.ledger = ns.Ledger.Validate(db.ledger)
+
+    -- Snooze: wall-clock time (time()) it ends, or nil.
+    if type(db.snoozeUntil) ~= "number" or db.snoozeUntil ~= db.snoozeUntil then db.snoozeUntil = nil end
     return db
 end
 

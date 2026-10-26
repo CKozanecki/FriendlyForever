@@ -287,13 +287,15 @@ function M.reset()
     M.hardware = false
     M.focusedBox = nil
     M.rosterRequests = 0
-    M.settings = { categories = {} }
+    M.settings = { categories = {}, subcategories = {} }
     M.state = {
         inGuild = true, guildRoster = {},
         groupType = nil, groupMembers = {},
         inInstance = false, lockdown = false, inCombat = false,
         units = {}, cursorX = 0, cursorY = 0,
         playerAuras = {}, aurasRestricted = false,
+        today = "2026-10-26", clock = 1793000000,
+        race = "Human", class = "MAGE", faction = "Alliance", zone = "Elwynn Forest", hour = 14,
         cvars = { nameplateShowFriendlyPlayers = "1", nameplateShowOnlyNameForFriendlyPlayerUnits = "0" },
     }
     M.addUnit("player", { name = "Me" })
@@ -411,7 +413,54 @@ function M.reset()
     _G.UnitIsAFK = restricted(function(unit) return unit == "player" and M.state.afk == true end)
 
     _G.GetCursorPosition = function() return M.state.cursorX, M.state.cursorY end
-    _G.date = function() return "12:00:00" end
+    -- state.today: what date("%Y-%m-%d") says; anything else is a clock time.
+    _G.date = function(fmt)
+        if fmt == "%Y-%m-%d" then return M.state.today end
+        return "12:00:00"
+    end
+    -- Wall-clock seconds (time()), which moves with advance() like GetTime().
+    _G.time = function() return M.state.clock + (M.now - 1000) end
+
+    -- Who I am and where: state.race / state.class are the untranslated file
+    -- names (UnitRace's and UnitClass's second returns); state.zone, state.hour,
+    -- state.resting describe the moment. Other units read spec.race / spec.class.
+    local CLASS_NAMES = {
+        WARRIOR = "Warrior", MAGE = "Mage", PRIEST = "Priest", DRUID = "Druid", PALADIN = "Paladin",
+        WARLOCK = "Warlock", ROGUE = "Rogue", HUNTER = "Hunter", SHAMAN = "Shaman",
+    }
+    _G.UnitRace = function(unit)
+        local race = unit == "player" and M.state.race or unitField(unit, "race")
+        if race == nil then return nil end
+        return race, race
+    end
+    _G.UnitClass = function(unit)
+        local class = unit == "player" and M.state.class or unitField(unit, "class")
+        if class == nil then return nil end
+        if M.state.unitsRestricted and unit ~= "player" then return class, class end
+        return CLASS_NAMES[class] or class, class
+    end
+    _G.UnitFactionGroup = function(unit)
+        if unit ~= "player" then return nil end
+        return M.state.faction, M.state.faction
+    end
+    _G.GetRealZoneText = function() return M.state.zone end
+    _G.GetZoneText = function() return M.state.zone end
+    _G.GetGameTime = function() return M.state.hour, 0 end
+    _G.IsResting = function() return M.state.resting == true end
+    -- Text emotes: recorded in M.emotes. Like /say, they need a key press
+    -- outdoors (an assumption the addon also makes, to be safe).
+    M.emotes = {}
+    local function PerformEmote(token, target)
+        local record = { token = token, target = target, time = M.now }
+        if not M.state.inInstance and not M.hardware then
+            M.blockedEmotes[#M.blockedEmotes + 1] = record
+            return true
+        end
+        M.emotes[#M.emotes + 1] = record
+        return false
+    end
+    M.blockedEmotes = {}
+    _G.C_ChatInfo.PerformEmote = PerformEmote
     -- Game settings. Unknown names return nil; nameplate settings are locked in combat.
     _G.C_CVar = {
         GetCVar = function(name) return M.state.cvars[name] end,
@@ -461,7 +510,17 @@ function M.reset()
         RegisterAddOnCategory = function(category)
             M.settings.categories[#M.settings.categories + 1] = category
         end,
+        RegisterCanvasLayoutSubcategory = function(parent, panel, name)
+            local sub = { panel = panel, name = name, parent = parent, GetID = function() return name end }
+            M.settings.subcategories[#M.settings.subcategories + 1] = sub
+            return sub
+        end,
         OpenToCategory = function(id) M.settings.opened = id end,
+    }
+    -- The addon drop-down under the minimap. state.noCompartment: this client has none.
+    M.compartment = {}
+    _G.AddonCompartmentFrame = {
+        RegisterAddon = function(_, info) M.compartment[#M.compartment + 1] = info end,
     }
 end
 

@@ -85,7 +85,15 @@ function Greeter.RequestRoster()
     end
 end
 
+-- Players on the ignore list are never greeted or welcomed.
+local function Ignored(msgType, name)
+    if not ns.Ignore.Has(name) then return false end
+    ns.Diag.Log(msgType, "not sending for %s: on your ignore list", name)
+    return true
+end
+
 local function Greet(name)
+    if Ignored("guildLogin", name) then return end
     ns.Announcer.Schedule("guildLogin", name, { channel = GuildChannel })
 end
 
@@ -359,6 +367,7 @@ local function StillInGroup(name)
 end
 
 local function WelcomeJoin(name, raidLine)
+    if Ignored("partyJoin", name) then return end
     local cfg = ns.db.partyJoin
     -- The roster update for the conversion can come before or after these
     -- lines, so check both the party as it is now and as it was just before.
@@ -468,6 +477,7 @@ function Greeter.OnSystemMessage(msg)
         end
     elseif kind == "guildJoin" then
         members[name] = true
+        if Ignored("guildJoin", name) then return end
         ns.Announcer.Schedule("guildJoin", name, { channel = GuildChannel })
     elseif kind == "partyJoin" then
         -- Every joiner would be welcomed, by every addon user, in /bg.
