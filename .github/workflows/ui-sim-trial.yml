@@ -212,11 +212,16 @@ jobs:
           # WOW_SIM_CASC=0: never look for game files (no WoW install here).
           # Each shot runs as a detached container capped at 6 GB and 3 CPUs,
           # so a runaway render can't starve the runner. It's watched every
-          # 5 s, shows progress every 30 s, and is killed after 5 minutes.
+          # 5 s, shows progress every 30 s, and is killed after 3 minutes.
+          # --init: xvfb-run waits for a signal from Xvfb that never arrives
+          # when it is the container's first process (the last run sat idle).
+          # how: "xvfb" runs under a virtual display, "direct" without one.
           shoot() {
-            local name="$1"; shift
+            local name="$1" how="$2"; shift 2
+            local wrap=()
+            [ "$how" = xvfb ] && wrap=(xvfb-run -a -e "/shots/$name.xvfb.log")
             local cid
-            cid=$(docker run -d --network none --cap-drop ALL --security-opt no-new-privileges \
+            cid=$(docker run -d --init --network none --cap-drop ALL --security-opt no-new-privileges \
               --memory 6g --memory-swap 6g --cpus 3 --pids-limit 4096 \
               -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 -e WOW_SIM_NO_SAVED_VARS=1 \
               -e WOW_SIM_CASC=0 -e WOW_SIM_VERBOSE=1 \
@@ -225,10 +230,10 @@ jobs:
               -v "$RUNNER_TEMP/blizzard-ui/Interface/AddOns:/root/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
               -v "$RUNNER_TEMP/addons:/test-addons:ro" \
               -v "$RUNNER_TEMP/shots:/shots" \
-              ff-render xvfb-run -a /sim/wow-sim --addons-path /test-addons "$@" \
+              ff-render "${wrap[@]}" /sim/wow-sim --addons-path /test-addons "$@" \
               screenshot --png --width 1024 --height 768 -o "/shots/$name.png")
-            local waited=0 result="timed out after 300 s"
-            while [ "$waited" -lt 300 ]; do
+            local waited=0 result="timed out after 180 s"
+            while [ "$waited" -lt 180 ]; do
               if [ "$(docker inspect -f '{{.State.Running}}' "$cid")" != "true" ]; then
                 result="exited with $(docker inspect -f '{{.State.ExitCode}}' "$cid") after ${waited} s"
                 break
@@ -240,13 +245,24 @@ jobs:
               sleep 5
               waited=$((waited + 5))
             done
+            if [ "$(docker inspect -f '{{.State.Running}}' "$cid")" = "true" ]; then
+              echo "$name: still running at the limit; its processes:"
+              docker top "$cid" -eo pid,stat,etime,args 2>&1 | sed "s/^/  $name> /" || true
+            fi
             docker kill "$cid" >/dev/null 2>&1 || true
             docker logs "$cid" > "$RUNNER_TEMP/shots/$name.log" 2>&1 || true
             docker rm -f "$cid" >/dev/null 2>&1 || true
             echo "$name: $result"
           }
-          shoot game
-          shoot options --exec-lua "SlashCmdList.FRIENDLYFOREVER('')"
+          # First, that the simulator starts at all in this image.
+          probe=$(docker run -d --init --network none --cap-drop ALL --security-opt no-new-privileges \
+            -v "$RUNNER_TEMP/sim/target/release:/sim:ro" ff-render /sim/wow-sim --help)
+          sleep 10
+          docker logs "$probe" 2>&1 | head -40 | sed 's/^/  probe> /'
+          docker rm -f "$probe" >/dev/null 2>&1 || true
+          shoot game-direct direct
+          shoot game xvfb
+          shoot options xvfb --exec-lua "SlashCmdList.FRIENDLYFOREVER('')"
           ls -la "$RUNNER_TEMP/shots"
           for log in "$RUNNER_TEMP"/shots/*.log; do
             echo "::group::$(basename "$log")"; tail -60 "$log"; echo "::endgroup::"
