@@ -57,6 +57,13 @@ BuffData.MANA_CLASSES = {
     MAGE = true, PRIEST = true, DRUID = true, PALADIN = true, WARLOCK = true, SHAMAN = true, HUNTER = true,
 }
 
+-- [key] = true for every buff of every class: what a saved buff order or
+-- never-offer mark may name.
+BuffData.KEYS = {}
+for _, list in pairs(BuffData.CLASSES) do
+    for _, buff in ipairs(list) do BuffData.KEYS[buff.key] = true end
+end
+
 -- [spell ID] = buff, for every rank, group version and blocker.
 local byAuraId = {}
 -- [spell ID] = buff, for the ranks only (what our own casts can be).
@@ -130,6 +137,51 @@ function BuffData.Mine()
     end
     -- An unreadable class isn't remembered: the next call asks again.
     if class then mine = out end
+    return out
+end
+
+-- Your class's buffs, known or not, in the class's own order.
+function BuffData.ClassBuffs()
+    local _, class = Read(UnitClass, "player")
+    return class and BuffData.CLASSES[class] or {}
+end
+
+-- buffs reordered by order (a list of buff keys, from the Buff Back tab):
+-- the buffs it names come first, in its order; the rest follow in the order
+-- they came. A copy; anything in order that isn't a key is passed over.
+function BuffData.InOrder(buffs, order)
+    local rank = {}
+    if type(order) == "table" then
+        for i, key in ipairs(order) do
+            if type(key) == "string" and rank[key] == nil then rank[key] = i end
+        end
+    end
+    local out = {}
+    for i, buff in ipairs(buffs) do out[i] = { buff = buff, at = i } end
+    local unranked = math.huge
+    table.sort(out, function(a, b)
+        local ra, rb = rank[a.buff.key] or unranked, rank[b.buff.key] or unranked
+        if ra ~= rb then return ra < rb end
+        return a.at < b.at
+    end)
+    for i, entry in ipairs(out) do out[i] = entry.buff end
+    return out
+end
+
+-- Whether you've marked buff "never offer" on the Buff Back tab.
+function BuffData.NeverOffered(buff)
+    local never = ns.db and type(ns.db.buffBack) == "table" and ns.db.buffBack.neverOffer
+    return type(never) == "table" and never[buff.key] == true
+end
+
+-- The buffs the button may offer: yours that you know, in your order, less
+-- any marked "never offer".
+function BuffData.Offerable()
+    local order = ns.db and type(ns.db.buffBack) == "table" and ns.db.buffBack.buffOrder
+    local out = {}
+    for _, buff in ipairs(BuffData.InOrder(BuffData.Mine(), order)) do
+        if not BuffData.NeverOffered(buff) then out[#out + 1] = buff end
+    end
     return out
 end
 

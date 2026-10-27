@@ -138,6 +138,11 @@ Config.DEFAULTS = {
         owedMinutes = 10,
         unlocked = false,
         position = { point = "CENTER", x = 0, y = -180 },
+        -- buffOrder: buff keys, offered first in this order (empty: each
+        -- class's own order). neverOffer: [buff key] = true. They hold keys
+        -- of any class, so one profile serves all your characters.
+        buffOrder = {},
+        neverOffer = {},
         messages = DefaultMessages.buffBack,
     },
 }
@@ -207,6 +212,27 @@ Config.FIELD_VALIDATORS = {
         return Config.CleanUnknownName(value)
     end,
     position = function(value, default) return Config.CleanPosition(value, default) end,
+    -- Known buff keys, each once; anything else is dropped. Not a list at
+    -- all: the default (every class's own order).
+    buffOrder = function(value, default)
+        if type(value) ~= "table" then return CopyList(default) end
+        local clean, seen = {}, {}
+        for _, key in ipairs(value) do
+            if type(key) == "string" and ns.BuffData.KEYS[key] and not seen[key] then
+                seen[key] = true
+                clean[#clean + 1] = key
+            end
+        end
+        return clean
+    end,
+    neverOffer = function(value)
+        local clean = {}
+        if type(value) ~= "table" then return clean end
+        for key, on in pairs(value) do
+            if type(key) == "string" and ns.BuffData.KEYS[key] and on == true then clean[key] = true end
+        end
+        return clean
+    end,
     messages = function(value, default)
         if type(value) ~= "table" then return CopyList(default) end
         local clean = {}

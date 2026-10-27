@@ -22,7 +22,7 @@ The chat messages:
 
 `{name}` is the first name ("Nikki") and `{fullname}` the whole name ("Nikki Shifts"). Forever characters always have a surname. The addon identifies players by their full name, so two people called Nikki are never mixed up.
 
-Each message type except Buff Back has its own on/off switch, a delay, a "don't repeat to the same player" cooldown (default 3 minutes; for the two hellos it's per group leader and 30 seconds) and 30 editable messages. Buff Back's line has its own switch and 30 lines but no delay or cooldown: it is part of your button press. Lines are used in a shuffled rotation: every line comes up once before any repeats, a new round never starts with the line that just ended the last one, and the rotation carries over across reloads and logins.
+Each message type except Buff Back has its own on/off switch, a delay, a "don't repeat to the same player" cooldown (default 3 minutes; for the two hellos it's per group leader and 30 seconds) and 30 editable messages. Buff Back's line has its own switch and 30 lines but no delay or cooldown: it's said once for each favour you return. Lines are used in a shuffled rotation: every line comes up once before any repeats, a new round never starts with the line that just ended the last one, and the rotation carries over across reloads and logins.
 
 ## Flavour
 
@@ -110,7 +110,7 @@ Buffs from one person that arrive before the thank-you goes out are combined: *"
 
 When someone outside your group buffs you, a small button appears with their name and the buff you can give back. Press it, or the key you set for it in **Key Bindings → AddOns** ("Friendly Forever: buff back", with or without Shift/Ctrl/Alt), and it casts your buff on them and gives you your own target back. The game only lets an addon cast through a button you press, so nothing is ever cast without your key press or click.
 
-- **Which buff:** your class's buffs that you know, in order. It skips any they already wear (when the game lets the addon see), mana buffs for classes without mana, and buffs that only reach your own party. A druid gives Mark of the Wild, or Thorns to someone who already has the Mark.
+- **Which buff:** your class's buffs that you know, in your order. On the **Buff Back** tab you can move each buff up or down and mark any of them **Never offer**; the order and marks go with your profile and export, and each class keeps its own. It skips any they already wear (when the game lets the addon see), mana buffs for classes without mana, and buffs that only reach your own party. A druid gives Mark of the Wild, or Thorns to someone who already has the Mark.
 - **Who:** the newest favour first. It waits while they're dead. It never offers a buff to someone the game shows flagged for PvP unless you're flagged too, since buffing them would flag you. Their flag is read again at the moment you press, so unless you're flagged, a favour is offered only while the game shows them (on a nameplate, as your target or under your mouse). If it can't see them, the button says so; target them, or turn on friendly nameplates. Favours are dropped after 10 minutes (adjustable on the **Buff Back** tab), and are forgotten on a reload or logout.
 - **No endless trading:** when another player answers your buff with one of theirs, that isn't a new favour (for 10 minutes).
 - **Right-click** the button to let a favour go.
