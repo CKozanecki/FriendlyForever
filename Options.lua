@@ -8,7 +8,7 @@ local Config = ns.Config
 local Options = {}
 ns.Options = Options
 
-Options.CONTENT_HEIGHT = 1470
+Options.CONTENT_HEIGHT = 1560 -- room for the Buff Back tab's buff list above its lines
 
 local panel, category, generalPage, ledgerPage
 local currentType = Config.TYPES[1]
@@ -120,6 +120,74 @@ local function ClearEditFocus()
     end
 end
 
+-- The Buff Back tab's buff list: your class's buffs in your order.
+local function OrderedClassBuffs()
+    return ns.BuffData.InOrder(ns.BuffData.ClassBuffs(), ns.db.buffBack.buffOrder)
+end
+
+-- Move a buff of your class one place up (-1) or down (+1). Saved as your
+-- class's keys in the new order, then any other classes' keys as they were.
+function Options.MoveBuff(key, step)
+    local keys = {}
+    for i, buff in ipairs(OrderedClassBuffs()) do keys[i] = buff.key end
+    for i, k in ipairs(keys) do
+        local j = i + step
+        if k == key and keys[j] then
+            keys[i], keys[j] = keys[j], keys[i]
+            break
+        end
+    end
+    local mine = {}
+    for _, k in ipairs(keys) do mine[k] = true end
+    local saved = type(ns.db.buffBack.buffOrder) == "table" and ns.db.buffBack.buffOrder or {}
+    for _, k in ipairs(saved) do
+        if not mine[k] then keys[#keys + 1] = k end
+    end
+    ns.db.buffBack.buffOrder = Config.FIELD_VALIDATORS.buffOrder(keys, {})
+    ns.BuffButton.Refresh()
+    Options.Refresh()
+end
+
+function Options.SetNeverOffer(key, on)
+    if type(ns.db.buffBack.neverOffer) ~= "table" then ns.db.buffBack.neverOffer = {} end
+    ns.db.buffBack.neverOffer[key] = on or nil
+    ns.BuffButton.Refresh()
+    Options.Refresh()
+end
+
+local function FillBuffRows(shown)
+    widgets.buffOrderHeader:SetShown(shown)
+    local buffs = shown and OrderedClassBuffs() or {}
+    -- Read only for the Buff Back tab: the other tabs mustn't depend on its settings.
+    local never = shown and type(ns.db.buffBack.neverOffer) == "table" and ns.db.buffBack.neverOffer or {}
+    for i, row in ipairs(widgets.buffRows) do
+        local buff = buffs[i]
+        for _, part in ipairs({ row.name, row.up, row.down, row.never }) do part:SetShown(buff ~= nil) end
+        row.key = buff and buff.key
+        if buff then
+            local name = ns.BuffData.SpellName(buff) or buff.key
+            if not ns.BuffData.IsKnown(buff) then name = name .. " |cff999999(not known yet)|r" end
+            row.name:SetText(i .. ". " .. name)
+            row.up:SetEnabled(i > 1)
+            row.down:SetEnabled(i < #buffs)
+            row.never:SetChecked(never[buff.key] == true)
+        end
+    end
+    if shown and #buffs == 0 then
+        widgets.buffOrderHeader:SetText("Your class has no buffs to offer.")
+    else
+        widgets.buffOrderHeader:SetText("Buff order (first that suits them is offered):")
+    end
+    -- The messages follow the buff list on this tab, the buff options on the others.
+    local last = buffs[1] and widgets.buffRows[#buffs].up or widgets.buffOrderHeader
+    widgets.msgHeader:ClearAllPoints()
+    if shown then
+        widgets.msgHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -16)
+    else
+        widgets.msgHeader:SetPoint("TOPLEFT", widgets.fallback, "BOTTOMLEFT", 4, -32)
+    end
+end
+
 local function ShowStepper(stepper, shown)
     for _, part in ipairs({ stepper.label, stepper.minus, stepper.box, stepper.plus }) do part:SetShown(shown) end
 end
@@ -150,6 +218,7 @@ local function Fill()
         widgets.sayLine:SetChecked(cfg.sayLine)
         FillBox(widgets.steppers.owedMinutes.box, tostring(cfg.owedMinutes))
     end
+    FillBuffRows(isBuffBack)
 
     widgets.listNames:SetShown(isBuff)
     widgets.thankStyle:SetShown(isBuff)
@@ -324,6 +393,32 @@ function Options.Create()
         "Messages (all are used in random order before any repeats; leave a line blank to skip it):",
         "GameFontNormalSmall")
     msgHeader:SetPoint("TOPLEFT", widgets.fallback, "BOTTOMLEFT", 4, -32)
+    widgets.msgHeader = msgHeader
+
+    -- Buff Back tab only, in the buff tab's rows 4 to 6: the buff order, one
+    -- row per buff of your class (the most any class has).
+    widgets.buffOrderHeader = Label(content, "", "GameFontNormalSmall")
+    widgets.buffOrderHeader:SetPoint("TOPLEFT", widgets.sayLine, "BOTTOMLEFT", 4, -10)
+    local most = 0
+    for _, list in pairs(ns.BuffData.CLASSES) do most = math.max(most, #list) end
+    widgets.buffRows = {}
+    local above = widgets.buffOrderHeader
+    for i = 1, most do
+        local row = {}
+        row.up = Button(content, "Up", 44, function() if row.key then Options.MoveBuff(row.key, -1) end end)
+        row.up:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, -4)
+        row.down = Button(content, "Down", 54, function() if row.key then Options.MoveBuff(row.key, 1) end end)
+        row.down:SetPoint("LEFT", row.up, "RIGHT", 4, 0)
+        row.name = Label(content, "", "GameFontHighlightSmall")
+        row.name:SetPoint("LEFT", row.down, "RIGHT", 10, 0)
+        row.name:SetWidth(260)
+        row.never = Checkbox(content, "Never offer", function(on)
+            if row.key then Options.SetNeverOffer(row.key, on) end
+        end)
+        row.never:SetPoint("LEFT", row.name, "RIGHT", 10, 0)
+        widgets.buffRows[i] = row
+        above = row.up
+    end
 
     local anchor = msgHeader
     for i = 1, Config.NUM_MESSAGES do
