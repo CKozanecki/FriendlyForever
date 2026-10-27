@@ -31,6 +31,7 @@ BuffTracker.lua
 Window.lua
 BuffButton.lua
 BuffMode.lua
+GroupBuffs.lua
 Options.lua
 Minimap.lua
 Core.lua
