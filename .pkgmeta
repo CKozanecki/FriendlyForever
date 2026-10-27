@@ -5,6 +5,7 @@ package-as: FriendlyForever
 ignore:
   - spec
   - scripts
+  - art
   - dist
   - .github
   - .vscode
