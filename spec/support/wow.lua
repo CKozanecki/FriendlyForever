@@ -250,6 +250,13 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         blocked in combat, and allowed in PLAYER_REGEN_DISABLED's
 --                         handlers (as secure frames are). state.unbindable[key]:
 --                         the game rejects that key (an error here).
+--   unit.secrets = { name = true, pvp = true, auras = true }: that one unit's
+--                         name, PvP flag or buffs read as secrets (as for a
+--                         stranger in a restricted moment).
+--   UnitInRange(unit) answers inRange, checkedRange for group units (unit
+--                         fields outOfRange, rangeUnknown); in a raid, setGroup
+--                         leaves your own raid slot out (the game puts you in
+--                         one), so specs add it when they need it.
 --   state.castLatency     seconds before the server answers a cast
 --                         (SUCCEEDED or FAILED and its error text); 0 (default)
 --                         answers inside the press. SENT is always at once.
@@ -524,7 +531,7 @@ local function unitField(unit, field)
     local u = M.state.units[unit]
     if not u then return nil end
     local value = u[field]
-    if M.state.unitsRestricted and value ~= nil then return M.secret(value) end
+    if value ~= nil and (M.state.unitsRestricted or (u.secrets and u.secrets[field])) then return M.secret(value) end
     return value
 end
 
@@ -816,6 +823,13 @@ function M.reset()
     _G.C_Spell = {
         GetSpellName = function(id) return M.SPELL_NAMES[id] end,
         GetSpellTexture = function(id) return M.SPELL_NAMES[id] and ("icon:" .. id) or nil end,
+        -- Unit fields outOfSpellRange (the spell can't reach them) and
+        -- spellRangeUnknown (the game won't say: nil).
+        IsSpellInRange = function(_, unit)
+            local u = M.state.units[unit]
+            if not u or u.spellRangeUnknown then return nil end
+            return not u.outOfSpellRange
+        end,
     }
     _G.C_SpellBook = {
         IsSpellInSpellBook = function(id) return M.state.knownSpells[id] == true end,
@@ -824,9 +838,34 @@ function M.reset()
         local u = M.state.units[unit]
         return u ~= nil and u.dead == true
     end)
+    -- Group members: unit fields outOfRange (true: out of range), rangeUnknown
+    -- (the game can't tell), offline and hidden (not in sight / not visible).
+    _G.UnitInRange = function(unit)
+        local u = M.state.units[unit]
+        if not u then return false, false end
+        if u.rangeUnknown then return false, false end
+        if M.state.unitsRestricted then return M.secret(not u.outOfRange), M.secret(true) end
+        return not u.outOfRange, true
+    end
+    _G.UnitIsConnected = restricted(function(unit)
+        local u = M.state.units[unit]
+        return u ~= nil and not u.offline
+    end)
+    _G.UnitIsVisible = restricted(function(unit)
+        local u = M.state.units[unit]
+        return u ~= nil and not u.hidden
+    end)
+    -- Everyone in your group, you included (0 when you're in none).
+    _G.GetNumGroupMembers = function()
+        if M.state.groupType == nil then return 0 end
+        local n = 1
+        for _ in pairs(M.state.groupMembers) do n = n + 1 end
+        return n
+    end
     _G.UnitIsPVP = restricted(function(unit)
         if unit == "player" then return M.state.pvp == true end
         local u = M.state.units[unit]
+        if u and u.secrets and u.secrets.pvp then return M.secret(u.pvp == true) end
         return u ~= nil and u.pvp == true
     end)
     -- Game settings. Unknown names return nil; nameplate settings are locked in combat.
@@ -863,8 +902,9 @@ function M.reset()
                 local u = M.state.units[unit]
                 local id = u and u.auras and u.auras[index]
                 if id == nil then return nil end
-                if M.state.unitsRestricted then return M.secret({ spellId = id }) end
-                return { spellId = id, isHelpful = true }
+                if M.state.unitsRestricted or (u.secrets and u.secrets.auras) then return M.secret({ spellId = id }) end
+                -- spec.auraSources[index]: the unit token of who cast it, if the game says.
+                return { spellId = id, isHelpful = true, sourceUnit = u.auraSources and u.auraSources[index] }
             end
             local helpful = {}
             for _, a in ipairs(M.state.playerAuras) do
