@@ -2,17 +2,21 @@
 
 ### Unreleased
 
-- This version adds files. After updating, restart the game; /reload isn't enough.
-- New default lines for every message type, in a Warcraft fantasy voice. Saved lines still on the old defaults are switched to the new ones; lines you edited are kept. The old lines are still there: each tab's **Load casual lines (1.6)** button puts them back.
-- Flavour placeholders change with the moment: `{greeting}`, `{thanks}`, `{blessing}` and `{cheer}` follow your race, faction, where you are and the hour ("Throm-ka, Thrall! Strength and honor."), and `{zone}`, `{timeofday}`, `{myclass}` and `{class}` (theirs, when the game says) fill in the details. Use them in your own lines too. Every Forever race has its own voice, including separate ones for the High Order and Windshaper Skyborne.
-- Favour ledger: who buffed you, with what, and whether you thanked them, or why not. Today's count and all-time totals, on the new **Favour Ledger** options page or with `/friendly ledger`.
-- Buff Thanks can `/thank` the caster instead of, or as well as, saying a line (**How to thank** on the Buff Thanks tab).
-- Ignore list: `/friendly ignore <name>` (or your target) means that player is never greeted, welcomed or thanked.
-- `/friendly snooze [minutes]`: send nothing for a while (15 minutes by default).
-- Profiles: `/friendly profile new | use | delete <name>`. Each character switches to the profile it used last when it logs in.
-- `/friendly export` and `/friendly import`: your settings as one line of text, to keep or share. Importing never turns the addon on or off and only adds to your ignore list. `/friendly import undo` puts your settings back.
-- `/friendly report` and **Copy for a bug report**: the status and debug log as text to copy.
-- New **General** options page with all of the above as buttons. Friendly Forever is also in the addon compartment (the addon drop-down by the minimap) where the game has one, and the minimap tooltip shows snooze and today's favours.
+- This version adds files. After updating, restart the game; /reload isn't enough. (#27, #52)
+- **Buff back:** when someone outside your group buffs you, a button offers your buff back. Press it, or its key in Key Bindings > AddOns, to cast it on them; your own target comes back afterwards. It picks a buff they don't already have and can use, waits while they're dead, and won't flag you for PvP: it reads their flag as you press, so it's offered only while the game shows them (friendly nameplates help). Right-click lets a favour go. `/friendly move` moves the button and `/friendly buffback` shows what it holds. Untested in WoW Forever until launch. (#27)
+- Settings damaged while you play (by another addon or a bad `/run`) are repaired as soon as they cause an error, not at the next reload. (#27)
+- New **Buff Back** tab: offer on or off, how long favours are offered, and an optional line to say as you cast (30 editable lines, off by default). (#27)
+- The favour ledger counts favours you returned and gives titles for them, from Courteous at 10 to Friend to All Azeroth at 1,000. (#27)
+- New default lines for every message type, in a Warcraft fantasy voice. Saved lines still on the old defaults are switched to the new ones; lines you edited are kept. The old lines are still there: each tab's **Load casual lines (1.6)** button puts them back. (#52)
+- Flavour placeholders change with the moment: `{greeting}`, `{thanks}`, `{blessing}` and `{cheer}` follow your race, faction, where you are and the hour ("Throm-ka, Thrall! Strength and honor."), and `{zone}`, `{timeofday}`, `{myclass}` and `{class}` (theirs, when the game says) fill in the details. Use them in your own lines too. Every Forever race has its own voice, including separate ones for the High Order and Windshaper Skyborne. (#52)
+- Favour ledger: who buffed you, with what, and whether you thanked them, or why not. Today's count and all-time totals, on the new **Favour Ledger** options page or with `/friendly ledger`. (#52)
+- Buff Thanks can `/thank` the caster instead of, or as well as, saying a line (**How to thank** on the Buff Thanks tab). (#52)
+- Ignore list: `/friendly ignore <name>` (or your target) means that player is never greeted, welcomed or thanked. (#52)
+- `/friendly snooze [minutes]`: send nothing for a while (15 minutes by default). (#52)
+- Profiles: `/friendly profile new | use | delete <name>`. Each character switches to the profile it used last when it logs in. (#52)
+- `/friendly export` and `/friendly import`: your settings as one line of text, to keep or share. Importing never turns the addon on or off and only adds to your ignore list. `/friendly import undo` puts your settings back. (#52)
+- `/friendly report` and **Copy for a bug report**: the status and debug log as text to copy. (#52)
+- New **General** options page with all of the above as buttons. Friendly Forever is also in the addon compartment (the addon drop-down by the minimap) where the game has one, and the minimap tooltip shows snooze and today's favours. (#52)
 
 ## 1.6.0
 

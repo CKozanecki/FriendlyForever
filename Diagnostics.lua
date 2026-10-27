@@ -79,6 +79,10 @@ end
 function Diag.OnError(err)
     Diag.Count("luaErrors")
     Diag.lastError = Diag.Safe(err)
+    -- Damaged settings can cause errors: repair them now, before logging
+    -- (the log lives in them). A repair that fails itself is left for the
+    -- next error or reload.
+    if ns.Config and ns.Config.Repair then pcall(ns.Config.Repair) end
     Diag.Log("error", "%s", err)
     local handler = geterrorhandler and geterrorhandler()
     if handler then handler(err) end

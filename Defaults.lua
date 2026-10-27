@@ -218,6 +218,42 @@ DefaultMessages.partyHelloAgain = {
     "Back again, everyone! Ready to ride.",
 }
 
+-- Said as you cast a buff back on someone who buffed you (the buff-back
+-- button). {buff} is the one spell you cast. Kept short: the line shares the
+-- button's 255-character macro with the targeting and the cast.
+DefaultMessages.buffBack = {
+    "A gift for a gift, {name}. {buff} for you!",
+    "Returning the favour, {name}: {buff}. {blessing}",
+    "{name}, take this {buff} with my thanks.",
+    "One kindness deserves another, {name}. Here's {buff}.",
+    "For you, {name}: {buff}. {blessing}",
+    "{greeting}, {name}! A {buff} in return.",
+    "Your kindness returned, {name}. Enjoy the {buff}.",
+    "Here, {name}, some {buff} for the road.",
+    "Fair is fair, {name}. {buff} for you!",
+    "Allow me, {name}. {buff}, with thanks.",
+    "{name}, a {buff} for your trouble. {blessing}",
+    "You buffed me, {name}, so here's {buff} for you!",
+    "With gratitude, {name}: {buff}. {cheer}",
+    "Take this {buff}, {name}. Safe travels!",
+    "A favour returned, {name}. {blessing}",
+    "{thanks}, {name}! And here's {buff} for you.",
+    "{name}, may this {buff} serve you well.",
+    "Your turn, {name}: {buff}! {blessing}",
+    "Good deeds come back around, {name}. {buff}!",
+    "Here's {buff} for you, {name}. Fight well!",
+    "One good turn deserves another, {name}.",
+    "{buff} for {name}! {cheer}",
+    "Let me return the kindness, {name}. {buff}!",
+    "For a friend on the road: {buff}, {name}.",
+    "Thank you, {name}. Please take this {buff}.",
+    "Back at you, {name}! {buff} and good fortune.",
+    "A small gift in return, {name}: {buff}.",
+    "{greeting}, {name}. Some {buff} to see you on your way.",
+    "Kindness for kindness, {name}. {blessing}",
+    "The {buff} is yours, {name}. {blessing}",
+}
+
 -- The casual set: the defaults from 1.5.0 to 1.6.x, unchanged.
 
 CasualMessages.guildLogin = {
@@ -416,4 +452,38 @@ CasualMessages.partyHelloAgain = {
     "Hi again, everyone! Glad to be back.",
     "Reunited! Hi again, team.",
     "Hey, I'm back! Thanks again for the invite.",
+}
+
+-- New in 1.7.0, so not from 1.6, but a plainer set for the Load casual lines button.
+CasualMessages.buffBack = {
+    "Here's {buff} for you, {name}!",
+    "Thanks, {name}! {buff} back at you.",
+    "Returning the favour, {name}!",
+    "{buff} for you, {name}. Thanks!",
+    "Your turn, {name}: {buff}!",
+    "Right back at you, {name}!",
+    "Thanks for the buff, {name}. Have a {buff}!",
+    "{name}, here's a {buff} for you.",
+    "Fair's fair, {name}. Enjoy the {buff}!",
+    "Here you go, {name}!",
+    "{buff} incoming, {name}!",
+    "Thanks, {name}! Have some {buff}.",
+    "Paying it back, {name}!",
+    "One {buff} for {name}. Thanks!",
+    "Have a good one, {name}! {buff} for you.",
+    "Cheers, {name}! {buff} for the road.",
+    "Back at you with {buff}, {name}!",
+    "Thanks {name}! Here's {buff}.",
+    "Good luck out there, {name}!",
+    "Here's my thanks, {name}: {buff}.",
+    "Enjoy the {buff}, {name}!",
+    "{name}, a {buff} for you. Thanks again!",
+    "Thank you, {name}! {buff} for you.",
+    "Happy hunting, {name}! Have some {buff}.",
+    "Thanks for that, {name}! {buff} back.",
+    "Return gift, {name}: {buff}!",
+    "You're the best, {name}. {buff} for you!",
+    "Swapping buffs with {name}!",
+    "Much appreciated, {name}. Here's {buff}.",
+    "Stay safe, {name}! {buff} for you.",
 }

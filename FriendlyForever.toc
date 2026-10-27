@@ -18,6 +18,8 @@ Flavour.lua
 Cooldowns.lua
 Ignore.lua
 Ledger.lua
+BuffData.lua
+Offers.lua
 Serialize.lua
 Profiles.lua
 Nameplates.lua
@@ -27,6 +29,7 @@ Announcer.lua
 Greeter.lua
 BuffTracker.lua
 Window.lua
+BuffButton.lua
 Options.lua
 Minimap.lua
 Core.lua

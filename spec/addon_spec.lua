@@ -71,6 +71,7 @@ describe("Addon", function()
             local allowed = {
                 FriendlyForeverDB = true, SLASH_FRIENDLYFOREVER1 = true, SLASH_FRIENDLYFOREVER2 = true,
                 FriendlyForeverMinimapButton = true, FriendlyForeverOptionsPanel = true,
+                FriendlyForeverBuffButton = true, ["BINDING_NAME_CLICK FriendlyForeverBuffButton:LeftButton"] = true,
             }
             for k in pairs(_G) do
                 if not before[k] then assert.is_true(allowed[k], "unexpected global: " .. tostring(k)) end
@@ -161,8 +162,10 @@ describe("Addon", function()
                 wow.run(w.tabs[msgType], "OnClick")
                 assert.are.equal(msgType, ns.Options.CurrentType())
                 assert.is_false(w.tabs[msgType]:IsEnabled(), "current tab is highlighted")
-                assert.are.equal(tostring(ns.db[msgType].delay), w.steppers.delay.box:GetText())
-                assert.are.equal(tostring(ns.db[msgType].repeatCooldown), w.steppers.repeatCooldown.box:GetText())
+                -- Buff Back has no delay or repeat (its line is said by your press): empty boxes.
+                local delay, repeatCooldown = ns.db[msgType].delay, ns.db[msgType].repeatCooldown
+                assert.are.equal(delay and tostring(delay) or "", w.steppers.delay.box:GetText())
+                assert.are.equal(repeatCooldown and tostring(repeatCooldown) or "", w.steppers.repeatCooldown.box:GetText())
                 for i = 1, ns.Config.NUM_MESSAGES do
                     assert.are.equal(ns.db[msgType].messages[i], w.edits[i]:GetText())
                 end

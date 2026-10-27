@@ -1,0 +1,6 @@
+<Bindings>
+    <!-- Key Bindings > AddOns: a key for the buff-back button. The game loads
+         this file by itself; its text is BINDING_NAME_CLICK
+         FriendlyForeverBuffButton:LeftButton, set in BuffButton.lua. -->
+    <Binding name="CLICK FriendlyForeverBuffButton:LeftButton" category="ADDONS"/>
+</Bindings>

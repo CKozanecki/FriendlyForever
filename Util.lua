@@ -130,6 +130,29 @@ function Util.UnitFullName(unit)
     return Util.FullName(UnitName(unit))
 end
 
+-- Up to three values from a game function, for reads that may fail: each is
+-- nil when secret, and all are nil when the function is missing or throws.
+function Util.ReadGameValues(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, a, b, c = pcall(fn, ...)
+    if not ok then return nil end
+    if Util.IsSecret(a) then a = nil end
+    if Util.IsSecret(b) then b = nil end
+    if Util.IsSecret(c) then c = nil end
+    return a, b, c
+end
+
+-- A unit's class, only while the unit is still the expected player (unit
+-- tokens such as nameplates are reused): the name players read ("Mage") and
+-- the file name ("MAGE"), each nil when unknown.
+function Util.UnitClassIf(unit, expectedFullName)
+    if not unit or Util.UnitFullName(unit) ~= expectedFullName then return nil end
+    local name, file = Util.ReadGameValues(UnitClass, unit)
+    if type(name) ~= "string" or name == "" then name = nil end
+    if type(file) ~= "string" or file == "" then file = nil end
+    return name, file
+end
+
 -- A copy of a value, tables copied all the way down (plain data only).
 function Util.DeepCopy(value)
     if type(value) ~= "table" then return value end

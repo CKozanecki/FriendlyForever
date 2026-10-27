@@ -16,25 +16,31 @@ end
 function ns.SetEnabled(on)
     ns.db.enabled = on and true or false
     ns.RefreshEvents()
+    ns.BuffButton.Refresh()
     ns.Print(ns.db.enabled and "|cff00ff00enabled|r" or "|cffff4040disabled|r")
     ns.Minimap.Refresh()
     ns.Options.Refresh()
 end
 
+-- Back to defaults, keeping settings about this screen (the button's place).
 function ns.ResetType(msgType)
-    ns.db[msgType] = ns.Config.DefaultsFor(msgType)
+    local fresh = ns.Config.DefaultsFor(msgType)
+    for _, key in ipairs(ns.Profiles.LOCAL_ONLY[msgType] or {}) do fresh[key] = ns.db[msgType][key] end
+    ns.db[msgType] = fresh
     ns.RefreshEvents()
+    ns.BuffButton.Refresh()
 end
 
 local frame = CreateFrame("Frame")
 local handlers = {}
 
 -- UNIT_SPELLCAST_SUCCEEDED fires for every cast the client sees, and only
--- buff thanks use it, so it is registered only while they can be sent.
--- Call this whenever the master switch or Buff Thanks' switch changes.
+-- buff watching uses it (to name casters), so it is registered only while
+-- Buff Thanks or Buff Back is on. Call this whenever one of those switches
+-- or the master switch changes.
 function ns.RefreshEvents()
     if not ns.db then return end
-    if ns.db.enabled and ns.db.buff.enabled then
+    if ns.BuffTracker.Watching() then
         frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     else
         frame:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
@@ -57,7 +63,8 @@ function handlers.ADDON_LOADED(name)
     -- The game reads the file list only at start-up: after an update that
     -- added files, /reload runs the new code without them. Stay inert and
     -- say so, rather than erroring on every event.
-    for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window" }) do
+    for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
+        "BuffData", "Offers", "BuffButton" }) do
         if ns[module] == nil then
             ns.Print("|cffff4040this update added files. Restart the game (not /reload) to finish updating.|r")
             return
@@ -70,6 +77,7 @@ function handlers.ADDON_LOADED(name)
     ns.ChatQueue.Init()
     ns.Options.Create()
     ns.Minimap.Create()
+    ns.BuffButton.Create()
 
     Register("PLAYER_ENTERING_WORLD", function(isLogin, isReload)
         if isLogin or isReload then
@@ -150,8 +158,13 @@ local function StatusLines()
     add("skip while AFK: " .. OnOff(db.skipWhileAFK) .. " (" .. afkText .. ")")
     for _, msgType in ipairs(ns.Config.TYPES) do
         local cfg = db[msgType]
-        add(string.format("  %s: %s, delay %ss, repeat %ss", ns.Config.TYPE_INFO[msgType].label,
-            OnOff(cfg.enabled), cfg.delay, cfg.repeatCooldown))
+        local info = ns.Config.TYPE_INFO[msgType]
+        if info.noTiming then
+            add(string.format("  %s: %s", info.label, OnOff(cfg.enabled)))
+        else
+            add(string.format("  %s: %s, delay %ss, repeat %ss", info.label, OnOff(cfg.enabled), cfg.delay,
+                cfg.repeatCooldown))
+        end
     end
     local _, race, raceId = UnitRace("player")
     local faction = UnitFactionGroup("player")
@@ -194,6 +207,7 @@ function ns.BugReport()
     for _, line in ipairs(StatusLines()) do
         lines[#lines + 1] = (line:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
     end
+    for _, line in ipairs(ns.BuffButton.StatusLines()) do lines[#lines + 1] = line end
     local log = ns.db.diagLog
     lines[#lines + 1] = ""
     if #log == 0 then
@@ -320,6 +334,7 @@ function ns.SnoozeFor(minutes)
     end
     ns.Minimap.Refresh()
     ns.Options.Refresh()
+    ns.BuffButton.Refresh()
 end
 
 local function SnoozeCommand(args)
@@ -334,8 +349,15 @@ end
 
 function ns.LedgerSummaryText()
     local s = ns.Ledger.Summary()
-    return string.format("today: buffed by %d, thanked %d. All time: buffed by %d, thanked %d.",
-        s.todayReceived, s.todayThanked, s.received, s.thanked)
+    local text = string.format("today: buffed by %d, thanked %d, returned %d. "
+        .. "All time: buffed by %d, thanked %d, returned %d.",
+        s.todayReceived, s.todayThanked, s.todayReturned, s.received, s.thanked, s.returned)
+    local standing = ns.Ledger.Title()
+    if standing.title then text = text .. " Title: " .. standing.title .. "." end
+    if standing.nextTitle then
+        text = text .. string.format(" %d more to %s.", standing.returnsToNext, standing.nextTitle)
+    end
+    return text
 end
 
 local function LedgerCommand(args)
@@ -374,6 +396,18 @@ local function ProfileCommand(args)
     end
     if not done then ns.Print("profile: " .. why) end
     ns.Options.Refresh()
+end
+
+local function BuffBackCommand()
+    for _, line in ipairs(ns.BuffButton.StatusLines()) do ns.Print(ns.Diag.Safe(line)) end
+end
+
+local function MoveCommand()
+    local unlock = not ns.db.buffBack.unlocked
+    local ok, why = ns.BuffButton.SetUnlocked(unlock)
+    if not ok then return ns.Print("can't move the buff-back button: " .. why) end
+    ns.Print(unlock and "buff-back button unlocked: drag it, then /friendly move again to lock it."
+        or "buff-back button locked where it is.")
 end
 
 local function ImportCommand(args)
@@ -431,16 +465,28 @@ local commands = {
         ns.Print("/friendly profile [new | use | delete] <name> - switch between sets of settings")
         ns.Print("/friendly export | import [undo] - your settings as one line of text, to keep or share")
         ns.Print("/friendly report - status and debug log as text to copy into a bug report")
+        ns.Print("/friendly buffback - what the buff-back button holds and why")
+        ns.Print("/friendly move - unlock or lock the buff-back button to drag it")
     end,
     profile = ProfileCommand,
     export = function() ns.ShowExport() end,
     import = ImportCommand,
     report = function() ns.ShowBugReport() end,
+    buffback = BuffBackCommand,
+    move = MoveCommand,
     snooze = SnoozeCommand,
     ignore = IgnoreCommand,
     unignore = UnignoreCommand,
     ledger = LedgerCommand,
 }
+
+-- The command names, sorted (the README test checks each is documented).
+function ns.SlashCommandNames()
+    local names = {}
+    for name in pairs(commands) do names[#names + 1] = name end
+    table.sort(names)
+    return names
+end
 
 SLASH_FRIENDLYFOREVER1 = "/friendly"
 SLASH_FRIENDLYFOREVER2 = "/ffr"
@@ -453,7 +499,7 @@ SlashCmdList.FRIENDLYFOREVER = function(input)
     cmd = (cmd or ""):lower()
     local command = commands[cmd]
     if command then
-        command(args or "")
+        ns.Diag.Call(command, args or "")
     elseif cmd == "" then
         ns.Options.Open()
     else

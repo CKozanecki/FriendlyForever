@@ -37,6 +37,7 @@ function Ignore.Add(input)
         if n >= ns.Config.MAX_IGNORED then return nil, "the list is full (" .. n .. " names)" end
     end
     ns.db.ignore[Key(name)] = name
+    ns.Offers.Forget(name)
     return name
 end
 

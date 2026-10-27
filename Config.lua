@@ -14,10 +14,12 @@ local CasualMessages = ns.CasualMessages
 local Config = {}
 ns.Config = Config
 
+
 Config.SCHEMA_VERSION = 6
 Config.NUM_MESSAGES = 30
 Config.MAX_LOG = 400 -- diagnostic log lines kept in saved variables
 Config.MAX_IGNORED = 500
+Config.REPAIR_INTERVAL_SECONDS = 1 -- the shortest time between mid-session repairs (Config.Repair)
 Config.SNOOZE_MAX_SECONDS = 24 * 60 * 60
 Config.THANK_STYLES = { message = true, emote = true, both = true }
 
@@ -25,10 +27,11 @@ Config.LIMITS = {
     delay          = { min = 0, max = 60 },    -- seconds
     repeatCooldown = { min = 0, max = 3600 },  -- seconds
     unknownName    = { maxBytes = 24 },
+    owedMinutes    = { min = 1, max = 60 },  -- how long a favour stays on the buff-back button
 }
 
 -- Order of message types (also the order of the options tabs).
-Config.TYPES = { "guildLogin", "buff", "guildJoin", "partyJoin", "partyHello", "partyHelloAgain" }
+Config.TYPES = { "guildLogin", "buff", "guildJoin", "partyJoin", "partyHello", "partyHelloAgain", "buffBack" }
 
 Config.TYPE_INFO = {
     guildLogin = {
@@ -61,6 +64,16 @@ Config.TYPE_INFO = {
         label   = "Hello Again",
         channel = "Party chat",
         help    = "Said instead of Party Hello when you rejoin a group (same leader) this session.",
+    },
+    -- Not sent by itself: the line goes in the buff-back button's macro and is
+    -- said by your own press, so it has no delay or repeat cooldown.
+    buffBack = {
+        label   = "Buff Back",
+        channel = "/say, as you cast",
+        help    = "Said as you buff someone back with the buff-back button (if switched on). "
+            .. "Placeholders: {name}, {fullname}, {buff} (the spell you cast)",
+        noTiming = true,
+        enabledLabel = "Offer to buff back players who buff me",
     },
 }
 
@@ -116,7 +129,37 @@ Config.DEFAULTS = {
         repeatCooldown = 30,
         messages = DefaultMessages.partyHelloAgain,
     },
+    -- enabled: offer to buff back (show the button). sayLine: say a line as
+    -- you cast. No delay or repeat cooldown: the line is said by your press.
+    buffBack = {
+        enabled = true,
+        sayLine = false,
+        owedMinutes = 10,
+        unlocked = false,
+        position = { point = "CENTER", x = 0, y = -180 },
+        messages = DefaultMessages.buffBack,
+    },
 }
+
+-- Screen anchors a saved frame position may use.
+Config.ANCHORS = {
+    CENTER = true, TOP = true, BOTTOM = true, LEFT = true, RIGHT = true,
+    TOPLEFT = true, TOPRIGHT = true, BOTTOMLEFT = true, BOTTOMRIGHT = true,
+}
+Config.MAX_OFFSET = 4000 -- pixels from the anchor, either way
+
+-- A saved frame position { point, x, y }, checked; a copy of default if unusable.
+function Config.CleanPosition(position, default)
+    if type(position) ~= "table" or not Config.ANCHORS[position.point] then
+        return { point = default.point, x = default.x, y = default.y }
+    end
+    local limit = Config.MAX_OFFSET
+    return {
+        point = position.point,
+        x = Util.ClampNumber(type(position.x) == "number" and math.floor(position.x + 0.5) or nil, -limit, limit, 0),
+        y = Util.ClampNumber(type(position.y) == "number" and math.floor(position.y + 0.5) or nil, -limit, limit, 0),
+    }
+end
 
 local function CopyList(list)
     local out = {}
@@ -134,41 +177,56 @@ function Config.CleanUnknownName(text)
     return Util.Utf8Truncate(Util.StripChat(text), Config.LIMITS.unknownName.maxBytes)
 end
 
--- A clean copy of one type's settings: only the fields that type has, each
--- checked. Unknown keys (a hand-edited file, a pasted settings line) are
--- dropped, so nothing else can grow the saved file.
-local function ValidateType(saved, defaults)
-    local cfg, src = {}, type(saved) == "table" and saved or {}
-    for _, key in ipairs({ "enabled", "delay", "repeatCooldown", "messages",
-        "listBuffNames", "useWhisper", "fallbackToSay", "thankStyle", "unknownName" }) do
-        cfg[key] = src[key]
+-- How each field of a message type's settings is checked: function(value,
+-- default) -> the value to keep. Every field in Config.DEFAULTS must have one
+-- (spec/config_spec.lua checks), so a new field can't slip in unchecked.
+local function Bool(value, default)
+    if type(value) == "boolean" then return value end
+    return default
+end
+local function Limited(field)
+    return function(value, default)
+        local limits = Config.LIMITS[field]
+        return Util.ClampNumber(value, limits.min, limits.max, default)
     end
-    local limits = Config.LIMITS
-
-    if type(cfg.enabled) ~= "boolean" then cfg.enabled = defaults.enabled end
-    cfg.delay = Util.ClampNumber(cfg.delay, limits.delay.min, limits.delay.max, defaults.delay)
-    cfg.repeatCooldown = Util.ClampNumber(cfg.repeatCooldown,
-        limits.repeatCooldown.min, limits.repeatCooldown.max, defaults.repeatCooldown)
-
-    for _, flag in ipairs({ "listBuffNames", "useWhisper", "fallbackToSay" }) do
-        if defaults[flag] ~= nil and type(cfg[flag]) ~= "boolean" then cfg[flag] = defaults[flag] end
-    end
-    if defaults.thankStyle ~= nil and not Config.THANK_STYLES[cfg.thankStyle] then
-        cfg.thankStyle = defaults.thankStyle
-    end
-    if defaults.unknownName ~= nil then
-        cfg.unknownName = cfg.unknownName == nil and defaults.unknownName or Config.CleanUnknownName(cfg.unknownName)
-    end
-    for _, key in ipairs({ "listBuffNames", "useWhisper", "fallbackToSay", "thankStyle", "unknownName" }) do
-        if defaults[key] == nil then cfg[key] = nil end
-    end
-
-    if type(cfg.messages) ~= "table" then
-        cfg.messages = CopyList(defaults.messages)
-    else
+end
+Config.FIELD_VALIDATORS = {
+    enabled = Bool,
+    sayLine = Bool,
+    unlocked = Bool,
+    listBuffNames = Bool,
+    useWhisper = Bool,
+    fallbackToSay = Bool,
+    delay = Limited("delay"),
+    repeatCooldown = Limited("repeatCooldown"),
+    owedMinutes = Limited("owedMinutes"),
+    thankStyle = function(value, default) return Config.THANK_STYLES[value] and value or default end,
+    unknownName = function(value, default)
+        if value == nil then return default end
+        return Config.CleanUnknownName(value)
+    end,
+    position = function(value, default) return Config.CleanPosition(value, default) end,
+    messages = function(value, default)
+        if type(value) ~= "table" then return CopyList(default) end
         local clean = {}
-        for i = 1, Config.NUM_MESSAGES do clean[i] = Config.CleanMessage(cfg.messages[i]) end
-        cfg.messages = clean
+        for i = 1, Config.NUM_MESSAGES do clean[i] = Config.CleanMessage(value[i]) end
+        return clean
+    end,
+}
+
+-- A clean copy of one type's settings: exactly the fields its defaults have,
+-- each through its validator. Unknown keys (a hand-edited file, a pasted
+-- settings line) are dropped, so nothing else can grow the saved file.
+local function ValidateType(saved, defaults)
+    local src = type(saved) == "table" and saved or {}
+    local cfg = {}
+    for key, default in pairs(defaults) do
+        local validate = Config.FIELD_VALIDATORS[key]
+        if validate then
+            cfg[key] = validate(src[key], default)
+        else
+            cfg[key] = Util.DeepCopy(default) -- unreachable while the spec holds
+        end
     end
     return cfg
 end
@@ -197,7 +255,7 @@ local MIGRATIONS = {
             local cfg = db[msgType]
             if type(cfg) == "table" and type(cfg.messages) == "table" then
                 local old, new = CasualMessages[msgType], DefaultMessages[msgType]
-                for i = 1, Config.NUM_MESSAGES do
+                for i = 1, old and Config.NUM_MESSAGES or 0 do
                     if cfg.messages[i] ~= nil and cfg.messages[i] == old[i] then cfg.messages[i] = new[i] end
                 end
             end
@@ -217,7 +275,7 @@ local MIGRATIONS = {
         -- included) and fill the new slots with the 1.5.0 default lines.
         for _, msgType in ipairs(Config.TYPES) do
             local defaults, cfg = CasualMessages[msgType], db[msgType]
-            if type(cfg) == "table" and type(cfg.messages) == "table" then
+            if defaults and type(cfg) == "table" and type(cfg.messages) == "table" then
                 for i = 11, #defaults do
                     if cfg.messages[i] == nil then cfg.messages[i] = defaults[i] end
                 end
@@ -275,10 +333,9 @@ function Config.IgnoreEntry(key, value)
     if full and Config.IgnoreKey(full) == key then return full end
 end
 
-function Config.Load(saved)
-    local db = type(saved) == "table" and saved or {}
-    Config.Migrate(db)
-
+-- Everything in the saved file but the ledger (which checks itself as it's
+-- used, and whose live entries a full check would change: see Ledger.Data).
+local function ValidateSettings(db)
     if type(db.enabled) ~= "boolean" then db.enabled = true end
     if type(db.skipWhileAFK) ~= "boolean" then db.skipWhileAFK = Config.DEFAULTS.skipWhileAFK end
 
@@ -340,7 +397,6 @@ function Config.Load(saved)
     end
     db.ignore = ignore
 
-    db.ledger = ns.Ledger.Validate(db.ledger)
     ns.Profiles.Validate(db)
 
     -- Snooze: wall-clock time (time()) it ends, or nil.
@@ -351,7 +407,28 @@ function Config.Load(saved)
     else
         db.snoozeUntil = math.min(db.snoozeUntil, time() + Config.SNOOZE_MAX_SECONDS)
     end
+end
+
+-- The saved file as loaded: migrated, every value checked. Returns it.
+function Config.Load(saved)
+    local db = type(saved) == "table" and saved or {}
+    Config.Migrate(db)
+    ValidateSettings(db)
+    db.ledger = ns.Ledger.Validate(db.ledger)
     return db
+end
+
+-- Check the live settings again: after an error (Diag.OnError), since damage
+-- done mid-session (another addon, a bad /run) can cause one, so it heals at
+-- once instead of at the next reload. At most once a second, so an error
+-- repeating every frame doesn't re-check the whole file every frame.
+local lastRepairAt
+function Config.Repair()
+    if type(ns.db) ~= "table" then return end
+    local now = GetTime()
+    if lastRepairAt and now - lastRepairAt < Config.REPAIR_INTERVAL_SECONDS then return end
+    lastRepairAt = now
+    ValidateSettings(ns.db)
 end
 
 -- Fresh copy of one type's defaults.

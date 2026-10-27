@@ -1,5 +1,5 @@
--- The favour ledger: who buffed you, with what, and whether you thanked them
--- (and if not, why). Kept in the saved settings, newest last, with today's
+-- The favour ledger: who buffed you, with what, whether you thanked them
+-- (and if not, why), and whether you buffed them back. Kept in the saved settings, newest last, with today's
 -- counts and all-time totals. Only buffs from outside your group are favours:
 -- the same ones Buff Thanks looks at.
 local _, ns = ...
@@ -18,6 +18,17 @@ Ledger.PENDING = "pending"         -- the thank-you is still waiting to go out
 Ledger.THANKED = "thanked"
 Ledger.NOT_THANKED = "not thanked"
 local RESULTS = { [Ledger.PENDING] = true, [Ledger.THANKED] = true, [Ledger.NOT_THANKED] = true }
+
+-- Titles your manners earn, by favours returned. Highest reached is yours.
+Ledger.TITLES = {
+    { at = 10, title = "Courteous" },
+    { at = 25, title = "Well-Mannered" },
+    { at = 50, title = "Gracious" },
+    { at = 100, title = "Gallant" },
+    { at = 250, title = "Benevolent" },
+    { at = 500, title = "Paragon of Courtesy" },
+    { at = 1000, title = "Friend to All Azeroth" },
+}
 
 local function Today()
     return date("%Y-%m-%d")
@@ -55,9 +66,16 @@ function Ledger.Validate(saved)
                     local result = RESULTS[e.result] and e.result or Ledger.NOT_THANKED
                     -- A favour still pending when the game closed never got its thanks.
                     if result == Ledger.PENDING then result = Ledger.NOT_THANKED end
-                    entries[#entries + 1] = {
+                    local clean = {
                         t = math.floor(e.t), who = who, buffs = buffs, result = result, note = CleanText(e.note),
+                        returned = CleanText(e.returned), returnNote = CleanText(e.returnNote),
+                        cleared = e.cleared == true or nil,
                     }
+                    -- The same table, cleaned: a favour still owed holds it,
+                    -- and must still find it after a repair mid-session.
+                    for key in pairs(e) do e[key] = nil end
+                    for key, value in pairs(clean) do e[key] = value end
+                    entries[#entries + 1] = e
                 end
             end
         end
@@ -68,15 +86,33 @@ function Ledger.Validate(saved)
     local today = type(ledger.today) == "table" and ledger.today or {}
     return {
         entries = entries,
-        totals = { received = Count(totals.received), thanked = Count(totals.thanked) },
+        totals = { received = Count(totals.received), thanked = Count(totals.thanked),
+            returned = Count(totals.returned) },
         today = {
             day = type(today.day) == "string" and today.day or "",
-            received = Count(today.received), thanked = Count(today.thanked),
+            received = Count(today.received), thanked = Count(today.thanked), returned = Count(today.returned),
         },
     }
 end
 
+-- Whether the ledger has the shape the counting code relies on. Checked on
+-- every use (it's a few type checks), so damage done mid-session is
+-- repaired before it can break a count.
+local function Healthy(ledger)
+    if type(ledger) ~= "table" or type(ledger.entries) ~= "table" then return false end
+    local totals, today = ledger.totals, ledger.today
+    if type(totals) ~= "table" or type(today) ~= "table" or type(today.day) ~= "string" then return false end
+    for _, key in ipairs({ "received", "thanked", "returned" }) do
+        if type(totals[key]) ~= "number" or type(today[key]) ~= "number" then return false end
+    end
+    return true
+end
+
 local function Data()
+    if not Healthy(ns.db.ledger) then
+        ns.Diag.Log("ledger", "the ledger was damaged; repaired")
+        ns.db.ledger = Ledger.Validate(ns.db.ledger)
+    end
     return ns.db.ledger
 end
 
@@ -85,7 +121,7 @@ local function TodayCounts()
     local today = Data().today
     local day = Today()
     if today.day ~= day then
-        today.day, today.received, today.thanked = day, 0, 0
+        today.day, today.received, today.thanked, today.returned = day, 0, 0, 0
     end
     return today
 end
@@ -131,6 +167,42 @@ function Ledger.Settle(entry, thanked, note)
     end
 end
 
+-- You buffed them back with spell (its name).
+function Ledger.Returned(entry, spell)
+    if entry.returned then return end
+    entry.returned, entry.returnNote = CleanText(spell) or "a buff", nil
+    if entry.cleared then return end
+    local data = Data()
+    data.totals.returned = data.totals.returned + 1
+    local today = TodayCounts()
+    today.returned = today.returned + 1
+end
+
+-- Why a favour wasn't returned ("you let it go", "the time to return it ran out").
+function Ledger.NoteNotReturned(entry, note)
+    if entry.returned then return end
+    entry.returnNote = CleanText(note)
+end
+
+-- Your standing: { title (nil before the first), nextTitle (nil at the top),
+-- returnsToNext (favours still to return for it) }.
+function Ledger.Title()
+    local returned = Data().totals.returned
+    local title, nextTitle
+    for _, t in ipairs(Ledger.TITLES) do
+        if returned >= t.at then
+            title = t.title
+        elseif not nextTitle then
+            nextTitle = t
+        end
+    end
+    return {
+        title = title,
+        nextTitle = nextTitle and nextTitle.title,
+        returnsToNext = nextTitle and (nextTitle.at - returned),
+    }
+end
+
 function Ledger.Clear()
     for _, e in ipairs(Data().entries) do e.cleared = true end
     ns.db.ledger = Ledger.Validate(nil)
@@ -140,8 +212,8 @@ function Ledger.Summary()
     local data = Data()
     local today = TodayCounts()
     return {
-        todayReceived = today.received, todayThanked = today.thanked,
-        received = data.totals.received, thanked = data.totals.thanked,
+        todayReceived = today.received, todayThanked = today.thanked, todayReturned = today.returned,
+        received = data.totals.received, thanked = data.totals.thanked, returned = data.totals.returned,
         stored = #data.entries,
     }
 end
@@ -168,6 +240,11 @@ function Ledger.Lines(limit)
         local buffs = #e.buffs > 0 and Util.JoinList(e.buffs) or "a buff"
         local result = e.result
         if e.result == Ledger.NOT_THANKED and e.note then result = result .. " (" .. e.note .. ")" end
+        if e.returned then
+            result = result .. ", returned " .. e.returned
+        elseif e.returnNote then
+            result = result .. ", not returned (" .. e.returnNote .. ")"
+        end
         out[#out + 1] = string.format("%s - %s - %s - %s", Ledger.WhoText(e.who), buffs, result,
             Ledger.Ago(math.max(0, now - e.t)))
     end
