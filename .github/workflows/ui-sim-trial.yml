@@ -196,12 +196,12 @@ jobs:
             ${{ runner.temp }}/sim/target
           key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui
 
-      - name: Build a render image (Mesa software drivers, virtual display)
+      - name: Build a render image (Mesa software drivers)
         run: |
           docker build -t ff-render - <<DOCKERFILE
           FROM $RENDER_BASE
           RUN apt-get update -q && apt-get install -yq --no-install-recommends \
-                libicu74 libegl1 libgl1-mesa-dri libglx-mesa0 mesa-vulkan-drivers xvfb xauth fonts-dejavu-core \
+                libicu74 libegl1 libgl1-mesa-dri libglx-mesa0 mesa-vulkan-drivers fonts-dejavu-core \
               && rm -rf /var/lib/apt/lists/*
           DOCKERFILE
 
@@ -213,24 +213,24 @@ jobs:
           # Each shot runs as a detached container capped at 6 GB and 3 CPUs,
           # so a runaway render can't starve the runner. It's watched every
           # 5 s, shows progress every 30 s, and is killed after 3 minutes.
-          # --init: xvfb-run waits for a signal from Xvfb that never arrives
-          # when it is the container's first process (the last run sat idle).
-          # how: "xvfb" runs under a virtual display, "direct" without one.
+          # It renders off screen (no virtual display: xvfb-run sat idle under
+          # Docker), as the runner's own user so it can write the PNG into the
+          # runner's folder (with every capability dropped, root can't), with
+          # HOME in the container's /tmp and Blizzard's UI where it looks.
           shoot() {
-            local name="$1" how="$2"; shift 2
-            local wrap=()
-            [ "$how" = xvfb ] && wrap=(xvfb-run -a -e "/shots/$name.xvfb.log")
+            local name="$1"; shift
             local cid
             cid=$(docker run -d --init --network none --cap-drop ALL --security-opt no-new-privileges \
+              --user "$(id -u):$(id -g)" -e HOME=/tmp -e XDG_RUNTIME_DIR=/tmp \
               --memory 6g --memory-swap 6g --cpus 3 --pids-limit 4096 \
               -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 -e WOW_SIM_NO_SAVED_VARS=1 \
               -e WOW_SIM_CASC=0 -e WOW_SIM_VERBOSE=1 \
               -e LIBGL_ALWAYS_SOFTWARE=1 -e WOW_SIM_SOFTWARE_RENDER=1 -e WGPU_BACKEND=gl \
               -v "$RUNNER_TEMP/sim/target/release:/sim:ro" \
-              -v "$RUNNER_TEMP/blizzard-ui/Interface/AddOns:/root/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
+              -v "$RUNNER_TEMP/blizzard-ui/Interface/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
               -v "$RUNNER_TEMP/addons:/test-addons:ro" \
               -v "$RUNNER_TEMP/shots:/shots" \
-              ff-render "${wrap[@]}" /sim/wow-sim --addons-path /test-addons "$@" \
+              ff-render /sim/wow-sim --addons-path /test-addons "$@" \
               screenshot --png --width 1024 --height 768 -o "/shots/$name.png")
             local waited=0 result="timed out after 180 s"
             while [ "$waited" -lt 180 ]; do
@@ -260,9 +260,10 @@ jobs:
           sleep 10
           docker logs "$probe" 2>&1 | head -40 | sed 's/^/  probe> /'
           docker rm -f "$probe" >/dev/null 2>&1 || true
-          shoot game-direct direct
-          shoot game xvfb
-          shoot options xvfb --exec-lua "SlashCmdList.FRIENDLYFOREVER('')"
+          shoot game
+          shoot options --exec-lua "SlashCmdList.FRIENDLYFOREVER('')"
+          # /friendly move shows the buff back button, unlocked, with nobody owed.
+          shoot button --exec-lua "SlashCmdList.FRIENDLYFOREVER('move')"
           ls -la "$RUNNER_TEMP/shots"
           for log in "$RUNNER_TEMP"/shots/*.log; do
             echo "::group::$(basename "$log")"; tail -60 "$log"; echo "::endgroup::"
