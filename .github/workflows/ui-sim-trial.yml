@@ -58,8 +58,12 @@ jobs:
 
       - name: Run the simulator (no network, addon read-only)
         run: |
+          # Our TOC is for Forever (interface 16001); the simulator runs the
+          # retail 12.1.5 UI that Forever's is built on, so load it the way
+          # the game's "Load out of date AddOns" box would.
           sandbox() {
             docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
+              -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 \
               -v "$RUNNER_TEMP/addons:/test-addons:ro" "$IMAGE" --addons-path /test-addons "$@"
           }
           sandbox lua-errors > "$RUNNER_TEMP/report/lua-errors.json" 2> "$RUNNER_TEMP/report/lua-errors.log" || true
