@@ -27,6 +27,10 @@ Every change can be traced from its spec to its code, tests, pull request and re
 - **Changelog** entries are bullets, one per change, and end with the issues they come from: `(#27)`, or `(#27, #52)` for several. Notes about the whole release are bullets too and carry every issue that caused them. Text that isn't a bullet isn't checked. A repo test checks every entry under `### Unreleased`, and every entry of the released version once it's past 1.6.0. The release notes on CurseForge leave the tags out.
 - **Releases:** after tagging, the maintainer creates a GitHub release for the tag with **Generate release notes**, which lists the pull requests and the issues they closed.
 
+### Review loops
+
+Pull requests written by Claude go through two review loops before the maintainer's review: a Lua architecture review, then a Lua testing review, each repeated until it approves. Every finding is fixed. Reviewers report only real problems, things that would actually go wrong for the addon, its players or its releases, and never invent issues or stretch for unrealistic edge cases to keep a loop going. "Everything is OK" is a perfectly good review when it's true.
+
 ### Ready for review
 
 A pull request is **ready for review** when all of these hold:
