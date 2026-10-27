@@ -480,6 +480,14 @@ local commands = {
     ledger = LedgerCommand,
 }
 
+-- The command names, sorted (the README test checks each is documented).
+function ns.SlashCommandNames()
+    local names = {}
+    for name in pairs(commands) do names[#names + 1] = name end
+    table.sort(names)
+    return names
+end
+
 SLASH_FRIENDLYFOREVER1 = "/friendly"
 SLASH_FRIENDLYFOREVER2 = "/ffr"
 SlashCmdList.FRIENDLYFOREVER = function(input)
