@@ -23,19 +23,11 @@ end
 -- The entry with its well-formed tag (and the space before it) taken off,
 -- as the release notes show it; anything else is left as written.
 function Changelog.WithoutTag(entry)
+    if type(entry) ~= "string" then return entry end
     -- By form alone, as release-notes.sh's sed does: "(#27, #27)" goes too.
     local inside = entry:match(" %(([^()]*)%)%s*$")
     if not inside or (inside .. ", "):gsub("#[1-9]%d*, ", "") ~= "" then return entry end
     return (entry:gsub(" %([^()]*%)%s*$", ""))
-end
-
--- How many times a heading line appears.
-function Changelog.CountHeading(text, heading)
-    local count = 0
-    for _, line in ipairs(Changelog.Lines(text)) do
-        if line:gsub("%s+$", "") == heading then count = count + 1 end
-    end
-    return count
 end
 
 -- Whether a line starts a section of its own: a release ("## 1.7.0") or
@@ -48,6 +40,15 @@ end
 local function StartsSection(line)
     local heading = Heading(line)
     return heading ~= nil and (heading:match("^## ") ~= nil or heading == "### Unreleased")
+end
+
+-- How many times a heading line appears (indented or not, as Section reads it).
+function Changelog.CountHeading(text, heading)
+    local count = 0
+    for _, line in ipairs(Changelog.Lines(text)) do
+        if Heading(line) == heading then count = count + 1 end
+    end
+    return count
 end
 
 -- The lines with Windows line endings removed.
@@ -89,6 +90,7 @@ end
 -- is its first line's index in lines, last its last line's text.
 function Changelog.Entries(lines)
     local entries, parts, current, inSubBullet = {}, {}, nil, false
+    if type(lines) ~= "table" then return entries end
     -- Each entry's lines are gathered in a list and joined once (joining as
     -- they come would take time growing with the square of the length).
     local function finish()
@@ -100,7 +102,7 @@ function Changelog.Entries(lines)
             current, inSubBullet = { line = index, last = line }, false
             parts[current] = { line }
             entries[#entries + 1] = current
-        elseif not line:match("%S") or line:match("^#") then
+        elseif not line:match("%S") or (line:match("^ ? ? ?#+[ \t]") or line:match("^ ? ? ?#+$")) then
             finish()
             current = nil
         elseif current and (line:match("^%s+[-*+][ \t]") or line:match("^%s+%d+[.)][ \t]")) then
@@ -132,6 +134,7 @@ end
 -- "line N: ...end of the entry" for each untagged entry, for a failure message.
 function Changelog.Describe(untagged)
     local out = {}
+    if type(untagged) ~= "table" then return "" end
     for _, entry in ipairs(untagged) do
         out[#out + 1] = ("line %d: ...%s"):format(entry.line, entry.text:sub(-60))
     end
@@ -161,6 +164,7 @@ end
 
 -- Whether version a ("1.7.0") comes after version b.
 function Changelog.IsLater(a, b)
+    if type(a) ~= "string" or type(b) ~= "string" then return false end
     local function parts(version)
         local list = {}
         for number in version:gmatch("%d+") do list[#list + 1] = tonumber(number) end
