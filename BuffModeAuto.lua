@@ -4,7 +4,8 @@
 -- Turns on (off by default: lending a key by surprise would confuse):
 --   joining a group or raid;
 --   a group member dying, after the group's first pull (until the next one);
---   someone outside your group buffing you.
+--   someone outside your group buffing you (a group member's buff isn't a
+--   favour, so it doesn't count).
 -- Turns off (on by default), but only buff mode a trigger turned on, never
 -- buff mode you turned on yourself:
 --   the first pull (PLAYER_REGEN_DISABLED);
@@ -19,7 +20,10 @@ local Auto = {}
 ns.BuffModeAuto = Auto
 
 local frame
+local ready = false      -- the login (or reload) has finished: the roster is real
 local inGroup = false    -- in a group at the last roster update
+local fighting = false   -- between PLAYER_REGEN_DISABLED and _ENABLED
+local dead = {}          -- [name] = true for group members last seen dead
 local pulled = false     -- this group has fought since you joined it
 local deathSeen = false  -- a group member died during this fight
 local pendingWhy         -- a trigger that fired in a fight, to act on after it
@@ -74,7 +78,7 @@ local function StartTimeout()
 end
 
 local function TurnOn(why)
-    if InCombatLockdown() then
+    if fighting or InCombatLockdown() then
         pendingWhy = pendingWhy or why
         return
     end
@@ -85,8 +89,37 @@ local function TurnOn(why)
     if ns.BuffMode.IsAuto() then StartTimeout() end
 end
 
+local function GroupUnitNames()
+    local out = {}
+    local prefix, count = "party", 4
+    if ns.Util.ReadGameValues(IsInRaid) == true then prefix, count = "raid", 40 end
+    for i = 1, count do
+        local unit = prefix .. i
+        local name = ns.Util.UnitFullName(unit)
+        if name then out[name] = unit end
+    end
+    return out
+end
+
+-- Who in the group is dead now, so only a death from here on counts (a
+-- member who joins dead, or releases as a ghost, isn't a new death).
+local function NoteWhoIsDead()
+    local now = {}
+    for name, unit in pairs(GroupUnitNames()) do
+        if ns.Util.ReadGameValues(UnitIsDeadOrGhost, unit) == true then now[name] = true end
+    end
+    dead = now
+end
+
 function Auto.OnRosterUpdate()
     local nowIn = InGroup()
+    NoteWhoIsDead()
+    -- Before the login finishes the roster isn't loaded: being in a group
+    -- then isn't joining one (buff mode is off after a login).
+    if not ready then
+        inGroup = nowIn
+        return
+    end
     if nowIn and not inGroup then
         pulled = false
         if Cfg().autoOnJoin == true then TurnOn("you joined a group") end
@@ -96,11 +129,24 @@ function Auto.OnRosterUpdate()
     inGroup = nowIn
 end
 
+-- PLAYER_ENTERING_WORLD on a login or reload: the group as it is now is
+-- where we start, not a group joined.
+function Auto.OnEnteringWorld(isLogin, isReload)
+    if not (isLogin or isReload) then return end
+    ready = true
+    inGroup = InGroup()
+    pulled, deathSeen, pendingWhy = false, false, nil
+    NoteWhoIsDead()
+end
+
+-- PLAYER_REGEN_DISABLED. The button empties itself for the fight in the
+-- same event, so buff mode ends without refreshing it (EndForFight).
 function Auto.OnCombatStart()
+    fighting = true
     if inGroup then pulled = true end
     deathSeen, pendingWhy = false, nil
     if Cfg().autoOffPull == true and ns.BuffMode.IsAuto() then
-        ns.BuffMode.Set(false, { why = "the fight started" })
+        ns.BuffMode.EndForFight("the fight started")
     end
 end
 
@@ -109,6 +155,7 @@ local function OnDeath()
 end
 
 function Auto.OnCombatEnd()
+    fighting = false
     local why = pendingWhy
     pendingWhy = nil
     if deathSeen then
@@ -118,9 +165,17 @@ function Auto.OnCombatEnd()
     if why then TurnOn(why) end
 end
 
+-- A death is a member going from alive to dead: a ghost's health changing
+-- (releasing, say) isn't another one.
 function Auto.OnUnitHealth(unit)
-    if not IsGroupUnit(unit) or ns.Util.ReadGameValues(UnitIsDeadOrGhost, unit) ~= true then return end
-    if InCombatLockdown() then
+    if not IsGroupUnit(unit) then return end
+    local name = ns.Util.UnitFullName(unit)
+    if not name then return end
+    local isDead = ns.Util.ReadGameValues(UnitIsDeadOrGhost, unit)
+    if isDead == false then dead[name] = nil end
+    if isDead ~= true or dead[name] then return end
+    dead[name] = true
+    if fighting or InCombatLockdown() then
         deathSeen = true
     else
         OnDeath()
@@ -138,6 +193,7 @@ function Auto.Create()
     frame = CreateFrame("Frame")
     local handlers = {
         GROUP_ROSTER_UPDATE = Auto.OnRosterUpdate,
+        PLAYER_ENTERING_WORLD = Auto.OnEnteringWorld,
         PLAYER_REGEN_DISABLED = Auto.OnCombatStart,
         PLAYER_REGEN_ENABLED = Auto.OnCombatEnd,
         UNIT_HEALTH = Auto.OnUnitHealth,

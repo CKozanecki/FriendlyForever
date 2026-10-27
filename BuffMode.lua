@@ -152,6 +152,16 @@ function BuffMode.Set(on, how)
     end
 end
 
+-- A fight is starting and a trigger's buff mode ends with it. Called during
+-- PLAYER_REGEN_DISABLED: it hands the key back but doesn't refresh the
+-- button, which must stay empty for the fight (BuffButton.OnCombatStart).
+function BuffMode.EndForFight(why)
+    if not (wanted and auto) then return end
+    wanted, auto = false, false
+    if not InCombatLockdown() then HandBack() end
+    ns.Print("buff mode off (" .. why .. ").")
+end
+
 -- Whether buff mode is on because a trigger turned it on.
 function BuffMode.IsAuto() return wanted and auto end
 

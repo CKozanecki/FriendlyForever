@@ -8,7 +8,7 @@
 - New **Buff Back** tab: offer on or off, how long favours are offered, and an optional line to say once your buff lands (30 editable lines, off by default). (#27, #57)
 - **Buff mode:** lend the buff back button a key while it's on, the mouse wheel by default, and give the key back when it ends. Switch it with `/friendly buffmode` or its own key binding; choose the key on the **Buff Back** tab. (#28)
 - In buff mode, the button also buffs party and raid members missing your buffs, one per press, with the same safety rules as buff back. (#30)
-- Buff mode can turn itself on (when you join a group, after a death in your group, or when someone buffs you; each off by default) and off again (at the first pull, once everyone has your buffs, or after a timeout). (#29)
+- Buff mode can turn itself on (when you join a group, after a death in your group, or when someone outside your group buffs you; each off by default) and off again (at the first pull, once everyone has your buffs, or after a timeout). (#29)
 - On the **Buff Back** tab, put your class's buffs in the order you want them offered, and mark any **Never offer**. (#31)
 - The favour ledger counts favours you returned and gives titles for them, from Courteous at 10 to Friend to All Azeroth at 1,000. (#27)
 - New default lines for every message type, in a Warcraft fantasy voice. Saved lines still on the old defaults are switched to the new ones; lines you edited are kept. The old lines are still there: each tab's **Load casual lines (1.6)** button puts them back. (#52)

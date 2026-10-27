@@ -148,6 +148,42 @@ describe("Buff mode turning on and off by itself", function()
             assert.is_false(printedHas("buff mode"))
         end)
 
+        it("doesn't count a group you were already in at login as joining one", function()
+            ns = wow.boot({ db = { buffBack = { autoOnJoin = true } }, before = function(state)
+                state.class = "DRUID"
+                state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
+                -- The roster arrives after the addon loads, as it does in the game.
+                local f = CreateFrame("Frame")
+                f:RegisterEvent("PLAYER_ENTERING_WORLD")
+                f:SetScript("OnEvent", function()
+                    -- ...with its update before the addon has seen the login finish.
+                    wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+                    wow.fire("GROUP_ROSTER_UPDATE")
+                end)
+            end })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_false(ns.BuffMode.IsOn(), "buff mode is off after a login")
+        end)
+
+        it("counts a death once: a ghost's health changing isn't another", function()
+            ns.db.buffBack.autoOnDeath = true
+            join()
+            wow.enterCombat()
+            dies("party1")
+            wow.leaveCombat()
+            assert.is_true(ns.BuffMode.IsAuto())
+            wow.enterCombat() -- the next pull ends it
+            wow.fire("UNIT_HEALTH", "party1") -- they release: still dead, as a ghost
+            wow.leaveCombat()
+            assert.is_false(ns.BuffMode.IsOn(), "nobody died in that fight")
+            wow.fire("UNIT_HEALTH", "party1")
+            assert.is_false(ns.BuffMode.IsOn())
+            wow.state.units.party1.dead = false -- rezzed
+            wow.fire("UNIT_HEALTH", "party1")
+            dies("party1") -- and dies again
+            assert.is_true(ns.BuffMode.IsAuto(), "a new death counts")
+        end)
+
         it("is switched in the Buff Back tab", function()
             local w = ns.Options.widgets
             wow.run(w.tabs.buffBack, "OnClick")
@@ -178,6 +214,34 @@ describe("Buff mode turning on and off by itself", function()
             assert.is_false(ns.BuffMode.IsOn())
             assert.is_nil(lent())
             assert.is_true(printedHas("buff mode off (everyone has your buffs)."))
+        end)
+
+        it("isn't kept on by a member it can't buff anyway (offline, out of sight, or skipped)", function()
+            wow.setGroup("party", { "Ann-Vale", "Cid-Rock", "Dot-Fern" })
+            wow.state.units.party2.offline = true
+            wow.state.units.party3.hidden = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(ns.BuffMode.IsOn(), "Ann needs it")
+            scroll()
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_true(printedHas("(everyone has your buffs)"))
+        end)
+
+        it("ends at the pull without arming the button for the fight, even with a favour owed", function()
+            ns.db.buffBack.autoOnJoin = false
+            ns.db.buffBack.autoOnBuffed = true
+            wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", class = "WARRIOR", id = "Bob-Stone" })
+            wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
+            assert.is_true(ns.BuffMode.IsAuto())
+            assert.is_truthy(ns.BuffButton.ArmedOffer(), "the favour is armed before the pull")
+            wow.enterCombat()
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_nil(ns.BuffButton.ArmedOffer(), "empty for the fight")
+            local button = ns.BuffButton.Frame()
+            assert.is_nil(button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText))
+            assert.is_false(button:IsShown())
+            assert.is_true(printedHas("buff mode off (the fight started)."))
+            assert.are.same({}, wow.errors)
         end)
 
         it("turns off after the timeout, and never with 0", function()
