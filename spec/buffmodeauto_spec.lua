@@ -279,6 +279,38 @@ describe("Buff mode turning on and off by itself", function()
             assert.is_true(ns.BuffMode.IsAuto(), "Cid needs it when he's back in range")
         end)
 
+        it("is kept on by a member whose PvP flag can't be read, or whose cast was just refused", function()
+            wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+            wow.state.units.party1.auras = { MOTW }
+            wow.state.units.party2.secrets = { pvp = true }
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(ns.BuffMode.IsAuto(), "unreadable flag: may still need it")
+
+            boot()
+            ns.db.buffBack.autoOnJoin = true
+            join()
+            wow.state.castFailures["Cid-Rock"] = "Target not in line of sight"
+            scroll() -- Ann
+            wow.pressKey("MOUSEWHEELUP") -- Cid: refused
+            assert.is_true(ns.BuffMode.IsOn(), "Cid still needs it once he's in sight")
+        end)
+
+        it("isn't kept on by a member flagged for PvP when you aren't, or one you right-clicked away", function()
+            wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+            wow.state.units.party2.pvp = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            scroll()
+            assert.is_false(ns.BuffMode.IsOn(), "flagged: nothing you'd do")
+            assert.is_true(printedHas("(everyone has your buffs)"))
+
+            boot()
+            ns.db.buffBack.autoOnJoin = true
+            join()
+            scroll() -- Ann
+            wow.press(ns.BuffButton.Frame(), "RightButton") -- skip Cid
+            assert.is_false(ns.BuffMode.IsOn(), "skipped: you chose not to")
+        end)
+
         it("is kept on by a member whose name can't be read", function()
             wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
             wow.state.units.party1.auras = { MOTW }
