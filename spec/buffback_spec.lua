@@ -1,4 +1,4 @@
--- Spec: #27
+-- Spec: #27, #57
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -338,37 +338,36 @@ describe("Buff back", function()
 
         it("clears your target, targets them by exact name, casts only on a friendly living target", function()
             assert.are.equal(MACRO .. "/cleartarget",
-                ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", nil, false))
+                ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", false))
         end)
 
         it("gives you your target back when you had one", function()
             assert.are.equal(MACRO .. "/targetlasttarget",
-                ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", nil, true))
-        end)
-
-        it("says the line after the cast", function()
-            assert.are.equal(MACRO .. "/s Here you go!\n/targetlasttarget",
-                ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", "Here you go!", true))
+                ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", true))
         end)
 
         it("refuses any part that could end its line or start a command", function()
             local build = ns.BuffButton.BuildCastMacro
-            assert.is_nil(build("Bob-Stone", "Mark\n/cast Pyroblast", nil, false))
-            assert.is_nil(build("Bob-Stone", "Mark of the Wild", "hi\n/dance", false))
-            assert.is_nil(build("Bob-Stone", "Mark of the Wild", "/yell boo", false))
-            assert.is_nil(build("Bob-Stone", "Mark of the Wild", "a |cffff0000red|r line", false))
-            assert.is_nil(build("Bob-Stone", "", nil, false))
+            assert.is_nil(build("Bob-Stone", "Mark\n/cast Pyroblast", false))
+            assert.is_nil(build("Bob\n/dance-Stone", "Mark of the Wild", false))
+            assert.is_nil(build("Bob-Stone", "/yell boo", false))
+            assert.is_nil(build("Bob-Stone", "a |cffff0000red|r spell", false))
+            assert.is_nil(build("Bob-Stone", "", false))
         end)
 
-        it("refuses macro option syntax in a name or spell, but allows it in the line", function()
+        it("refuses macro option syntax in a name or spell", function()
             local build = ns.BuffButton.BuildCastMacro
-            assert.is_nil(build("Bob-Stone", "Mark of the Wild; Pyroblast", nil, false))
-            assert.is_nil(build("Bob-Stone", "[harm] Mark", nil, false))
-            assert.is_truthy(build("Bob-Stone", "Mark of the Wild", "Well met; safe travels [friend]", false))
+            assert.is_nil(build("Bob-Stone", "Mark of the Wild; Pyroblast", false))
+            assert.is_nil(build("Bob-Stone", "[harm] Mark", false))
+            assert.is_nil(build("Bob[x]-Stone", "Mark of the Wild", false))
         end)
 
         it("refuses a macro longer than 255 characters", function()
-            assert.is_nil(ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", string.rep("x", 250), false))
+            assert.is_nil(ns.BuffButton.BuildCastMacro("Bob-Stone", string.rep("x", 250), false))
+        end)
+
+        it("never says anything itself: the line isn't part of the macro", function()
+            assert.is_nil(ns.BuffButton.BuildCastMacro("Bob-Stone", "Mark of the Wild", true):find("/s", 1, true))
         end)
     end)
 
@@ -646,14 +645,85 @@ describe("Buff back", function()
             assert.are.equal(0, writes)
         end)
 
-        it("says a line as you cast, when switched on", function()
+        -- The line waits in the chat queue after a confirmed return; /say
+        -- goes out on the next key press (the game needs one for /say).
+        local function nextKey()
+            wow.advance(0)
+            wow.keyDown()
+        end
+
+        it("says a line once the game confirms the buff reached them, on your next key press", function()
             ns.db.buffBack.sayLine = true
             ns.db.buffBack.messages = { "For you, {name}: {buff}!" }
             stranger()
             buffedBy()
-            assert.is_truthy(macro():find("\n/s For you, Bob: Mark of the Wild!\n", 1, true))
+            assert.is_nil(macro():find("/s", 1, true), "nothing said by the macro")
             wow.press(button)
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned)
+            assert.are.same({}, wow.sentTo("SAY"), "not with the press itself")
+            nextKey()
             assert.are.same({ "For you, Bob: Mark of the Wild!" }, wow.sentTo("SAY"))
+            nextKey()
+            assert.are.equal(1, #wow.sentTo("SAY"), "said once")
+        end)
+
+        it("says nothing when the line is off (the default)", function()
+            ns.db.buffBack.messages = { "For you, {name}!" }
+            stranger()
+            buffedBy()
+            wow.press(button)
+            nextKey()
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned)
+            assert.are.same({}, wow.sentTo("SAY"))
+        end)
+
+        it("says nothing for a press that casts nothing", function()
+            ns.db.buffBack.sayLine = true
+            ns.db.buffBack.messages = { "For you, {name}!" }
+            stranger("nameplate9")
+            buffedBy("nameplate9")
+            wow.state.units.nameplate9 = nil -- they walked off
+            wow.press(button)
+            nextKey()
+            assert.are.equal(0, #wow.casts)
+            assert.are.same({}, wow.sentTo("SAY"))
+        end)
+
+        it("says nothing when the cast went to someone else, failed, or the favour had gone", function()
+            ns.db.buffBack.sayLine = true
+            ns.db.buffBack.messages = { "For you, {name}!" }
+            stranger()
+            buffedBy()
+            button.scripts.PreClick(button, "LeftButton", true)
+            ns.BuffButton.OnSpellcastSent("player", "Ann Vale", "Cast-1", MOTW)
+            ns.BuffButton.OnSpellcastSucceeded("player", "Cast-1", MOTW)
+            nextKey()
+            assert.are.same({}, wow.sentTo("SAY"), "went to someone else")
+
+            button.scripts.PreClick(button, "LeftButton", true)
+            ns.BuffButton.OnSpellcastSent("player", "Bob Stone", "Cast-2", MOTW)
+            ns.BuffButton.OnSpellcastFailed("player", "Cast-2", MOTW)
+            nextKey()
+            assert.are.same({}, wow.sentTo("SAY"), "failed")
+
+            button.scripts.PreClick(button, "LeftButton", true)
+            ns.BuffButton.OnSpellcastSent("player", "Bob Stone", "Cast-3", MOTW)
+            ns.Offers.LetGo("Bob-Stone")
+            ns.BuffButton.OnSpellcastSucceeded("player", "Cast-3", MOTW)
+            nextKey()
+            assert.are.same({}, wow.sentTo("SAY"), "no favour was waiting")
+        end)
+
+        it("says nothing when the game didn't say who the cast reached", function()
+            ns.db.buffBack.sayLine = true
+            ns.db.buffBack.messages = { "For you, {name}!" }
+            stranger()
+            buffedBy()
+            button.scripts.PreClick(button, "LeftButton", true)
+            ns.BuffButton.OnSpellcastSent("player", nil, "Cast-1", MOTW)
+            ns.BuffButton.OnSpellcastSucceeded("player", "Cast-1", MOTW)
+            nextKey()
+            assert.are.same({}, wow.sentTo("SAY"))
         end)
 
         it("doesn't say the line while snoozed or AFK", function()
@@ -663,6 +733,7 @@ describe("Buff back", function()
             buffedBy()
             ns.Announcer.Snooze(15)
             wow.press(button)
+            nextKey()
             assert.are.same({}, wow.sentTo("SAY"))
             assert.are.equal(1, #wow.casts, "the cast still goes")
             ns.Announcer.Snooze(nil)
@@ -670,26 +741,57 @@ describe("Buff back", function()
             buffedBy("nameplate2")
             wow.state.afk = true
             wow.press(button)
+            nextKey()
+            assert.are.equal(2, #wow.casts)
             assert.are.same({}, wow.sentTo("SAY"))
         end)
 
-        it("keeps the same line while re-arming, so the rotation isn't used up", function()
+        it("drops the line if it's switched off, or they're ignored, before your next key press", function()
+            ns.db.buffBack.messages = { "For you, {name}!" }
             ns.db.buffBack.sayLine = true
-            ns.db.buffBack.messages = { "One {name}", "Two {name}" }
             stranger()
             buffedBy()
-            local first = macro()
-            wow.fire("PLAYER_TARGET_CHANGED")
-            wow.fire("PLAYER_TARGET_CHANGED")
-            assert.are.equal(first, macro())
+            wow.press(button)
+            wow.advance(0)
+            ns.db.buffBack.sayLine = false
+            wow.keyDown()
+            assert.are.same({}, wow.sentTo("SAY"), "switched off")
+
+            ns.db.buffBack.sayLine = true
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2")
+            wow.press(button)
+            wow.advance(0)
+            ns.Ignore.Add("Ann-Vale")
+            wow.keyDown()
+            assert.are.same({}, wow.sentTo("SAY"), "ignored")
         end)
 
-        it("skips a line that starts a command or won't fit, and casts anyway", function()
+        it("drops the line when no key is pressed for too long", function()
+            ns.db.buff.enabled = false -- no thank-you for their buff in /say meanwhile
             ns.db.buffBack.sayLine = true
-            ns.db.buffBack.messages = { "/yell {name}", string.rep("long ", 60) }
+            ns.db.buffBack.messages = { "For you, {name}!" }
             stranger()
             buffedBy()
-            assert.is_nil(macro():find("/s ", 1, true))
+            wow.press(button)
+            wow.advance(ns.BuffTracker.SAY_MAX_AGE + 1)
+            wow.keyDown()
+            assert.are.same({}, wow.sentTo("SAY"))
+        end)
+
+        it("says the line after a slow server answer", function()
+            ns.db.buff.enabled = false -- no thank-you for their buff in /say meanwhile
+            wow.state.castLatency = 2
+            ns.db.buffBack.sayLine = true
+            ns.db.buffBack.messages = { "For you, {name}!" }
+            stranger()
+            buffedBy()
+            wow.press(button)
+            nextKey()
+            assert.are.same({}, wow.sentTo("SAY"), "not before the answer")
+            wow.advance(2)
+            nextKey()
+            assert.are.same({ "For you, Bob!" }, wow.sentTo("SAY"))
         end)
 
         it("empties when the addon is switched off, and when the favour's player is ignored", function()
@@ -1169,11 +1271,13 @@ describe("Buff back", function()
     describe("chaos (red tests)", function()
         -- A seeded storm of everything that can happen around the button, in
         -- random order: it must never error, never touch the button in combat,
-        -- and keep its own bookkeeping consistent.
+        -- keep its own bookkeeping consistent, and never say its line for a
+        -- favour that wasn't returned.
         local function storm(seed)
             boot()
             math.randomseed(seed)
             ns.db.buffBack.sayLine = true
+            ns.db.buffBack.messages = { "BB {name}" }
             local names = { "Bob", "Ann", "Cid", "Dot", "Eve", "Fay" }
             local actions = {
                 function() -- someone buffs you, maybe with a stale or missing token
@@ -1203,6 +1307,8 @@ describe("Buff back", function()
                 function() wow.fire("SPELLS_CHANGED") end,
                 function() wow.state.castLatency = ({ 0, 0, 0.2, 1.5 })[math.random(4)] end,
                 function() wow.state.errorBeforeFailed = math.random() < 0.5 end,
+                function() wow.keyDown() end,
+                function() wow.state.afk = math.random() < 0.2 end,
             }
             -- Presses the game left unanswered (no cast or error from them): only
             -- those may be reported as "No answer".
@@ -1248,28 +1354,40 @@ describe("Buff back", function()
             end
             assert.is_true(noAnswers <= unanswered,
                 ("seed %d: %d 'No answer' lines for %d unanswered presses"):format(seed, noAnswers, unanswered))
-            return s
+            local said = 0
+            for _, line in ipairs(wow.sentTo("SAY")) do
+                if line:find("^BB ") then said = said + 1 end
+            end
+            assert.is_true(said <= s.returned,
+                ("seed %d: %d buff back lines for %d favours returned"):format(seed, said, s.returned))
+            return s, said
         end
 
         it("survives random storms of events, presses, fights and settings changes", function()
-            local received, casts, returned = 0, 0, 0
+            local received, casts, returned, said = 0, 0, 0, 0
             for _, seed in ipairs({ 1, 7, 42, 99, 404, 777, 2026, 4242, 31337, 65535 }) do
-                local s = storm(seed)
+                local s, lines = storm(seed)
                 received, casts, returned = received + s.received, casts + #wow.casts, returned + s.returned
+                said = said + lines
             end
             -- The storms really exercised the button, not just the edges.
             assert.is_true(received > 100, "favours received: " .. received)
             assert.is_true(casts > 20, "casts: " .. casts)
             assert.is_true(returned > 0, "favours returned: " .. returned)
+            assert.is_true(said > 0, "buff back lines said: " .. said)
         end)
 
         it("a damaged sayLine doesn't switch on talking", function()
             ns.db.buffBack.messages = { "For you, {name}!" }
             ns.db.buffBack.sayLine = "yes" -- damaged mid-session; the default is false
+            ns.db.buff.enabled = false
             stranger()
             buffedBy()
             wow.press(button)
+            wow.advance(0)
+            wow.keyDown()
             assert.are.equal(1, #wow.casts)
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned)
             assert.are.same({}, wow.sentTo("SAY"))
         end)
 
@@ -1279,6 +1397,8 @@ describe("Buff back", function()
             stranger()
             buffedBy()
             wow.press(button)
+            wow.advance(0)
+            wow.keyDown()
             assert.are.equal(1, #wow.casts)
             assert.are.same({}, wow.errors)
         end)
