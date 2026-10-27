@@ -161,7 +161,6 @@ function BuffMode.SetKey(key)
     if Util.ReadGameValues(GetBindingAction, key) == BuffMode.BINDING then
         return false, "that key turns buff mode on and off"
     end
-    if InCombatLockdown() and lentKey then return false, "keys can't change in a fight" end
     ns.db.buffBack.buffModeKey = key
     ns.BuffButton.Refresh()
     return true
