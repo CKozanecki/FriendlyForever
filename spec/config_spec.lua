@@ -27,7 +27,8 @@ describe("Config", function()
 
     it("takes its default messages from Defaults.lua, same types and line counts as before the move", function()
         local ns = wow.load()
-        local expected = { guildLogin = 30, buff = 30, guildJoin = 30, partyJoin = 30, partyHello = 30, partyHelloAgain = 30 }
+        local expected = { guildLogin = 30, buff = 30, guildJoin = 30, partyJoin = 30, partyHello = 30, partyHelloAgain = 30,
+            buffBack = 30 }
         local fromDefaults, fromFile = {}, {}
         -- Config.DEFAULTS also holds general settings, so go by Config.TYPES.
         for _, msgType in ipairs(ns.Config.TYPES) do
@@ -46,6 +47,7 @@ describe("Config", function()
         local db = Config.Load(nil)
         for _, msgType in ipairs(Config.TYPES) do
             local expected = msgType:find("^partyHello") and 30 or 180
+            if Config.TYPE_INFO[msgType].noTiming then expected = nil end -- said by your own press
             assert.are.equal(expected, db[msgType].repeatCooldown, msgType)
         end
     end)
@@ -64,6 +66,24 @@ describe("Config", function()
         assert.is_true(db.buff.listBuffNames)
     end)
 
+    it("has a validator for every field a message type has", function()
+        for _, msgType in ipairs(Config.TYPES) do
+            for key in pairs(Config.DEFAULTS[msgType]) do
+                assert.is_function(Config.FIELD_VALIDATORS[key], msgType .. "." .. key .. " has no validator")
+            end
+        end
+    end)
+
+    it("has no validator for a field no message type has", function()
+        local used = {}
+        for _, msgType in ipairs(Config.TYPES) do
+            for key in pairs(Config.DEFAULTS[msgType]) do used[key] = true end
+        end
+        for key in pairs(Config.FIELD_VALIDATORS) do
+            assert.is_true(used[key] == true, key .. " has a validator but no default")
+        end
+    end)
+
     it("builds a complete database from nothing", function()
         local db = Config.Load(nil)
         assert.are.equal(Config.SCHEMA_VERSION, db.schemaVersion)
@@ -71,7 +91,7 @@ describe("Config", function()
         assert.are.same({ angle = 220, hide = false }, db.minimap)
         for _, msgType in ipairs(Config.TYPES) do
             assert.are.same(Config.DEFAULTS[msgType].messages, db[msgType].messages)
-            assert.is_true(db[msgType].enabled)
+            assert.are.equal(Config.DEFAULTS[msgType].enabled, db[msgType].enabled, msgType)
         end
     end)
 

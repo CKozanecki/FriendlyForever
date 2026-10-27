@@ -101,8 +101,13 @@ end
 -- This fires for every cast the client sees (nameplates in a city or a
 -- raid), so the cheap checks come first. Core only registers it while buff
 -- thanks are on; the enabled checks here cover the moment in between.
+-- Buffs are watched while either Buff Thanks or Buff Back is on.
+function BuffTracker.Watching()
+    return ns.db ~= nil and ns.db.enabled and (ns.db.buff.enabled or ns.db.buffBack.enabled)
+end
+
 function BuffTracker.OnSpellcastSucceeded(unit, _, spellId)
-    if not ns.db or not ns.db.enabled or not ns.db.buff.enabled then return end
+    if not BuffTracker.Watching() then return end
     if Util.IsSecret(unit) or type(unit) ~= "string" or not IsCastUnit(unit) then return end
     if Util.IsSecret(spellId) or type(spellId) ~= "number" then return end
     local caster = BuffTracker.Classify(unit)
@@ -119,14 +124,10 @@ function BuffTracker.OnSpellcastSucceeded(unit, _, spellId)
     end
 end
 
--- The caster's class as players read it ("mage"), or nil. Only while the
--- token is still them: a mouseover or nameplate token may be someone else
--- by the time the buff lands.
+-- The caster's class as players read it ("mage"), or nil.
 local function ClassText(unit, caster)
-    if not unit or Util.UnitFullName(unit) ~= caster then return nil end
-    local ok, class = pcall(UnitClass, unit)
-    if not ok or Util.IsSecret(class) or type(class) ~= "string" or class == "" then return nil end
-    return class:lower()
+    local name = Util.UnitClassIf(unit, caster)
+    return name and name:lower() or nil
 end
 
 -- Why a favour wasn't thanked, in the ledger's words.
@@ -212,6 +213,8 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
         ns.Ledger.Settle(entry, false, "on your ignore list")
         return
     end
+    -- A favour to return, whether or not a thank-you goes out.
+    if not unknown and ns.db.buffBack.enabled then ns.Offers.Owe(caster, unit, entry) end
     local cfg = ns.db.buff
     if unknown and not cfg.fallbackToSay then
         ns.Diag.Log("buff", "not thanking: caster can't be named and the /say fallback is off")
@@ -434,7 +437,7 @@ function BuffTracker.OnPlayerAura(updateInfo)
         return
     end
 
-    local active = ns.db.buff.enabled and ns.Announcer.IsWatching()
+    local active = BuffTracker.Watching() and ns.Announcer.IsWatching()
     local now = GetTime()
 
     -- A full update gives no list of what is new, so compare against the

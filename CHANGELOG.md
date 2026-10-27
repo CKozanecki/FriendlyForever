@@ -3,6 +3,10 @@
 ### Unreleased
 
 - This version adds files. After updating, restart the game; /reload isn't enough.
+- **Buff back:** when someone outside your group buffs you, a button offers your buff back. Press it, or its key in Key Bindings > AddOns, to cast it on them; your own target comes back afterwards. It picks a buff they don't already have and can use, waits while they're dead, and won't flag you for PvP: it reads their flag as you press, so it's offered only while the game shows them (friendly nameplates help). Right-click lets a favour go. `/friendly move` moves the button and `/friendly buffback` shows what it holds. Untested in WoW Forever until launch.
+- Settings damaged while you play (by another addon or a bad `/run`) are repaired as soon as they cause an error, not at the next reload.
+- New **Buff Back** tab: offer on or off, how long favours are offered, and an optional line to say as you cast (30 editable lines, off by default).
+- The favour ledger counts favours you returned and gives titles for them, from Courteous at 10 to Friend to All Azeroth at 1,000.
 - New default lines for every message type, in a Warcraft fantasy voice. Saved lines still on the old defaults are switched to the new ones; lines you edited are kept. The old lines are still there: each tab's **Load casual lines (1.6)** button puts them back.
 - Flavour placeholders change with the moment: `{greeting}`, `{thanks}`, `{blessing}` and `{cheer}` follow your race, faction, where you are and the hour ("Throm-ka, Thrall! Strength and honor."), and `{zone}`, `{timeofday}`, `{myclass}` and `{class}` (theirs, when the game says) fill in the details. Use them in your own lines too. Every Forever race has its own voice, including separate ones for the High Order and Windshaper Skyborne.
 - Favour ledger: who buffed you, with what, and whether you thanked them, or why not. Today's count and all-time totals, on the new **Favour Ledger** options page or with `/friendly ledger`.

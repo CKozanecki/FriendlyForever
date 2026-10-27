@@ -78,8 +78,9 @@ describe("Favour ledger", function()
         assert.is_truthy(ns.Ledger.Lines(1)[1]:find("^Someone unnamed"))
     end)
 
-    it("records nothing while Buff Thanks is off (it doesn't watch buffs then)", function()
+    it("records nothing while Buff Thanks and Buff Back are off (buffs aren't watched then)", function()
         ns.db.buff.enabled = false
+        ns.db.buffBack.enabled = false
         stranger("target", "Bob", "Stone")
         wow.gainBuff({ sourceUnit = "target", name = "Arcane Intellect" })
         settle()
@@ -164,7 +165,7 @@ describe("Favour ledger", function()
         assert.are.same({ "Thorns", "BadName" }, entries[1].buffs)
         assert.are.equal("not thanked", entries[2].result)
         assert.are.equal(ns.Ledger.MAX_TEXT, #entries[2].note)
-        assert.are.same({ received = 0, thanked = 0 }, ns.db.ledger.totals)
+        assert.are.same({ received = 0, thanked = 0, returned = 0 }, ns.db.ledger.totals)
     end)
 
     it("prints with /friendly ledger and clears with /friendly ledger clear", function()

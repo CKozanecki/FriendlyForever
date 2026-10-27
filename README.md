@@ -91,9 +91,26 @@ Buffs from one person that arrive before the thank-you goes out are combined: *"
 
 **How to thank** (on the Buff Thanks tab): a line in /say or a whisper (the default), a `/thank` emote, or both. The emote is aimed at the caster while the game still has them on a nameplate or as your target, and is a plain `/thank` otherwise. It waits for a key press, like /say. Whether the game requires that for emotes hasn't been tested yet, so the addon plays it safe.
 
+## Buff back
+
+When someone outside your group buffs you, a small button appears with their name and the buff you can give back. Press it, or the key you set for it in **Key Bindings > AddOns** ("Friendly Forever: buff back", with or without Shift/Ctrl/Alt), and it casts your buff on them and gives you your own target back. The game only lets an addon cast through a button you press, so nothing is ever cast without your key press or click.
+
+- **Which buff:** your class's buffs that you know, in order. It skips any they already wear (when the game lets the addon see), mana buffs for classes without mana, and buffs that only reach your own party. A druid gives Mark of the Wild, or Thorns to someone who already has the Mark.
+- **Who:** the newest favour first. It waits while they're dead. It never offers a buff to someone flagged for PvP unless you're flagged too, since buffing them would flag you: their flag is read at the moment you press, so a favour is offered only while the game shows them (on a nameplate, as your target or under your mouse). If it can't see them, the button says so; target them, or turn on friendly nameplates. Favours are dropped after 10 minutes (adjustable on the **Buff Back** tab), and are forgotten on a reload or logout.
+- **No endless trading:** when another player answers your buff with one of theirs, that isn't a new favour (for 10 minutes).
+- **Right-click** the button to let a favour go.
+- **Feedback:** "Returned Mark of the Wild to Bob Stone." under the button when the cast lands and the game confirms who it reached. If the game doesn't say who it reached, the cast isn't counted as returned (and the button says so). If the game refuses it ("Out of range."), the reason is shown in chat and the favour stays. A press that gets no answer at all means they couldn't be found ("No answer: couldn't find Bob Stone").
+- **After a /reload in a fight** the button appears when the fight ends.
+- **Say a line as you cast** (off by default, on the **Buff Back** tab): 30 editable lines, with the flavour placeholders and `{buff}`.
+- **In combat** the button is empty: it clears itself as a fight starts and fills again afterwards. The game locks secure buttons in fights, so whatever it held would otherwise stay on it, aimed at the world outside the fight.
+- **Say a line** only while the addon may speak: not while snoozed, or AFK with "Don't send messages while I'm AFK" on.
+- `/friendly move` unlocks the button so you can drag it, and locks it again. `/friendly buffback` shows exactly what the button holds and why, for checking in game.
+
+The button's macro is `/cleartarget`, `/targetexact First Surname`, `/cast [help,nodead] <buff>`, then `/targetlasttarget` (or `/cleartarget` if you had no target). Targeting the exact name means a player whose name only starts the same is never buffed, and the cast only goes off on a friendly, living target, so if they can't be found nothing is cast and your target comes back. Not yet tested in WoW Forever (it hasn't launched); the macro lives in one function, so adjusting it after the first test is a small change.
+
 ## Favour ledger
 
-Every buff from someone outside your group, while Buff Thanks is on, goes in the ledger: who it was, which buffs, and whether you thanked them, or why not ("thanked them a moment ago", "snoozed", "you were AFK", "on your ignore list"). It counts today's favours and your all-time totals. See it on the **Favour Ledger** page or with `/friendly ledger`. The newest 200 are kept.
+Every buff from someone outside your group, while Buff Thanks or Buff Back is on, goes in the ledger: who it was, which buffs, whether you thanked them (or why not), and whether you buffed them back. Returning favours earns a title, from **Courteous** at 10 to **Friend to All Azeroth** at 1,000. The reasons a favour wasn't thanked look like this ("thanked them a moment ago", "snoozed", "you were AFK", "on your ignore list"). It counts today's favours and your all-time totals. See it on the **Favour Ledger** page or with `/friendly ledger`. The newest 200 are kept.
 
 ## Safety
 
@@ -104,6 +121,7 @@ Every buff from someone outside your group, while Buff Thanks is on, goes in the
 - Saved settings are type-checked and clamped on load, so a corrupted or hand-edited file can't break the addon.
 - "Secret" values from the Midnight-era API are detected and never used.
 - The addon never runs text as code and doesn't read whispers or addon messages, so other players have no way to control it.
+- The buff-back button's macro is built only from a checked player name, the game's own spell name and an optional line, and each part is refused if it could end its line or start another command (a line break, a `|` escape code, or a leading `/`).
 - A pasted settings line (`/friendly import`) is read as data only, with limits on its size and depth, and every value in it is checked like the saved file before it's used.
 
 ## Development
