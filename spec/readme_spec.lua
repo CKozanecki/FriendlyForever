@@ -3,25 +3,53 @@
 -- it, and /friendly help lists every command, so none ships undocumented.
 local wow = require("spec.support.wow")
 
+-- The text with each [opening, closing] span cut out, in one pass (linear
+-- however many are left open). openAt(text, from) and closeAt(text, from)
+-- return where the next opening or closing starts and ends. An opening never
+-- closed hides the rest of the text.
+local function Cut(text, openAt, closeAt)
+    local kept, at = {}, 1
+    while true do
+        local from, openEnd = openAt(text, at)
+        if not from then kept[#kept + 1] = text:sub(at) break end
+        kept[#kept + 1] = text:sub(at, from - 1)
+        local _, closeEnd = closeAt(text, openEnd + 1)
+        if not closeEnd then break end
+        at = closeEnd + 1
+    end
+    return table.concat(kept)
+end
+
+-- An HTML comment: "<!--" to "-->", where "<!-->" and "<!--->" are empty ones.
+local function CommentOpen(text, from) return text:find("<!%-%-", from) end
+local function CommentClose(text, from)
+    local empty, emptyEnd = text:find("^%-?>", from)
+    if empty then return empty, emptyEnd end
+    return text:find("-->", from, true)
+end
+
+-- A <pre> block, in any case and with any attributes.
+local function PreOpen(text, from)
+    local start, nameEnd, after = text:find("<[Pp][Rr][Ee]([%s>])", from)
+    if not start then return nil end
+    if after == ">" then return start, nameEnd end
+    -- Attributes: the tag ends at the next ">" (none: the rest is hidden).
+    local close = text:find(">", nameEnd + 1, true)
+    return start, close or #text
+end
+local function PreClose(text, from) return text:find("</[Pp][Rr][Ee]%s*>", from) end
+
 -- Readme text without what a reader doesn't see as documentation: fenced
--- code blocks (``` or ~~~, indented or not, even on the first line, or
--- <pre>) and HTML comments. An unclosed one hides the rest of the text.
--- (Lines indented four spaces aren't treated as code: in this README they
--- are list continuations.)
+-- code blocks (``` or ~~~, indented or not, even on the first line), <pre>
+-- blocks and HTML comments. An unclosed one hides the rest of the text.
+-- A "<" inside inline code is just a character, not a tag. (Lines indented
+-- four spaces aren't treated as code: in this README they are list
+-- continuations.)
 local function VisibleText(text)
     text = ("\n" .. text:gsub("\r\n?", "\n")):gsub("\n[ \t]*([`~][`~][`~]).-\n[ \t]*%1", "\n")
     text = text:gsub("\n[ \t]*```.*$", ""):gsub("\n[ \t]*~~~.*$", "")
-    text = text:gsub("<pre>.-</pre>", ""):gsub("<pre>.*$", "")
-    local kept, at = {}, 1
-    while true do
-        local open = text:find("<!--", at, true)
-        if not open then kept[#kept + 1] = text:sub(at) break end
-        kept[#kept + 1] = text:sub(at, open - 1)
-        local close = text:find("-->", open + 4, true)
-        if not close then break end
-        at = close + 3
-    end
-    return table.concat(kept)
+    text = text:gsub("`[^`\n]+`", function(span) return (span:gsub("<", "&lt;")) end)
+    return Cut(Cut(text, PreOpen, PreClose), CommentOpen, CommentClose)
 end
 
 -- A name ends at the end of the text, a space, a backtick, "|", "]", or
@@ -31,14 +59,44 @@ local function EndsName(text, after)
     return not nextChar:match("[%w%-]")
 end
 
+-- A table's delimiter row: only pipes, colons, dashes and spaces, with at
+-- least one dash and one pipe ("|---|:-:|", "--- | ---").
+local function IsDelimiterRow(line)
+    return line:find("^[ \t|:%-]+$") ~= nil and line:find("-", 1, true) ~= nil and line:find("|", 1, true) ~= nil
+end
+
+-- Which lines are table rows: those with outer pipes, and every line of a
+-- run of lines with pipes that includes a delimiter row (a table written
+-- without outer pipes).
+local function TableRows(lines)
+    local rows, first = {}, nil
+    for i = 1, #lines + 1 do
+        local line = lines[i]
+        if line and line:find("^[ \t]*|.*|[ \t]*$") then rows[i] = true end
+        if line and line:find("|", 1, true) then
+            first = first or i
+        else
+            if first then
+                local hasDelimiter = false
+                for j = first, i - 1 do hasDelimiter = hasDelimiter or IsDelimiterRow(lines[j]) end
+                if hasDelimiter then for j = first, i - 1 do rows[j] = true end end
+            end
+            first = nil
+        end
+    end
+    return rows
+end
+
 -- The command names written as "/friendly <name>", or as a word in a chain
 -- right after one: "/friendly on | off | toggle" names all three, but
 -- "/friendly snooze [minutes] | off" names only snooze.
 local function WrittenCommands(readme)
-    local written = {}
-    for line in (VisibleText(readme) .. "\n"):gmatch("([^\n]*)\n") do
+    local written, lines = {}, {}
+    for line in (VisibleText(readme) .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+    local tableRows = TableRows(lines)
+    for index, line in ipairs(lines) do
         -- In a table row an unescaped "|" ends the cell, never a chain.
-        local chain = line:find("^[ \t]*|.*|[ \t]*$") and "^[ \t]*\\|[ \t]*(%w+)" or "^[ \t]*\\?|[ \t]*(%w+)"
+        local chain = tableRows[index] and "^[ \t]*\\|[ \t]*(%w+)" or "^[ \t]*\\?|[ \t]*(%w+)"
         local position = 1
         while true do
             local start, finish, name = line:find("/friendly (%w+)", position)
@@ -270,5 +328,88 @@ describe("README test helpers (review: findings)", function()
         local started = os.clock()
         assert.is_table(WrittenCommands(("<!--"):rep(20000)))
         assert.is_true(os.clock() - started < 1)
+    end)
+end)
+
+describe("README test helpers (review round 2: kill tests)", function()
+    it("reads old Mac line endings as line breaks", function()
+        local written = WrittenCommands("a\r```\r/friendly zap\r```\r/friendly on\r")
+        assert.is_nil(written.zap)
+        assert.is_true(written.on)
+    end)
+
+    it("reads on after an indented fence closes", function()
+        local written = WrittenCommands("- item\n  ```\n  /friendly zip\n  ```\n/friendly zap")
+        assert.is_nil(written.zip)
+        assert.is_true(written.zap)
+    end)
+
+    it("hides the rest after an unclosed tilde or indented fence, but not after inline backticks", function()
+        assert.is_nil(WrittenCommands("ok\n~~~\n/friendly zap").zap)
+        assert.is_nil(WrittenCommands("ok\n  ~~~\n/friendly zap").zap)
+        assert.is_nil(WrittenCommands("ok\n  ```\n/friendly zap").zap)
+        assert.is_true(WrittenCommands("text ``` more\n/friendly zap").zap)
+    end)
+
+    it("reads on after a closed <pre>, and between two", function()
+        assert.is_true(WrittenCommands("<pre>x</pre> /friendly zap").zap)
+        assert.is_true(WrittenCommands("<pre>a</pre> /friendly zap <pre>b</pre>").zap)
+        assert.is_true(WrittenCommands("<pre>a</pre>/friendly zap").zap)
+    end)
+
+    it("cuts exactly the comment out, and only at -->", function()
+        assert.are.equal("\na  b", VisibleText("a <!-- c --> b"))
+        assert.are.equal("\na  b", VisibleText("a <!----> b"))
+        assert.are.equal("\na  c", VisibleText("a <!-- x -> y --> c"))
+    end)
+
+    it("treats a padded row as a table row", function()
+        assert.is_nil(WrittenCommands("  | /friendly debug | off |  ").off)
+    end)
+
+    it("reads an escaped pipe chain outside a table", function()
+        assert.are.same({ on = true, off = true }, WrittenCommands("/friendly on \\| off"))
+    end)
+
+    it("doesn't read /friendly in a relative path or after //", function()
+        assert.is_nil(WrittenCommands("see ../friendly zap").zap)
+        assert.is_nil(WrittenCommands("see https://friendly zap").zap)
+    end)
+
+    it("stops a chain at a tab or double space before prose", function()
+        assert.is_nil(WrittenCommands("/friendly on | off\tby default").off)
+        assert.is_nil(WrittenCommands("/friendly on | off  by default").off)
+    end)
+
+    it("strips many unclosed <pre> tags in linear time", function()
+        local started = os.clock()
+        assert.is_table(WrittenCommands(("<pre>"):rep(20000)))
+        assert.is_table(WrittenCommands(("<pre> x "):rep(20000)))
+        assert.is_true(WrittenCommands(("<pre>a</pre>"):rep(20000) .. " /friendly zap").zap)
+        assert.is_true(os.clock() - started < 1)
+    end)
+end)
+
+describe("README test helpers (review round 2: nits)", function()
+    it("reads a table written without outer pipes", function()
+        assert.is_nil(WrittenCommands("Cmd | Default\n--- | ---\n/friendly debug | off").off)
+        assert.is_true(WrittenCommands("Cmd | Default\n--- | ---\n/friendly debug | off").debug)
+        assert.is_true(WrittenCommands("/friendly on | off").off, "no delimiter row: a chain, not a table")
+    end)
+
+    it("treats <!--> and <!---> as empty comments", function()
+        assert.is_true(WrittenCommands("<!--> /friendly zap").zap)
+        assert.is_true(WrittenCommands("<!---> /friendly zap").zap)
+    end)
+
+    it("strips <pre> in any case and with attributes", function()
+        assert.is_nil(WrittenCommands("<PRE>/friendly zap</PRE>").zap)
+        assert.is_nil(WrittenCommands('<pre class="x">\n/friendly zap\n</pre>').zap)
+        assert.is_true(WrittenCommands("<prefix> /friendly zap").zap, "a different tag")
+    end)
+
+    it("takes <pre> or <!-- inside inline code as text, not a tag", function()
+        assert.is_true(WrittenCommands("Use `<pre>` for code. /friendly zap").zap)
+        assert.is_true(WrittenCommands("Write `<!--` to start. /friendly zap").zap)
     end)
 end)
