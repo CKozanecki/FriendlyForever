@@ -30,6 +30,7 @@ Greeter.lua
 BuffTracker.lua
 Window.lua
 BuffButton.lua
+BuffMode.lua
 Options.lua
 Minimap.lua
 Core.lua

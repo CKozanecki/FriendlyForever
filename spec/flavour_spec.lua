@@ -305,7 +305,7 @@ describe("Flavour", function()
             assert.is_true(checked > 1000, "checked " .. checked .. " combinations")
         end)
 
-        it("every Buff Back line fits the buff-back macro, at the longest name, spell and words", function()
+        it("every Buff Back line fits one /say message, at the longest name, spell and words", function()
             local text = ns.FlavourText
             local longest = {}
             for _, slot in ipairs(text.SLOTS) do
@@ -317,16 +317,14 @@ describe("Flavour", function()
                 longest[slot] = best
             end
             local spell = "Power Word: Fortitude" -- the longest buff name a class gives
-            local bare = ns.BuffButton.BuildCastMacro("Abcdefghijkl-Mnopqrstuvwx", spell, nil, false)
-            local room = ns.BuffButton.MACRO_MAX_LENGTH - #bare - #"\n/s "
             for _, set in ipairs({ ns.DefaultMessages, ns.CasualMessages }) do
                 for _, line in ipairs(set.buffBack) do
                     local vars = { name = LONG.name, fullname = LONG.fullname, buff = spell, zone = LONG.zone,
                         timeofday = "afternoon", class = LONG.class, myclass = LONG.myclass }
                     for k, v in pairs(longest) do vars[k] = v end
                     local out = ns.Util.Render(line, vars)
-                    assert.is_true(#out <= room, ("%q is %d long; the macro has room for %d"):format(out, #out, room))
-                    assert.is_true(ns.BuffButton.IsSafeMacroPart(out), out)
+                    assert.is_true(#out <= ns.Util.MAX_CHAT_BYTES,
+                        ("%q is %d long; a message holds %d"):format(out, #out, ns.Util.MAX_CHAT_BYTES))
                 end
             end
         end)

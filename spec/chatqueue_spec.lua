@@ -147,7 +147,13 @@ describe("ChatQueue", function()
     it("sets up the key listener after combat if loaded mid-fight", function()
         ns = wow.boot({ before = function(state) state.inCombat = true end })
         local keyFrame
-        for _, f in ipairs(wow.frames) do if f.scripts.OnKeyDown then keyFrame = f end end
+        -- The queue's own listener: the first made (the options' key chooser comes later).
+        for _, f in ipairs(wow.frames) do
+            if f.scripts.OnKeyDown then
+                keyFrame = f
+                break
+            end
+        end
         assert.is_truthy(keyFrame)
         assert.is_nil(keyFrame.propagate)
         wow.state.inCombat = false

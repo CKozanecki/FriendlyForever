@@ -10,6 +10,7 @@ globals = {
     "FriendlyForeverDB",
     "FriendlyForeverTextWindow",
     "FriendlyForeverBuffButton",
+    "FriendlyForever_ToggleBuffMode", -- called by its key binding (Bindings.xml)
     "SLASH_FRIENDLYFOREVER1",
     "SLASH_FRIENDLYFOREVER2",
     SlashCmdList = { fields = { "FRIENDLYFOREVER" } },
@@ -33,6 +34,8 @@ read_globals = {
     "GetGameTime", "IsResting", "AddonCompartmentFrame", "UISpecialFrames",
     "C_Spell", "C_SpellBook", "Enum", "GetCVarBool", "GetSpellInfo", "GetSpellTexture", "IsSpellKnown", "IsPlayerSpell",
     "UnitIsDeadOrGhost", "UnitIsPVP",
+    "SetOverrideBindingClick", "ClearOverrideBindings", "GetBindingText", "GetBindingAction",
+    "IsShiftKeyDown", "IsControlKeyDown", "IsAltKeyDown",
 }
 
 -- Tests run in plain Lua with busted and install the mock WoW API globally.

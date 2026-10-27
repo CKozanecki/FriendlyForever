@@ -162,7 +162,10 @@ local function ChooseBuff(favour, myBuffs, visible)
             return nil, "can't see whether they're flagged for PvP (target them, or show friendly nameplates)"
         end
     end
-    if #myBuffs == 0 then return nil, "you know no buffs to give" end
+    if #myBuffs == 0 then
+        if #ns.BuffData.Mine() > 0 then return nil, "you've marked all your buffs never offer" end
+        return nil, "you know no buffs to give"
+    end
     local suitable = 0
     for _, buff in ipairs(myBuffs) do
         if not buff.selfCast and not buff.groupOnly and ns.BuffData.Useful(buff, favour.class) then
@@ -182,7 +185,7 @@ function Offers.Current()
     -- No Changed() here: the button is the caller, and would re-enter.
     Expire(GetTime())
     if #favours == 0 then return nil, "nobody is owed a buff" end
-    local myBuffs = ns.BuffData.Mine()
+    local myBuffs = ns.BuffData.Offerable()
     local visible = VisiblePlayers()
     local firstReason
     for i = #favours, 1, -1 do

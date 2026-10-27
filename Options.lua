@@ -8,7 +8,7 @@ local Config = ns.Config
 local Options = {}
 ns.Options = Options
 
-Options.CONTENT_HEIGHT = 1470
+Options.CONTENT_HEIGHT = 1560 -- room for the Buff Back tab's buff list above its lines
 
 local panel, category, generalPage, ledgerPage
 local currentType = Config.TYPES[1]
@@ -120,6 +120,143 @@ local function ClearEditFocus()
     end
 end
 
+-- Choosing buff mode's key: click the button, then press a key, scroll the
+-- mouse wheel or click a side mouse button (Esc cancels).
+Options.KEY_PROMPT = "Press a key or scroll the wheel (Esc cancels)"
+local MOUSE_KEYS = { MiddleButton = "BUTTON3", Button4 = "BUTTON4", Button5 = "BUTTON5" }
+
+local function ModifierPrefix()
+    local out = ""
+    if IsAltKeyDown() then out = out .. "ALT-" end
+    if IsControlKeyDown() then out = out .. "CTRL-" end
+    if IsShiftKeyDown() then out = out .. "SHIFT-" end
+    return out
+end
+
+local function KeyButtonText()
+    return "Buff mode key: " .. ns.BuffMode.KeyText((ns.BuffMode.Key()))
+end
+
+local function StopKeyCapture()
+    local capture = widgets.keyCapture
+    if not capture.active then return end
+    capture.active = false
+    capture:EnableKeyboard(false)
+    capture:EnableMouseWheel(false)
+    capture:EnableMouse(false)
+    capture:Hide()
+    widgets.buffModeKey:SetText(KeyButtonText())
+end
+
+local function TakeKey(key)
+    if InCombatLockdown() then return StopKeyCapture() end
+    StopKeyCapture()
+    local ok, why = ns.BuffMode.SetKey(ModifierPrefix() .. key)
+    if not ok then ns.Print("couldn't set the buff mode key: " .. why .. ".") end
+    widgets.buffModeKey:SetText(KeyButtonText())
+end
+
+function Options.StartKeyCapture()
+    if InCombatLockdown() then return ns.Print("keys can't be changed in a fight.") end
+    local capture = widgets.keyCapture
+    capture.active = true
+    capture:Show()
+    capture:EnableKeyboard(true)
+    capture:SetPropagateKeyboardInput(false)
+    capture:EnableMouseWheel(true)
+    capture:EnableMouse(true)
+    widgets.buffModeKey:SetText(Options.KEY_PROMPT)
+end
+
+local function CreateKeyCapture(parent)
+    local capture = CreateFrame("Frame", nil, parent)
+    capture:SetAllPoints(parent)
+    capture:Hide()
+    capture:SetScript("OnKeyDown", function(_, key)
+        if ns.BuffMode.MODIFIER_KEYS[key] then return end
+        if key == "ESCAPE" then return StopKeyCapture() end
+        TakeKey(key)
+    end)
+    capture:SetScript("OnMouseWheel", function(_, delta) TakeKey(delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN") end)
+    capture:SetScript("OnMouseDown", function(_, mouseButton)
+        if MOUSE_KEYS[mouseButton] then TakeKey(MOUSE_KEYS[mouseButton]) end
+    end)
+    capture:SetScript("OnHide", StopKeyCapture)
+    -- A fight starting ends the wait, while the game still allows it: in a
+    -- fight your keys must reach your abilities, not choose buff mode's key.
+    capture:RegisterEvent("PLAYER_REGEN_DISABLED")
+    capture:SetScript("OnEvent", StopKeyCapture)
+    return capture
+end
+
+-- The Buff Back tab's buff list: your class's buffs in your order.
+local function OrderedClassBuffs()
+    return ns.BuffData.InOrder(ns.BuffData.ClassBuffs(), ns.db.buffBack.buffOrder)
+end
+
+-- Move a buff of your class one place up (-1) or down (+1). Saved as your
+-- class's keys in the new order, then any other classes' keys as they were.
+function Options.MoveBuff(key, step)
+    local keys = {}
+    for i, buff in ipairs(OrderedClassBuffs()) do keys[i] = buff.key end
+    for i, k in ipairs(keys) do
+        local j = i + step
+        if k == key and keys[j] then
+            keys[i], keys[j] = keys[j], keys[i]
+            break
+        end
+    end
+    local mine = {}
+    for _, k in ipairs(keys) do mine[k] = true end
+    local saved = type(ns.db.buffBack.buffOrder) == "table" and ns.db.buffBack.buffOrder or {}
+    for _, k in ipairs(saved) do
+        if not mine[k] then keys[#keys + 1] = k end
+    end
+    ns.db.buffBack.buffOrder = Config.FIELD_VALIDATORS.buffOrder(keys, {})
+    ns.BuffButton.Refresh()
+    Options.Refresh()
+end
+
+function Options.SetNeverOffer(key, on)
+    if type(ns.db.buffBack.neverOffer) ~= "table" then ns.db.buffBack.neverOffer = {} end
+    ns.db.buffBack.neverOffer[key] = on or nil
+    ns.BuffButton.Refresh()
+    Options.Refresh()
+end
+
+local function FillBuffRows(shown)
+    widgets.buffOrderHeader:SetShown(shown)
+    local buffs = shown and OrderedClassBuffs() or {}
+    -- Read only for the Buff Back tab: the other tabs mustn't depend on its settings.
+    local never = shown and type(ns.db.buffBack.neverOffer) == "table" and ns.db.buffBack.neverOffer or {}
+    for i, row in ipairs(widgets.buffRows) do
+        local buff = buffs[i]
+        for _, part in ipairs({ row.name, row.up, row.down, row.never }) do part:SetShown(buff ~= nil) end
+        row.key = buff and buff.key
+        if buff then
+            local name = ns.BuffData.SpellName(buff) or buff.key
+            if not ns.BuffData.IsKnown(buff) then name = name .. " |cff999999(not known yet)|r" end
+            row.name:SetText(i .. ". " .. name)
+            row.up:SetEnabled(i > 1)
+            row.down:SetEnabled(i < #buffs)
+            row.never:SetChecked(never[buff.key] == true)
+        end
+    end
+    if shown and #buffs == 0 then
+        widgets.buffOrderHeader:SetText("Your class has no buffs to offer.")
+    else
+        widgets.buffOrderHeader:SetText("Buff order (first that suits them is offered):")
+    end
+    -- The messages follow the buff list on this tab, the buff options on the others.
+    local last = buffs[1] and widgets.buffRows[#buffs].up or widgets.buffOrderHeader
+    widgets.msgHeader:ClearAllPoints()
+    if shown then
+        widgets.msgHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -16)
+    else
+        widgets.msgHeader:SetPoint("TOPLEFT", widgets.fallback, "BOTTOMLEFT", 4, -32)
+    end
+end
+
 local function ShowStepper(stepper, shown)
     for _, part in ipairs({ stepper.label, stepper.minus, stepper.box, stepper.plus }) do part:SetShown(shown) end
 end
@@ -145,11 +282,14 @@ local function Fill()
 
     local isBuffBack = currentType == "buffBack"
     widgets.sayLine:SetShown(isBuffBack)
+    widgets.buffModeKey:SetShown(isBuffBack)
+    if not widgets.keyCapture.active then widgets.buffModeKey:SetText(KeyButtonText()) end
     ShowStepper(widgets.steppers.owedMinutes, isBuffBack)
     if isBuffBack then
         widgets.sayLine:SetChecked(cfg.sayLine)
         FillBox(widgets.steppers.owedMinutes.box, tostring(cfg.owedMinutes))
     end
+    FillBuffRows(isBuffBack)
 
     widgets.listNames:SetShown(isBuff)
     widgets.thankStyle:SetShown(isBuff)
@@ -271,11 +411,15 @@ function Options.Create()
     widgets.listNames:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
 
     -- Buff Back tab only, in the buff tab's rows: the line, and how long favours last.
-    widgets.sayLine = Checkbox(content, "Say a line as I buff them back", function(on)
+    widgets.sayLine = Checkbox(content, "Say a line once my buff lands", function(on)
         ns.db.buffBack.sayLine = on
         ns.BuffButton.Refresh()
     end)
     widgets.sayLine:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
+    -- On the delay's place in row 1 (Buff Back has no delay).
+    widgets.buffModeKey = Button(content, "", 290, function() Options.StartKeyCapture() end)
+    widgets.buffModeKey:SetPoint("LEFT", widgets.enabled.label, "RIGHT", 40, 0)
+    widgets.keyCapture = CreateKeyCapture(content)
     local owedMinutes = Stepper(content, "Offer for (minutes):", "owedMinutes")
     owedMinutes.label:SetPoint("LEFT", widgets.sayLine.label, "RIGHT", 40, 0)
     widgets.steppers.owedMinutes = owedMinutes
@@ -324,6 +468,32 @@ function Options.Create()
         "Messages (all are used in random order before any repeats; leave a line blank to skip it):",
         "GameFontNormalSmall")
     msgHeader:SetPoint("TOPLEFT", widgets.fallback, "BOTTOMLEFT", 4, -32)
+    widgets.msgHeader = msgHeader
+
+    -- Buff Back tab only, in the buff tab's rows 4 to 6: the buff order, one
+    -- row per buff of your class (the most any class has).
+    widgets.buffOrderHeader = Label(content, "", "GameFontNormalSmall")
+    widgets.buffOrderHeader:SetPoint("TOPLEFT", widgets.sayLine, "BOTTOMLEFT", 4, -10)
+    local most = 0
+    for _, list in pairs(ns.BuffData.CLASSES) do most = math.max(most, #list) end
+    widgets.buffRows = {}
+    local above = widgets.buffOrderHeader
+    for i = 1, most do
+        local row = {}
+        row.up = Button(content, "Up", 44, function() if row.key then Options.MoveBuff(row.key, -1) end end)
+        row.up:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, -4)
+        row.down = Button(content, "Down", 54, function() if row.key then Options.MoveBuff(row.key, 1) end end)
+        row.down:SetPoint("LEFT", row.up, "RIGHT", 4, 0)
+        row.name = Label(content, "", "GameFontHighlightSmall")
+        row.name:SetPoint("LEFT", row.down, "RIGHT", 10, 0)
+        row.name:SetWidth(260)
+        row.never = Checkbox(content, "Never offer", function(on)
+            if row.key then Options.SetNeverOffer(row.key, on) end
+        end)
+        row.never:SetPoint("LEFT", row.name, "RIGHT", 10, 0)
+        widgets.buffRows[i] = row
+        above = row.up
+    end
 
     local anchor = msgHeader
     for i = 1, Config.NUM_MESSAGES do

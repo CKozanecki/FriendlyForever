@@ -65,12 +65,13 @@ Config.TYPE_INFO = {
         channel = "Party chat",
         help    = "Said instead of Party Hello when you rejoin a group (same leader) this session.",
     },
-    -- Not sent by itself: the line goes in the buff-back button's macro and is
-    -- said by your own press, so it has no delay or repeat cooldown.
+    -- Queued only once a buff-back is confirmed (each favour is returned once),
+    -- so it has no delay or repeat cooldown of its own.
     buffBack = {
         label   = "Buff Back",
-        channel = "/say, as you cast",
-        help    = "Said as you buff someone back with the buff-back button (if switched on). "
+        channel = "/say, once your buff lands",
+        help    = "Said once your buff from the buff-back button reaches them (if switched on), "
+            .. "on your next key press, like a thank-you. "
             .. "Placeholders: {name}, {fullname}, {buff} (the spell you cast)",
         noTiming = true,
         enabledLabel = "Offer to buff back players who buff me",
@@ -129,14 +130,21 @@ Config.DEFAULTS = {
         repeatCooldown = 30,
         messages = DefaultMessages.partyHelloAgain,
     },
-    -- enabled: offer to buff back (show the button). sayLine: say a line as
-    -- you cast. No delay or repeat cooldown: the line is said by your press.
+    -- enabled: offer to buff back (show the button). sayLine: say a line once
+    -- the buff lands. No delay or repeat cooldown: one line per favour returned.
     buffBack = {
         enabled = true,
         sayLine = false,
         owedMinutes = 10,
         unlocked = false,
         position = { point = "CENTER", x = 0, y = -180 },
+        -- The key buff mode lends to the button (BuffMode.lua).
+        buffModeKey = "MOUSEWHEELUP",
+        -- buffOrder: buff keys, offered first in this order (empty: each
+        -- class's own order). neverOffer: [buff key] = true. They hold keys
+        -- of any class, so one profile serves all your characters.
+        buffOrder = {},
+        neverOffer = {},
         messages = DefaultMessages.buffBack,
     },
 }
@@ -206,6 +214,28 @@ Config.FIELD_VALIDATORS = {
         return Config.CleanUnknownName(value)
     end,
     position = function(value, default) return Config.CleanPosition(value, default) end,
+    buffModeKey = function(value, default) return ns.BuffMode.IsValidKey(value) and value or default end,
+    -- Known buff keys, each once; anything else is dropped. Not a list at
+    -- all: the default (every class's own order).
+    buffOrder = function(value, default)
+        if type(value) ~= "table" then return CopyList(default) end
+        local clean, seen = {}, {}
+        for _, key in ipairs(value) do
+            if type(key) == "string" and ns.BuffData.KEYS[key] and not seen[key] then
+                seen[key] = true
+                clean[#clean + 1] = key
+            end
+        end
+        return clean
+    end,
+    neverOffer = function(value)
+        local clean = {}
+        if type(value) ~= "table" then return clean end
+        for key, on in pairs(value) do
+            if type(key) == "string" and ns.BuffData.KEYS[key] and on == true then clean[key] = true end
+        end
+        return clean
+    end,
     messages = function(value, default)
         if type(value) ~= "table" then return CopyList(default) end
         local clean = {}

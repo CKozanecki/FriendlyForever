@@ -218,9 +218,8 @@ DefaultMessages.partyHelloAgain = {
     "Back again, everyone! Ready to ride.",
 }
 
--- Said as you cast a buff back on someone who buffed you (the buff-back
--- button). {buff} is the one spell you cast. Kept short: the line shares the
--- button's 255-character macro with the targeting and the cast.
+-- Said once your buff from the buff-back button reaches someone who buffed
+-- you, on your next key press. {buff} is the one spell you cast.
 DefaultMessages.buffBack = {
     "A gift for a gift, {name}. {buff} for you!",
     "Returning the favour, {name}: {buff}. {blessing}",
