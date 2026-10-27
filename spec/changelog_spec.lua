@@ -12,29 +12,39 @@ end
 local function untagged(text) return Changelog.UntaggedEntries(text, "### Unreleased") end
 
 describe("Spec comments", function()
-    -- Comment-line candidates: "-- Spec", "--Spec", "-- Specs", any case.
-    -- "-- Spec: #27" or "-- Spec: #27, #52" near the top of a spec file names
-    -- the issues it covers; any other spelling is a typo to fix.
-    local SPEC_LINE = "^%-%- Spec: (#[1-9]%d*[, #%d]*)$"
+    it("reads the one form (white)", function()
+        assert.are.same({ 27 }, Changelog.SpecComment("-- Spec: #27"))
+        assert.are.same({ 27, 52 }, Changelog.SpecComment("-- Spec: #27, #52"))
+    end)
 
-    it("are written in the one checkable form", function()
+    it("flags a spec comment in any other form (black)", function()
+        for _, line in ipairs({ "--Spec: #27", "-- Specs: #27", "-- spec: #27", "-- Spec #27", "--- Spec: #27",
+            "  -- Spec: #27", "-- Spec: 27", "-- Spec: #27,#52", "-- Spec: #27, #27", "-- Spec: #0" }) do
+            assert.is_false(Changelog.SpecComment(line), line)
+        end
+    end)
+
+    it("ignores other lines and junk (red)", function()
+        for _, line in ipairs({ "-- Speculative note", "local x = 1", "", "-- Buff back tests", false, nil, 7 }) do
+            assert.is_nil(Changelog.SpecComment(line), tostring(line))
+        end
+    end)
+
+    it("are written in the one form near the top of every spec file", function()
         local listing = io.popen('cd "' .. wow.ROOT .. '" && ls spec/*_spec.lua')
-        local checked = 0
+        local found = 0
         for path in listing:lines() do
             local lines = Changelog.Lines(wow.readFile(path))
             for i = 1, math.min(5, #lines) do
-                local line = lines[i]
-                -- Anything that looks like a spec comment, typos included.
-                if line:match("^%-%-%s*[Ss][Pp][Ee][Cc][Ss]?[:%s]") then
-                    checked = checked + 1
-                    local issues = line:match(SPEC_LINE)
-                    assert.is_truthy(issues, path .. ": " .. line)
-                    assert.is_truthy(Changelog.TagIssues(" (" .. issues .. ")"), path .. ": " .. line)
+                local issues = Changelog.SpecComment(lines[i])
+                if issues ~= nil then
+                    found = found + 1
+                    assert.is_truthy(issues, path .. ": " .. lines[i])
                 end
             end
         end
         listing:close()
-        assert.is_true(checked >= 3, "found " .. checked .. " spec comments")
+        assert.is_true(found >= 3, "found " .. found .. " spec comments")
     end)
 end)
 
@@ -128,6 +138,13 @@ describe("Changelog", function()
             assert.are.equal(1, #untagged(changelog("### Unreleased", "", "- Main entry.", "  - a detail (#1)")))
         end)
 
+        it("treats a missing text or entry as nothing to check", function()
+            assert.is_nil(Changelog.TagIssues(nil))
+            assert.are.same({}, Changelog.UntaggedEntries(nil, "### Unreleased"))
+            assert.are.same({}, Changelog.Lines(nil))
+            assert.are.same({}, Changelog.EntriesBeforeFirstSection(nil))
+        end)
+
         it("never errors on junk", function()
             for _, text in ipairs({ "", "\n\n", "### Unreleased", "### Unreleased\n- \n-\n( #)\n((((", ("-"):rep(5000) }) do
                 assert.is_table(untagged(text))
@@ -143,6 +160,11 @@ describe("Changelog", function()
             local first = Changelog.FirstSectionHeading(text)
             local allowed = { ["### Unreleased"] = true, ["## " .. wow.parseToc().Version] = true }
             assert.is_true(allowed[first] == true, "first section heading: " .. tostring(first))
+        end)
+
+        it("has no entries above its first section", function()
+            local found = Changelog.EntriesBeforeFirstSection(text)
+            assert.are.equal(0, #found, found[1] and found[1].text)
         end)
 
         it("has at most one Unreleased section", function()

@@ -7,6 +7,7 @@ local Changelog = {}
 -- very end of the entry (after a space), or nil when it has no well-formed tag (or names an
 -- issue twice).
 function Changelog.TagIssues(entry)
+    if type(entry) ~= "string" then return nil end
     local inside = entry:match(" %(([^()]*)%)%s*$")
     if not inside then return nil end
     local issues, seen = {}, {}
@@ -22,7 +23,9 @@ end
 -- The entry with its well-formed tag (and the space before it) taken off,
 -- as the release notes show it; anything else is left as written.
 function Changelog.WithoutTag(entry)
-    if not Changelog.TagIssues(entry) then return entry end
+    -- By form alone, as release-notes.sh's sed does: "(#27, #27)" goes too.
+    local inside = entry:match(" %(([^()]*)%)%s*$")
+    if not inside or (inside .. ", "):gsub("#[1-9]%d*, ", "") ~= "" then return entry end
     return (entry:gsub(" %([^()]*%)%s*$", ""))
 end
 
@@ -38,13 +41,19 @@ end
 -- Whether a line starts a section of its own: a release ("## 1.7.0") or
 -- the next release's notes ("### Unreleased"). Other headings inside a
 -- section ("#### Fixes") are part of it.
+local function Heading(line)
+    return (line:match("^ ? ? ?(##+ .-)%s*$"))
+end
+
 local function StartsSection(line)
-    return line:match("^## ") ~= nil or line:gsub("%s+$", "") == "### Unreleased"
+    local heading = Heading(line)
+    return heading ~= nil and (heading:match("^## ") ~= nil or heading == "### Unreleased")
 end
 
 -- The lines with Windows line endings removed.
 function Changelog.Lines(text)
     local lines = {}
+    if type(text) ~= "string" then return lines end
     for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = (line:gsub("\r$", "")) end
     return lines
 end
@@ -52,7 +61,7 @@ end
 -- The first section heading ("### Unreleased" or "## 1.7.0"), or nil.
 function Changelog.FirstSectionHeading(text)
     for _, line in ipairs(Changelog.Lines(text)) do
-        if line:match("^##+ ") then return (line:gsub("%s+$", "")) end
+        if Heading(line) then return Heading(line) end
     end
 end
 
@@ -63,7 +72,7 @@ function Changelog.Section(text, heading)
     local lines, firstLine, found, inside = {}, nil, false, false
     for number, line in ipairs(Changelog.Lines(text)) do
         if inside and StartsSection(line) then break end
-        if not inside and line:match("^##+ ") and line:gsub("%s+$", "") == heading then
+        if not inside and Heading(line) == heading then
             inside, found, firstLine = true, true, number + 1
         elseif inside then
             lines[#lines + 1] = line
@@ -76,21 +85,32 @@ end
 -- The entries in a section's lines: each top-level bullet ("- ", "* " or
 -- "+ " at the start of a line) with the lines that wrap it. An indented
 -- sub-bullet and its own lines aren't part of the entry's text, and a blank
--- line or a heading ends an entry. Each entry is { text, line } (line: its index in lines).
+-- line or a heading ends an entry. Each entry is { text, line, last }: line
+-- is its first line's index in lines, last its last line's text.
 function Changelog.Entries(lines)
-    local entries, current, inSubBullet = {}, nil, false
+    local entries, parts, current, inSubBullet = {}, {}, nil, false
+    -- Each entry's lines are gathered in a list and joined once (joining as
+    -- they come would take time growing with the square of the length).
+    local function finish()
+        if current then current.text = table.concat(parts[current], " ") end
+    end
     for index, line in ipairs(lines) do
-        if line:match("^[-*+] ") then
-            current, inSubBullet = { text = line, line = index }, false
+        if line:match("^ ?[-*+][ \t]") or line:match("^ ?%d+[.)][ \t]") then
+            finish()
+            current, inSubBullet = { line = index, last = line }, false
+            parts[current] = { line }
             entries[#entries + 1] = current
         elseif not line:match("%S") or line:match("^#") then
+            finish()
             current = nil
-        elseif current and line:match("^%s+[-*+] ") then
+        elseif current and (line:match("^%s+[-*+][ \t]") or line:match("^%s+%d+[.)][ \t]")) then
             inSubBullet = true
         elseif current and not inSubBullet then
-            current.text = current.text .. " " .. line:match("^%s*(.-)$")
+            table.insert(parts[current], (line:match("^%s*(.-)$")))
+            current.last = line
         end
     end
+    finish()
     return entries
 end
 
@@ -102,7 +122,7 @@ function Changelog.UntaggedEntries(text, heading)
     local untagged = {}
     if not lines then return untagged end
     for _, entry in ipairs(Changelog.Entries(lines)) do
-        if not Changelog.TagIssues(entry.text) then
+        if not Changelog.TagIssues(entry.text) or not Changelog.TagIssues(entry.last) then
             untagged[#untagged + 1] = { text = entry.text, line = firstLine + entry.line - 1 }
         end
     end
@@ -116,6 +136,27 @@ function Changelog.Describe(untagged)
         out[#out + 1] = ("line %d: ...%s"):format(entry.line, entry.text:sub(-60))
     end
     return table.concat(out, "\n")
+end
+
+-- The entries above the first section heading, which no section check sees.
+function Changelog.EntriesBeforeFirstSection(text)
+    local lines = {}
+    for _, line in ipairs(Changelog.Lines(text)) do
+        if Heading(line) then break end
+        lines[#lines + 1] = line
+    end
+    return Changelog.Entries(lines)
+end
+
+-- What a line near the top of a spec file says about its issues: the
+-- issue numbers for "-- Spec: #27" or "-- Spec: #27, #52"; false for a
+-- comment that looks like one but isn't in that form ("--Spec #27",
+-- "  -- specs: 27"); nil for any other line.
+function Changelog.SpecComment(line)
+    if type(line) ~= "string" then return nil end
+    if not line:match("^%s*%-%-+%s*[Ss][Pp][Ee][Cc][Ss]?[:%s]") then return nil end
+    local issues = line:match("^%-%- Spec: (#[^()]*)$")
+    return issues and Changelog.TagIssues(" (" .. issues .. ")") or false
 end
 
 -- Whether version a ("1.7.0") comes after version b.
