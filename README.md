@@ -2,6 +2,14 @@
 
 A courtesy addon for **World of Warcraft: Forever** (TOC interface `16001`).
 
+- **Greetings and thanks:** greets guildmates who log in, welcomes new guild and group members, and thanks players outside your group who buff you, in chat messages you can edit (below).
+- **Buff back:** when a stranger buffs you, a button offers your buff back, cast with one press ([Buff back](#buff-back)).
+- **Favour ledger:** who buffed you, whether you thanked them, and favours you returned, with titles for returning them ([Favour ledger](#favour-ledger)).
+- **Flavour:** the default lines speak in your race's voice and change with where you are and the hour ([Flavour](#flavour)).
+- **Control:** an ignore list, snooze, profiles, and export or import of your settings ([Use](#use)).
+
+The chat messages:
+
 | Event | Sent to | Placeholders |
 |---|---|---|
 | Guild member logs in | Guild chat | `{name}`, `{fullname}` |
@@ -13,7 +21,7 @@ A courtesy addon for **World of Warcraft: Forever** (TOC interface `16001`).
 
 `{name}` is the first name ("Nikki") and `{fullname}` the whole name ("Nikki Shifts"). Forever characters always have a surname. The addon identifies players by their full name, so two people called Nikki are never mixed up.
 
-Each type has its own on/off switch, a delay, a "don't repeat to the same player" cooldown (default 3 minutes; for the two hellos it's per group leader and 30 seconds) and 30 editable messages. Lines are used in a shuffled rotation: every line comes up once before any repeats, a new round never starts with the line that just ended the last one, and the rotation carries over across reloads and logins.
+Each message type has its own on/off switch, a delay, a "don't repeat to the same player" cooldown (default 3 minutes; for the two hellos it's per group leader and 30 seconds) and 30 editable messages. (Buff Back's optional line has neither a delay nor a cooldown: it's said as you cast.) Lines are used in a shuffled rotation: every line comes up once before any repeats, a new round never starts with the line that just ended the last one, and the rotation carries over across reloads and logins.
 
 ## Flavour
 
@@ -40,22 +48,27 @@ The 1.5 to 1.6 default lines are still there: each tab's **Load casual lines (1.
 
 With the CurseForge app, search for **Friendly Forever** and install it for WoW Forever.
 
-By hand: unzip `FriendlyForever-<version>.zip` (or copy the `FriendlyForever` folder) into your WoW Forever install's `Interface/AddOns/` folder, for example:
+By hand: unzip `FriendlyForever-<version>.zip` (or copy the `FriendlyForever` folder) into the `Interface/AddOns/` folder inside your WoW Forever install's game folder. During the beta that was:
 
 ```
 World of Warcraft/_classic_beta_/Interface/AddOns/
 ```
 
+The folder name may change at launch; use the one your WoW Forever install has.
+
 ## Use
 
-- **Options:** Esc → Options → AddOns → Friendly Forever, or type `/friendly`
-- **Minimap button:** left-click opens options, right-click turns the addon on or off, drag to move it
-- `/friendly on | off | toggle | test | say | minimap | help` (`/ffr` also works)
+- **Options:** Esc → Options → AddOns → Friendly Forever, or type `/friendly`. A tab per message type (including **Buff Back**), plus the **General** page (snooze, ignore list, profiles, export and import, bug report) and the **Favour Ledger** page.
+- **Minimap button:** left-click opens options, right-click turns the addon on or off, drag to move it. Friendly Forever is also in the addon compartment (the addon drop-down by the minimap) where the game has one.
+- **Key binding:** Key Bindings → AddOns → "Friendly Forever: buff back" presses the buff back button.
+- `/friendly on | off | toggle`: turn everything on or off. `/friendly help` lists every command (`/ffr` also works).
+- `/friendly test`: preview one message of each type (only you see it). `/friendly say`: send a waiting buff thank-you now. `/friendly minimap`: show or hide the minimap button.
 - `/friendly snooze [minutes] | off`: send nothing for a while (15 minutes by default, up to a day). It holds across a reload.
 - `/friendly ignore [name]` and `/friendly unignore <name>`: never greet, welcome or thank a player. Use the full name ("Nikki Shifts"); with no name it takes your target, or lists the names when you have no target.
 - `/friendly ledger [count] | clear`: the favour ledger (see below).
 - `/friendly profile [new | use | delete] <name>`: profiles. Each character switches to the profile it used last when it logs in.
 - `/friendly export` and `/friendly import [undo]`: your settings as one line of text, to keep or share. Importing never turns the addon on or off and only adds to your ignore list; `import undo` puts your settings back.
+- `/friendly buffback` shows what the buff back button holds and why; `/friendly move` unlocks it to drag, and locks it again.
 - The **General** page under Friendly Forever in the AddOns options has all of these as buttons.
 - **Don't send messages while I'm AFK** (on by default, at the top of the options): a greeting or thank-you that comes due while you're AFK is dropped, not saved for later. `/friendly test` and `/friendly selftest` still work.
 
@@ -99,7 +112,14 @@ When someone outside your group buffs you, a small button appears with their nam
 - **Who:** the newest favour first. It waits while they're dead. It never offers a buff to someone flagged for PvP unless you're flagged too, since buffing them would flag you: their flag is read at the moment you press, so a favour is offered only while the game shows them (on a nameplate, as your target or under your mouse). If it can't see them, the button says so; target them, or turn on friendly nameplates. Favours are dropped after 10 minutes (adjustable on the **Buff Back** tab), and are forgotten on a reload or logout.
 - **No endless trading:** when another player answers your buff with one of theirs, that isn't a new favour (for 10 minutes).
 - **Right-click** the button to let a favour go.
-- **Feedback:** "Returned Mark of the Wild to Bob Stone." under the button when the cast lands and the game confirms who it reached. If the game doesn't say who it reached, the cast isn't counted as returned (and the button says so). If the game refuses it ("Out of range."), the reason is shown in chat and the favour stays. A press that gets no answer at all means they couldn't be found ("No answer: couldn't find Bob Stone").
+- **Feedback:** "Returned Mark of the Wild to Bob Stone." under the button when the cast lands and the game confirms who it reached. Otherwise:
+  - the game doesn't say who it reached: the cast isn't counted as returned, and the button says so;
+  - it went to someone else: "Mark of the Wild went to Ann Vale, not Bob Stone." in chat, and the favour stays;
+  - the game refuses it: its reason in chat ("Couldn't buff Bob Stone: Out of range."), and the favour stays;
+  - nothing was cast: "No answer: couldn't find Bob Stone";
+  - the server never answers (a lag spike): "No word back…" on the button; press again if it didn't land.
+
+  Pressing again while a cast is still on its way is fine: each answer is matched to its own press.
 - **After a /reload in a fight** the button appears when the fight ends.
 - **Say a line as you cast** (off by default, on the **Buff Back** tab): 30 editable lines, with the flavour placeholders and `{buff}`.
 - **In combat** the button is empty: it clears itself as a fight starts and fills again afterwards. The game locks secure buttons in fights, so whatever it held would otherwise stay on it, aimed at the world outside the fight.
@@ -118,7 +138,8 @@ Every buff from someone outside your group, while Buff Thanks or Buff Back is on
 - Output is rate-limited (one message per 1.5 s). At most 25 messages can wait, and none waits longer than 2 minutes, so a wave of guild logins can't flood chat.
 - Nothing is sent during the game's chat lockdown. Messages wait until it ends.
 - The 10 seconds after login or reload are ignored, and buffs you already had (re-sent by the game when you log in, reconnect or zone) are never thanked.
-- Saved settings are type-checked and clamped on load, so a corrupted or hand-edited file can't break the addon.
+- Saved settings are type-checked and clamped on load, so a corrupted or hand-edited file can't break the addon. If they're damaged while you play (by another addon or a bad `/run`), they're repaired as soon as they cause an error, not at the next reload.
+- The buff back button never flags you for PvP: a player's flag is read at the moment you press, and a buff is offered only while the game shows them unflagged (or you're flagged too). It never casts in a fight, or on someone dead or hostile.
 - "Secret" values from the Midnight-era API are detected and never used.
 - The addon never runs text as code and doesn't read whispers or addon messages, so other players have no way to control it.
 - The buff-back button's macro is built only from a checked player name, the game's own spell name and an optional line, and each part is refused if it could end its line or start another command (a line break, a `|` escape code, or a leading `/`).
