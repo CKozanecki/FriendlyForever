@@ -1,0 +1,92 @@
+name: UI simulator trial
+
+# Trial of the headless WoW UI simulator wow-ui-sim (issue #49). Report only:
+# its results never fail CI, and nothing here is trusted beyond this job.
+#
+# Safety:
+# - The image is pinned by digest (release 0.1.36), so it can't change
+#   under us; read the source at that release before moving the pin.
+# - The job has read-only access to the repository and no secrets.
+# - The container runs with no network, no capabilities and no privilege
+#   escalation, and sees the packaged addon read-only. We don't use the
+#   project's own Action: it pulls a moving tag, mounts the repository
+#   read-write and puts an input into a shell command unquoted.
+
+on:
+  pull_request:
+    paths:
+      - "uitests/**"
+      - ".github/workflows/ui-sim-trial.yml"
+      - "*.lua"
+      - "*.toc"
+      - "*.xml"
+  workflow_dispatch:
+
+concurrency:
+  group: ui-sim-trial-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/osso/wow-ui-sim@sha256:7e663dfd59e364d9df212afa1cde40e7051c1fc65b1b3652ac84769a5ac9b292
+
+jobs:
+  ui-sim:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Package the addon as it ships
+        run: make package
+
+      - name: Stage the packaged addon with the UI scenarios
+        run: |
+          addons="$RUNNER_TEMP/addons"
+          mkdir -p "$addons" "$RUNNER_TEMP/report"
+          unzip -q dist/FriendlyForever-*.zip -d "$addons"
+          cp -r uitests "$addons/FriendlyForever/tests"
+          chmod -R a-w "$addons"
+
+      - name: Pull the simulator, pinned by digest
+        run: docker pull "$IMAGE"
+
+      - name: Run the simulator (no network, addon read-only)
+        run: |
+          sandbox() {
+            docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
+              -v "$RUNNER_TEMP/addons:/test-addons:ro" "$IMAGE" --addons-path /test-addons "$@"
+          }
+          sandbox lua-errors > "$RUNNER_TEMP/report/lua-errors.json" 2> "$RUNNER_TEMP/report/lua-errors.log" || true
+          sandbox run-tests FriendlyForever > "$RUNNER_TEMP/report/run-tests.log" 2>&1 || true
+          sandbox dump-tree --filter FriendlyForever > "$RUNNER_TEMP/report/frame-tree.txt" 2>&1 || true
+
+      - name: Summary
+        run: |
+          report="$RUNNER_TEMP/report"
+          {
+            echo "## UI simulator trial (report only)"
+            echo
+            echo "### Lua errors while loading (from FriendlyForever files)"
+            echo '```'
+            grep -i "FriendlyForever" "$report/lua-errors.json" | head -50 || echo "none"
+            echo '```'
+            echo "### UI scenarios"
+            echo '```'
+            tail -60 "$report/run-tests.log"
+            echo '```'
+            echo "### Client facts"
+            echo '```'
+            grep "FACT " "$report/run-tests.log" || echo "none printed"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-sim-trial-report
+          path: ${{ runner.temp }}/report

@@ -4,6 +4,7 @@ package-as: FriendlyForever
 
 ignore:
   - spec
+  - uitests
   - scripts
   - dist
   - .github
