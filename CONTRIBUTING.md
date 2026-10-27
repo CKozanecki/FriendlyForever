@@ -23,7 +23,7 @@ Every change can be traced from its spec to its code, tests, pull request and re
   - **black:** bad or error input is handled correctly;
   - **red:** chaos (random storms, damaged state) never crashes the addon, and anything damaged heals itself.
 - **Pull requests** say `Closes #<issue>` for each spec they complete (one keyword per issue: `Closes #1, closes #2`) and copy its acceptance criteria into the description as a checklist, ticked as they're met. The maintainer ticks them on the issue when merging.
-- **Tests:** a spec file written or changed for an issue says so in a comment on one of its first lines, in exactly this form: `-- Spec: #27` (or `-- Spec: #27, #52`). A repo test checks the form. Test names repeat the acceptance criteria in words; reviewers check that.
+- **Tests:** a spec file written or changed for an issue says so in a comment on one of its first five lines, in exactly this form: `-- Spec: #27` (or `-- Spec: #27, #52`). A repo test checks the form. Test names repeat the acceptance criteria in words; reviewers check that.
 - **Changelog** entries end with the issues they come from: `(#27)`, or `(#27, #52)` for several, including notes about the whole release. A repo test checks every entry under `### Unreleased`, and every entry of the released version once it's past 1.6.0. The release notes on CurseForge leave the tags out.
 - **Releases:** after tagging, the maintainer creates a GitHub release for the tag with **Generate release notes**, which lists the pull requests and the issues they closed.
 

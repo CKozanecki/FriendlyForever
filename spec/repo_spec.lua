@@ -310,7 +310,14 @@ describe("Release scripts", function()
         assert.are.same({ wow.parseToc().Version }, headings)
         -- The changelog's issue tags (#27) mean nothing to players, so the
         -- notes leave them out; otherwise they're the section word for word.
-        local withoutTags = wow.readFile("CHANGELOG.md"):gsub("\r", ""):gsub(" %(#[%d#, ]*%)[ \t]*\n", "\n")
+        local Changelog = require("spec.support.changelog")
+        local kept = {}
+        for _, line in ipairs(Changelog.Lines(wow.readFile("CHANGELOG.md"))) do
+            local tag = line:match(" (%([^()]*%))%s*$")
+            if tag and Changelog.TagIssues(tag) then line = line:sub(1, #line - #line:match(" %([^()]*%)%s*$")) end
+            kept[#kept + 1] = line
+        end
+        local withoutTags = table.concat(kept, "\n")
         assert.is_truthy(withoutTags:find(notes, 1, true), "notes aren't a slice of the changelog")
     end)
 
@@ -319,13 +326,15 @@ describe("Release scripts", function()
         os.remove(dir)
         os.execute('mkdir -p "' .. dir .. '"')
         local file = io.open(dir .. "/CHANGELOG.md", "w")
-        file:write("# Changelog\n\n## 1.7.0\n\n- One. (#27)\n- Two. (#27, #52)  \n- Kept (as written).\n\n## 1.6.0\n")
+        file:write("# Changelog\n\n## 1.7.0\n\n- One. (#27)\n- Two. (#27, #52)  \n- Kept (as written).\n- Not a tag (#)\n\n## 1.6.0\n")
         file:close()
         local out, code = run('./scripts/release-notes.sh "' .. dir .. '/CHANGELOG.md" "' .. dir .. '/NOTES.md"')
-        assert.are.equal(0, code, out)
-        local notes = io.open(dir .. "/NOTES.md"):read("*a")
+        local notesFile = io.open(dir .. "/NOTES.md")
+        local notes = notesFile and notesFile:read("*a")
+        if notesFile then notesFile:close() end
         os.execute('rm -rf "' .. dir .. '"')
-        assert.are.equal("## 1.7.0\n\n- One.\n- Two.\n- Kept (as written).\n\n", notes)
+        assert.are.equal(0, code, out)
+        assert.are.equal("## 1.7.0\n\n- One.\n- Two.\n- Kept (as written).\n- Not a tag (#)\n\n", notes)
     end)
 
     -- Notes for the next release sit under "### Unreleased" until the

@@ -14,6 +14,6 @@ CHANGELOG="${1:-$ROOT/CHANGELOG.md}"
 OUT="${2:-$ROOT/RELEASE_NOTES.md}"
 
 awk '/^## / { if (seen) exit; seen = 1 } seen' "$CHANGELOG" | tr -d '\r' \
-    | sed -E 's/ \(#[0-9#, ]*\)[[:space:]]*$//' > "$OUT"
+    | sed -E 's/ \(#[1-9][0-9]*(, #[1-9][0-9]*)*\)[[:space:]]*$//' > "$OUT"
 [[ -s "$OUT" ]] || { echo "No ## version section in $CHANGELOG" >&2; exit 1; }
 echo "$OUT"

@@ -4,33 +4,51 @@
 local Changelog = {}
 
 -- The issue numbers of an entry's tag, "(#27)" or "(#27, #52)" at the very
--- end of the entry, or nil when it has no well-formed tag.
+-- end of the entry, or nil when it has no well-formed tag (or names an
+-- issue twice).
 function Changelog.TagIssues(entry)
     local inside = entry:match("%(([^()]*)%)%s*$")
     if not inside then return nil end
-    local issues = {}
+    local issues, seen = {}, {}
     for part in (inside .. ", "):gmatch("(.-), ") do
-        local number = part:match("^#([1-9]%d*)$")
-        if not number then return nil end
-        issues[#issues + 1] = tonumber(number)
+        local number = tonumber(part:match("^#([1-9]%d*)$"))
+        if not number or seen[number] then return nil end
+        seen[number] = true
+        issues[#issues + 1] = number
     end
     return issues
 end
 
+-- Whether a line starts a section of its own: a release ("## 1.7.0") or
+-- the next release's notes ("### Unreleased"). Other headings inside a
+-- section ("#### Fixes") are part of it.
+local function StartsSection(line)
+    return line:match("^## ") ~= nil or line:gsub("%s+$", "") == "### Unreleased"
+end
+
+-- The lines with Windows line endings removed.
+function Changelog.Lines(text)
+    local lines = {}
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = (line:gsub("\r$", "")) end
+    return lines
+end
+
+-- The first section heading ("### Unreleased" or "## 1.7.0"), or nil.
+function Changelog.FirstSectionHeading(text)
+    for _, line in ipairs(Changelog.Lines(text)) do
+        if line:match("^##+ ") then return (line:gsub("%s+$", "")) end
+    end
+end
+
 -- The lines under a heading (the whole heading line, such as "### Unreleased"
--- or "## 1.7.0"), up to the next heading or the end, and the line number of
+-- or "## 1.7.0"), up to the next section or the end, and the line number of
 -- the first of them. nil when there is no such heading.
 function Changelog.Section(text, heading)
     local lines, firstLine, found, inside = {}, nil, false, false
-    local number = 0
-    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-        number = number + 1
-        line = line:gsub("\r$", "")
-        if line:match("^##+ ") then
-            if inside then break end
-            inside = line:gsub("%s+$", "") == heading
-            found = found or inside
-            firstLine = number + 1
+    for number, line in ipairs(Changelog.Lines(text)) do
+        if inside and StartsSection(line) then break end
+        if not inside and line:match("^##+ ") and line:gsub("%s+$", "") == heading then
+            inside, found, firstLine = true, true, number + 1
         elseif inside then
             lines[#lines + 1] = line
         end
@@ -42,14 +60,14 @@ end
 -- The entries in a section's lines: each top-level bullet ("- ", "* " or
 -- "+ " at the start of a line) with the lines that wrap it. An indented
 -- sub-bullet and its own lines aren't part of the entry's text, and a blank
--- line ends an entry. Each entry is { text, line } (line: its index in lines).
+-- line or a heading ends an entry. Each entry is { text, line } (line: its index in lines).
 function Changelog.Entries(lines)
     local entries, current, inSubBullet = {}, nil, false
     for index, line in ipairs(lines) do
         if line:match("^[-*+] ") then
             current, inSubBullet = { text = line, line = index }, false
             entries[#entries + 1] = current
-        elseif not line:match("%S") then
+        elseif not line:match("%S") or line:match("^#") then
             current = nil
         elseif current and line:match("^%s+[-*+] ") then
             inSubBullet = true
