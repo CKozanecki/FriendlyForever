@@ -1,3 +1,4 @@
+-- Spec: #27
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")

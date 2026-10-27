@@ -308,7 +308,29 @@ describe("Release scripts", function()
         local headings = {}
         for heading in ("\n" .. notes):gmatch("\n## ([^\n]+)") do headings[#headings + 1] = heading end
         assert.are.same({ wow.parseToc().Version }, headings)
-        assert.is_truthy(wow.readFile("CHANGELOG.md"):find(notes, 1, true), "notes aren't a verbatim slice of the changelog")
+        -- The changelog's issue tags (#27) mean nothing to players, so the
+        -- notes leave them out; otherwise they're the section word for word.
+        local Changelog = require("spec.support.changelog")
+        local kept = {}
+        for _, line in ipairs(Changelog.Lines(wow.readFile("CHANGELOG.md"))) do kept[#kept + 1] = Changelog.WithoutTag(line) end
+        local withoutTags = table.concat(kept, "\n")
+        assert.is_truthy(withoutTags:find(notes, 1, true), "notes aren't a slice of the changelog")
+    end)
+
+    it("release notes leave out the issue tags players can't use", function()
+        local dir = os.tmpname()
+        os.remove(dir)
+        os.execute('mkdir -p "' .. dir .. '"')
+        local file = io.open(dir .. "/CHANGELOG.md", "w")
+        file:write("# Changelog\n\n## 1.7.0\n\n- One. (#27)\n- Two. (#27, #52)  \n- Kept (as written).\n- Not a tag (#)\n\n## 1.6.0\n")
+        file:close()
+        local out, code = run('./scripts/release-notes.sh "' .. dir .. '/CHANGELOG.md" "' .. dir .. '/NOTES.md"')
+        local notesFile = io.open(dir .. "/NOTES.md")
+        local notes = notesFile and notesFile:read("*a")
+        if notesFile then notesFile:close() end
+        os.execute('rm -rf "' .. dir .. '"')
+        assert.are.equal(0, code, out)
+        assert.are.equal("## 1.7.0\n\n- One.\n- Two.\n- Kept (as written).\n- Not a tag (#)\n\n", notes)
     end)
 
     -- Notes for the next release sit under "### Unreleased" until the
