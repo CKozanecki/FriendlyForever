@@ -1,0 +1,361 @@
+-- Spec: #29
+-- When buff mode turns on and off by itself.
+local wow = require("spec.support.wow")
+
+local MOTW, MOTW_1 = 9885, 1126
+local INTELLECT = 10157
+
+local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
+
+local function printedHas(fragment)
+    for _, line in ipairs(wow.printed) do
+        if line:find(fragment, 1, true) then return true end
+    end
+    return false
+end
+
+describe("Buff mode turning on and off by itself", function()
+    local ns
+
+    -- A druid who knows Mark of the Wild (one buff keeps the counting simple).
+    local function boot(db)
+        ns = wow.boot({ db = db, before = function(state)
+            state.class = "DRUID"
+            state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
+        end })
+    end
+
+    local function lent() return ns.BuffMode.LentKey() end
+
+    local function join(names)
+        wow.setGroup("party", names or { "Ann-Vale", "Cid-Rock" })
+        wow.fire("GROUP_ROSTER_UPDATE")
+    end
+
+    local function leave()
+        wow.setGroup(nil, {})
+        wow.fire("GROUP_ROSTER_UPDATE")
+    end
+
+    local function dies(token)
+        wow.state.units[token].dead = true
+        wow.fire("UNIT_HEALTH", token)
+    end
+
+    -- Scroll once and let the buff show on whoever it reached.
+    local function scroll()
+        local before = #wow.casts
+        wow.pressKey("MOUSEWHEELUP")
+        local cast = wow.casts[before + 1]
+        if cast then
+            for token, u in pairs(wow.state.units) do
+                if u.id == cast.target and token ~= "target" then
+                    u.auras = u.auras or {}
+                    u.auras[#u.auras + 1] = cast.id
+                end
+            end
+        end
+        return cast
+    end
+
+    before_each(function() boot() end)
+
+    describe("turning on", function()
+        it("does nothing by default: every trigger that turns it on starts off", function()
+            local b = ns.db.buffBack
+            assert.is_false(b.autoOnJoin)
+            assert.is_false(b.autoOnDeath)
+            assert.is_false(b.autoOnBuffed)
+            join()
+            wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", class = "WARRIOR", id = "Bob-Stone" })
+            wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_nil(lent())
+        end)
+
+        it("turns on when you join a group, saying why", function()
+            ns.db.buffBack.autoOnJoin = true
+            join()
+            assert.is_true(ns.BuffMode.IsAuto())
+            assert.are.equal("MOUSEWHEELUP", lent())
+            assert.is_true(printedHas("buff mode on (you joined a group): MOUSEWHEELUP presses the buff-back button."))
+            wow.printed = {}
+            join({ "Ann-Vale", "Cid-Rock", "Dot-Fern" }) -- the roster changing isn't joining again
+            assert.is_false(printedHas("buff mode on"))
+        end)
+
+        it("turns on when someone outside your group buffs you", function()
+            ns.db.buffBack.autoOnBuffed = true
+            wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", class = "WARRIOR", id = "Bob-Stone" })
+            wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
+            assert.is_true(ns.BuffMode.IsAuto())
+            assert.is_true(printedHas("(someone buffed you)"))
+        end)
+
+        it("join, pull, death, pull: on, off, on, off", function()
+            ns.db.buffBack.autoOnJoin = true
+            ns.db.buffBack.autoOnDeath = true
+            local states = {}
+            local function note() states[#states + 1] = ns.BuffMode.IsOn() and "on" or "off" end
+            join()
+            note()
+            wow.enterCombat()
+            note()
+            dies("party1")
+            wow.leaveCombat()
+            note()
+            wow.enterCombat()
+            note()
+            assert.are.same({ "on", "off", "on", "off" }, states)
+            assert.is_true(printedHas("buff mode off (the fight started)."))
+            assert.is_true(printedHas("(someone in your group died)"))
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("doesn't turn on for a death before the group's first pull", function()
+            ns.db.buffBack.autoOnDeath = true
+            join()
+            dies("party1")
+            assert.is_false(ns.BuffMode.IsOn())
+        end)
+
+        it("answers a death out of a fight at once, after the first pull", function()
+            ns.db.buffBack.autoOnDeath = true
+            join()
+            wow.enterCombat()
+            wow.leaveCombat()
+            assert.is_false(ns.BuffMode.IsOn(), "nobody died")
+            dies("party2") -- a fall, say
+            assert.is_true(ns.BuffMode.IsAuto())
+        end)
+
+        it("never turns on in a fight: a trigger in one waits for it to end", function()
+            ns.db.buffBack.autoOnJoin = true
+            wow.enterCombat()
+            join()
+            assert.is_false(ns.BuffMode.IsOn())
+            wow.leaveCombat()
+            assert.is_true(ns.BuffMode.IsAuto())
+            assert.are.equal("MOUSEWHEELUP", lent())
+        end)
+
+        it("doesn't lend a key when there's nothing to buff", function()
+            ns.db.buffBack.autoOnJoin = true
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.state.units.party1.auras = { MOTW }
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_false(printedHas("buff mode"))
+        end)
+
+        it("is switched in the Buff Back tab", function()
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffBack, "OnClick")
+            for _, field in ipairs(ns.Options.AUTO_SWITCHES) do
+                local box = w.auto[field]
+                assert.is_true(box:IsShown(), field)
+                box:SetChecked(not ns.db.buffBack[field])
+                wow.run(box, "OnClick")
+                assert.are.equal(box:GetChecked(), ns.db.buffBack[field], field)
+            end
+            assert.is_true(w.steppers.autoOffMinutes.box:IsShown())
+            wow.run(w.steppers.autoOffMinutes.plus, "OnClick")
+            assert.are.equal(6, ns.db.buffBack.autoOffMinutes)
+            wow.run(w.tabs.buff, "OnClick")
+            assert.is_false(w.auto.autoOnJoin:IsShown())
+            assert.is_false(w.steppers.autoOffMinutes.box:IsShown())
+        end)
+    end)
+
+    describe("turning off", function()
+        before_each(function() ns.db.buffBack.autoOnJoin = true end)
+
+        it("turns off once everyone has your buffs", function()
+            join()
+            scroll()
+            assert.is_true(ns.BuffMode.IsOn(), "Cid still needs it")
+            scroll()
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_nil(lent())
+            assert.is_true(printedHas("buff mode off (everyone has your buffs)."))
+        end)
+
+        it("turns off after the timeout, and never with 0", function()
+            join()
+            wow.advance(5 * 60 - 10)
+            assert.is_true(ns.BuffMode.IsOn())
+            wow.advance(11)
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_true(printedHas("buff mode off (5 minutes passed)."))
+            leave()
+            ns.db.buffBack.autoOffMinutes = 0
+            join()
+            wow.advance(30 * 60)
+            assert.is_true(ns.BuffMode.IsOn())
+        end)
+
+        it("a new start gets its own full timeout; the last one's timer doesn't cut it short", function()
+            join()
+            wow.advance(60)
+            leave()
+            slash("buffmode off")
+            wow.advance(3 * 60)
+            join()
+            assert.is_true(ns.BuffMode.IsAuto())
+            wow.advance(2 * 60) -- the first start's timer would end it here
+            assert.is_true(ns.BuffMode.IsOn())
+            wow.advance(3 * 60 + 1)
+            assert.is_false(ns.BuffMode.IsOn())
+        end)
+
+        it("each way off can be switched off", function()
+            ns.db.buffBack.autoOffPull = false
+            ns.db.buffBack.autoOffDone = false
+            ns.db.buffBack.autoOffMinutes = 0
+            join()
+            wow.enterCombat()
+            assert.is_true(ns.BuffMode.IsOn(), "the pull doesn't end it")
+            assert.is_nil(lent(), "the key is still handed back for the fight")
+            wow.leaveCombat()
+            scroll()
+            scroll()
+            assert.is_true(ns.BuffMode.IsOn(), "everyone buffed doesn't end it")
+            assert.are.equal("MOUSEWHEELUP", lent())
+        end)
+
+        it("never turns off buff mode you turned on yourself", function()
+            join({ "Ann-Vale" })
+            slash("buffmode off")
+            slash("buffmode on")
+            assert.is_false(ns.BuffMode.IsAuto())
+            wow.enterCombat()
+            wow.leaveCombat()
+            scroll()
+            wow.advance(31 * 60)
+            assert.is_true(ns.BuffMode.IsOn())
+        end)
+
+        it("a manual switch makes a trigger's buff mode yours", function()
+            join()
+            assert.is_true(ns.BuffMode.IsAuto())
+            slash("buffmode on")
+            assert.is_false(ns.BuffMode.IsAuto())
+            wow.advance(6 * 60)
+            assert.is_true(ns.BuffMode.IsOn())
+        end)
+    end)
+
+    describe("what it can't see (black)", function()
+        it("never assumes everyone is buffed when someone's buffs can't be read; the timeout still ends it", function()
+            ns.db.buffBack.autoOnJoin = true
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.state.units.party1.auras = { MOTW }
+            wow.state.units.party1.secrets = { auras = true }
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(ns.BuffMode.IsOn(), "can't tell: worth buff mode")
+            wow.advance(60)
+            assert.is_true(ns.BuffMode.IsOn(), "not 'everyone has your buffs'")
+            wow.advance(5 * 60)
+            assert.is_false(ns.BuffMode.IsOn())
+        end)
+
+        it("ends at the timeout even in a fight (the key is already handed back)", function()
+            ns.db.buffBack.autoOnJoin = true
+            ns.db.buffBack.autoOffPull = false
+            join()
+            wow.enterCombat()
+            wow.advance(5 * 60 + 1)
+            assert.is_false(ns.BuffMode.IsOn())
+            wow.leaveCombat()
+            assert.is_nil(lent())
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("repairs damaged settings, and keeps working when they're damaged mid-session", function()
+            boot({ buffBack = { autoOnJoin = "yes", autoOffMinutes = 999, autoOffDone = {} } })
+            local b = ns.db.buffBack
+            assert.is_false(b.autoOnJoin)
+            assert.are.equal(ns.Config.LIMITS.autoOffMinutes.max, b.autoOffMinutes)
+            assert.is_true(b.autoOffDone)
+            b.autoOnJoin = true
+            b.autoOffMinutes = "ten"
+            b.autoOffDone = 7
+            join()
+            wow.advance(60)
+            assert.are.same({}, wow.errors)
+            assert.is_true(ns.BuffMode.IsOn())
+            wow.advance(5 * 60)
+            assert.is_false(ns.BuffMode.IsOn(), "a damaged timeout reads as the default, not never")
+        end)
+    end)
+
+    describe("chaos (red tests)", function()
+        it("never turns buff mode on in a fight, and a trigger's buff mode always ends within the timeout", function()
+            local turnedOn = 0
+            for _, seed in ipairs({ 4, 29, 81, 512, 2026 }) do
+                math.randomseed(seed)
+                boot()
+                local function setAll()
+                    local b = ns.db.buffBack
+                    b.autoOnJoin, b.autoOnDeath, b.autoOnBuffed = true, true, true
+                    b.autoOffPull = math.random() < 0.5
+                    b.autoOffDone = math.random() < 0.5
+                    b.autoOffMinutes = math.random(1, 3)
+                end
+                setAll()
+                local startedAt
+                local everyone = { "Ann-Vale", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
+                local actions = {
+                    function()
+                        local names = {}
+                        for _, n in ipairs(everyone) do if math.random() < 0.6 then names[#names + 1] = n end end
+                        if #names == 0 then leave() else join(names) end
+                    end,
+                    leave,
+                    function()
+                        local token = "party" .. math.random(1, 4)
+                        if wow.state.units[token] then dies(token) end
+                    end,
+                    function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
+                    function()
+                        local token = "nameplate" .. math.random(1, 3)
+                        local name = ({ "Bob", "Gus", "Hal" })[math.random(3)]
+                        wow.addUnit(token, { name = name, surname = "Stone", class = "MAGE", id = name .. "-Stone" })
+                        wow.gainBuff({ sourceUnit = token, name = "Arcane Intellect", spellId = INTELLECT })
+                    end,
+                    scroll,
+                    function() wow.advance(math.random() * 40) end,
+                    function() slash(({ "buffmode", "buffmode on", "buffmode off" })[math.random(3)]) end,
+                    function()
+                        wow.state.inCombat = false
+                        boot(_G.FriendlyForeverDB)
+                        setAll()
+                    end,
+                    function() ns.db.buffBack.autoOffMinutes = math.random(1, 3) end,
+                }
+                for step = 1, 500 do
+                    local where = ("seed %d, step %d"):format(seed, step)
+                    local wasOn = ns.BuffMode.IsOn()
+                    local fight = wow.state.inCombat
+                    actions[math.random(#actions)]()
+                    if fight and wow.state.inCombat then
+                        assert.is_true(wasOn or not ns.BuffMode.IsAuto(), where .. ": turned on in a fight")
+                    end
+                    if ns.BuffMode.IsAuto() then
+                        if not startedAt then
+                            startedAt = wow.now
+                            turnedOn = turnedOn + 1
+                        end
+                        -- The setting may have shrunk since: the longest it could be.
+                        assert.is_true(wow.now - startedAt <= 3 * 60 + 1, where .. ": past the longest timeout")
+                    else
+                        startedAt = nil
+                    end
+                    assert.is_true(not wow.state.inCombat or lent() == nil, where .. ": a key lent in a fight")
+                end
+                assert.are.same({}, wow.errors, "seed " .. seed)
+            end
+            assert.is_true(turnedOn > 20, "turned on by triggers: " .. turnedOn)
+        end)
+    end)
+end)

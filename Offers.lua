@@ -30,10 +30,17 @@ Offers.MAX_NAMEPLATES = 40      -- nameplate tokens looked through for a player
 local favours = {}          -- newest last: { name, unit, class, owedAt, ledgerEntry }
 local returnedAt = {}       -- [full name] = GetTime() you last returned their favour
 local listeners = {}
+local oweListeners = {}
 
 -- Call fn() whenever the favours change (the buff-back button re-arms).
 function Offers.OnChange(fn)
     listeners[#listeners + 1] = fn
+end
+
+-- Call fn() each time someone outside your group buffs you and is owed one
+-- back (buff mode may turn on: BuffModeAuto.lua).
+function Offers.OnOwe(fn)
+    oweListeners[#oweListeners + 1] = fn
 end
 
 local function Changed()
@@ -130,6 +137,7 @@ function Offers.Owe(name, unit, ledgerEntry)
     while #favours > Offers.MAX do table.remove(favours, 1) end
     ns.Diag.Log("buffBack", "you owe %s a buff", name)
     Changed()
+    for _, fn in ipairs(oweListeners) do fn() end
 end
 
 -- Forget favours older than the setting. Returns true if any went.

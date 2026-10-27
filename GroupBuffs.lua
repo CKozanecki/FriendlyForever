@@ -131,13 +131,14 @@ local function Candidates(units)
 end
 
 -- The next group member to buff: { name, buff, spell, group = true }, or
--- nil and why not. Your first buff goes to everyone missing it before your
--- second buff goes to anyone.
+-- nil, why not, and whether that's settled (nothing left that a buff of
+-- yours could fix: not in a group, or everyone has them). Your first buff
+-- goes to everyone missing it before your second buff goes to anyone.
 function GroupBuffs.Next()
     local units = GroupUnits()
-    if #units == 0 then return nil, "you're not in a group" end
+    if #units == 0 then return nil, "you're not in a group", true end
     local myBuffs = ns.BuffData.Offerable()
-    if #myBuffs == 0 then return nil, "you have no buffs to offer" end
+    if #myBuffs == 0 then return nil, "you have no buffs to offer", true end
     local members, firstReason = Candidates(units)
     local unreadable, outOfRange = {}, {}
     local family = {} -- [name .. family] = whether they wear one of yours (read once)
@@ -178,7 +179,9 @@ function GroupBuffs.Next()
             end
         end
     end
-    return nil, firstReason or "everyone in your group has your buffs"
+    -- Settled only when nobody was left out: a member who couldn't be read or
+    -- reached may still be missing a buff.
+    return nil, firstReason or "everyone in your group has your buffs", firstReason == nil
 end
 
 -- Your buff reached them (the game said so).

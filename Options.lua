@@ -8,7 +8,7 @@ local Config = ns.Config
 local Options = {}
 ns.Options = Options
 
-Options.CONTENT_HEIGHT = 1560 -- room for the Buff Back tab's buff list above its lines
+Options.CONTENT_HEIGHT = 1680 -- room for the Buff Back tab's buff list and buff mode rows above its lines
 
 local panel, category, generalPage, ledgerPage
 local currentType = Config.TYPES[1]
@@ -247,11 +247,14 @@ local function FillBuffRows(shown)
     else
         widgets.buffOrderHeader:SetText("Buff order (first that suits them is offered):")
     end
-    -- The messages follow the buff list on this tab, the buff options on the others.
+    -- On this tab the buff mode rows follow the buff list, and the messages
+    -- follow them; on the others the messages follow the buff options.
     local last = buffs[1] and widgets.buffRows[#buffs].up or widgets.buffOrderHeader
+    widgets.autoHeader:ClearAllPoints()
+    widgets.autoHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -14)
     widgets.msgHeader:ClearAllPoints()
     if shown then
-        widgets.msgHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -16)
+        widgets.msgHeader:SetPoint("TOPLEFT", widgets.steppers.autoOffMinutes.label, "BOTTOMLEFT", 0, -18)
     else
         widgets.msgHeader:SetPoint("TOPLEFT", widgets.fallback, "BOTTOMLEFT", 4, -32)
     end
@@ -259,6 +262,20 @@ end
 
 local function ShowStepper(stepper, shown)
     for _, part in ipairs({ stepper.label, stepper.minus, stepper.box, stepper.plus }) do part:SetShown(shown) end
+end
+
+-- The Buff Back tab's rows for when buff mode turns on and off by itself.
+Options.AUTO_SWITCHES = { "autoOnJoin", "autoOnDeath", "autoOnBuffed", "autoOffPull", "autoOffDone" }
+
+local function FillAuto(shown)
+    widgets.autoHeader:SetShown(shown)
+    widgets.autoOffHeader:SetShown(shown)
+    for _, field in ipairs(Options.AUTO_SWITCHES) do
+        widgets.auto[field]:SetShown(shown)
+        if shown then widgets.auto[field]:SetChecked(ns.db.buffBack[field] == true) end
+    end
+    ShowStepper(widgets.steppers.autoOffMinutes, shown)
+    if shown then FillBox(widgets.steppers.autoOffMinutes.box, tostring(ns.db.buffBack.autoOffMinutes)) end
 end
 
 local function Fill()
@@ -290,6 +307,7 @@ local function Fill()
         FillBox(widgets.steppers.owedMinutes.box, tostring(cfg.owedMinutes))
     end
     FillBuffRows(isBuffBack)
+    FillAuto(isBuffBack)
 
     widgets.listNames:SetShown(isBuff)
     widgets.thankStyle:SetShown(isBuff)
@@ -494,6 +512,34 @@ function Options.Create()
         widgets.buffRows[i] = row
         above = row.up
     end
+
+    -- Buff Back tab only, below the buff list: when buff mode turns on and
+    -- off by itself (BuffModeAuto.lua). Anchored in FillBuffRows.
+    widgets.auto = {}
+    local function AutoBox(field, text)
+        local cb = Checkbox(content, text, function(on)
+            ns.db.buffBack[field] = on
+            ns.BuffButton.Refresh()
+        end)
+        widgets.auto[field] = cb
+        return cb
+    end
+    widgets.autoHeader = Label(content, "Buff mode turns on by itself:", "GameFontNormalSmall")
+    local onJoin = AutoBox("autoOnJoin", "when I join a group")
+    onJoin:SetPoint("TOPLEFT", widgets.autoHeader, "BOTTOMLEFT", -4, -2)
+    local onDeath = AutoBox("autoOnDeath", "after a death in my group")
+    onDeath:SetPoint("LEFT", onJoin.label, "RIGHT", 16, 0)
+    local onBuffed = AutoBox("autoOnBuffed", "when someone buffs me")
+    onBuffed:SetPoint("LEFT", onDeath.label, "RIGHT", 16, 0)
+    widgets.autoOffHeader = Label(content, "...and off again (only when it turned itself on):", "GameFontNormalSmall")
+    widgets.autoOffHeader:SetPoint("TOPLEFT", onJoin, "BOTTOMLEFT", 4, -6)
+    local offPull = AutoBox("autoOffPull", "at the first pull")
+    offPull:SetPoint("TOPLEFT", widgets.autoOffHeader, "BOTTOMLEFT", -4, -2)
+    local offDone = AutoBox("autoOffDone", "when everyone has my buffs")
+    offDone:SetPoint("LEFT", offPull.label, "RIGHT", 16, 0)
+    local offMinutes = Stepper(content, "or after (minutes, 0 = never):", "autoOffMinutes")
+    offMinutes.label:SetPoint("TOPLEFT", offPull, "BOTTOMLEFT", 4, -8)
+    widgets.steppers.autoOffMinutes = offMinutes
 
     local anchor = msgHeader
     for i = 1, Config.NUM_MESSAGES do

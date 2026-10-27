@@ -79,6 +79,7 @@ function handlers.ADDON_LOADED(name)
     ns.Minimap.Create()
     ns.BuffMode.Create()
     ns.BuffButton.Create()
+    ns.BuffModeAuto.Create()
 
     Register("PLAYER_ENTERING_WORLD", function(isLogin, isReload)
         if isLogin or isReload then
