@@ -1,3 +1,4 @@
+-- Spec: #58
 -- The options added with 1.7.0: thank style, loading a line set, and the
 -- General and Favour Ledger pages.
 local wow = require("spec.support.wow")
@@ -125,6 +126,22 @@ describe("Options", function()
             assert.are.equal("", l.rows[2]:GetText())
             wow.run(l.clear, "OnClick")
             assert.are.equal("Nobody outside your group has buffed you yet.", l.rows[1]:GetText())
+        end)
+
+        -- The note says when buffs are recorded; it must match the rule
+        -- BuffTracker.Watching applies.
+        it("says buffs are recorded while Buff Thanks or Buff Back is on, as they are", function()
+            assert.is_truthy(w.ledger.note:GetText():find("while Buff Thanks or Buff Back is on", 1, true))
+            for _, case in ipairs({
+                { thanks = true, back = false, watching = true },
+                { thanks = false, back = true, watching = true },
+                { thanks = true, back = true, watching = true },
+                { thanks = false, back = false, watching = false },
+            }) do
+                ns.db.buff.enabled, ns.db.buffBack.enabled = case.thanks, case.back
+                assert.are.equal(case.watching, ns.BuffTracker.Watching() and true or false,
+                    ("thanks %s, back %s"):format(tostring(case.thanks), tostring(case.back)))
+            end
         end)
 
         it("shows names safely (no escape codes from a buff name)", function()
