@@ -51,11 +51,12 @@ function Changelog.CountHeading(text, heading)
     return count
 end
 
--- The lines with Windows line endings removed.
+-- The lines, with every carriage return removed.
 function Changelog.Lines(text)
     local lines = {}
     if type(text) ~= "string" then return lines end
-    for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = (line:gsub("\r$", "")) end
+    -- Every CR goes, as release-notes.sh's tr -d '\r' removes them.
+    for line in (text:gsub("\r", "") .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
     return lines
 end
 
