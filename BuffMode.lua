@@ -27,10 +27,10 @@ BuffMode.BINDING = "FRIENDLYFOREVER_BUFFMODE"
 BuffMode.BLOCKED_KEYS = {
     ESCAPE = true, ENTER = true, NUMPADENTER = true, ["/"] = true, BUTTON1 = true, BUTTON2 = true,
 }
--- Punctuation keys, which the game names by the character itself ("-" is
--- "MINUS", so it isn't one of them).
+-- Punctuation keys, which the game names by the character itself ("-", and
+-- with Shift "SHIFT--"; the keypad's is "NUMPADMINUS").
 BuffMode.PUNCTUATION_KEYS = {
-    ["`"] = true, [","] = true, ["."] = true, ["/"] = true, [";"] = true, ["'"] = true,
+    ["-"] = true, ["`"] = true, [","] = true, ["."] = true, ["/"] = true, [";"] = true, ["'"] = true,
     ["["] = true, ["]"] = true, ["\\"] = true, ["="] = true,
 }
 -- Modifier keys alone aren't keys to lend.

@@ -197,13 +197,13 @@ describe("Buff mode", function()
         it("can be set with /friendly buffmode key, and refuses keys it mustn't lend", function()
             slash("buffmode key mousewheeldown")
             assert.are.equal("MOUSEWHEELDOWN", ns.db.buffBack.buffModeKey)
-            for _, bad in ipairs({ "ESCAPE", "SHIFT-ENTER", "LSHIFT", "a b", "CTRL-", "-", "F|cff", "BUTTON1",
-                "CTRL-BUTTON2", "/", "SHIFT--", "..", string.rep("A", 41) }) do
+            for _, bad in ipairs({ "ESCAPE", "SHIFT-ENTER", "LSHIFT", "a b", "CTRL-", "F|cff", "BUTTON1",
+                "CTRL-BUTTON2", "/", "--", "..", "SHIFT-", string.rep("A", 41) }) do
                 local ok, why = ns.BuffMode.SetKey(bad)
                 assert.is_false(ok, bad)
                 assert.are.equal("that isn't a key buff mode can use", why)
             end
-            for _, good in ipairs({ ",", "SHIFT-.", "`", "\\", "=", "ALT-CTRL-SHIFT-F12", "BUTTON5" }) do
+            for _, good in ipairs({ "-", "SHIFT--", ",", "SHIFT-.", "`", "\\", "=", "ALT-CTRL-SHIFT-F12", "BUTTON5" }) do
                 assert.is_true(ns.BuffMode.SetKey(good), good)
             end
             wow.state.bindings.F9 = "FRIENDLYFOREVER_BUFFMODE"
