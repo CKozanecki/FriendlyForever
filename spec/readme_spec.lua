@@ -4,43 +4,61 @@
 local wow = require("spec.support.wow")
 
 -- Readme text without what a reader doesn't see as documentation: fenced
--- code blocks (``` or ~~~, indented or not, even on the first line) and
--- HTML comments (an unclosed one hides the rest of the text).
+-- code blocks (``` or ~~~, indented or not, even on the first line, or
+-- <pre>) and HTML comments. An unclosed one hides the rest of the text.
+-- (Lines indented four spaces aren't treated as code: in this README they
+-- are list continuations.)
 local function VisibleText(text)
-    text = ("\n" .. text:gsub("\r", "")):gsub("\n[ \t]*([`~][`~][`~]).-\n[ \t]*%1", "\n")
-    return (text:gsub("<!%-%-.-%-%->", ""):gsub("<!%-%-.*$", ""))
+    text = ("\n" .. text:gsub("\r\n?", "\n")):gsub("\n[ \t]*([`~][`~][`~]).-\n[ \t]*%1", "\n")
+    text = text:gsub("\n[ \t]*```.*$", ""):gsub("\n[ \t]*~~~.*$", "")
+    text = text:gsub("<pre>.-</pre>", ""):gsub("<pre>.*$", "")
+    local kept, at = {}, 1
+    while true do
+        local open = text:find("<!--", at, true)
+        if not open then kept[#kept + 1] = text:sub(at) break end
+        kept[#kept + 1] = text:sub(at, open - 1)
+        local close = text:find("-->", open + 4, true)
+        if not close then break end
+        at = close + 3
+    end
+    return table.concat(kept)
 end
 
 -- A name ends at the end of the text, a space, a backtick, "|", "]", or
 -- punctuation; never inside a longer word ("zap" isn't "zap-it").
 local function EndsName(text, after)
     local nextChar = text:sub(after, after)
-    return nextChar == "" or nextChar:match("[%s`|%]%)%.,:;\"'!?]") ~= nil
+    return not nextChar:match("[%w%-]")
 end
 
 -- The command names written as "/friendly <name>", or as a word in a chain
 -- right after one: "/friendly on | off | toggle" names all three, but
 -- "/friendly snooze [minutes] | off" names only snooze.
 local function WrittenCommands(readme)
-    local text = VisibleText(readme)
     local written = {}
-    local position = 1
-    while true do
-        local start, finish, name = text:find("/friendly ([%w_]+)", position)
-        if not start then break end
-        if EndsName(text, finish + 1) then
-            written[name] = true
-            local chainAt = finish + 1
-            while true do
-                local _, chainEnd, next = text:find("^%s*|%s*([%w_]+)", chainAt)
-                if not chainEnd or not EndsName(text, chainEnd + 1) then break end
-                -- A word followed by more words is prose (a table cell), not a command.
-                if text:find("^[ \t]+[%w_]", chainEnd + 1) then break end
-                written[next] = true
-                chainAt = chainEnd + 1
+    for line in (VisibleText(readme) .. "\n"):gmatch("([^\n]*)\n") do
+        -- In a table row an unescaped "|" ends the cell, never a chain.
+        local chain = line:find("^[ \t]*|.*|[ \t]*$") and "^[ \t]*\\|[ \t]*(%w+)" or "^[ \t]*\\?|[ \t]*(%w+)"
+        local position = 1
+        while true do
+            local start, finish, name = line:find("/friendly (%w+)", position)
+            if not start then break end
+            -- Not part of a longer path or word ("example.com/friendly zap").
+            local before = line:sub(start - 1, start - 1)
+            if EndsName(line, finish + 1) and not before:match("[%w%./]") then
+                written[name] = true
+                local chainAt = finish + 1
+                while true do
+                    local _, chainEnd, next = line:find(chain, chainAt)
+                    if not chainEnd or not EndsName(line, chainEnd + 1) then break end
+                    -- A word followed by more words is prose, not a command.
+                    if line:find("^[ \t]+%w", chainEnd + 1) then break end
+                    written[next] = true
+                    chainAt = chainEnd + 1
+                end
             end
+            position = finish + 1
         end
-        position = finish + 1
     end
     return written
 end
@@ -148,5 +166,109 @@ describe("README", function()
             end
             assert.are.same({}, missing, Message(missing))
         end)
+    end)
+end)
+
+describe("README test helpers (review: kill tests)", function()
+    it("reads text after a closed HTML comment, and between two", function()
+        assert.is_true(WrittenCommands("<!-- note -->\n/friendly zap").zap)
+        assert.is_true(WrittenCommands("<!-- a --> /friendly zap <!-- b -->").zap)
+    end)
+
+    it("closes a fence only with its own kind of fence", function()
+        local written = WrittenCommands("~~~\n```lua\n~~~\n/friendly zap\n```\ncode\n```")
+        assert.is_true(written.zap)
+        assert.is_nil(written.code)
+    end)
+
+    it("keeps the line break a fence stood on", function()
+        assert.is_true(WrittenCommands("/friendly zap\n~~~\ncode\n~~~~").zap, "a longer closing fence")
+    end)
+
+    it("doesn't take two backticks for a fence", function()
+        assert.is_true(WrittenCommands("``a`` b\n/friendly zap\n``c`` d").zap)
+    end)
+
+    it("ends a name at each punctuation mark", function()
+        local written = WrittenCommands(
+            "/friendly za! /friendly zb; /friendly zc: /friendly zd, /friendly ze. (/friendly zf) [/friendly zg] |/friendly zh|")
+        for _, name in ipairs({ "za", "zb", "zc", "zd", "ze", "zf", "zg", "zh" }) do
+            assert.is_true(written[name], name)
+        end
+    end)
+
+    it("needs /friendly and one space before the name", function()
+        assert.is_nil(WrittenCommands("Type /friendly\nto open the options.").to)
+        assert.is_nil(WrittenCommands("Send a friendly hello.").hello)
+    end)
+
+    it("reads a chain with no spaces, and a mention right after a name", function()
+        assert.are.same({ on = true, off = true, toggle = true }, WrittenCommands("/friendly on|off|toggle"))
+        assert.are.same({ on = true, off = true }, WrittenCommands("/friendly on  |  off"))
+        -- Written straight after a name, "/friendly" is part of a word, as in a path.
+        assert.is_nil(WrittenCommands("/friendly on/friendly zap").zap)
+        assert.is_true(WrittenCommands("/friendly on (/friendly zap)").zap)
+    end)
+
+    it("doesn't read a longer word, a number or a tab-spaced cell in a chain", function()
+        assert.is_nil(WrittenCommands("/friendly on | zap-it").zap)
+        assert.is_nil(WrittenCommands("/friendly snooze | off 15 minutes").off)
+        assert.is_nil(WrittenCommands("| /friendly on | off\tby default |").off)
+    end)
+end)
+
+describe("ns.SlashCommandNames (review)", function()
+    local ns
+    before_each(function() ns = wow.boot() end)
+
+    it("is sorted with no repeats, and a fresh table each call", function()
+        local names = ns.SlashCommandNames()
+        for i = 2, #names do assert.is_true(names[i - 1] < names[i], names[i - 1] .. " before " .. names[i]) end
+        names[1] = nil
+        assert.is_not_nil(ns.SlashCommandNames()[1])
+    end)
+
+    it("holds every command help and the README name (none left out)", function()
+        local isCommand = {}
+        for _, name in ipairs(ns.SlashCommandNames()) do isCommand[name] = true end
+        wow.printed = {}
+        _G.SlashCmdList.FRIENDLYFOREVER("help")
+        for _, source in ipairs({ table.concat(wow.printed, "\n"), wow.readFile("README.md") }) do
+            for name in pairs(WrittenCommands(source)) do
+                assert.is_true(isCommand[name], "/friendly " .. name .. " is written but isn't a command")
+            end
+        end
+    end)
+end)
+
+describe("README test helpers (review: findings)", function()
+    it("reads a command in bold, italics or HTML", function()
+        for _, text in ipairs({ "**/friendly zap**", "*/friendly zap*", "_/friendly zap_", "__/friendly zap__",
+            "<code>/friendly zap</code>", "| /friendly zap<br>and more |" }) do
+            assert.is_true(WrittenCommands(text).zap, text)
+        end
+    end)
+
+    it("doesn't take the next table cell for a command", function()
+        assert.is_nil(WrittenCommands("| Command | Default |\n|---|---|\n| /friendly debug | off |").off)
+        assert.is_nil(WrittenCommands("| `/friendly minimap` | on |").on)
+    end)
+
+    it("hides the rest of the text after an unclosed fence, as it does after an unclosed comment", function()
+        assert.is_nil(WrittenCommands("ok\n```\n/friendly zap").zap)
+    end)
+
+    it("doesn't read /friendly inside a path or word, or in a <pre> block", function()
+        assert.is_nil(WrittenCommands("See example.com/friendly zap").zap)
+        assert.is_nil(WrittenCommands("foo/friendly zap").zap)
+        assert.is_nil(WrittenCommands("<pre>\n/friendly zap\n</pre>").zap)
+        assert.is_nil(WrittenCommands("ok <pre>/friendly zap").zap)
+        assert.is_true(WrittenCommands("(/friendly zap)").zap)
+    end)
+
+    it("strips many unclosed comments in linear time", function()
+        local started = os.clock()
+        assert.is_table(WrittenCommands(("<!--"):rep(20000)))
+        assert.is_true(os.clock() - started < 1)
     end)
 end)

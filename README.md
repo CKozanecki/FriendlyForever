@@ -61,7 +61,7 @@ To find the game folder, open the Battle.net app, choose WoW Forever, then the g
 
 - **Options:** Esc → Options → AddOns → Friendly Forever, or type `/friendly`. A tab per message type (including **Buff Back**), plus the **General** page (snooze, ignore list, profiles, export and import, bug report) and the **Favour Ledger** page.
 - **Minimap button:** left-click opens options, right-click turns the addon on or off, drag to move it. Friendly Forever is also in the addon compartment (the addon drop-down by the minimap) where the game has one.
-- **Key binding:** Key Bindings → AddOns → "Friendly Forever: buff back" presses the buff back button. Its commands are under [Buff back](#buff-back).
+- **Key binding:** Key Bindings → AddOns → "Friendly Forever: buff back" presses the buff back button.
 - `/friendly on | off | toggle`: turn everything on or off. `/friendly help` lists every command (`/ffr` also works).
 - `/friendly test`: preview one message of each type (only you see it). `/friendly say`: send a waiting buff thank-you now. `/friendly minimap`: show or hide the minimap button.
 - `/friendly snooze [minutes] | off`: send nothing for a while (15 minutes by default, up to a day). It holds across a reload.
@@ -70,7 +70,8 @@ To find the game folder, open the Battle.net app, choose WoW Forever, then the g
 - `/friendly profile [new | use | delete] <name>`: profiles. Each character switches to the profile it used last when it logs in.
 - `/friendly export` and `/friendly import [undo]`: your settings as one line of text, to keep or share. Importing never turns the addon on or off and only adds to your ignore list; `import undo` puts your settings back.
 - The **General** page has buttons for snooze, the ignore list, profiles, export and import, and the bug report; the **Favour Ledger** page shows the ledger.
-- Commands for checking what the addon does are under [Troubleshooting](#troubleshooting).
+- Buff back: `/friendly buffback` (what the button holds) and `/friendly move` (drag it). See [Buff back](#buff-back).
+- Checking what the addon does: `/friendly status`, `/friendly selftest`, `/friendly names`, `/friendly nameplates`, `/friendly debug` and `/friendly report`. See [Troubleshooting](#troubleshooting).
 - **Don't send messages while I'm AFK** (on by default, at the top of the options): a greeting or thank-you that comes due while you're AFK is dropped, not saved for later. `/friendly test` and `/friendly selftest` still work.
 
 ## Troubleshooting
