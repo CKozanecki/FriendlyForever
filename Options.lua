@@ -561,7 +561,7 @@ function Options.CreateLedgerPage()
         Options.Refresh()
     end)
     w.clear:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -14)
-    Note(page, w.clear, "Buffs from players outside your group, while Buff Thanks is on. "
+    w.note = Note(page, w.clear, "Buffs from players outside your group, while Buff Thanks or Buff Back is on. "
         .. "The newest " .. ns.Ledger.MAX_ENTRIES .. " are kept; /friendly ledger shows them in chat.")
     page:SetScript("OnShow", function() FillLedger() end)
 end
