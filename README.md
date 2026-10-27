@@ -130,7 +130,7 @@ When someone outside your group buffs you, a small button appears with their nam
 - **Say a line** only while the addon may speak: not while snoozed, or AFK with "Don't send messages while I'm AFK" on.
 - `/friendly move` unlocks the button so you can drag it, and locks it again. `/friendly buffback` shows exactly what the button holds and why, for checking in game.
 
-The button's macro is `/cleartarget`, `/targetexact First Surname`, `/cast [help,nodead] <buff>`, `/s <line>` if the line is on, then `/targetlasttarget` (or `/cleartarget` if you had no target). Targeting the exact name means a player whose name only starts the same is never buffed, and the cast only goes off on a friendly, living target, so if they can't be found nothing is cast and your target comes back. Not yet tested in WoW Forever, which launches on November 5; the macro lives in one function, so adjusting it after the first test is a small change.
+The button's macro is `/cleartarget`, `/targetexact First Surname`, `/cast [help,nodead] <buff>`, `/s <line>` if the line is on, then `/targetlasttarget` (or `/cleartarget` if you had no target). Targeting the exact name means a player whose name only starts the same is never buffed, and the cast only goes off on a friendly, living target, so if they can't be found nothing is cast and your target comes back. Not yet tested in WoW Forever, as it hasn't launched; the macro lives in one function, so adjusting it after the first test is a small change.
 
 ## Favour ledger
 

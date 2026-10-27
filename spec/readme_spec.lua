@@ -4,16 +4,18 @@
 local wow = require("spec.support.wow")
 
 -- Readme text without what a reader doesn't see as documentation: fenced
--- code blocks and HTML comments.
+-- code blocks (``` or ~~~, indented or not, even on the first line) and
+-- HTML comments (an unclosed one hides the rest of the text).
 local function VisibleText(text)
-    return (text:gsub("\r", ""):gsub("\n```.-\n```", "\n"):gsub("<!%-%-.-%-%->", ""))
+    text = ("\n" .. text:gsub("\r", "")):gsub("\n[ \t]*([`~][`~][`~]).-\n[ \t]*%1", "\n")
+    return (text:gsub("<!%-%-.-%-%->", ""):gsub("<!%-%-.*$", ""))
 end
 
 -- A name ends at the end of the text, a space, a backtick, "|", "]", or
 -- punctuation; never inside a longer word ("zap" isn't "zap-it").
 local function EndsName(text, after)
     local nextChar = text:sub(after, after)
-    return nextChar == "" or nextChar:match("[%s`|%]%)%.,:;]") ~= nil
+    return nextChar == "" or nextChar:match("[%s`|%]%)%.,:;\"'!?]") ~= nil
 end
 
 -- The command names written as "/friendly <name>", or as a word in a chain
@@ -32,6 +34,8 @@ local function WrittenCommands(readme)
             while true do
                 local _, chainEnd, next = text:find("^%s*|%s*([%w_]+)", chainAt)
                 if not chainEnd or not EndsName(text, chainEnd + 1) then break end
+                -- A word followed by more words is prose (a table cell), not a command.
+                if text:find("^[ \t]+[%w_]", chainEnd + 1) then break end
                 written[next] = true
                 chainAt = chainEnd + 1
             end
@@ -83,6 +87,19 @@ describe("README", function()
             local written = WrittenCommands("text\n```\n/friendly zap\n```\n<!-- /friendly zip -->")
             assert.is_nil(written.zap)
             assert.is_nil(written.zip)
+            assert.is_nil(WrittenCommands("```\n/friendly zap\n```").zap, "a fence on the first line")
+            assert.is_nil(WrittenCommands("- item\n  ```\n  /friendly zap\n  ```").zap, "an indented fence")
+            assert.is_nil(WrittenCommands("~~~\n/friendly zap\n~~~").zap, "a tilde fence")
+            assert.is_nil(WrittenCommands("ok\n<!-- unclosed /friendly zap").zap, "an unclosed comment")
+        end)
+
+        it("doesn't read on into a table cell's prose", function()
+            assert.is_nil(WrittenCommands("| /friendly on | off by default |").off)
+        end)
+
+        it("reads a command before quotes and sentence punctuation", function()
+            local written = WrittenCommands('Try "/friendly zap"! Or /friendly zip? Or \'/friendly zop\'.')
+            assert.is_true(written.zap and written.zip and written.zop)
         end)
     end)
 
