@@ -143,11 +143,13 @@ local function StopKeyCapture()
     capture.active = false
     capture:EnableKeyboard(false)
     capture:EnableMouseWheel(false)
+    capture:EnableMouse(false)
     capture:Hide()
     widgets.buffModeKey:SetText(KeyButtonText())
 end
 
 local function TakeKey(key)
+    if InCombatLockdown() then return StopKeyCapture() end
     StopKeyCapture()
     local ok, why = ns.BuffMode.SetKey(ModifierPrefix() .. key)
     if not ok then ns.Print("couldn't set the buff mode key: " .. why .. ".") end
@@ -162,6 +164,7 @@ function Options.StartKeyCapture()
     capture:EnableKeyboard(true)
     capture:SetPropagateKeyboardInput(false)
     capture:EnableMouseWheel(true)
+    capture:EnableMouse(true)
     widgets.buffModeKey:SetText(Options.KEY_PROMPT)
 end
 
@@ -179,6 +182,10 @@ local function CreateKeyCapture(parent)
         if MOUSE_KEYS[mouseButton] then TakeKey(MOUSE_KEYS[mouseButton]) end
     end)
     capture:SetScript("OnHide", StopKeyCapture)
+    -- A fight starting ends the wait, while the game still allows it: in a
+    -- fight your keys must reach your abilities, not choose buff mode's key.
+    capture:RegisterEvent("PLAYER_REGEN_DISABLED")
+    capture:SetScript("OnEvent", StopKeyCapture)
     return capture
 end
 

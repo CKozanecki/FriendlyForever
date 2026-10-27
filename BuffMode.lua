@@ -22,8 +22,17 @@ ns.BuffMode = BuffMode
 BuffMode.DEFAULT_KEY = "MOUSEWHEELUP"
 BuffMode.MAX_KEY_LENGTH = 40
 BuffMode.BINDING = "FRIENDLYFOREVER_BUFFMODE"
--- Keys never lent: without them you couldn't close a window or chat.
-BuffMode.BLOCKED_KEYS = { ESCAPE = true, ENTER = true, NUMPADENTER = true }
+-- Keys never lent: without them you couldn't close a window, chat, type a
+-- slash command, or click, turn and move with the mouse in the world.
+BuffMode.BLOCKED_KEYS = {
+    ESCAPE = true, ENTER = true, NUMPADENTER = true, ["/"] = true, BUTTON1 = true, BUTTON2 = true,
+}
+-- Punctuation keys, which the game names by the character itself ("-" is
+-- "MINUS", so it isn't one of them).
+BuffMode.PUNCTUATION_KEYS = {
+    ["`"] = true, [","] = true, ["."] = true, ["/"] = true, [";"] = true, ["'"] = true,
+    ["["] = true, ["]"] = true, ["\\"] = true, ["="] = true,
+}
 -- Modifier keys alone aren't keys to lend.
 BuffMode.MODIFIER_KEYS = {
     LSHIFT = true, RSHIFT = true, LCTRL = true, RCTRL = true, LALT = true, RALT = true,
@@ -41,8 +50,8 @@ local lentKey            -- the key lent right now, or nil
 function BuffMode.IsValidKey(key)
     if type(key) ~= "string" or #key > BuffMode.MAX_KEY_LENGTH then return false end
     local base = key:gsub("^ALT%-", ""):gsub("^CTRL%-", ""):gsub("^SHIFT%-", "")
-    -- The game writes the "-" key itself as "MINUS", so the rest is letters and digits.
-    if not base:find("^[%u%d]+$") then return false end
+    -- Letters and digits ("F", "MOUSEWHEELUP", "BUTTON4"), or one punctuation key.
+    if not base:find("^[%u%d]+$") and not BuffMode.PUNCTUATION_KEYS[base] then return false end
     return not BuffMode.BLOCKED_KEYS[base] and not BuffMode.MODIFIER_KEYS[base]
 end
 
@@ -85,7 +94,13 @@ end
 -- out of combat whenever anything changes. Cheap when nothing has.
 function BuffMode.Apply()
     if not owner or InCombatLockdown() then return end
-    if not wanted or not Allowed() or not ns.BuffButton.Frame() then return HandBack() end
+    if wanted and not Allowed() then
+        -- Switching the addon or Buff Back off ends buff mode: it doesn't
+        -- quietly take the key again when they come back on.
+        wanted = false
+        ns.Print("buff mode off: the addon or Buff Back is switched off.")
+    end
+    if not wanted or not ns.BuffButton.Frame() then return HandBack() end
     local key, why = BuffMode.Key()
     if lentKey ~= key then
         if why then ns.Print("buff mode: " .. why .. "; using " .. BuffMode.KeyText(key) .. ".") end
@@ -154,7 +169,8 @@ end
 
 function BuffMode.StatusLine()
     if lentKey then return "buff mode: on, " .. BuffMode.KeyText(lentKey) .. " presses the button" end
-    if wanted then return "buff mode: on, waiting for the fight to end" end
+    if wanted and InCombatLockdown() then return "buff mode: on, waiting for the fight to end" end
+    if wanted then return "buff mode: on, waiting for the button" end
     return "buff mode: off (key: " .. BuffMode.KeyText((BuffMode.Key())) .. ")"
 end
 

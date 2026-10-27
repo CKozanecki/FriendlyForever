@@ -136,6 +136,7 @@ function methods:GetPoint()
 end
 function methods:EnableKeyboard(on) self.keyboard = on and true or false end
 function methods:EnableMouseWheel(on) self.mouseWheel = on and true or false end
+function methods:EnableMouse(on) self.mouse = on and true or false end
 function methods:SetPropagateKeyboardInput(on)
     if M.state.inCombat then error("SetPropagateKeyboardInput is protected in combat") end
     self.propagate = on and true or false
