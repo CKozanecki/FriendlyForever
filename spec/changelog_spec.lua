@@ -29,7 +29,7 @@ describe("Spec comments", function()
                     checked = checked + 1
                     local issues = line:match(SPEC_LINE)
                     assert.is_truthy(issues, path .. ": " .. line)
-                    assert.is_truthy(Changelog.TagIssues("(" .. issues .. ")"), path .. ": " .. line)
+                    assert.is_truthy(Changelog.TagIssues(" (" .. issues .. ")"), path .. ": " .. line)
                 end
             end
         end
@@ -58,10 +58,22 @@ describe("Changelog", function()
                 "- No tag.", "- (#27) Tag first, not last.", "- Hash after. (#27#)", "- Empty part. (#27, )",
                 "- Missing hash. (#27, 52)", "- Space inside. (# 27)", "- No comma space. (#27,#52)",
                 "- No comma. (#27 #52)", "- Zero. (#0)", "- Leading zero. (#027)", "- Empty. ()",
-                "- Not an issue. (see above)", "- Twice. (#27, #27)",
+                "- Not an issue. (see above)", "- Twice. (#27, #27)", "- No space before it.(#27)",
             }) do
                 assert.is_nil(Changelog.TagIssues(entry), entry)
             end
+        end)
+
+        it("takes off only a well-formed tag, as the release notes do", function()
+            assert.are.equal("- One.", Changelog.WithoutTag("- One. (#27)"))
+            assert.are.equal("- Two.", Changelog.WithoutTag("- Two. (#27, #52)  "))
+            assert.are.equal("- Kept (as written).", Changelog.WithoutTag("- Kept (as written)."))
+            assert.are.equal("- Not a tag (#)", Changelog.WithoutTag("- Not a tag (#)"))
+        end)
+
+        it("counts a heading that appears twice (a merge that kept both)", function()
+            assert.are.equal(2, Changelog.CountHeading(changelog("### Unreleased", "- a (#1)", "### Unreleased",
+                "- b"), "### Unreleased"))
         end)
 
         it("names every untagged entry, with its line and its end", function()
@@ -131,6 +143,10 @@ describe("Changelog", function()
             local first = Changelog.FirstSectionHeading(text)
             local allowed = { ["### Unreleased"] = true, ["## " .. wow.parseToc().Version] = true }
             assert.is_true(allowed[first] == true, "first section heading: " .. tostring(first))
+        end)
+
+        it("has at most one Unreleased section", function()
+            assert.is_true(Changelog.CountHeading(text, "### Unreleased") <= 1, "merge both lists under one heading")
         end)
 
         it("tags every unreleased entry with its issue", function()

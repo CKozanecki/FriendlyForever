@@ -3,11 +3,11 @@
 -- text, not on the file, so the specs can feed it made-up changelogs.
 local Changelog = {}
 
--- The issue numbers of an entry's tag, "(#27)" or "(#27, #52)" at the very
--- end of the entry, or nil when it has no well-formed tag (or names an
+-- The issue numbers of an entry's tag, " (#27)" or " (#27, #52)" at the
+-- very end of the entry (after a space), or nil when it has no well-formed tag (or names an
 -- issue twice).
 function Changelog.TagIssues(entry)
-    local inside = entry:match("%(([^()]*)%)%s*$")
+    local inside = entry:match(" %(([^()]*)%)%s*$")
     if not inside then return nil end
     local issues, seen = {}, {}
     for part in (inside .. ", "):gmatch("(.-), ") do
@@ -17,6 +17,22 @@ function Changelog.TagIssues(entry)
         issues[#issues + 1] = number
     end
     return issues
+end
+
+-- The entry with its well-formed tag (and the space before it) taken off,
+-- as the release notes show it; anything else is left as written.
+function Changelog.WithoutTag(entry)
+    if not Changelog.TagIssues(entry) then return entry end
+    return (entry:gsub(" %([^()]*%)%s*$", ""))
+end
+
+-- How many times a heading line appears.
+function Changelog.CountHeading(text, heading)
+    local count = 0
+    for _, line in ipairs(Changelog.Lines(text)) do
+        if line:gsub("%s+$", "") == heading then count = count + 1 end
+    end
+    return count
 end
 
 -- Whether a line starts a section of its own: a release ("## 1.7.0") or

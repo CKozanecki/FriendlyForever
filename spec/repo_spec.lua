@@ -312,11 +312,7 @@ describe("Release scripts", function()
         -- notes leave them out; otherwise they're the section word for word.
         local Changelog = require("spec.support.changelog")
         local kept = {}
-        for _, line in ipairs(Changelog.Lines(wow.readFile("CHANGELOG.md"))) do
-            local tag = line:match(" (%([^()]*%))%s*$")
-            if tag and Changelog.TagIssues(tag) then line = line:sub(1, #line - #line:match(" %([^()]*%)%s*$")) end
-            kept[#kept + 1] = line
-        end
+        for _, line in ipairs(Changelog.Lines(wow.readFile("CHANGELOG.md"))) do kept[#kept + 1] = Changelog.WithoutTag(line) end
         local withoutTags = table.concat(kept, "\n")
         assert.is_truthy(withoutTags:find(notes, 1, true), "notes aren't a slice of the changelog")
     end)
