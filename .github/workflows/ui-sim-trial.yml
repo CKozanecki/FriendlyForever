@@ -103,3 +103,106 @@ jobs:
         with:
           name: ui-sim-trial-report
           path: ${{ runner.temp }}/report
+
+  # Level B: screenshots of our own frames. The published image is built
+  # without the simulator's renderer, so this job builds it from the same
+  # reviewed release (v0.1.36, the commit behind the image above) and renders
+  # on the CPU with Mesa's software driver. No Blizzard art is fetched, so
+  # Blizzard's textures are missing: text, layout and our own colors show.
+  screenshots:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    continue-on-error: true
+    env:
+      SIM_REPO: https://github.com/Osso/wow-ui-sim.git
+      SIM_COMMIT: 3b369ee1aafeb85089b7c63e8a0a99e56f8c2dd0 # v0.1.36
+      BLIZZARD_UI_COMMIT: b9be9379719047977fca4dba1bb1d9988e8840b3 # pinned by that release's Dockerfile
+      RENDER_BASE: ubuntu@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac # 24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Package the addon as it ships
+        run: make package
+
+      - name: Stage the packaged addon
+        run: |
+          addons="$RUNNER_TEMP/addons"
+          mkdir -p "$addons" "$RUNNER_TEMP/shots"
+          unzip -q dist/FriendlyForever-*.zip -d "$addons"
+          chmod -R a-w "$addons"
+
+      - name: Fetch the simulator and Blizzard's UI code at their pinned commits
+        run: |
+          git init -q "$RUNNER_TEMP/sim"
+          git -C "$RUNNER_TEMP/sim" fetch -q --depth 1 "$SIM_REPO" "$SIM_COMMIT"
+          git -C "$RUNNER_TEMP/sim" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/sim" rev-parse HEAD)" = "$SIM_COMMIT"
+
+          ui="$RUNNER_TEMP/blizzard-ui"
+          git init -q "$ui"
+          git -C "$ui" fetch -q --depth 1 https://github.com/Gethe/wow-ui-source.git "$BLIZZARD_UI_COMMIT"
+          git -C "$ui" sparse-checkout set Interface/AddOns
+          git -C "$ui" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$ui" rev-parse HEAD)" = "$BLIZZARD_UI_COMMIT"
+          # The markers the simulator's own image writes, so it uses this
+          # cache and never tries to fetch game files itself.
+          cd "$ui/Interface/AddOns"
+          printf 'profile=retail\nversion=12.1.5.70448\nsource=gethe-image-build\ngethe_revision=%s\nfallback=none\n' \
+            "$BLIZZARD_UI_COMMIT" > .wow-ui-sim-blizzard-ui-provenance
+          touch .wow-ui-sim-blizzard-ui-complete
+
+      - name: Install build dependencies
+        run: sudo apt-get update -q && sudo apt-get install -yq mold clang pkg-config libicu-dev
+
+      - name: Cache the simulator build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ runner.temp }}/sim/target
+          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui
+
+      - name: Build the simulator with its renderer
+        working-directory: ${{ runner.temp }}/sim
+        run: |
+          cp .cargo/config.ci.toml .cargo/config.toml
+          cargo build --release --locked --bin wow-sim --no-default-features --features "gui client-retail"
+
+      - name: Build a render image (Mesa software drivers, virtual display)
+        run: |
+          docker build -t ff-render - <<DOCKERFILE
+          FROM $RENDER_BASE
+          RUN apt-get update -q && apt-get install -yq --no-install-recommends \
+                libicu74 libegl1 libgl1-mesa-dri libglx-mesa0 mesa-vulkan-drivers xvfb xauth fonts-dejavu-core \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+
+      - name: Take screenshots (no network, addon read-only)
+        run: |
+          shoot() {
+            local name="$1"; shift
+            docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
+              -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 -e WOW_SIM_NO_SAVED_VARS=1 \
+              -e LIBGL_ALWAYS_SOFTWARE=1 -e WOW_SIM_SOFTWARE_RENDER=1 -e WGPU_BACKEND=gl \
+              -v "$RUNNER_TEMP/sim/target/release:/sim:ro" \
+              -v "$RUNNER_TEMP/blizzard-ui/Interface/AddOns:/root/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
+              -v "$RUNNER_TEMP/addons:/test-addons:ro" \
+              -v "$RUNNER_TEMP/shots:/shots" \
+              ff-render xvfb-run -a /sim/wow-sim --addons-path /test-addons "$@" \
+              screenshot --png -o "/shots/$name.png" > "$RUNNER_TEMP/shots/$name.log" 2>&1 \
+              && echo "$name: ok" || echo "$name: failed (see $name.log)"
+          }
+          shoot game
+          shoot options --exec-lua "SlashCmdList.FRIENDLYFOREVER('')"
+          ls -la "$RUNNER_TEMP/shots"
+          for log in "$RUNNER_TEMP"/shots/*.log; do
+            echo "::group::$(basename "$log")"; tail -40 "$log"; echo "::endgroup::"
+          done
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-sim-screenshots
+          path: ${{ runner.temp }}/shots
