@@ -205,6 +205,31 @@ describe("Buffing your group in buff mode", function()
             assert.are.equal(0, #ns.db.ledger.entries, "a group buff is no favour")
         end)
 
+        it("a refusal about you (the global cooldown, mana) moves no one back", function()
+            party({ "Ann-Vale", "Cid-Rock" })
+            for _, why in ipairs({ "Spell is not ready yet.", "Not enough mana", "Can't do that while stunned" }) do
+                wow.state.castFailures["Ann-Vale"] = why
+                wow.pressKey("MOUSEWHEELUP")
+                assert.are.equal("Ann Vale: Mark of the Wild", armed(), why)
+            end
+            wow.state.castFailures["Ann-Vale"] = nil
+            scroll()
+            assert.are.equal("Cid Rock: Mark of the Wild", armed())
+        end)
+
+        it("knows the game's own text for target refusals", function()
+            local is = ns.GroupBuffs.IsTargetRefusal
+            assert.is_true(is("Out of range."))
+            assert.is_true(is("Target not in line of sight"))
+            assert.is_true(is("|cffff0000Invalid target|r"))
+            assert.is_false(is("Spell is not ready yet."))
+            assert.is_false(is(nil))
+            assert.is_false(is(wow.secret("Out of range.")))
+            _G.SPELL_FAILED_LINE_OF_SIGHT = "Ziel nicht im Sichtfeld"
+            assert.is_true(is("Ziel nicht im Sichtfeld"), "a translated client's own string")
+            _G.SPELL_FAILED_LINE_OF_SIGHT = nil
+        end)
+
         it("a press that casts nothing (a mind-controlled member) holds that member back too", function()
             party({ "Ann-Vale", "Cid-Rock" })
             wow.state.units.party1.hostile = true -- [help] finds no friend: nothing is cast

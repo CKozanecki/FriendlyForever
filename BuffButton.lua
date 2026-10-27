@@ -476,7 +476,7 @@ local unclaimedError
 
 local function ReportRefusal(press, text)
     ForgetPress(press)
-    if press.group then ns.GroupBuffs.NoteRefused(press.name) end
+    if press.group and ns.GroupBuffs.IsTargetRefusal(text) then ns.GroupBuffs.NoteRefused(press.name) end
     ShowResult("Couldn't buff " .. Util.DisplayName(press.name) .. ": " .. Util.StripChat(text), true)
     BuffButton.Refresh()
 end

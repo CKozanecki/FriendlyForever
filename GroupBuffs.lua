@@ -192,6 +192,35 @@ function GroupBuffs.NoteRefused(name)
     heldBack[name] = GetTime()
 end
 
+-- The game's refusals that are about the target, not you: the client's own
+-- strings where it has them, and their English text otherwise. A refusal
+-- about you (the global cooldown, mana, being stunned) moves no one back.
+local TARGET_REFUSAL_GLOBALS = {
+    "SPELL_FAILED_LINE_OF_SIGHT", "SPELL_FAILED_OUT_OF_RANGE", "ERR_OUT_OF_RANGE",
+    "SPELL_FAILED_BAD_TARGETS", "SPELL_FAILED_BAD_IMPLICIT_TARGETS", "SPELL_FAILED_TARGETS_DEAD",
+}
+local TARGET_REFUSAL_TEXT = {
+    "target not in line of sight", "out of range", "invalid target", "no target", "target is dead",
+}
+
+local function Normalise(text)
+    return (text:lower():gsub("[%.!]+$", ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+function GroupBuffs.IsTargetRefusal(text)
+    if type(text) ~= "string" or Util.IsSecret(text) then return false end
+    -- Colour codes come off first, so their letters don't stay behind.
+    local said = Normalise(Util.StripChat((text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))))
+    for _, name in ipairs(TARGET_REFUSAL_GLOBALS) do
+        local known = rawget(_G, name)
+        if type(known) == "string" and known ~= "" and Normalise(known) == said then return true end
+    end
+    for _, known in ipairs(TARGET_REFUSAL_TEXT) do
+        if said == known then return true end
+    end
+    return false
+end
+
 -- Right-click: leave them out for a while.
 function GroupBuffs.Skip(name)
     skipped[name] = GetTime()
