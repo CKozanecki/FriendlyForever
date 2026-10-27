@@ -363,8 +363,19 @@ describe("Buffing your group in buff mode", function()
                     if kind == "raid" and math.random() < 0.5 then
                         wow.addUnit("raid" .. (#names + 1), wow.state.units.player)
                     end
+                    local left = members
                     members = {}
                     for _, n in ipairs(kind and names or {}) do members[n] = true end
+                    -- Whoever left is still nearby, targetable by name: a stale
+                    -- choice would land on them, outside the group.
+                    local i = 0
+                    for n in pairs(left) do
+                        if not members[n] then
+                            i = i + 1
+                            local first, last = n:match("^([^%-]+)%-(.+)$")
+                            wow.addUnit("nameplate" .. i, { name = first, surname = last, id = n })
+                        end
+                    end
                     wow.fire("GROUP_ROSTER_UPDATE")
                 end
                 local function someone()
