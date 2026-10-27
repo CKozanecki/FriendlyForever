@@ -311,6 +311,18 @@ describe("Release scripts", function()
         assert.is_truthy(wow.readFile("CHANGELOG.md"):find(notes, 1, true), "notes aren't a verbatim slice of the changelog")
     end)
 
+    -- Each note traces to the issue holding its spec (CONTRIBUTING.md,
+    -- "Specs and traceability").
+    it("every unreleased changelog entry names its issue", function()
+        local unreleased = wow.readFile("CHANGELOG.md"):match("### Unreleased\n(.-)\n## ")
+        assert.is_truthy(unreleased, "no ### Unreleased section followed by a release")
+        for line in unreleased:gmatch("[^\n]+") do
+            if line:match("^%- ") then
+                assert.is_truthy(line:match("%(#%d+[#%d, ]*%)$"), "no (#issue) at the end of: " .. line:sub(1, 80))
+            end
+        end
+    end)
+
     -- Notes for the next release sit under "### Unreleased" until the
     -- release PR renames it; they must never reach a CurseForge upload.
     it("release notes leave out the Unreleased section", function()

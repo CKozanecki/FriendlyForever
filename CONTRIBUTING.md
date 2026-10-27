@@ -6,11 +6,37 @@ Ideas, bug reports and pull requests are welcome. Open an issue first for anythi
 
 `main` is protected: every change, the maintainer's own included, goes through a pull request.
 
-1. Branch from `main` (`fix/buff-thanks-in-raid`, `feat/new-greeting`).
-2. Make the change, with a test in `spec/` for any behavior change.
-3. Run `make check` locally.
-4. Open a pull request and fill in the template. CI must pass and review conversations must be resolved before it can merge. The maintainer reviews outside pull requests. Their own get an automated review, because GitHub doesn't let authors approve their own pull requests, so `main` requires passing CI rather than an approval.
-5. Merges are squash merges, so each PR becomes one commit on `main`.
+1. Start from an issue (see [Specs and traceability](#specs-and-traceability)).
+2. Branch from the latest `main`, naming the issue: `<issue>-<short-name>` (`57-quiet-in-cities`). Each pull request gets a new branch.
+3. Make the change, with a test in `spec/` for any behavior change.
+4. Run `make check` locally.
+5. Open a pull request and fill in the template, with `Closes #<issue>` for each spec it completes. CI must pass and review conversations must be resolved before it can merge. The maintainer reviews outside pull requests. Their own get an automated review, because GitHub doesn't let authors approve their own pull requests, so `main` requires passing CI rather than an approval.
+6. Merges are squash merges, so each PR becomes one commit on `main`.
+
+## Specs and traceability
+
+Every change can be traced from its spec to its code, tests, pull request and release.
+
+- **Specs are issues.** A feature or fix starts as an issue with a **Spec** and testable **Acceptance criteria**. Each phase of work is a parent issue, and its features are sub-issues. Decisions and changes of scope are written on the issue, not left in chat.
+- **Acceptance criteria name their tests.** Each criterion says which kind of test proves it:
+  - **white:** expected use gives the expected result;
+  - **black:** bad or error input is handled correctly;
+  - **red:** chaos (random storms, damaged state) never crashes the addon, and anything damaged heals itself.
+- **Pull requests** say `Closes #<issue>` for each spec they complete and tick the criteria they meet.
+- **Tests:** each spec file names the issues it covers at the top, and test names repeat the acceptance criteria in words.
+- **Changelog** entries end with the issue they come from, as in `(#27)`. A repo test checks every entry under `### Unreleased`.
+- **Releases:** the GitHub release lists the issues closed since the last tag.
+
+### Ready for review
+
+A pull request is ready for review when all of these hold:
+
+- CI is green on the latest commit;
+- the reviews it needs have approved and every finding is fixed;
+- the description matches the final code;
+- the branch is up to date with `main` and has no conflicts.
+
+Whoever drives the pull request says so in it ("ready for review") at that moment, so the reviewer never has to ask.
 
 ## Local setup
 
