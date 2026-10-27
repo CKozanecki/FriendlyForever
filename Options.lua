@@ -158,7 +158,8 @@ end
 local function FillBuffRows(shown)
     widgets.buffOrderHeader:SetShown(shown)
     local buffs = shown and OrderedClassBuffs() or {}
-    local never = type(ns.db.buffBack.neverOffer) == "table" and ns.db.buffBack.neverOffer or {}
+    -- Read only for the Buff Back tab: the other tabs mustn't depend on its settings.
+    local never = shown and type(ns.db.buffBack.neverOffer) == "table" and ns.db.buffBack.neverOffer or {}
     for i, row in ipairs(widgets.buffRows) do
         local buff = buffs[i]
         for _, part in ipairs({ row.name, row.up, row.down, row.never }) do part:SetShown(buff ~= nil) end

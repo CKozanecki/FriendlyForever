@@ -150,6 +150,12 @@ describe("Buff order and never offer", function()
             assert.are.equal("Your class has no buffs to offer.", w.buffOrderHeader:GetText())
         end)
 
+        it("other tabs open even when Buff Back's settings are lost mid-session", function()
+            ns.db.buffBack = nil
+            wow.run(ns.Options.widgets.tabs.buff, "OnClick")
+            assert.are.same({}, wow.errors)
+        end)
+
         it("shows the list only on the Buff Back tab, with the messages below it", function()
             local w = ns.Options.widgets
             wow.run(w.tabs.buffBack, "OnClick")
