@@ -1,4 +1,5 @@
--- Black tests for the buff-back work (spec: #27): bad, damaged and hostile inputs to
+-- Spec: #27
+-- Black tests for the buff-back work: bad, damaged and hostile inputs to
 -- each helper and saved field, handled without errors and without trusting
 -- what can't be read.
 local wow = require("spec.support.wow")

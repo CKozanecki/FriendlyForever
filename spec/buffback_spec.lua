@@ -1,5 +1,6 @@
+-- Spec: #27
 -- Buff back: favours owed, the buff chosen for each, and the secure button
--- that casts it when pressed. Spec: #27.
+-- that casts it when pressed.
 local wow = require("spec.support.wow")
 
 -- Mark of the Wild and Thorns, top ranks and rank 1.
