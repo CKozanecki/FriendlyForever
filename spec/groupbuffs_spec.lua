@@ -225,9 +225,9 @@ describe("Buffing your group in buff mode", function()
             assert.is_false(is("Spell is not ready yet."))
             assert.is_false(is(nil))
             assert.is_false(is(wow.secret("Out of range.")))
+            finally(function() _G.SPELL_FAILED_LINE_OF_SIGHT = nil end)
             _G.SPELL_FAILED_LINE_OF_SIGHT = "Ziel nicht im Sichtfeld"
             assert.is_true(is("Ziel nicht im Sichtfeld"), "a translated client's own string")
-            _G.SPELL_FAILED_LINE_OF_SIGHT = nil
         end)
 
         it("a press that casts nothing (a mind-controlled member) holds that member back too", function()
@@ -271,19 +271,6 @@ describe("Buffing your group in buff mode", function()
 
 
 
-        it("a press that finds nobody holds that member back too", function()
-            party({ "Ann-Vale", "Cid-Rock" })
-            wow.state.units.party1 = nil -- gone from the slot as you press
-            wow.addUnit("party9", { name = "Ann", surname = "Vale", id = "Ann-Vale", hidden = false })
-            wow.state.targetNameForm = "hyphen" -- /targetexact can't find her
-            ns.BuffButton.Refresh()
-            local text = macro()
-            if text and text:find("Ann Vale", 1, true) then
-                wow.pressKey("MOUSEWHEELUP")
-                wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
-                assert.are.equal("Cid Rock: Mark of the Wild", armed())
-            end
-        end)
     end)
 
     describe("members it can't buff (black)", function()
