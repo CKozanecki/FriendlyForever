@@ -79,6 +79,18 @@ jobs:
             echo "::endgroup::"
           done
 
+      - name: Digest (client facts and Friendly Forever load errors)
+        run: |
+          report="$RUNNER_TEMP/report"
+          echo "--- client facts"
+          grep "FACT " "$report/run-tests.log" || echo "none printed"
+          echo "--- scenario results"
+          grep -E "✓|✗|tests," "$report/run-tests.log" || true
+          echo "--- load errors naming FriendlyForever"
+          grep -i -B2 -A8 "FriendlyForever" "$report/lua-errors.json" | head -80 || echo "none"
+          echo "--- frame tree lines naming FriendlyForever"
+          grep -i "FriendlyForever" "$report/frame-tree.txt" | head -40 || echo "none"
+
       - name: Summary
         run: |
           report="$RUNNER_TEMP/report"

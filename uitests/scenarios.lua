@@ -82,22 +82,8 @@ test("reports the client facts our own simulated client assumes", function()
     assertTrue(true)
 end)
 
--- A QA scenario end to end: a player joins your party, and after the delay
--- the addon welcomes them in party chat.
-async_test("welcomes a player who joins your party", function(done)
-    local sent = {}
-    local original = C_ChatInfo.SendChatMessage
-    C_ChatInfo.SendChatMessage = function(text, chatType) sent[#sent + 1] = { text = text, chatType = chatType } end
-    A_Admin.SetPartySize(1)
-    A_Admin.SetPartyMember(1, "Thrynn", 2, 60)
-    A_Admin.FireEvent("CHAT_MSG_SYSTEM", ERR_JOINED_GROUP_S:format("Thrynn"))
-    -- The login grace and the welcome's delay both pass before it is sent.
-    C_Timer.After(30, function()
-        C_ChatInfo.SendChatMessage = original
-        done(function()
-            assertCount(1, sent)
-            assertEquals("PARTY", sent[1].chatType)
-            assertContains(sent[1].text, "Thrynn")
-        end)
-    end)
-end)
+-- Not covered here: anything that waits in game time (the login grace,
+-- message delays). The simulator runs timers as fast as it can, at most 500
+-- updates per async test, with no way to move the clock forward, so a
+-- 10-second wait can't pass. Those flows stay in spec/, whose simulated
+-- client controls time (wow.advance).
