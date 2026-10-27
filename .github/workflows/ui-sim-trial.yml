@@ -84,6 +84,8 @@ jobs:
           report="$RUNNER_TEMP/report"
           echo "--- client facts"
           grep "FACT " "$report/run-tests.log" || echo "none printed"
+          echo "--- layout"
+          grep "LAYOUT " "$report/run-tests.log" || echo "none printed"
           echo "--- scenario results"
           grep -E "✓|✗|tests," "$report/run-tests.log" || true
           echo "--- load errors naming FriendlyForever"
@@ -274,3 +276,56 @@ jobs:
         with:
           name: ui-sim-screenshots
           path: ${{ runner.temp }}/shots
+
+  # Publishes the screenshots where reviewers (people, and Claude sessions,
+  # whose network reaches git but not artifact storage) can open them: an
+  # orphan branch per pull request, ui-screenshots/pr-<number>, replaced on
+  # every run so old images don't pile up. This job runs nothing from the
+  # simulator or the pull request: it only checks the files are PNG images
+  # of a sane size and commits them. It alone may write, and only for pull
+  # requests from this repository.
+  publish-screenshots:
+    needs: screenshots
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ui-sim-screenshots
+          path: shots
+
+      - name: Commit the PNGs to ui-screenshots/pr-${{ github.event.pull_request.number }}
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+          TOKEN: ${{ github.token }}
+        run: |
+          out="$RUNNER_TEMP/publish"
+          mkdir -p "$out"
+          count=0
+          for f in shots/*.png; do
+            [ -f "$f" ] || continue
+            name=$(basename "$f")
+            # Only plain names, real PNG files, at most 5 MB each.
+            case "$name" in *[!A-Za-z0-9._-]*) echo "skipping $name"; continue ;; esac
+            [ "$(head -c 8 "$f" | od -An -tx1 | tr -d ' \n')" = "89504e470d0a1a0a" ] || { echo "not a PNG: $name"; continue; }
+            [ "$(stat -c %s "$f")" -le 5242880 ] || { echo "too big: $name"; continue; }
+            cp "$f" "$out/$name"
+            count=$((count + 1))
+          done
+          if [ "$count" -eq 0 ]; then echo "no screenshots to publish"; exit 0; fi
+          printf 'Screenshots for pull request #%s at %s, from the UI simulator.\n' "$PR" "$HEAD_SHA" > "$out/README.md"
+          cd "$out"
+          git init -q
+          git checkout -q --orphan "ui-screenshots/pr-$PR"
+          git add .
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Screenshots for #$PR at $HEAD_SHA"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          git -c http.extraheader="AUTHORIZATION: basic $auth" \
+            push -q --force "https://github.com/$REPO.git" "HEAD:refs/heads/ui-screenshots/pr-$PR"
+          echo "published $count screenshot(s) to ui-screenshots/pr-$PR"

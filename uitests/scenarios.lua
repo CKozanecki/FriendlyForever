@@ -61,6 +61,38 @@ test("an unknown command is answered, not an error", function()
     assertTrue(AnyContains(printed, "unknown command"))
 end)
 
+-- Layout: every piece of text on the buff-back button stays inside it. The
+-- simulator draws with stand-in fonts, so widths are close to the game's,
+-- not exact: the button must keep its text inside whatever the font.
+local function Edges(region)
+    local ok, left, right = pcall(function() return region:GetLeft(), region:GetRight() end)
+    if ok and type(left) == "number" and type(right) == "number" then return left, right end
+end
+
+local function TextInside(frame, region, label)
+    local fl, fr = Edges(frame)
+    local tl, tr = Edges(region)
+    if not (fl and tl) then
+        print("LAYOUT " .. label .. ": edges can't be read here")
+        return
+    end
+    local width = region.GetStringWidth and region:GetStringWidth() or (tr - tl)
+    -- A text line pinned on its left only grows to its text: its right edge
+    -- is where the text ends.
+    local textRight = math.max(tr, tl + width)
+    print(("LAYOUT %s: text %.0f..%.0f, frame %.0f..%.0f"):format(label, tl, textRight, fl, fr))
+    assertTrue(tl >= fl - 1 and textRight <= fr + 1, label .. " spills out of its frame")
+end
+
+test("the buff-back button's text stays inside it (unlocked, the longest hint)", function()
+    SlashCmdList.FRIENDLYFOREVER("move")
+    local button = _G.FriendlyForeverBuffButton
+    assertNotNil(button)
+    TextInside(button, button.title, "button title")
+    TextInside(button, button.subtitle, "button hint")
+    SlashCmdList.FRIENDLYFOREVER("move")
+end)
+
 -- Facts about the simulated client, printed for the trial report: they are
 -- compared with the ASSUMPTIONS block in spec/support/wow.lua.
 test("reports the client facts our own simulated client assumes", function()
