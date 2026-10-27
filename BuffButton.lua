@@ -272,6 +272,7 @@ local function Unanswered(press)
     elseif press.sent then
         ShowResult("No word back on " .. press.spell .. " for " .. who .. ". If it didn't land, press again.")
     elseif press.complete and not press.unsure then
+        if press.group then ns.GroupBuffs.NoteRefused(press.name) end
         ShowResult("No answer: couldn't find " .. who .. " (out of sight?).", true)
     else
         return
@@ -475,6 +476,7 @@ local unclaimedError
 
 local function ReportRefusal(press, text)
     ForgetPress(press)
+    if press.group then ns.GroupBuffs.NoteRefused(press.name) end
     ShowResult("Couldn't buff " .. Util.DisplayName(press.name) .. ": " .. Util.StripChat(text), true)
     BuffButton.Refresh()
 end

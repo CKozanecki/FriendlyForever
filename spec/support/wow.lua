@@ -823,6 +823,13 @@ function M.reset()
     _G.C_Spell = {
         GetSpellName = function(id) return M.SPELL_NAMES[id] end,
         GetSpellTexture = function(id) return M.SPELL_NAMES[id] and ("icon:" .. id) or nil end,
+        -- Unit fields outOfSpellRange (the spell can't reach them) and
+        -- spellRangeUnknown (the game won't say: nil).
+        IsSpellInRange = function(_, unit)
+            local u = M.state.units[unit]
+            if not u or u.spellRangeUnknown then return nil end
+            return not u.outOfSpellRange
+        end,
     }
     _G.C_SpellBook = {
         IsSpellInSpellBook = function(id) return M.state.knownSpells[id] == true end,
@@ -896,7 +903,8 @@ function M.reset()
                 local id = u and u.auras and u.auras[index]
                 if id == nil then return nil end
                 if M.state.unitsRestricted or (u.secrets and u.secrets.auras) then return M.secret({ spellId = id }) end
-                return { spellId = id, isHelpful = true }
+                -- spec.auraSources[index]: the unit token of who cast it, if the game says.
+                return { spellId = id, isHelpful = true, sourceUnit = u.auraSources and u.auraSources[index] }
             end
             local helpful = {}
             for _, a in ipairs(M.state.playerAuras) do

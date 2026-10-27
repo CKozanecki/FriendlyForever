@@ -13,6 +13,8 @@
 --   manaOnly  only offered to classes that use mana
 --   groupOnly only offered to your own group (Salvation)
 --   selfCast  cast on yourself, reaching your party (Battle Shout): never a return
+--   family    buffs of which a player keeps only one of yours (a paladin's
+--             Blessings): casting another replaces it
 local _, ns = ...
 local Util = ns.Util
 
@@ -36,12 +38,13 @@ BuffData.CLASSES = {
         { key = "thorns", ranks = { 9910, 9756, 8914, 1075, 782, 467 } },
     },
     PALADIN = {
-        { key = "kings", ranks = { 20217 }, group = { 25898 } },
+        { key = "kings", ranks = { 20217 }, group = { 25898 }, family = "blessing" },
         { key = "wisdom", ranks = { 25290, 19854, 19853, 19852, 19850, 19742 }, group = { 25918, 25894 },
-            manaOnly = true },
-        { key = "might", ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 }, group = { 25916, 25782 } },
-        { key = "light", ranks = { 19979, 19978, 19977 }, group = { 25890 } },
-        { key = "salvation", ranks = { 1038 }, group = { 25895 }, groupOnly = true },
+            manaOnly = true, family = "blessing" },
+        { key = "might", ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 }, group = { 25916, 25782 },
+            family = "blessing" },
+        { key = "light", ranks = { 19979, 19978, 19977 }, group = { 25890 }, family = "blessing" },
+        { key = "salvation", ranks = { 1038 }, group = { 25895 }, groupOnly = true, family = "blessing" },
     },
     WARLOCK = {
         { key = "breath", ranks = { 5697 }, group = { 131 } },

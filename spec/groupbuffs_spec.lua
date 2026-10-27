@@ -49,6 +49,8 @@ describe("Buffing your group in buff mode", function()
             if u then
                 u.auras = u.auras or {}
                 u.auras[#u.auras + 1] = cast.id
+                u.auraSources = u.auraSources or {}
+                u.auraSources[#u.auras] = "player"
             end
         end
         return cast
@@ -123,6 +125,42 @@ describe("Buffing your group in buff mode", function()
             assert.are.equal("everyone in your group has your buffs", button.subtitle:GetText())
         end)
 
+        it("gives a paladin's members one Blessing each, never replacing yours", function()
+            local KINGS, MIGHT_1, WISDOM_1 = 20217, 19740, 19742
+            boot({ known = { [KINGS] = true, [MIGHT_1] = true, [WISDOM_1] = true } })
+            wow.state.class = "PALADIN"
+            ns.BuffData.SpellsChanged()
+            wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+            wow.state.units.party1.class = "WARRIOR"
+            wow.state.units.party2.class = "MAGE"
+            ns.db.buffBack.buffOrder = { "might", "wisdom", "kings" }
+            ns.BuffButton.Refresh()
+            local given = {}
+            for _ = 1, 6 do
+                local cast = scroll()
+                if cast then given[#given + 1] = cast.target .. " " .. cast.spell end
+            end
+            -- Might comes first in your order: each gets Might, and then no
+            -- other Blessing, which would replace it.
+            assert.are.same({ "Ann-Vale Blessing of Might", "Cid-Rock Blessing of Might" }, given)
+            assert.are.equal("everyone in your group has your buffs", button.subtitle:GetText())
+        end)
+
+        it("still gives your Blessing to someone wearing another paladin's", function()
+            local KINGS, MIGHT_1 = 20217, 19740
+            boot({ known = { [KINGS] = true, [MIGHT_1] = true } })
+            wow.state.class = "PALADIN"
+            ns.BuffData.SpellsChanged()
+            wow.setGroup("party", { "Ann-Vale", "Gus-Hill" })
+            wow.state.units.party1.auras = { MIGHT_1 }
+            wow.state.units.party1.auraSources = { "party2" } -- Gus's Might, not yours
+            ns.BuffButton.Refresh()
+            assert.are.equal("Ann Vale: Blessing of Kings", armed())
+            wow.state.units.party1.auraSources = { nil }
+            ns.BuffButton.Refresh()
+            assert.are.equal("Gus Hill: Blessing of Kings", armed(), "whose Blessing Ann has can't be told: left alone")
+        end)
+
         it("only in buff mode", function()
             boot({ buffMode = false })
             party({ "Ann-Vale" })
@@ -167,22 +205,59 @@ describe("Buffing your group in buff mode", function()
             assert.are.equal(0, #ns.db.ledger.entries, "a group buff is no favour")
         end)
 
-        it("right-click skips a member for a while", function()
+        it("a press that casts nothing (a mind-controlled member) holds that member back too", function()
+            party({ "Ann-Vale", "Cid-Rock" })
+            wow.state.units.party1.hostile = true -- [help] finds no friend: nothing is cast
+            wow.pressKey("MOUSEWHEELUP")
+            assert.are.equal(0, #wow.casts)
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 0.5)
+            assert.is_truthy(button.result:GetText():find("No answer", 1, true))
+            assert.are.equal("Cid Rock: Mark of the Wild", armed())
+        end)
+
+        it("right-click skips a member for a while, and the button says so", function()
             party({ "Ann-Vale", "Cid-Rock" })
             wow.press(button, "RightButton")
             assert.are.equal("Skipping Ann Vale for 5 minutes.", button.result:GetText())
             assert.are.equal("Cid Rock: Mark of the Wild", armed())
+            scroll()
+            scroll()
+            assert.is_nil(macro())
+            assert.are.equal("Ann Vale: skipped for now (you right-clicked them)", button.subtitle:GetText(),
+                "not 'everyone has your buffs'")
             wow.advance(ns.GroupBuffs.SKIP_SECONDS + 1)
             assert.are.equal("Ann Vale: Mark of the Wild", armed())
         end)
 
-        it("a refused cast is reported and they stay on the list", function()
-            party({ "Ann-Vale" })
-            wow.state.castFailures["Ann-Vale"] = "Out of range."
+        it("a refused cast is reported, and the next press goes to the next member", function()
+            party({ "Ann-Vale", "Cid-Rock" })
+            wow.state.castFailures["Ann-Vale"] = "Target not in line of sight"
             wow.pressKey("MOUSEWHEELUP")
-            assert.is_truthy(button.result:GetText():find("Out of range", 1, true))
+            assert.is_truthy(button.result:GetText():find("Target not in line of sight", 1, true))
+            assert.are.equal("Cid Rock: Mark of the Wild", armed())
+            scroll()
+            scroll() -- Cid's Thorns
+            assert.is_nil(macro(), "Ann waits a moment")
+            assert.are.equal("Ann Vale: the game refused your last cast to them", button.subtitle:GetText())
             wow.state.castFailures["Ann-Vale"] = nil
-            assert.are.equal("Ann Vale: Mark of the Wild", armed())
+            wow.advance(ns.GroupBuffs.HELD_BACK_SECONDS + 1)
+            assert.are.equal("Ann Vale: Mark of the Wild", armed(), "then back on the list")
+        end)
+
+
+
+        it("a press that finds nobody holds that member back too", function()
+            party({ "Ann-Vale", "Cid-Rock" })
+            wow.state.units.party1 = nil -- gone from the slot as you press
+            wow.addUnit("party9", { name = "Ann", surname = "Vale", id = "Ann-Vale", hidden = false })
+            wow.state.targetNameForm = "hyphen" -- /targetexact can't find her
+            ns.BuffButton.Refresh()
+            local text = macro()
+            if text and text:find("Ann Vale", 1, true) then
+                wow.pressKey("MOUSEWHEELUP")
+                wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+                assert.are.equal("Cid Rock: Mark of the Wild", armed())
+            end
         end)
     end)
 
@@ -201,6 +276,21 @@ describe("Buffing your group in buff mode", function()
             only({ offline = true }, "Ann Vale: offline")
             only({ outOfRange = true }, "Ann Vale: out of range")
             only({ hidden = true }, "Ann Vale: out of sight")
+        end)
+
+        it("skips members the spell can't reach, though they're in the group's range", function()
+            party({ "Ann-Vale", "Cid-Rock" })
+            wow.state.units.party1.outOfSpellRange = true
+            ns.BuffButton.Refresh()
+            assert.are.equal("Cid Rock: Mark of the Wild", armed())
+            scroll()
+            scroll()
+            assert.is_nil(macro())
+            assert.are.equal("Ann Vale: out of range", button.subtitle:GetText())
+            wow.state.units.party1.outOfSpellRange = nil
+            wow.state.units.party1.spellRangeUnknown = true
+            ns.BuffButton.Refresh()
+            assert.are.equal("Ann Vale: Mark of the Wild", armed(), "the game won't say: try (the cast tells)")
         end)
 
         it("buffs someone whose range the game can't tell (the cast says if they're too far)", function()
