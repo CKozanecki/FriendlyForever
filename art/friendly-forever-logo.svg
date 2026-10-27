@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="62%">
+      <stop offset="0" stop-color="#2b3f7a"/>
+      <stop offset="0.65" stop-color="#162349"/>
+      <stop offset="1" stop-color="#0b1229"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff1b0"/>
+      <stop offset="0.45" stop-color="#f4c542"/>
+      <stop offset="1" stop-color="#b8791a"/>
+    </linearGradient>
+    <linearGradient id="heart" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd27a"/>
+      <stop offset="0.5" stop-color="#f5a623"/>
+      <stop offset="1" stop-color="#d4721b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ffe9a0" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ffe9a0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- badge -->
+  <circle cx="256" cy="256" r="244" fill="url(#gold)"/>
+  <circle cx="256" cy="256" r="226" fill="#0b1229"/>
+  <circle cx="256" cy="256" r="218" fill="url(#bg)"/>
+  <!-- warm glow behind the heart -->
+  <circle cx="256" cy="262" r="170" fill="url(#glow)"/>
+  <!-- heart -->
+  <path d="M256 392 C 170 330 112 282 112 214 C 112 166 148 132 192 132 C 222 132 244 148 256 172 C 268 148 290 132 320 132 C 364 132 400 166 400 214 C 400 282 342 330 256 392 Z"
+        fill="url(#heart)" stroke="#fff1b0" stroke-width="8" stroke-linejoin="round"/>
+  <!-- shine on the heart -->
+  <path d="M160 200 C 160 172 180 156 204 156" fill="none" stroke="#fff8dc" stroke-width="12" stroke-linecap="round" opacity="0.75"/>
+  <!-- the buff: four-point sparkles -->
+  <g fill="#fffbe6">
+    <path d="M372 92 L382 128 L418 138 L382 148 L372 184 L362 148 L326 138 L362 128 Z"/>
+    <path d="M128 330 L134 350 L154 356 L134 362 L128 382 L122 362 L102 356 L122 350 Z" opacity="0.9"/>
+    <path d="M414 300 L418 313 L431 317 L418 321 L414 334 L410 321 L397 317 L410 313 Z" opacity="0.8"/>
+  </g>
+  <!-- rivets on the ring -->
+  <g fill="#fff1b0">
+    <circle cx="256" cy="22" r="7"/><circle cx="256" cy="490" r="7"/>
+    <circle cx="22" cy="256" r="7"/><circle cx="490" cy="256" r="7"/>
+  </g>
+</svg>
