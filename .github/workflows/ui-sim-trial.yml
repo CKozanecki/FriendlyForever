@@ -66,6 +66,15 @@ jobs:
           sandbox run-tests FriendlyForever > "$RUNNER_TEMP/report/run-tests.log" 2>&1 || true
           sandbox dump-tree --filter FriendlyForever > "$RUNNER_TEMP/report/frame-tree.txt" 2>&1 || true
 
+      - name: Show the reports in the log
+        run: |
+          for file in "$RUNNER_TEMP"/report/*; do
+            echo "::group::$(basename "$file")"
+            head -c 60000 "$file"
+            echo
+            echo "::endgroup::"
+          done
+
       - name: Summary
         run: |
           report="$RUNNER_TEMP/report"
