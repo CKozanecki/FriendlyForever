@@ -1,48 +1,135 @@
 -- Spec: #55
--- The README keeps up with the addon: every /friendly command in Core.lua is
--- named in it, so a new command can't ship undocumented.
+-- The README keeps up with the addon: every /friendly command is written in
+-- it, and /friendly help lists every command, so none ships undocumented.
 local wow = require("spec.support.wow")
 
--- The command names in Core.lua's `local commands = { ... }` table.
-local function CommandNames(coreText)
-    local block = coreText:match("\nlocal commands = {\n(.-)\n}") or ""
-    local names = {}
-    for name in (block .. "\n"):gmatch("\n?    ([%a_][%w_]*) = ") do names[#names + 1] = name end
-    table.sort(names)
-    return names
+-- Readme text without what a reader doesn't see as documentation: fenced
+-- code blocks and HTML comments.
+local function VisibleText(text)
+    return (text:gsub("\r", ""):gsub("\n```.-\n```", "\n"):gsub("<!%-%-.-%-%->", ""))
 end
 
--- The commands the README never writes as "/friendly <name>".
-local function Undocumented(names, readmeText)
+-- A name ends at the end of the text, a space, a backtick, "|", "]", or
+-- punctuation; never inside a longer word ("zap" isn't "zap-it").
+local function EndsName(text, after)
+    local nextChar = text:sub(after, after)
+    return nextChar == "" or nextChar:match("[%s`|%]%)%.,:;]") ~= nil
+end
+
+-- The command names written as "/friendly <name>", or as a word in a chain
+-- right after one: "/friendly on | off | toggle" names all three, but
+-- "/friendly snooze [minutes] | off" names only snooze.
+local function WrittenCommands(readme)
+    local text = VisibleText(readme)
+    local written = {}
+    local position = 1
+    while true do
+        local start, finish, name = text:find("/friendly ([%w_]+)", position)
+        if not start then break end
+        if EndsName(text, finish + 1) then
+            written[name] = true
+            local chainAt = finish + 1
+            while true do
+                local _, chainEnd, next = text:find("^%s*|%s*([%w_]+)", chainAt)
+                if not chainEnd or not EndsName(text, chainEnd + 1) then break end
+                written[next] = true
+                chainAt = chainEnd + 1
+            end
+        end
+        position = finish + 1
+    end
+    return written
+end
+
+-- The names in the list that aren't written.
+local function Missing(names, written)
     local missing = {}
     for _, name in ipairs(names) do
-        local written = readmeText:find("/friendly " .. name .. "[^%w_]") or readmeText:find("| " .. name .. "[ `|]")
-        if not written then missing[#missing + 1] = name end
+        if not written[name] then missing[#missing + 1] = name end
     end
     return missing
 end
 
+local function Message(missing) return "missing: " .. table.concat(missing, ", ") end
+
 describe("README", function()
-    describe("command coverage (white and black)", function()
-        local core = "local x = 1\nlocal commands = {\n    on = function() end,\n    status = PrintStatus,\n}\n"
-
-        it("reads the command table", function()
-            assert.are.same({ "on", "status" }, CommandNames(core))
-            assert.are.same({}, CommandNames("no table here"))
+    describe("finding written commands (white)", function()
+        it("reads a command alone, in backticks, and in a chain", function()
+            local written = WrittenCommands("Type `/friendly status`. `/friendly on | off | toggle`: all.")
+            assert.are.same({ on = true, off = true, toggle = true, status = true }, written)
         end)
 
-        it("passes when every command is written, alone or in a list", function()
-            assert.are.same({}, Undocumented({ "on", "status" }, "`/friendly status` and `/friendly on | off`"))
-        end)
-
-        it("names each command that isn't", function()
-            assert.are.same({ "status" }, Undocumented({ "on", "status" }, "`/friendly on` and `/friendly statuses`"))
+        it("reads a command at the very end of the text", function()
+            assert.is_true(WrittenCommands("type /friendly zap").zap)
         end)
     end)
 
-    it("names every /friendly command in Core.lua", function()
-        local names = CommandNames(wow.readFile("Core.lua"))
-        assert.is_true(#names >= 20, "found only " .. #names .. " commands; did the table move?")
-        assert.are.same({}, Undocumented(names, wow.readFile("README.md")))
+    describe("finding written commands (black)", function()
+        it("doesn't take a subcommand's choice for a command", function()
+            local written = WrittenCommands("`/friendly snooze [minutes] | off` and `/friendly profile [new | use]`")
+            assert.is_nil(written.off)
+            assert.is_nil(written.use)
+            assert.is_nil(written.new)
+        end)
+
+        it("doesn't take a table cell or a longer word", function()
+            local written = WrittenCommands("| none | x |\n`/friendly zap-it` and /friendly statuses")
+            assert.is_nil(written.none)
+            assert.is_nil(written.zap)
+            assert.is_nil(written.status)
+        end)
+
+        it("doesn't count a mention in a code block or an HTML comment", function()
+            local written = WrittenCommands("text\n```\n/friendly zap\n```\n<!-- /friendly zip -->")
+            assert.is_nil(written.zap)
+            assert.is_nil(written.zip)
+        end)
+    end)
+
+    describe("finding written commands (red)", function()
+        it("never errors on odd text", function()
+            for _, text in ipairs({ "", "/friendly", "/friendly ", "/friendly |||", "```", "<!--", ("/friendly a | "):rep(500) }) do
+                assert.is_table(WrittenCommands(text))
+            end
+        end)
+
+        it("reports a command taken out of the real README", function()
+            local readme = wow.readFile("README.md"):gsub("/friendly move", "/friendly zzz")
+            local missing = Missing({ "move", "status" }, WrittenCommands(readme))
+            assert.are.same({ "move" }, missing)
+        end)
+
+        it("reads a README with Windows line endings", function()
+            local written = WrittenCommands(("a\n```\n/friendly zap\n```\n/friendly on\n"):gsub("\n", "\r\n"))
+            assert.is_nil(written.zap)
+            assert.is_true(written.on)
+        end)
+    end)
+
+    describe("the real README and addon", function()
+        local ns
+        before_each(function() ns = wow.boot() end)
+
+        it("writes every /friendly command", function()
+            local names = ns.SlashCommandNames()
+            local isCommand = {}
+            for _, name in ipairs(names) do isCommand[name] = true end
+            for _, known in ipairs({ "on", "help", "ledger", "buffback" }) do
+                assert.is_true(isCommand[known] == true, known .. " isn't a command any more?")
+            end
+            local missing = Missing(names, WrittenCommands(wow.readFile("README.md")))
+            assert.are.same({}, missing, Message(missing))
+        end)
+
+        it("lists every command in /friendly help", function()
+            wow.printed = {}
+            _G.SlashCmdList.FRIENDLYFOREVER("help")
+            local missing = Missing(ns.SlashCommandNames(), WrittenCommands(table.concat(wow.printed, "\n")))
+            -- help is the command being run; it needn't list itself.
+            for i = #missing, 1, -1 do
+                if missing[i] == "help" then table.remove(missing, i) end
+            end
+            assert.are.same({}, missing, Message(missing))
+        end)
     end)
 end)
