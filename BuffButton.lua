@@ -124,7 +124,19 @@ local function Empty(reason, keepShown)
     armedOffer = nil
     notArmedReason = reason
     SetSecureMacro(nil)
-    button:SetShown(keepShown and true or false)
+    -- In buff mode the button stays up, saying why there's nothing to press.
+    local lent = ns.BuffMode.LentKey()
+    if lent and not ns.db.buffBack.unlocked then
+        SetLabels("Buff mode", reason)
+        button.icon:SetTexture(BuffButton.PLACEHOLDER_ICON)
+    end
+    button:SetShown((keepShown or lent) and true or false)
+end
+
+-- "Buff mode: <key>" above the button while a key is lent to it.
+local function ShowMode()
+    local lent = ns.BuffMode.LentKey()
+    button.mode:SetText(lent and ("|cff40ff40Buff mode:|r " .. ns.BuffMode.KeyText(lent)) or "")
 end
 
 -- Whether you have a target. When the game won't say, assume you do: then
@@ -139,6 +151,7 @@ end
 -- Out of combat only: the game locks secure buttons in a fight.
 local function ArmButton()
     if not button or InCombatLockdown() then return end
+    ShowMode()
     local showingResult = ShowRecentResult()
     if ns.db.buffBack.unlocked then
         Empty("the button is unlocked for moving", true)
@@ -177,6 +190,7 @@ end
 -- or a result is showing: favours expire, targets and flags change.
 function BuffButton.Refresh()
     if not button then return end
+    ns.BuffMode.Apply()
     ArmButton()
     if ns.Offers.Count() > 0 or shownResult then ScheduleRecheck() end
 end
@@ -184,6 +198,7 @@ end
 -- A fight is starting: empty the button while the game still allows it, so
 -- nothing armed for the world outside the fight is cast in it.
 function BuffButton.OnCombatStart()
+    ns.BuffMode.OnCombatStart()
     if not button then return end
     Empty("in combat: the button is empty until the fight ends", false)
 end
@@ -619,6 +634,8 @@ function BuffButton.Create()
     button.subtitle:SetJustifyH("LEFT")
     button.result = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     button.result:SetPoint("TOP", button, "BOTTOM", 0, -2)
+    button.mode = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    button.mode:SetPoint("BOTTOM", button, "TOP", 0, 2)
     if ns.db.buffBack.unlocked then button:RegisterForDrag("LeftButton") end
     button:Hide()
 
@@ -649,6 +666,7 @@ function BuffButton.StatusLines()
     else
         out[#out + 1] = "not armed: " .. tostring(notArmedReason or "nothing to offer")
     end
+    out[#out + 1] = ns.BuffMode.StatusLine()
     if not button then out[#out + 1] = "the button is made when this fight ends" end
     if InCombatLockdown() then out[#out + 1] = "in combat: the button stays empty until the fight ends" end
     out[#out + 1] = "last result: " .. lastResultText

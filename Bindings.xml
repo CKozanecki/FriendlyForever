@@ -3,4 +3,7 @@
          this file by itself; its text is BINDING_NAME_CLICK
          FriendlyForeverBuffButton:LeftButton, set in BuffButton.lua. -->
     <Binding name="CLICK FriendlyForeverBuffButton:LeftButton" category="ADDONS"/>
+    <!-- A key to turn buff mode on and off (BuffMode.lua); its text is
+         BINDING_NAME_FRIENDLYFOREVER_BUFFMODE. -->
+    <Binding name="FRIENDLYFOREVER_BUFFMODE" category="ADDONS">FriendlyForever_ToggleBuffMode()</Binding>
 </Bindings>

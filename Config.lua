@@ -138,6 +138,8 @@ Config.DEFAULTS = {
         owedMinutes = 10,
         unlocked = false,
         position = { point = "CENTER", x = 0, y = -180 },
+        -- The key buff mode lends to the button (BuffMode.lua).
+        buffModeKey = "MOUSEWHEELUP",
         -- buffOrder: buff keys, offered first in this order (empty: each
         -- class's own order). neverOffer: [buff key] = true. They hold keys
         -- of any class, so one profile serves all your characters.
@@ -212,6 +214,7 @@ Config.FIELD_VALIDATORS = {
         return Config.CleanUnknownName(value)
     end,
     position = function(value, default) return Config.CleanPosition(value, default) end,
+    buffModeKey = function(value, default) return ns.BuffMode.IsValidKey(value) and value or default end,
     -- Known buff keys, each once; anything else is dropped. Not a list at
     -- all: the default (every class's own order).
     buffOrder = function(value, default)

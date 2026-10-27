@@ -77,6 +77,7 @@ function handlers.ADDON_LOADED(name)
     ns.ChatQueue.Init()
     ns.Options.Create()
     ns.Minimap.Create()
+    ns.BuffMode.Create()
     ns.BuffButton.Create()
 
     Register("PLAYER_ENTERING_WORLD", function(isLogin, isReload)
@@ -402,6 +403,25 @@ local function BuffBackCommand()
     for _, line in ipairs(ns.BuffButton.StatusLines()) do ns.Print(ns.Diag.Safe(line)) end
 end
 
+-- /friendly buffmode [on | off | key <key>]: no argument switches it.
+local function BuffModeCommand(args)
+    local verb, rest = args:match("^(%S*)%s*(.-)$")
+    verb = (verb or ""):lower()
+    if verb == "on" or verb == "off" then
+        ns.BuffMode.Set(verb == "on")
+    elseif verb == "" then
+        ns.BuffMode.Toggle()
+    elseif verb == "key" then
+        if rest == "" then return ns.Print(ns.BuffMode.StatusLine()) end
+        local ok, why = ns.BuffMode.SetKey(rest)
+        ns.Print(ok and ("buff mode key: " .. ns.BuffMode.KeyText(ns.db.buffBack.buffModeKey) .. ".")
+            or ("couldn't set the buff mode key: " .. why .. "."))
+        ns.Options.Refresh()
+    else
+        ns.Print("/friendly buffmode [on | off | key <key>]")
+    end
+end
+
 local function MoveCommand()
     local unlock = not ns.db.buffBack.unlocked
     local ok, why = ns.BuffButton.SetUnlocked(unlock)
@@ -467,6 +487,7 @@ local commands = {
         ns.Print("/friendly report - status and debug log as text to copy into a bug report")
         ns.Print("/friendly buffback - what the buff-back button holds and why")
         ns.Print("/friendly move - unlock or lock the buff-back button to drag it")
+        ns.Print("/friendly buffmode [on | off | key <key>] - lend a key (the mouse wheel) to the buff-back button")
     end,
     profile = ProfileCommand,
     export = function() ns.ShowExport() end,
@@ -474,6 +495,7 @@ local commands = {
     report = function() ns.ShowBugReport() end,
     buffback = BuffBackCommand,
     move = MoveCommand,
+    buffmode = BuffModeCommand,
     snooze = SnoozeCommand,
     ignore = IgnoreCommand,
     unignore = UnignoreCommand,
