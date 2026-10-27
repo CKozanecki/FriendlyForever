@@ -123,7 +123,7 @@ jobs:
   # Blizzard's textures are missing: text, layout and our own colors show.
   screenshots:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 45
     continue-on-error: true
     env:
       SIM_REPO: https://github.com/Osso/wow-ui-sim.git
@@ -168,8 +168,11 @@ jobs:
       - name: Install build dependencies
         run: sudo apt-get update -q && sudo apt-get install -yq mold clang pkg-config libicu-dev
 
-      - name: Cache the simulator build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Restored and saved separately, so the build is cached as soon as it
+      # finishes, even if a later step fails or the run is cancelled.
+      - name: Restore the simulator build
+        id: sim-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -183,6 +186,16 @@ jobs:
           cp .cargo/config.ci.toml .cargo/config.toml
           cargo build --release --locked --bin wow-sim --no-default-features --features "gui client-retail"
 
+      - name: Save the simulator build
+        if: steps.sim-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ runner.temp }}/sim/target
+          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui
+
       - name: Build a render image (Mesa software drivers, virtual display)
         run: |
           docker build -t ff-render - <<DOCKERFILE
@@ -193,14 +206,18 @@ jobs:
           DOCKERFILE
 
       - name: Take screenshots (no network, addon read-only)
+        # A backstop: the shots below stop themselves well inside this.
+        timeout-minutes: 15
         run: |
-          # WOW_SIM_CASC=0: never look for game files. With no WoW install and
-          # no network, the asset loader otherwise waits on each texture.
-          # Each screenshot gets 5 minutes at most, so a stall can't hang the job.
+          # WOW_SIM_CASC=0: never look for game files (no WoW install here).
+          # Each shot runs as a detached container capped at 6 GB and 3 CPUs,
+          # so a runaway render can't starve the runner. It's watched every
+          # 5 s, shows progress every 30 s, and is killed after 5 minutes.
           shoot() {
             local name="$1"; shift
-            timeout --kill-after=20s 300s \
-            docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
+            local cid
+            cid=$(docker run -d --network none --cap-drop ALL --security-opt no-new-privileges \
+              --memory 6g --memory-swap 6g --cpus 3 --pids-limit 4096 \
               -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 -e WOW_SIM_NO_SAVED_VARS=1 \
               -e WOW_SIM_CASC=0 -e WOW_SIM_VERBOSE=1 \
               -e LIBGL_ALWAYS_SOFTWARE=1 -e WOW_SIM_SOFTWARE_RENDER=1 -e WGPU_BACKEND=gl \
@@ -209,17 +226,34 @@ jobs:
               -v "$RUNNER_TEMP/addons:/test-addons:ro" \
               -v "$RUNNER_TEMP/shots:/shots" \
               ff-render xvfb-run -a /sim/wow-sim --addons-path /test-addons "$@" \
-              screenshot --png -o "/shots/$name.png" > "$RUNNER_TEMP/shots/$name.log" 2>&1 \
-              && echo "$name: ok" || echo "$name: failed or timed out, exit $? (see $name.log)"
+              screenshot --png --width 1024 --height 768 -o "/shots/$name.png")
+            local waited=0 result="timed out after 300 s"
+            while [ "$waited" -lt 300 ]; do
+              if [ "$(docker inspect -f '{{.State.Running}}' "$cid")" != "true" ]; then
+                result="exited with $(docker inspect -f '{{.State.ExitCode}}' "$cid") after ${waited} s"
+                break
+              fi
+              if [ $((waited % 30)) -eq 0 ]; then
+                echo "$name: ${waited} s, $(docker stats --no-stream --format '{{.MemUsage}} cpu {{.CPUPerc}}' "$cid")"
+                docker logs --tail 2 "$cid" 2>&1 | sed "s/^/  $name> /"
+              fi
+              sleep 5
+              waited=$((waited + 5))
+            done
+            docker kill "$cid" >/dev/null 2>&1 || true
+            docker logs "$cid" > "$RUNNER_TEMP/shots/$name.log" 2>&1 || true
+            docker rm -f "$cid" >/dev/null 2>&1 || true
+            echo "$name: $result"
           }
           shoot game
           shoot options --exec-lua "SlashCmdList.FRIENDLYFOREVER('')"
           ls -la "$RUNNER_TEMP/shots"
           for log in "$RUNNER_TEMP"/shots/*.log; do
-            echo "::group::$(basename "$log")"; tail -40 "$log"; echo "::endgroup::"
+            echo "::group::$(basename "$log")"; tail -60 "$log"; echo "::endgroup::"
           done
 
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ui-sim-screenshots
           path: ${{ runner.temp }}/shots
