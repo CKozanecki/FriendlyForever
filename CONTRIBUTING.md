@@ -58,7 +58,7 @@ CI also builds the zip with the BigWigs packager that releases use, and fails if
 ## Ground rules for addon code
 
 - WoW runs Lua 5.1. Don't create globals: `.luacheckrc` lists the only ones allowed, and the lint fails on anything else.
-- All chat output goes through `ChatQueue` so cooldowns, lockdown and rate limits apply. The one exception is the buff-back button's optional line: it is part of the button's macro and said by the player's own press, so it checks the same rules (snooze, AFK) when the macro is built instead.
+- All chat output goes through `ChatQueue` so cooldowns, lockdown and rate limits apply.
 - Never change a player's game settings (CVars) without an explicit action from them (a click, or `/friendly nameplates`).
 - Keep saved variables backward compatible. Old `FriendlyForeverDB` contents must still load.
 

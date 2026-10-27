@@ -271,7 +271,7 @@ function Options.Create()
     widgets.listNames:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
 
     -- Buff Back tab only, in the buff tab's rows: the line, and how long favours last.
-    widgets.sayLine = Checkbox(content, "Say a line as I buff them back", function(on)
+    widgets.sayLine = Checkbox(content, "Say a line once my buff lands", function(on)
         ns.db.buffBack.sayLine = on
         ns.BuffButton.Refresh()
     end)

@@ -65,12 +65,13 @@ Config.TYPE_INFO = {
         channel = "Party chat",
         help    = "Said instead of Party Hello when you rejoin a group (same leader) this session.",
     },
-    -- Not sent by itself: the line goes in the buff-back button's macro and is
-    -- said by your own press, so it has no delay or repeat cooldown.
+    -- Queued only once a buff-back is confirmed (each favour is returned once),
+    -- so it has no delay or repeat cooldown of its own.
     buffBack = {
         label   = "Buff Back",
-        channel = "/say, as you cast",
-        help    = "Said as you buff someone back with the buff-back button (if switched on). "
+        channel = "/say, once your buff lands",
+        help    = "Said once your buff from the buff-back button reaches them (if switched on), "
+            .. "on your next key press, like a thank-you. "
             .. "Placeholders: {name}, {fullname}, {buff} (the spell you cast)",
         noTiming = true,
         enabledLabel = "Offer to buff back players who buff me",
@@ -129,8 +130,8 @@ Config.DEFAULTS = {
         repeatCooldown = 30,
         messages = DefaultMessages.partyHelloAgain,
     },
-    -- enabled: offer to buff back (show the button). sayLine: say a line as
-    -- you cast. No delay or repeat cooldown: the line is said by your press.
+    -- enabled: offer to buff back (show the button). sayLine: say a line once
+    -- the buff lands. No delay or repeat cooldown: one line per favour returned.
     buffBack = {
         enabled = true,
         sayLine = false,

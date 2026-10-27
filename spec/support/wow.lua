@@ -213,6 +213,9 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --   state.errorBeforeFailed  a refused cast's error text (UI_ERROR_MESSAGE)
 --                         comes before UNIT_SPELLCAST_FAILED instead of after
 --                         (default false); the addon accepts either order
+--   state.castLandsOn     a unit token: casts go to that unit instead of your
+--                         target (a test hook for "the cast went to someone
+--                         else"; nil by default)
 --   state.castLatency     seconds before the server answers a cast
 --                         (SUCCEEDED or FAILED and its error text); 0 (default)
 --                         answers inside the press. SENT is always at once.
@@ -292,6 +295,8 @@ local function cast(args)
     -- A helpful spell with no friendly target lands on yourself.
     local target = M.state.units.target
     if not (target and not target.hostile) then target = M.state.units.player end
+    local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
+    if elsewhere then target = elsewhere end
     local failure = M.state.castFailures[target.id]
     castCount = castCount + 1
     local guid = "Cast-" .. castCount

@@ -18,7 +18,7 @@ The chat messages:
 | Player joins your group (not in battlegrounds; joins a few seconds apart share one line, which lists them all; in a raid, only the leader welcomes, at most once every 30 seconds) | Party or raid chat | `{name}`, `{fullname}` |
 | You join someone else's group | Party or raid chat | none |
 | You rejoin a group (same leader) this session | Party or raid chat | none |
-| You press the buff back button, with its line switched on (off by default) | Say | `{name}`, `{fullname}`, `{buff}` |
+| Your buff from the buff back button reaches them, with its line switched on (off by default) | Say | `{name}`, `{fullname}`, `{buff}` |
 
 `{name}` is the first name ("Nikki") and `{fullname}` the whole name ("Nikki Shifts"). Forever characters always have a surname. The addon identifies players by their full name, so two people called Nikki are never mixed up.
 
@@ -126,12 +126,12 @@ When someone outside your group buffs you, a small button appears with their nam
 
   Pressing again while a cast is still on its way is fine: each answer is matched to its own press where the game says which, and otherwise to the newest.
 - **After a /reload in a fight** the button appears when the fight ends.
-- **Say a line as you press** (off by default, on the **Buff Back** tab): 30 editable lines, with the flavour placeholders and `{buff}`. The line is part of the button's macro, so it's said on every press of a filled button, even when the cast then fails or finds nobody. Saying it only once the buff lands is planned (#57).
+- **Say a line once the buff lands** (off by default, on the **Buff Back** tab): 30 editable lines, with the flavour placeholders and `{buff}`. The line is said only after the game confirms your buff reached them, never for a cast that failed, went to someone else or found nobody. Like a thank-you, it goes out on your next key press (the game only lets /say follow one) and is dropped if that takes more than 30 seconds.
 - **In combat** the button is empty: it clears itself as a fight starts and fills again afterwards. The game locks secure buttons in fights, so whatever it held would otherwise stay on it, aimed at the world outside the fight.
 - **Say a line** only while the addon may speak: not while snoozed, or AFK with "Don't send messages while I'm AFK" on.
 - `/friendly move` unlocks the button so you can drag it, and locks it again. `/friendly buffback` shows exactly what the button holds and why, for checking in game.
 
-The button's macro is `/cleartarget`, `/targetexact First Surname`, `/cast [help,nodead] <buff>`, `/s <line>` if the line is on, then `/targetlasttarget` (or `/cleartarget` if you had no target). Targeting the exact name means a player whose name only starts the same is never buffed, and the cast only goes off on a friendly, living target, so if they can't be found nothing is cast and your target comes back. Not yet tested in WoW Forever, as it hasn't launched; the macro lives in one function, so adjusting it after the first test is a small change.
+The button's macro is `/cleartarget`, `/targetexact First Surname`, `/cast [help,nodead] <buff>`, then `/targetlasttarget` (or `/cleartarget` if you had no target). Targeting the exact name means a player whose name only starts the same is never buffed, and the cast only goes off on a friendly, living target, so if they can't be found nothing is cast and your target comes back. Not yet tested in WoW Forever, as it hasn't launched; the macro lives in one function, so adjusting it after the first test is a small change.
 
 ## Favour ledger
 
@@ -147,7 +147,7 @@ Every buff from someone outside your group, while Buff Thanks or Buff Back is on
 - The buff back button won't offer a buff to a player the game shows flagged for PvP unless you're flagged too (see [Buff back](#buff-back)). It's empty in a fight, and its cast only goes off on a friendly, living target.
 - "Secret" values from the Midnight-era API are detected and never used.
 - The addon never runs text as code and doesn't read whispers or addon messages, so other players have no way to control it.
-- The buff-back button's macro is built only from a checked player name, the game's own spell name and an optional line, and each part is refused if it could end its line or start another command (a line break, a `|` escape code, or a leading `/`).
+- The buff-back button's macro is built only from a checked player name and the game's own spell name, and each part is refused if it could end its line or start another command (a line break, a `|` escape code, or a leading `/`).
 - A pasted settings line (`/friendly import`) is read as data only, with limits on its size and depth, and every value in it is checked like the saved file before it's used.
 
 ## Development
