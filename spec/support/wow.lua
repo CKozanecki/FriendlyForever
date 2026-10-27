@@ -135,6 +135,7 @@ function methods:GetPoint()
     return p[1], p[2], p[3], p[4], p[5]
 end
 function methods:EnableKeyboard(on) self.keyboard = on and true or false end
+function methods:EnableMouseWheel(on) self.mouseWheel = on and true or false end
 function methods:SetPropagateKeyboardInput(on)
     if M.state.inCombat then error("SetPropagateKeyboardInput is protected in combat") end
     self.propagate = on and true or false
@@ -172,6 +173,34 @@ function M.keyDown(key)
         if f.keyboard and f.shown and f.scripts.OnKeyDown then f.scripts.OnKeyDown(f, key or "W") end
     end
     M.hardware = false
+end
+
+-- The mouse wheel over the game: frames listening for it (EnableMouseWheel)
+-- get OnMouseWheel(delta), 1 up and -1 down; otherwise the key it is bound to
+-- acts (pressKey). A hardware event, like a key press.
+function M.wheel(delta)
+    for _, f in ipairs(M.frames) do
+        if f.mouseWheel and f.shown and f.scripts.OnMouseWheel then
+            M.hardware = true
+            f.scripts.OnMouseWheel(f, delta)
+            M.hardware = false
+            return
+        end
+    end
+    M.pressKey(delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN")
+end
+
+-- A key (or wheel) bound in the game: an override binding (SetOverrideBindingClick)
+-- presses its button; otherwise the key's own action happens, recorded in
+-- M.keyActions as { key, action } (state.bindings[key], or "default").
+function M.pressKey(key)
+    local override = M.state.overrides[key]
+    if override then
+        local target = _G[override.button]
+        if target then M.press(target, override.mouseButton) end
+        return
+    end
+    M.keyActions[#M.keyActions + 1] = { key = key, action = M.state.bindings[key] or "default" }
 end
 
 ------------------------------------------------------------------------
@@ -216,6 +245,10 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --   state.castLandsOn     a unit token: casts go to that unit instead of your
 --                         target (a test hook for "the cast went to someone
 --                         else"; nil by default)
+--   Override bindings (SetOverrideBindingClick, ClearOverrideBindings) are
+--                         blocked in combat, and allowed in PLAYER_REGEN_DISABLED's
+--                         handlers (as secure frames are). state.unbindable[key]:
+--                         the game rejects that key (an error here).
 --   state.castLatency     seconds before the server answers a cast
 --                         (SUCCEEDED or FAILED and its error text); 0 (default)
 --                         answers inside the press. SENT is always at once.
@@ -559,12 +592,14 @@ local ADDON_GLOBALS = {
     "FriendlyForeverDB", "SLASH_FRIENDLYFOREVER1", "SLASH_FRIENDLYFOREVER2",
     "FriendlyForeverMinimapButton", "FriendlyForeverOptionsPanel", "FriendlyForeverTextWindow",
     "FriendlyForeverBuffButton", "BINDING_NAME_CLICK FriendlyForeverBuffButton:LeftButton",
+    "BINDING_NAME_FRIENDLYFOREVER_BUFFMODE", "FriendlyForever_ToggleBuffMode",
 }
 
 function M.reset()
     M.now = 1000
     M.timers, M.frames, M.sent, M.blocked, M.printed = {}, {}, {}, {}, {}
     M.casts = {}
+    M.keyActions = {}
     M.flaggedBy = {} -- players whose PvP flag a buff of yours caught (see cast)
     M.hardware = false
     M.focusedBox = nil
@@ -578,6 +613,9 @@ function M.reset()
         playerAuras = {}, aurasRestricted = false,
         today = "2026-10-26", clock = 1793000000,
         knownSpells = {}, castFailures = {}, targetNameForm = "space", sentTargetForm = "first",
+        -- overrides: [key] = { owner, button, mouseButton, priority } (SetOverrideBindingClick).
+        -- bindings: [key] = the key's own binding action. mods: modifier keys held now.
+        overrides = {}, bindings = {}, mods = {},
         race = "Human", class = "MAGE", faction = "Alliance", zone = "Elwynn Forest", hour = 14,
         cvars = { nameplateShowFriendlyPlayers = "1", nameplateShowOnlyNameForFriendlyPlayerUnits = "0",
             ActionButtonUseKeyDown = "1" },
@@ -680,6 +718,26 @@ function M.reset()
     -- state.instanceType: "pvp" for a battleground (default "party").
     _G.IsInInstance = function() return M.state.inInstance, M.state.inInstance and (M.state.instanceType or "party") or "none" end
     _G.InCombatLockdown = function() return M.state.inCombat end
+    -- Override bindings are protected: changing them in combat is blocked,
+    -- here an error (the game blocks the call and blames the addon).
+    _G.SetOverrideBindingClick = function(owner, isPriority, key, buttonName, mouseButton)
+        if M.state.inCombat then error("SetOverrideBindingClick is protected in combat") end
+        assert(type(owner) == "table" and type(key) == "string" and type(buttonName) == "string")
+        if M.state.unbindable and M.state.unbindable[key] then error("invalid key: " .. key) end
+        M.state.overrides[key] = { owner = owner, button = buttonName, mouseButton = mouseButton or "LeftButton",
+            priority = isPriority and true or false }
+    end
+    _G.ClearOverrideBindings = function(owner)
+        if M.state.inCombat then error("ClearOverrideBindings is protected in combat") end
+        for key, o in pairs(M.state.overrides) do
+            if o.owner == owner then M.state.overrides[key] = nil end
+        end
+    end
+    _G.GetBindingAction = function(key) return M.state.bindings[key] or "" end
+    _G.GetBindingText = function(key) return M.state.bindingText and M.state.bindingText[key] or key end
+    _G.IsShiftKeyDown = function() return M.state.mods.shift == true end
+    _G.IsControlKeyDown = function() return M.state.mods.ctrl == true end
+    _G.IsAltKeyDown = function() return M.state.mods.alt == true end
 
     _G.IsInGuild = function() return M.state.inGuild end
     M.state.guildOffline = {}

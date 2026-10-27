@@ -70,7 +70,7 @@ To find the game folder, open the Battle.net app, choose WoW Forever, then the g
 - `/friendly profile [new | use | delete] <name>`: profiles. Each character switches to the profile it used last when it logs in.
 - `/friendly export` and `/friendly import [undo]`: your settings as one line of text, to keep or share. Importing never turns the addon on or off and only adds to your ignore list; `import undo` puts your settings back.
 - The **General** page has buttons for snooze, the ignore list, profiles, export and import, and the bug report; the **Favour Ledger** page shows the ledger.
-- Buff back: `/friendly buffback` (what the button holds) and `/friendly move` (drag it). See [Buff back](#buff-back).
+- Buff back: `/friendly buffback` (what the button holds), `/friendly move` (drag it) and `/friendly buffmode` (lend it a key). See [Buff back](#buff-back).
 - Checking what the addon does: `/friendly status`, `/friendly selftest`, `/friendly names`, `/friendly nameplates`, `/friendly debug` and `/friendly report`. See [Troubleshooting](#troubleshooting).
 - **Don't send messages while I'm AFK** (on by default, at the top of the options): a greeting or thank-you that comes due while you're AFK is dropped, not saved for later. `/friendly test` and `/friendly selftest` still work.
 
@@ -131,6 +131,15 @@ When someone outside your group buffs you, a small button appears with their nam
 - **Say a line** only while the addon may speak: not while snoozed, or AFK with "Don't send messages while I'm AFK" on.
 - `/friendly move` unlocks the button so you can drag it, and locks it again. `/friendly buffback` shows exactly what the button holds and why, for checking in game.
 
+### Buff mode
+
+Buff mode lends the button a key of your choice while it's on, the mouse wheel by default, so you can buff quickly by scrolling. When buff mode ends, the key does what it did before. It never casts by itself: each cast still needs your press, the key only decides which press.
+
+- **On and off:** `/friendly buffmode` switches it, `/friendly buffmode on` or `off` sets it, and **Key Bindings → AddOns → "Friendly Forever: buff mode on/off"** gives it a key. It needs the addon and Buff Back on, and it's off after a login or reload.
+- **The key:** on the **Buff Back** tab, click **Buff mode key** and press a key, scroll the wheel or click a side mouse button (Esc cancels), with Shift, Ctrl or Alt if you like. Or type `/friendly buffmode key MOUSEWHEELDOWN`. Esc and Enter can't be lent, nor the key that switches buff mode. A key that can't be used, or that the game won't lend, falls back to Mouse Wheel Up, with a message.
+- **The button** shows "Buff mode: Mouse Wheel Up" above it, and stays up while buff mode is on, saying why there's nothing to buff when there isn't.
+- **In a fight** the key is handed back as the fight starts, so it does its own job (the button is empty in fights anyway), and lent again when it ends. The game doesn't let key bindings change during a fight, so turning buff mode on or off in one happens when the fight ends.
+
 The button's macro is `/cleartarget`, `/targetexact First Surname`, `/cast [help,nodead] <buff>`, then `/targetlasttarget` (or `/cleartarget` if you had no target). Targeting the exact name means a player whose name only starts the same is never buffed, and the cast only goes off on a friendly, living target, so if they can't be found nothing is cast and your target comes back. Not yet tested in WoW Forever, as it hasn't launched; the macro lives in one function, so adjusting it after the first test is a small change.
 
 ## Favour ledger
@@ -145,6 +154,7 @@ Every buff from someone outside your group, while Buff Thanks or Buff Back is on
 - The 10 seconds after login or reload are ignored, and buffs you already had (re-sent by the game when you log in, reconnect or zone) are never thanked.
 - Saved settings are type-checked and clamped on load, so a corrupted or hand-edited file can't break the addon. If they're damaged while you play (by another addon or a bad `/run`), they're repaired as soon as they cause an error in the addon, rather than at the next reload.
 - The buff back button won't offer a buff to a player the game shows flagged for PvP unless you're flagged too (see [Buff back](#buff-back)). It's empty in a fight, and its cast only goes off on a friendly, living target.
+- Buff mode only lends a key to the button with an override binding, never changes your saved key bindings, and never lends Esc or Enter. The key is handed back when buff mode ends, during fights, while the addon or Buff Back is off, and on every login or reload.
 - "Secret" values from the Midnight-era API are detected and never used.
 - The addon never runs text as code and doesn't read whispers or addon messages, so other players have no way to control it.
 - The buff-back button's macro is built only from a checked player name and the game's own spell name, and each part is refused if it could end its line or start another command (a line break, a `|` escape code, or a leading `/`).

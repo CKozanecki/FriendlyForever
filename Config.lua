@@ -138,6 +138,8 @@ Config.DEFAULTS = {
         owedMinutes = 10,
         unlocked = false,
         position = { point = "CENTER", x = 0, y = -180 },
+        -- The key buff mode lends to the button (BuffMode.lua).
+        buffModeKey = "MOUSEWHEELUP",
         messages = DefaultMessages.buffBack,
     },
 }
@@ -207,6 +209,7 @@ Config.FIELD_VALIDATORS = {
         return Config.CleanUnknownName(value)
     end,
     position = function(value, default) return Config.CleanPosition(value, default) end,
+    buffModeKey = function(value, default) return ns.BuffMode.IsValidKey(value) and value or default end,
     messages = function(value, default)
         if type(value) ~= "table" then return CopyList(default) end
         local clean = {}

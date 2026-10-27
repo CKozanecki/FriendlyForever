@@ -120,6 +120,68 @@ local function ClearEditFocus()
     end
 end
 
+-- Choosing buff mode's key: click the button, then press a key, scroll the
+-- mouse wheel or click a side mouse button (Esc cancels).
+Options.KEY_PROMPT = "Press a key or scroll the wheel (Esc cancels)"
+local MOUSE_KEYS = { MiddleButton = "BUTTON3", Button4 = "BUTTON4", Button5 = "BUTTON5" }
+
+local function ModifierPrefix()
+    local out = ""
+    if IsAltKeyDown() then out = out .. "ALT-" end
+    if IsControlKeyDown() then out = out .. "CTRL-" end
+    if IsShiftKeyDown() then out = out .. "SHIFT-" end
+    return out
+end
+
+local function KeyButtonText()
+    return "Buff mode key: " .. ns.BuffMode.KeyText((ns.BuffMode.Key()))
+end
+
+local function StopKeyCapture()
+    local capture = widgets.keyCapture
+    if not capture.active then return end
+    capture.active = false
+    capture:EnableKeyboard(false)
+    capture:EnableMouseWheel(false)
+    capture:Hide()
+    widgets.buffModeKey:SetText(KeyButtonText())
+end
+
+local function TakeKey(key)
+    StopKeyCapture()
+    local ok, why = ns.BuffMode.SetKey(ModifierPrefix() .. key)
+    if not ok then ns.Print("couldn't set the buff mode key: " .. why .. ".") end
+    widgets.buffModeKey:SetText(KeyButtonText())
+end
+
+function Options.StartKeyCapture()
+    if InCombatLockdown() then return ns.Print("keys can't be changed in a fight.") end
+    local capture = widgets.keyCapture
+    capture.active = true
+    capture:Show()
+    capture:EnableKeyboard(true)
+    capture:SetPropagateKeyboardInput(false)
+    capture:EnableMouseWheel(true)
+    widgets.buffModeKey:SetText(Options.KEY_PROMPT)
+end
+
+local function CreateKeyCapture(parent)
+    local capture = CreateFrame("Frame", nil, parent)
+    capture:SetAllPoints(parent)
+    capture:Hide()
+    capture:SetScript("OnKeyDown", function(_, key)
+        if ns.BuffMode.MODIFIER_KEYS[key] then return end
+        if key == "ESCAPE" then return StopKeyCapture() end
+        TakeKey(key)
+    end)
+    capture:SetScript("OnMouseWheel", function(_, delta) TakeKey(delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN") end)
+    capture:SetScript("OnMouseDown", function(_, mouseButton)
+        if MOUSE_KEYS[mouseButton] then TakeKey(MOUSE_KEYS[mouseButton]) end
+    end)
+    capture:SetScript("OnHide", StopKeyCapture)
+    return capture
+end
+
 local function ShowStepper(stepper, shown)
     for _, part in ipairs({ stepper.label, stepper.minus, stepper.box, stepper.plus }) do part:SetShown(shown) end
 end
@@ -145,6 +207,8 @@ local function Fill()
 
     local isBuffBack = currentType == "buffBack"
     widgets.sayLine:SetShown(isBuffBack)
+    widgets.buffModeKey:SetShown(isBuffBack)
+    if not widgets.keyCapture.active then widgets.buffModeKey:SetText(KeyButtonText()) end
     ShowStepper(widgets.steppers.owedMinutes, isBuffBack)
     if isBuffBack then
         widgets.sayLine:SetChecked(cfg.sayLine)
@@ -276,6 +340,10 @@ function Options.Create()
         ns.BuffButton.Refresh()
     end)
     widgets.sayLine:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
+    -- On the delay's place in row 1 (Buff Back has no delay).
+    widgets.buffModeKey = Button(content, "", 290, function() Options.StartKeyCapture() end)
+    widgets.buffModeKey:SetPoint("LEFT", widgets.enabled.label, "RIGHT", 40, 0)
+    widgets.keyCapture = CreateKeyCapture(content)
     local owedMinutes = Stepper(content, "Offer for (minutes):", "owedMinutes")
     owedMinutes.label:SetPoint("LEFT", widgets.sayLine.label, "RIGHT", 40, 0)
     widgets.steppers.owedMinutes = owedMinutes
