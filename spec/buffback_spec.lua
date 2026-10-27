@@ -667,6 +667,26 @@ describe("Buff back", function()
             assert.are.equal(1, #wow.sentTo("SAY"), "said once")
         end)
 
+        it("says one line per confirmed return, in rotation", function()
+            ns.db.buff.enabled = false
+            ns.db.buffBack.sayLine = true
+            ns.db.buffBack.messages = { "One {name}", "Two {name}" }
+            stranger()
+            buffedBy()
+            wow.press(button)
+            nextKey()
+            wow.advance(ns.Offers.RETURNED_RECENTLY + 1)
+            buffedBy()
+            assert.is_truthy(macro(), "offered again")
+            wow.press(button)
+            nextKey()
+            assert.are.equal(2, ns.db.ledger.totals.returned)
+            local said = wow.sentTo("SAY")
+            table.sort(said)
+            assert.are.same({ "One Bob", "Two Bob" }, said)
+            assert.are.same({}, wow.errors)
+        end)
+
         it("says nothing when the line is off (the default)", function()
             ns.db.buffBack.messages = { "For you, {name}!" }
             stranger()
@@ -1278,6 +1298,42 @@ describe("Buff back", function()
             math.randomseed(seed)
             ns.db.buffBack.sayLine = true
             ns.db.buffBack.messages = { "BB {name}" }
+            -- A line may only be queued straight after a confirmed return for
+            -- the same player, within the same step; each queued line may be
+            -- said at most once, by name.
+            local justReturned, queued, step = nil, {}, 0
+            local markReturned = ns.Offers.MarkReturned
+            ns.Offers.MarkReturned = function(name, spell)
+                local ok = markReturned(name, spell)
+                justReturned = ok and { name = name, step = step } or nil
+                return ok
+            end
+            local schedule = ns.Announcer.Schedule
+            ns.Announcer.Schedule = function(msgType, key, opts)
+                if msgType == "buffBack" then
+                    assert.is_truthy(justReturned and justReturned.name == key and justReturned.step == step,
+                        ("seed %d, step %d: a line queued for %s with no return just confirmed"):format(seed, step, key))
+                    justReturned = nil
+                    local ok = schedule(msgType, key, opts)
+                    if ok then
+                        local first = ns.Util.FirstName(key)
+                        queued[first] = (queued[first] or 0) + 1
+                    end
+                    return ok
+                end
+                return schedule(msgType, key, opts)
+            end
+            -- How often the storm reached the outcomes that must stay silent.
+            local wentElsewhere, nothingWaiting = 0, 0
+            local log = ns.Diag.Log
+            ns.Diag.Log = function(category, fmt, ...)
+                if category == "buffBack" and fmt == "%s" then
+                    local text = tostring((...))
+                    if text:find(" went to ", 1, true) then wentElsewhere = wentElsewhere + 1 end
+                    if text:find("no favour was waiting", 1, true) then nothingWaiting = nothingWaiting + 1 end
+                end
+                return log(category, fmt, ...)
+            end
             local names = { "Bob", "Ann", "Cid", "Dot", "Eve", "Fay" }
             local actions = {
                 function() -- someone buffs you, maybe with a stale or missing token
@@ -1309,6 +1365,11 @@ describe("Buff back", function()
                 function() wow.state.errorBeforeFailed = math.random() < 0.5 end,
                 function() wow.keyDown() end,
                 function() wow.state.afk = math.random() < 0.2 end,
+                -- The cast lands on someone else, or the favour goes while it's on its way.
+                function()
+                    wow.state.castLandsOn = math.random() < 0.3 and ("nameplate" .. math.random(1, 8)) or nil
+                end,
+                function() ns.Offers.LetGo(names[math.random(#names)] .. "-Stone") end,
             }
             -- Presses the game left unanswered (no cast or error from them): only
             -- those may be reported as "No answer".
@@ -1329,7 +1390,8 @@ describe("Buff back", function()
                 countedPress(button, math.random() < 0.8 and "LeftButton" or "RightButton",
                     math.random() < 0.3 and { shift = true } or nil)
             end
-            for step = 1, 1500 do
+            for n = 1, 1500 do
+                step = n
                 local which = math.random(#actions)
                 actions[which]()
                 if wow.state.inCombat then
@@ -1354,27 +1416,33 @@ describe("Buff back", function()
             end
             assert.is_true(noAnswers <= unanswered,
                 ("seed %d: %d 'No answer' lines for %d unanswered presses"):format(seed, noAnswers, unanswered))
-            local said = 0
+            local said, saidTo = 0, {}
             for _, line in ipairs(wow.sentTo("SAY")) do
-                if line:find("^BB ") then said = said + 1 end
+                local first = line:match("^BB (.+)$")
+                if first then
+                    said = said + 1
+                    saidTo[first] = (saidTo[first] or 0) + 1
+                    assert.is_true(saidTo[first] <= (queued[first] or 0),
+                        ("seed %d: %d lines said to %s, %d queued"):format(seed, saidTo[first], first, queued[first] or 0))
+                end
             end
-            assert.is_true(said <= s.returned,
-                ("seed %d: %d buff back lines for %d favours returned"):format(seed, said, s.returned))
-            return s, said
+            return s, said, wentElsewhere, nothingWaiting
         end
 
         it("survives random storms of events, presses, fights and settings changes", function()
-            local received, casts, returned, said = 0, 0, 0, 0
+            local received, casts, returned, said, elsewhere, gone = 0, 0, 0, 0, 0, 0
             for _, seed in ipairs({ 1, 7, 42, 99, 404, 777, 2026, 4242, 31337, 65535 }) do
-                local s, lines = storm(seed)
+                local s, lines, wentElsewhere, nothingWaiting = storm(seed)
                 received, casts, returned = received + s.received, casts + #wow.casts, returned + s.returned
-                said = said + lines
+                said, elsewhere, gone = said + lines, elsewhere + wentElsewhere, gone + nothingWaiting
             end
             -- The storms really exercised the button, not just the edges.
             assert.is_true(received > 100, "favours received: " .. received)
             assert.is_true(casts > 20, "casts: " .. casts)
             assert.is_true(returned > 0, "favours returned: " .. returned)
             assert.is_true(said > 0, "buff back lines said: " .. said)
+            assert.is_true(elsewhere > 0, "casts that went to someone else: " .. elsewhere)
+            assert.is_true(gone > 0, "casts that found no favour waiting: " .. gone)
         end)
 
         it("a damaged sayLine doesn't switch on talking", function()
