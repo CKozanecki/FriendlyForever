@@ -1,4 +1,4 @@
--- Spec: #80
+-- Spec: #77, #80
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -291,6 +291,30 @@ describe("CurseForge packager config", function()
         local ignored, changelog = pkgmeta()
         assert.are.equal("RELEASE_NOTES.md", changelog)
         assert.is_true(ignored[changelog])
+    end)
+end)
+
+-- Claude Code keeps side sessions' checkouts in .claude/worktrees (#77).
+-- CI never has one, so only these tests notice if lint or git starts
+-- reading them again (make check would fail locally while one is open).
+describe("Claude Code worktrees", function()
+    it("are left out of the lint", function()
+        -- Run the config as luacheck does: its per-file sections (files[...])
+        -- are made as they're named.
+        local config = { files = setmetatable({}, { __index = function(t, k) t[k] = {} return t[k] end }) }
+        local chunk = assert(loadfile(wow.ROOT .. ".luacheckrc"))
+        setfenv(chunk, config)()
+        local excluded = {}
+        for _, pattern in ipairs(config.exclude_files or {}) do excluded[pattern] = true end
+        assert.is_true(excluded[".claude/**"], ".luacheckrc exclude_files")
+    end)
+
+    it("are git-ignored", function()
+        local found = false
+        for _, line in ipairs(lines(".gitignore")) do
+            if line == ".claude/worktrees/" then found = true end
+        end
+        assert.is_true(found, ".gitignore")
     end)
 end)
 

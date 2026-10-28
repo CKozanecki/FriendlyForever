@@ -3,7 +3,8 @@
 -- (which can taint Blizzard UI code) fail the lint.
 std = "lua51"
 max_line_length = 120
-exclude_files = { ".tools/**", "dist/**", ".release/**" }
+-- .claude/worktrees holds other checkouts of this repo (Claude Code side sessions).
+exclude_files = { ".tools/**", "dist/**", ".release/**", ".claude/**" }
 
 -- The addon may only create these globals.
 globals = {
