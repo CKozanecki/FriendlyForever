@@ -25,7 +25,7 @@ Every change can be traced from its spec to its code, tests, pull request and re
 - **Pull requests** say `Closes #<issue>` for each spec they complete (one keyword per issue: `Closes #1, closes #2`) and copy its acceptance criteria into the description as a checklist, ticked as they're met. The maintainer ticks them on the issue when merging.
 - **Tests:** a spec file written or changed for an issue says so in a comment on one of its first five lines, in exactly this form: `-- Spec: #27` (or `-- Spec: #27, #52`). A repo test checks the form. Test names repeat the acceptance criteria in words; reviewers check that.
 - **Changelog** entries are bullets, one per change, and end with the issues they come from: `(#27)`, or `(#27, #52)` for several. Notes about the whole release are bullets too and carry every issue that caused them. Text that isn't a bullet isn't checked. A repo test checks every entry under `### Unreleased`, and every entry of the released version once it's past 0.6.0. The release notes on CurseForge leave the tags out.
-- **Releases:** after tagging, the maintainer creates a GitHub release for the tag with **Generate release notes**, which lists the pull requests and the issues they closed.
+- **Releases:** the Release workflow creates the GitHub release for each tag. Its notes are that version's changelog section without the issue tags, the same notes CurseForge shows. The changelog's tags trace each entry to its issues, and squash-merge titles trace each commit to its pull request.
 
 ### Review loops
 
@@ -69,5 +69,5 @@ Versions below 1.0.0 are pre-launch: 0.8.0 is the first file on CurseForge and 1
 Pull requests between releases add their `CHANGELOG.md` notes under a `### Unreleased` heading at the top; the release PR renames it to `## x.y.z`.
 
 1. In a PR: bump `## Version` in `FriendlyForever.toc` and rename `### Unreleased` at the top of `CHANGELOG.md` to `## 0.8.0` (add notes there for anything missing). CurseForge shows only that section (`make release-notes` previews it).
-2. After it merges, tag the merge commit and push the tag: `git tag v0.8.0 && git push origin v0.8.0`. Version tags can't be moved or deleted once pushed, so double-check the commit first. Then create a GitHub release for the tag with **Generate release notes**.
-3. The Release workflow's `verify` job checks that the tag is on `main` and matches the TOC, then runs lint and tests with no secrets. After that, the `release` job waits for your approval in the `release` environment, checks that the CurseForge project ID and key are set, and uploads.
+2. After it merges, tag the merge commit and push the tag: `git tag v0.8.0 && git push origin v0.8.0`. Version tags can't be moved or deleted once pushed, so double-check the commit first. The GitHub release isn't made by hand: the workflow makes it in step 3.
+3. The Release workflow's `verify` job checks that the tag is on `main` and matches the TOC, then runs lint and tests with no secrets. After that, the `release` job waits for your approval in the `release` environment, checks that the CurseForge project ID and key are set, and uploads. The packager uploads to CurseForge and creates the GitHub release for the tag, with the same notes and the zip attached. Once the job is green, there's nothing left to do.
