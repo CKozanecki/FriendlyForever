@@ -509,18 +509,20 @@ end)
 -- the docs must never tell the maintainer to make one: GitHub refuses a second
 -- release for a tag, and one made before the upload is overwritten.
 describe("Release docs", function()
-    -- Wording that has the reader make the release: "create" (not the
-    -- workflow's "creates"), "you" or "the maintainer" as the one
-    -- creating it, or GitHub's own buttons and page for making one.
-    local MANUAL = {
-        "create an? [%w ]-release",
-        "create the [%w ]-release",
-        "you create",
-        "maintainer creates",
-        "generate release notes",
-        "draft a new release",
-        "releases/new",
-    }
+    -- Wording that has the reader make the release: an imperative verb (not
+    -- the workflow's "creates" or "makes") before "a" or "the" release, "you"
+    -- or "the maintainer" as the one making it, or GitHub's own button and
+    -- page for making one.
+    local MANUAL = { "generate release notes", "releases/new" }
+    for _, forms in ipairs({ { "create", "creates" }, { "make", "makes" }, { "publish", "publishes" },
+        { "draft", "drafts" } }) do
+        local verb, says = forms[1], forms[2]
+        for _, article in ipairs({ "an?", "the" }) do
+            MANUAL[#MANUAL + 1] = verb .. " " .. article .. " [%w ]-release"
+        end
+        MANUAL[#MANUAL + 1] = "you " .. verb
+        MANUAL[#MANUAL + 1] = "maintainer " .. says
+    end
 
     -- Each manual-release instruction in text, as the words that matched.
     -- Case, markdown emphasis and line breaks (LF or CRLF) don't hide one.
@@ -540,7 +542,7 @@ describe("Release docs", function()
                 .. "**Generate release notes**, which lists the pull requests and the issues they closed.\n"
                 .. "2. After it merges, tag the merge commit and push the tag. Then create a GitHub release "
                 .. "for the tag with **Generate release notes**.\n"
-            assert.are.same({ "create a github release", "maintainer creates", "generate release notes" },
+            assert.are.same({ "generate release notes", "create a github release", "maintainer creates" },
                 manualReleaseSteps(old))
         end)
 
@@ -549,6 +551,11 @@ describe("Release docs", function()
                 "Then create the GitHub release.",
                 "Create a release for the tag.",
                 "Create an annotated GitHub release.",
+                "Then make a GitHub release for the tag.",
+                "Then publish the GitHub release for the tag.",
+                "Then draft the GitHub release.",
+                "After the run, you make its page on GitHub.",
+                "Afterwards the maintainer publishes it.",
                 "Once it's tagged, you create its page on GitHub.",
                 "Open the release, then click Draft a new release.",
                 "Go to https://github.com/CKozanecki/FriendlyForever/releases/new and fill it in.",
