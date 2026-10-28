@@ -46,7 +46,7 @@ local MACRO_ACTION_TYPE = "macro"
 _G["BINDING_NAME_CLICK " .. BuffButton.FRAME_NAME .. ":LeftButton"] = "Friendly Forever: buff back"
 
 local button, eventFrame
-local armedOffer          -- what the button holds: { name, spell, buff, macroText }
+local armedOffer          -- what the button holds: { name, spell, buff, group, revoke, macroText }
 local appliedMacroText    -- the macro text last written to the button (to skip rewriting it)
 local shownResult         -- the last result under the button: { text, shownAt }
 local lastResultText = "nothing pressed yet"
@@ -185,11 +185,15 @@ local function ArmButton()
 
     SetSecureMacro(macroText)
     armedOffer = { name = offer.name, spell = offer.spell, buff = offer.buff, group = offer.group,
-        macroText = macroText }
+        revoke = offer.revoke, macroText = macroText }
     notArmedReason = nil
     button.icon:SetTexture(ns.BuffData.Icon(offer.buff) or BuffButton.PLACEHOLDER_ICON)
-    SetLabels(Util.DisplayName(offer.name),
-        (offer.group and "missing your " or "buffed you - give ") .. offer.spell)
+    if offer.revoke then
+        SetLabels(Util.DisplayName(offer.name), "Revoke their Salvation (" .. offer.why .. ")")
+    else
+        SetLabels(Util.DisplayName(offer.name),
+            (offer.group and "missing your " or "buffed you - give ") .. offer.spell)
+    end
     button:SetShown(true)
 end
 
@@ -269,7 +273,8 @@ local function Unanswered(press)
     press.expired = true
     local who = Util.DisplayName(press.name)
     if press.failed then
-        ShowResult("Couldn't buff " .. who .. " (the game gave no reason).", true)
+        ShowResult((press.revoke and "Couldn't revoke Salvation from " or "Couldn't buff ") .. who
+            .. " (the game gave no reason).", true)
     elseif press.sent then
         ShowResult("No word back on " .. press.spell .. " for " .. who .. ". If it didn't land, press again.")
     elseif press.complete and not press.unsure then
@@ -294,7 +299,7 @@ end
 -- Fill a press from what the button holds now.
 local function TakeArmedOffer(press)
     press.name, press.spell, press.buff = armedOffer.name, armedOffer.spell, armedOffer.buff
-    press.group = armedOffer.group
+    press.group, press.revoke = armedOffer.group, armedOffer.revoke
     ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
     return press
 end
@@ -458,6 +463,9 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
         ShowResult(string.format("%s went to %s, not %s.", press.spell, actual, who), true)
     elseif reachedThem == nil then
         ShowResult("Cast " .. press.spell .. ", but the game didn't say it reached " .. who .. ".")
+    elseif press.revoke then
+        ns.GroupBuffs.NoteRevoked(press.name)
+        ShowResult("Revoked Salvation from " .. who .. ".")
     elseif press.group then
         -- A group buff: no favour, no line, no thanks.
         ns.GroupBuffs.NoteGiven(press.name, press.buff)
@@ -478,7 +486,8 @@ local unclaimedError
 local function ReportRefusal(press, text)
     ForgetPress(press)
     if press.group and ns.GroupBuffs.IsTargetRefusal(text) then ns.GroupBuffs.NoteRefused(press.name) end
-    ShowResult("Couldn't buff " .. Util.DisplayName(press.name) .. ": " .. Util.StripChat(text), true)
+    ShowResult((press.revoke and "Couldn't revoke Salvation from " or "Couldn't buff ")
+        .. Util.DisplayName(press.name) .. ": " .. Util.StripChat(text), true)
     BuffButton.Refresh()
 end
 

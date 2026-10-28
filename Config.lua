@@ -160,6 +160,10 @@ Config.DEFAULTS = {
         -- Who gets each buff in buff mode (BuffRules.lua): [buff key] =
         -- { rule, classes, always, never }. Empty: every buff's default.
         whoGets = {},
+        -- Whose Salvation buff mode offers to Revoke (paladins), and the
+        -- names its "chosen" modes cover (BuffRules.lua).
+        revokeMode = "mine",
+        revokeNames = {},
         messages = DefaultMessages.buffBack,
     },
 }
@@ -258,6 +262,8 @@ Config.FIELD_VALIDATORS = {
         return clean
     end,
     whoGets = function(value) return ns.BuffRules.Clean(value) end,
+    revokeMode = function(value, default) return ns.BuffRules.IS_REVOKE_MODE[value] and value or default end,
+    revokeNames = function(value) return ns.BuffRules.CleanRevokeNames(value) end,
     messages = function(value, default)
         if type(value) ~= "table" then return CopyList(default) end
         local clean = {}
