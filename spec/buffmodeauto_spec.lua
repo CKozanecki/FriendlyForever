@@ -19,7 +19,7 @@ describe("Buff mode turning on and off by itself", function()
 
     -- A druid who knows Mark of the Wild (one buff keeps the counting simple).
     local function boot(db)
-        ns = wow.boot({ db = db, before = function(state)
+        ns = wow.boot({ db = db, autoBuffMode = true, before = function(state)
             state.class = "DRUID"
             state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
         end })
@@ -61,14 +61,72 @@ describe("Buff mode turning on and off by itself", function()
     before_each(function() boot() end)
 
     describe("turning on", function()
-        it("does nothing by default: every trigger that turns it on starts off", function()
+        it("turns on by default for each trigger: joining, a stranger's buff, a death after a pull", function()
             local b = ns.db.buffBack
-            assert.is_false(b.autoOnJoin)
-            assert.is_false(b.autoOnDeath)
-            assert.is_false(b.autoOnBuffed)
+            assert.is_true(b.autoOnJoin)
+            assert.is_true(b.autoOnDeath)
+            assert.is_true(b.autoOnBuffed)
+            join()
+            assert.is_true(ns.BuffMode.IsOn())
+            assert.is_true(printedHas("(you joined a group)"))
+            slash("buffmode off")
+            wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", class = "WARRIOR", id = "Bob-Stone" })
+            wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
+            assert.is_true(ns.BuffMode.IsOn())
+            assert.is_true(printedHas("(someone buffed you)"))
+            slash("buffmode off")
+            wow.enterCombat()
+            wow.leaveCombat()
+            dies("party1")
+            assert.is_true(ns.BuffMode.IsOn())
+            assert.is_true(printedHas("(someone in your group died)"))
+        end)
+
+        it("says once a session where the triggers are switched, and not when you turn it on yourself", function()
+            local HINT = "choose when on the Buff Back tab"
+            local function hints()
+                local n = 0
+                for _, line in ipairs(wow.printed) do
+                    if line:find(HINT, 1, true) then n = n + 1 end
+                end
+                return n
+            end
+            slash("buffmode on")
+            slash("buffmode off")
+            assert.are.equal(0, hints(), "your own buff mode needs no hint")
+            join()
+            assert.is_true(ns.BuffMode.IsOn())
+            assert.are.equal(1, hints())
+            leave()
+            slash("buffmode off")
+            join({ "Cid-Rock" })
+            assert.is_true(ns.BuffMode.IsOn())
+            assert.are.equal(1, hints(), "once a session")
+        end)
+
+        it("other specs start with the triggers off unless their saved settings set them", function()
+            local function triggers(n)
+                local b = n.db.buffBack
+                return { b.autoOnJoin, b.autoOnDeath, b.autoOnBuffed }
+            end
+            assert.are.same({ false, false, false }, triggers(wow.boot()))
+            assert.are.same({ false, false, false }, triggers(wow.boot({ db = { enabled = true } })))
+            assert.are.same({ false, false, false }, triggers(wow.boot({ db = { buffBack = { sayLine = true } } })))
+            assert.are.same({ true, false, false }, triggers(wow.boot({ db = { buffBack = { autoOnJoin = true } } })))
+            local saved = _G.FriendlyForeverDB
+            assert.are.same({ true, false, false }, triggers(wow.boot({ db = saved })), "kept over a reload")
+            assert.are.same({ true, true, true }, triggers(wow.boot({ db = { enabled = true }, autoBuffMode = true })))
+        end)
+
+        it("does nothing with every trigger that turns it on switched off", function()
+            local b = ns.db.buffBack
+            b.autoOnJoin, b.autoOnDeath, b.autoOnBuffed = false, false, false
             join()
             wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", class = "WARRIOR", id = "Bob-Stone" })
             wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
+            wow.enterCombat()
+            wow.leaveCombat()
+            dies("party1")
             assert.is_false(ns.BuffMode.IsOn())
             assert.is_nil(lent())
         end)
@@ -113,7 +171,7 @@ describe("Buff mode turning on and off by itself", function()
         end)
 
         it("doesn't turn on for a death before the group's first pull", function()
-            ns.db.buffBack.autoOnDeath = true
+            ns.db.buffBack.autoOnJoin = false
             join()
             dies("party1")
             assert.is_false(ns.BuffMode.IsOn())
@@ -149,7 +207,7 @@ describe("Buff mode turning on and off by itself", function()
         end)
 
         it("doesn't count a group you were already in at login as joining one", function()
-            ns = wow.boot({ db = { buffBack = { autoOnJoin = true } }, before = function(state)
+            ns = wow.boot({ db = { buffBack = { autoOnJoin = true } }, autoBuffMode = true, before = function(state)
                 state.class = "DRUID"
                 state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
                 -- The roster arrives after the addon loads, as it does in the game.
@@ -413,7 +471,7 @@ describe("Buff mode turning on and off by itself", function()
         it("repairs damaged settings, and keeps working when they're damaged mid-session", function()
             boot({ buffBack = { autoOnJoin = "yes", autoOffMinutes = 999, autoOffDone = {} } })
             local b = ns.db.buffBack
-            assert.is_false(b.autoOnJoin)
+            assert.is_true(b.autoOnJoin, "repaired to the default")
             assert.are.equal(ns.Config.LIMITS.autoOffMinutes.max, b.autoOffMinutes)
             assert.is_true(b.autoOffDone)
             b.autoOnJoin = true
@@ -430,7 +488,7 @@ describe("Buff mode turning on and off by itself", function()
 
     describe("chaos (red tests)", function()
         it("never turns buff mode on in a fight, and a trigger's buff mode always ends within the timeout", function()
-            local turnedOn, timedOut = 0, 0
+            local turnedOn, timedOut, hinted = 0, 0, 0
             for _, seed in ipairs({ 4, 29, 81, 512, 2026 }) do
                 math.randomseed(seed)
                 boot()
@@ -493,6 +551,13 @@ describe("Buff mode turning on and off by itself", function()
                         where .. ": turned on in a fight")
                     track(where)
                     assert.is_true(not wow.state.inCombat or lent() == nil, where .. ": a key lent in a fight")
+                    -- The hint is said at most once a session (a reload starts a new one).
+                    local hints = 0
+                    for _, line in ipairs(wow.printed) do
+                        if line:find("choose when on the Buff Back tab", 1, true) then hints = hints + 1 end
+                    end
+                    assert.is_true(hints <= 1, where .. ": the hint said " .. hints .. " times")
+                    if hints == 1 then hinted = hinted + 1 end
                     -- Now and then, nothing but time: the timeout itself must end it.
                     if step % 25 == 0 and ns.BuffMode.IsAuto() then
                         wow.advance(limit - (wow.now - startedAt))
@@ -505,6 +570,7 @@ describe("Buff mode turning on and off by itself", function()
             end
             assert.is_true(turnedOn > 20, "turned on by triggers: " .. turnedOn)
             assert.is_true(timedOut > 5, "ended by the timeout alone: " .. timedOut)
+            assert.is_true(hinted > 0, "the hint was said")
         end)
     end)
 end)

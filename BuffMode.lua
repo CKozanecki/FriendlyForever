@@ -45,6 +45,7 @@ local owner              -- the frame the override binding belongs to
 local wanted = false     -- what you asked for; applied out of combat
 local auto = false       -- this buff mode was turned on by a trigger (BuffModeAuto.lua)
 local lentKey            -- the key lent right now, or nil
+local autoHintShown = false -- said where the triggers live, this session
 
 -- Whether key is a key name the game can bind, optionally with ALT-, CTRL-
 -- and SHIFT- in front ("SHIFT-MOUSEWHEELUP"), that buff mode may lend.
@@ -147,6 +148,11 @@ function BuffMode.Set(on, how)
     local because = how.why and (" (" .. how.why .. ")") or ""
     if wanted and lentKey then
         ns.Print("buff mode on" .. because .. ": " .. BuffMode.KeyText(lentKey) .. " presses the buff-back button.")
+        -- The triggers are on by default, so say once a session where they live.
+        if auto and not autoHintShown then
+            autoHintShown = true
+            ns.Print("buff mode turns itself on and off: choose when on the Buff Back tab (/friendly).")
+        end
     elseif not wanted then
         ns.Print("buff mode off" .. because .. ".")
     end
