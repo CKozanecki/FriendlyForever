@@ -421,12 +421,6 @@ local function FillBuffRows(shown)
     last = FillRaidBlessings(shown, last)
     widgets.autoHeader:ClearAllPoints()
     widgets.autoHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -14)
-    widgets.msgHeader:ClearAllPoints()
-    if shown then
-        widgets.msgHeader:SetPoint("TOPLEFT", widgets.bgPrepBuff, "BOTTOMLEFT", 4, -14)
-    else
-        widgets.msgHeader:SetPoint("TOPLEFT", widgets.fallback, "BOTTOMLEFT", 4, -32)
-    end
 end
 
 local function ShowStepper(stepper, shown)
@@ -498,6 +492,18 @@ local function Fill()
     local warn = isBuff and ns.Nameplates.FriendlyShown() == false
     widgets.nameplateWarning:SetShown(warn)
     widgets.nameplateButton:SetShown(warn)
+
+    -- The messages follow the last row this tab shows: a hidden row still
+    -- takes its space, so following one would leave an empty gap.
+    local above, x, y = widgets.steppers.repeatCooldown.label, 0, -18
+    if isBuffBack then
+        above, x, y = widgets.bgPrepBuff, 4, -14
+    elseif warn then
+        above = widgets.nameplateWarning
+    elseif isBuff then
+        above, x, y = widgets.fallback, 4, -14
+    end
+    widgets.msgHeader:SetPoint("TOPLEFT", above, "BOTTOMLEFT", x, y)
 
     for i, edit in ipairs(widgets.edits) do
         FillBox(edit, cfg.messages[i] or "")
@@ -600,12 +606,13 @@ function Options.Create()
     end)
     widgets.listNames:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
 
-    -- Buff Back tab only, in the buff tab's rows: the line, and how long favours last.
+    -- Buff Back tab only, right under Enabled (the tab has no timing rows):
+    -- the line, and how long favours last.
     widgets.sayLine = Checkbox(content, "Say a line once my buff lands", function(on)
         ns.db.buffBack.sayLine = on
         ns.BuffButton.Refresh()
     end)
-    widgets.sayLine:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
+    widgets.sayLine:SetPoint("TOPLEFT", widgets.enabled, "BOTTOMLEFT", 0, -4)
     -- On the delay's place in row 1 (Buff Back has no delay).
     widgets.buffModeKey = Button(content, "", 290, function() Options.StartKeyCapture() end)
     widgets.buffModeKey:SetPoint("LEFT", widgets.enabled.label, "RIGHT", 40, 0)
