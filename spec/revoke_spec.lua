@@ -1,9 +1,10 @@
--- Spec: #68
+-- Spec: #68, #76
 -- Revoke (paladins, Forever): buff mode offers to take Salvation off members
 -- who shouldn't have it, as your setting says: your own Salvation on
 -- members your Salvation rule leaves out (the default), any tank, chosen
 -- tanks, chosen players, or off.
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 
 local KINGS, MIGHT_1, SALVATION = 20217, 19740, 1038
 local INTELLECT = 10157
@@ -42,6 +43,21 @@ describe("Revoke", function()
         end
     end
 
+    -- A buff lands on u, cast from the unit token `from`. As in the game, a
+    -- member wears one of each buff: a new cast replaces the old one and
+    -- its caster (#76).
+    local function land(u, id, from)
+        u.auras, u.auraSources = u.auras or {}, u.auraSources or {}
+        for i, worn in ipairs(u.auras) do
+            if worn == id then
+                u.auraSources[i] = from
+                return
+            end
+        end
+        u.auras[#u.auras + 1] = id
+        u.auraSources[#u.auras] = from
+    end
+
     -- Scroll once. A buff shows on whoever it reached; Revoke takes their
     -- Salvation off.
     local function scroll()
@@ -60,8 +76,7 @@ describe("Revoke", function()
                         end
                     end
                 else
-                    u.auras[#u.auras + 1] = cast.id
-                    u.auraSources[#u.auras] = "player"
+                    land(u, cast.id, "player")
                 end
             end
         end
@@ -120,6 +135,24 @@ describe("Revoke", function()
             ns.BuffButton.Refresh()
             assert.are.equal("Ann Vale: Revoke", armed(), "still there after a while: offered again")
         end)
+
+        it("a second Salvation replaces the first, caster and all, so the specs' model matches the game (#76)",
+            function()
+                group("party", { { "Ann-Vale", "WARRIOR", "TANK", false, "player" } })
+                assert.are.equal("Ann Vale: Revoke", armed(), "your Salvation on the tank")
+                local u = wow.state.units.party1
+                land(u, KINGS, "player")
+                land(u, SALVATION, "raid9") -- another paladin's lands on top
+                assert.are.same({ SALVATION, KINGS }, u.auras, "still one Salvation, in its old place")
+                assert.are.same({ "raid9", "player" }, u.auraSources, "now theirs")
+                ns.BuffButton.Refresh()
+                assert.is_falsy((armed() or ""):find("Revoke", 1, true), "not yours to revoke any more")
+                land(u, SALVATION, "player")
+                assert.are.same({ SALVATION, KINGS }, u.auras)
+                assert.are.same({ "player", "player" }, u.auraSources, "yours again")
+                ns.BuffButton.Refresh()
+                assert.are.equal("Ann Vale: Revoke", armed())
+            end)
 
         it("leaves another paladin's Salvation alone by default", function()
             group("party", { { "Ann-Vale", "WARRIOR", "TANK", false, "raid9" } })
@@ -346,7 +379,7 @@ describe("Revoke", function()
         it("only ever revokes Salvation the setting covers, and never in a fight", function()
             local revoked, buffed = 0, 0
             for _, seed in ipairs({ 7, 68, 312, 2026 }) do
-                math.randomseed(seed)
+                random.seed(seed)
                 boot()
                 local everyone = { "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
                 local roles = { "TANK", "HEALER", "DAMAGER", "NONE" }
@@ -354,57 +387,54 @@ describe("Revoke", function()
                 local function reshuffle()
                     local members = {}
                     for _, name in ipairs(everyone) do
-                        if math.random() < 0.8 then
-                            members[#members + 1] = { name, ({ "WARRIOR", "ROGUE", "MAGE" })[math.random(3)],
-                                roles[math.random(#roles)], math.random() < 0.3,
-                                math.random() < 0.6 and sources[math.random(#sources)] or nil }
+                        if random.random() < 0.8 then
+                            members[#members + 1] = { name, ({ "WARRIOR", "ROGUE", "MAGE" })[random.random(3)],
+                                roles[random.random(#roles)], random.random() < 0.3,
+                                random.random() < 0.6 and sources[random.random(#sources)] or nil }
                         end
                     end
                     if #members == 0 then members[1] = { everyone[1], "WARRIOR", "TANK", false, "player" } end
-                    group(math.random() < 0.5 and "raid" or "party", members)
+                    group(random.random() < 0.5 and "raid" or "party", members)
                 end
                 reshuffle()
                 local actions = {
                     reshuffle,
-                    function() mode(ns.BuffRules.REVOKE_MODES[math.random(#ns.BuffRules.REVOKE_MODES)]) end,
+                    function() mode(ns.BuffRules.REVOKE_MODES[random.random(#ns.BuffRules.REVOKE_MODES)]) end,
                     function()
                         local pick = {}
-                        for _, name in ipairs(everyone) do if math.random() < 0.4 then pick[#pick + 1] = name end end
+                        for _, name in ipairs(everyone) do if random.random() < 0.4 then pick[#pick + 1] = name end end
                         ns.BuffRules.SetRevokeNames(table.concat(pick, ", "))
                     end,
-                    function() ns.BuffRules.SetRule("salvation", ns.BuffRules.RULES[math.random(4)]) end,
+                    function() ns.BuffRules.SetRule("salvation", ns.BuffRules.RULES[random.random(4)]) end,
                     function()
                         -- Salvation lands on someone, from you or another paladin.
-                        local token = (wow.state.units.raid1 and "raid" or "party") .. math.random(1, 5)
+                        local token = (wow.state.units.raid1 and "raid" or "party") .. random.random(1, 5)
                         local u = wow.state.units[token]
-                        if u then
-                            u.auras, u.auraSources = u.auras or {}, u.auraSources or {}
-                            u.auras[#u.auras + 1] = SALVATION
-                            u.auraSources[#u.auras] = sources[math.random(#sources)]
-                        end
+                        if u then land(u, SALVATION, sources[random.random(#sources)]) end
                     end,
                     function()
-                        local token = (wow.state.units.raid1 and "raid" or "party") .. math.random(1, 5)
+                        local token = (wow.state.units.raid1 and "raid" or "party") .. random.random(1, 5)
                         local u = wow.state.units[token]
                         if u then
-                            local r = math.random()
+                            local r = random.random()
                             u.secrets = r < 0.2 and { role = true } or r < 0.35 and { mainTank = true } or nil
                         end
                     end,
                     function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
-                    function() wow.advance(math.random() * 20) end,
+                    function() wow.advance(random.random() * 20) end,
                 }
                 for step = 1, 400 do
                     local where = ("seed %d, step %d"):format(seed, step)
-                    actions[math.random(#actions)]()
+                    actions[random.random(#actions)]()
                     -- What the game shows, read before the press.
                     local state = {}
                     for token, u in pairs(wow.state.units) do
                         if token:find("^party") or token:find("^raid") then
-                            local from
+                            local from, worn = nil, 0
                             for i, id in ipairs(u.auras or {}) do
-                                if id == SALVATION then from = u.auraSources[i] end
+                                if id == SALVATION then from, worn = u.auraSources[i], worn + 1 end
                             end
+                            assert.is_true(worn <= 1, where .. ": " .. u.id .. " wears " .. worn .. " Salvations")
                             state[u.id] = { u = u, inRaid = token:find("^raid") ~= nil, salvationFrom = from }
                         end
                     end

@@ -2,6 +2,7 @@
 -- Battlegrounds: buffing in the preparation phase, then quiet until you
 -- leave or the battleground ends.
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 
 local MOTW, MOTW_1 = 9885, 1126
 local INTELLECT = 10157
@@ -520,7 +521,7 @@ describe("Battlegrounds", function()
             .. "and the end", function()
             local quietSteps, prepCasts, guildLinesWhileQuiet, rounds = 0, 0, 0, 0
             for _, seed in ipairs({ 7, 71, 404, 1999, 2026 }) do
-                math.randomseed(seed)
+                random.seed(seed)
                 boot()
                 -- The test's own record of the battleground, from what it did.
                 local inBG, ended, startedHere, aura, timerEnd = false, false, false, false, nil
@@ -535,15 +536,15 @@ describe("Battlegrounds", function()
                 local everyone = { "Ann-Vale", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
                 local function roster()
                     local names = {}
-                    for _, n in ipairs(everyone) do if math.random() < 0.7 then names[#names + 1] = n end end
+                    for _, n in ipairs(everyone) do if random.random() < 0.7 then names[#names + 1] = n end end
                     return names
                 end
                 local actions = {
                     function()
                         if inBG then return end
-                        local opts = { preparation = math.random() < 0.7, rosterLast = math.random() < 0.5,
-                            auraLate = math.random() < 0.5,
-                            timer = math.random() < 0.5 and math.random(5, 90) or nil }
+                        local opts = { preparation = random.random() < 0.7, rosterLast = random.random() < 0.5,
+                            auraLate = random.random() < 0.5,
+                            timer = random.random() < 0.5 and random.random(5, 90) or nil }
                         wow.enterBattleground(roster(), opts)
                         inBG, ended, startedHere, aura, distrusted = true, false, false, opts.preparation, false
                         timerEnd = opts.timer and (wow.now + opts.timer) or nil
@@ -562,13 +563,13 @@ describe("Battlegrounds", function()
                     end,
                     function()
                         if not wow.state.units.player.dead then return end
-                        wow.resurrect(math.random() < 0.5)
+                        wow.resurrect(random.random() < 0.5)
                         aura = true
                     end,
                     function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
                     function()
                         -- A reload or relog: the timer is forgotten unless it's sent again.
-                        wow.reloadInPlace(math.random() < 0.3)
+                        wow.reloadInPlace(random.random() < 0.3)
                         if inBG then distrusted, timerEnd = true, nil end
                     end,
                     function()
@@ -577,7 +578,7 @@ describe("Battlegrounds", function()
                         wow.fire("GROUP_ROSTER_UPDATE")
                     end,
                     function()
-                        local token = "raid" .. math.random(1, 4)
+                        local token = "raid" .. random.random(1, 4)
                         if wow.state.units[token] then
                             wow.state.units[token].dead = not wow.state.units[token].dead
                             wow.fire("UNIT_HEALTH", token)
@@ -588,20 +589,20 @@ describe("Battlegrounds", function()
                     function() wow.systemMessage("Gus has joined the instance group.") end,
                     scroll,
                     function() if not wow.state.inCombat then wow.press(button) end end,
-                    function() wow.advance(math.random() * 20) end,
-                    function() slash(({ "buffmode", "buffmode on", "buffmode off" })[math.random(3)]) end,
+                    function() wow.advance(random.random() * 20) end,
+                    function() slash(({ "buffmode", "buffmode on", "buffmode off" })[random.random(3)]) end,
                     function()
                         -- The setting's box on the Buff Back tab, as a player clicks it.
                         slash("")
                         wow.run(ns.Options.widgets.tabs.buffBack, "OnClick")
                         local box = ns.Options.widgets.bgPrepBuff
-                        prepBuff = math.random() < 0.7
+                        prepBuff = random.random() < 0.7
                         box:SetChecked(prepBuff)
                         wow.run(box, "OnClick")
                     end,
                     function()
                         if not inBG then return end
-                        wow.endBattleground(math.random(0, 1))
+                        wow.endBattleground(random.random(0, 1))
                         ended = true
                     end,
                     function()
@@ -615,7 +616,7 @@ describe("Battlegrounds", function()
                     local where = ("seed %d, step %d"):format(seed, step)
                     local quietBefore = quietExpected()
                     local sentBefore, emotesBefore, castsBefore = #wow.sent, #wow.emotes, #wow.casts
-                    local action = math.random(#actions)
+                    local action = random.random(#actions)
                     actions[action]()
                     local quietAfter = quietExpected()
                     -- Quiet all through the step: it ended no battleground, and

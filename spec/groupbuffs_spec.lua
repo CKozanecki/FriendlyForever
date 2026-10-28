@@ -1,7 +1,8 @@
--- Spec: #30
+-- Spec: #30, #76
 -- Buff mode buffs group members missing your buffs, one per press, with the
 -- same safety rules as buff back.
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 
 local MOTW, MOTW_1, THORNS_1 = 9885, 1126, 467
 local INTELLECT = 10157
@@ -349,18 +350,18 @@ describe("Buffing your group in buff mode", function()
             local everyone = { "Ann-Vale", "Cid-Rock", "Dot-Fern", "Eve-Moss", "Fay-Reed", "Gus-Hill" }
             local casts = 0
             for _, seed in ipairs({ 5, 30, 77, 300, 2026 }) do
-                math.randomseed(seed)
+                random.seed(seed)
                 boot()
                 local members = {}
                 local function roster()
                     local names = {}
                     for _, n in ipairs(everyone) do
-                        if math.random() < 0.5 then names[#names + 1] = n end
+                        if random.random() < 0.5 then names[#names + 1] = n end
                     end
-                    local kind = ({ "party", "raid", nil })[math.random(3)]
+                    local kind = ({ "party", "raid", nil })[random.random(3)]
                     if kind == "party" then while #names > 4 do table.remove(names) end end
                     wow.setGroup(kind, kind and names or {})
-                    if kind == "raid" and math.random() < 0.5 then
+                    if kind == "raid" and random.random() < 0.5 then
                         wow.addUnit("raid" .. (#names + 1), wow.state.units.player)
                     end
                     local left = members
@@ -384,22 +385,22 @@ describe("Buffing your group in buff mode", function()
                         if token:find("^party") or token:find("^raid") then tokens[#tokens + 1] = token end
                     end
                     table.sort(tokens)
-                    return wow.state.units[tokens[math.random(math.max(#tokens, 1))] or "none"]
+                    return wow.state.units[tokens[random.random(math.max(#tokens, 1))] or "none"]
                 end
                 local actions = {
                     roster,
-                    function() local u = someone(); if u and u.id ~= "Me" then u.dead = math.random() < 0.3 end end,
-                    function() local u = someone(); if u and u.id ~= "Me" then u.pvp = math.random() < 0.3 end end,
-                    function() local u = someone(); if u and u.id ~= "Me" then u.outOfRange = math.random() < 0.3 end end,
-                    function() local u = someone(); if u and u.id ~= "Me" then u.offline = math.random() < 0.2 end end,
+                    function() local u = someone(); if u and u.id ~= "Me" then u.dead = random.random() < 0.3 end end,
+                    function() local u = someone(); if u and u.id ~= "Me" then u.pvp = random.random() < 0.3 end end,
+                    function() local u = someone(); if u and u.id ~= "Me" then u.outOfRange = random.random() < 0.3 end end,
+                    function() local u = someone(); if u and u.id ~= "Me" then u.offline = random.random() < 0.2 end end,
                     function() local u = someone(); if u and u.id ~= "Me" then u.auras = nil end end,
-                    function() wow.state.pvp = math.random() < 0.2 end,
+                    function() wow.state.pvp = random.random() < 0.2 end,
                     function() scroll() end,
-                    function() wow.press(button, math.random() < 0.8 and "LeftButton" or "RightButton") end,
+                    function() wow.press(button, random.random() < 0.8 and "LeftButton" or "RightButton") end,
                     function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
-                    function() slash(math.random() < 0.8 and "buffmode on" or "buffmode off") end,
-                    function() wow.state.castLatency = ({ 0, 0, 0.5 })[math.random(3)] end,
-                    function() wow.advance(math.random() * 8) end,
+                    function() slash(random.random() < 0.8 and "buffmode on" or "buffmode off") end,
+                    function() wow.state.castLatency = ({ 0, 0, 0.5 })[random.random(3)] end,
+                    function() wow.advance(random.random() * 8) end,
                 }
                 for step = 1, 600 do
                     local before = #wow.casts
@@ -411,7 +412,7 @@ describe("Buffing your group in buff mode", function()
                         end
                     end
                     local iAmFlagged = wow.state.pvp
-                    actions[math.random(#actions)]()
+                    actions[random.random(#actions)]()
                     for i = before + 1, #wow.casts do
                         local cast = wow.casts[i]
                         local where = ("seed %d, step %d: %s on %s"):format(seed, step, cast.spell, cast.target)
