@@ -4,3 +4,5 @@ dist/
 .vscode/
 .release/
 RELEASE_NOTES.md
+# Claude Code's local worktrees (side sessions)
+.claude/worktrees/
