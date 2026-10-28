@@ -232,6 +232,10 @@ nameSpell("Blessing of Kings", { 20217 })
 nameSpell("Blessing of Might", { 25291, 19838, 19837, 19836, 19835, 19834, 19740 })
 nameSpell("Blessing of Wisdom", { 25290, 19854, 19853, 19852, 19850, 19742 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
+-- Forever's Revoke (paladins). Its real ID isn't known yet (#50): this one
+-- is the simulation's own, and the addon finds Revoke by name.
+M.REVOKE_ID = 990001
+nameSpell("Revoke", { M.REVOKE_ID })
 
 ------------------------------------------------------------------------
 -- ASSUMPTIONS ABOUT WOW FOREVER, to check in game. Each is a state setting
@@ -262,6 +266,10 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         name, PvP flag or buffs read as secrets (as for a
 --                         stranger in a restricted moment); role and mainTank
 --                         likewise for its group role and Main Tank assignment.
+--   C_Spell.GetSpellInfo(name) answers only for a spell you know, as the
+--                         game's name lookup goes through your spellbook; by
+--                         ID it answers for any spell. Revoke has a made-up
+--                         ID here (M.REVOKE_ID): Forever's is checked at launch.
 --   UnitGroupRolesAssigned and GetPartyAssignment("MAINTANK") both exist and
 --                         answer for group units (unit.role, unit.mainTank;
 --                         Main Tank answers false outside a raid);
@@ -835,6 +843,15 @@ function M.reset()
     -- Spells: state.knownSpells[id] = true for spells in my spellbook.
     _G.C_Spell = {
         GetSpellName = function(id) return M.SPELL_NAMES[id] end,
+        -- By ID: any spell the client has. By name: only a spell you know
+        -- (the game looks names up in your spellbook).
+        GetSpellInfo = function(spell)
+            local id = spell
+            if type(spell) == "string" then id = knownRank(spell) end
+            local name = id and M.SPELL_NAMES[id]
+            if not name then return nil end
+            return { name = name, spellID = id }
+        end,
         GetSpellTexture = function(id) return M.SPELL_NAMES[id] and ("icon:" .. id) or nil end,
         -- Unit fields outOfSpellRange (the spell can't reach them) and
         -- spellRangeUnknown (the game won't say: nil).

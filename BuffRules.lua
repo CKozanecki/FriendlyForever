@@ -167,25 +167,55 @@ end
 
 -- Set an Always or Never list from text: names separated by commas
 -- ("Ann Vale, Cid Rock"). Returns true, or false and why (nothing changes).
-function BuffRules.SetNames(key, list, text)
-    if not ns.BuffData.KEYS[key] or not BuffRules.NAME_LISTS[list] then return false, "unknown list" end
-    if type(text) ~= "string" then return false, "type names separated by commas" end
+-- Names separated by commas, as a list ([name key] = full name) and its
+-- size; or nil and why not.
+local function ParseNames(text)
+    if type(text) ~= "string" then return nil, "type names separated by commas" end
     local names, n = {}, 0
     for part in text:gmatch("[^,]+") do
         local trimmed = part:gsub("^%s+", ""):gsub("%s+$", "")
         if trimmed ~= "" then
             local full = Util.FullName(trimmed)
-            if not full then return false, "'" .. Util.StripChat(trimmed) .. "' isn't a player name" end
+            if not full then return nil, "'" .. Util.StripChat(trimmed) .. "' isn't a player name" end
             local nameKey = ns.Config.IgnoreKey(full)
             if not names[nameKey] then
                 n = n + 1
                 if n > BuffRules.MAX_NAMES then
-                    return false, "at most " .. BuffRules.MAX_NAMES .. " names"
+                    return nil, "at most " .. BuffRules.MAX_NAMES .. " names"
                 end
                 names[nameKey] = full
             end
         end
     end
+    return names, n
+end
+
+-- A list ([name key] = full name) as text, names sorted (ignoring case).
+local function ListText(names)
+    local out = {}
+    for _, full in pairs(type(names) == "table" and names or {}) do out[#out + 1] = Util.DisplayName(full) end
+    table.sort(out, function(a, b) return a:lower() < b:lower() end)
+    return table.concat(out, ", ")
+end
+
+-- A clean copy of a saved list: names that are player names, at most max.
+local function CleanList(value, max)
+    local names, n = {}, 0
+    if type(value) ~= "table" then return names, n end
+    for nameKey, full in pairs(value) do
+        local name = ns.Config.IgnoreEntry(nameKey, full)
+        if name and n < max and not names[ns.Config.IgnoreKey(name)] then
+            names[ns.Config.IgnoreKey(name)] = name
+            n = n + 1
+        end
+    end
+    return names, n
+end
+
+function BuffRules.SetNames(key, list, text)
+    if not ns.BuffData.KEYS[key] or not BuffRules.NAME_LISTS[list] then return false, "unknown list" end
+    local names, n = ParseNames(text)
+    if not names then return false, n end
     -- With every other list as it is, the total stays within its cap.
     local others = 0
     for otherKey, entry in pairs(Saved() or {}) do
@@ -207,11 +237,7 @@ end
 -- An Always or Never list as text for its box, names sorted (ignoring case).
 function BuffRules.NamesText(key, list)
     local entry = Entry(key)
-    local names = entry and type(entry[list]) == "table" and entry[list] or {}
-    local out = {}
-    for _, full in pairs(names) do out[#out + 1] = Util.DisplayName(full) end
-    table.sort(out, function(a, b) return a:lower() < b:lower() end)
-    return table.concat(out, ", ")
+    return ListText(entry and entry[list])
 end
 
 -- A clean copy of saved whoGets (Config's validator): known buff keys only,
@@ -250,4 +276,98 @@ function BuffRules.Clean(value)
         end
     end
     return clean
+end
+
+------------------------------------------------------------------------
+-- Revoke (paladins): taking Salvation off members who shouldn't have it
+------------------------------------------------------------------------
+
+-- Whose Salvation buff mode offers to Revoke, in the order the Buff Back
+-- tab's button steps through them. Saved as buffBack.revokeMode, with the
+-- names for "chosen tanks" and "chosen players" in buffBack.revokeNames.
+--   mine         your own Salvation, on members your Salvation rule leaves
+--                out (the default: another paladin's choices are theirs)
+--   anyTank      anyone's Salvation, on any tank
+--   chosenTanks  anyone's Salvation, on the tanks you name
+--   players      anyone's Salvation, on the players you name, tank or not
+--   off          never
+BuffRules.REVOKE_MODES = { "mine", "anyTank", "chosenTanks", "players", "off" }
+BuffRules.REVOKE_TEXT = {
+    mine = "My Salvation only", anyTank = "Any tank", chosenTanks = "Chosen tanks",
+    players = "Chosen players", off = "Off",
+}
+BuffRules.IS_REVOKE_MODE = {}
+for _, mode in ipairs(BuffRules.REVOKE_MODES) do BuffRules.IS_REVOKE_MODE[mode] = true end
+BuffRules.DEFAULT_REVOKE_MODE = "mine"
+-- The modes that use the names list.
+BuffRules.REVOKE_NAMED = { chosenTanks = true, players = true }
+
+function BuffRules.RevokeMode()
+    local b = ns.db and ns.db.buffBack
+    local mode = type(b) == "table" and b.revokeMode
+    if BuffRules.IS_REVOKE_MODE[mode] then return mode end
+    return BuffRules.DEFAULT_REVOKE_MODE
+end
+
+function BuffRules.NextRevokeMode()
+    local now = BuffRules.RevokeMode()
+    for i, mode in ipairs(BuffRules.REVOKE_MODES) do
+        if mode == now then return BuffRules.REVOKE_MODES[i % #BuffRules.REVOKE_MODES + 1] end
+    end
+    return BuffRules.DEFAULT_REVOKE_MODE
+end
+
+function BuffRules.SetRevokeMode(mode)
+    if not BuffRules.IS_REVOKE_MODE[mode] then return end
+    ns.db.buffBack.revokeMode = mode
+    ns.BuffButton.Refresh()
+end
+
+local function RevokeNames()
+    local b = ns.db and ns.db.buffBack
+    local names = type(b) == "table" and b.revokeNames
+    return type(names) == "table" and names or {}
+end
+
+-- Set the names Revoke covers from text. Returns true, or false and why.
+function BuffRules.SetRevokeNames(text)
+    local names, n = ParseNames(text)
+    if not names then return false, n end
+    ns.db.buffBack.revokeNames = names
+    ns.BuffButton.Refresh()
+    return true
+end
+
+function BuffRules.RevokeNamesText()
+    return ListText(RevokeNames())
+end
+
+-- A clean copy of saved revokeNames (Config's validator).
+function BuffRules.CleanRevokeNames(value)
+    return (CleanList(value, BuffRules.MAX_NAMES))
+end
+
+-- Whether your Revoke setting covers member ({ unit, name, class }) wearing
+-- Salvation: true and why (for the button), false, or nil and why when it
+-- can't be told. mine: whether the Salvation is yours is the caller's to check.
+function BuffRules.RevokeCovers(member)
+    local mode = BuffRules.RevokeMode()
+    if mode == "off" then return false end
+    if mode == "mine" then
+        local salvation = ns.BuffData.ByKey("salvation")
+        local allowed, why = BuffRules.Allows(salvation, member)
+        if allowed == nil then return nil, why end
+        if allowed then return false end
+        return true, why
+    end
+    local named = RevokeNames()[ns.Config.IgnoreKey(member.name)] ~= nil
+    if mode == "players" then
+        if named then return true, "you named them" end
+        return false
+    end
+    if mode == "chosenTanks" and not named then return false end
+    local tank = BuffRules.IsTank(member.unit)
+    if tank == nil then return nil, "can't tell if they're a tank" end
+    if tank then return true, "a tank" end
+    return false
 end

@@ -34,6 +34,7 @@ for i = 1, 4 do PARTY_UNITS[i] = "party" .. i end
 for i = 1, 40 do RAID_UNITS[i] = "raid" .. i end
 
 local justGiven = {} -- [name .. "\1" .. buff key] = GetTime()
+local justRevoked = {} -- [name] = GetTime() your Revoke reached them
 local skipped = {}   -- [name] = GetTime() you right-clicked them
 local heldBack = {}  -- [name] = GetTime() the game refused a cast to them
 
@@ -84,6 +85,28 @@ local function WearsMyFamily(unit, family)
             local mine = Read(UnitIsUnit, source, "player")
             if mine == nil then return nil end
             if mine then return true end
+        end
+    end
+    return false
+end
+
+-- Whether they wear Salvation (a rank, or Mass Salvation): true, false, or nil
+-- when their buffs can't be read; and when they do, whether it's yours
+-- (nil when who cast it can't be read).
+local function WearsSalvation(unit)
+    local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    if not api then return nil end
+    for i = 1, ns.Offers.MAX_AURAS do
+        local ok, aura = pcall(api, unit, i, "HELPFUL")
+        if not ok or Util.IsSecret(aura) then return nil end
+        if aura == nil then return false end
+        local id = aura.spellId
+        if Util.IsSecret(id) then return nil end
+        local buff = ns.BuffData.ForAura(id)
+        if buff and buff.key == ns.BuffData.REVOKE.removes then
+            local source = aura.sourceUnit
+            if source == nil or Util.IsSecret(source) then return true, nil end
+            return true, Read(UnitIsUnit, source, "player")
         end
     end
     return false
@@ -145,6 +168,7 @@ local function Candidates(units)
 end
 
 -- The next group member to buff: { name, buff, spell, group = true }, or
+-- (a paladin) Salvation to take off: { ..., revoke = true, why }; or
 -- nil, why not, and whether that's settled: nothing left that a buff of
 -- yours could fix now or soon (not in a group, or everyone you could buff
 -- has them; nobody dead, out of reach or unreadable). Your first buff
@@ -161,6 +185,33 @@ function GroupBuffs.Next()
     local function Why(member, why)
         firstReason = firstReason or (Util.DisplayName(member.name) .. ": " .. why)
         open = true
+    end
+    -- A paladin's Revoke comes before new buffs: Salvation on someone who
+    -- shouldn't have it (a tank, say) costs threat now.
+    if ns.BuffData.RevokeKnown() then
+        local revoke = ns.BuffData.REVOKE
+        for _, member in ipairs(members) do
+            local wears, mine = false, nil
+            if not Recently(justRevoked[member.name], GroupBuffs.JUST_GIVEN_SECONDS) then
+                wears, mine = WearsSalvation(member.unit)
+            end
+            -- Unreadable buffs are said by the buff pass below.
+            if wears then
+                local covered, label = ns.BuffRules.RevokeCovers(member)
+                if covered == nil then
+                    Why(member, label)
+                elseif covered and ns.BuffRules.RevokeMode() == "mine" and mine ~= true then
+                    if mine == nil then Why(member, "can't tell whose Salvation they have") end
+                elseif covered then
+                    if InSpellRange(revoke.name, member.unit) == false then
+                        Why(member, "out of range to revoke their Salvation")
+                    else
+                        return { name = member.name, buff = revoke, spell = revoke.name, group = true,
+                            revoke = true, why = label }
+                    end
+                end
+            end
+        end
     end
     for _, buff in ipairs(myBuffs) do
         local spell = not buff.selfCast and ns.BuffData.SpellName(buff)
@@ -207,6 +258,12 @@ function GroupBuffs.Next()
         end
     end
     return nil, firstReason or "everyone in your group has your buffs", not open
+end
+
+-- Your Revoke reached them: don't offer it again while their Salvation
+-- still shows.
+function GroupBuffs.NoteRevoked(name)
+    justRevoked[name] = GetTime()
 end
 
 -- Your buff reached them (the game said so).
@@ -258,6 +315,9 @@ end
 function GroupBuffs.Prune()
     for key, at in pairs(justGiven) do
         if not Recently(at, GroupBuffs.JUST_GIVEN_SECONDS) then justGiven[key] = nil end
+    end
+    for name, at in pairs(justRevoked) do
+        if not Recently(at, GroupBuffs.JUST_GIVEN_SECONDS) then justRevoked[name] = nil end
     end
     for name, at in pairs(skipped) do
         if not Recently(at, GroupBuffs.SKIP_SECONDS) then skipped[name] = nil end

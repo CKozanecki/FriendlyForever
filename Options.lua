@@ -9,7 +9,7 @@ local Options = {}
 ns.Options = Options
 
 -- Room for the Buff Back tab's buff list, who gets each, and buff mode rows above its lines.
-Options.CONTENT_HEIGHT = 1820
+Options.CONTENT_HEIGHT = 1880
 
 local panel, category, generalPage, ledgerPage
 local currentType = Config.TYPES[1]
@@ -116,7 +116,11 @@ local function ClearEditFocus()
     local boxes = { widgets.steppers.delay.box, widgets.steppers.repeatCooldown.box,
         widgets.steppers.owedMinutes.box, widgets.unknownName }
     for _, edit in ipairs(widgets.edits) do boxes[#boxes + 1] = edit end
-    if widgets.who then boxes[#boxes + 1] = widgets.who.always; boxes[#boxes + 1] = widgets.who.never end
+    if widgets.who then
+        boxes[#boxes + 1] = widgets.who.always
+        boxes[#boxes + 1] = widgets.who.never
+        boxes[#boxes + 1] = widgets.who.revokeNames
+    end
     for _, box in ipairs(boxes) do
         if box:HasFocus() then box:ClearFocus() end
     end
@@ -307,6 +311,42 @@ local function FillWho(shown, buffs, last)
     return who.neverLabel
 end
 
+-- Below who gets each buff, for classes with Salvation (paladins): whose
+-- Salvation buff mode offers to Revoke. Returns what the next rows anchor to.
+local function FillRevoke(shown, buffs, last)
+    local who = widgets.who
+    local hasSalvation = false
+    for _, buff in ipairs(shown and buffs or {}) do
+        if buff.key == ns.BuffData.REVOKE.removes then hasSalvation = true end
+    end
+    local mode = ns.BuffRules.RevokeMode()
+    local named = hasSalvation and ns.BuffRules.REVOKE_NAMED[mode] == true
+    who.revoke:SetShown(hasSalvation)
+    who.revokeLabel:SetShown(named)
+    who.revokeNames:SetShown(named)
+    if not hasSalvation then return last end
+    who.revoke:ClearAllPoints()
+    who.revoke:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -12)
+    who.revoke:SetText("Revoke Salvation from: " .. ns.BuffRules.REVOKE_TEXT[mode])
+    if not named then return who.revoke end
+    FillBox(who.revokeNames, ns.BuffRules.RevokeNamesText())
+    return who.revokeLabel
+end
+
+function Options.CycleRevoke()
+    ClearEditFocus()
+    ns.BuffRules.SetRevokeMode(ns.BuffRules.NextRevokeMode())
+    Options.Refresh()
+end
+
+-- The Revoke names box lost focus: save it, or say why not.
+function Options.SetRevokeNames(text)
+    if text == ns.BuffRules.RevokeNamesText() then return Options.Refresh() end
+    local ok, why = ns.BuffRules.SetRevokeNames(text)
+    if not ok then ns.Print("Revoke list not saved: " .. why .. ".") end
+    Options.Refresh()
+end
+
 local function FillBuffRows(shown)
     widgets.buffOrderHeader:SetShown(shown)
     local buffs = shown and OrderedClassBuffs() or {}
@@ -335,6 +375,7 @@ local function FillBuffRows(shown)
     -- follow them; on the others the messages follow the buff options.
     local last = buffs[1] and widgets.buffRows[#buffs].up or widgets.buffOrderHeader
     last = FillWho(shown, buffs, last)
+    last = FillRevoke(shown, buffs, last)
     widgets.autoHeader:ClearAllPoints()
     widgets.autoHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -14)
     widgets.msgHeader:ClearAllPoints()
@@ -633,6 +674,14 @@ function Options.Create()
     who.alwaysLabel, who.always = NamesBox("always", "Always:")
     who.neverLabel, who.never = NamesBox("never", "Never:")
     who.neverLabel:SetPoint("TOPLEFT", who.alwaysLabel, "BOTTOMLEFT", 0, -12)
+    -- Paladins: whose Salvation to Revoke (BuffRules.lua). Anchored in FillRevoke.
+    who.revoke = Button(content, "", 300, function() Options.CycleRevoke() end)
+    who.revokeLabel = Label(content, "Names:", "GameFontHighlightSmall")
+    who.revokeLabel:SetWidth(60)
+    who.revokeLabel:SetPoint("TOPLEFT", who.revoke, "BOTTOMLEFT", 0, -10)
+    who.revokeNames = TextBox(content, 380, ns.BuffRules.MAX_LIST_LETTERS)
+    who.revokeNames:SetPoint("LEFT", who.revokeLabel, "RIGHT", 6, 0)
+    who.revokeNames:SetScript("OnEditFocusLost", function(self) Options.SetRevokeNames(self:GetText()) end)
 
     -- Buff Back tab only, below the buff list: when buff mode turns on and
     -- off by itself (BuffModeAuto.lua). Anchored in FillBuffRows.

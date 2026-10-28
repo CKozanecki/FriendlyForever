@@ -67,9 +67,24 @@ BuffData.MANA_CLASSES = {
 -- [key] = true for every buff of every class: what a saved buff order or
 -- never-offer mark may name.
 BuffData.KEYS = {}
+local byKey = {}
 for _, list in pairs(BuffData.CLASSES) do
-    for _, buff in ipairs(list) do BuffData.KEYS[buff.key] = true end
+    for _, buff in ipairs(list) do
+        BuffData.KEYS[buff.key] = true
+        byKey[buff.key] = buff
+    end
 end
+
+function BuffData.ByKey(key)
+    return byKey[key]
+end
+
+-- Revoke (Forever, paladins): takes Salvation off a party or raid member.
+-- Its spell ID isn't known yet (checked at launch, #50), so it's found by
+-- its English name: in the spellbook (C_Spell.GetSpellInfo answers a name
+-- only for a spell you know), and in cast events by the cast spell's name.
+-- On a client in another language it isn't found, and isn't offered.
+BuffData.REVOKE = { key = "revoke", name = "Revoke", ranks = {}, removes = "salvation" }
 
 -- [spell ID] = buff, for every rank, group version and blocker.
 local byAuraId = {}
@@ -89,12 +104,21 @@ function BuffData.ForAura(spellId)
     return byAuraId[spellId]
 end
 
--- The buff one of our casts was, or nil.
+local Read = Util.ReadGameValues
+
+-- The buff one of our casts was (or Revoke), or nil.
 function BuffData.ForCast(spellId)
-    return byRankId[spellId]
+    local buff = byRankId[spellId]
+    if buff then return buff end
+    if spellId ~= nil and Read(C_Spell and C_Spell.GetSpellName, spellId) == BuffData.REVOKE.name then
+        return BuffData.REVOKE
+    end
 end
 
-local Read = Util.ReadGameValues
+function BuffData.RevokeKnown()
+    local info = Read(C_Spell and C_Spell.GetSpellInfo, BuffData.REVOKE.name)
+    return type(info) == "table"
+end
 
 -- The buff's name as the game spells it ("Mark of the Wild"), for /cast and
 -- for showing. Every rank has the same name, so the first one the client knows.
@@ -105,9 +129,10 @@ function BuffData.SpellName(buff)
     end
 end
 
--- The icon of the buff's lowest rank, for the button.
+-- The icon of the buff's lowest rank (or, for Revoke, of its name), for the button.
 function BuffData.Icon(buff)
-    local id = buff.ranks[#buff.ranks]
+    local id = buff.ranks[#buff.ranks] or buff.name
+    if id == nil then return nil end
     return Read(C_Spell and C_Spell.GetSpellTexture, id) or Read(GetSpellTexture, id)
 end
 
