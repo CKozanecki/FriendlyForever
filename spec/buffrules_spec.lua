@@ -195,6 +195,7 @@ describe("Who gets each buff", function()
             wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", class = "WARRIOR", id = "Bob-Stone" })
             wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
             assert.is_truthy(macro():find("/targetexact Bob Stone", 1, true))
+            assert.is_truthy(macro():find("/cast [help,nodead] Mark of the Wild", 1, true), "your first buff, rules aside")
         end)
     end)
 
@@ -228,7 +229,9 @@ describe("Who gets each buff", function()
             assert.is_true(ns.BuffRules.IsTank("raid1"), "Main Tank alone says tank")
             u.role, u.mainTank, u.secrets = "DAMAGER", false, { mainTank = true }
             assert.is_nil(ns.BuffRules.IsTank("raid1"), "a hidden Main Tank could be a tank")
-            u.secrets = nil
+            u.role, u.mainTank, u.secrets = "TANK", false, { role = true }
+            assert.is_nil(ns.BuffRules.IsTank("raid1"), "a hidden role could be a tank, whatever Main Tank says")
+            u.role, u.secrets = "DAMAGER", nil
             assert.is_false(ns.BuffRules.IsTank("raid1"))
             local real = _G.GetPartyAssignment
             _G.GetPartyAssignment = nil
@@ -239,6 +242,22 @@ describe("Who gets each buff", function()
             _G.GetPartyAssignment = function() error("boom") end
             u.secrets = nil
             assert.is_nil(ns.BuffRules.IsTank("raid1"), "an API that throws doesn't count as an answer")
+        end)
+
+        it("a role answer that isn't text can't be read: no Salvation, and the button says why", function()
+            paladin({ [SALVATION] = true })
+            local real = _G.UnitGroupRolesAssigned
+            finally(function() _G.UnitGroupRolesAssigned = real end)
+            group("party", { { "Ann-Vale", "WARRIOR" } })
+            for _, answer in ipairs({ false, 0, {} }) do
+                _G.UnitGroupRolesAssigned = function() return answer end
+                assert.is_nil(ns.BuffRules.IsTank("party1"), tostring(answer))
+            end
+            _G.UnitGroupRolesAssigned = function() return nil end
+            assert.is_nil(ns.BuffRules.IsTank("party1"))
+            ns.BuffButton.Refresh()
+            assert.is_nil(macro())
+            assert.are.equal("Ann Vale: can't tell if they're a tank", button.subtitle:GetText())
         end)
 
         it("an excluded member doesn't stop \"everyone has your buffs\"", function()
@@ -508,7 +527,10 @@ describe("Who gets each buff", function()
                     function()
                         local token = (wow.state.units.raid1 and "raid" or "party") .. math.random(1, 6)
                         local u = wow.state.units[token]
-                        if u then u.secrets = math.random() < 0.5 and { role = true } or nil end
+                        if u then
+                            local r = math.random()
+                            u.secrets = r < 0.3 and { role = true } or r < 0.5 and { mainTank = true } or nil
+                        end
                     end,
                     function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
                     function() ns.db.buffBack.buffOrder = { keys[math.random(3)], keys[math.random(3)] } end,
@@ -528,6 +550,27 @@ describe("Who gets each buff", function()
                         local u = wow.state.units[token]
                         local member = { unit = token, name = cast.target, class = u.class }
                         assert.is_true(ns.BuffRules.Allows(offer.buff, member) == true, where .. ": rule broken")
+                        -- And worked out from what the game shows, not from the rules' own answer.
+                        local entry = (ns.db.buffBack.whoGets or {})[offer.buff.key] or {}
+                        local nameKey = cast.target:lower()
+                        assert.is_nil((entry.never or {})[nameKey], where .. ": given to someone named Never")
+                        if not (entry.always or {})[nameKey] then
+                            local ruleNow = ns.BuffRules.Rule(offer.buff)
+                            local inRaid = token:find("^raid") ~= nil
+                            local hidden = u.secrets or {}
+                            local roleSaysTank = not hidden.role and u.role == "TANK"
+                            local mainTankSays = inRaid and not hidden.mainTank and u.mainTank == true
+                            if ruleNow == "tanks" then
+                                assert.is_true(roleSaysTank or mainTankSays, where .. ": tanks-only to a non-tank")
+                            elseif ruleNow == "notTanks" then
+                                assert.is_false(roleSaysTank or mainTankSays, where .. ": kept-off buff to a tank")
+                                assert.is_nil(hidden.role, where .. ": kept-off buff with the role hidden")
+                                assert.is_true(not inRaid or not hidden.mainTank,
+                                    where .. ": kept-off buff with Main Tank hidden")
+                            elseif ruleNow == "classes" then
+                                assert.is_true((entry.classes or {})[u.class] == true, where .. ": class not chosen")
+                            end
+                        end
                         if offer.buff.family == "blessing" then
                             -- Not over one of your own Blessings (yours are the ones with your source).
                             for i, id in ipairs(u.auras or {}) do

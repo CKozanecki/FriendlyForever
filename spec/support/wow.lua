@@ -263,7 +263,8 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         stranger in a restricted moment); role and mainTank
 --                         likewise for its group role and Main Tank assignment.
 --   UnitGroupRolesAssigned and GetPartyAssignment("MAINTANK") both exist and
---                         answer for group units (unit.role, unit.mainTank);
+--                         answer for group units (unit.role, unit.mainTank;
+--                         Main Tank answers false outside a raid);
 --                         which of them Forever has is checked at launch (#50).
 --   UnitInRange(unit) answers inRange, checkedRange for group units (unit
 --                         fields outOfRange, rangeUnknown); in a raid, setGroup
@@ -872,7 +873,9 @@ function M.reset()
     _G.GetPartyAssignment = function(assignment, unit)
         local u = M.state.units[unit]
         if not u then return false end
-        local is = assignment == "MAINTANK" and u.mainTank == true
+        -- A raid assignment: outside a raid nobody has it.
+        local inRaid = M.state.groupType == "raid" or M.state.raidSized
+        local is = assignment == "MAINTANK" and inRaid and u.mainTank == true
         if M.state.unitsRestricted or (u.secrets and u.secrets.mainTank) then return M.secret(is) end
         return is
     end
