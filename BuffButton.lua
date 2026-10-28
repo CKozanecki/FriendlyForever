@@ -360,11 +360,24 @@ local function OnPreClick(_, mouseButton, isDown)
 end
 
 -- Right-click lets the shown favour go, or skips the shown group member for
--- a while (once, as the button comes up).
+-- a while (once, as the button comes up). Shift+right-click on a group
+-- member's buff puts them on that buff's Never list (BuffRules.lua).
 local function OnPostClick(_, mouseButton, isDown)
     if mouseButton ~= "RightButton" or isDown == true or not armedOffer then return end
-    local name = armedOffer.name
-    if armedOffer.group then
+    -- Kept: changing a Never list re-arms the button.
+    local offer = armedOffer
+    local name = offer.name
+    if offer.group and not offer.revoke and Util.ReadGameValues(IsShiftKeyDown) == true then
+        ns.Options.FinishEdits()
+        local ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name)
+        if ok then
+            ShowResult(string.format("%s won't get %s (Never list, on the Buff Back tab).",
+                Util.DisplayName(name), offer.spell))
+        else
+            ShowResult("Couldn't add " .. Util.DisplayName(name) .. " to the Never list: " .. why .. ".", true)
+        end
+        ns.Options.Refresh()
+    elseif offer.group then
         ns.GroupBuffs.Skip(name)
         ShowResult(string.format("Skipping %s for %d minutes.", Util.DisplayName(name),
             ns.GroupBuffs.SKIP_SECONDS / 60))
