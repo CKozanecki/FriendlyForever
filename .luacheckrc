@@ -49,3 +49,14 @@ files["spec/**"] = {
     max_line_length = false,
     ignore = { "122", "142", "143" }, -- tests set fields on global tables
 }
+
+-- UI scenarios run inside the wow-ui-sim simulator (issue #49), which
+-- provides the test functions and A_Print.
+files["uitests/**"] = {
+    globals = { "_G", "DEFAULT_CHAT_FRAME" },
+    read_globals = {
+        "test", "assertTrue", "assertType", "assertEquals", "assertNotNil",
+        "print", "A_Print", "C_SpellBook", "UIParent",
+        "FriendlyForeverDB", "SLASH_FRIENDLYFOREVER1", "SlashCmdList",
+    },
+}
