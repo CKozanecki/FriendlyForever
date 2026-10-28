@@ -156,6 +156,9 @@ Config.DEFAULTS = {
         -- of any class, so one profile serves all your characters.
         buffOrder = {},
         neverOffer = {},
+        -- Who gets each buff in buff mode (BuffRules.lua): [buff key] =
+        -- { rule, classes, always, never }. Empty: every buff's default.
+        whoGets = {},
         messages = DefaultMessages.buffBack,
     },
 }
@@ -253,6 +256,7 @@ Config.FIELD_VALIDATORS = {
         end
         return clean
     end,
+    whoGets = function(value) return ns.BuffRules.Clean(value) end,
     messages = function(value, default)
         if type(value) ~= "table" then return CopyList(default) end
         local clean = {}

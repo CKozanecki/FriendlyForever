@@ -8,7 +8,8 @@ local Config = ns.Config
 local Options = {}
 ns.Options = Options
 
-Options.CONTENT_HEIGHT = 1680 -- room for the Buff Back tab's buff list and buff mode rows above its lines
+-- Room for the Buff Back tab's buff list, who gets each, and buff mode rows above its lines.
+Options.CONTENT_HEIGHT = 1820
 
 local panel, category, generalPage, ledgerPage
 local currentType = Config.TYPES[1]
@@ -115,6 +116,7 @@ local function ClearEditFocus()
     local boxes = { widgets.steppers.delay.box, widgets.steppers.repeatCooldown.box,
         widgets.steppers.owedMinutes.box, widgets.unknownName }
     for _, edit in ipairs(widgets.edits) do boxes[#boxes + 1] = edit end
+    if widgets.who then boxes[#boxes + 1] = widgets.who.always; boxes[#boxes + 1] = widgets.who.never end
     for _, box in ipairs(boxes) do
         if box:HasFocus() then box:ClearFocus() end
     end
@@ -224,6 +226,77 @@ function Options.SetNeverOffer(key, on)
     Options.Refresh()
 end
 
+-- The buff whose "who gets it" is shown below the buff list: the one whose
+-- Who button you clicked last, else the first in your order.
+local whoKey
+
+local function WhoBuff(buffs)
+    for _, buff in ipairs(buffs) do
+        if buff.key == whoKey then return buff end
+    end
+    return buffs[1]
+end
+
+-- A buff row's Who button: step its rule on, and show its details below.
+function Options.CycleWho(key)
+    local buff
+    for _, b in ipairs(OrderedClassBuffs()) do
+        if b.key == key then buff = b end
+    end
+    if not buff then return end
+    whoKey = key
+    ns.BuffRules.SetRule(key, ns.BuffRules.NextRule(buff))
+    Options.Refresh()
+end
+
+function Options.SetWhoClass(class, on)
+    local buff = WhoBuff(OrderedClassBuffs())
+    if buff then ns.BuffRules.SetClass(buff.key, class, on) end
+    Options.Refresh()
+end
+
+-- An Always or Never box lost focus: save it, or say why not and show what's kept.
+function Options.SetWhoNames(list, text)
+    local buff = WhoBuff(OrderedClassBuffs())
+    if not buff then return end
+    local ok, why = ns.BuffRules.SetNames(buff.key, list, text)
+    if not ok then ns.Print((list == "always" and "Always" or "Never") .. " list not saved: " .. why .. ".") end
+    Options.Refresh()
+end
+
+local function ClassText(class)
+    local names = rawget(_G, "LOCALIZED_CLASS_NAMES_MALE")
+    local name = type(names) == "table" and names[class]
+    if type(name) == "string" then return name end
+    return class:sub(1, 1) .. class:sub(2):lower()
+end
+
+-- Below the buff list: who gets the chosen buff. Returns what the next rows anchor to.
+local function FillWho(shown, buffs, last)
+    local who = widgets.who
+    local buff = shown and WhoBuff(buffs) or nil
+    local rule = buff and ns.BuffRules.Rule(buff)
+    who.header:SetShown(buff ~= nil)
+    who.header:ClearAllPoints()
+    who.header:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -12)
+    local showClasses = rule == "classes"
+    for _, class in ipairs(ns.BuffRules.CLASSES) do
+        who.classes[class]:SetShown(showClasses)
+        if showClasses then who.classes[class]:SetChecked(ns.BuffRules.HasClass(buff, class)) end
+    end
+    for _, part in ipairs({ who.alwaysLabel, who.always, who.neverLabel, who.never }) do part:SetShown(buff ~= nil) end
+    if not buff then return last end
+    local name = ns.BuffData.SpellName(buff) or buff.key
+    who.header:SetText("Who gets " .. name .. " in buff mode: " .. ns.BuffRules.RULE_TEXT[rule]
+        .. "  |cff999999(a buff's Who button changes it)|r")
+    who.alwaysLabel:ClearAllPoints()
+    who.alwaysLabel:SetPoint("TOPLEFT", showClasses and who.classRows[2] or who.header, "BOTTOMLEFT",
+        showClasses and 4 or 0, -10)
+    FillBox(who.always, ns.BuffRules.NamesText(buff.key, "always"))
+    FillBox(who.never, ns.BuffRules.NamesText(buff.key, "never"))
+    return who.neverLabel
+end
+
 local function FillBuffRows(shown)
     widgets.buffOrderHeader:SetShown(shown)
     local buffs = shown and OrderedClassBuffs() or {}
@@ -231,7 +304,7 @@ local function FillBuffRows(shown)
     local never = shown and type(ns.db.buffBack.neverOffer) == "table" and ns.db.buffBack.neverOffer or {}
     for i, row in ipairs(widgets.buffRows) do
         local buff = buffs[i]
-        for _, part in ipairs({ row.name, row.up, row.down, row.never }) do part:SetShown(buff ~= nil) end
+        for _, part in ipairs({ row.name, row.up, row.down, row.never, row.who }) do part:SetShown(buff ~= nil) end
         row.key = buff and buff.key
         if buff then
             local name = ns.BuffData.SpellName(buff) or buff.key
@@ -240,6 +313,7 @@ local function FillBuffRows(shown)
             row.up:SetEnabled(i > 1)
             row.down:SetEnabled(i < #buffs)
             row.never:SetChecked(never[buff.key] == true)
+            row.who:SetText("Who: " .. ns.BuffRules.RULE_TEXT[ns.BuffRules.Rule(buff)])
         end
     end
     if shown and #buffs == 0 then
@@ -250,6 +324,7 @@ local function FillBuffRows(shown)
     -- On this tab the buff mode rows follow the buff list, and the messages
     -- follow them; on the others the messages follow the buff options.
     local last = buffs[1] and widgets.buffRows[#buffs].up or widgets.buffOrderHeader
+    last = FillWho(shown, buffs, last)
     widgets.autoHeader:ClearAllPoints()
     widgets.autoHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -14)
     widgets.msgHeader:ClearAllPoints()
@@ -504,14 +579,45 @@ function Options.Create()
         row.down:SetPoint("LEFT", row.up, "RIGHT", 4, 0)
         row.name = Label(content, "", "GameFontHighlightSmall")
         row.name:SetPoint("LEFT", row.down, "RIGHT", 10, 0)
-        row.name:SetWidth(260)
+        row.name:SetWidth(220)
         row.never = Checkbox(content, "Never offer", function(on)
             if row.key then Options.SetNeverOffer(row.key, on) end
         end)
         row.never:SetPoint("LEFT", row.name, "RIGHT", 10, 0)
+        row.who = Button(content, "", 170, function() if row.key then Options.CycleWho(row.key) end end)
+        row.who:SetPoint("LEFT", row.never.label, "RIGHT", 12, 0)
         widgets.buffRows[i] = row
         above = row.up
     end
+
+    -- Buff Back tab only, below the buff list: who gets the chosen buff in
+    -- buff mode (BuffRules.lua). Anchored in FillWho.
+    local who = { classes = {}, classRows = {} }
+    widgets.who = who
+    who.header = Label(content, "", "GameFontNormalSmall")
+    local prevClass
+    for i, class in ipairs(ns.BuffRules.CLASSES) do
+        local cb = Checkbox(content, ClassText(class), function(on) Options.SetWhoClass(class, on) end)
+        if i == 1 or i == 6 then
+            cb:SetPoint("TOPLEFT", i == 1 and who.header or who.classRows[1], "BOTTOMLEFT", i == 1 and -4 or 0, -2)
+            who.classRows[#who.classRows + 1] = cb
+        else
+            cb:SetPoint("LEFT", prevClass.label, "RIGHT", 12, 0)
+        end
+        who.classes[class] = cb
+        prevClass = cb
+    end
+    local function NamesBox(list, labelText)
+        local label = Label(content, labelText, "GameFontHighlightSmall")
+        label:SetWidth(60)
+        local box = TextBox(content, 380, 2000)
+        box:SetPoint("LEFT", label, "RIGHT", 6, 0)
+        box:SetScript("OnEditFocusLost", function(self) Options.SetWhoNames(list, self:GetText()) end)
+        return label, box
+    end
+    who.alwaysLabel, who.always = NamesBox("always", "Always:")
+    who.neverLabel, who.never = NamesBox("never", "Never:")
+    who.neverLabel:SetPoint("TOPLEFT", who.alwaysLabel, "BOTTOMLEFT", 0, -12)
 
     -- Buff Back tab only, below the buff list: when buff mode turns on and
     -- off by itself (BuffModeAuto.lua). Anchored in FillBuffRows.

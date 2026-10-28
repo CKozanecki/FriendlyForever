@@ -252,7 +252,11 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         the game rejects that key (an error here).
 --   unit.secrets = { name = true, pvp = true, auras = true }: that one unit's
 --                         name, PvP flag or buffs read as secrets (as for a
---                         stranger in a restricted moment).
+--                         stranger in a restricted moment); role and mainTank
+--                         likewise for its group role and Main Tank assignment.
+--   UnitGroupRolesAssigned and GetPartyAssignment("MAINTANK") both exist and
+--                         answer for group units (unit.role, unit.mainTank);
+--                         which of them Forever has is checked at launch (#50).
 --   UnitInRange(unit) answers inRange, checkedRange for group units (unit
 --                         fields outOfRange, rangeUnknown); in a raid, setGroup
 --                         leaves your own raid slot out (the game puts you in
@@ -846,6 +850,23 @@ function M.reset()
         if u.rangeUnknown then return false, false end
         if M.state.unitsRestricted then return M.secret(not u.outOfRange), M.secret(true) end
         return not u.outOfRange, true
+    end
+    -- Group roles: unit.role ("TANK", "HEALER", "DAMAGER"; "NONE" when
+    -- unset) and, in a raid, unit.mainTank (the Main Tank assignment).
+    -- secrets.role / secrets.mainTank make that answer a secret.
+    _G.UnitGroupRolesAssigned = function(unit)
+        local u = M.state.units[unit]
+        if not u then return "NONE" end
+        local role = u.role or "NONE"
+        if M.state.unitsRestricted or (u.secrets and u.secrets.role) then return M.secret(role) end
+        return role
+    end
+    _G.GetPartyAssignment = function(assignment, unit)
+        local u = M.state.units[unit]
+        if not u then return false end
+        local is = assignment == "MAINTANK" and u.mainTank == true
+        if M.state.unitsRestricted or (u.secrets and u.secrets.mainTank) then return M.secret(is) end
+        return is
     end
     _G.UnitIsConnected = restricted(function(unit)
         local u = M.state.units[unit]

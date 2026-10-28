@@ -11,8 +11,9 @@
 --
 -- A paladin keeps one Blessing on each player: a member wearing one of yours
 -- has theirs, and isn't offered another (it would replace it). A member whose name, flag or buffs can't be
--- read is skipped too, and the button says why. Group buffs never say a line
--- and are never thanked.
+-- read is skipped too, and the button says why. Your rules for who gets
+-- each buff (tanks only, chosen classes, named players: BuffRules.lua) apply
+-- here, and only here. Group buffs never say a line and are never thanked.
 local _, ns = ...
 local Util = ns.Util
 local Read = Util.ReadGameValues
@@ -161,10 +162,19 @@ function GroupBuffs.Next()
         firstReason = firstReason or (Util.DisplayName(member.name) .. ": " .. why)
         open = true
     end
+    -- Your rules for who gets the buff (BuffRules.lua). A member they leave
+    -- out is passed over quietly: nothing is owed them. One they can't tell
+    -- about (an unreadable role or class) is said, and isn't settled.
+    local function RulesAllow(buff, member)
+        local allowed, why = ns.BuffRules.Allows(buff, member)
+        if allowed == nil then Why(member, why) end
+        return allowed == true
+    end
     for _, buff in ipairs(myBuffs) do
         local spell = not buff.selfCast and ns.BuffData.SpellName(buff)
         for _, member in ipairs(spell and members or {}) do
-            if not unreadable[member.name] and ns.BuffData.Useful(buff, member.class) then
+            if not unreadable[member.name] and ns.BuffData.Useful(buff, member.class)
+                and RulesAllow(buff, member) then
                 local wears = ns.Offers.Wears(member.unit, buff)
                 local key = member.name .. "\1" .. buff.key
                 if wears == nil then
