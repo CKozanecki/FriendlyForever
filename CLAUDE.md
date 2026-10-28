@@ -45,8 +45,13 @@ Use the PR template too. This file only adds what applies to Claude sessions. Wh
   - [marking the PR ready yourself](CONTRIBUTING.md#ready-for-review), with a comment.
 - **Part of a spec:** say `Refs #<issue>`, list which acceptance criteria the PR covers, and name the parts still to come. Only the PR that completes the spec says `Closes`. #73 and #74 did this for #68.
 - **Stacked work:** never open a PR on another PR's branch. Build on it locally if you need to. Once the first PR merges (as a squash), rebase onto `main` and open the PR from the rebased branch.
-- **Overlapping PRs:** two ready PRs that touch the same file get trial-merged locally. Each description says whether they conflict and what you ran. Whichever merges second gets `main` merged in and conflicts resolved, then `make check`, CI and an updated description. Then announce it ready again.
-- **Another PR merged:** recheck every PR you've marked ready. Bring the branch up to date with `main`, wait for CI and update the description. Fix anything that no longer holds.
+
+## Several sessions at once
+
+- **Your own worktree:** other sessions share the main checkout and switch its branches. Work in a worktree of your own, never switch branches in the shared checkout, and remove your worktree when you're done.
+- **One driver per PR:** only the session driving a PR pushes to its branch, updates its description or announces it ready. Anyone else sends that session a message.
+- **Merge order:** when several PRs are ready, trial-merge every pair locally. Recommend an order to the owner, with the reasons and which pairs conflict. Note what you ran in the descriptions of your own PRs, and send it to the drivers of the others.
+- **After each merge:** a session isn't told when the owner merges, so wait for the owner to say so; don't poll. Then the driver of each ready PR merges `main` into it and resolves any conflicts. Next comes `make check`, and both review loops confirm the merge (see Reviews). Then CI, an updated description, and the PR announced ready again.
 
 ## Reviews
 
