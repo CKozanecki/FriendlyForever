@@ -114,6 +114,25 @@ describe("My Blessings in this raid", function()
             assert.are.same({}, wow.errors)
         end)
 
+        it("another paladin's Kings: you offer your next Blessing; Might and Wisdom chosen: never Kings", function()
+            group("raid", { "Ann-Vale", "Bo-Lake", "Cid-Rock" }, { "MAGE", "ROGUE", "MAGE" })
+            wow.state.units.raid1.auras, wow.state.units.raid1.auraSources = { KINGS }, { "raid9" }
+            assert.are.same({
+                "Bo-Lake Blessing of Kings", "Cid-Rock Blessing of Kings", "Ann-Vale Blessing of Might",
+                "Ann-Vale Blessing of Salvation", "Bo-Lake Blessing of Salvation", "Cid-Rock Blessing of Salvation",
+            }, buffAll(), "Ann wears another paladin's Kings: your next Blessing")
+            for i = 1, 3 do wow.state.units["raid" .. i].auras, wow.state.units["raid" .. i].auraSources = {}, {} end
+            slash("blessings might wisdom")
+            local given = buffAll()
+            for _, cast in ipairs(given) do
+                assert.is_falsy(cast:find("Kings", 1, true), cast)
+            end
+            assert.are.same({
+                "Ann-Vale Blessing of Might", "Bo-Lake Blessing of Might", "Cid-Rock Blessing of Might",
+                "Ann-Vale Blessing of Salvation", "Bo-Lake Blessing of Salvation", "Cid-Rock Blessing of Salvation",
+            }, given)
+        end)
+
         it("passes over a Blessing left to others quietly: it isn't owed", function()
             group("raid", { "Ann-Vale" })
             ns.BuffRules.SetRaidBlessings({ "might" })
