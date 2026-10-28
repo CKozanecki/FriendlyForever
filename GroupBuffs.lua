@@ -215,7 +215,9 @@ function GroupBuffs.Next()
         end
     end
     for _, buff in ipairs(myBuffs) do
-        local spell = not buff.selfCast and ns.BuffData.SpellName(buff)
+        -- A Blessing you've left to another paladin in this raid is passed
+        -- over quietly ("My Blessings in this raid", BuffRules.lua).
+        local spell = not buff.selfCast and ns.BuffRules.CoversInRaid(buff) and ns.BuffData.SpellName(buff)
         for _, member in ipairs(spell and members or {}) do
             -- Your rules for who gets the buff (BuffRules.lua). A member they
             -- leave out is passed over quietly: nothing is owed them.
