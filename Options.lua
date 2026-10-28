@@ -126,6 +126,12 @@ local function ClearEditFocus()
     end
 end
 
+-- Finish any edit in the panel (saving it), before a list it shows is
+-- changed from outside: a box still open would save its old text over it.
+function Options.FinishEdits()
+    if widgets.steppers.delay then ClearEditFocus() end -- once the panel is made
+end
+
 -- Choosing buff mode's key: click the button, then press a key, scroll the
 -- mouse wheel or click a side mouse button (Esc cancels).
 Options.KEY_PROMPT = "Press a key or scroll the wheel (Esc cancels)"

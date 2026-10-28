@@ -368,6 +368,7 @@ local function OnPostClick(_, mouseButton, isDown)
     local offer = armedOffer
     local name = offer.name
     if offer.group and not offer.revoke and Util.ReadGameValues(IsShiftKeyDown) == true then
+        ns.Options.FinishEdits()
         local ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name)
         if ok then
             ShowResult(string.format("%s won't get %s (Never list, on the Buff Back tab).",

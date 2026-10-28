@@ -94,6 +94,7 @@ function handlers.ADDON_LOADED(name)
         -- Forget this raid's Blessings as you leave it, so they can't carry
         -- into the next raid (BuffRules.lua).
         ns.BuffRules.CheckRaid()
+        ns.Options.Refresh() -- the raid Blessing boxes work only in a raid
         ns.Greeter.OnGroupRosterUpdate(...)
     end)
     Register("GUILD_ROSTER_UPDATE", ns.Greeter.OnRosterUpdate)
@@ -433,7 +434,7 @@ end
 local function BlessingsCommand(args)
     local R = ns.BuffRules
     local mine = R.MyBlessings()
-    if #mine == 0 then return ns.Print("blessings: your class has no Blessings.") end
+    if #mine == 0 then return ns.Print("blessings: you don't know any Blessings.") end
     local words = {}
     for word in args:lower():gmatch("%S+") do words[#words + 1] = word end
     if #words > 0 then
