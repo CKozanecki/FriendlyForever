@@ -476,12 +476,16 @@ end
 
 -- A press of a button by a key binding or the mouse: the down half, then the
 -- up half. mouseButton defaults to "LeftButton"; mods = { shift = true, ... }.
+-- The modifiers are held for the press (IsShiftKeyDown and friends say so).
 function M.press(button, mouseButton, mods)
     mouseButton = mouseButton or "LeftButton"
+    local held = M.state.mods
+    if mods then M.state.mods = mods end
     M.hardware = true
     pressHalf(button, mouseButton, true, mods)
     pressHalf(button, mouseButton, false, mods)
     M.hardware = false
+    M.state.mods = held
 end
 
 -- Combat as the game starts and ends it: PLAYER_REGEN_DISABLED fires just

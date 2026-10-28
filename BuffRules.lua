@@ -234,6 +234,15 @@ function BuffRules.SetNames(key, list, text)
     return true
 end
 
+-- Add one player (a full name) to an Always or Never list, within its caps.
+-- Returns true, or false and why.
+function BuffRules.AddName(key, list, fullName)
+    local text = BuffRules.NamesText(key, list)
+    if type(fullName) ~= "string" then return false, "no name" end
+    local display = Util.DisplayName(fullName)
+    return BuffRules.SetNames(key, list, text == "" and display or (text .. ", " .. display))
+end
+
 -- An Always or Never list as text for its box, names sorted (ignoring case).
 function BuffRules.NamesText(key, list)
     local entry = Entry(key)
@@ -370,4 +379,71 @@ function BuffRules.RevokeCovers(member)
     if tank == nil then return nil, "can't tell if they're a tank" end
     if tank then return true, "a tank" end
     return false
+end
+
+------------------------------------------------------------------------
+-- My Blessings in this raid (paladins)
+------------------------------------------------------------------------
+
+-- Which of your Blessings you cover in the raid you're in, so two paladins
+-- don't both give Kings: nil when you haven't chosen (all of them), or
+-- [buff key] = true. Kept for this raid only, never saved: it's forgotten
+-- as soon as you're not in a raid (an unreadable answer counts as not).
+local raidBlessings
+
+local function InRaid()
+    return Util.ReadGameValues(IsInRaid) == true
+end
+
+-- Forget the choice once you're out of the raid. Called before each use.
+function BuffRules.CheckRaid()
+    if raidBlessings and not InRaid() then raidBlessings = nil end
+end
+
+-- The Blessings you know (the "blessing" family), in your class's order.
+function BuffRules.MyBlessings()
+    local out = {}
+    for _, buff in ipairs(ns.BuffData.Mine()) do
+        if buff.family == "blessing" then out[#out + 1] = buff end
+    end
+    return out
+end
+
+-- Whether you cover buff in this raid: every buff that isn't a Blessing,
+-- and every Blessing until you choose.
+function BuffRules.CoversInRaid(buff)
+    BuffRules.CheckRaid()
+    if not raidBlessings or buff.family ~= "blessing" then return true end
+    return raidBlessings[buff.key] == true
+end
+
+-- Choose the Blessings you cover in this raid: keys is a list of your
+-- Blessings' keys, or nil for all of them. Returns true, or false and why.
+function BuffRules.SetRaidBlessings(keys)
+    if not InRaid() then return false, "you're not in a raid" end
+    if keys == nil then
+        raidBlessings = nil
+        ns.BuffButton.Refresh()
+        return true
+    end
+    local mine, chosen, count, all = {}, {}, 0, 0
+    for _, buff in ipairs(BuffRules.MyBlessings()) do
+        mine[buff.key] = true
+        all = all + 1
+    end
+    for _, key in ipairs(keys) do
+        if not mine[key] then return false, "'" .. Util.StripChat(tostring(key)) .. "' isn't one of your Blessings" end
+        if not chosen[key] then count = count + 1 end
+        chosen[key] = true
+    end
+    if count == 0 then return false, "choose at least one Blessing (or all)" end
+    raidBlessings = count < all and chosen or nil
+    ns.BuffButton.Refresh()
+    return true
+end
+
+-- Whether you've narrowed your Blessings for this raid.
+function BuffRules.RaidBlessingsChosen()
+    BuffRules.CheckRaid()
+    return raidBlessings ~= nil
 end
