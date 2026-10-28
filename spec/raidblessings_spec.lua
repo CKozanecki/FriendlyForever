@@ -238,6 +238,16 @@ describe("My Blessings in this raid", function()
             assert.is_true(w.who.raidBlessings[1]:GetChecked(), "and back to all")
         end)
 
+        it("sit below Revoke, above buff mode's rows, and only on the Buff Back tab", function()
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffBack, "OnClick")
+            assert.are.equal(w.who.revoke, select(2, w.who.raidHeader:GetPoint()))
+            assert.are.equal(w.who.raidBlessings[1], select(2, w.autoHeader:GetPoint()))
+            wow.run(w.tabs.buff, "OnClick")
+            assert.is_false(w.who.raidHeader:IsShown())
+            for _, cb in ipairs(w.who.raidBlessings) do assert.is_false(cb:IsShown()) end
+        end)
+
         it("isn't on the Buff Back tab for classes without Blessings", function()
             boot({ class = "DRUID", known = { [MOTW_1] = true, [MOTW] = true } })
             local w = ns.Options.widgets
@@ -368,6 +378,34 @@ describe("My Blessings in this raid", function()
             wow.press(button, "RightButton", { shift = true })
             w.who.never:ClearFocus()
             assert.are.equal("Ann-Vale", ns.db.buffBack.whoGets.kings.never["ann-vale"])
+        end)
+
+        it("an unreadable Shift key is a plain right-click", function()
+            group("party", { "Ann-Vale", "Bo-Lake" })
+            local real = _G.IsShiftKeyDown
+            _G.IsShiftKeyDown = function() error("no") end
+            wow.press(button, "RightButton")
+            assert.are.equal("Skipping Ann Vale for 5 minutes.", button.result:GetText())
+            _G.IsShiftKeyDown = function() return wow.secret(true) end
+            wow.press(button, "RightButton")
+            assert.are.equal("Skipping Bo Lake for 5 minutes.", button.result:GetText())
+            _G.IsShiftKeyDown = real
+            assert.are.equal("", ns.BuffRules.NamesText("kings", "never"))
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("a plain right-click after a Shift one is plain again", function()
+            group("party", { "Ann-Vale", "Bo-Lake" })
+            wow.press(button, "RightButton", { shift = true })
+            wow.press(button, "RightButton")
+            assert.are.equal("Skipping Bo Lake for 5 minutes.", button.result:GetText())
+            assert.are.equal("Ann Vale", ns.BuffRules.NamesText("kings", "never"))
+        end)
+
+        it("AddName refuses what isn't a name, and leaves the list alone", function()
+            assert.are.same({ false, "no name" }, { ns.BuffRules.AddName("kings", "never", nil) })
+            assert.are.same({ false, "no name" }, { ns.BuffRules.AddName("kings", "never", {}) })
+            assert.are.equal("", ns.BuffRules.NamesText("kings", "never"))
         end)
 
         it("plain right-click still skips for 5 minutes, and adds no one", function()
