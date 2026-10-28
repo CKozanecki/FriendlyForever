@@ -362,7 +362,7 @@ local function cast(args)
     local target = M.state.units.target
     if not (target and not target.hostile) then target = M.state.units.player end
     local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
-    local redirected = elsewhere ~= nil and elsewhere ~= target
+    local redirected = elsewhere ~= nil and elsewhere.id ~= target.id -- another player, not another token
     if elsewhere then target = elsewhere end
     local failure = M.state.castFailures[target.id]
     castCount = castCount + 1

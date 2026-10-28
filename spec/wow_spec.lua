@@ -51,6 +51,15 @@ describe("The simulated client", function()
             assert.are.same({}, wow.flaggedElsewhere)
         end)
 
+        it("counts a cast as aimed when state.castLandsOn names another token for the same player", function()
+            wow.addUnit("nameplate7", { name = "Dot", surname = "Stone", class = "MAGE", id = "Dot-Stone", pvp = true })
+            wow.state.castLandsOn = "nameplate7"
+            wow.runMacro("/targetexact Dot Stone\n/cast [help,nodead] Mark of the Wild")
+            assert.are.equal("Dot-Stone", wow.casts[1].target)
+            assert.are.same({ "Dot-Stone" }, wow.flaggedBy, "the player the macro aimed at")
+            assert.are.same({}, wow.flaggedElsewhere)
+        end)
+
         it("flags nothing when the redirected cast lands on someone unflagged", function()
             wow.state.castLandsOn = "nameplate5"
             wow.runMacro("/targetexact Dot Stone\n/cast [help,nodead] Mark of the Wild")
