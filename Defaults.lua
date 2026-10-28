@@ -3,9 +3,9 @@
 -- later). Config.DEFAULTS points each type's messages at these lists; the
 -- other settings and their defaults stay in Config.lua.
 --
--- DefaultMessages: the fantasy lines (1.7.0 on), using the flavour
--- placeholders from Flavour.lua. CasualMessages: the 1.5.0-1.6.x defaults,
--- kept word for word: anyone can load them again, and the 1.7.0 migration
+-- DefaultMessages: the fantasy lines (0.8.0 on), using the flavour
+-- placeholders from Flavour.lua. CasualMessages: the 0.5.0-0.6.x defaults,
+-- kept word for word: anyone can load them again, and the 0.8.0 migration
 -- recognises them in saved files.
 local _, ns = ...
 
@@ -253,7 +253,7 @@ DefaultMessages.buffBack = {
     "The {buff} is yours, {name}. {blessing}",
 }
 
--- The casual set: the defaults from 1.5.0 to 1.6.x, unchanged.
+-- The casual set: the defaults from 0.5.0 to 0.6.x, unchanged.
 
 CasualMessages.guildLogin = {
     "{name} has logged in. Quick, everyone look busy.",
@@ -453,7 +453,7 @@ CasualMessages.partyHelloAgain = {
     "Hey, I'm back! Thanks again for the invite.",
 }
 
--- New in 1.7.0, so not from 1.6, but a plainer set for the Load casual lines button.
+-- New in 0.8.0, so not from 0.6, but a plainer set for the Load casual lines button.
 CasualMessages.buffBack = {
     "Here's {buff} for you, {name}!",
     "Thanks, {name}! {buff} back at you.",

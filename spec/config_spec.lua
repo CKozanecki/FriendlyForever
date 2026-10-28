@@ -1,3 +1,4 @@
+-- Spec: #80
 local wow = require("spec.support.wow")
 
 describe("Config", function()
@@ -52,7 +53,7 @@ describe("Config", function()
         end
     end)
 
-    it("lowers 1.4.0's 180s Party Hello cooldown, but keeps a custom one", function()
+    it("lowers 0.4.0's 180s Party Hello cooldown, but keeps a custom one", function()
         local db = Config.Load({ schemaVersion = 3, partyHello = { repeatCooldown = 180 } })
         assert.are.equal(30, db.partyHello.repeatCooldown)
         db = Config.Load({ schemaVersion = 3, partyHello = { repeatCooldown = 90 } })
@@ -108,7 +109,7 @@ describe("Config", function()
         assert.are.equal("", db.guildLogin.messages[2], "missing lines become blank, not defaults")
     end)
 
-    it("keeps a 1.4.2 list of 10 (edits included) and adds the 20 new default lines", function()
+    it("keeps a 0.4.2 list of 10 (edits included) and adds the 20 new default lines", function()
         local mine = {}
         for i = 1, 10 do mine[i] = "my line " .. i .. ", {name}" end
         local db = Config.Load({ schemaVersion = 4, guildLogin = { messages = mine } })
@@ -126,7 +127,7 @@ describe("Config", function()
         assert.are.equal("", db.guildLogin.messages[4])
     end)
 
-    it("upgrades a 1.4.2 file through 1.5.0's lines to the 1.7.0 ones, keeping edits", function()
+    it("upgrades a 0.4.2 file through 0.5.0's lines to the 0.8.0 ones, keeping edits", function()
         local saved = { "Welcome back, {name}!", "my own line, {name}" }
         for i = 3, 10 do saved[i] = "" end
         local db = Config.Load({ schemaVersion = 4, guildLogin = { messages = saved },
@@ -140,7 +141,7 @@ describe("Config", function()
         assert.are.equal(fantasy.buff[11], db.buff.messages[11])
     end)
 
-    it("migration 5 still gives 1.5.0's exact lines (the casual set), whatever DEFAULTS holds", function()
+    it("migration 5 still gives 0.5.0's exact lines (the casual set), whatever DEFAULTS holds", function()
         local casual = wow.load().CasualMessages
         assert.are.equal("{name} has logged in. Quick, everyone look busy.", casual.guildLogin[1])
         assert.are.equal("Ah, {name}. Right on time. Probably.", casual.guildLogin[11])
@@ -148,7 +149,7 @@ describe("Config", function()
         assert.are.equal("Thanks so much for the {buff}, {name}!", casual.buff[11])
     end)
 
-    it("swaps untouched 1.6 default lines for the 1.7.0 ones, keeping edits, blanks and moved lines", function()
+    it("swaps untouched 0.6 default lines for the 0.8.0 ones, keeping edits, blanks and moved lines", function()
         local ns = wow.load()
         local casual, fantasy = ns.CasualMessages, ns.DefaultMessages
         local saved = {}
@@ -166,7 +167,7 @@ describe("Config", function()
         assert.are.same(fantasy.partyHello, db.partyHello.messages)
     end)
 
-    it("leaves a 1.7.0 file's lines alone, even ones matching the casual set", function()
+    it("leaves a 0.8.0 file's lines alone, even ones matching the casual set", function()
         local ns = wow.load()
         local db = Config.Load({ schemaVersion = 6, guildLogin = { messages = ns.CasualMessages.guildLogin } })
         assert.are.same(ns.CasualMessages.guildLogin, db.guildLogin.messages)
@@ -213,7 +214,7 @@ describe("Config", function()
         assert.are.equal(255, #db.buff.messages[1])
     end)
 
-    it("migrates the 1.0 buff cooldown to repeatCooldown", function()
+    it("migrates the 0.0 buff cooldown to repeatCooldown", function()
         local db = Config.Load({ buff = { cooldown = 90 } })
         assert.are.equal(90, db.buff.repeatCooldown)
         assert.is_nil(db.buff.cooldown)

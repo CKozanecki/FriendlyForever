@@ -815,7 +815,7 @@ function Options.Create()
     end
     widgets.loadFantasy = Button(content, "Load fantasy lines", 150, function() LoadLines(ns.DefaultMessages) end)
     widgets.loadFantasy:SetPoint("TOPLEFT", widgets.preview, "BOTTOMLEFT", 0, -8)
-    widgets.loadCasual = Button(content, "Load casual lines (1.6)", 170, function() LoadLines(ns.CasualMessages) end)
+    widgets.loadCasual = Button(content, "Load casual lines (0.6)", 170, function() LoadLines(ns.CasualMessages) end)
     widgets.loadCasual:SetPoint("LEFT", widgets.loadFantasy, "RIGHT", 10, 0)
 
     local flavour = Label(content, "Flavour: {greeting} {thanks} {blessing} {cheer} change with your race, "

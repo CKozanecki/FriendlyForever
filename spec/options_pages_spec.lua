@@ -1,5 +1,5 @@
--- Spec: #58
--- The options added with 1.7.0: thank style, loading a line set, and the
+-- Spec: #58, #80
+-- The options added with 0.8.0: thank style, loading a line set, and the
 -- General and Favour Ledger pages.
 local wow = require("spec.support.wow")
 

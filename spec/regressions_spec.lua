@@ -1,4 +1,5 @@
--- Regression tests for problems found in review of the 1.7.0 work.
+-- Spec: #80
+-- Regression tests for problems found in review of the 0.8.0 work.
 local wow = require("spec.support.wow")
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
