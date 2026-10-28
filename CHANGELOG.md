@@ -3,7 +3,7 @@
 ## 0.8.0
 
 - This version adds files. After updating, restart the game; /reload isn't enough. (#27, #52)
-- Version numbers now count up from 0: this is 0.8.0, the first file on CurseForge, and 1.0.0 will be the launch. Earlier versions are renumbered in this list (1.6.0 is now 0.6.0), and the options button that loads the old default lines now reads **Load casual lines (0.6)**. (#80)
+- Version numbers now count up from 0: this is 0.8.0, the first file on CurseForge, and 1.0.0 will be the launch. The options button that loads the old default lines now reads **Load casual lines (0.6)**. (#80)
 - **Buff back:** when someone outside your group buffs you, a button offers your buff back. Press it, or its key in Key Bindings > AddOns, to cast it on them; your own target comes back afterwards. It picks a buff they don't already have and can use, waits while they're dead, and won't flag you for PvP: it reads their flag as you press, so it's offered only while the game shows them (friendly nameplates help). Right-click lets a favour go. `/friendly move` moves the button and `/friendly buffback` shows what it holds. Untested in WoW Forever until launch. (#27)
 - Settings damaged while you play (by another addon or a bad `/run`) are repaired as soon as they cause an error, not at the next reload. (#27)
 - New **Buff Back** tab: offer on or off, how long favours are offered, and an optional line to say once your buff lands (30 editable lines, off by default). (#27, #57)

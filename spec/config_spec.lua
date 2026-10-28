@@ -214,7 +214,7 @@ describe("Config", function()
         assert.are.equal(255, #db.buff.messages[1])
     end)
 
-    it("migrates the 1.0 buff cooldown to repeatCooldown", function()
+    it("migrates the 0.0 buff cooldown to repeatCooldown", function()
         local db = Config.Load({ buff = { cooldown = 90 } })
         assert.are.equal(90, db.buff.repeatCooldown)
         assert.is_nil(db.buff.cooldown)

@@ -64,7 +64,7 @@ CI also builds the zip with the BigWigs packager that releases use, and fails if
 
 ## Releasing (maintainer)
 
-Versions below 1.0.0 are pre-launch: 0.8.0 is the first file on CurseForge and 1.0.0 is the launch. The packager marks a file as alpha or beta only when its tag contains that word, and the Release workflow accepts only a tag that is exactly `v` plus the TOC version. So a tag such as `v0.9.0` uploads as a normal release; for a beta, put the word in the TOC version too (`## Version: 0.9.0-beta1`, tag `v0.9.0-beta1`).
+Versions below 1.0.0 are pre-launch: 0.8.0 is the first file on CurseForge and 1.0.0 is the launch. A tag uploads as a normal release; the packager marks a file alpha or beta only when its tag contains that word, and the Release workflow accepts only a tag that is exactly `v` plus the TOC version. No beta route is set up yet.
 
 Pull requests between releases add their `CHANGELOG.md` notes under a `### Unreleased` heading at the top; the release PR renames it to `## x.y.z`.
 
