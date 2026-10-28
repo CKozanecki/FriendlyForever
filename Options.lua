@@ -9,7 +9,7 @@ local Options = {}
 ns.Options = Options
 
 -- Room for the Buff Back tab's buff list, who gets each, and buff mode rows above its lines.
-Options.CONTENT_HEIGHT = 1880
+Options.CONTENT_HEIGHT = 1940
 
 local panel, category, generalPage, ledgerPage
 local currentType = Config.TYPES[1]
@@ -124,6 +124,12 @@ local function ClearEditFocus()
     for _, box in ipairs(boxes) do
         if box:HasFocus() then box:ClearFocus() end
     end
+end
+
+-- Finish any edit in the panel (saving it), before a list it shows is
+-- changed from outside: a box still open would save its old text over it.
+function Options.FinishEdits()
+    if widgets.steppers.delay then ClearEditFocus() end -- once the panel is made
 end
 
 -- Choosing buff mode's key: click the button, then press a key, scroll the
@@ -333,6 +339,42 @@ local function FillRevoke(shown, buffs, last)
     return who.revokeLabel
 end
 
+-- Below Revoke, for classes with Blessings: which you give in this raid.
+-- Not saved (BuffRules.lua); the tick boxes only work in a raid.
+local function FillRaidBlessings(shown, last)
+    local who = widgets.who
+    local mine = shown and ns.BuffRules.MyBlessings() or {}
+    local inRaid = ns.Util.ReadGameValues(IsInRaid) == true
+    who.raidHeader:SetShown(#mine > 0)
+    for i, cb in ipairs(who.raidBlessings) do
+        local buff = mine[i]
+        cb:SetShown(buff ~= nil)
+        cb.key = buff and buff.key
+        if buff then
+            cb.label:SetText(ns.BuffData.SpellName(buff) or buff.key)
+            cb:SetChecked(ns.BuffRules.CoversInRaid(buff))
+            cb:SetEnabled(inRaid)
+        end
+    end
+    if #mine == 0 then return last end
+    who.raidHeader:ClearAllPoints()
+    who.raidHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -12)
+    who.raidHeader:SetText("Blessings I give in this raid:" .. (inRaid and "  |cff999999(until you leave it)|r"
+        or "  |cff999999(join a raid to choose)|r"))
+    return who.raidBlessings[1]
+end
+
+-- A raid Blessing tick box was clicked: cover the ticked ones.
+function Options.SetRaidBlessing()
+    local keys = {}
+    for _, cb in ipairs(widgets.who.raidBlessings) do
+        if cb:IsShown() and cb.key and cb:GetChecked() then keys[#keys + 1] = cb.key end
+    end
+    local ok, why = ns.BuffRules.SetRaidBlessings(keys)
+    if not ok then ns.Print("Blessings for this raid not changed: " .. why .. ".") end
+    Options.Refresh()
+end
+
 function Options.CycleRevoke()
     ClearEditFocus()
     ns.BuffRules.SetRevokeMode(ns.BuffRules.NextRevokeMode())
@@ -376,6 +418,7 @@ local function FillBuffRows(shown)
     local last = buffs[1] and widgets.buffRows[#buffs].up or widgets.buffOrderHeader
     last = FillWho(shown, buffs, last)
     last = FillRevoke(shown, buffs, last)
+    last = FillRaidBlessings(shown, last)
     widgets.autoHeader:ClearAllPoints()
     widgets.autoHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -14)
     widgets.msgHeader:ClearAllPoints()
@@ -682,6 +725,24 @@ function Options.Create()
     who.revokeNames = TextBox(content, 380, ns.BuffRules.MAX_LIST_LETTERS)
     who.revokeNames:SetPoint("LEFT", who.revokeLabel, "RIGHT", 6, 0)
     who.revokeNames:SetScript("OnEditFocusLost", function(self) Options.SetRevokeNames(self:GetText()) end)
+    -- Paladins: the Blessings given in this raid. Anchored in FillRaidBlessings.
+    who.raidHeader = Label(content, "", "GameFontNormalSmall")
+    who.raidBlessings = {}
+    local mostBlessings = 0
+    for _, list in pairs(ns.BuffData.CLASSES) do
+        local n = 0
+        for _, buff in ipairs(list) do if buff.family == "blessing" then n = n + 1 end end
+        mostBlessings = math.max(mostBlessings, n)
+    end
+    for i = 1, mostBlessings do
+        local cb = Checkbox(content, "", function() Options.SetRaidBlessing() end)
+        if i == 1 then
+            cb:SetPoint("TOPLEFT", who.raidHeader, "BOTTOMLEFT", -4, -2)
+        else
+            cb:SetPoint("LEFT", who.raidBlessings[i - 1].label, "RIGHT", 12, 0)
+        end
+        who.raidBlessings[i] = cb
+    end
 
     -- Buff Back tab only, below the buff list: when buff mode turns on and
     -- off by itself (BuffModeAuto.lua). Anchored in FillBuffRows.

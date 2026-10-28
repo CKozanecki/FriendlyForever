@@ -69,6 +69,8 @@ end
 
 -- Whether they wear a buff of this family that you cast: true, false, or nil
 -- when the game won't say (their buffs, or who cast one, can't be read).
+-- A Blessing of yours that you've since left to others in this raid doesn't
+-- count, so the one you switched to replaces it.
 local function WearsMyFamily(unit, family)
     local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
     if not api then return nil end
@@ -79,7 +81,7 @@ local function WearsMyFamily(unit, family)
         local id = aura.spellId
         if Util.IsSecret(id) then return nil end
         local buff = ns.BuffData.ForAura(id)
-        if buff and buff.family == family then
+        if buff and buff.family == family and ns.BuffRules.CoversInRaid(buff) then
             local source = aura.sourceUnit
             if source == nil or Util.IsSecret(source) then return nil end
             local mine = Read(UnitIsUnit, source, "player")
@@ -215,7 +217,9 @@ function GroupBuffs.Next()
         end
     end
     for _, buff in ipairs(myBuffs) do
-        local spell = not buff.selfCast and ns.BuffData.SpellName(buff)
+        -- A Blessing you've left to another paladin in this raid is passed
+        -- over quietly ("My Blessings in this raid", BuffRules.lua).
+        local spell = not buff.selfCast and ns.BuffRules.CoversInRaid(buff) and ns.BuffData.SpellName(buff)
         for _, member in ipairs(spell and members or {}) do
             -- Your rules for who gets the buff (BuffRules.lua). A member they
             -- leave out is passed over quietly: nothing is owed them.
