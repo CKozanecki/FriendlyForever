@@ -31,9 +31,14 @@ BuffRules.CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN
 BuffRules.IS_CLASS = {}
 for _, class in ipairs(BuffRules.CLASSES) do BuffRules.IS_CLASS[class] = true end
 
--- Names kept in each Always or Never list, at most.
+-- Names kept in each Always or Never list, and in all of them together, at
+-- most (the total keeps a settings line within what import reads).
 BuffRules.MAX_NAMES = 100
+BuffRules.MAX_TOTAL_NAMES = 500
 BuffRules.NAME_LISTS = { always = true, never = true }
+-- A list's box holds a full list of the longest names (two 48-letter parts,
+-- a space, and ", " between names).
+BuffRules.MAX_LIST_LETTERS = BuffRules.MAX_NAMES * (48 * 2 + 1 + 2)
 
 local function Saved()
     local b = ns.db and ns.db.buffBack
@@ -81,14 +86,20 @@ local function Answer(fn, ...)
 end
 
 -- Whether the game says unit is a tank: true, false, or nil when it can't
--- tell. Either answer saying tank is enough; "not a tank" needs every
--- answer the client has to be readable (a secret Main Tank assignment could
--- hide a tank whose group role says damage).
+-- tell. Either answer saying tank is enough. "Not a tank" needs every
+-- answer that applies to be readable: the group role always, and in a raid
+-- the Main Tank assignment too (a secret one could hide a tank whose role
+-- says damage). Outside a raid there's no Main Tank, so its "no" says
+-- nothing: a client without group roles can't tell a party's tank.
 function BuffRules.IsTank(unit)
     local role, roleRead = Answer(UnitGroupRolesAssigned, unit)
     roleRead = roleRead and type(role) == "string"
     local mainTank, mainTankRead = Answer(GetPartyAssignment, "MAINTANK", unit)
     if (roleRead and role == "TANK") or (mainTankRead and mainTank and mainTank ~= 0) then return true end
+    if Util.ReadGameValues(IsInRaid) ~= true then
+        if roleRead then return false end
+        return nil
+    end
     local roleSays = roleRead or UnitGroupRolesAssigned == nil
     local mainTankSays = mainTankRead or GetPartyAssignment == nil
     if roleSays and mainTankSays and (roleRead or mainTankRead) then return false end
@@ -175,6 +186,19 @@ function BuffRules.SetNames(key, list, text)
             end
         end
     end
+    -- With every other list as it is, the total stays within its cap.
+    local others = 0
+    for otherKey, entry in pairs(Saved() or {}) do
+        for otherList in pairs(BuffRules.NAME_LISTS) do
+            if type(entry) == "table" and type(entry[otherList]) == "table"
+                and not (otherKey == key and otherList == list) then
+                for _ in pairs(entry[otherList]) do others = others + 1 end
+            end
+        end
+    end
+    if others + n > BuffRules.MAX_TOTAL_NAMES then
+        return false, "at most " .. BuffRules.MAX_TOTAL_NAMES .. " names across all your buffs"
+    end
     OwnEntry(key)[list] = names
     ns.BuffButton.Refresh()
     return true
@@ -192,10 +216,12 @@ end
 
 -- A clean copy of saved whoGets (Config's validator): known buff keys only,
 -- known rules (a damaged one is dropped, so the buff's default applies),
--- known classes, and names that are player names, each list capped.
+-- known classes, and names that are player names, each list and the total
+-- capped.
 function BuffRules.Clean(value)
     local clean = {}
     if type(value) ~= "table" then return clean end
+    local total = 0 -- names kept across every list (MAX_TOTAL_NAMES)
     for key, entry in pairs(value) do
         if type(key) == "string" and ns.BuffData.KEYS[key] and type(entry) == "table" then
             local out = {}
@@ -211,9 +237,10 @@ function BuffRules.Clean(value)
                     local names, n = {}, 0
                     for nameKey, full in pairs(entry[list]) do
                         local name = ns.Config.IgnoreEntry(nameKey, full)
-                        if name and n < BuffRules.MAX_NAMES and not names[ns.Config.IgnoreKey(name)] then
+                        if name and n < BuffRules.MAX_NAMES and total < BuffRules.MAX_TOTAL_NAMES
+                            and not names[ns.Config.IgnoreKey(name)] then
                             names[ns.Config.IgnoreKey(name)] = name
-                            n = n + 1
+                            n, total = n + 1, total + 1
                         end
                     end
                     out[list] = names

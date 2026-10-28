@@ -171,8 +171,9 @@ describe("Who gets each buff", function()
             w.who.classes.WARRIOR:SetChecked(true)
             wow.run(w.who.classes.WARRIOR, "OnClick")
             assert.is_true(ns.db.buffBack.whoGets.thorns.classes.WARRIOR)
+            w.who.never:SetFocus()
             w.who.never:SetText("Ann Vale")
-            wow.run(w.who.never, "OnEditFocusLost")
+            w.who.never:ClearFocus()
             assert.are.equal("Ann-Vale", ns.db.buffBack.whoGets.thorns.never["ann-vale"])
             wow.run(thorns.who, "OnClick")
             assert.are.equal("Who: Everyone", thorns.who:GetText(), "round again")
@@ -284,14 +285,132 @@ describe("Who gets each buff", function()
         it("the options box says why a list wasn't saved", function()
             local w = ns.Options.widgets
             wow.run(w.tabs.buffBack, "OnClick")
+            w.who.always:SetFocus()
             w.who.always:SetText("not a name!")
-            wow.run(w.who.always, "OnEditFocusLost")
+            w.who.always:ClearFocus()
             local said = false
             for _, line in ipairs(wow.printed) do
                 if line:find("Always list not saved", 1, true) then said = true end
             end
             assert.is_true(said)
             assert.are.equal("", w.who.always:GetText(), "shows what's kept")
+        end)
+
+        it("saves a name box to the buff it was typed for, even if another buff is chosen meanwhile", function()
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffBack, "OnClick")
+            w.who.always:SetFocus() -- the boxes show Mark of the Wild, the first buff
+            w.who.always:SetText("Ann Vale")
+            wow.run(w.buffRows[2].who, "OnClick") -- Thorns' Who button, mid-edit
+            assert.are.equal("Ann Vale", ns.BuffRules.NamesText("motw", "always"))
+            assert.are.equal("", ns.BuffRules.NamesText("thorns", "always"))
+            assert.are.equal("", w.who.always:GetText(), "now showing Thorns' list")
+            -- The same when moving a buff changes which is first.
+            boot()
+            w = ns.Options.widgets
+            wow.run(w.tabs.buffBack, "OnClick")
+            w.who.never:SetFocus()
+            w.who.never:SetText("Cid Rock")
+            wow.run(w.buffRows[2].up, "OnClick") -- Thorns moves above Mark of the Wild
+            assert.are.equal("Cid Rock", ns.BuffRules.NamesText("motw", "never"))
+            assert.are.equal("", ns.BuffRules.NamesText("thorns", "never"))
+            -- And when the order changes from outside the panel (a profile, say).
+            boot()
+            w = ns.Options.widgets
+            wow.run(w.tabs.buffBack, "OnClick")
+            w.who.always:SetFocus()
+            w.who.always:SetText("Dot Fern")
+            ns.db.buffBack.buffOrder = { "thorns", "motw" }
+            ns.Options.Refresh()
+            w.who.always:ClearFocus()
+            assert.are.equal("Dot Fern", ns.BuffRules.NamesText("motw", "always"))
+            assert.are.equal("", ns.BuffRules.NamesText("thorns", "always"))
+        end)
+
+        it("leaves a list alone when its box is only clicked in and out, and holds a full list of long names", function()
+            local long = ("Abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuv"):sub(1, 48)
+            local names = {}
+            for i = 1, ns.BuffRules.MAX_NAMES do
+                names[i] = long .. "-" .. long:sub(1, 40) .. string.char(97 + i % 26) .. string.char(97 + math.floor(i / 26))
+            end
+            assert.is_true(ns.BuffRules.SetNames("motw", "always", table.concat(names, ",")))
+            local before = ns.BuffRules.NamesText("motw", "always")
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffBack, "OnClick")
+            assert.are.equal(before, w.who.always:GetText(), "the whole list fits the box")
+            local saves = 0
+            local real = ns.BuffRules.SetNames
+            ns.BuffRules.SetNames = function(...) saves = saves + 1; return real(...) end
+            w.who.always:SetFocus()
+            w.who.always:ClearFocus()
+            ns.BuffRules.SetNames = real
+            assert.are.equal(0, saves, "unchanged: not saved again")
+            assert.are.equal(before, ns.BuffRules.NamesText("motw", "always"))
+        end)
+
+        it("keeps every list together within a total, so a settings line can always be read back", function()
+            local function names(from, count)
+                local out = {}
+                for i = from, from + count - 1 do
+                    out[#out + 1] = "Na" .. string.char(97 + i % 26) .. string.char(97 + math.floor(i / 26) % 26)
+                        .. string.char(97 + math.floor(i / 676)) .. "-Stone"
+                end
+                return table.concat(out, ",")
+            end
+            local keys = { "motw", "thorns", "kings", "might", "wisdom" }
+            local start = 0
+            for _, key in ipairs(keys) do
+                assert.is_true(ns.BuffRules.SetNames(key, "always", names(start, 100)), key)
+                start = start + 100
+            end
+            local ok, why = ns.BuffRules.SetNames("light", "never", names(start, 1))
+            assert.is_false(ok)
+            assert.are.equal("at most " .. ns.BuffRules.MAX_TOTAL_NAMES .. " names across all your buffs", why)
+            assert.is_true(ns.BuffRules.SetNames("motw", "always", names(0, 99)), "replacing a list counts it once")
+            -- A saved file holding more is cut to the total on load.
+            local who = ns.db.buffBack.whoGets
+            who.light = { never = {} }
+            for i = 1, 50 do
+                local full = "Zz" .. string.char(97 + i % 26) .. string.char(97 + math.floor(i / 26)) .. "-Stone"
+                who.light.never[full:lower()] = full
+            end
+            local text = assert(ns.Profiles.Export())
+            assert.is_table(ns.Serialize.Decode(text), "an export can always be read back")
+            local kept = 0
+            for _, entry in pairs(ns.BuffRules.Clean(who)) do
+                for list in pairs(ns.BuffRules.NAME_LISTS) do
+                    for _ in pairs(entry[list] or {}) do kept = kept + 1 end
+                end
+            end
+            assert.are.equal(ns.BuffRules.MAX_TOTAL_NAMES, kept)
+        end)
+
+        it("can't tell a party's tank without group roles: Main Tank is raid-only", function()
+            paladin({ [SALVATION] = true })
+            local real = _G.UnitGroupRolesAssigned
+            _G.UnitGroupRolesAssigned = nil
+            finally(function() _G.UnitGroupRolesAssigned = real end)
+            group("party", { { "Ann-Vale", "WARRIOR" } })
+            assert.is_nil(ns.BuffRules.IsTank("party1"))
+            assert.is_nil(macro(), "no Salvation on someone who may be the tank")
+            assert.are.equal("Ann Vale: can't tell if they're a tank", button.subtitle:GetText())
+            group("raid", { { "Ann-Vale", "WARRIOR" }, { "Cid-Rock", "MAGE", nil, true } })
+            assert.is_false(ns.BuffRules.IsTank("raid1"), "in a raid, the Main Tank assignment says")
+            assert.is_true(ns.BuffRules.IsTank("raid2"))
+        end)
+
+        it("an unreadable role doesn't hold back \"everyone has your buffs\" for members who have the buff", function()
+            paladin({ [SALVATION] = true })
+            group("party", { { "Ann-Vale", "WARRIOR", "TANK" }, { "Bo-Lake", "ROGUE", "DAMAGER" } })
+            for _, token in ipairs({ "party1", "party2" }) do
+                local u = wow.state.units[token]
+                u.secrets = { role = true }
+                u.auras, u.auraSources = { SALVATION }, { "raid9" } -- another paladin's Mass Salvation
+            end
+            local offer, why, settled = ns.GroupBuffs.Next()
+            assert.is_nil(offer)
+            assert.are.equal("everyone in your group has your buffs", why)
+            assert.is_true(settled)
         end)
 
         it("repairs damaged saved rules to each buff's default", function()

@@ -162,19 +162,16 @@ function GroupBuffs.Next()
         firstReason = firstReason or (Util.DisplayName(member.name) .. ": " .. why)
         open = true
     end
-    -- Your rules for who gets the buff (BuffRules.lua). A member they leave
-    -- out is passed over quietly: nothing is owed them. One they can't tell
-    -- about (an unreadable role or class) is said, and isn't settled.
-    local function RulesAllow(buff, member)
-        local allowed, why = ns.BuffRules.Allows(buff, member)
-        if allowed == nil then Why(member, why) end
-        return allowed == true
-    end
     for _, buff in ipairs(myBuffs) do
         local spell = not buff.selfCast and ns.BuffData.SpellName(buff)
         for _, member in ipairs(spell and members or {}) do
-            if not unreadable[member.name] and ns.BuffData.Useful(buff, member.class)
-                and RulesAllow(buff, member) then
+            -- Your rules for who gets the buff (BuffRules.lua). A member they
+            -- leave out is passed over quietly: nothing is owed them.
+            local allowed, ruleWhy = false, nil
+            if not unreadable[member.name] and ns.BuffData.Useful(buff, member.class) then
+                allowed, ruleWhy = ns.BuffRules.Allows(buff, member)
+            end
+            if allowed ~= false then
                 local wears = ns.Offers.Wears(member.unit, buff)
                 local key = member.name .. "\1" .. buff.key
                 if wears == nil then
@@ -182,6 +179,10 @@ function GroupBuffs.Next()
                     Why(member, "can't see their buffs")
                 elseif wears then
                     justGiven[key] = nil
+                elseif allowed == nil then
+                    -- The rules can't tell (an unreadable role or class):
+                    -- said, and not settled, only for a member missing it.
+                    Why(member, ruleWhy)
                 elseif not Recently(justGiven[key], GroupBuffs.JUST_GIVEN_SECONDS) then
                     local covered = false
                     if buff.family then

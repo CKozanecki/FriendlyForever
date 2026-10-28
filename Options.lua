@@ -199,6 +199,8 @@ end
 -- Move a buff of your class one place up (-1) or down (+1). Saved as your
 -- class's keys in the new order, then any other classes' keys as they were.
 function Options.MoveBuff(key, step)
+    -- The first buff may change, and with it the one the name boxes are for.
+    ClearEditFocus()
     local keys = {}
     for i, buff in ipairs(OrderedClassBuffs()) do keys[i] = buff.key end
     for i, k in ipairs(keys) do
@@ -244,6 +246,7 @@ function Options.CycleWho(key)
         if b.key == key then buff = b end
     end
     if not buff then return end
+    ClearEditFocus() -- a name box being typed in saves to its own buff first
     whoKey = key
     ns.BuffRules.SetRule(key, ns.BuffRules.NextRule(buff))
     Options.Refresh()
@@ -255,11 +258,18 @@ function Options.SetWhoClass(class, on)
     Options.Refresh()
 end
 
--- An Always or Never box lost focus: save it, or say why not and show what's kept.
-function Options.SetWhoNames(list, text)
+-- The buff the name boxes showed when one was focused: an edit saves to it,
+-- whatever the boxes show by the time focus leaves.
+function Options.WhoBuffKey()
     local buff = WhoBuff(OrderedClassBuffs())
-    if not buff then return end
-    local ok, why = ns.BuffRules.SetNames(buff.key, list, text)
+    return buff and buff.key
+end
+
+-- An Always or Never box lost focus: save it to key (the buff it was opened
+-- for), or say why not and show what's kept. Unchanged text isn't saved.
+function Options.SetWhoNames(key, list, text)
+    if not key or text == ns.BuffRules.NamesText(key, list) then return Options.Refresh() end
+    local ok, why = ns.BuffRules.SetNames(key, list, text)
     if not ok then ns.Print((list == "always" and "Always" or "Never") .. " list not saved: " .. why .. ".") end
     Options.Refresh()
 end
@@ -610,9 +620,14 @@ function Options.Create()
     local function NamesBox(list, labelText)
         local label = Label(content, labelText, "GameFontHighlightSmall")
         label:SetWidth(60)
-        local box = TextBox(content, 380, 2000)
+        local box = TextBox(content, 380, ns.BuffRules.MAX_LIST_LETTERS)
         box:SetPoint("LEFT", label, "RIGHT", 6, 0)
-        box:SetScript("OnEditFocusLost", function(self) Options.SetWhoNames(list, self:GetText()) end)
+        box:SetScript("OnEditFocusGained", function(self) self.buffKey = Options.WhoBuffKey() end)
+        box:SetScript("OnEditFocusLost", function(self)
+            local key = self.buffKey
+            self.buffKey = nil
+            Options.SetWhoNames(key, list, self:GetText())
+        end)
         return label, box
     end
     who.alwaysLabel, who.always = NamesBox("always", "Always:")

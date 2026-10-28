@@ -97,17 +97,25 @@ function methods:IsVisible()
     end
     return true
 end
+-- An edit box keeps at most its max letters (SetMaxLetters; 0 or unset:
+-- no limit), cutting longer text as the game does. Counted in bytes here,
+-- which for the ASCII the specs use is the same.
+function methods:SetMaxLetters(n) self.maxLetters = n end
+function methods:GetMaxLetters() return self.maxLetters or 0 end
 function methods:SetText(text)
     self.text = tostring(text)
+    if self.maxLetters and self.maxLetters > 0 then self.text = self.text:sub(1, self.maxLetters) end
     self.cursor = #self.text -- the game moves an edit box's cursor to the end
 end
 function methods:SetCursorPosition(pos) self.cursor = pos end
 -- Keyboard focus: one edit box at a time, as in the game. Focusing a box
--- takes focus from the last one, and losing focus runs OnEditFocusLost.
+-- takes focus from the last one; gaining focus runs OnEditFocusGained and
+-- losing it OnEditFocusLost.
 function methods:SetFocus()
     if M.focusedBox == self then return end
     if M.focusedBox then M.focusedBox:ClearFocus() end
     M.focusedBox = self
+    if self.scripts.OnEditFocusGained then self.scripts.OnEditFocusGained(self) end
 end
 function methods:HasFocus() return M.focusedBox == self end
 function methods:ClearFocus()
