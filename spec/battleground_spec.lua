@@ -523,6 +523,8 @@ describe("Battlegrounds", function()
             for _, seed in ipairs({ 7, 71, 404, 1999, 2026 }) do
                 random.seed(seed)
                 boot()
+                -- Guild hellos as often as they come, so some fall in quiet steps.
+                ns.db.guildLogin.repeatCooldown = 0
                 -- The test's own record of the battleground, from what it did.
                 local inBG, ended, startedHere, aura, timerEnd = false, false, false, false, nil
                 local prepBuff = true -- the setting, as last clicked
