@@ -79,6 +79,8 @@ local function StartTimeout()
 end
 
 local function TurnOn(why)
+    -- A battle under way: nothing turns on, and nobody's buffs are read.
+    if ns.Battleground.Quiet() then return end
     if fighting or InCombatLockdown() then
         pendingWhy = pendingWhy or why
         return

@@ -13,6 +13,8 @@
 --
 -- Secure buttons can't be changed in combat. The button empties itself as a
 -- fight starts (the game still allows that then) and fills again after.
+-- Once a battleground's battle has started it stays hidden, and works out
+-- nothing, until you leave (Battleground.lua).
 local _, ns = ...
 local Util = ns.Util
 
@@ -176,6 +178,7 @@ local function ArmButton()
         button.icon:SetTexture(BuffButton.PLACEHOLDER_ICON)
         return
     end
+    if ns.Battleground.Quiet() then return Empty(ns.Battleground.QuietReason(), false) end
     local offer, reason = NextOffer()
     if not offer then return Empty(reason, showingResult) end
 

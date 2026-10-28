@@ -1,5 +1,9 @@
 # Changelog
 
+### Unreleased
+
+- **Battlegrounds:** before the gates open, buff mode and buff back work as in any raid. Once the battle starts the addon goes quiet until you leave or the battleground ends: buff mode ends and nothing turns it on, the buff back button hides, buffs you get aren't thanked or owed, and no lines are sent (guild hellos still go to guild chat). If the game doesn't say the battle hasn't started, it counts as started. Switch off **Buff in the preparation phase** on the **Buff Back** tab to keep the preparation phase quiet too. (#71)
+
 ## 0.8.0
 
 - This version adds files. After updating, restart the game; /reload isn't enough. (#27, #52)
