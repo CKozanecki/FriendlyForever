@@ -1,10 +1,11 @@
--- Spec: #68
+-- Spec: #68, #76
 -- My Blessings in this raid (paladins): choose which of your Blessings you
 -- give in the raid you're in, so two paladins don't both give Kings. The
 -- choice is never saved and is forgotten once you're out of the raid.
 -- Quick Never: Shift+right-click on a group buff puts that member on the
 -- buff's Never list.
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 
 local KINGS, MIGHT_1, WISDOM_1, SALVATION = 20217, 19740, 19742, 1038
 local MOTW, MOTW_1 = 9885, 1126
@@ -473,7 +474,7 @@ describe("My Blessings in this raid", function()
         it("never gives a Blessing you left to others, nor any buff to someone on its Never list", function()
             local blessed, skippedByChoice = 0, 0
             for _, seed in ipairs({ 3, 68, 451, 2026 }) do
-                math.randomseed(seed)
+                random.seed(seed)
                 boot()
                 local everyone = { "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
                 local keys = { "kings", "wisdom", "might", "light", "salvation", "motw" }
@@ -481,9 +482,9 @@ describe("My Blessings in this raid", function()
                 local model
                 local function inRaid() return wow.state.groupType == "raid" end
                 local function regroup()
-                    local r = math.random()
+                    local r = random.random()
                     local members = {}
-                    for _, name in ipairs(everyone) do if math.random() < 0.7 then members[#members + 1] = name end end
+                    for _, name in ipairs(everyone) do if random.random() < 0.7 then members[#members + 1] = name end end
                     if #members == 0 then members[1] = everyone[1] end
                     if r < 0.15 then
                         solo()
@@ -498,7 +499,7 @@ describe("My Blessings in this raid", function()
                     regroup,
                     function()
                         local pick = {}
-                        for _, key in ipairs(keys) do if math.random() < 0.4 then pick[#pick + 1] = key end end
+                        for _, key in ipairs(keys) do if random.random() < 0.4 then pick[#pick + 1] = key end end
                         local ok = ns.BuffRules.SetRaidBlessings(pick)
                         if ok then
                             local set, n = {}, 0
@@ -507,24 +508,24 @@ describe("My Blessings in this raid", function()
                         end
                     end,
                     function()
-                        slash(math.random() < 0.5 and "blessings all" or "blessings might")
+                        slash(random.random() < 0.5 and "blessings all" or "blessings might")
                         if inRaid() then
                             local all = lastPrinted():find("all: you haven't chosen", 1, true)
                             if all then model = nil else model = { might = true } end
                         end
                     end,
                     function()
-                        local name = everyone[math.random(#everyone)]
-                        ns.BuffRules.SetNames(keys[math.random(5)], "never",
-                            math.random() < 0.3 and "" or name:gsub("%-", " "))
+                        local name = everyone[random.random(#everyone)]
+                        ns.BuffRules.SetNames(keys[random.random(5)], "never",
+                            random.random() < 0.3 and "" or name:gsub("%-", " "))
                     end,
-                    function() wow.press(button, "RightButton", { shift = math.random() < 0.6 }) end,
-                    function() wow.advance(math.random() * 400) end,
+                    function() wow.press(button, "RightButton", { shift = random.random() < 0.6 }) end,
+                    function() wow.advance(random.random() * 400) end,
                     function()
                         -- A buff wears off someone.
                         for token, u in pairs(wow.state.units) do
                             if (token:find("^raid") or token:find("^party")) and u.auras and #u.auras > 0
-                                and math.random() < 0.3 then
+                                and random.random() < 0.3 then
                                 table.remove(u.auras, 1)
                                 if u.auraSources then table.remove(u.auraSources, 1) end
                             end
@@ -534,7 +535,7 @@ describe("My Blessings in this raid", function()
                 }
                 for step = 1, 400 do
                     local where = ("seed %d, step %d"):format(seed, step)
-                    local pick = math.random(#actions)
+                    local pick = random.random(#actions)
                     actions[pick]()
                     local nevers = {}
                     for key, entry in pairs(ns.db.buffBack.whoGets or {}) do

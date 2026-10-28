@@ -1,6 +1,7 @@
--- Spec: #29
+-- Spec: #29, #76
 -- When buff mode turns on and off by itself.
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 
 local MOTW, MOTW_1 = 9885, 1126
 local INTELLECT = 10157
@@ -487,90 +488,126 @@ describe("Buff mode turning on and off by itself", function()
     end)
 
     describe("chaos (red tests)", function()
+        -- What the simulated client shows after a step, for the replay check:
+        -- the clock, the fight, who is in which party slot, the keys lent, and
+        -- what was printed, sent and cast.
+        local function snapshot()
+            local keys, slots = {}, {}
+            for key in pairs(wow.state.overrides) do keys[#keys + 1] = key end
+            table.sort(keys)
+            for i = 1, 4 do
+                local u = wow.state.units["party" .. i]
+                slots[i] = u and (u.id .. (u.dead and " (dead)" or "")) or "-"
+            end
+            return table.concat({ wow.now, tostring(wow.state.inCombat), table.concat(slots, ","),
+                table.concat(keys, "+"), #wow.printed, wow.printed[#wow.printed] or "", #wow.sent, #wow.casts }, " | ")
+        end
+
+        -- One seeded storm; returns how often it reached the outcomes that
+        -- count, and the client's state after every step.
+        local function storm(seed)
+            local turnedOn, timedOut, hinted, trace = 0, 0, 0, {}
+            random.seed(seed)
+            boot()
+            local function setAll()
+                local b = ns.db.buffBack
+                b.autoOnJoin, b.autoOnDeath, b.autoOnBuffed = true, true, true
+                b.autoOffPull = random.random() < 0.5
+                b.autoOffDone = random.random() < 0.5
+                b.autoOffMinutes = random.random(1, 3)
+            end
+            setAll()
+            local startedAt
+            local everyone = { "Ann-Vale", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
+            local actions = {
+                function()
+                    local names = {}
+                    for _, n in ipairs(everyone) do if random.random() < 0.6 then names[#names + 1] = n end end
+                    if #names == 0 then leave() else join(names) end
+                end,
+                leave,
+                function()
+                    local token = "party" .. random.random(1, 4)
+                    if wow.state.units[token] then dies(token) end
+                end,
+                function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
+                function()
+                    local token = "nameplate" .. random.random(1, 3)
+                    local name = ({ "Bob", "Gus", "Hal" })[random.random(3)]
+                    wow.addUnit(token, { name = name, surname = "Stone", class = "MAGE", id = name .. "-Stone" })
+                    wow.gainBuff({ sourceUnit = token, name = "Arcane Intellect", spellId = INTELLECT })
+                end,
+                scroll,
+                function() wow.advance(random.random() * 40) end,
+                function() slash(({ "buffmode", "buffmode on", "buffmode off" })[random.random(3)]) end,
+                function()
+                    wow.state.inCombat = false
+                    boot(_G.FriendlyForeverDB)
+                    setAll()
+                end,
+                function() ns.db.buffBack.autoOffMinutes = random.random(1, 3) end,
+            }
+            local limit -- the timeout in force when the trigger's buff mode started
+            local function track(where)
+                if ns.BuffMode.IsAuto() then
+                    if not startedAt then
+                        startedAt, limit = wow.now, ns.db.buffBack.autoOffMinutes * 60
+                        turnedOn = turnedOn + 1
+                    end
+                    assert.is_true(wow.now - startedAt <= limit, where .. ": past its timeout")
+                else
+                    startedAt = nil
+                end
+            end
+            for step = 1, 500 do
+                local where = ("seed %d, step %d"):format(seed, step)
+                local wasOn = ns.BuffMode.IsOn()
+                actions[random.random(#actions)]()
+                -- Including the step that starts a fight.
+                assert.is_true(not (wow.state.inCombat and not wasOn and ns.BuffMode.IsAuto()),
+                    where .. ": turned on in a fight")
+                track(where)
+                assert.is_true(not wow.state.inCombat or lent() == nil, where .. ": a key lent in a fight")
+                -- The hint is said at most once a session (a reload starts a new one).
+                local hints = 0
+                for _, line in ipairs(wow.printed) do
+                    if line:find("choose when on the Buff Back tab", 1, true) then hints = hints + 1 end
+                end
+                assert.is_true(hints <= 1, where .. ": the hint said " .. hints .. " times")
+                if hints == 1 then hinted = hinted + 1 end
+                -- Now and then, nothing but time: the timeout itself must end it.
+                if step % 25 == 0 and ns.BuffMode.IsAuto() then
+                    wow.advance(limit - (wow.now - startedAt))
+                    assert.is_false(ns.BuffMode.IsAuto(), where .. ": still on at its timeout")
+                    timedOut = timedOut + 1
+                    track(where)
+                end
+                trace[step] = snapshot()
+            end
+            assert.are.same({}, wow.errors, "seed " .. seed)
+            return turnedOn, timedOut, hinted, trace
+        end
+
         it("never turns buff mode on in a fight, and a trigger's buff mode always ends within the timeout", function()
             local turnedOn, timedOut, hinted = 0, 0, 0
             for _, seed in ipairs({ 4, 29, 81, 512, 2026 }) do
-                math.randomseed(seed)
-                boot()
-                local function setAll()
-                    local b = ns.db.buffBack
-                    b.autoOnJoin, b.autoOnDeath, b.autoOnBuffed = true, true, true
-                    b.autoOffPull = math.random() < 0.5
-                    b.autoOffDone = math.random() < 0.5
-                    b.autoOffMinutes = math.random(1, 3)
-                end
-                setAll()
-                local startedAt
-                local everyone = { "Ann-Vale", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
-                local actions = {
-                    function()
-                        local names = {}
-                        for _, n in ipairs(everyone) do if math.random() < 0.6 then names[#names + 1] = n end end
-                        if #names == 0 then leave() else join(names) end
-                    end,
-                    leave,
-                    function()
-                        local token = "party" .. math.random(1, 4)
-                        if wow.state.units[token] then dies(token) end
-                    end,
-                    function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
-                    function()
-                        local token = "nameplate" .. math.random(1, 3)
-                        local name = ({ "Bob", "Gus", "Hal" })[math.random(3)]
-                        wow.addUnit(token, { name = name, surname = "Stone", class = "MAGE", id = name .. "-Stone" })
-                        wow.gainBuff({ sourceUnit = token, name = "Arcane Intellect", spellId = INTELLECT })
-                    end,
-                    scroll,
-                    function() wow.advance(math.random() * 40) end,
-                    function() slash(({ "buffmode", "buffmode on", "buffmode off" })[math.random(3)]) end,
-                    function()
-                        wow.state.inCombat = false
-                        boot(_G.FriendlyForeverDB)
-                        setAll()
-                    end,
-                    function() ns.db.buffBack.autoOffMinutes = math.random(1, 3) end,
-                }
-                local limit -- the timeout in force when the trigger's buff mode started
-                local function track(where)
-                    if ns.BuffMode.IsAuto() then
-                        if not startedAt then
-                            startedAt, limit = wow.now, ns.db.buffBack.autoOffMinutes * 60
-                            turnedOn = turnedOn + 1
-                        end
-                        assert.is_true(wow.now - startedAt <= limit, where .. ": past its timeout")
-                    else
-                        startedAt = nil
-                    end
-                end
-                for step = 1, 500 do
-                    local where = ("seed %d, step %d"):format(seed, step)
-                    local wasOn = ns.BuffMode.IsOn()
-                    actions[math.random(#actions)]()
-                    -- Including the step that starts a fight.
-                    assert.is_true(not (wow.state.inCombat and not wasOn and ns.BuffMode.IsAuto()),
-                        where .. ": turned on in a fight")
-                    track(where)
-                    assert.is_true(not wow.state.inCombat or lent() == nil, where .. ": a key lent in a fight")
-                    -- The hint is said at most once a session (a reload starts a new one).
-                    local hints = 0
-                    for _, line in ipairs(wow.printed) do
-                        if line:find("choose when on the Buff Back tab", 1, true) then hints = hints + 1 end
-                    end
-                    assert.is_true(hints <= 1, where .. ": the hint said " .. hints .. " times")
-                    if hints == 1 then hinted = hinted + 1 end
-                    -- Now and then, nothing but time: the timeout itself must end it.
-                    if step % 25 == 0 and ns.BuffMode.IsAuto() then
-                        wow.advance(limit - (wow.now - startedAt))
-                        assert.is_false(ns.BuffMode.IsAuto(), where .. ": still on at its timeout")
-                        timedOut = timedOut + 1
-                        track(where)
-                    end
-                end
-                assert.are.same({}, wow.errors, "seed " .. seed)
+                local on, out, hint = storm(seed)
+                turnedOn, timedOut, hinted = turnedOn + on, timedOut + out, hinted + hint
             end
             assert.is_true(turnedOn > 20, "turned on by triggers: " .. turnedOn)
             assert.is_true(timedOut > 5, "ended by the timeout alone: " .. timedOut)
             assert.is_true(hinted > 0, "the hint was said")
+        end)
+
+        it("replays a seed's storm identically, step by step (#76)", function()
+            local _, _, _, first = storm(29)
+            -- Something in between, so the replay doesn't start from the same memory.
+            storm(81)
+            local _, _, _, again = storm(29)
+            assert.are.equal(500, #first)
+            for step = 1, #first do
+                assert.are.equal(first[step], again[step], "step " .. step)
+            end
         end)
     end)
 end)
