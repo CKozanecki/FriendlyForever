@@ -531,11 +531,16 @@ describe("Release docs", function()
             local match = flat:match(pattern)
             if match then found[#found + 1] = match end
         end
+        -- Looks from every use of the verb, so a far "release" after one use
+        -- can't hide a near one after the next ("make sure ... and make a release").
         for _, forms in ipairs(VERBS) do
-            for words, release in flat:gmatch(forms[1] .. " ([%w ]-)(releases?)%f[^%w%-]") do
-                if select(2, words:gsub("%S+", "")) <= 3 then
+            local at, stop = flat:find(forms[1] .. " ", 1, true)
+            while at do
+                local words, release = flat:match("^([%w ]-)(releases?)%f[^%w%-]", stop + 1)
+                if words and select(2, words:gsub("%S+", "")) <= 3 then
                     found[#found + 1] = forms[1] .. " " .. words .. release
                 end
+                at, stop = flat:find(forms[1] .. " ", at + 1, true)
             end
         end
         return found
@@ -559,6 +564,8 @@ describe("Release docs", function()
                 "Create a new GitHub release.",
                 "Then create GitHub release v0.8.0 for the tag.",
                 "Create GitHub releases for both tags.",
+                "Make sure the tag is on main and make a GitHub release.",
+                "Create the tag, then create the release.",
                 "Then run `gh release create v0.8.0 --generate-notes`.",
                 "Then make a GitHub release for the tag.",
                 "Then publish the GitHub release for the tag.",
