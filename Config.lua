@@ -28,6 +28,7 @@ Config.LIMITS = {
     repeatCooldown = { min = 0, max = 3600 },  -- seconds
     unknownName    = { maxBytes = 24 },
     owedMinutes    = { min = 1, max = 60 },  -- how long a favour stays on the buff-back button
+    autoOffMinutes = { min = 0, max = 30 },  -- buff mode a trigger turned on ends after this (0: never)
 }
 
 -- Order of message types (also the order of the options tabs).
@@ -140,6 +141,16 @@ Config.DEFAULTS = {
         position = { point = "CENTER", x = 0, y = -180 },
         -- The key buff mode lends to the button (BuffMode.lua).
         buffModeKey = "MOUSEWHEELUP",
+        -- When buff mode turns on and off by itself (BuffModeAuto.lua). The
+        -- ones that turn it on are off by default: lending a key by surprise
+        -- would confuse. The ones that turn it off end only buff mode a
+        -- trigger turned on.
+        autoOnJoin = false,
+        autoOnDeath = false,
+        autoOnBuffed = false,
+        autoOffPull = true,
+        autoOffDone = true,
+        autoOffMinutes = 5,
         -- buffOrder: buff keys, offered first in this order (empty: each
         -- class's own order). neverOffer: [buff key] = true. They hold keys
         -- of any class, so one profile serves all your characters.
@@ -201,6 +212,12 @@ end
 Config.FIELD_VALIDATORS = {
     enabled = Bool,
     sayLine = Bool,
+    autoOnJoin = Bool,
+    autoOnDeath = Bool,
+    autoOnBuffed = Bool,
+    autoOffPull = Bool,
+    autoOffDone = Bool,
+    autoOffMinutes = Limited("autoOffMinutes"),
     unlocked = Bool,
     listBuffNames = Bool,
     useWhisper = Bool,

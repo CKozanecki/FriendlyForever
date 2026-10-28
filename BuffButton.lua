@@ -210,6 +210,7 @@ function BuffButton.Refresh()
     ns.BuffMode.Apply()
     ns.GroupBuffs.Prune()
     ArmButton()
+    ns.BuffModeAuto.Check()
     if ns.Offers.Count() > 0 or shownResult or ns.BuffMode.LentKey() then ScheduleRecheck() end
 end
 

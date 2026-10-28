@@ -32,6 +32,7 @@ Window.lua
 BuffButton.lua
 BuffMode.lua
 GroupBuffs.lua
+BuffModeAuto.lua
 Options.lua
 Minimap.lua
 Core.lua

@@ -88,6 +88,16 @@ local function WearsMyFamily(unit, family)
     return false
 end
 
+-- Reasons a member is left out that still leave a buff of yours to give
+-- once they can have it (they're dead, out of reach for now, or can't be
+-- read). Offline, out of sight, flagged when you aren't, or skipped by you
+-- leave nothing to do now: "everyone has your buffs" can still be true.
+local OPEN_REASONS = {
+    ["dead"] = true, ["out of range"] = true,
+    ["can't see whether they're flagged for PvP"] = true,
+    ["the game refused your last cast to them"] = true,
+}
+
 -- Why this member can't have a buff now, or nil if they may.
 local function CantBuff(unit, iAmFlagged)
     local why = Unreachable(unit)
@@ -100,17 +110,19 @@ local function CantBuff(unit, iAmFlagged)
 end
 
 -- The members who may be buffed now, in group order: { unit, name, class },
--- and the first reason one was left out.
+-- the first reason one was left out, and whether one left out may still
+-- need a buff (OPEN_REASONS, or a name that can't be read).
 local function Candidates(units)
     local me = Util.UnitFullName("player")
     local iAmFlagged = Read(UnitIsPVP, "player") == true
-    local out, seen, firstReason = {}, {}, nil
+    local out, seen, firstReason, open = {}, {}, nil, false
     for _, unit in ipairs(units) do
         local name = Util.UnitFullName(unit)
         local isMe = (name ~= nil and name == me) or Read(UnitIsUnit, unit, "player") == true
         if Read(UnitExists, unit) == true and not isMe then
             if not name then
                 firstReason = firstReason or "a group member's name can't be read"
+                open = true
             elseif not seen[name] then
                 seen[name] = true
                 local why = CantBuff(unit, iAmFlagged)
@@ -121,28 +133,33 @@ local function Candidates(units)
                 end
                 if why then
                     firstReason = firstReason or (Util.DisplayName(name) .. ": " .. why)
+                    open = open or OPEN_REASONS[why] == true
                 else
                     out[#out + 1] = { unit = unit, name = name, class = select(2, Read(UnitClass, unit)) }
                 end
             end
         end
     end
-    return out, firstReason
+    return out, firstReason, open
 end
 
 -- The next group member to buff: { name, buff, spell, group = true }, or
--- nil and why not. Your first buff goes to everyone missing it before your
--- second buff goes to anyone.
+-- nil, why not, and whether that's settled: nothing left that a buff of
+-- yours could fix now or soon (not in a group, or everyone you could buff
+-- has them; nobody dead, out of reach or unreadable). Your first buff
+-- goes to everyone missing it before your second buff goes to anyone.
 function GroupBuffs.Next()
     local units = GroupUnits()
-    if #units == 0 then return nil, "you're not in a group" end
+    if #units == 0 then return nil, "you're not in a group", true end
     local myBuffs = ns.BuffData.Offerable()
-    if #myBuffs == 0 then return nil, "you have no buffs to offer" end
-    local members, firstReason = Candidates(units)
+    if #myBuffs == 0 then return nil, "you have no buffs to offer", true end
+    local members, firstReason, open = Candidates(units)
     local unreadable, outOfRange = {}, {}
     local family = {} -- [name .. family] = whether they wear one of yours (read once)
+    -- Every reason a member is passed over here leaves a buff to give.
     local function Why(member, why)
         firstReason = firstReason or (Util.DisplayName(member.name) .. ": " .. why)
+        open = true
     end
     for _, buff in ipairs(myBuffs) do
         local spell = not buff.selfCast and ns.BuffData.SpellName(buff)
@@ -178,7 +195,7 @@ function GroupBuffs.Next()
             end
         end
     end
-    return nil, firstReason or "everyone in your group has your buffs"
+    return nil, firstReason or "everyone in your group has your buffs", not open
 end
 
 -- Your buff reached them (the game said so).
