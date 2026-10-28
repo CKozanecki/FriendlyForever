@@ -1034,17 +1034,38 @@ function M.load()
     return ns
 end
 
+-- Buff mode's turn-on triggers, which boot switches off for most specs.
+M.TURN_ON_TRIGGERS = { "autoOnJoin", "autoOnDeath", "autoOnBuffed" }
+
 -- Fresh client, addon loaded, logged in and past the login grace period.
 -- opts.db: saved variables to start with. opts.noGrace: stop after login.
+-- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
 function M.boot(opts)
     opts = opts or {}
     M.reset()
     if opts.before then opts.before(M.state) end
+    -- Which turn-on triggers the given settings set, read before loading
+    -- fills in every default (see below).
+    local triggersGiven = {}
+    local givenBuffBack = type(opts.db) == "table" and type(opts.db.buffBack) == "table" and opts.db.buffBack
+    if givenBuffBack then
+        for _, field in ipairs(M.TURN_ON_TRIGGERS) do triggersGiven[field] = givenBuffBack[field] end
+    end
     _G.FriendlyForeverDB = opts.db
     local ns = M.load()
     ns.Messages.random = function() return 1 end
     ns.Flavour.random = function() return 1 end
     M.fire("ADDON_LOADED", M.ADDON_NAME)
+    -- Buff mode's turn-on triggers are on by default (#29), and would lend
+    -- a key whenever a spec joins a group or a stranger buffs you. Most specs
+    -- check buff back and buffing with buff mode as you leave it, so they
+    -- start with the triggers off unless opts.db sets them. spec/
+    -- buffmodeauto_spec.lua covers the triggers (opts.autoBuffMode keeps them).
+    if not opts.autoBuffMode then
+        for _, field in ipairs(M.TURN_ON_TRIGGERS) do
+            if triggersGiven[field] == nil then ns.db.buffBack[field] = false end
+        end
+    end
     -- Most specs check behaviour, not wording, and were written against the
     -- casual lines: types still on the shipped defaults use those (fixed
     -- text). spec/flavour_spec.lua covers the shipped lines. opts.shippedLines
