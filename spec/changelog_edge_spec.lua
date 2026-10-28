@@ -1,7 +1,8 @@
--- Spec: #51
+-- Spec: #51, #76
 -- Review tests for the changelog checker: mutation killers, the check and
 -- the release-notes sed agreeing line by line, and seeded fuzzing.
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 local Changelog = require("spec.support.changelog")
 
 local function changelog(...)
@@ -134,21 +135,21 @@ describe("Changelog checker (review)", function()
         local ends = { "", " ", "  ", "\t", "x", ")", " (x)" }
 
         local function generate(n, seed)
-            math.randomseed(seed)
+            random.seed(seed)
             local lines = {}
             for _ = 1, n do
                 local parts = {}
                 local used = {}
-                for _ = 1, math.random(1, 3) do
-                    local item = items[math.random(#items)]
+                for _ = 1, random.random(1, 3) do
+                    local item = items[random.random(#items)]
                     -- Repeated issues are their own test below.
                     if not used[item] then parts[#parts + 1], used[item] = item, true end
                 end
-                local inside = table.concat(parts, joins[math.random(#joins)])
-                local open = math.random(10) > 1 and "(" or ""
-                local close = math.random(10) > 1 and ")" or ""
-                local line = starts[math.random(#starts)] .. seps[math.random(#seps)] .. open .. inside .. close
-                    .. ends[math.random(#ends)]
+                local inside = table.concat(parts, joins[random.random(#joins)])
+                local open = random.random(10) > 1 and "(" or ""
+                local close = random.random(10) > 1 and ")" or ""
+                local line = starts[random.random(#starts)] .. seps[random.random(#seps)] .. open .. inside .. close
+                    .. ends[random.random(#ends)]
                 if not line:match("^## ") then lines[#lines + 1] = line end
             end
             return lines
@@ -181,15 +182,15 @@ describe("Changelog checker (review)", function()
 
         local function junk(len)
             local out = {}
-            for i = 1, len do out[i] = alphabet[math.random(#alphabet)] end
+            for i = 1, len do out[i] = alphabet[random.random(#alphabet)] end
             return table.concat(out)
         end
 
         for _, seed in ipairs({ 7, 51, 1337 }) do
             it("for every helper (seed " .. seed .. ")", function()
-                math.randomseed(seed)
+                random.seed(seed)
                 for _ = 1, 500 do
-                    local text = junk(math.random(0, 200))
+                    local text = junk(random.random(0, 200))
                     local ok, err = pcall(function()
                         local issues = Changelog.TagIssues(text)
                         assert(issues == nil or type(issues) == "table")

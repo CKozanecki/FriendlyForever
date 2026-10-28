@@ -1,7 +1,8 @@
--- Spec: #27, #57, #64
+-- Spec: #27, #57, #64, #76
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 
 -- Mark of the Wild and Thorns, top ranks and rank 1.
 local MOTW, MOTW_1, GIFT, THORNS, THORNS_1 = 9885, 1126, 21850, 9910, 467
@@ -1304,7 +1305,7 @@ describe("Buff back", function()
         -- favour that wasn't returned.
         local function storm(seed)
             boot()
-            math.randomseed(seed)
+            random.seed(seed)
             ns.db.buffBack.sayLine = true
             ns.db.buffBack.messages = { "BB {name}" }
             -- A line may only be queued straight after a confirmed return for
@@ -1346,39 +1347,39 @@ describe("Buff back", function()
             local names = { "Bob", "Ann", "Cid", "Dot", "Eve", "Fay" }
             local actions = {
                 function() -- someone buffs you, maybe with a stale or missing token
-                    local token = "nameplate" .. math.random(1, 8)
-                    local name = names[math.random(#names)]
+                    local token = "nameplate" .. random.random(1, 8)
+                    local name = names[random.random(#names)]
                     wow.addUnit(token, { name = name, surname = "Stone", id = name .. "-Stone",
-                        class = ({ "MAGE", "WARRIOR", "PRIEST" })[math.random(3)], pvp = math.random() < 0.2,
-                        dead = math.random() < 0.1, auras = math.random() < 0.3 and { MOTW } or nil })
-                    wow.gainBuff({ sourceUnit = math.random() < 0.8 and token or nil, name = "Arcane Intellect",
+                        class = ({ "MAGE", "WARRIOR", "PRIEST" })[random.random(3)], pvp = random.random() < 0.2,
+                        dead = random.random() < 0.1, auras = random.random() < 0.3 and { MOTW } or nil })
+                    wow.gainBuff({ sourceUnit = random.random() < 0.8 and token or nil, name = "Arcane Intellect",
                         spellId = INTELLECT })
                 end,
-                function() wow.state.units["nameplate" .. math.random(1, 8)] = nil end,
-                function() wow.press(button, math.random() < 0.8 and "LeftButton" or "RightButton",
-                    math.random() < 0.3 and { shift = true } or nil) end,
+                function() wow.state.units["nameplate" .. random.random(1, 8)] = nil end,
+                function() wow.press(button, random.random() < 0.8 and "LeftButton" or "RightButton",
+                    random.random() < 0.3 and { shift = true } or nil) end,
                 function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
-                function() wow.advance(math.random() * 20) end,
+                function() wow.advance(random.random() * 20) end,
                 function() wow.fire("PLAYER_TARGET_CHANGED") end,
-                function() wow.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "x", ({ MOTW, THORNS, 12345 })[math.random(3)]) end,
+                function() wow.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "x", ({ MOTW, THORNS, 12345 })[random.random(3)]) end,
                 function() wow.uiError("Out of range.") end,
-                function() wow.state.sentTargetForm = ({ "first", "full", "none" })[math.random(3)] end,
-                function() wow.state.targetNameForm = math.random() < 0.8 and "space" or "hyphen" end,
-                function() wow.state.castFailures["Bob-Stone"] = math.random() < 0.5 and "Out of range." or nil end,
-                function() slash(({ "off", "on", "snooze 1", "snooze off", "buffback", "ledger" })[math.random(6)]) end,
-                function() ns.db.buffBack.enabled = math.random() < 0.8 end,
-                function() wow.state.pvp = math.random() < 0.2 end,
-                function() wow.state.unitsRestricted = math.random() < 0.2 end,
+                function() wow.state.sentTargetForm = ({ "first", "full", "none" })[random.random(3)] end,
+                function() wow.state.targetNameForm = random.random() < 0.8 and "space" or "hyphen" end,
+                function() wow.state.castFailures["Bob-Stone"] = random.random() < 0.5 and "Out of range." or nil end,
+                function() slash(({ "off", "on", "snooze 1", "snooze off", "buffback", "ledger" })[random.random(6)]) end,
+                function() ns.db.buffBack.enabled = random.random() < 0.8 end,
+                function() wow.state.pvp = random.random() < 0.2 end,
+                function() wow.state.unitsRestricted = random.random() < 0.2 end,
                 function() wow.fire("SPELLS_CHANGED") end,
-                function() wow.state.castLatency = ({ 0, 0, 0.2, 1.5 })[math.random(4)] end,
-                function() wow.state.errorBeforeFailed = math.random() < 0.5 end,
+                function() wow.state.castLatency = ({ 0, 0, 0.2, 1.5 })[random.random(4)] end,
+                function() wow.state.errorBeforeFailed = random.random() < 0.5 end,
                 function() wow.keyDown() end,
-                function() wow.state.afk = math.random() < 0.2 end,
+                function() wow.state.afk = random.random() < 0.2 end,
                 -- The cast lands on someone else, or the favour goes while it's on its way.
                 function()
-                    wow.state.castLandsOn = math.random() < 0.3 and ("nameplate" .. math.random(1, 8)) or nil
+                    wow.state.castLandsOn = random.random() < 0.3 and ("nameplate" .. random.random(1, 8)) or nil
                 end,
-                function() ns.Offers.LetGo(names[math.random(#names)] .. "-Stone") end,
+                function() ns.Offers.LetGo(names[random.random(#names)] .. "-Stone") end,
             }
             -- Presses the game left unanswered (no cast or error from them): only
             -- those may be reported as "No answer".
@@ -1396,12 +1397,12 @@ describe("Buff back", function()
                 end
             end
             actions[3] = function()
-                countedPress(button, math.random() < 0.8 and "LeftButton" or "RightButton",
-                    math.random() < 0.3 and { shift = true } or nil)
+                countedPress(button, random.random() < 0.8 and "LeftButton" or "RightButton",
+                    random.random() < 0.3 and { shift = true } or nil)
             end
             for n = 1, 1500 do
                 step = n
-                local which = math.random(#actions)
+                local which = random.random(#actions)
                 actions[which]()
                 if wow.state.inCombat then
                     assert.is_nil(macro(), "seed " .. seed .. ", step " .. step .. ": armed in a fight")
@@ -1440,7 +1441,7 @@ describe("Buff back", function()
 
         it("survives random storms of events, presses, fights and settings changes", function()
             local received, casts, returned, said, elsewhere, gone = 0, 0, 0, 0, 0, 0
-            for _, seed in ipairs({ 1, 7, 42, 99, 404, 777, 2026, 4242, 31337, 65535 }) do
+            for _, seed in ipairs({ 1, 7, 21, 35, 42, 99, 404, 2026, 4242, 31337 }) do
                 local s, lines, wentElsewhere, nothingWaiting = storm(seed)
                 received, casts, returned = received + s.received, casts + #wow.casts, returned + s.returned
                 said, elsewhere, gone = said + lines, elsewhere + wentElsewhere, gone + nothingWaiting

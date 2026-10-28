@@ -368,7 +368,10 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         (default false); the addon accepts either order
 --   state.castLandsOn     a unit token: casts go to that unit instead of your
 --                         target (a test hook for "the cast went to someone
---                         else"; nil by default)
+--                         else"; nil by default). A PvP flag such a cast
+--                         catches goes in M.flaggedElsewhere, not M.flaggedBy:
+--                         in the game /targetexact can't land on a player with
+--                         another name (#76).
 --   Override bindings (SetOverrideBindingClick, ClearOverrideBindings) are
 --                         blocked in combat, and allowed in PLAYER_REGEN_DISABLED's
 --                         handlers (as secure frames are). state.unbindable[key]:
@@ -476,6 +479,7 @@ local function cast(args)
     local target = M.state.units.target
     if not (target and not target.hostile) then target = M.state.units.player end
     local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
+    local redirected = elsewhere ~= nil and elsewhere.id ~= target.id -- another player, not another token
     if elsewhere then target = elsewhere end
     local failure = M.state.castFailures[target.id]
     castCount = castCount + 1
@@ -504,7 +508,8 @@ local function cast(args)
         end
         if flags then
             M.state.pvp = true
-            M.flaggedBy[#M.flaggedBy + 1] = target.id
+            local list = redirected and M.flaggedElsewhere or M.flaggedBy
+            list[#list + 1] = target.id
         end
         M.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, id)
     end
@@ -752,6 +757,7 @@ function M.reset()
     M.casts = {}
     M.keyActions = {}
     M.flaggedBy = {} -- players whose PvP flag a buff of yours caught (see cast)
+    M.flaggedElsewhere = {} -- the same, for casts state.castLandsOn sent elsewhere
     M.hardware = false
     M.focusedBox = nil
     M.rosterRequests = 0

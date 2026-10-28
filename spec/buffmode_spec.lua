@@ -1,7 +1,8 @@
--- Spec: #28
+-- Spec: #28, #76
 -- Buff mode: a key of your choice lent to the buff-back button while it's
 -- on, handed back when it ends and during fights.
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 
 local MOTW, MOTW_1 = 9885, 1126
 local INTELLECT = 10157
@@ -347,7 +348,7 @@ describe("Buff mode", function()
         it("never leaves a stray key lent and never changes a binding in a fight", function()
             local keys = { "MOUSEWHEELUP", "MOUSEWHEELDOWN", "SHIFT-F", "BUTTON4", "ESCAPE", 42, "F" }
             for _, seed in ipairs({ 3, 28, 99, 512, 2026 }) do
-                math.randomseed(seed)
+                random.seed(seed)
                 boot()
                 local inFight = 0
                 local realSet, realClear = _G.SetOverrideBindingClick, _G.ClearOverrideBindings
@@ -360,17 +361,17 @@ describe("Buff mode", function()
                 end
                 wrap()
                 local actions = {
-                    function() slash(({ "buffmode", "buffmode on", "buffmode off" })[math.random(3)]) end,
+                    function() slash(({ "buffmode", "buffmode on", "buffmode off" })[random.random(3)]) end,
                     function() _G.FriendlyForever_ToggleBuffMode() end,
                     function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
-                    function() ns.BuffMode.SetKey(keys[math.random(#keys)]) end,
-                    function() ns.db.buffBack.buffModeKey = keys[math.random(#keys)] end,
-                    function() slash(math.random() < 0.7 and "on" or "off") end,
-                    function() ns.db.buffBack.enabled = math.random() < 0.8; ns.BuffButton.Refresh() end,
-                    function() wow.state.unbindable = math.random() < 0.2 and { F = true } or nil end,
-                    function() owed(({ "Bob", "Ann" })[math.random(2)]) end,
-                    function() wow.pressKey(({ "MOUSEWHEELUP", "SHIFT-F", "F" })[math.random(3)]) end,
-                    function() wow.advance(math.random() * 10) end,
+                    function() ns.BuffMode.SetKey(keys[random.random(#keys)]) end,
+                    function() ns.db.buffBack.buffModeKey = keys[random.random(#keys)] end,
+                    function() slash(random.random() < 0.7 and "on" or "off") end,
+                    function() ns.db.buffBack.enabled = random.random() < 0.8; ns.BuffButton.Refresh() end,
+                    function() wow.state.unbindable = random.random() < 0.2 and { F = true } or nil end,
+                    function() owed(({ "Bob", "Ann" })[random.random(2)]) end,
+                    function() wow.pressKey(({ "MOUSEWHEELUP", "SHIFT-F", "F" })[random.random(3)]) end,
+                    function() wow.advance(random.random() * 10) end,
                     function()
                         wow.state.inCombat = false
                         boot(_G.FriendlyForeverDB)
@@ -378,7 +379,7 @@ describe("Buff mode", function()
                     end,
                 }
                 for step = 1, 400 do
-                    actions[math.random(#actions)]()
+                    actions[random.random(#actions)]()
                     local where = ("seed %d, step %d"):format(seed, step)
                     local count, owner = 0, nil
                     for _, o in pairs(wow.state.overrides) do

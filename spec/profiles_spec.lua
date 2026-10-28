@@ -1,6 +1,8 @@
+-- Spec: #76
 -- Settings as text (export/import), profiles, the bug report and the addon
 -- compartment entry.
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
 
@@ -72,10 +74,10 @@ describe("Serialize", function()
 
     it("never errors on random input, only returns a reason", function()
         local A = { "{", "}", "S", "N", "T", "F", ";", "%", "%4", "1", "e", "-", ".", "x", " " }
-        math.randomseed(1)
+        random.seed(1)
         for _ = 1, 5000 do
             local p = { "FF1:" }
-            for _ = 1, math.random(0, 30) do p[#p + 1] = A[math.random(#A)] end
+            for _ = 1, random.random(0, 30) do p[#p + 1] = A[random.random(#A)] end
             local text = table.concat(p)
             local ok, value, why = pcall(S.Decode, text)
             assert(ok, text)

@@ -1,7 +1,8 @@
--- Spec: #31
+-- Spec: #31, #76
 -- Buff order and the never-offer list: which of your buffs the button offers
 -- first, and which it never offers.
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 
 local MOTW, MOTW_1, THORNS_1 = 9885, 1126, 467
 local INTELLECT = 10157
@@ -263,15 +264,15 @@ describe("Buff order and never offer", function()
         it("survives random moves, marks, damage, reloads and imports, and always offers the right buff", function()
             local damage = { 42, "x", true, {}, { "bogus", 3, "thorns" }, { motw = 1 }, { thorns = true } }
             for _, seed in ipairs({ 1, 9, 31, 404, 2026 }) do
-                math.randomseed(seed)
+                random.seed(seed)
                 boot()
                 owed()
                 local saved
                 local actions = {
-                    function() ns.Options.MoveBuff(({ "motw", "thorns" })[math.random(2)], math.random() < 0.5 and -1 or 1) end,
-                    function() ns.Options.SetNeverOffer(({ "motw", "thorns" })[math.random(2)], math.random() < 0.4) end,
-                    function() ns.db.buffBack.buffOrder = damage[math.random(#damage)] end,
-                    function() ns.db.buffBack.neverOffer = damage[math.random(#damage)] end,
+                    function() ns.Options.MoveBuff(({ "motw", "thorns" })[random.random(2)], random.random() < 0.5 and -1 or 1) end,
+                    function() ns.Options.SetNeverOffer(({ "motw", "thorns" })[random.random(2)], random.random() < 0.4) end,
+                    function() ns.db.buffBack.buffOrder = damage[random.random(#damage)] end,
+                    function() ns.db.buffBack.neverOffer = damage[random.random(#damage)] end,
                     function() saved = ns.Profiles.Export() end,
                     function() if saved then ns.Profiles.Import(saved) end end,
                     function()
@@ -283,7 +284,7 @@ describe("Buff order and never offer", function()
                     function() wow.run(ns.Options.widgets.tabs.buffBack, "OnClick") end,
                 }
                 for step = 1, 300 do
-                    actions[math.random(#actions)]()
+                    actions[random.random(#actions)]()
                     local spell, why = offered()
                     local want = expected()
                     assert.are.equal(want, spell, ("seed %d, step %d: offered %s (%s)"):format(seed, step,

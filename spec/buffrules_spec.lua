@@ -1,8 +1,9 @@
--- Spec: #68
+-- Spec: #68, #76
 -- Who gets each buff in buff mode: everyone, tanks only, everyone but tanks,
 -- or chosen classes, plus players named Always or Never. Salvation isn't a
 -- Blessing on Forever, and goes to everyone but tanks by default.
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 
 local MOTW, MOTW_1, THORNS_1 = 9885, 1126, 467
 local KINGS, MIGHT_1, SALVATION = 20217, 19740, 1038
@@ -483,7 +484,7 @@ describe("Who gets each buff", function()
         it("never gives a buff to a member its rule leaves out, nor replaces your own Blessing", function()
             local given, refused = 0, 0
             for _, seed in ipairs({ 3, 68, 404, 1999 }) do
-                math.randomseed(seed)
+                random.seed(seed)
                 paladin()
                 local everyone = { "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss", "Fay-Dune" }
                 local classes = { "WARRIOR", "ROGUE", "MAGE", "PRIEST", "PALADIN", "DRUID" }
@@ -492,53 +493,53 @@ describe("Who gets each buff", function()
                 local function reshuffle()
                     local members = {}
                     for _, name in ipairs(everyone) do
-                        if math.random() < 0.7 then
-                            members[#members + 1] = { name, classes[math.random(#classes)],
-                                roles[math.random(#roles)], math.random() < 0.2 }
+                        if random.random() < 0.7 then
+                            members[#members + 1] = { name, classes[random.random(#classes)],
+                                roles[random.random(#roles)], random.random() < 0.2 }
                         end
                     end
                     if #members == 0 then members[1] = { everyone[1], "WARRIOR", "TANK" } end
-                    group(math.random() < 0.5 and "raid" or "party", members)
+                    group(random.random() < 0.5 and "raid" or "party", members)
                 end
                 reshuffle()
                 local actions = {
                     reshuffle,
-                    function() rule(keys[math.random(3)], ns.BuffRules.RULES[math.random(4)]) end,
+                    function() rule(keys[random.random(3)], ns.BuffRules.RULES[random.random(4)]) end,
                     function()
-                        ns.BuffRules.SetClass(keys[math.random(3)], classes[math.random(#classes)], math.random() < 0.5)
+                        ns.BuffRules.SetClass(keys[random.random(3)], classes[random.random(#classes)], random.random() < 0.5)
                     end,
                     function()
                         local pick = {}
-                        for _, name in ipairs(everyone) do if math.random() < 0.3 then pick[#pick + 1] = name end end
-                        ns.BuffRules.SetNames(keys[math.random(3)], math.random() < 0.5 and "always" or "never",
+                        for _, name in ipairs(everyone) do if random.random() < 0.3 then pick[#pick + 1] = name end end
+                        ns.BuffRules.SetNames(keys[random.random(3)], random.random() < 0.5 and "always" or "never",
                             table.concat(pick, ", "))
                     end,
                     function()
                         -- Another paladin's Blessing or Salvation lands on someone.
-                        local token = (wow.state.units.raid1 and "raid" or "party") .. math.random(1, 6)
+                        local token = (wow.state.units.raid1 and "raid" or "party") .. random.random(1, 6)
                         local u = wow.state.units[token]
                         if u then
                             u.auras = u.auras or {}
-                            u.auras[#u.auras + 1] = ({ KINGS, MIGHT_1, SALVATION })[math.random(3)]
+                            u.auras[#u.auras + 1] = ({ KINGS, MIGHT_1, SALVATION })[random.random(3)]
                             u.auraSources = u.auraSources or {}
                             u.auraSources[#u.auras] = "raid9"
                         end
                     end,
                     function()
-                        local token = (wow.state.units.raid1 and "raid" or "party") .. math.random(1, 6)
+                        local token = (wow.state.units.raid1 and "raid" or "party") .. random.random(1, 6)
                         local u = wow.state.units[token]
                         if u then
-                            local r = math.random()
+                            local r = random.random()
                             u.secrets = r < 0.3 and { role = true } or r < 0.5 and { mainTank = true } or nil
                         end
                     end,
                     function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
-                    function() ns.db.buffBack.buffOrder = { keys[math.random(3)], keys[math.random(3)] } end,
-                    function() wow.advance(math.random() * 20) end,
+                    function() ns.db.buffBack.buffOrder = { keys[random.random(3)], keys[random.random(3)] } end,
+                    function() wow.advance(random.random() * 20) end,
                 }
                 for step = 1, 400 do
                     local where = ("seed %d, step %d"):format(seed, step)
-                    actions[math.random(#actions)]()
+                    actions[random.random(#actions)]()
                     local before = #wow.casts
                     -- What the rules say for the member about to be buffed,
                     -- read the way the game shows them now.
