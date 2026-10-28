@@ -322,6 +322,7 @@ describe("CurseForge project ID", function()
 
     it("still passes the check when the TOC has Windows line endings", function()
         local crlf = wow.readFile("FriendlyForever.toc"):gsub("\r?\n", "\r\n")
+        assert.is_truthy(crlf:find("\r\n", 1, true), "the test input has no Windows line endings")
         assert.is_true(accepted(crlf))
     end)
 end)
