@@ -266,7 +266,8 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         name, PvP flag or buffs read as secrets (as for a
 --                         stranger in a restricted moment); role and mainTank
 --                         likewise for its group role and Main Tank assignment.
---   C_Spell.GetSpellInfo(name) answers only for a spell you know, as the
+--   C_Spell.GetSpellInfo(name) and GetSpellTexture(name) answer only for a
+--                         spell you know (likewise GetSpellInfo(name)), as the
 --                         game's name lookup goes through your spellbook; by
 --                         ID it answers for any spell. Revoke has a made-up
 --                         ID here (M.REVOKE_ID): Forever's is checked at launch.
@@ -852,7 +853,12 @@ function M.reset()
             if not name then return nil end
             return { name = name, spellID = id }
         end,
-        GetSpellTexture = function(id) return M.SPELL_NAMES[id] and ("icon:" .. id) or nil end,
+        -- By ID, or by name for a spell you know (as GetSpellInfo).
+        GetSpellTexture = function(spell)
+            local id = spell
+            if type(spell) == "string" then id = knownRank(spell) end
+            return id and M.SPELL_NAMES[id] and ("icon:" .. id) or nil
+        end,
         -- Unit fields outOfSpellRange (the spell can't reach them) and
         -- spellRangeUnknown (the game won't say: nil).
         IsSpellInRange = function(_, unit)

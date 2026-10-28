@@ -98,6 +98,7 @@ describe("Revoke", function()
             })
             assert.are.equal("Ann Vale: Revoke", armed(), "ahead of new buffs")
             assert.are.equal("Revoke their Salvation (a tank)", button.subtitle:GetText())
+            assert.are.equal("icon:" .. REVOKE, button.icon.texture, "Revoke's own icon, found by name")
             local cast = scroll()
             assert.are.same({ "Revoke", "Ann-Vale" }, { cast.spell, cast.target })
             assert.are.equal("Revoked Salvation from Ann Vale.", button.result:GetText())
@@ -220,7 +221,6 @@ describe("Revoke", function()
 
         it("says why when it can't tell whose Salvation it is, or who's a tank", function()
             group("party", { { "Ann-Vale", "WARRIOR", "TANK", false, "player" } })
-            wow.state.units.party1.auraSources = { nil }
             wow.state.units.party1.auras = { SALVATION, KINGS, MIGHT_1 } -- nothing else to give them
             wow.state.units.party1.auraSources = { nil, "player", "raid9" }
             ns.BuffButton.Refresh()
@@ -233,6 +233,44 @@ describe("Revoke", function()
             assert.are.equal("Ann Vale: can't tell if they're a tank", button.subtitle:GetText())
             local _, _, settled = ns.GroupBuffs.Next()
             assert.is_false(settled)
+        end)
+
+        it("needs to know whose Salvation it is only for \"my Salvation only\"", function()
+            mode("anyTank")
+            group("party", { { "Ann-Vale", "WARRIOR", "TANK", false, "player" } })
+            wow.state.units.party1.auraSources = { nil } -- who cast it can't be read
+            ns.BuffButton.Refresh()
+            assert.are.equal("Ann Vale: Revoke", armed())
+        end)
+
+        it("my Salvation only: not on a member whose role can't be read", function()
+            group("party", { { "Ann-Vale", "WARRIOR", "TANK", false, "player" } })
+            local u = wow.state.units.party1
+            u.secrets = { role = true }
+            u.auras, u.auraSources = { SALVATION, KINGS }, { "player", "player" }
+            ns.BuffButton.Refresh()
+            assert.is_nil(macro())
+            assert.are.equal("Ann Vale: can't tell if they're a tank", button.subtitle:GetText())
+        end)
+
+        it("not on a member whose buffs can't be read, and the button says why", function()
+            mode("anyTank")
+            group("party", { { "Ann-Vale", "WARRIOR", "TANK", false, "raid9" } })
+            wow.state.units.party1.secrets = { auras = true }
+            ns.BuffButton.Refresh()
+            assert.is_nil(macro())
+            assert.are.equal("Ann Vale: can't see their buffs", button.subtitle:GetText())
+        end)
+
+        it("names damaged mid-session, in a mode that reads them, cover nobody", function()
+            for _, m in ipairs({ "players", "chosenTanks" }) do
+                boot()
+                mode(m)
+                ns.db.buffBack.revokeNames = 9
+                group("party", { { "Ann-Vale", "WARRIOR", "TANK", false, "raid9" } })
+                assert.is_falsy((armed() or ""):find("Revoke", 1, true), m)
+                assert.are.same({}, wow.errors, m)
+            end
         end)
 
         it("says so when the tank is out of Revoke's range", function()
@@ -385,6 +423,29 @@ describe("Revoke", function()
                         local named = names[cast.target:lower()]
                         if revokeMode == "mine" then
                             assert.are.equal("player", s.salvationFrom, where .. ": another paladin's Salvation")
+                            -- And your Salvation rule leaves them out, as the game shows them.
+                            local entry = (ns.db.buffBack.whoGets or {}).salvation or {}
+                            local key = cast.target:lower()
+                            local excluded
+                            if (entry.never or {})[key] then
+                                excluded = true
+                            elseif (entry.always or {})[key] then
+                                excluded = false
+                            else
+                                local rule = entry.rule or "notTanks"
+                                local knowNotTank = not hidden.role and u.role ~= "TANK"
+                                    and (not s.inRaid or (not hidden.mainTank and u.mainTank ~= true))
+                                if rule == "tanks" then
+                                    excluded = knowNotTank
+                                elseif rule == "notTanks" then
+                                    excluded = tank
+                                elseif rule == "classes" then
+                                    excluded = u.class ~= nil and not (entry.classes or {})[u.class]
+                                else
+                                    excluded = false
+                                end
+                            end
+                            assert.is_true(excluded, where .. ": your Salvation rule doesn't leave them out")
                         elseif revokeMode == "anyTank" then
                             assert.is_true(tank, where .. ": not a tank")
                         elseif revokeMode == "chosenTanks" then
