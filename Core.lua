@@ -90,7 +90,12 @@ function handlers.ADDON_LOADED(name)
         end
     end)
     Register("CHAT_MSG_SYSTEM", ns.Greeter.OnSystemMessage)
-    Register("GROUP_ROSTER_UPDATE", ns.Greeter.OnGroupRosterUpdate)
+    Register("GROUP_ROSTER_UPDATE", function(...)
+        -- Forget this raid's Blessings as you leave it, so they can't carry
+        -- into the next raid (BuffRules.lua).
+        ns.BuffRules.CheckRaid()
+        ns.Greeter.OnGroupRosterUpdate(...)
+    end)
     Register("GUILD_ROSTER_UPDATE", ns.Greeter.OnRosterUpdate)
     Register("PLAYER_GUILD_UPDATE", ns.Greeter.RequestRoster)
     Register("UNIT_AURA", function(_, updateInfo) ns.BuffTracker.OnPlayerAura(updateInfo) end, "player")

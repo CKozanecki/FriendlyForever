@@ -400,10 +400,10 @@ function BuffRules.CheckRaid()
     if raidBlessings and not InRaid() then raidBlessings = nil end
 end
 
--- Your class's Blessings (the "blessing" family), in your class's order.
+-- The Blessings you know (the "blessing" family), in your class's order.
 function BuffRules.MyBlessings()
     local out = {}
-    for _, buff in ipairs(ns.BuffData.ClassBuffs()) do
+    for _, buff in ipairs(ns.BuffData.Mine()) do
         if buff.family == "blessing" then out[#out + 1] = buff end
     end
     return out

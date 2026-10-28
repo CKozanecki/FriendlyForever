@@ -364,17 +364,19 @@ end
 -- member's buff puts them on that buff's Never list (BuffRules.lua).
 local function OnPostClick(_, mouseButton, isDown)
     if mouseButton ~= "RightButton" or isDown == true or not armedOffer then return end
-    local name = armedOffer.name
-    if armedOffer.group and not armedOffer.revoke and Util.ReadGameValues(IsShiftKeyDown) == true then
-        local ok, why = ns.BuffRules.AddName(armedOffer.buff.key, "never", name)
+    -- Kept: changing a Never list re-arms the button.
+    local offer = armedOffer
+    local name = offer.name
+    if offer.group and not offer.revoke and Util.ReadGameValues(IsShiftKeyDown) == true then
+        local ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name)
         if ok then
             ShowResult(string.format("%s won't get %s (Never list, on the Buff Back tab).",
-                Util.DisplayName(name), armedOffer.spell))
+                Util.DisplayName(name), offer.spell))
         else
             ShowResult("Couldn't add " .. Util.DisplayName(name) .. " to the Never list: " .. why .. ".", true)
         end
         ns.Options.Refresh()
-    elseif armedOffer.group then
+    elseif offer.group then
         ns.GroupBuffs.Skip(name)
         ShowResult(string.format("Skipping %s for %d minutes.", Util.DisplayName(name),
             ns.GroupBuffs.SKIP_SECONDS / 60))
