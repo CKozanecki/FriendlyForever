@@ -184,7 +184,7 @@ CI (`.github/workflows/ci.yml`) runs all three on every pull request and every p
 
 ### Releasing to CurseForge
 
-Pushing a version tag runs `.github/workflows/release.yml`, which builds with the BigWigs packager and uploads to CurseForge. Versions below 1.0.0 are pre-launch: 0.8.0 is the first file on CurseForge and 1.0.0 is the launch. [CONTRIBUTING.md](CONTRIBUTING.md#releasing-maintainer) has the full steps; in short:
+Pushing a version tag runs `.github/workflows/release.yml`, which builds with the BigWigs packager, uploads to CurseForge and creates the GitHub release. Versions below 1.0.0 are pre-launch: 0.8.0 is the first file on CurseForge and 1.0.0 is the launch. [CONTRIBUTING.md](CONTRIBUTING.md#releasing-maintainer) has the full steps; in short:
 
 1. In a pull request, bump `## Version` in `FriendlyForever.toc` and turn the top of `CHANGELOG.md` into a matching `## <version>` section, as CONTRIBUTING describes (the tests check they agree). That section becomes the CurseForge release notes.
 2. After it merges, tag the merge commit and push only that tag: `git tag vX.Y.Z && git push origin vX.Y.Z` (not `--tags`). Version tags can't be moved or deleted once pushed.
