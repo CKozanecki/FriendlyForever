@@ -291,6 +291,34 @@ describe("UI simulator workflow", function()
         assert.is_falsy(outside:find("%f[%w]cargo%s"), "cargo runs on the runner, outside a container")
     end)
 
+    -- Containers only ever run the pinned image or the two images built here
+    -- from the pinned bases, and nothing builds the simulator's own Dockerfile
+    -- (that would run its build scripts on the runner's Docker, with network).
+    it("runs only the pinned image and the images it builds from the pinned bases", function()
+        local allowed = { run = true, build = true, pull = true, inspect = true, stats = true, logs = true,
+            kill = true, rm = true, top = true }
+        for command in text:gmatch("docker (%l+)") do
+            assert.is_true(allowed[command] == true, "the workflow runs docker " .. command)
+        end
+        local built = {}
+        for line in text:gmatch("docker build[^\n]*") do
+            local name = line:match("^docker build %-t (ff%-%l+) %- <<DOCKERFILE%s*$")
+            assert.is_truthy(name, "docker build doesn't build the workflow's own Dockerfile: " .. line)
+            built[#built + 1] = name
+        end
+        assert.are.same({ "ff-build", "ff-render" }, built)
+        for pull in text:gmatch("docker pull[^\n]*") do
+            assert.are.equal('docker pull "$IMAGE"', pull)
+        end
+        for _, job in ipairs(order) do
+            for _, command in ipairs(dockerRuns(job)) do
+                local image = command:find('%s"%$IMAGE"%s') or command:find("%sff%-build%s") or command:find("%sff%-render%s")
+                assert.is_truthy(image, job.name .. ": docker run of an image that isn't pinned: " .. command)
+                assert.is_falsy(command:find("ghcr%.io") or command:find("@sha256"), job.name .. ": docker run names an image")
+            end
+        end
+    end)
+
     it("lets only the publish job write, and it runs nothing from the simulator or the pull request", function()
         for _, job in ipairs(order) do
             if job.name ~= "publish-screenshots" then
