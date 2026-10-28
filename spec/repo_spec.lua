@@ -509,29 +509,34 @@ end)
 -- the docs must never tell the maintainer to make one: GitHub refuses a second
 -- release for a tag, and one made before the upload is overwritten.
 describe("Release docs", function()
-    -- Wording that has the reader make the release: an imperative verb (not
-    -- the workflow's "creates" or "makes") before "a" or "the" release, "you"
-    -- or "the maintainer" as the one making it, or GitHub's own button and
-    -- page for making one.
-    local MANUAL = { "generate release notes", "releases/new" }
-    for _, forms in ipairs({ { "create", "creates" }, { "make", "makes" }, { "publish", "publishes" },
-        { "draft", "drafts" } }) do
-        local verb, says = forms[1], forms[2]
-        for _, article in ipairs({ "an?", "the" }) do
-            MANUAL[#MANUAL + 1] = verb .. " " .. article .. " [%w ]-release"
-        end
-        MANUAL[#MANUAL + 1] = "you " .. verb
-        MANUAL[#MANUAL + 1] = "maintainer " .. says
+    -- Wording that has the reader make the release: "you" or "the maintainer"
+    -- as the one making it, the GitHub CLI's command, or GitHub's own button
+    -- and page for making one. Imperative verbs are found in manualReleaseSteps.
+    local MANUAL = { "generate release notes", "releases/new", "release create" }
+    local VERBS = { { "create", "creates" }, { "make", "makes" }, { "publish", "publishes" }, { "draft", "drafts" } }
+    for _, forms in ipairs(VERBS) do
+        MANUAL[#MANUAL + 1] = "you " .. forms[1]
+        MANUAL[#MANUAL + 1] = "maintainer " .. forms[2]
     end
 
     -- Each manual-release instruction in text, as the words that matched.
     -- Case, markdown emphasis and line breaks (LF or CRLF) don't hide one.
+    -- An imperative verb counts when "release" follows within three words
+    -- ("create a new GitHub release"), but not the workflow's "creates" or
+    -- the command `make release-notes`.
     local function manualReleaseSteps(text)
         local flat = text:lower():gsub("[%*_`]", ""):gsub("%s+", " ")
         local found = {}
         for _, pattern in ipairs(MANUAL) do
             local match = flat:match(pattern)
             if match then found[#found + 1] = match end
+        end
+        for _, forms in ipairs(VERBS) do
+            for words, release in flat:gmatch(forms[1] .. " ([%w ]-)(releases?)%f[^%w%-]") do
+                if select(2, words:gsub("%S+", "")) <= 3 then
+                    found[#found + 1] = forms[1] .. " " .. words .. release
+                end
+            end
         end
         return found
     end
@@ -542,7 +547,7 @@ describe("Release docs", function()
                 .. "**Generate release notes**, which lists the pull requests and the issues they closed.\n"
                 .. "2. After it merges, tag the merge commit and push the tag. Then create a GitHub release "
                 .. "for the tag with **Generate release notes**.\n"
-            assert.are.same({ "generate release notes", "create a github release", "maintainer creates" },
+            assert.are.same({ "generate release notes", "maintainer creates", "create a github release" },
                 manualReleaseSteps(old))
         end)
 
@@ -551,6 +556,10 @@ describe("Release docs", function()
                 "Then create the GitHub release.",
                 "Create a release for the tag.",
                 "Create an annotated GitHub release.",
+                "Create a new GitHub release.",
+                "Then create GitHub release v0.8.0 for the tag.",
+                "Create GitHub releases for both tags.",
+                "Then run `gh release create v0.8.0 --generate-notes`.",
                 "Then make a GitHub release for the tag.",
                 "Then publish the GitHub release for the tag.",
                 "Then draft the GitHub release.",
@@ -573,7 +582,8 @@ describe("Release docs", function()
         it("accepts docs that say the workflow creates the release", function()
             assert.are.same({}, manualReleaseSteps("The Release workflow creates the GitHub release for each tag. "
                 .. "The GitHub release isn't made by hand: the workflow makes it in step 3. "
-                .. "Run `make release-notes` to preview the notes."))
+                .. "Run `make release-notes` to preview the notes. "
+                .. "Make sure the zip holds the README and the release notes."))
         end)
     end)
 
@@ -584,10 +594,12 @@ describe("Release docs", function()
             end)
         end
 
-        it("CONTRIBUTING.md says the workflow creates the release, with the changelog as its notes", function()
+        it("CONTRIBUTING.md says the workflow creates the release, with the changelog as its notes, "
+            .. "and the maintainer does nothing after the run", function()
             local flat = wow.readFile("CONTRIBUTING.md"):gsub("%s+", " ")
             assert.is_truthy(flat:find("the Release workflow creates the GitHub release for each tag", 1, true))
             assert.is_truthy(flat:find("Its notes are that version's changelog section", 1, true))
+            assert.is_truthy(flat:find("The GitHub release isn't made by hand: the workflow makes it", 1, true))
             assert.is_truthy(flat:find("creates the GitHub release for the tag, with the same notes", 1, true))
             assert.is_truthy(flat:find("Once the job is green, there's nothing left to do.", 1, true))
         end)
