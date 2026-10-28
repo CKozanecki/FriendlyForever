@@ -297,7 +297,7 @@ end)
 describe("Release version check", function()
     -- Runs the release job's own lines: read the TOC version, then compare it
     -- with the tag and exit 1 on a mismatch, so a wrong tag can't start an upload.
-    local text = wow.readFile(".github/workflows/release.yml")
+    local text = withoutComments(wow.readFile(".github/workflows/release.yml"))
     local readToc = text:match('(toc="%$%(sed [^\n]*%)")')
     -- The comparison and the line that stops the job when it fails.
     local compare = text:match('(%[%[ "v%$toc" == "%$GITHUB_REF_NAME" %]%] \\\n[^\n]*exit 1; })')
@@ -317,6 +317,16 @@ describe("Release version check", function()
         os.execute('rm -rf "' .. dir .. '"')
         return ok == true or ok == 0
     end
+
+    it("keeps the tag check from being skipped or allowed to fail", function()
+        local _, order = parseWorkflow(".github/workflows/release.yml")
+        local verify = jobWith(order, "GITHUB_REF_NAME\" %]%]")
+        assert.is_truthy(verify, "no job checks the tag against the TOC")
+        assert.is_falsy(verify.keys["if"] or verify.keys["continue-on-error"], verify.name .. " can be skipped or fail quietly")
+        local step = verify.steps[indexOf(verify.steps, "GITHUB_REF_NAME\" %]%]")]
+        assert.is_falsy(step.text:find("\n%s+if:"), "the tag check step can be skipped")
+        assert.is_falsy(step.text:find("continue%-on%-error"), "the tag check step can fail quietly")
+    end)
 
     it("finds the release job's two lines", function()
         assert.is_truthy(readToc, "release.yml no longer reads the TOC version")
