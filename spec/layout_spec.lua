@@ -118,7 +118,7 @@ describe("Layout", function()
         end)
     end)
 
-    describe("the options tabs", function()
+    describe("the message list on each options tab", function()
         local ns, w
 
         -- Whether a region and every parent up to the scrolling content are shown.
@@ -145,20 +145,30 @@ describe("Layout", function()
             end
         end
 
-        -- The shown regions hanging directly below a region (top to its bottom).
-        local function stackedBelow(target, content)
-            local below = {}
-            for _, f in ipairs(wow.frames) do
-                if shownIn(f, content) then
-                    for i = 1, f:GetNumPoints() do
-                        local point, relativeTo, relativePoint = f:GetPoint(i)
-                        if relativeTo == target and point:find("^TOP") and relativePoint:find("^BOTTOM") then
-                            below[#below + 1] = f
-                        end
-                    end
+        -- Which row a region is on, counted from the top of the content:
+        -- a region whose top hangs from another's bottom is one row below
+        -- it; one pinned beside another (left, right, top to top) is on its
+        -- row; one pinned to the content itself is on row 0.
+        local function rowOf(region, content)
+            local row = 0
+            for i = 1, region:GetNumPoints() do
+                local point, relativeTo, relativePoint = region:GetPoint(i)
+                if type(relativeTo) == "table" and relativeTo ~= content then
+                    local below = point:find("^TOP") and relativePoint:find("^BOTTOM") and 1 or 0
+                    row = math.max(row, rowOf(relativeTo, content) + below)
                 end
             end
-            return below
+            return row
+        end
+
+        -- Whether a region hangs, through any of its anchors, from target.
+        local function hangsFrom(region, target)
+            for i = 1, region:GetNumPoints() do
+                local _, relativeTo = region:GetPoint(i)
+                if relativeTo == target then return true end
+                if type(relativeTo) == "table" and hangsFrom(relativeTo, target) then return true end
+            end
+            return false
         end
 
         local function describeRegion(region)
@@ -177,10 +187,16 @@ describe("Layout", function()
                         .. describeRegion(hidden or {}) .. "', leaving a gap")
                 end
             end
-            local _, last = header:GetPoint(1)
-            for _, f in ipairs(stackedBelow(last, content)) do
-                assert.are.equal(header, f, label .. ": the message list follows the last row, but '"
-                    .. describeRegion(f) .. "' is below it too")
+            -- Every other shown row is above the message list: no row but
+            -- the list itself (and what hangs from it) is lower than its anchor.
+            local _, above = header:GetPoint(1)
+            local lastRow = rowOf(above, content)
+            assert.are.equal(lastRow + 1, rowOf(header, content), label .. ": the list hangs below its anchor")
+            for _, f in ipairs(wow.frames) do
+                if f ~= header and shownIn(f, content) and f:GetNumPoints() > 0 and not hangsFrom(f, header) then
+                    assert.is_true(rowOf(f, content) <= lastRow, label .. ": '" .. describeRegion(f)
+                        .. "' is below the row the message list follows")
+                end
             end
         end
 
@@ -191,7 +207,7 @@ describe("Layout", function()
             end
         end
 
-        it("follow the last row each tab shows, with friendly nameplates on or off", function()
+        it("follows the last row each tab shows, with friendly nameplates on or off", function()
             ns = wow.boot()
             w = ns.Options.widgets
             eachTab("nameplates on")
@@ -202,8 +218,9 @@ describe("Layout", function()
             assert.are.equal(w.nameplateWarning, select(2, w.msgHeader:GetPoint()))
         end)
 
-        it("follow the last row for a paladin, through each Who rule and Revoke choice", function()
+        it("follows the last row each tab shows for a paladin, through each Who rule and Revoke choice", function()
             wow.SPELL_NAMES[SALVATION] = "Blessing of Salvation"
+            finally(function() wow.SPELL_NAMES[SALVATION] = nil end)
             ns = wow.boot({ before = function(state)
                 state.class = "PALADIN"
                 state.knownSpells = { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true, [SALVATION] = true }
@@ -224,7 +241,7 @@ describe("Layout", function()
             end
         end)
 
-        it("follow the last row for a class with no buffs to offer", function()
+        it("follows the last row each tab shows for a class with no buffs to offer", function()
             ns = wow.boot({ before = function(state)
                 state.class = "ROGUE"
                 state.knownSpells = {}
