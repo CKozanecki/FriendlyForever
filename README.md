@@ -43,7 +43,7 @@ Every Forever race has its own voice: the eight original races, and both Skyborn
 
 So "{greeting}, {name}! {blessing}" comes out as "Throm-ka, Thrall! Strength and honor." from an orc, or "Ishnu-alah, Thrall! Elune light your path." from a night elf. The same words aren't used again until a few others have been. Use these in your own lines too.
 
-The 1.5 to 1.6 default lines are still there: each tab's **Load casual lines (1.6)** button puts them back, and **Load fantasy lines** loads the new ones. Lines you edited are never replaced by an update.
+The 0.5 to 0.6 default lines are still there: each tab's **Load casual lines (0.6)** button puts them back, and **Load fantasy lines** loads the new ones. Lines you edited are never replaced by an update.
 
 ## Install
 
@@ -183,7 +183,7 @@ CI (`.github/workflows/ci.yml`) runs all three on every pull request and every p
 
 ### Releasing to CurseForge
 
-Pushing a version tag runs `.github/workflows/release.yml`, which builds with the BigWigs packager and uploads to CurseForge. [CONTRIBUTING.md](CONTRIBUTING.md#releasing-maintainer) has the full steps; in short:
+Pushing a version tag runs `.github/workflows/release.yml`, which builds with the BigWigs packager and uploads to CurseForge. Versions below 1.0.0 are pre-launch: 0.8.0 is the first file on CurseForge and 1.0.0 is the launch. [CONTRIBUTING.md](CONTRIBUTING.md#releasing-maintainer) has the full steps; in short:
 
 1. In a pull request, bump `## Version` in `FriendlyForever.toc` and turn the top of `CHANGELOG.md` into a matching `## <version>` section, as CONTRIBUTING describes (the tests check they agree). That section becomes the CurseForge release notes.
 2. After it merges, tag the merge commit and push only that tag: `git tag vX.Y.Z && git push origin vX.Y.Z` (not `--tags`). Version tags can't be moved or deleted once pushed.

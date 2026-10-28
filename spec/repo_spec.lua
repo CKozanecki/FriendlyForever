@@ -1,4 +1,4 @@
--- Spec: #77
+-- Spec: #77, #80
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -318,6 +318,70 @@ describe("Claude Code worktrees", function()
     end)
 end)
 
+describe("Release version check", function()
+    -- Runs the release job's own lines: read the TOC version, then compare it
+    -- with the tag and exit 1 on a mismatch, so a wrong tag can't start an upload.
+    local text = withoutComments(wow.readFile(".github/workflows/release.yml"))
+    local readToc = text:match('(toc="%$%(sed [^\n]*%)")')
+    -- The comparison and the line that stops the job when it fails.
+    local compare = text:match('(%[%[ "v%$toc" == "%$GITHUB_REF_NAME" %]%] \\\n[^\n]*exit 1; })')
+
+    local function accepts(toc, tag)
+        assert(readToc and compare, "release.yml no longer reads the TOC version and compares it with the tag")
+        local dir = os.tmpname()
+        os.remove(dir)
+        os.execute('mkdir -p "' .. dir .. '"')
+        local file = assert(io.open(dir .. "/FriendlyForever.toc", "w"))
+        file:write(toc)
+        file:close()
+        local script = assert(io.open(dir .. "/check.sh", "w"))
+        script:write("GITHUB_REF_NAME='" .. tag .. "'\n" .. readToc .. "\n" .. compare .. "\n")
+        script:close()
+        local ok = os.execute('cd "' .. dir .. '" && bash check.sh')
+        os.execute('rm -rf "' .. dir .. '"')
+        return ok == true or ok == 0
+    end
+
+    it("keeps the tag check from being skipped or allowed to fail", function()
+        local _, order = parseWorkflow(".github/workflows/release.yml")
+        local verify = jobWith(order, "GITHUB_REF_NAME\" %]%]")
+        assert.is_truthy(verify, "no job checks the tag against the TOC")
+        assert.is_falsy(verify.keys["if"] or verify.keys["continue-on-error"], verify.name .. " can be skipped or fail quietly")
+        local step = verify.steps[indexOf(verify.steps, "GITHUB_REF_NAME\" %]%]")]
+        assert.is_falsy(step.text:find("\n%s+if:") or step.text:find("^%s*%- if:"), "the tag check step can be skipped")
+        assert.is_falsy(step.text:find("continue%-on%-error"), "the tag check step can fail quietly")
+
+        -- The upload job must wait for verify to pass: an `if` such as always()
+        -- would let it run after a failed tag check.
+        local release = jobWith(order, "BigWigsMods/packager@")
+        assert.is_truthy(release, "no job uploads")
+        assert.is_falsy(release.keys["if"], release.name .. " has an if: it can run after a failed " .. verify.name)
+        assert.is_falsy(release.keys["continue-on-error"], release.name .. " is allowed to fail quietly")
+    end)
+
+    it("finds the release job's two lines", function()
+        assert.is_truthy(readToc, "release.yml no longer reads the TOC version")
+        assert.is_truthy(compare, "release.yml no longer compares the tag with the TOC")
+    end)
+
+    it("accepts the tag for the TOC's own version", function()
+        local toc = wow.readFile("FriendlyForever.toc")
+        assert.is_true(accepts(toc, "v" .. wow.parseToc().Version))
+        assert.is_true(accepts("## Version: 0.8.0\n", "v0.8.0"))
+    end)
+
+    it("rejects a tag that is not the TOC's version, or a TOC with no version", function()
+        assert.is_false(accepts("## Version: 0.8.0\n", "v1.6.0"))
+        assert.is_false(accepts("## Version: 0.8.0\n", "v0.8.0-beta"))
+        assert.is_false(accepts("## Version: 0.8.0\n", "0.8.0"))
+        assert.is_false(accepts("## Title: Friendly Forever\n", "v0.8.0"))
+    end)
+
+    it("still accepts the right tag when the TOC has Windows line endings", function()
+        assert.is_true(accepts("## Version: 0.8.0\r\n## Title: x\r\n", "v0.8.0"))
+    end)
+end)
+
 describe("CurseForge project ID", function()
     -- The release job refuses to upload without a numeric ID in the TOC. The
     -- test runs that job's own grep, so the check and the file can't drift.
@@ -340,7 +404,7 @@ describe("CurseForge project ID", function()
     end)
 
     it("is rejected by the release check when missing or not a number", function()
-        assert.is_false(accepted("## Version: 1.6.0\n"))
+        assert.is_false(accepted("## Version: 0.8.0\n"))
         assert.is_false(accepted("## X-Curse-Project-ID: abc\n"))
         assert.is_false(accepted("## X-Curse-Project-ID:\n"))
     end)
@@ -390,6 +454,30 @@ describe("Release scripts", function()
         os.execute('rm -rf "' .. dir .. '"')
         assert.are.equal(0, code, out)
         assert.are.equal("## 1.7.0\n\n- One.\n- Two.\n- Kept (as written).\n- Not a tag (#)\n\n", notes)
+    end)
+
+    it("release notes are the same for a changelog with Windows line endings", function()
+        local dir = os.tmpname()
+        os.remove(dir)
+        os.execute('mkdir -p "' .. dir .. '"')
+        local text = wow.readFile("CHANGELOG.md")
+        local crlf = text:gsub("\r?\n", "\r\n")
+        assert.is_truthy(crlf:find("\r\n", 1, true), "the test input has no Windows line endings")
+        for name, body in pairs({ lf = text, crlf = crlf }) do
+            local file = io.open(dir .. "/" .. name .. ".md", "wb")
+            file:write(body)
+            file:close()
+        end
+        local _, a = run('./scripts/release-notes.sh "' .. dir .. '/lf.md" "' .. dir .. '/lf-out.md"')
+        local _, b = run('./scripts/release-notes.sh "' .. dir .. '/crlf.md" "' .. dir .. '/crlf-out.md"')
+        local lf, crlfNotes = io.open(dir .. "/lf-out.md"), io.open(dir .. "/crlf-out.md")
+        local same = lf and crlfNotes and lf:read("*a") == crlfNotes:read("*a")
+        if lf then lf:close() end
+        if crlfNotes then crlfNotes:close() end
+        os.execute('rm -rf "' .. dir .. '"')
+        assert.are.equal(0, a)
+        assert.are.equal(0, b)
+        assert.is_true(same, "Windows line endings changed the release notes")
     end)
 
     -- Notes for the next release sit under "### Unreleased" until the
