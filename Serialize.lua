@@ -15,7 +15,9 @@ ns.Serialize = Serialize
 
 Serialize.PREFIX = "FF1:"
 Serialize.MAX_BYTES = 100000
-Serialize.MAX_DEPTH = 5
+-- Tables inside tables, at most. The deepest settings are 6 down: the
+-- export's wrapper, settings, buffBack, whoGets, a buff, its Always list.
+Serialize.MAX_DEPTH = 6
 Serialize.MAX_ITEMS = 5000
 
 local function EncodeString(s)

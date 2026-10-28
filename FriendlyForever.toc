@@ -19,6 +19,7 @@ Cooldowns.lua
 Ignore.lua
 Ledger.lua
 BuffData.lua
+BuffRules.lua
 Offers.lua
 Serialize.lua
 Profiles.lua
