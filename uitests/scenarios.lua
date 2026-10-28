@@ -96,12 +96,14 @@ local function TextInside(frame, region, label)
     -- A text line pinned on its left only grows to its text, so its text
     -- ends where its width says. One pinned on its right too is cut off at
     -- that edge (GetStringWidth still reports the uncut width).
-    local textRight = tr
+    local width = region.GetStringWidth and region:GetStringWidth() or (tr - tl)
+    local textRight, cut = tr, ""
     if not AnchoredOnRight(region) then
-        local width = region.GetStringWidth and region:GetStringWidth() or (tr - tl)
         textRight = math.max(tr, tl + width)
+    elseif width > tr - tl + 1 then
+        cut = (", cut short (its text is %.0f wide)"):format(width)
     end
-    local line = ("LAYOUT %s: text %.0f..%.0f, frame %.0f..%.0f"):format(label, tl, textRight, fl, fr)
+    local line = ("LAYOUT %s: text %.0f..%.0f, frame %.0f..%.0f%s"):format(label, tl, textRight, fl, fr, cut)
     report(line)
     check(tl >= fl - 1 and textRight <= fr + 1, line .. ": spills out of its frame")
 end
