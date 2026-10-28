@@ -1,4 +1,4 @@
--- Spec: #77, #80
+-- Spec: #77, #80, #82
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -502,5 +502,87 @@ describe("Release scripts", function()
         os.remove(short)
         assert.are_not.equal(0, differ)
         assert.is_truthy(out:find("FriendlyForever/Core.lua", 1, true))
+    end)
+end)
+
+-- The Release workflow's packager creates the GitHub release itself (#82), so
+-- the docs must never tell the maintainer to make one: GitHub refuses a second
+-- release for a tag, and one made before the upload is overwritten.
+describe("Release docs", function()
+    -- Wording that has the reader make the release: "create" (not the
+    -- workflow's "creates"), "you" or "the maintainer" as the one
+    -- creating it, or GitHub's own buttons and page for making one.
+    local MANUAL = {
+        "create an? [%w ]-release",
+        "create the [%w ]-release",
+        "you create",
+        "maintainer creates",
+        "generate release notes",
+        "draft a new release",
+        "releases/new",
+    }
+
+    -- Each manual-release instruction in text, as the words that matched.
+    -- Case, markdown emphasis and line breaks (LF or CRLF) don't hide one.
+    local function manualReleaseSteps(text)
+        local flat = text:lower():gsub("[%*_`]", ""):gsub("%s+", " ")
+        local found = {}
+        for _, pattern in ipairs(MANUAL) do
+            local match = flat:match(pattern)
+            if match then found[#found + 1] = match end
+        end
+        return found
+    end
+
+    describe("finder", function()
+        it("finds the old instructions to create the release by hand", function()
+            local old = "- **Releases:** after tagging, the maintainer creates a GitHub release for the tag with "
+                .. "**Generate release notes**, which lists the pull requests and the issues they closed.\n"
+                .. "2. After it merges, tag the merge commit and push the tag. Then create a GitHub release "
+                .. "for the tag with **Generate release notes**.\n"
+            assert.are.same({ "create a github release", "maintainer creates", "generate release notes" },
+                manualReleaseSteps(old))
+        end)
+
+        it("finds a manual step however it is worded", function()
+            for _, text in ipairs({
+                "Then create the GitHub release.",
+                "Create a release for the tag.",
+                "Create an annotated GitHub release.",
+                "Once it's tagged, you create its page on GitHub.",
+                "Open the release, then click Draft a new release.",
+                "Go to https://github.com/CKozanecki/FriendlyForever/releases/new and fill it in.",
+                "Edit it and press *Generate* `release notes`.",
+            }) do
+                assert.are_not.same({}, manualReleaseSteps(text), text)
+            end
+        end)
+
+        it("finds one split across lines, including Windows line endings", function()
+            assert.are_not.same({}, manualReleaseSteps("Then create a\nGitHub release."))
+            assert.are_not.same({}, manualReleaseSteps("Then create a\r\nGitHub release.\r\n"))
+        end)
+
+        it("accepts docs that say the workflow creates the release", function()
+            assert.are.same({}, manualReleaseSteps("The Release workflow creates the GitHub release for each tag. "
+                .. "The GitHub release isn't made by hand: the workflow makes it in step 3. "
+                .. "Run `make release-notes` to preview the notes."))
+        end)
+    end)
+
+    describe("the real docs", function()
+        for _, path in ipairs({ "CONTRIBUTING.md", "README.md" }) do
+            it(path .. " never tells the maintainer to create a GitHub release for the tag", function()
+                assert.are.same({}, manualReleaseSteps(wow.readFile(path)))
+            end)
+        end
+
+        it("CONTRIBUTING.md says the workflow creates the release, with the changelog as its notes", function()
+            local flat = wow.readFile("CONTRIBUTING.md"):gsub("%s+", " ")
+            assert.is_truthy(flat:find("the Release workflow creates the GitHub release for each tag", 1, true))
+            assert.is_truthy(flat:find("Its notes are that version's changelog section", 1, true))
+            assert.is_truthy(flat:find("creates the GitHub release for the tag, with the same notes", 1, true))
+            assert.is_truthy(flat:find("Once the job is green, there's nothing left to do.", 1, true))
+        end)
     end)
 end)
