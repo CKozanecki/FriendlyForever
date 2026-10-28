@@ -16,7 +16,13 @@
 -- counts as started: the quiet side is the safe side. Once it has surely
 -- started (the timer ran out, the aura went away, or you died) it stays
 -- started until you leave, so a Preparation aura given later can't open
--- the gates again.
+-- the gates again. That memory doesn't survive a reload or relog, so after
+-- one in a battleground the aura alone isn't trusted (a resurrection may
+-- have given it): only the timer can say the gates are still closed.
+--
+-- A trigger refused because it's quiet (the group can be joined before the
+-- phase can be read) is answered if the preparation phase opens
+-- (BuffModeAuto.OnQuietEnded).
 local _, ns = ...
 local Util = ns.Util
 local Read = Util.ReadGameValues
@@ -37,6 +43,7 @@ local frame
 local started = false   -- the battle has surely started (latched until you leave)
 local preparation       -- the Preparation aura on you: true, false, or nil (unread)
 local seenPreparation = false -- it has been on you in this battleground
+local distrustAura = false -- reloaded or logged in here: the aura alone proves nothing
 local timerEndsAt       -- GetTime() the start-of-battle timer runs out, or nil
 local wasQuiet = false  -- Quiet() as last seen by Update
 
@@ -79,7 +86,7 @@ function Battleground.Phase()
     if timerEndsAt and GetTime() >= timerEndsAt then started = true end
     if started then return "battle" end
     local timing = timerEndsAt ~= nil
-    if preparation == true or timing then return "preparation" end
+    if (preparation == true and not distrustAura) or timing then return "preparation" end
     return "battle"
 end
 
@@ -115,10 +122,12 @@ function Battleground.Update()
         local why = Battleground.QuietReason()
         ns.Diag.Log("battleground", "quiet: %s", why)
         if ns.BuffMode.IsOn() then ns.BuffMode.Set(false, { why = why }) end
+        ns.BuffButton.Refresh()
     else
         ns.Diag.Log("battleground", "buffing and lines as normal")
+        ns.BuffButton.Refresh()
+        ns.BuffModeAuto.OnQuietEnded(Battleground.Phase() == "preparation")
     end
-    ns.BuffButton.Refresh()
 end
 
 -- Your buffs changed (UNIT_AURA on you; Core calls this before buff thanks
@@ -163,9 +172,11 @@ function Battleground.OnPlayerDead()
     Battleground.Update()
 end
 
--- Every loading screen: a new battleground starts unread.
-function Battleground.OnEnteringWorld()
+-- Every loading screen: a new battleground starts unread. A login or
+-- reload inside one can't know whether its gates have opened.
+function Battleground.OnEnteringWorld(isLogin, isReload)
     Forget()
+    distrustAura = (isLogin or isReload) and true or false
     Battleground.OnPlayerAura()
 end
 

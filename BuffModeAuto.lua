@@ -29,6 +29,7 @@ local pulled = false     -- this group has fought since you joined it
 local deathSeen = false  -- a group member died during this fight
 local pendingWhy         -- a trigger that fired in a fight, to act on after it
 local timeoutToken = 0   -- bumps each auto start, so an old timer does nothing
+local quietWhy           -- a trigger refused while a battleground was quiet
 
 local function Cfg() return ns.db.buffBack end
 
@@ -79,8 +80,12 @@ local function StartTimeout()
 end
 
 local function TurnOn(why)
-    -- A battle under way: nothing turns on, and nobody's buffs are read.
-    if ns.Battleground.Quiet() then return end
+    -- A battle under way: nothing turns on, and nobody's buffs are read. The
+    -- trigger is kept in case it was only the phase not being read yet.
+    if ns.Battleground.Quiet() then
+        quietWhy = quietWhy or why
+        return
+    end
     if fighting or InCombatLockdown() then
         pendingWhy = pendingWhy or why
         return
@@ -183,6 +188,16 @@ function Auto.OnUnitHealth(unit)
     else
         OnDeath()
     end
+end
+
+-- A battleground stopped being quiet (Battleground.Update): a trigger it
+-- refused is answered now if that's because the preparation phase opened
+-- (joining the battleground's group can come before its phase can be
+-- read). Leaving or the end of a battleground forgets it.
+function Auto.OnQuietEnded(preparation)
+    local why = quietWhy
+    quietWhy = nil
+    if preparation and why then TurnOn(why) end
 end
 
 -- Someone outside your group buffed you (Offers.Owe).

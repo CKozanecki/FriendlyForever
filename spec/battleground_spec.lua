@@ -88,6 +88,15 @@ describe("Battlegrounds", function()
             assert.is_false(ns.BuffMode.IsOn(), "off when everyone has your buffs, as in a raid")
         end)
 
+        it("turns on for joining whichever comes first, the group or the phase", function()
+            -- enterBattleground sends the group first, before the phase can be read.
+            wow.enterBattleground(TEAM)
+            assert.is_true(ns.BuffMode.IsOn())
+            boot()
+            wow.enterBattleground(TEAM, { rosterLast = true })
+            assert.is_true(ns.BuffMode.IsOn())
+        end)
+
         it("reads the preparation phase from the start-of-battle timer alone", function()
             wow.enterBattleground(TEAM, { preparation = false, timer = 62 })
             assert.are.equal("preparation", ns.Battleground.Phase())
@@ -99,6 +108,16 @@ describe("Battlegrounds", function()
             assert.are.equal("battle", ns.Battleground.Phase())
             assert.is_false(ns.BuffMode.IsOn(), "the timer running out opened the gates")
             assert.is_false(lent())
+        end)
+
+        it("after a reload in the preparation phase, trusts the timer but not the aura alone", function()
+            wow.enterBattleground(TEAM, { timer = 60 })
+            wow.reloadInPlace()
+            assert.are.equal("battle", ns.Battleground.Phase(), "the aura alone: the quiet side")
+            wow.startTimer(50)
+            assert.are.equal("preparation", ns.Battleground.Phase())
+            wow.advance(50)
+            assert.are.equal("battle", ns.Battleground.Phase())
         end)
 
         it("takes a timer at zero as the gates opening", function()
@@ -220,6 +239,52 @@ describe("Battlegrounds", function()
             assert.are.same({}, nonGuildLines())
         end)
 
+        it("stays quiet after a reload or relog with a resurrection's Preparation aura", function()
+            wow.die()
+            wow.resurrect(true)
+            wow.reloadInPlace()
+            assert.are.equal("battle", ns.Battleground.Phase())
+            wow.reloadInPlace(true)
+            assert.are.equal("battle", ns.Battleground.Phase())
+            strangerBuffs()
+            wow.advance(30)
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.are.same({}, nonGuildLines())
+        end)
+
+        it("forgets triggers it refused once you leave or the battleground ends", function()
+            wow.enterCombat()
+            wow.leaveCombat()
+            wow.state.units.raid1.dead = true
+            wow.fire("UNIT_HEALTH", "raid1")
+            wow.endBattleground(0)
+            assert.is_false(ns.BuffMode.IsOn())
+            boot()
+            wow.enterBattleground(TEAM)
+            wow.openGates()
+            wow.setGroup("instance", { "Ann-Vale" }, true)
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.setGroup(nil, {})
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.setGroup("instance", TEAM, true)
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.leaveBattleground()
+            assert.is_false(ns.BuffMode.IsOn())
+            -- Nor in the next battleground's preparation phase.
+            boot()
+            ns.db.buffBack.autoOnJoin = false
+            wow.enterBattleground(TEAM)
+            wow.openGates()
+            wow.enterCombat()
+            wow.leaveCombat()
+            wow.state.units.raid1.dead = true
+            wow.fire("UNIT_HEALTH", "raid1")
+            wow.leaveBattleground()
+            wow.enterBattleground(TEAM)
+            assert.are.equal("preparation", ns.Battleground.Phase())
+            assert.is_false(ns.BuffMode.IsOn())
+        end)
+
         it("counts a death as the battle having started, whatever the aura says", function()
             boot()
             wow.enterBattleground(TEAM)
@@ -267,6 +332,18 @@ describe("Battlegrounds", function()
             wow.advance(10)
             wow.keyDown()
             assert.are.same({ "Thanks Bob" }, wow.sentTo("SAY"))
+        end)
+
+        it("shows a favour from the preparation phase again as soon as the battleground ends", function()
+            ns.db.buffBack.autoOnBuffed = false
+            ns.db.buffBack.autoOnJoin = false
+            wow.enterBattleground(TEAM)
+            strangerBuffs()
+            wow.openGates()
+            assert.is_false(button:IsShown())
+            wow.endBattleground(1)
+            assert.is_true(button:IsShown())
+            assert.are.equal("Bob-Stone", ns.BuffButton.ArmedOffer().name)
         end)
 
         it("puts everything back when the battleground ends", function()
@@ -425,9 +502,10 @@ describe("Battlegrounds", function()
                 -- The test's own record of the battleground, from what it did.
                 local inBG, ended, startedHere, aura, timerEnd = false, false, false, false, nil
                 local prepBuff = true -- the setting, as last clicked
+                local distrusted = false -- reloaded in this battleground: its aura alone proves nothing
                 local function quietExpected()
                     if not inBG or ended then return false end
-                    local prep = not startedHere and (aura or (timerEnd ~= nil and wow.now < timerEnd))
+                    local prep = not startedHere and ((aura and not distrusted) or (timerEnd ~= nil and wow.now < timerEnd))
                     if timerEnd and wow.now >= timerEnd then return true end
                     return not prep or not prepBuff
                 end
@@ -440,10 +518,10 @@ describe("Battlegrounds", function()
                 local actions = {
                     function()
                         if inBG then return end
-                        local opts = { preparation = math.random() < 0.7,
+                        local opts = { preparation = math.random() < 0.7, rosterLast = math.random() < 0.5,
                             timer = math.random() < 0.5 and math.random(5, 90) or nil }
                         wow.enterBattleground(roster(), opts)
-                        inBG, ended, startedHere, aura = true, false, false, opts.preparation
+                        inBG, ended, startedHere, aura, distrusted = true, false, false, opts.preparation, false
                         timerEnd = opts.timer and (wow.now + opts.timer) or nil
                         rounds = rounds + 1
                     end,
@@ -464,6 +542,11 @@ describe("Battlegrounds", function()
                         aura = true
                     end,
                     function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
+                    function()
+                        -- A reload or relog: the timer is forgotten unless it's sent again.
+                        wow.reloadInPlace(math.random() < 0.3)
+                        if inBG then distrusted, timerEnd = true, nil end
+                    end,
                     function()
                         if not inBG then return end
                         wow.setGroup("instance", roster(), true)
@@ -501,6 +584,7 @@ describe("Battlegrounds", function()
                         if not inBG then return end
                         wow.leaveBattleground()
                         inBG, ended, startedHere, aura, timerEnd = false, false, false, false, nil
+                        distrusted = false
                     end,
                 }
                 for step = 1, 600 do

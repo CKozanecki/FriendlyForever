@@ -299,7 +299,10 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         resurrection gives a Preparation aura again (older
 --                         clients' spirit healer buff), so it mustn't read as
 --                         the gates closing. GetBattlefieldWinner() is nil
---                         until the battleground ends (state.bgWinner).
+--                         until the battleground ends (state.bgWinner). The
+--                         battleground's group may arrive (GROUP_ROSTER_UPDATE)
+--                         before PLAYER_ENTERING_WORLD and the aura: the
+--                         pessimistic order, used by default.
 ------------------------------------------------------------------------
 
 local function targetableName(u)
@@ -1197,17 +1200,27 @@ end
 
 -- Zone into a battleground before its gates open, in a raid-sized instance
 -- group with names. opts.preparation (default true): you wear the Preparation
--- aura. opts.timer: START_TIMER says this many seconds to the gates.
+-- aura. opts.timer: START_TIMER says this many seconds to the gates. The
+-- group arrives first, while the loading screen is up (the pessimistic
+-- order: the phase can't be read yet); opts.rosterLast sends it last.
 function M.enterBattleground(names, opts)
     opts = opts or {}
     M.state.inInstance, M.state.instanceType = true, "pvp"
     M.state.bgWinner = nil
     M.setGroup("instance", names or {}, true)
+    if not opts.rosterLast then M.fire("GROUP_ROSTER_UPDATE") end
     M.fire("PLAYER_ENTERING_WORLD", false, false)
     M.fire("ZONE_CHANGED_NEW_AREA")
     if opts.preparation ~= false then M.gainBuff({ spellId = M.PREPARATION_ID, name = "Preparation" }) end
     if opts.timer then M.startTimer(opts.timer) end
-    M.fire("GROUP_ROSTER_UPDATE")
+    if opts.rosterLast then M.fire("GROUP_ROSTER_UPDATE") end
+end
+
+-- A /reload (or, with login, a relog) where you are, as PLAYER_ENTERING_WORLD
+-- says it: the game's state (auras, group, instance) stays. The battleground
+-- phase is read afresh on every PLAYER_ENTERING_WORLD, as after a real reload.
+function M.reloadInPlace(login)
+    M.fire("PLAYER_ENTERING_WORLD", login == true, login ~= true)
 end
 
 -- The gates open: the Preparation aura goes (the timer has run out).
