@@ -179,6 +179,8 @@ function methods:GetMaxLines() return self.maxLines or 0 end
 function methods:GetStringWidth() return M.textWidth(self.text, self.font) end
 function methods:CreateTexture() return M.newFrame("Texture", nil, self) end
 function methods:AddLine(text) self.lines = self.lines or {}; self.lines[#self.lines + 1] = text end
+-- Giving a tooltip an owner starts it afresh, as in the game.
+function methods:SetOwner(owner) self.owner, self.lines = owner, {} end
 
 ------------------------------------------------------------------------
 -- Layout

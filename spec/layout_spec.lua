@@ -84,6 +84,28 @@ describe("Layout", function()
             assert.are.equal("…", hint.text:sub(-#"…"))
         end)
 
+        it("shows a reason too long for the button in full in its tooltip", function()
+            boot("PRIEST", { [FORTITUDE_1] = true, [FORTITUDE] = true })
+            slash("buffmode on")
+            -- A member whose buffs the game won't show (a secret).
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.state.units.party1.secrets = { auras = true }
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(0)
+            local reason = button.subtitle:GetText()
+            local drawn = assertInside(button, button.subtitle, "the reason")
+            assert.are.equal("…", drawn.text:sub(-#"…"), "the reason is too long for the button: '" .. reason .. "'")
+            wow.run(button, "OnEnter")
+            assert.truthy(_G.GameTooltip.lines, "the tooltip has lines")
+            local found = false
+            for _, line in ipairs(_G.GameTooltip.lines) do found = found or line == reason end
+            assert.is_true(found, "the tooltip shows '" .. reason .. "' whole")
+            -- An empty line on the button adds no blank line to the tooltip.
+            button.subtitle:SetText("")
+            wow.run(button, "OnEnter")
+            for _, line in ipairs(_G.GameTooltip.lines) do assert.are_not.equal("", line) end
+        end)
+
         it("keeps a favour from a player with the longest name a player can have inside it", function()
             boot("DRUID", { [MOTW_1] = true, [MOTW] = true })
             -- 12 letters, and a realm name as long.

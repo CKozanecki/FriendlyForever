@@ -585,6 +585,10 @@ end
 local function ShowTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_TOP")
     GameTooltip:AddLine(ns.TITLE .. ": buff back")
+    -- The button cuts a long line short (a reason it's empty, why to Revoke):
+    -- here it is in full.
+    local subtitle = button.subtitle:GetText()
+    if subtitle and subtitle ~= "" then GameTooltip:AddLine(subtitle, 1, 0.82, 0, true) end
     if armedOffer then
         GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on " .. Util.DisplayName(armedOffer.name)
             .. ", then gives you your target back.", 1, 1, 1, true)
