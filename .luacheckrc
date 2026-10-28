@@ -51,12 +51,12 @@ files["spec/**"] = {
 }
 
 -- UI scenarios run inside the wow-ui-sim simulator (issue #49), which
--- provides the test functions and its A_Admin controls.
+-- provides the test functions and A_Print.
 files["uitests/**"] = {
     globals = { "_G", "DEFAULT_CHAT_FRAME" },
     read_globals = {
         "test", "assertTrue", "assertType", "assertEquals", "assertNotNil",
-        "print", "C_SpellBook", "UIParent",
+        "print", "A_Print", "C_SpellBook", "UIParent",
         "FriendlyForeverDB", "SLASH_FRIENDLYFOREVER1", "SlashCmdList",
     },
 }

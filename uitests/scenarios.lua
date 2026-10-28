@@ -3,9 +3,17 @@
 -- addon on top of Blizzard's own UI code, unlike spec/, whose simulated client
 -- is our own. The workflow copies this folder in as the addon's tests/.
 --
--- test(), async_test(), the assert* functions and A_Admin come from the
--- simulator; A_Admin calls (setting up a party, firing events) exist only
--- there, never in the game.
+-- test(), the assert* functions and A_Print come from the simulator; A_Print
+-- exists only there, never in the game.
+
+-- Report lines go to the simulator's log through A_Print: once Blizzard's UI
+-- loads, print writes to the chat frame instead.
+local report = type(A_Print) == "function" and A_Print or print
+
+-- Fails the test with message, unlike assertTrue, which drops its message.
+local function check(ok, message)
+    if not ok then error(message, 3) end
+end
 
 -- Messages the addon printed to chat while fn ran.
 local function CapturePrints(fn)
@@ -73,15 +81,16 @@ local function TextInside(frame, region, label)
     local fl, fr = Edges(frame)
     local tl, tr = Edges(region)
     if not (fl and tl) then
-        print("LAYOUT " .. label .. ": edges can't be read here")
+        report("LAYOUT " .. label .. ": edges can't be read here")
         return
     end
     local width = region.GetStringWidth and region:GetStringWidth() or (tr - tl)
     -- A text line pinned on its left only grows to its text: its right edge
     -- is where the text ends.
     local textRight = math.max(tr, tl + width)
-    print(("LAYOUT %s: text %.0f..%.0f, frame %.0f..%.0f"):format(label, tl, textRight, fl, fr))
-    assertTrue(tl >= fl - 1 and textRight <= fr + 1, label .. " spills out of its frame")
+    local line = ("LAYOUT %s: text %.0f..%.0f, frame %.0f..%.0f"):format(label, tl, textRight, fl, fr)
+    report(line)
+    check(tl >= fl - 1 and textRight <= fr + 1, line .. ": spills out of its frame")
 end
 
 -- Layout: a frame lies wholly on the screen. Compared in screen pixels, so
@@ -92,16 +101,16 @@ local function OnScreen(frame, label)
     end)
     if not (ok and type(left) == "number" and type(right) == "number"
         and type(top) == "number" and type(bottom) == "number") then
-        print("LAYOUT " .. label .. ": edges can't be read here")
+        report("LAYOUT " .. label .. ": edges can't be read here")
         return
     end
     local scale, screen = frame:GetEffectiveScale(), UIParent:GetEffectiveScale()
     local width, height = UIParent:GetWidth() * screen, UIParent:GetHeight() * screen
     left, right, top, bottom = left * scale, right * scale, top * scale, bottom * scale
-    print(("LAYOUT %s: %.0f..%.0f x %.0f..%.0f, screen %.0f x %.0f"):format(
-        label, left, right, bottom, top, width, height))
-    assertTrue(left >= -1 and bottom >= -1 and right <= width + 1 and top <= height + 1,
-        label .. " is off the screen")
+    local line = ("LAYOUT %s: %.0f..%.0f x %.0f..%.0f, screen %.0f x %.0f"):format(
+        label, left, right, bottom, top, width, height)
+    report(line)
+    check(left >= -1 and bottom >= -1 and right <= width + 1 and top <= height + 1, line .. ": off the screen")
 end
 
 test("the buff-back button's text stays inside it (unlocked, the longest hint)", function()
@@ -145,7 +154,7 @@ test("reports the client facts our own simulated client assumes", function()
         ("C_UnitAuras.GetAuraDataByIndex exists: %s"):format(
             tostring(C_UnitAuras and C_UnitAuras.GetAuraDataByIndex ~= nil)),
     }
-    for _, line in ipairs(facts) do print("FACT " .. line) end
+    for _, line in ipairs(facts) do report("FACT " .. line) end
     assertTrue(true)
 end)
 
