@@ -1,4 +1,4 @@
--- Spec: #51
+-- Spec: #51, #80
 -- Changelog entries trace to the issues holding their specs: each ends with
 -- "(#27)" or "(#27, #52)". The checker is tested on made-up changelogs, then
 -- run on the real one.
@@ -176,17 +176,35 @@ describe("Changelog", function()
             assert.is_true(Changelog.CountHeading(text, "### Unreleased") <= 1, "merge both lists under one heading")
         end)
 
+        -- A bad renumbering shows up as headings out of order, or above the
+        -- version the TOC ships.
+        it("lists release versions newest first, none above the TOC's", function()
+            local count, previous = 0, nil
+            for heading in ("\n" .. text):gmatch("\n## ([^\n]*)") do
+                heading = heading:gsub("%s+$", "")
+                count = count + 1
+                assert.is_truthy(heading:match("^%d+%.%d+%.%d+$"), "not a version: " .. heading)
+                if previous then
+                    assert.is_true(Changelog.IsLater(previous, heading), previous .. " should come after " .. heading)
+                else
+                    assert.is_false(Changelog.IsLater(heading, wow.parseToc().Version), heading .. " is above the TOC")
+                end
+                previous = heading
+            end
+            assert.is_true(count > 1, "no release headings found")
+        end)
+
         it("tags every unreleased entry with its issue", function()
             local found = untagged(text)
             assert.are.same({}, found, Changelog.Describe(found))
         end)
 
-        -- Tags began after 1.6.0; a release PR renames Unreleased to the new
+        -- Tags began after 0.6.0; a release PR renames Unreleased to the new
         -- version, which must keep them.
-        it("tags every entry of the TOC's version, once it's past 1.6.0", function()
+        it("tags every entry of the TOC's version, once it's past 0.6.0", function()
             local version = wow.parseToc().Version
-            if not Changelog.IsLater(version, "1.6.0") then
-                pending("tags start after 1.6.0; the TOC is " .. version)
+            if not Changelog.IsLater(version, "0.6.0") then
+                pending("tags start after 0.6.0; the TOC is " .. version)
                 return
             end
             local found = Changelog.UntaggedEntries(text, "## " .. version)

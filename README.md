@@ -43,7 +43,7 @@ Every Forever race has its own voice: the eight original races, and both Skyborn
 
 So "{greeting}, {name}! {blessing}" comes out as "Throm-ka, Thrall! Strength and honor." from an orc, or "Ishnu-alah, Thrall! Elune light your path." from a night elf. The same words aren't used again until a few others have been. Use these in your own lines too.
 
-The 1.5 to 1.6 default lines are still there: each tab's **Load casual lines (1.6)** button puts them back, and **Load fantasy lines** loads the new ones. Lines you edited are never replaced by an update.
+The 0.5 to 0.6 default lines are still there: each tab's **Load casual lines (0.6)** button puts them back, and **Load fantasy lines** loads the new ones. Lines you edited are never replaced by an update.
 
 ## Install
 

@@ -1,3 +1,4 @@
+-- Spec: #80
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -293,6 +294,52 @@ describe("CurseForge packager config", function()
     end)
 end)
 
+describe("Release version check", function()
+    -- Runs the release job's own two lines: read the TOC version, then compare
+    -- it with the tag, so a wrong tag can't start an upload.
+    local text = wow.readFile(".github/workflows/release.yml")
+    local readToc = text:match('(toc="%$%(sed [^\n]*%)")')
+    local compare = text:match('(%[%[ "v%$toc" == "%$GITHUB_REF_NAME" %]%])')
+
+    local function accepts(toc, tag)
+        assert(readToc and compare, "release.yml no longer reads the TOC version and compares it with the tag")
+        local dir = os.tmpname()
+        os.remove(dir)
+        os.execute('mkdir -p "' .. dir .. '"')
+        local file = assert(io.open(dir .. "/FriendlyForever.toc", "w"))
+        file:write(toc)
+        file:close()
+        local script = assert(io.open(dir .. "/check.sh", "w"))
+        script:write("GITHUB_REF_NAME='" .. tag .. "'\n" .. readToc .. "\n" .. compare .. "\n")
+        script:close()
+        local ok = os.execute('cd "' .. dir .. '" && bash check.sh')
+        os.execute('rm -rf "' .. dir .. '"')
+        return ok == true or ok == 0
+    end
+
+    it("finds the release job's two lines", function()
+        assert.is_truthy(readToc, "release.yml no longer reads the TOC version")
+        assert.is_truthy(compare, "release.yml no longer compares the tag with the TOC")
+    end)
+
+    it("accepts the tag for the TOC's own version", function()
+        local toc = wow.readFile("FriendlyForever.toc")
+        assert.is_true(accepts(toc, "v" .. wow.parseToc().Version))
+        assert.is_true(accepts("## Version: 0.8.0\n", "v0.8.0"))
+    end)
+
+    it("rejects a tag that is not the TOC's version, or a TOC with no version", function()
+        assert.is_false(accepts("## Version: 0.8.0\n", "v1.6.0"))
+        assert.is_false(accepts("## Version: 0.8.0\n", "v0.8.0-beta"))
+        assert.is_false(accepts("## Version: 0.8.0\n", "0.8.0"))
+        assert.is_false(accepts("## Title: Friendly Forever\n", "v0.8.0"))
+    end)
+
+    it("still accepts the right tag when the TOC has Windows line endings", function()
+        assert.is_true(accepts("## Version: 0.8.0\r\n## Title: x\r\n", "v0.8.0"))
+    end)
+end)
+
 describe("Release scripts", function()
     local function run(cmd)
         local p = io.popen('cd "' .. wow.ROOT .. '" && ' .. cmd .. ' 2>&1; echo "exit=$?"')
@@ -331,6 +378,30 @@ describe("Release scripts", function()
         os.execute('rm -rf "' .. dir .. '"')
         assert.are.equal(0, code, out)
         assert.are.equal("## 1.7.0\n\n- One.\n- Two.\n- Kept (as written).\n- Not a tag (#)\n\n", notes)
+    end)
+
+    it("release notes are the same for a changelog with Windows line endings", function()
+        local dir = os.tmpname()
+        os.remove(dir)
+        os.execute('mkdir -p "' .. dir .. '"')
+        local text = wow.readFile("CHANGELOG.md")
+        local crlf = text:gsub("\r?\n", "\r\n")
+        assert.is_truthy(crlf:find("\r\n", 1, true), "the test input has no Windows line endings")
+        for name, body in pairs({ lf = text, crlf = crlf }) do
+            local file = io.open(dir .. "/" .. name .. ".md", "wb")
+            file:write(body)
+            file:close()
+        end
+        local _, a = run('./scripts/release-notes.sh "' .. dir .. '/lf.md" "' .. dir .. '/lf-out.md"')
+        local _, b = run('./scripts/release-notes.sh "' .. dir .. '/crlf.md" "' .. dir .. '/crlf-out.md"')
+        local lf, crlfNotes = io.open(dir .. "/lf-out.md"), io.open(dir .. "/crlf-out.md")
+        local same = lf and crlfNotes and lf:read("*a") == crlfNotes:read("*a")
+        if lf then lf:close() end
+        if crlfNotes then crlfNotes:close() end
+        os.execute('rm -rf "' .. dir .. '"')
+        assert.are.equal(0, a)
+        assert.are.equal(0, b)
+        assert.is_true(same, "Windows line endings changed the release notes")
     end)
 
     -- Notes for the next release sit under "### Unreleased" until the

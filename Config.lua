@@ -289,7 +289,7 @@ local function ValidateType(saved, defaults)
     return cfg
 end
 
--- The guild login defaults before 1.5.0 (only the first 10 ever shipped).
+-- The guild login defaults before 0.5.0 (only the first 10 ever shipped).
 local OLD_GUILD_LOGIN = {
     "Welcome back, {name}!",
     "Hey {name}, good to see you online!",
@@ -306,7 +306,7 @@ local OLD_GUILD_LOGIN = {
 -- Each entry upgrades a saved file from version (key - 1) to key.
 local MIGRATIONS = {
     [6] = function(db)
-        -- 1.7.0 replaced every type's default lines with fantasy ones. A saved
+        -- 0.8.0 replaced every type's default lines with fantasy ones. A saved
         -- line still exactly the old (casual) default becomes the new one in
         -- its slot; lines you edited stay. The casual set can be loaded again.
         for _, msgType in ipairs(Config.TYPES) do
@@ -321,16 +321,16 @@ local MIGRATIONS = {
     end,
     [5] = function(db)
         -- Guild login lines were rewritten: a saved line still exactly the old
-        -- default becomes the 1.5.0 one in its slot; lines you edited stay.
-        -- 1.5.0's lines are the casual set, so migration 6 takes it from there.
+        -- default becomes the 0.5.0 one in its slot; lines you edited stay.
+        -- 0.5.0's lines are the casual set, so migration 6 takes it from there.
         if type(db.guildLogin) == "table" and type(db.guildLogin.messages) == "table" then
             local msgs = db.guildLogin.messages
             for i, old in ipairs(OLD_GUILD_LOGIN) do
                 if msgs[i] == old then msgs[i] = CasualMessages.guildLogin[i] end
             end
         end
-        -- Up to 1.4.2 each type had 10 lines; now 30. Keep the saved 10 (edits
-        -- included) and fill the new slots with the 1.5.0 default lines.
+        -- Up to 0.4.2 each type had 10 lines; now 30. Keep the saved 10 (edits
+        -- included) and fill the new slots with the 0.5.0 default lines.
         for _, msgType in ipairs(Config.TYPES) do
             local defaults, cfg = CasualMessages[msgType], db[msgType]
             if defaults and type(cfg) == "table" and type(cfg.messages) == "table" then
@@ -341,7 +341,7 @@ local MIGRATIONS = {
         end
     end,
     [4] = function(db)
-        -- 1.4.0 shipped Party Hello with one 180s cooldown for every group,
+        -- 0.4.0 shipped Party Hello with one 180s cooldown for every group,
         -- which skipped the hello for a second group. It is now per leader
         -- and only guards against a rapid rejoin.
         if type(db.partyHello) == "table" and db.partyHello.repeatCooldown == 180 then
@@ -349,7 +349,7 @@ local MIGRATIONS = {
         end
     end,
     [3] = function(db)
-        -- Up to 1.2.2 a blank unknown-caster name meant "don't thank them";
+        -- Up to 0.2.2 a blank unknown-caster name meant "don't thank them";
         -- that is now the fallbackToSay switch, and the name is just wording.
         if type(db.buff) == "table" and db.buff.unknownName == "" then
             db.buff.fallbackToSay = false
@@ -357,7 +357,7 @@ local MIGRATIONS = {
         end
     end,
     [2] = function(db)
-        -- 1.0.0 had a buff-only "cooldown" (seconds); every type now has repeatCooldown.
+        -- 0.0.0 had a buff-only "cooldown" (seconds); every type now has repeatCooldown.
         if type(db.buff) == "table" and db.buff.cooldown ~= nil then
             if db.buff.repeatCooldown == nil then db.buff.repeatCooldown = db.buff.cooldown end
             db.buff.cooldown = nil
