@@ -295,11 +295,12 @@ describe("CurseForge packager config", function()
 end)
 
 describe("Release version check", function()
-    -- Runs the release job's own two lines: read the TOC version, then compare
-    -- it with the tag, so a wrong tag can't start an upload.
+    -- Runs the release job's own lines: read the TOC version, then compare it
+    -- with the tag and exit 1 on a mismatch, so a wrong tag can't start an upload.
     local text = wow.readFile(".github/workflows/release.yml")
     local readToc = text:match('(toc="%$%(sed [^\n]*%)")')
-    local compare = text:match('(%[%[ "v%$toc" == "%$GITHUB_REF_NAME" %]%])')
+    -- The comparison and the line that stops the job when it fails.
+    local compare = text:match('(%[%[ "v%$toc" == "%$GITHUB_REF_NAME" %]%] \\\n[^\n]*exit 1; })')
 
     local function accepts(toc, tag)
         assert(readToc and compare, "release.yml no longer reads the TOC version and compares it with the tag")
