@@ -172,7 +172,7 @@ local function ArmButton()
     local showingResult = ShowRecentResult()
     if ns.db.buffBack.unlocked then
         Empty("the button is unlocked for moving", true)
-        SetLabels("Buff back", "Drag to move, then /friendly move to lock")
+        SetLabels("Buff back", "Drag, then /friendly move")
         button.icon:SetTexture(BuffButton.PLACEHOLDER_ICON)
         return
     end
@@ -585,6 +585,10 @@ end
 local function ShowTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_TOP")
     GameTooltip:AddLine(ns.TITLE .. ": buff back")
+    -- The button cuts a long line short (a reason it's empty, why to Revoke):
+    -- here it is in full.
+    local subtitle = button.subtitle:GetText()
+    if subtitle and subtitle ~= "" then GameTooltip:AddLine(subtitle, 1, 0.82, 0, true) end
     if armedOffer then
         GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on " .. Util.DisplayName(armedOffer.name)
             .. ", then gives you your target back.", 1, 1, 1, true)
@@ -683,12 +687,18 @@ function BuffButton.Create()
     button.icon = button:CreateTexture(nil, "ARTWORK")
     button.icon:SetSize(36, 36)
     button.icon:SetPoint("LEFT", 4, 0)
+    -- The name and the favour span the room right of the icon, one line each:
+    -- the game cuts text that doesn't fit with "...", whatever the font.
     button.title = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     button.title:SetPoint("TOPLEFT", button.icon, "TOPRIGHT", 6, -2)
+    button.title:SetPoint("TOPRIGHT", button, "TOPRIGHT", -6, -6)
     button.title:SetJustifyH("LEFT")
+    button.title:SetWordWrap(false)
     button.subtitle = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     button.subtitle:SetPoint("BOTTOMLEFT", button.icon, "BOTTOMRIGHT", 6, 2)
+    button.subtitle:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -6, 6)
     button.subtitle:SetJustifyH("LEFT")
+    button.subtitle:SetWordWrap(false)
     button.result = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     button.result:SetPoint("TOP", button, "BOTTOM", 0, -2)
     button.mode = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")

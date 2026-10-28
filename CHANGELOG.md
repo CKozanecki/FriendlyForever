@@ -1,5 +1,9 @@
 # Changelog
 
+### Unreleased
+
+- The buff-back button keeps its text inside it: a name or favour too long for the button is cut off with "…", and the hint while you move it is shorter. On the options tabs, the message lines no longer sit below an empty gap. (#64)
+
 ## 0.8.0
 
 - This version adds files. After updating, restart the game; /reload isn't enough. (#27, #52)

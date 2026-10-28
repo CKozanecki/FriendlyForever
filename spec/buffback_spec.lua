@@ -1,4 +1,4 @@
--- Spec: #27, #57, #76
+-- Spec: #27, #57, #64, #76
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -1571,6 +1571,8 @@ describe("Buff back", function()
             assert.is_true(ns.db.buffBack.unlocked)
             assert.is_nil(macro(), "an unlocked button casts nothing")
             assert.is_true(button:IsShown())
+            -- Where a drag leaves it: the game keeps one anchor.
+            button:ClearAllPoints()
             button:SetPoint("TOPLEFT", _G.UIParent, "TOPLEFT", 100.4, -50.6)
             slash("move")
             assert.are.same({ point = "TOPLEFT", x = 100, y = -51 }, ns.db.buffBack.position)
