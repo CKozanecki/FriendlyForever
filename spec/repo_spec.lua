@@ -324,8 +324,15 @@ describe("Release version check", function()
         assert.is_truthy(verify, "no job checks the tag against the TOC")
         assert.is_falsy(verify.keys["if"] or verify.keys["continue-on-error"], verify.name .. " can be skipped or fail quietly")
         local step = verify.steps[indexOf(verify.steps, "GITHUB_REF_NAME\" %]%]")]
-        assert.is_falsy(step.text:find("\n%s+if:"), "the tag check step can be skipped")
+        assert.is_falsy(step.text:find("\n%s+if:") or step.text:find("^%s*%- if:"), "the tag check step can be skipped")
         assert.is_falsy(step.text:find("continue%-on%-error"), "the tag check step can fail quietly")
+
+        -- The upload job must wait for verify to pass: an `if` such as always()
+        -- would let it run after a failed tag check.
+        local release = jobWith(order, "BigWigsMods/packager@")
+        assert.is_truthy(release, "no job uploads")
+        assert.is_falsy(release.keys["if"], release.name .. " has an if: it can run after a failed " .. verify.name)
+        assert.is_falsy(release.keys["continue-on-error"], release.name .. " is allowed to fail quietly")
     end)
 
     it("finds the release job's two lines", function()
