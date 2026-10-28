@@ -1,4 +1,4 @@
--- UI scenarios for the headless simulator trial (issue #49). They run inside
+-- UI scenarios for the headless UI simulator (issue #49). They run inside
 -- wow-ui-sim (https://github.com/Osso/wow-ui-sim), which loads the packaged
 -- addon on top of Blizzard's own UI code, unlike spec/, whose simulated client
 -- is our own. The workflow copies this folder in as the addon's tests/.
@@ -84,6 +84,26 @@ local function TextInside(frame, region, label)
     assertTrue(tl >= fl - 1 and textRight <= fr + 1, label .. " spills out of its frame")
 end
 
+-- Layout: a frame lies wholly on the screen. Compared in screen pixels, so
+-- a frame's own scale can't hide it.
+local function OnScreen(frame, label)
+    local ok, left, right, top, bottom = pcall(function()
+        return frame:GetLeft(), frame:GetRight(), frame:GetTop(), frame:GetBottom()
+    end)
+    if not (ok and type(left) == "number" and type(right) == "number"
+        and type(top) == "number" and type(bottom) == "number") then
+        print("LAYOUT " .. label .. ": edges can't be read here")
+        return
+    end
+    local scale, screen = frame:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    local width, height = UIParent:GetWidth() * screen, UIParent:GetHeight() * screen
+    left, right, top, bottom = left * scale, right * scale, top * scale, bottom * scale
+    print(("LAYOUT %s: %.0f..%.0f x %.0f..%.0f, screen %.0f x %.0f"):format(
+        label, left, right, bottom, top, width, height))
+    assertTrue(left >= -1 and bottom >= -1 and right <= width + 1 and top <= height + 1,
+        label .. " is off the screen")
+end
+
 test("the buff-back button's text stays inside it (unlocked, the longest hint)", function()
     SlashCmdList.FRIENDLYFOREVER("move")
     local button = _G.FriendlyForeverBuffButton
@@ -93,7 +113,22 @@ test("the buff-back button's text stays inside it (unlocked, the longest hint)",
     SlashCmdList.FRIENDLYFOREVER("move")
 end)
 
--- Facts about the simulated client, printed for the trial report: they are
+test("the buff-back button is on the screen where it starts", function()
+    SlashCmdList.FRIENDLYFOREVER("move")
+    local button = _G.FriendlyForeverBuffButton
+    assertNotNil(button)
+    OnScreen(button, "buff-back button")
+    SlashCmdList.FRIENDLYFOREVER("move")
+end)
+
+test("the options panel is on the screen once open", function()
+    SlashCmdList.FRIENDLYFOREVER("")
+    local panel = _G.FriendlyForeverOptionsPanel
+    assertNotNil(panel)
+    OnScreen(panel, "options panel")
+end)
+
+-- Facts about the simulated client, printed in the report: they are
 -- compared with the ASSUMPTIONS block in spec/support/wow.lua.
 test("reports the client facts our own simulated client assumes", function()
     local facts = {

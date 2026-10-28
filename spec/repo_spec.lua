@@ -1,4 +1,4 @@
--- Spec: #77, #80
+-- Spec: #49, #77, #80
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -187,6 +187,84 @@ describe("CI workflow", function()
         assert.is_truthy(notes and notes < packager, "release notes aren't written before the packager runs")
         assert.is_truthy(package and compare and compare > packager and compare > package,
             "CI doesn't compare the two packages after building both")
+    end)
+end)
+
+describe("UI simulator workflow", function()
+    local path = ".github/workflows/ui-sim.yml"
+    local text, jobs, order
+
+    setup(function()
+        text = withoutComments(wow.readFile(path))
+        jobs, order = parseWorkflow(path)
+    end)
+
+    -- Each docker run as one line, its backslash continuations joined.
+    local function dockerRuns(job)
+        local runs = {}
+        for command in (job.text:gsub("\\\n%s*", " ")):gmatch("docker run[^\n]*") do
+            runs[#runs + 1] = command
+        end
+        return runs
+    end
+
+    it("defaults to read-only access, with no secrets", function()
+        assert.is_truthy(wow.readFile(path):find("\npermissions:\n  contents: read\n", 1, true))
+        assert.is_falsy(text:find("secrets%."), path .. " uses secrets")
+    end)
+
+    it("never fails CI: every job is report only", function()
+        assert.is_true(#order >= 3, "expected the scenario, screenshot and publish jobs")
+        for _, job in ipairs(order) do
+            assert.is_truthy(job.text:find("\n%s*continue%-on%-error:%s*true"), job.name .. " can fail CI")
+        end
+    end)
+
+    it("pins the image, the sources and the render base exactly", function()
+        local function pinned(prefix, digits)
+            return text:find("\n%s*" .. prefix .. ("%x"):rep(digits) .. "%s") ~= nil
+        end
+        assert.is_true(pinned("IMAGE: ghcr%.io/osso/wow%-ui%-sim@sha256:", 64), "the simulator image isn't pinned by digest")
+        assert.is_true(pinned("SIM_COMMIT: ", 40), "the simulator source isn't pinned to a commit")
+        assert.is_true(pinned("BLIZZARD_UI_COMMIT: ", 40), "Blizzard's UI isn't pinned to a commit")
+        assert.is_true(pinned("RENDER_BASE: ubuntu@sha256:", 64), "the render image's base isn't pinned by digest")
+        assert.is_falsy(text:lower():find("uses:%s*osso/"), "uses the simulator project's own Action")
+    end)
+
+    it("runs the simulator with no network, no capabilities and only the screenshot folder writable", function()
+        local found = 0
+        for _, job in ipairs(order) do
+            for _, command in ipairs(dockerRuns(job)) do
+                found = found + 1
+                for _, flag in ipairs({ "--network none", "--cap-drop ALL", "--security-opt no-new-privileges" }) do
+                    assert.is_truthy(command:find(flag, 1, true), job.name .. ": docker run without " .. flag)
+                end
+                for mount in command:gmatch("%-v%s+(%S+)") do
+                    assert.is_truthy(mount:find(":ro\"?$") or mount:find(":/shots\"?$"),
+                        job.name .. ": " .. mount .. " is mounted writable")
+                end
+            end
+        end
+        assert.is_true(found >= 3, "expected the simulator's docker runs")
+    end)
+
+    it("lets only the publish job write, and it runs nothing from the simulator or the pull request", function()
+        for _, job in ipairs(order) do
+            if job.name ~= "publish-screenshots" then
+                assert.is_falsy(job.text:find("write"), job.name .. " asks for write access")
+            end
+        end
+        local publish = jobs["publish-screenshots"]
+        assert.is_truthy(publish, "no publish-screenshots job")
+        assert.is_truthy(publish.text:find("github%.event%.pull_request%.head%.repo%.full_name == github%.repository"),
+            "the publish job runs for pull requests from forks")
+        for action in publish.text:gmatch("uses:%s*([^@%s]+)") do
+            assert.are.equal("actions/download-artifact", action, "the publish job uses " .. action)
+        end
+        for _, banned in ipairs({ "docker", "cargo", "make ", "wow%-sim", "%./" }) do
+            assert.is_falsy(publish.text:find(banned), "the publish job runs " .. banned)
+        end
+        assert.is_truthy(publish.text:find("89504e470d0a1a0a", 1, true), "the publish job doesn't check for PNGs")
     end)
 end)
 

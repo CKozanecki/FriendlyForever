@@ -1,29 +1,48 @@
-name: UI simulator trial
+name: UI simulator
 
-# Trial of the headless WoW UI simulator wow-ui-sim (issue #49). Report only:
-# its results never fail CI, and nothing here is trusted beyond this job.
+# The headless WoW UI simulator wow-ui-sim (issue #49), adopted at level B:
+# UI scenarios with layout checks, and screenshots for reviewers. Report
+# only: its results never fail CI, and nothing it produces is trusted. See
+# "UI simulator" in CONTRIBUTING.md.
 #
 # Safety:
 # - The image is pinned by digest (release 0.1.36), so it can't change
 #   under us; read the source at that release before moving the pin.
-# - The job has read-only access to the repository and no secrets.
+# - No job has secrets, and every job but publish-screenshots has read-only
+#   access to the repository.
 # - The container runs with no network, no capabilities and no privilege
 #   escalation, and sees the packaged addon read-only. We don't use the
 #   project's own Action: it pulls a moving tag, mounts the repository
 #   read-write and puts an input into a shell command unquoted.
+# - Only the publish-screenshots job may write, and it runs nothing from the
+#   simulator or the pull request.
 
+# Runs when anything that ships, or the scenarios, could change. On main it
+# keeps the simulator build cached for pull requests.
 on:
+  push:
+    branches: [main]
+    paths:
+      - "uitests/**"
+      - ".github/workflows/ui-sim.yml"
+      - ".pkgmeta"
+      - "scripts/package.sh"
+      - "*.lua"
+      - "*.toc"
+      - "*.xml"
   pull_request:
     paths:
       - "uitests/**"
-      - ".github/workflows/ui-sim-trial.yml"
+      - ".github/workflows/ui-sim.yml"
+      - ".pkgmeta"
+      - "scripts/package.sh"
       - "*.lua"
       - "*.toc"
       - "*.xml"
   workflow_dispatch:
 
 concurrency:
-  group: ui-sim-trial-${{ github.ref }}
+  group: ui-sim-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -97,11 +116,15 @@ jobs:
         run: |
           report="$RUNNER_TEMP/report"
           {
-            echo "## UI simulator trial (report only)"
+            echo "## UI simulator (report only)"
             echo
             echo "### Lua errors while loading (from FriendlyForever files)"
             echo '```'
             grep -i "FriendlyForever" "$report/lua-errors.json" | head -50 || echo "none"
+            echo '```'
+            echo "### Layout checks"
+            echo '```'
+            grep "LAYOUT " "$report/run-tests.log" || echo "none printed"
             echo '```'
             echo "### UI scenarios"
             echo '```'
@@ -115,7 +138,7 @@ jobs:
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ui-sim-trial-report
+          name: ui-sim-report
           path: ${{ runner.temp }}/report
 
   # Level B: screenshots of our own frames. The published image is built
@@ -289,6 +312,7 @@ jobs:
     if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    continue-on-error: true
     permissions:
       contents: write
     steps:
@@ -329,3 +353,8 @@ jobs:
           git -c http.extraheader="AUTHORIZATION: basic $auth" \
             push -q --force "https://github.com/$REPO.git" "HEAD:refs/heads/ui-screenshots/pr-$PR"
           echo "published $count screenshot(s) to ui-screenshots/pr-$PR"
+          {
+            echo "## UI screenshots"
+            echo
+            echo "$count screenshot(s) for $HEAD_SHA: https://github.com/$REPO/tree/ui-screenshots/pr-$PR"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -57,6 +57,7 @@ Use the PR template too. This file only adds what applies to Claude sessions. Wh
 
 - **Fix everything a review finds,** optional nits included.
 - **Changes after an approval:** any change a review loop hasn't seen goes back to it for confirmation before the PR is called ready. That includes test-only and test-helper changes, merges that resolved conflicts, and rebases. On #72, a test-helper change made after the architecture approval hid a real bug, and the re-check caught it.
+- **UI changes:** before the testing review, wait for the [UI simulator](CONTRIBUTING.md#ui-simulator) run, then tell the testing reviewer to fetch `ui-screenshots/pr-<number>`, view the screenshots, read the `LAYOUT` lines, and decide. Their verdict is the only look the screenshots get: the owner won't review them. Say in the PR what the reviewer saw.
 - **Reviewer instructions:** tell each review agent:
   - the worktree path and the diff range to review;
   - that "everything is OK" is a valid answer;
