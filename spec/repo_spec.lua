@@ -209,14 +209,22 @@ describe("UI simulator workflow", function()
     end
 
     it("defaults to read-only access, with no secrets", function()
-        assert.is_truthy(wow.readFile(path):find("\npermissions:\n  contents: read\n", 1, true))
+        local header = text:match("^(.-)\njobs:")
+        assert.is_truthy(header, "no jobs found")
+        -- contents: read, and nothing else under permissions (the next line
+        -- that isn't blank isn't indented).
+        assert.is_truthy((header .. "\nend"):find("\npermissions:\n  contents: read\n\n*[^%s]"),
+            "the default access isn't read-only")
+        assert.is_falsy(header:find("write"), "the workflow grants write access to every job")
         assert.is_falsy(text:find("secrets%."), path .. " uses secrets")
     end)
 
     it("never fails CI: every job is report only", function()
         assert.is_true(#order >= 3, "expected the scenario, screenshot and publish jobs")
         for _, job in ipairs(order) do
-            assert.is_truthy(job.text:find("\n%s*continue%-on%-error:%s*true"), job.name .. " can fail CI")
+            -- The job's own key: a step's continue-on-error doesn't cover the job.
+            local key = "\n" .. (" "):rep(job.keyIndent) .. "continue%-on%-error:%s*true"
+            assert.is_truthy(job.text:find(key), job.name .. " can fail CI")
         end
     end)
 
@@ -230,6 +238,14 @@ describe("UI simulator workflow", function()
         assert.is_true(pinned("BUILD_BASE: rust@sha256:", 64), "the build image's base isn't pinned by digest")
         assert.is_true(pinned("RENDER_BASE: debian@sha256:", 64), "the render image's base isn't pinned by digest")
         assert.is_falsy(text:lower():find("uses:%s*osso/"), "uses the simulator project's own Action")
+
+        -- The pins are used: every image built starts from one of them, and
+        -- the fetched sources are checked against theirs.
+        local bases = {}
+        for base in text:gmatch("\n%s*FROM%s+(%S+)") do bases[#bases + 1] = base end
+        assert.are.same({ "$BUILD_BASE", "$RENDER_BASE" }, bases)
+        assert.is_truthy(text:find('rev-parse HEAD)" = "$SIM_COMMIT"', 1, true), "the simulator's commit isn't checked")
+        assert.is_truthy(text:find('rev-parse HEAD)" = "$BLIZZARD_UI_COMMIT"', 1, true), "Blizzard's commit isn't checked")
     end)
 
     -- Only cargo fetch gets network, to download the locked crates; it runs
@@ -243,6 +259,13 @@ describe("UI simulator workflow", function()
                 local fetch = command:find("ff%-build cargo fetch %-%-locked%s*$") ~= nil
                 for _, flag in ipairs({ "--cap-drop ALL", "--security-opt no-new-privileges" }) do
                     assert.is_truthy(command:find(flag, 1, true), job.name .. ": docker run without " .. flag)
+                end
+                -- Ways out of the sandbox. Mounts are only ever -v, so the
+                -- check below sees them all.
+                for _, banned in ipairs({ "%-%-privileged", "docker%.sock", "%-%-net[%w]*[ =]host", "%-%-pid[ =]",
+                    "%-%-ipc", "%-%-userns", "%-%-uts", "%-%-cap%-add", "%-%-device", "unconfined", "%-%-mount",
+                    "%-%-volume" }) do
+                    assert.is_falsy(command:find(banned), job.name .. ": docker run with " .. banned)
                 end
                 if fetch then
                     fetches = fetches + 1
@@ -263,7 +286,9 @@ describe("UI simulator workflow", function()
         assert.is_true(found >= 5, "expected the simulator's docker runs")
         assert.are.equal(1, fetches, "expected one dependency download")
         assert.are.equal(1, builds, "expected the simulator to be built in a container")
-        assert.is_falsy(text:find("\n%s*cargo "), "cargo runs on the runner, outside a container")
+        -- Anywhere outside a docker run, cargo would run on the runner.
+        local outside = text:gsub("\\\n%s*", " "):gsub("docker run[^\n]*", "")
+        assert.is_falsy(outside:find("%f[%w]cargo%s"), "cargo runs on the runner, outside a container")
     end)
 
     it("lets only the publish job write, and it runs nothing from the simulator or the pull request", function()
@@ -279,7 +304,8 @@ describe("UI simulator workflow", function()
         for action in publish.text:gmatch("uses:%s*([^@%s]+)") do
             assert.are.equal("actions/download-artifact", action, "the publish job uses " .. action)
         end
-        for _, banned in ipairs({ "docker", "cargo", "make ", "wow%-sim", "%./" }) do
+        for _, banned in ipairs({ "docker", "cargo", "make ", "wow%-sim", "%./", "%f[%w]bash%s", "%f[%w]sh%s",
+            "source " }) do
             assert.is_falsy(publish.text:find(banned), "the publish job runs " .. banned)
         end
         assert.is_truthy(publish.text:find("89504e470d0a1a0a", 1, true), "the publish job doesn't check for PNGs")
