@@ -77,6 +77,15 @@ local function Edges(region)
     if ok and type(left) == "number" and type(right) == "number" then return left, right end
 end
 
+-- Whether any of the region's anchor points pins its right side.
+local function AnchoredOnRight(region)
+    for i = 1, region:GetNumPoints() do
+        local point = region:GetPoint(i)
+        if type(point) == "string" and point:find("RIGHT", 1, true) then return true end
+    end
+    return false
+end
+
 local function TextInside(frame, region, label)
     local fl, fr = Edges(frame)
     local tl, tr = Edges(region)
@@ -84,10 +93,14 @@ local function TextInside(frame, region, label)
         report("LAYOUT " .. label .. ": edges can't be read here")
         return
     end
-    local width = region.GetStringWidth and region:GetStringWidth() or (tr - tl)
-    -- A text line pinned on its left only grows to its text: its right edge
-    -- is where the text ends.
-    local textRight = math.max(tr, tl + width)
+    -- A text line pinned on its left only grows to its text, so its text
+    -- ends where its width says. One pinned on its right too is cut off at
+    -- that edge (GetStringWidth still reports the uncut width).
+    local textRight = tr
+    if not AnchoredOnRight(region) then
+        local width = region.GetStringWidth and region:GetStringWidth() or (tr - tl)
+        textRight = math.max(tr, tl + width)
+    end
     local line = ("LAYOUT %s: text %.0f..%.0f, frame %.0f..%.0f"):format(label, tl, textRight, fl, fr)
     report(line)
     check(tl >= fl - 1 and textRight <= fr + 1, line .. ": spills out of its frame")
@@ -131,6 +144,21 @@ test("the buff-back button's text stays inside it (unlocked, the longest hint)",
         assertTrue(FriendlyForeverDB.buffBack.unlocked)
         TextInside(button, button.title, "button title")
         TextInside(button, button.subtitle, "button hint")
+    end)
+end)
+
+-- From #64: the longest favour text a button can show. Set directly, since
+-- these scenarios can't yet make a favour (#83), and put back afterwards.
+test("the buff-back button's text stays inside it (a long favour)", function()
+    WithButtonUnlocked(function(button)
+        assertNotNil(button)
+        local hint = button.subtitle:GetText()
+        local ok, err = pcall(function()
+            button.subtitle:SetText("missing your Power Word: Fortitude")
+            TextInside(button, button.subtitle, "long favour hint")
+        end)
+        button.subtitle:SetText(hint)
+        if not ok then error(err, 0) end
     end)
 end)
 
