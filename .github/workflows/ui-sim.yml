@@ -101,10 +101,12 @@ jobs:
       - name: Digest (client facts and Friendly Forever load errors)
         run: |
           report="$RUNNER_TEMP/report"
+          # The simulator logs each A_Print line twice (as it runs, and in its
+          # console at the end), so repeats are dropped.
           echo "--- client facts"
-          grep "FACT " "$report/run-tests.log" || echo "none printed"
+          grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
           echo "--- layout"
-          grep "LAYOUT " "$report/run-tests.log" || echo "none printed"
+          grep "LAYOUT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
           echo "--- scenario results"
           grep -E "✓|✗|tests," "$report/run-tests.log" || true
           echo "--- load errors naming FriendlyForever"
@@ -124,7 +126,7 @@ jobs:
             echo '```'
             echo "### Layout checks"
             echo '```'
-            grep "LAYOUT " "$report/run-tests.log" || echo "none printed"
+            grep "LAYOUT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
             echo '```'
             echo "### UI scenarios"
             echo '```'
@@ -132,7 +134,7 @@ jobs:
             echo '```'
             echo "### Client facts"
             echo '```'
-            grep "FACT " "$report/run-tests.log" || echo "none printed"
+            grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
