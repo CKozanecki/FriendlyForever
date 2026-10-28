@@ -273,7 +273,8 @@ local function Unanswered(press)
     press.expired = true
     local who = Util.DisplayName(press.name)
     if press.failed then
-        ShowResult("Couldn't buff " .. who .. " (the game gave no reason).", true)
+        ShowResult((press.revoke and "Couldn't revoke Salvation from " or "Couldn't buff ") .. who
+            .. " (the game gave no reason).", true)
     elseif press.sent then
         ShowResult("No word back on " .. press.spell .. " for " .. who .. ". If it didn't land, press again.")
     elseif press.complete and not press.unsure then

@@ -195,8 +195,9 @@ function GroupBuffs.Next()
             if not Recently(justRevoked[member.name], GroupBuffs.JUST_GIVEN_SECONDS) then
                 wears, mine = WearsSalvation(member.unit)
             end
-            -- Unreadable buffs are said by the buff pass below.
-            if wears then
+            -- Unreadable buffs are said by the buff pass below. Another
+            -- paladin's Salvation is theirs to manage in "mine" mode.
+            if wears and not (mine == false and ns.BuffRules.RevokeMode() == "mine") then
                 local covered, label = ns.BuffRules.RevokeCovers(member)
                 if covered == nil then
                     Why(member, label)

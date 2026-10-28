@@ -123,6 +123,14 @@ describe("Revoke", function()
         it("leaves another paladin's Salvation alone by default", function()
             group("party", { { "Ann-Vale", "WARRIOR", "TANK", false, "raid9" } })
             assert.is_falsy((armed() or ""):find("Revoke", 1, true))
+            -- Even when her role can't be read: there's nothing of yours to judge.
+            local u = wow.state.units.party1
+            u.secrets = { role = true }
+            u.auras, u.auraSources = { SALVATION, KINGS }, { "raid9", "player" }
+            local offer, why, settled = ns.GroupBuffs.Next()
+            assert.is_nil(offer)
+            assert.are.equal("everyone in your group has your buffs", why)
+            assert.is_true(settled)
         end)
 
         it("any tank: anyone's Salvation on a tank, by role or Main Tank, never on others", function()
@@ -246,6 +254,18 @@ describe("Revoke", function()
             wow.advance(ns.GroupBuffs.HELD_BACK_SECONDS + 1)
             ns.BuffButton.Refresh()
             assert.are.equal("Ann Vale: Revoke", armed())
+        end)
+
+        it("says Revoke, not buff, when a refused cast gives no reason", function()
+            group("party", { { "Ann-Vale", "WARRIOR", "TANK", false, "player" } })
+            wow.state.castFailures["Ann-Vale"] = "Interrupted"
+            local real = wow.uiError
+            wow.uiError = function() end -- the game's error text never comes
+            finally(function() wow.uiError = real end)
+            scroll()
+            wow.advance(ns.BuffButton.SENT_ANSWER_SECONDS + 1)
+            assert.are.equal("Couldn't revoke Salvation from Ann Vale (the game gave no reason).",
+                button.result:GetText())
         end)
 
         it("only Revoke's own name answers a press: another spell's cast doesn't", function()
