@@ -95,6 +95,11 @@ describe("Battlegrounds", function()
             boot()
             wow.enterBattleground(TEAM, { rosterLast = true })
             assert.is_true(ns.BuffMode.IsOn())
+            for _, rosterLast in ipairs({ false, true }) do
+                boot()
+                wow.enterBattleground(TEAM, { rosterLast = rosterLast, auraLate = true })
+                assert.is_true(ns.BuffMode.IsOn(), "the aura after the loading screen")
+            end
         end)
 
         it("reads the preparation phase from the start-of-battle timer alone", function()
@@ -207,6 +212,24 @@ describe("Battlegrounds", function()
             wow.fire("UNIT_HEALTH", "raid1")
             wow.advance(60)
             assert.are.equal(0, reads)
+        end)
+
+        it("acts on the gates opening once, not on every change of your buffs after", function()
+            boot()
+            ns.db.debug = true
+            local refreshes = 0
+            local refresh = ns.BuffButton.Refresh
+            ns.BuffButton.Refresh = function(...) refreshes = refreshes + 1 return refresh(...) end
+            wow.enterBattleground(TEAM)
+            wow.openGates()
+            local before = refreshes
+            for _ = 1, 5 do wow.gainBuff({ spellId = 1 }) end
+            assert.are.equal(before, refreshes)
+            local logged = 0
+            for _, line in ipairs(ns.db.diagLog) do
+                if line:find("battleground: quiet", 1, true) then logged = logged + 1 end
+            end
+            assert.are.equal(1, logged)
         end)
 
         it("schedules no line, so no repeat cooldown is spent in the battle", function()
@@ -519,6 +542,7 @@ describe("Battlegrounds", function()
                     function()
                         if inBG then return end
                         local opts = { preparation = math.random() < 0.7, rosterLast = math.random() < 0.5,
+                            auraLate = math.random() < 0.5,
                             timer = math.random() < 0.5 and math.random(5, 90) or nil }
                         wow.enterBattleground(roster(), opts)
                         inBG, ended, startedHere, aura, distrusted = true, false, false, opts.preparation, false

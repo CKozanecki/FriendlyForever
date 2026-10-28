@@ -112,22 +112,24 @@ function Battleground.AllowsLine(msgType)
 end
 
 -- Act on a change: as the battle starts, buff mode ends and the button
--- empties; after it, the button comes back.
+-- empties; after it, the button comes back. Whenever it isn't quiet, a
+-- trigger refused while it was (or seemed) quiet is answered or forgotten:
+-- the refusal may have come before this module first read the phase.
 function Battleground.Update()
     if not ns.db then return end
     local quiet = Battleground.Quiet()
-    if quiet == wasQuiet then return end
-    wasQuiet = quiet
-    if quiet then
-        local why = Battleground.QuietReason()
-        ns.Diag.Log("battleground", "quiet: %s", why)
-        if ns.BuffMode.IsOn() then ns.BuffMode.Set(false, { why = why }) end
+    if quiet ~= wasQuiet then
+        wasQuiet = quiet
+        if quiet then
+            local why = Battleground.QuietReason()
+            ns.Diag.Log("battleground", "quiet: %s", why)
+            if ns.BuffMode.IsOn() then ns.BuffMode.Set(false, { why = why }) end
+        else
+            ns.Diag.Log("battleground", "buffing and lines as normal")
+        end
         ns.BuffButton.Refresh()
-    else
-        ns.Diag.Log("battleground", "buffing and lines as normal")
-        ns.BuffButton.Refresh()
-        ns.BuffModeAuto.OnQuietEnded(Battleground.Phase() == "preparation")
     end
+    if not quiet then ns.BuffModeAuto.OnQuietEnded(Battleground.Phase() == "preparation") end
 end
 
 -- Your buffs changed (UNIT_AURA on you; Core calls this before buff thanks

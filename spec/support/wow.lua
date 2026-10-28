@@ -301,8 +301,9 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         the gates closing. GetBattlefieldWinner() is nil
 --                         until the battleground ends (state.bgWinner). The
 --                         battleground's group may arrive (GROUP_ROSTER_UPDATE)
---                         before PLAYER_ENTERING_WORLD and the aura: the
---                         pessimistic order, used by default.
+--                         before PLAYER_ENTERING_WORLD, and the aura may
+--                         already be on you then, with no UNIT_AURA for it
+--                         (the defaults; the other orders are options).
 ------------------------------------------------------------------------
 
 local function targetableName(u)
@@ -1201,17 +1202,25 @@ end
 -- Zone into a battleground before its gates open, in a raid-sized instance
 -- group with names. opts.preparation (default true): you wear the Preparation
 -- aura. opts.timer: START_TIMER says this many seconds to the gates. The
--- group arrives first, while the loading screen is up (the pessimistic
--- order: the phase can't be read yet); opts.rosterLast sends it last.
+-- group arrives first, while the loading screen is up (the phase can't be
+-- read yet); opts.rosterLast sends it last. The aura is already on you at
+-- PLAYER_ENTERING_WORLD, with no UNIT_AURA for it; opts.auraLate adds it
+-- after, with one.
 function M.enterBattleground(names, opts)
     opts = opts or {}
     M.state.inInstance, M.state.instanceType = true, "pvp"
     M.state.bgWinner = nil
     M.setGroup("instance", names or {}, true)
     if not opts.rosterLast then M.fire("GROUP_ROSTER_UPDATE") end
+    local aura = opts.preparation ~= false
+    if aura and not opts.auraLate then
+        M.state.playerAuras[#M.state.playerAuras + 1] = { isHelpful = true, spellId = M.PREPARATION_ID,
+            name = "Preparation", auraInstanceID = 990000 + #M.state.playerAuras, duration = 120,
+            expirationTime = M.now + 120 }
+    end
     M.fire("PLAYER_ENTERING_WORLD", false, false)
     M.fire("ZONE_CHANGED_NEW_AREA")
-    if opts.preparation ~= false then M.gainBuff({ spellId = M.PREPARATION_ID, name = "Preparation" }) end
+    if aura and opts.auraLate then M.gainBuff({ spellId = M.PREPARATION_ID, name = "Preparation" }) end
     if opts.timer then M.startTimer(opts.timer) end
     if opts.rosterLast then M.fire("GROUP_ROSTER_UPDATE") end
 end
