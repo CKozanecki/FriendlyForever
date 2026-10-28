@@ -135,12 +135,28 @@ function methods:GetCenter() return self.centerX or 0, self.centerY or 0 end
 function methods:GetEffectiveScale() return self.scale or 1 end
 function methods:SetDesaturated(on) self.desaturated = on and true or false end
 function methods:SetTexture(path) self.texture = path end
-function methods:SetPoint(...) self.point = { ... } end
--- point, relativeTo, relativePoint, x, y (as SetPoint was given them).
-function methods:GetPoint()
-    local p = self.point
-    if not p then return nil end
-    return p[1], p[2], p[3], p[4], p[5]
+-- Anchors as the game keeps them: one per point (setting a point again
+-- moves it), until ClearAllPoints. SetPoint(point, x, y) and a missing
+-- relative frame or point mean the parent and the same point.
+function methods:SetPoint(point, relativeTo, relativePoint, x, y)
+    if type(relativeTo) == "number" then relativeTo, relativePoint, x, y = nil, nil, relativeTo, relativePoint end
+    local anchor = { point, relativeTo or self.parent, relativePoint or point, x or 0, y or 0 }
+    self.points = self.points or {}
+    for i, a in ipairs(self.points) do
+        if a[1] == point then
+            self.points[i] = anchor
+            return
+        end
+    end
+    self.points[#self.points + 1] = anchor
+end
+function methods:ClearAllPoints() self.points = nil end
+function methods:GetNumPoints() return self.points and #self.points or 0 end
+-- point, relativeTo, relativePoint, x, y of the index-th anchor (default 1).
+function methods:GetPoint(index)
+    local a = self.points and self.points[index or 1]
+    if not a then return nil end
+    return a[1], a[2], a[3], a[4], a[5]
 end
 function methods:EnableKeyboard(on) self.keyboard = on and true or false end
 function methods:EnableMouseWheel(on) self.mouseWheel = on and true or false end
@@ -149,9 +165,102 @@ function methods:SetPropagateKeyboardInput(on)
     if M.state.inCombat then error("SetPropagateKeyboardInput is protected in combat") end
     self.propagate = on and true or false
 end
-function methods:CreateFontString() return M.newFrame("FontString", nil, self) end
+function methods:CreateFontString(_, _, font)
+    local fs = M.newFrame("FontString", nil, self)
+    fs.font = font
+    return fs
+end
+-- Text lines wrap unless told not to, as in the game.
+function methods:SetWordWrap(on) self.wordWrap = on and true or false end
+function methods:CanWordWrap() return self.wordWrap ~= false end
+function methods:SetMaxLines(n) self.maxLines = n end
+function methods:GetMaxLines() return self.maxLines or 0 end
+-- The width of a text line's whole text (see M.CHAR_WIDTH).
+function methods:GetStringWidth() return M.textWidth(self.text, self.font) end
 function methods:CreateTexture() return M.newFrame("Texture", nil, self) end
 function methods:AddLine(text) self.lines = self.lines or {}; self.lines[#self.lines + 1] = text end
+
+------------------------------------------------------------------------
+-- Layout
+------------------------------------------------------------------------
+
+-- The simulation has no fonts. A character counts as this many pixels wide
+-- in each font, a little wider than the game's average (the pessimistic
+-- choice); colour codes take no room. Real widths are checked in game (#50).
+M.CHAR_WIDTH = {
+    GameFontNormal = 7, GameFontHighlight = 7, GameFontNormalLarge = 9,
+    GameFontNormalSmall = 6, GameFontHighlightSmall = 6,
+}
+
+local function plainText(text)
+    return (tostring(text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("||", "|"))
+end
+
+-- Characters, not bytes: UTF-8 continuation bytes don't count.
+local function charCount(text) return #text:gsub("[\128-\191]", "") end
+
+function M.textWidth(text, font)
+    return charCount(plainText(text)) * (M.CHAR_WIDTH[font] or 7)
+end
+
+local LEFT_POINTS = { LEFT = true, TOPLEFT = true, BOTTOMLEFT = true }
+local RIGHT_POINTS = { RIGHT = true, TOPRIGHT = true, BOTTOMRIGHT = true }
+
+local function pointX(left, right, point)
+    if LEFT_POINTS[point] then return left end
+    if RIGHT_POINTS[point] then return right end
+    return (left + right) / 2
+end
+
+-- A region's left and right edges, measured from root's left edge, worked
+-- out from its anchors as the game does: pinned on both sides it spans
+-- between them; pinned on one side it is as wide as its width, and a text
+-- line with no width set grows to fit its whole text.
+function M.horizontalEdges(region, root)
+    if region == root then return 0, root:GetWidth() end
+    assert(region.points, "a region with no anchors can't be placed")
+    local left, right, center
+    for _, a in ipairs(region.points) do
+        assert(type(a[2]) == "table", "an anchor that never reaches the root frame")
+        local relativeLeft, relativeRight = M.horizontalEdges(a[2], root)
+        local x = pointX(relativeLeft, relativeRight, a[3]) + a[4]
+        if LEFT_POINTS[a[1]] then left = x elseif RIGHT_POINTS[a[1]] then right = x else center = x end
+    end
+    if left and right then return left, right end
+    local width = region.width
+    if not width and region.kind == "FontString" then width = region:GetStringWidth() end
+    width = width or 0
+    if left then return left, left + width end
+    if right then return right - width, right end
+    return center - width / 2, center + width / 2
+end
+
+-- What a text line draws, measured from root's left edge: { left, right,
+-- lines, text }. Text too wide for its line wraps onto more lines, unless
+-- word wrap is off or it has reached its max lines: then the game cuts it
+-- off with "…" (an assumption, checked in game on #50).
+function M.drawnText(fs, root)
+    local left, right = M.horizontalEdges(fs, root)
+    local room = right - left
+    local text = plainText(fs.text)
+    local full = M.textWidth(text, fs.font)
+    if full <= room then return { left = left, right = left + full, lines = 1, text = text } end
+    local lines = 1
+    if fs.wordWrap ~= false and room > 0 then
+        lines = math.ceil(full / room)
+        if (fs.maxLines or 0) > 0 then lines = math.min(lines, fs.maxLines) end
+    end
+    if full <= room * lines then return { left = left, right = right, lines = lines, text = text } end
+    -- Cut: as many whole characters as fit beside the "…".
+    local charWidth = M.CHAR_WIDTH[fs.font] or 7
+    local keep = math.max(0, math.floor(room * lines / charWidth) - 1)
+    local cut, count = "", 0
+    for char in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        if count == keep then break end
+        cut, count = cut .. char, count + 1
+    end
+    return { left = left, right = left + math.min(room, (count + 1) * charWidth), lines = lines, text = cut .. "…" }
+end
 
 -- Run a frame script as the game would.
 function M.run(frame, script, ...)
@@ -285,6 +394,12 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --   /targetexact skips the "target" token: a player known only as your
 --                         target can't be found by name after /cleartarget
 --                         (the pessimistic choice; the real client may find them).
+--   Text lines (spec/support/wow.lua's Layout): a line pinned on both its
+--                         left and right spans between them; with word wrap
+--                         off it stays one line and cuts what doesn't fit with
+--                         "…". Pinned on one side, it grows to fit its text.
+--                         Widths come from M.CHAR_WIDTH (a little wide on
+--                         purpose); real fonts are checked in game (#50).
 --   A secret value used as a table key reads as missing (byAuraId[secret]
 --                         is nil); the real client may raise an error instead,
 --                         which the addon's callers also survive.
