@@ -79,6 +79,7 @@ function handlers.ADDON_LOADED(name)
     ns.Minimap.Create()
     ns.BuffMode.Create()
     ns.BuffButton.Create()
+    ns.BuffModeAuto.Create()
 
     Register("PLAYER_ENTERING_WORLD", function(isLogin, isReload)
         if isLogin or isReload then
@@ -89,7 +90,13 @@ function handlers.ADDON_LOADED(name)
         end
     end)
     Register("CHAT_MSG_SYSTEM", ns.Greeter.OnSystemMessage)
-    Register("GROUP_ROSTER_UPDATE", ns.Greeter.OnGroupRosterUpdate)
+    Register("GROUP_ROSTER_UPDATE", function(...)
+        -- Forget this raid's Blessings as you leave it, so they can't carry
+        -- into the next raid (BuffRules.lua).
+        ns.BuffRules.CheckRaid()
+        ns.Options.Refresh() -- the raid Blessing boxes work only in a raid
+        ns.Greeter.OnGroupRosterUpdate(...)
+    end)
     Register("GUILD_ROSTER_UPDATE", ns.Greeter.OnRosterUpdate)
     Register("PLAYER_GUILD_UPDATE", ns.Greeter.RequestRoster)
     Register("UNIT_AURA", function(_, updateInfo) ns.BuffTracker.OnPlayerAura(updateInfo) end, "player")
@@ -422,6 +429,32 @@ local function BuffModeCommand(args)
     end
 end
 
+-- /friendly blessings [all | <keys>]: which of your Blessings you cover in
+-- this raid (paladins; forgotten when you leave it).
+local function BlessingsCommand(args)
+    local R = ns.BuffRules
+    local mine = R.MyBlessings()
+    if #mine == 0 then return ns.Print("blessings: you don't know any Blessings.") end
+    local words = {}
+    for word in args:lower():gmatch("%S+") do words[#words + 1] = word end
+    if #words > 0 then
+        local ok, why
+        if words[1] == "all" then ok, why = R.SetRaidBlessings(nil) else ok, why = R.SetRaidBlessings(words) end
+        if not ok then ns.Print("blessings: " .. why .. ".") end
+        ns.Options.Refresh()
+    end
+    local covered, keys = {}, {}
+    for _, buff in ipairs(mine) do
+        keys[#keys + 1] = buff.key
+        if R.CoversInRaid(buff) then covered[#covered + 1] = ns.BuffData.SpellName(buff) or buff.key end
+    end
+    ns.Print("blessings you give in this raid: " .. (#covered > 0 and table.concat(covered, ", ") or "none")
+        .. (R.RaidBlessingsChosen() and "" or " (all: you haven't chosen)"))
+    if #words == 0 then
+        ns.Print("/friendly blessings all | " .. table.concat(keys, " ") .. " - in a raid, until you leave it")
+    end
+end
+
 local function MoveCommand()
     local unlock = not ns.db.buffBack.unlocked
     local ok, why = ns.BuffButton.SetUnlocked(unlock)
@@ -488,6 +521,7 @@ local commands = {
         ns.Print("/friendly buffback - what the buff-back button holds and why")
         ns.Print("/friendly move - unlock or lock the buff-back button to drag it")
         ns.Print("/friendly buffmode [on | off | key <key>] - lend a key (the mouse wheel) to the buff-back button")
+        ns.Print("/friendly blessings [all | might wisdom ...] - paladins: the Blessings you give in this raid")
     end,
     profile = ProfileCommand,
     export = function() ns.ShowExport() end,
@@ -496,6 +530,7 @@ local commands = {
     buffback = BuffBackCommand,
     move = MoveCommand,
     buffmode = BuffModeCommand,
+    blessings = BlessingsCommand,
     snooze = SnoozeCommand,
     ignore = IgnoreCommand,
     unignore = UnignoreCommand,

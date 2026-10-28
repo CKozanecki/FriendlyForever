@@ -3,7 +3,8 @@
 -- (which can taint Blizzard UI code) fail the lint.
 std = "lua51"
 max_line_length = 120
-exclude_files = { ".tools/**", "dist/**", ".release/**" }
+-- .claude/worktrees holds other checkouts of this repo (Claude Code side sessions).
+exclude_files = { ".tools/**", "dist/**", ".release/**", ".claude/**" }
 
 -- The addon may only create these globals.
 globals = {
@@ -36,6 +37,8 @@ read_globals = {
     "UnitIsDeadOrGhost", "UnitIsPVP",
     "SetOverrideBindingClick", "ClearOverrideBindings", "GetBindingText", "GetBindingAction",
     "IsShiftKeyDown", "IsControlKeyDown", "IsAltKeyDown",
+    "UnitInRange", "UnitIsConnected", "UnitIsVisible", "IsSpellInRange",
+    "UnitGroupRolesAssigned", "GetPartyAssignment",
 }
 
 -- Tests run in plain Lua with busted and install the mock WoW API globally.

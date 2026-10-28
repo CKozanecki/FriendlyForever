@@ -2,11 +2,12 @@
 ## Title: Friendly Forever
 ## Notes: Greets guildmates who log in, welcomes new guild and party members, and thanks people who buff you.
 ## Author: Chris Kozanecki
-## Version: 1.6.0
+## Version: 0.8.0
 ## IconTexture: Interface\Icons\Achievement_Reputation_01
 ## SavedVariables: FriendlyForeverDB
 ## Category: Chat
 ## X-License: MIT
+## X-Curse-Project-ID: 1769620
 
 Util.lua
 Defaults.lua
@@ -19,6 +20,7 @@ Cooldowns.lua
 Ignore.lua
 Ledger.lua
 BuffData.lua
+BuffRules.lua
 Offers.lua
 Serialize.lua
 Profiles.lua
@@ -31,6 +33,8 @@ BuffTracker.lua
 Window.lua
 BuffButton.lua
 BuffMode.lua
+GroupBuffs.lua
+BuffModeAuto.lua
 Options.lua
 Minimap.lua
 Core.lua

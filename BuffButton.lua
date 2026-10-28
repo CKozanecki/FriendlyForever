@@ -46,7 +46,7 @@ local MACRO_ACTION_TYPE = "macro"
 _G["BINDING_NAME_CLICK " .. BuffButton.FRAME_NAME .. ":LeftButton"] = "Friendly Forever: buff back"
 
 local button, eventFrame
-local armedOffer          -- what the button holds: { name, spell, buff, macroText }
+local armedOffer          -- what the button holds: { name, spell, buff, group, revoke, macroText }
 local appliedMacroText    -- the macro text last written to the button (to skip rewriting it)
 local shownResult         -- the last result under the button: { text, shownAt }
 local lastResultText = "nothing pressed yet"
@@ -147,6 +147,23 @@ local function HasTarget()
     return exists and true or false
 end
 
+-- What to offer now: the newest favour you can return, or in buff mode a
+-- group member missing your buff (GroupBuffs.lua). nil and why not.
+local function NextOffer()
+    local offer, reason
+    -- Nothing owed: skip the spellbook and aura reads entirely.
+    if ns.Offers.Count() > 0 then
+        offer, reason = ns.Offers.Current()
+    else
+        reason = "nobody is owed a buff"
+    end
+    if offer or not ns.BuffMode.LentKey() then return offer, reason end
+    local groupOffer, groupReason = ns.GroupBuffs.Next()
+    if groupOffer then return groupOffer end
+    if ns.Offers.Count() == 0 then return nil, groupReason end
+    return nil, reason .. "; " .. groupReason
+end
+
 -- Write the newest favour you can return onto the button, or empty it.
 -- Out of combat only: the game locks secure buttons in a fight.
 local function ArmButton()
@@ -159,10 +176,7 @@ local function ArmButton()
         button.icon:SetTexture(BuffButton.PLACEHOLDER_ICON)
         return
     end
-    -- Nothing owed: skip the spellbook and aura reads entirely.
-    if ns.Offers.Count() == 0 then return Empty("nobody is owed a buff", showingResult) end
-
-    local offer, reason = ns.Offers.Current()
+    local offer, reason = NextOffer()
     if not offer then return Empty(reason, showingResult) end
 
     local hadTarget = HasTarget()
@@ -170,10 +184,16 @@ local function ArmButton()
     if not macroText then return Empty("the name or spell can't be put in a macro safely", showingResult) end
 
     SetSecureMacro(macroText)
-    armedOffer = { name = offer.name, spell = offer.spell, buff = offer.buff, macroText = macroText }
+    armedOffer = { name = offer.name, spell = offer.spell, buff = offer.buff, group = offer.group,
+        revoke = offer.revoke, macroText = macroText }
     notArmedReason = nil
     button.icon:SetTexture(ns.BuffData.Icon(offer.buff) or BuffButton.PLACEHOLDER_ICON)
-    SetLabels(Util.DisplayName(offer.name), "buffed you - give " .. offer.spell)
+    if offer.revoke then
+        SetLabels(Util.DisplayName(offer.name), "Revoke their Salvation (" .. offer.why .. ")")
+    else
+        SetLabels(Util.DisplayName(offer.name),
+            (offer.group and "missing your " or "buffed you - give ") .. offer.spell)
+    end
     button:SetShown(true)
 end
 
@@ -186,13 +206,16 @@ local function ScheduleRecheck()
     end))
 end
 
--- Re-arm now (out of combat), and keep re-checking while favours are owed
--- or a result is showing: favours expire, targets and flags change.
+-- Re-arm now (out of combat), and keep re-checking while favours are owed,
+-- a result is showing or buff mode is on: favours expire, targets, flags,
+-- range and buffs change.
 function BuffButton.Refresh()
     if not button then return end
     ns.BuffMode.Apply()
+    ns.GroupBuffs.Prune()
     ArmButton()
-    if ns.Offers.Count() > 0 or shownResult then ScheduleRecheck() end
+    ns.BuffModeAuto.Check()
+    if ns.Offers.Count() > 0 or shownResult or ns.BuffMode.LentKey() then ScheduleRecheck() end
 end
 
 -- A fight is starting: empty the button while the game still allows it, so
@@ -250,10 +273,12 @@ local function Unanswered(press)
     press.expired = true
     local who = Util.DisplayName(press.name)
     if press.failed then
-        ShowResult("Couldn't buff " .. who .. " (the game gave no reason).", true)
+        ShowResult((press.revoke and "Couldn't revoke Salvation from " or "Couldn't buff ") .. who
+            .. " (the game gave no reason).", true)
     elseif press.sent then
         ShowResult("No word back on " .. press.spell .. " for " .. who .. ". If it didn't land, press again.")
     elseif press.complete and not press.unsure then
+        if press.group then ns.GroupBuffs.NoteRefused(press.name) end
         ShowResult("No answer: couldn't find " .. who .. " (out of sight?).", true)
     else
         return
@@ -274,6 +299,7 @@ end
 -- Fill a press from what the button holds now.
 local function TakeArmedOffer(press)
     press.name, press.spell, press.buff = armedOffer.name, armedOffer.spell, armedOffer.buff
+    press.group, press.revoke = armedOffer.group, armedOffer.revoke
     ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
     return press
 end
@@ -333,12 +359,32 @@ local function OnPreClick(_, mouseButton, isDown)
     WatchForAnswer(press)
 end
 
--- Right-click lets the shown favour go (once, as the button comes up).
+-- Right-click lets the shown favour go, or skips the shown group member for
+-- a while (once, as the button comes up). Shift+right-click on a group
+-- member's buff puts them on that buff's Never list (BuffRules.lua).
 local function OnPostClick(_, mouseButton, isDown)
     if mouseButton ~= "RightButton" or isDown == true or not armedOffer then return end
-    local name = armedOffer.name
-    ns.Offers.LetGo(name)
-    ShowResult("Let " .. Util.DisplayName(name) .. " go.")
+    -- Kept: changing a Never list re-arms the button.
+    local offer = armedOffer
+    local name = offer.name
+    if offer.group and not offer.revoke and Util.ReadGameValues(IsShiftKeyDown) == true then
+        ns.Options.FinishEdits()
+        local ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name)
+        if ok then
+            ShowResult(string.format("%s won't get %s (Never list, on the Buff Back tab).",
+                Util.DisplayName(name), offer.spell))
+        else
+            ShowResult("Couldn't add " .. Util.DisplayName(name) .. " to the Never list: " .. why .. ".", true)
+        end
+        ns.Options.Refresh()
+    elseif offer.group then
+        ns.GroupBuffs.Skip(name)
+        ShowResult(string.format("Skipping %s for %d minutes.", Util.DisplayName(name),
+            ns.GroupBuffs.SKIP_SECONDS / 60))
+    else
+        ns.Offers.LetGo(name)
+        ShowResult("Let " .. Util.DisplayName(name) .. " go.")
+    end
     BuffButton.Refresh()
 end
 
@@ -430,6 +476,13 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
         ShowResult(string.format("%s went to %s, not %s.", press.spell, actual, who), true)
     elseif reachedThem == nil then
         ShowResult("Cast " .. press.spell .. ", but the game didn't say it reached " .. who .. ".")
+    elseif press.revoke then
+        ns.GroupBuffs.NoteRevoked(press.name)
+        ShowResult("Revoked Salvation from " .. who .. ".")
+    elseif press.group then
+        -- A group buff: no favour, no line, no thanks.
+        ns.GroupBuffs.NoteGiven(press.name, press.buff)
+        ShowResult("Gave " .. press.spell .. " to " .. who .. ".")
     elseif ns.Offers.MarkReturned(press.name, press.spell) then
         ShowResult("Returned " .. press.spell .. " to " .. who .. ".")
         SayLineFor(press)
@@ -445,7 +498,9 @@ local unclaimedError
 
 local function ReportRefusal(press, text)
     ForgetPress(press)
-    ShowResult("Couldn't buff " .. Util.DisplayName(press.name) .. ": " .. Util.StripChat(text), true)
+    if press.group and ns.GroupBuffs.IsTargetRefusal(text) then ns.GroupBuffs.NoteRefused(press.name) end
+    ShowResult((press.revoke and "Couldn't revoke Salvation from " or "Couldn't buff ")
+        .. Util.DisplayName(press.name) .. ": " .. Util.StripChat(text), true)
     BuffButton.Refresh()
 end
 
@@ -542,7 +597,7 @@ end
 -- and go by the dozen in a city).
 local refreshSoonScheduled = false
 local function RefreshSoon()
-    if refreshSoonScheduled or ns.Offers.Count() == 0 then return end
+    if refreshSoonScheduled or (ns.Offers.Count() == 0 and not ns.BuffMode.LentKey()) then return end
     refreshSoonScheduled = true
     C_Timer.After(0, ns.Diag.Wrap(function()
         refreshSoonScheduled = false
@@ -566,6 +621,8 @@ local function CreateEventFrame()
         PLAYER_TARGET_CHANGED = BuffButton.Refresh,
         -- Someone owed may come into view (or go): their PvP flag can be read only then.
         NAME_PLATE_UNIT_ADDED = RefreshSoon,
+        -- In buff mode, who's in your group decides whom to buff.
+        GROUP_ROSTER_UPDATE = RefreshSoon,
         NAME_PLATE_UNIT_REMOVED = RefreshSoon,
         PLAYER_REGEN_DISABLED = BuffButton.OnCombatStart,
         PLAYER_REGEN_ENABLED = BuffButton.Refresh,

@@ -1,3 +1,4 @@
+-- Spec: #80
 local wow = require("spec.support.wow")
 
 describe("Greetings", function()
@@ -587,7 +588,7 @@ describe("Greetings", function()
                 assert.are.same({ "Welcome to the group, Ann!", "Welcome to the group, Bob!" }, wow.sentTo("RAID"))
             end)
 
-            -- What flooded raid chat in 1.5.0: a raid filling up one by one,
+            -- What flooded raid chat in 0.5.0: a raid filling up one by one,
             -- each join further apart than the merge window.
             it("go out at most once per RAID_MIN_INTERVAL while a raid forms slowly", function()
                 local list = {}
@@ -599,7 +600,7 @@ describe("Greetings", function()
                 end
                 wow.advance(ns.Greeter.RAID_MIN_INTERVAL)
                 local sent = wow.sentTo("RAID")
-                assert.are.equal(6, #sent) -- 20 lines in 1.5.0
+                assert.are.equal(6, #sent) -- 20 lines in 0.5.0
                 -- Everyone is still welcomed, in some line.
                 local all = table.concat(sent, " ")
                 for i = 1, 20 do

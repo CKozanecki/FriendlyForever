@@ -43,7 +43,9 @@ _G["BINDING_NAME_" .. BuffMode.BINDING] = "Friendly Forever: buff mode on/off"
 
 local owner              -- the frame the override binding belongs to
 local wanted = false     -- what you asked for; applied out of combat
+local auto = false       -- this buff mode was turned on by a trigger (BuffModeAuto.lua)
 local lentKey            -- the key lent right now, or nil
+local autoHintShown = false -- said where the triggers live, this session
 
 -- Whether key is a key name the game can bind, optionally with ALT-, CTRL-
 -- and SHIFT- in front ("SHIFT-MOUSEWHEELUP"), that buff mode may lend.
@@ -121,13 +123,19 @@ function BuffMode.Apply()
 end
 
 -- Turn buff mode on or off. In a fight, it happens when the fight ends.
-function BuffMode.Set(on)
+-- how (optional): { auto = true } when a trigger does it, and why = words
+-- for the message ("you joined a group"). Turning it on or off yourself
+-- makes it yours: triggers then never turn it off.
+function BuffMode.Set(on, how)
     on = on and true or false
+    how = how or {}
     if on and not Allowed() then
+        if how.auto then return end
         return ns.Print("buff mode needs the addon and Buff Back switched on.")
     end
     local changed = wanted ~= on
     wanted = on
+    auto = on and how.auto == true
     if InCombatLockdown() then
         if changed then
             ns.Print(on and "buff mode will turn on when this fight ends."
@@ -137,12 +145,31 @@ function BuffMode.Set(on)
     end
     ns.BuffButton.Refresh()
     if not changed then return end
+    local because = how.why and (" (" .. how.why .. ")") or ""
     if wanted and lentKey then
-        ns.Print("buff mode on: " .. BuffMode.KeyText(lentKey) .. " presses the buff-back button.")
+        ns.Print("buff mode on" .. because .. ": " .. BuffMode.KeyText(lentKey) .. " presses the buff-back button.")
+        -- The triggers are on by default, so say once a session where they live.
+        if auto and not autoHintShown then
+            autoHintShown = true
+            ns.Print("buff mode turns itself on and off: choose when on the Buff Back tab (/friendly).")
+        end
     elseif not wanted then
-        ns.Print("buff mode off.")
+        ns.Print("buff mode off" .. because .. ".")
     end
 end
+
+-- A fight is starting and a trigger's buff mode ends with it. Called during
+-- PLAYER_REGEN_DISABLED: it hands the key back but doesn't refresh the
+-- button, which must stay empty for the fight (BuffButton.OnCombatStart).
+function BuffMode.EndForFight(why)
+    if not (wanted and auto) then return end
+    wanted, auto = false, false
+    if not InCombatLockdown() then HandBack() end
+    ns.Print("buff mode off (" .. why .. ").")
+end
+
+-- Whether buff mode is on because a trigger turned it on.
+function BuffMode.IsAuto() return wanted and auto end
 
 function BuffMode.Toggle()
     BuffMode.Set(not wanted)
@@ -167,7 +194,10 @@ function BuffMode.SetKey(key)
 end
 
 function BuffMode.StatusLine()
-    if lentKey then return "buff mode: on, " .. BuffMode.KeyText(lentKey) .. " presses the button" end
+    if lentKey then
+        return "buff mode: on" .. (auto and " (turned on by itself)" or "") .. ", "
+            .. BuffMode.KeyText(lentKey) .. " presses the button"
+    end
     if wanted and InCombatLockdown() then return "buff mode: on, waiting for the fight to end" end
     if wanted then return "buff mode: on, waiting for the button" end
     return "buff mode: off (key: " .. BuffMode.KeyText((BuffMode.Key())) .. ")"

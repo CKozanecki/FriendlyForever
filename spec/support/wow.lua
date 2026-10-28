@@ -97,17 +97,25 @@ function methods:IsVisible()
     end
     return true
 end
+-- An edit box keeps at most its max letters (SetMaxLetters; 0 or unset:
+-- no limit), cutting longer text as the game does. Counted in bytes here,
+-- which for the ASCII the specs use is the same.
+function methods:SetMaxLetters(n) self.maxLetters = n end
+function methods:GetMaxLetters() return self.maxLetters or 0 end
 function methods:SetText(text)
     self.text = tostring(text)
+    if self.maxLetters and self.maxLetters > 0 then self.text = self.text:sub(1, self.maxLetters) end
     self.cursor = #self.text -- the game moves an edit box's cursor to the end
 end
 function methods:SetCursorPosition(pos) self.cursor = pos end
 -- Keyboard focus: one edit box at a time, as in the game. Focusing a box
--- takes focus from the last one, and losing focus runs OnEditFocusLost.
+-- takes focus from the last one; gaining focus runs OnEditFocusGained and
+-- losing it OnEditFocusLost.
 function methods:SetFocus()
     if M.focusedBox == self then return end
     if M.focusedBox then M.focusedBox:ClearFocus() end
     M.focusedBox = self
+    if self.scripts.OnEditFocusGained then self.scripts.OnEditFocusGained(self) end
 end
 function methods:HasFocus() return M.focusedBox == self end
 function methods:ClearFocus()
@@ -224,6 +232,10 @@ nameSpell("Blessing of Kings", { 20217 })
 nameSpell("Blessing of Might", { 25291, 19838, 19837, 19836, 19835, 19834, 19740 })
 nameSpell("Blessing of Wisdom", { 25290, 19854, 19853, 19852, 19850, 19742 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
+-- Forever's Revoke (paladins). Its real ID isn't known yet (#50): this one
+-- is the simulation's own, and the addon finds Revoke by name.
+M.REVOKE_ID = 990001
+nameSpell("Revoke", { M.REVOKE_ID })
 
 ------------------------------------------------------------------------
 -- ASSUMPTIONS ABOUT WOW FOREVER, to check in game. Each is a state setting
@@ -250,6 +262,23 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         blocked in combat, and allowed in PLAYER_REGEN_DISABLED's
 --                         handlers (as secure frames are). state.unbindable[key]:
 --                         the game rejects that key (an error here).
+--   unit.secrets = { name = true, pvp = true, auras = true }: that one unit's
+--                         name, PvP flag or buffs read as secrets (as for a
+--                         stranger in a restricted moment); role and mainTank
+--                         likewise for its group role and Main Tank assignment.
+--   C_Spell.GetSpellInfo(name) and GetSpellTexture(name) answer only for a
+--                         spell you know (likewise GetSpellInfo(name)), as the
+--                         game's name lookup goes through your spellbook; by
+--                         ID it answers for any spell. Revoke has a made-up
+--                         ID here (M.REVOKE_ID): Forever's is checked at launch.
+--   UnitGroupRolesAssigned and GetPartyAssignment("MAINTANK") both exist and
+--                         answer for group units (unit.role, unit.mainTank;
+--                         Main Tank answers false outside a raid);
+--                         which of them Forever has is checked at launch (#50).
+--   UnitInRange(unit) answers inRange, checkedRange for group units (unit
+--                         fields outOfRange, rangeUnknown); in a raid, setGroup
+--                         leaves your own raid slot out (the game puts you in
+--                         one), so specs add it when they need it.
 --   state.castLatency     seconds before the server answers a cast
 --                         (SUCCEEDED or FAILED and its error text); 0 (default)
 --                         answers inside the press. SENT is always at once.
@@ -447,12 +476,16 @@ end
 
 -- A press of a button by a key binding or the mouse: the down half, then the
 -- up half. mouseButton defaults to "LeftButton"; mods = { shift = true, ... }.
+-- The modifiers are held for the press (IsShiftKeyDown and friends say so).
 function M.press(button, mouseButton, mods)
     mouseButton = mouseButton or "LeftButton"
+    local held = M.state.mods
+    if mods then M.state.mods = mods end
     M.hardware = true
     pressHalf(button, mouseButton, true, mods)
     pressHalf(button, mouseButton, false, mods)
     M.hardware = false
+    M.state.mods = held
 end
 
 -- Combat as the game starts and ends it: PLAYER_REGEN_DISABLED fires just
@@ -524,7 +557,7 @@ local function unitField(unit, field)
     local u = M.state.units[unit]
     if not u then return nil end
     local value = u[field]
-    if M.state.unitsRestricted and value ~= nil then return M.secret(value) end
+    if value ~= nil and (M.state.unitsRestricted or (u.secrets and u.secrets[field])) then return M.secret(value) end
     return value
 end
 
@@ -815,7 +848,28 @@ function M.reset()
     -- Spells: state.knownSpells[id] = true for spells in my spellbook.
     _G.C_Spell = {
         GetSpellName = function(id) return M.SPELL_NAMES[id] end,
-        GetSpellTexture = function(id) return M.SPELL_NAMES[id] and ("icon:" .. id) or nil end,
+        -- By ID: any spell the client has. By name: only a spell you know
+        -- (the game looks names up in your spellbook).
+        GetSpellInfo = function(spell)
+            local id = spell
+            if type(spell) == "string" then id = knownRank(spell) end
+            local name = id and M.SPELL_NAMES[id]
+            if not name then return nil end
+            return { name = name, spellID = id }
+        end,
+        -- By ID, or by name for a spell you know (as GetSpellInfo).
+        GetSpellTexture = function(spell)
+            local id = spell
+            if type(spell) == "string" then id = knownRank(spell) end
+            return id and M.SPELL_NAMES[id] and ("icon:" .. id) or nil
+        end,
+        -- Unit fields outOfSpellRange (the spell can't reach them) and
+        -- spellRangeUnknown (the game won't say: nil).
+        IsSpellInRange = function(_, unit)
+            local u = M.state.units[unit]
+            if not u or u.spellRangeUnknown then return nil end
+            return not u.outOfSpellRange
+        end,
     }
     _G.C_SpellBook = {
         IsSpellInSpellBook = function(id) return M.state.knownSpells[id] == true end,
@@ -824,9 +878,53 @@ function M.reset()
         local u = M.state.units[unit]
         return u ~= nil and u.dead == true
     end)
+    -- Group members: unit fields outOfRange (true: out of range), rangeUnknown
+    -- (the game can't tell), offline and hidden (not in sight / not visible).
+    _G.UnitInRange = function(unit)
+        local u = M.state.units[unit]
+        if not u then return false, false end
+        if u.rangeUnknown then return false, false end
+        if M.state.unitsRestricted then return M.secret(not u.outOfRange), M.secret(true) end
+        return not u.outOfRange, true
+    end
+    -- Group roles: unit.role ("TANK", "HEALER", "DAMAGER"; "NONE" when
+    -- unset) and, in a raid, unit.mainTank (the Main Tank assignment).
+    -- secrets.role / secrets.mainTank make that answer a secret.
+    _G.UnitGroupRolesAssigned = function(unit)
+        local u = M.state.units[unit]
+        if not u then return "NONE" end
+        local role = u.role or "NONE"
+        if M.state.unitsRestricted or (u.secrets and u.secrets.role) then return M.secret(role) end
+        return role
+    end
+    _G.GetPartyAssignment = function(assignment, unit)
+        local u = M.state.units[unit]
+        if not u then return false end
+        -- A raid assignment: outside a raid nobody has it.
+        local inRaid = M.state.groupType == "raid" or M.state.raidSized
+        local is = assignment == "MAINTANK" and inRaid and u.mainTank == true
+        if M.state.unitsRestricted or (u.secrets and u.secrets.mainTank) then return M.secret(is) end
+        return is
+    end
+    _G.UnitIsConnected = restricted(function(unit)
+        local u = M.state.units[unit]
+        return u ~= nil and not u.offline
+    end)
+    _G.UnitIsVisible = restricted(function(unit)
+        local u = M.state.units[unit]
+        return u ~= nil and not u.hidden
+    end)
+    -- Everyone in your group, you included (0 when you're in none).
+    _G.GetNumGroupMembers = function()
+        if M.state.groupType == nil then return 0 end
+        local n = 1
+        for _ in pairs(M.state.groupMembers) do n = n + 1 end
+        return n
+    end
     _G.UnitIsPVP = restricted(function(unit)
         if unit == "player" then return M.state.pvp == true end
         local u = M.state.units[unit]
+        if u and u.secrets and u.secrets.pvp then return M.secret(u.pvp == true) end
         return u ~= nil and u.pvp == true
     end)
     -- Game settings. Unknown names return nil; nameplate settings are locked in combat.
@@ -863,8 +961,9 @@ function M.reset()
                 local u = M.state.units[unit]
                 local id = u and u.auras and u.auras[index]
                 if id == nil then return nil end
-                if M.state.unitsRestricted then return M.secret({ spellId = id }) end
-                return { spellId = id, isHelpful = true }
+                if M.state.unitsRestricted or (u.secrets and u.secrets.auras) then return M.secret({ spellId = id }) end
+                -- spec.auraSources[index]: the unit token of who cast it, if the game says.
+                return { spellId = id, isHelpful = true, sourceUnit = u.auraSources and u.auraSources[index] }
             end
             local helpful = {}
             for _, a in ipairs(M.state.playerAuras) do
@@ -939,17 +1038,38 @@ function M.load()
     return ns
 end
 
+-- Buff mode's turn-on triggers, which boot switches off for most specs.
+M.TURN_ON_TRIGGERS = { "autoOnJoin", "autoOnDeath", "autoOnBuffed" }
+
 -- Fresh client, addon loaded, logged in and past the login grace period.
 -- opts.db: saved variables to start with. opts.noGrace: stop after login.
+-- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
 function M.boot(opts)
     opts = opts or {}
     M.reset()
     if opts.before then opts.before(M.state) end
+    -- Which turn-on triggers the given settings set, read before loading
+    -- fills in every default (see below).
+    local triggersGiven = {}
+    local givenBuffBack = type(opts.db) == "table" and type(opts.db.buffBack) == "table" and opts.db.buffBack
+    if givenBuffBack then
+        for _, field in ipairs(M.TURN_ON_TRIGGERS) do triggersGiven[field] = givenBuffBack[field] end
+    end
     _G.FriendlyForeverDB = opts.db
     local ns = M.load()
     ns.Messages.random = function() return 1 end
     ns.Flavour.random = function() return 1 end
     M.fire("ADDON_LOADED", M.ADDON_NAME)
+    -- Buff mode's turn-on triggers are on by default (#29), and would lend
+    -- a key whenever a spec joins a group or a stranger buffs you. Most specs
+    -- check buff back and buffing with buff mode as you leave it, so they
+    -- start with the triggers off unless opts.db sets them. spec/
+    -- buffmodeauto_spec.lua covers the triggers (opts.autoBuffMode keeps them).
+    if not opts.autoBuffMode then
+        for _, field in ipairs(M.TURN_ON_TRIGGERS) do
+            if triggersGiven[field] == nil then ns.db.buffBack[field] = false end
+        end
+    end
     -- Most specs check behaviour, not wording, and were written against the
     -- casual lines: types still on the shipped defaults use those (fixed
     -- text). spec/flavour_spec.lua covers the shipped lines. opts.shippedLines
