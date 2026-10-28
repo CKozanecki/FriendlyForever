@@ -31,6 +31,8 @@ Every change can be traced from its spec to its code, tests, pull request and re
 
 Pull requests written by Claude go through two review loops before the maintainer's review: a Lua architecture review, then a Lua testing review, each repeated until it approves. Every finding is fixed. Reviewers report only real problems, things that would actually go wrong for the addon, its players or its releases, and never invent issues or stretch for unrealistic edge cases to keep a loop going. "Everything is OK" is a perfectly good review when it's true.
 
+For a pull request that changes what players see, the Lua testing review also looks at its [UI simulator](#ui-simulator) screenshots and layout checks, and decides whether they're right. The maintainer doesn't review screenshots.
+
 ### Ready for review
 
 A pull request is **ready for review** when all of these hold:
@@ -54,6 +56,24 @@ make check   # lint, tests, release zip
 ```
 
 CI also builds the zip with the BigWigs packager that releases use, and fails if its files differ from `make package`'s. If that check fails, add the new top-level file to `.pkgmeta`'s `ignore` list, or to the TOC if it should ship.
+
+## UI simulator
+
+The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://github.com/Osso/wow-ui-sim), a headless WoW client that runs Blizzard's real UI code (#49). It runs on pull requests and on `main` whenever addon code, the TOC, the packaging or `uitests/` changes. It's report only: it never fails CI, and nothing it produces is trusted.
+
+- **What it runs:**
+  - **Lua errors** from loading, and the addon's frame tree.
+  - **UI scenarios** in `uitests/scenarios.lua`, including the layout checks: text stays inside its frame, and frames stay on screen. Each layout check prints a `LAYOUT` line.
+  - **Screenshots** of the game screen, the options and the buff-back button.
+- **Where to look:** the run's summary has the errors, the scenarios and the layout lines. For a pull request from this repository, the screenshots are committed to the branch `ui-screenshots/pr-<number>`, replaced on every run. The branch stays after the pull request closes, for the maintainer to delete. To view them: `git fetch origin ui-screenshots/pr-<number>`, then open the PNGs, or browse the branch on GitHub.
+- **What the screenshots show:** our text, layout and colours. Blizzard's art and WoW's fonts aren't there, so sizes are approximate. Layout checks catch the problem whatever the font. The final look is checked in game, on launch day (#50). Fetching Blizzard's art (level C) is the maintainer's call.
+- **Adding a scenario:** write it in `uitests/scenarios.lua` with the simulator's `test()` and `assert*` functions, and add any new global it reads to `uitests/**` in `.luacheckrc`. Report lines go through `A_Print`, since Blizzard's UI sends `print` to chat. Put back anything a scenario changes, even when it fails. `uitests/` never ships. Anything that waits in game time belongs in `spec/`, whose client controls the clock.
+- **Safety:** the simulator is unvetted code. Changes to the workflow keep every one of these, and `spec/repo_spec.lua` checks them:
+  - the image pinned by digest, and the sources it builds from pinned by commit, with the build and render images' bases pinned by digest. Read the source at a new release before moving a pin;
+  - the simulator, and its build (which runs its build scripts and macros), in containers with no network, no capabilities and read-only sources. Only their output folders are writable. The one exception is the step that downloads its locked crates: `cargo fetch` has network, but runs none of their code;
+  - no secrets, and read-only access for every job but the one that publishes screenshots;
+  - that publishing job runs nothing from the simulator or the pull request. It only checks that each file is a PNG of a sane size, then commits it;
+  - never the simulator project's own Action.
 
 ## Ground rules for addon code
 
