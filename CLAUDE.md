@@ -33,7 +33,7 @@ Use the PR template too. This file only adds what applies to Claude sessions. Wh
 
 - **Duplicates:** search the backlog before filing an issue. #69 duplicated #41 and had to be merged back.
 - **WoW Forever isn't Classic Era.** Check game facts against Forever sources (Wowhead's `/forever/` pages, patch notes) before writing a spec. Put the sources on the issue, and list anything unconfirmed as a launch check on #50. For example: Salvation isn't a Blessing on Forever, Revoke and Mass Salvation exist, and Blessings last an hour. If a cloud session can't reach wowhead.com, use web search and say so on the issue.
-- **Product behaviour is the owner's call:** defaults, what's on or off, and how raids or battlegrounds behave. Ask them, and record the answer on the issue, not just in chat. For example, the turn-on triggers default to on (#72), and "Start here" (#47) leads players to those settings.
+- **Product behaviour is the owner's call:** defaults, what's on or off, and how raids or battlegrounds behave. Ask them, and record the answer on the issue, as CONTRIBUTING.md asks for decisions. For example, the turn-on triggers default to on (#72), and "Start here" (#47) leads players to those settings.
 - **Out of scope:** something you find that isn't the issue's job gets a new issue, with what you found and a proposed spec. Don't widen the PR you're on.
 - **Launch checks:** anything that can only be checked once WoW Forever launches (spell IDs, role APIs and the like) goes on #50.
 
