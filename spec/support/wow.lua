@@ -981,6 +981,7 @@ end
 
 -- Fresh client, addon loaded, logged in and past the login grace period.
 -- opts.db: saved variables to start with. opts.noGrace: stop after login.
+-- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
 function M.boot(opts)
     opts = opts or {}
     M.reset()
@@ -990,6 +991,17 @@ function M.boot(opts)
     ns.Messages.random = function() return 1 end
     ns.Flavour.random = function() return 1 end
     M.fire("ADDON_LOADED", M.ADDON_NAME)
+    -- Buff mode's turn-on triggers are on by default (#29), and would lend
+    -- a key whenever a spec joins a group or a stranger buffs you. Most specs
+    -- check buff back and buffing with buff mode as you leave it, so they
+    -- start with the triggers off unless opts.db sets them. spec/
+    -- buffmodeauto_spec.lua covers the triggers (opts.autoBuffMode keeps them).
+    if not opts.autoBuffMode then
+        local saved = type(opts.db) == "table" and type(opts.db.buffBack) == "table" and opts.db.buffBack or {}
+        for _, field in ipairs({ "autoOnJoin", "autoOnDeath", "autoOnBuffed" }) do
+            if saved[field] == nil then ns.db.buffBack[field] = false end
+        end
+    end
     -- Most specs check behaviour, not wording, and were written against the
     -- casual lines: types still on the shipped defaults use those (fixed
     -- text). spec/flavour_spec.lua covers the shipped lines. opts.shippedLines

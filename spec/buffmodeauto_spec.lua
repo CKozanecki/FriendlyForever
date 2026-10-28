@@ -19,7 +19,7 @@ describe("Buff mode turning on and off by itself", function()
 
     -- A druid who knows Mark of the Wild (one buff keeps the counting simple).
     local function boot(db)
-        ns = wow.boot({ db = db, before = function(state)
+        ns = wow.boot({ db = db, autoBuffMode = true, before = function(state)
             state.class = "DRUID"
             state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
         end })
@@ -193,7 +193,7 @@ describe("Buff mode turning on and off by itself", function()
         end)
 
         it("doesn't count a group you were already in at login as joining one", function()
-            ns = wow.boot({ db = { buffBack = { autoOnJoin = true } }, before = function(state)
+            ns = wow.boot({ db = { buffBack = { autoOnJoin = true } }, autoBuffMode = true, before = function(state)
                 state.class = "DRUID"
                 state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
                 -- The roster arrives after the addon loads, as it does in the game.
@@ -474,7 +474,7 @@ describe("Buff mode turning on and off by itself", function()
 
     describe("chaos (red tests)", function()
         it("never turns buff mode on in a fight, and a trigger's buff mode always ends within the timeout", function()
-            local turnedOn, timedOut = 0, 0
+            local turnedOn, timedOut, hinted = 0, 0, 0
             for _, seed in ipairs({ 4, 29, 81, 512, 2026 }) do
                 math.randomseed(seed)
                 boot()
@@ -537,6 +537,13 @@ describe("Buff mode turning on and off by itself", function()
                         where .. ": turned on in a fight")
                     track(where)
                     assert.is_true(not wow.state.inCombat or lent() == nil, where .. ": a key lent in a fight")
+                    -- The hint is said at most once a session (a reload starts a new one).
+                    local hints = 0
+                    for _, line in ipairs(wow.printed) do
+                        if line:find("choose when on the Buff Back tab", 1, true) then hints = hints + 1 end
+                    end
+                    assert.is_true(hints <= 1, where .. ": the hint said " .. hints .. " times")
+                    if hints == 1 then hinted = hinted + 1 end
                     -- Now and then, nothing but time: the timeout itself must end it.
                     if step % 25 == 0 and ns.BuffMode.IsAuto() then
                         wow.advance(limit - (wow.now - startedAt))
@@ -549,6 +556,7 @@ describe("Buff mode turning on and off by itself", function()
             end
             assert.is_true(turnedOn > 20, "turned on by triggers: " .. turnedOn)
             assert.is_true(timedOut > 5, "ended by the timeout alone: " .. timedOut)
+            assert.is_true(hinted > 0, "the hint was said")
         end)
     end)
 end)

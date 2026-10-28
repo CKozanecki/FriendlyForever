@@ -40,14 +40,7 @@ describe("Buff mode", function()
         wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
     end
 
-    -- Buff mode is switched by hand here: the triggers that switch it by
-    -- themselves (on by default) are buffmodeauto_spec's.
-    -- (A new table each time: the saved settings are this table.)
-    local function handOnly()
-        return { buffBack = { autoOnJoin = false, autoOnDeath = false, autoOnBuffed = false } }
-    end
-
-    before_each(function() boot(handOnly()) end)
+    before_each(function() boot() end)
 
     describe("lending the key", function()
         it("lends the mouse wheel to the button while on, and gives it back when off", function()
