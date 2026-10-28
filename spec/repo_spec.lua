@@ -358,6 +358,40 @@ describe("Release version check", function()
     end)
 end)
 
+describe("CurseForge project ID", function()
+    -- The release job refuses to upload without a numeric ID in the TOC. The
+    -- test runs that job's own grep, so the check and the file can't drift.
+    local pattern = wow.readFile(".github/workflows/release.yml"):match("grep %-Eq '([^']+)' FriendlyForever%.toc")
+
+    local function accepted(toc)
+        local path = os.tmpname()
+        local f = assert(io.open(path, "w"))
+        f:write(toc)
+        f:close()
+        local ok = os.execute("grep -Eq '" .. pattern .. "' " .. path)
+        os.remove(path)
+        return ok == true or ok == 0
+    end
+
+    it("is the project's ID, in the form the release check accepts", function()
+        assert.is_truthy(pattern, "release.yml has no project ID check")
+        assert.are.equal("1769620", wow.parseToc()["X-Curse-Project-ID"])
+        assert.is_true(accepted(wow.readFile("FriendlyForever.toc")))
+    end)
+
+    it("is rejected by the release check when missing or not a number", function()
+        assert.is_false(accepted("## Version: 0.8.0\n"))
+        assert.is_false(accepted("## X-Curse-Project-ID: abc\n"))
+        assert.is_false(accepted("## X-Curse-Project-ID:\n"))
+    end)
+
+    it("still passes the check when the TOC has Windows line endings", function()
+        local crlf = wow.readFile("FriendlyForever.toc"):gsub("\r?\n", "\r\n")
+        assert.is_truthy(crlf:find("\r\n", 1, true), "the test input has no Windows line endings")
+        assert.is_true(accepted(crlf))
+    end)
+end)
+
 describe("Release scripts", function()
     local function run(cmd)
         local p = io.popen('cd "' .. wow.ROOT .. '" && ' .. cmd .. ' 2>&1; echo "exit=$?"')
