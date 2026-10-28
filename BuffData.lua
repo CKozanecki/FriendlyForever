@@ -15,6 +15,8 @@
 --   selfCast  cast on yourself, reaching your party (Battle Shout): never a return
 --   family    buffs of which a player keeps only one of yours (a paladin's
 --             Blessings): casting another replaces it
+--   defaultRule  who gets it in buff mode until you choose (BuffRules.lua);
+--             everyone when not set
 local _, ns = ...
 local Util = ns.Util
 
@@ -44,7 +46,9 @@ BuffData.CLASSES = {
         { key = "might", ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 }, group = { 25916, 25782 },
             family = "blessing" },
         { key = "light", ranks = { 19979, 19978, 19977 }, group = { 25890 }, family = "blessing" },
-        { key = "salvation", ranks = { 1038 }, group = { 25895 }, groupOnly = true, family = "blessing" },
+        -- Not a Blessing on Forever: it's worn beside one (#68). Kept off
+        -- tanks by default, who don't want less threat.
+        { key = "salvation", ranks = { 1038 }, group = { 25895 }, groupOnly = true, defaultRule = "notTanks" },
     },
     WARLOCK = {
         { key = "breath", ranks = { 5697 }, group = { 131 } },

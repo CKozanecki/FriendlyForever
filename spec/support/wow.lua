@@ -97,17 +97,25 @@ function methods:IsVisible()
     end
     return true
 end
+-- An edit box keeps at most its max letters (SetMaxLetters; 0 or unset:
+-- no limit), cutting longer text as the game does. Counted in bytes here,
+-- which for the ASCII the specs use is the same.
+function methods:SetMaxLetters(n) self.maxLetters = n end
+function methods:GetMaxLetters() return self.maxLetters or 0 end
 function methods:SetText(text)
     self.text = tostring(text)
+    if self.maxLetters and self.maxLetters > 0 then self.text = self.text:sub(1, self.maxLetters) end
     self.cursor = #self.text -- the game moves an edit box's cursor to the end
 end
 function methods:SetCursorPosition(pos) self.cursor = pos end
 -- Keyboard focus: one edit box at a time, as in the game. Focusing a box
--- takes focus from the last one, and losing focus runs OnEditFocusLost.
+-- takes focus from the last one; gaining focus runs OnEditFocusGained and
+-- losing it OnEditFocusLost.
 function methods:SetFocus()
     if M.focusedBox == self then return end
     if M.focusedBox then M.focusedBox:ClearFocus() end
     M.focusedBox = self
+    if self.scripts.OnEditFocusGained then self.scripts.OnEditFocusGained(self) end
 end
 function methods:HasFocus() return M.focusedBox == self end
 function methods:ClearFocus()
@@ -252,7 +260,12 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         the game rejects that key (an error here).
 --   unit.secrets = { name = true, pvp = true, auras = true }: that one unit's
 --                         name, PvP flag or buffs read as secrets (as for a
---                         stranger in a restricted moment).
+--                         stranger in a restricted moment); role and mainTank
+--                         likewise for its group role and Main Tank assignment.
+--   UnitGroupRolesAssigned and GetPartyAssignment("MAINTANK") both exist and
+--                         answer for group units (unit.role, unit.mainTank;
+--                         Main Tank answers false outside a raid);
+--                         which of them Forever has is checked at launch (#50).
 --   UnitInRange(unit) answers inRange, checkedRange for group units (unit
 --                         fields outOfRange, rangeUnknown); in a raid, setGroup
 --                         leaves your own raid slot out (the game puts you in
@@ -846,6 +859,25 @@ function M.reset()
         if u.rangeUnknown then return false, false end
         if M.state.unitsRestricted then return M.secret(not u.outOfRange), M.secret(true) end
         return not u.outOfRange, true
+    end
+    -- Group roles: unit.role ("TANK", "HEALER", "DAMAGER"; "NONE" when
+    -- unset) and, in a raid, unit.mainTank (the Main Tank assignment).
+    -- secrets.role / secrets.mainTank make that answer a secret.
+    _G.UnitGroupRolesAssigned = function(unit)
+        local u = M.state.units[unit]
+        if not u then return "NONE" end
+        local role = u.role or "NONE"
+        if M.state.unitsRestricted or (u.secrets and u.secrets.role) then return M.secret(role) end
+        return role
+    end
+    _G.GetPartyAssignment = function(assignment, unit)
+        local u = M.state.units[unit]
+        if not u then return false end
+        -- A raid assignment: outside a raid nobody has it.
+        local inRaid = M.state.groupType == "raid" or M.state.raidSized
+        local is = assignment == "MAINTANK" and inRaid and u.mainTank == true
+        if M.state.unitsRestricted or (u.secrets and u.secrets.mainTank) then return M.secret(is) end
+        return is
     end
     _G.UnitIsConnected = restricted(function(unit)
         local u = M.state.units[unit]
