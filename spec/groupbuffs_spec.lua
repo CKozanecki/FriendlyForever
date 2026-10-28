@@ -162,7 +162,7 @@ describe("Buffing your group in buff mode", function()
         end)
 
         it("only in buff mode", function()
-            boot({ buffMode = false })
+            boot({ buffMode = false, db = { buffBack = { autoOnJoin = false } } })
             party({ "Ann-Vale" })
             assert.is_nil(macro())
             assert.is_false(button:IsShown())

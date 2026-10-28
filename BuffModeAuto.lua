@@ -1,7 +1,8 @@
 -- When buff mode turns on and off by itself. Each trigger is an option on
 -- the Buff Back tab. Triggers only switch buff mode: they never cast.
 --
--- Turns on (off by default: lending a key by surprise would confuse):
+-- Turns on (on by default; the first time a session, it says where to
+-- switch these, and the "Start here" walkthrough, #47, shows them):
 --   joining a group or raid;
 --   a group member dying, after the group's first pull (until the next one);
 --   someone outside your group buffing you (a group member's buff isn't a
