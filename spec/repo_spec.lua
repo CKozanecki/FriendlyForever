@@ -227,25 +227,43 @@ describe("UI simulator workflow", function()
         assert.is_true(pinned("IMAGE: ghcr%.io/osso/wow%-ui%-sim@sha256:", 64), "the simulator image isn't pinned by digest")
         assert.is_true(pinned("SIM_COMMIT: ", 40), "the simulator source isn't pinned to a commit")
         assert.is_true(pinned("BLIZZARD_UI_COMMIT: ", 40), "Blizzard's UI isn't pinned to a commit")
-        assert.is_true(pinned("RENDER_BASE: ubuntu@sha256:", 64), "the render image's base isn't pinned by digest")
+        assert.is_true(pinned("BUILD_BASE: rust@sha256:", 64), "the build image's base isn't pinned by digest")
+        assert.is_true(pinned("RENDER_BASE: debian@sha256:", 64), "the render image's base isn't pinned by digest")
         assert.is_falsy(text:lower():find("uses:%s*osso/"), "uses the simulator project's own Action")
     end)
 
-    it("runs the simulator with no network, no capabilities and only the screenshot folder writable", function()
-        local found = 0
+    -- Only cargo fetch gets network, to download the locked crates; it runs
+    -- none of their code. Everything else that runs the simulator's code
+    -- (its build scripts, macros and the simulator) has none.
+    it("sandboxes every container: no capabilities, read-only sources, network only to download crates", function()
+        local found, fetches, builds = 0, 0, 0
         for _, job in ipairs(order) do
             for _, command in ipairs(dockerRuns(job)) do
                 found = found + 1
-                for _, flag in ipairs({ "--network none", "--cap-drop ALL", "--security-opt no-new-privileges" }) do
+                local fetch = command:find("ff%-build cargo fetch %-%-locked%s*$") ~= nil
+                for _, flag in ipairs({ "--cap-drop ALL", "--security-opt no-new-privileges" }) do
                     assert.is_truthy(command:find(flag, 1, true), job.name .. ": docker run without " .. flag)
                 end
+                if fetch then
+                    fetches = fetches + 1
+                else
+                    assert.is_truthy(command:find("--network none", 1, true), job.name .. ": docker run with network")
+                end
+                if command:find("cargo build", 1, true) then
+                    builds = builds + 1
+                    assert.is_truthy(command:find("--offline", 1, true), "the simulator build may download")
+                end
                 for mount in command:gmatch("%-v%s+(%S+)") do
-                    assert.is_truthy(mount:find(":ro\"?$") or mount:find(":/shots\"?$"),
-                        job.name .. ": " .. mount .. " is mounted writable")
+                    local writable = mount:find(":/shots\"?$") or mount:find(":/target\"?$")
+                        or (fetch and mount:find(":/cargo\"?$"))
+                    assert.is_truthy(mount:find(":ro\"?$") or writable, job.name .. ": " .. mount .. " is mounted writable")
                 end
             end
         end
-        assert.is_true(found >= 3, "expected the simulator's docker runs")
+        assert.is_true(found >= 5, "expected the simulator's docker runs")
+        assert.are.equal(1, fetches, "expected one dependency download")
+        assert.are.equal(1, builds, "expected the simulator to be built in a container")
+        assert.is_falsy(text:find("\n%s*cargo "), "cargo runs on the runner, outside a container")
     end)
 
     it("lets only the publish job write, and it runs nothing from the simulator or the pull request", function()

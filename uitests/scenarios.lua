@@ -113,21 +113,33 @@ local function OnScreen(frame, label)
     check(left >= -1 and bottom >= -1 and right <= width + 1 and top <= height + 1, line .. ": off the screen")
 end
 
-test("the buff-back button's text stays inside it (unlocked, the longest hint)", function()
-    SlashCmdList.FRIENDLYFOREVER("move")
+-- Runs fn with the buff-back button unlocked (it shows, with its longest
+-- hint), then locks it again if it was locked, even when fn fails, so one
+-- failed check can't leave the next test the wrong state.
+local function WithButtonUnlocked(fn)
+    local wasUnlocked = FriendlyForeverDB.buffBack.unlocked
+    if not wasUnlocked then SlashCmdList.FRIENDLYFOREVER("move") end
     local button = _G.FriendlyForeverBuffButton
-    assertNotNil(button)
-    TextInside(button, button.title, "button title")
-    TextInside(button, button.subtitle, "button hint")
-    SlashCmdList.FRIENDLYFOREVER("move")
+    local ok, err = pcall(fn, button)
+    if FriendlyForeverDB.buffBack.unlocked ~= wasUnlocked then SlashCmdList.FRIENDLYFOREVER("move") end
+    if not ok then error(err, 0) end
+end
+
+test("the buff-back button's text stays inside it (unlocked, the longest hint)", function()
+    WithButtonUnlocked(function(button)
+        assertNotNil(button)
+        assertTrue(FriendlyForeverDB.buffBack.unlocked)
+        TextInside(button, button.title, "button title")
+        TextInside(button, button.subtitle, "button hint")
+    end)
 end)
 
-test("the buff-back button is on the screen where it starts", function()
-    SlashCmdList.FRIENDLYFOREVER("move")
-    local button = _G.FriendlyForeverBuffButton
-    assertNotNil(button)
-    OnScreen(button, "buff-back button")
-    SlashCmdList.FRIENDLYFOREVER("move")
+test("the buff-back button is on the screen where it starts (unlocked)", function()
+    WithButtonUnlocked(function(button)
+        assertNotNil(button)
+        assertTrue(FriendlyForeverDB.buffBack.unlocked)
+        OnScreen(button, "buff-back button")
+    end)
 end)
 
 test("the options panel is on the screen once open", function()

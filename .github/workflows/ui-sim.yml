@@ -143,9 +143,15 @@ jobs:
 
   # Level B: screenshots of our own frames. The published image is built
   # without the simulator's renderer, so this job builds it from the same
-  # reviewed release (v0.1.36, the commit behind the image above) and renders
-  # on the CPU with Mesa's software driver. No Blizzard art is fetched, so
-  # Blizzard's textures are missing: text, layout and our own colors show.
+  # reviewed release (v0.1.36, the commit behind the image above), the way
+  # that release's Dockerfile does, and renders on the CPU with Mesa's
+  # software driver. No Blizzard art is fetched, so Blizzard's textures are
+  # missing: text, layout and our own colors show.
+  #
+  # The build runs the simulator's build scripts and macros, so it is
+  # sandboxed like the simulator itself: cargo first downloads the locked,
+  # checksummed crates (it runs none of their code), then compiles with no
+  # network, no capabilities and the sources read-only.
   screenshots:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -154,7 +160,10 @@ jobs:
       SIM_REPO: https://github.com/Osso/wow-ui-sim.git
       SIM_COMMIT: 3b369ee1aafeb85089b7c63e8a0a99e56f8c2dd0 # v0.1.36
       BLIZZARD_UI_COMMIT: b9be9379719047977fca4dba1bb1d9988e8840b3 # pinned by that release's Dockerfile
-      RENDER_BASE: ubuntu@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac # 24.04
+      # The release's Dockerfile builds on rust:1.92-bookworm; rendering uses
+      # the same Debian, so the binary finds the ICU it was linked with.
+      BUILD_BASE: rust@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2 # 1.92-bookworm
+      RENDER_BASE: debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 # bookworm-slim
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -190,8 +199,17 @@ jobs:
             "$BLIZZARD_UI_COMMIT" > .wow-ui-sim-blizzard-ui-provenance
           touch .wow-ui-sim-blizzard-ui-complete
 
-      - name: Install build dependencies
-        run: sudo apt-get update -q && sudo apt-get install -yq mold clang pkg-config libicu-dev
+      - name: Build a build image (the release Dockerfile's build tools)
+        run: |
+          docker build -t ff-build - <<DOCKERFILE
+          FROM $BUILD_BASE
+          RUN apt-get update -q && apt-get install -yq --no-install-recommends \
+                clang mold git pkg-config cmake libicu-dev \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          # Published binaries use the release's portable CI config.
+          cp "$RUNNER_TEMP/sim/.cargo/config.ci.toml" "$RUNNER_TEMP/sim/.cargo/config.toml"
+          mkdir -p "$RUNNER_TEMP/cargo-home" "$RUNNER_TEMP/sim-target"
 
       # Restored and saved separately, so the build is cached as soon as it
       # finishes, even if a later step fails or the run is cancelled.
@@ -200,33 +218,46 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ${{ runner.temp }}/sim/target
-          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui
+            ${{ runner.temp }}/cargo-home
+            ${{ runner.temp }}/sim-target
+          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui-sandboxed
 
-      - name: Build the simulator with its renderer
-        working-directory: ${{ runner.temp }}/sim
+      # The only container with network: cargo fetch downloads the crates
+      # Cargo.lock names, checks their checksums and unpacks them, and runs
+      # none of their code. The sources stay read-only.
+      - name: Download the simulator's locked dependencies
+        if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
-          cp .cargo/config.ci.toml .cargo/config.toml
-          cargo build --release --locked --bin wow-sim --no-default-features --features "gui client-retail"
+          docker run --rm --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/cargo \
+            -v "$RUNNER_TEMP/sim:/build:ro" -v "$RUNNER_TEMP/cargo-home:/cargo" -w /build \
+            ff-build cargo fetch --locked
+
+      - name: Build the simulator with its renderer (no network, sources read-only)
+        run: |
+          docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/cargo -e CARGO_TARGET_DIR=/target \
+            --memory 12g --memory-swap 12g --pids-limit 8192 \
+            -v "$RUNNER_TEMP/sim:/build:ro" -v "$RUNNER_TEMP/cargo-home:/cargo:ro" \
+            -v "$RUNNER_TEMP/sim-target:/target" -w /build \
+            ff-build cargo build --release --locked --offline --bin wow-sim \
+              --no-default-features --features "gui client-retail"
 
       - name: Save the simulator build
         if: steps.sim-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ${{ runner.temp }}/sim/target
-          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui
+            ${{ runner.temp }}/cargo-home
+            ${{ runner.temp }}/sim-target
+          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui-sandboxed
 
       - name: Build a render image (Mesa software drivers)
         run: |
           docker build -t ff-render - <<DOCKERFILE
           FROM $RENDER_BASE
           RUN apt-get update -q && apt-get install -yq --no-install-recommends \
-                libicu74 libegl1 libgl1-mesa-dri libglx-mesa0 mesa-vulkan-drivers fonts-dejavu-core \
+                libicu72 libegl1 libgl1-mesa-dri libglx-mesa0 mesa-vulkan-drivers fonts-dejavu-core \
               && rm -rf /var/lib/apt/lists/*
           DOCKERFILE
 
@@ -251,7 +282,7 @@ jobs:
               -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 -e WOW_SIM_NO_SAVED_VARS=1 \
               -e WOW_SIM_CASC=0 -e WOW_SIM_VERBOSE=1 \
               -e LIBGL_ALWAYS_SOFTWARE=1 -e WOW_SIM_SOFTWARE_RENDER=1 -e WGPU_BACKEND=gl \
-              -v "$RUNNER_TEMP/sim/target/release:/sim:ro" \
+              -v "$RUNNER_TEMP/sim-target/release:/sim:ro" \
               -v "$RUNNER_TEMP/blizzard-ui/Interface/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
               -v "$RUNNER_TEMP/addons:/test-addons:ro" \
               -v "$RUNNER_TEMP/shots:/shots" \
@@ -281,7 +312,7 @@ jobs:
           }
           # First, that the simulator starts at all in this image.
           probe=$(docker run -d --init --network none --cap-drop ALL --security-opt no-new-privileges \
-            -v "$RUNNER_TEMP/sim/target/release:/sim:ro" ff-render /sim/wow-sim --help)
+            -v "$RUNNER_TEMP/sim-target/release:/sim:ro" ff-render /sim/wow-sim --help)
           sleep 10
           docker logs "$probe" 2>&1 | head -40 | sed 's/^/  probe> /'
           docker rm -f "$probe" >/dev/null 2>&1 || true
@@ -303,7 +334,8 @@ jobs:
   # Publishes the screenshots where reviewers (people, and Claude sessions,
   # whose network reaches git but not artifact storage) can open them: an
   # orphan branch per pull request, ui-screenshots/pr-<number>, replaced on
-  # every run so old images don't pile up. This job runs nothing from the
+  # every run of that pull request. The branches outlive their pull
+  # requests: the maintainer deletes them. This job runs nothing from the
   # simulator or the pull request: it only checks the files are PNG images
   # of a sane size and commits them. It alone may write, and only for pull
   # requests from this repository.

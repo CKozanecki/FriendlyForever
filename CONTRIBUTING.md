@@ -65,12 +65,12 @@ The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://g
   - **Lua errors** from loading, and the addon's frame tree.
   - **UI scenarios** in `uitests/scenarios.lua`, including the layout checks: text stays inside its frame, and frames stay on screen. Each layout check prints a `LAYOUT` line.
   - **Screenshots** of the game screen, the options and the buff-back button.
-- **Where to look:** the run's summary has the errors, the scenarios and the layout lines. For a pull request from this repository, the screenshots are committed to the branch `ui-screenshots/pr-<number>`, replaced on every run. To view them: `git fetch origin ui-screenshots/pr-<number>`, then open the PNGs, or browse the branch on GitHub.
+- **Where to look:** the run's summary has the errors, the scenarios and the layout lines. For a pull request from this repository, the screenshots are committed to the branch `ui-screenshots/pr-<number>`, replaced on every run. The branch stays after the pull request closes, for the maintainer to delete. To view them: `git fetch origin ui-screenshots/pr-<number>`, then open the PNGs, or browse the branch on GitHub.
 - **What the screenshots show:** our text, layout and colours. Blizzard's art and WoW's fonts aren't there, so sizes are approximate. Layout checks catch the problem whatever the font. The final look is checked in game, on launch day (#50). Fetching Blizzard's art (level C) is the maintainer's call.
-- **Adding a scenario:** write it in `uitests/scenarios.lua` with the simulator's `test()` and `assert*` functions, and add any new global it reads to `uitests/**` in `.luacheckrc`. `uitests/` never ships. Anything that waits in game time belongs in `spec/`, whose client controls the clock.
+- **Adding a scenario:** write it in `uitests/scenarios.lua` with the simulator's `test()` and `assert*` functions, and add any new global it reads to `uitests/**` in `.luacheckrc`. Report lines go through `A_Print`, since Blizzard's UI sends `print` to chat. Put back anything a scenario changes, even when it fails. `uitests/` never ships. Anything that waits in game time belongs in `spec/`, whose client controls the clock.
 - **Safety:** the simulator is unvetted code. Changes to the workflow keep every one of these, and `spec/repo_spec.lua` checks them:
-  - the image pinned by digest, and the sources it builds from pinned by commit. Read the source at a new release before moving a pin;
-  - no network, no capabilities and read-only mounts for the simulator, with only its screenshot folder writable;
+  - the image pinned by digest, and the sources it builds from pinned by commit, with the build and render images' bases pinned by digest. Read the source at a new release before moving a pin;
+  - the simulator, and its build (which runs its build scripts and macros), in containers with no network, no capabilities and read-only sources. Only their output folders are writable. The one exception is the step that downloads its locked crates: `cargo fetch` has network, but runs none of their code;
   - no secrets, and read-only access for every job but the one that publishes screenshots;
   - that publishing job runs nothing from the simulator or the pull request. It only checks that each file is a PNG of a sane size, then commits it;
   - never the simulator project's own Action.
