@@ -979,11 +979,12 @@ function M.load()
     return ns
 end
 
+-- Buff mode's turn-on triggers, which boot switches off for most specs.
+M.TURN_ON_TRIGGERS = { "autoOnJoin", "autoOnDeath", "autoOnBuffed" }
+
 -- Fresh client, addon loaded, logged in and past the login grace period.
 -- opts.db: saved variables to start with. opts.noGrace: stop after login.
 -- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
-M.TURN_ON_TRIGGERS = { "autoOnJoin", "autoOnDeath", "autoOnBuffed" }
-
 function M.boot(opts)
     opts = opts or {}
     M.reset()
