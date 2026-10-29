@@ -170,6 +170,32 @@ describe("Quiet mode in capital cities", function()
             assert.are.equal(4, #wow.sentTo("SAY"), "the next four, within the minute, all go out")
         end)
 
+        it("records a thank-you dropped on walking into a capital as quiet, even with the chat's cap full", function()
+            for i, name in ipairs({ "Bob", "Gus", "Hal", "Ivy" }) do
+                stranger("nameplate" .. i, name)
+                buffedBy("nameplate" .. i)
+            end
+            for _ = 1, 8 do
+                wow.advance(ns.ChatQueue.MIN_INTERVAL + 0.01)
+                wow.keyDown()
+            end
+            assert.are.equal(4, #wow.sentTo("SAY"), "the /say cap is full")
+            stranger("nameplate5", "Jon")
+            buffedBy("nameplate5")
+            wow.advance(1)
+            wow.setMap(wow.CAPITAL.stormwind)
+            local printedBefore = #wow.printed
+            settle()
+            wow.advance(ns.ChatQueue.MIN_INTERVAL + 0.01)
+            wow.keyDown()
+            local entry = ledger()[#ledger()]
+            assert.are.equal("Jon-Stone", entry.who)
+            assert.are.equal("quiet in a capital city", entry.note, "dropped by quiet mode, not the cap")
+            for i = printedBefore + 1, #wow.printed do
+                assert.is_nil(wow.printed[i]:find("skipped a thank-you", 1, true), "no chat-cap hint")
+            end
+        end)
+
         it("drops the /say fallback for a failed whisper once you're in a capital", function()
             ns.db.buff.useWhisper = true
             stranger()
