@@ -68,7 +68,7 @@ function BuffTracker.Classify(unit)
     local isPlayer, isMe, isPet = UnitIsPlayer(unit), UnitIsUnit(unit, "player"), UnitIsUnit(unit, "pet")
     local inParty, inRaid, hostile = UnitInParty(unit), UnitInRaid(unit), UnitCanAttack("player", unit)
     if AnySecret(isPlayer, isMe, isPet, inParty, inRaid, hostile) then return nil end
-    if isMe or isPet or inParty or inRaid or hostile or not isPlayer then return false end
+    if isPet or inParty or inRaid or hostile or not isPlayer then return false end
     return Util.UnitFullName(unit) or nil
 end
 
