@@ -107,6 +107,8 @@ Config.DEFAULTS = {
         unknownName = "friend",
         -- "message" (a line in /say or a whisper), "emote" (/thank them) or "both".
         thankStyle = "message",
+        -- No thank-yous in capital cities (Cities.lua), unless buff mode is on.
+        quietInCities = true,
         messages = DefaultMessages.buff,
     },
     guildJoin = {
@@ -142,6 +144,8 @@ Config.DEFAULTS = {
         sayLine = false,
         owedMinutes = 10,
         unlocked = false,
+        -- Show the button in capital cities (Cities.lua); buff mode always does.
+        showInCities = false,
         position = { point = "CENTER", x = 0, y = -180 },
         -- The key buff mode lends to the button (BuffMode.lua).
         buffModeKey = "MOUSEWHEELUP",
@@ -238,6 +242,8 @@ Config.FIELD_VALIDATORS = {
     listBuffNames = Bool,
     useWhisper = Bool,
     fallbackToSay = Bool,
+    quietInCities = Bool,
+    showInCities = Bool,
     delay = Limited("delay"),
     repeatCooldown = Limited("repeatCooldown"),
     owedMinutes = Limited("owedMinutes"),

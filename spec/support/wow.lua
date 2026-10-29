@@ -410,6 +410,14 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         "…". Pinned on one side, it grows to fit its text.
 --                         Widths come from M.CHAR_WIDTH (a little wide on
 --                         purpose); real fonts are checked in game (#50).
+--   state.mapId           what C_Map.GetBestMapForUnit("player") answers: the
+--                         uiMapID, or nil as on a loading screen (1429, Elwynn
+--                         Forest, by default). Capitals use Classic Era's
+--                         numbers (1453 Stormwind ... 1458 Undercity); Forever's,
+--                         and the Skyborne hub's and Dalaran's, are checked at
+--                         launch (#50). setMap fires ZONE_CHANGED_NEW_AREA, as
+--                         walking into a city does; specs also move without
+--                         any zone event, as the addon mustn't rely on one.
 --   A secret value used as a table key reads as missing (byAuraId[secret]
 --                         is nil); the real client may raise an error instead,
 --                         which the addon's callers also survive.
@@ -809,7 +817,7 @@ function M.reset()
         -- overrides: [key] = { owner, button, mouseButton, priority } (SetOverrideBindingClick).
         -- bindings: [key] = the key's own binding action. mods: modifier keys held now.
         overrides = {}, bindings = {}, mods = {},
-        race = "Human", class = "MAGE", faction = "Alliance", zone = "Elwynn Forest", hour = 14,
+        race = "Human", class = "MAGE", faction = "Alliance", zone = "Elwynn Forest", hour = 14, mapId = 1429,
         cvars = { nameplateShowFriendlyPlayers = "1", nameplateShowOnlyNameForFriendlyPlayerUnits = "0",
             ActionButtonUseKeyDown = "1" },
     }
@@ -994,6 +1002,13 @@ function M.reset()
     _G.GetZoneText = function() return M.state.zone end
     _G.GetGameTime = function() return M.state.hour, 0 end
     _G.IsResting = function() return M.state.resting == true end
+    _G.C_Map = {
+        GetBestMapForUnit = function(unit)
+            assert(type(unit) == "string", "C_Map.GetBestMapForUnit: bad unit")
+            if unit ~= "player" then return nil end
+            return M.state.mapId
+        end,
+    }
     -- Text emotes: recorded in M.emotes. Like /say, they need a key press
     -- outdoors (an assumption the addon also makes, to be safe).
     M.emotes = {}
@@ -1276,6 +1291,16 @@ function M.setGroup(groupType, names, raidSized)
         M.state.groupMembers[full] = true
         M.addUnit(prefix .. i, { name = first or full, surname = last, id = full })
     end
+end
+
+-- Move to another map (a uiMapID, or nil for one that can't be read), as
+-- walking through a city gate does. opts.silent: no zone event.
+M.CAPITAL = { stormwind = 1453, orgrimmar = 1454, ironforge = 1455, thunderBluff = 1456,
+    darnassus = 1457, undercity = 1458 }
+M.ELWYNN = 1429
+function M.setMap(id, opts)
+    M.state.mapId = id
+    if not (opts and opts.silent) then M.fire("ZONE_CHANGED_NEW_AREA") end
 end
 
 function M.systemMessage(text)

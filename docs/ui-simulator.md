@@ -21,6 +21,7 @@ Several workarounds live in `uitests/button_states.lua`, which sets up the buff-
 | The screenshot (GUI) build starts in a demo party of 4 wearing buffs; `run-tests` starts in no party. | Save the party before the first change and put it back. | #100 (6) |
 | Party changes in combat take 20–90 s, because of Blizzard's party and raid frames. | Change the party only out of combat. | #96 |
 | Small text (`GameFontHighlightSmall`) is drawn about 16.5 px a line: the copy window's two-line hint measured 33 px. One line on its own reads as 12. | Space below wrapped small text by 17 px a line; `spec/layout_spec.lua` uses that for the copy window's hint. The game's height is a launch check on #50. | #116 |
+| `C_Map.GetBestMapForUnit("player")` answers map 2248, though the minimap reads "Trade District" (a Stormwind subzone). 2248 isn't one of `Cities.CAPITALS`' Classic Era IDs, so quiet mode in capitals never hides the button there. | None needed. A scenario that wants a capital must replace `C_Map.GetBestMapForUnit`, and put it back. | #102 (from wow-ui-sim v0.1.36's `src/c_api/c_map.rs`) |
 | A line pinned to two different frames (left to one, right to another) is sized to its whole text and never wraps: `GetNumLines()` says 1. The game would wrap it. | `WrappedLines` in `uitests/scenarios.lua` works out the wrap from `CanWordWrap()` and `GetMaxLines()`. | #90, #91 |
 
 ## Blizzard's own errors

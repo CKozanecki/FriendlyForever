@@ -82,7 +82,8 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - Code moved or extracted into a new function counts as changed: mutate its lines too (#116: `Config.ValidIgnore`'s cap, moved in #113, had no test with more names than the cap).
 - A guard test asserts that its input really holds the case it covers (the input has `\r\n`; the file really is commented), so a no-op mutation fails it (#79, #81).
 - Each test reaches its path for real: it presses or acts rather than setting state, and fails when the hook it relies on is removed (#20, #21).
-- Every new UI control is clicked in a test, and the test then checks what it changed downstream, such as the armed macro and the marks shown (#61).
+- Every new UI control is clicked in a test, and the test then checks what it changed downstream, such as the armed macro and the marks shown (#61). Check the change before any time passes, so a periodic re-check can't do the control's work for it (#102: the new checkbox's `Refresh()` was untested, since the button's 5-second re-check covered for it).
+- Every new event registration has a test that fires that exact event, with the other events and timers that could do the same work ruled out (#102: the `ZONE_CHANGED` and `ZONE_CHANGED_INDOORS` handlers survived mutation, because `wow.setMap` only fires `ZONE_CHANGED_NEW_AREA`).
 - Tests of workflows and scripts run the real snippet, its failure handler included, read the file without comments, and reject `if:` and `continue-on-error` on the gating step and job (#81: `exit 1` changed to `exit 0` passed every test; #92).
 - Tests for settings damaged mid-session require that the addon still works, with no errors, before any reload, and that a reload heals it (#21, #61).
 - Test helpers find frames and listeners deterministically, and no test depends on another's order (#21, #62).
