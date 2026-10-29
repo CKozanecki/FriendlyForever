@@ -29,7 +29,7 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             end
         end
         local function db()
-            local buff = { useWhisper = true, messages = { "Thanks {name}: {buff}" } }
+            local buff = { thankStyle = "whisper", messages = { "Thanks {name}: {buff}" } }
             for k, v in pairs(opts.db or {}) do buff[k] = v end
             return { buff = buff }
         end
@@ -207,7 +207,7 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             assert.are.equal(E.MAX_PLANS_SENT, #plansSent(b))
         end)
 
-        it("a line and a /thank: both held, and each goes once", function()
+        it("a line in /say and a /thank: both held, and each goes once", function()
             pair({ db = { thankStyle = "both" } })
             handCast(a, "Power Word: Fortitude")
             for _ = 1, 8 do
@@ -217,7 +217,7 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             end
             wow.use(b)
             assert.are.same({}, wow.emotes, "the /thank waits for his buff back too")
-            assert.are.same({}, thanks(b))
+            assert.are.same({}, wow.sentTo("SAY"))
             press(b)
             for _ = 1, 4 do
                 advance(1)
@@ -227,9 +227,11 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             advance(E.MAX_DELAY)
             wow.use(b)
             assert.are.equal(1, #wow.emotes)
-            assert.are.equal(1, #thanks(b))
+            local lines = {}
+            for _, m in ipairs(wow.sent) do if m.channel == "SAY" then lines[#lines + 1] = m end end
+            assert.are.equal(1, #lines)
             assert.is_true(wow.emotes[1].time > lastLanded(b))
-            assert.is_true(thanks(b)[1].time > lastLanded(b))
+            assert.is_true(lines[1].time > lastLanded(b))
         end)
 
         it("a new exchange after a quiet gap has its own thank-you", function()
@@ -611,8 +613,8 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             local roll = random.random()
             local mine = SPELLS[x == a and 1 or 2]
             wow.use(x)
-            local seen = wow.state.units.nameplate1 ~= nil
-            if roll < 0.3 and seen then
+            local visible = wow.state.units.nameplate1 ~= nil
+            if roll < 0.3 and visible then
                 handCast(x, mine[random.random(#mine)])
             elseif roll < 0.3 then
                 advance(1) -- they walked off: nobody to target

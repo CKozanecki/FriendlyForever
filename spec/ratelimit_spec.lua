@@ -1,4 +1,4 @@
--- Spec: #35
+-- Spec: #35, #101
 -- The lines-per-minute cap: a hard ceiling on what the addon says in each
 -- chat type, so a crowded launch can't make it spam.
 local wow = require("spec.support.wow")
@@ -131,14 +131,14 @@ describe("The chat rate limit (#35)", function()
         end)
 
         it("counts whispered thanks against the whisper cap", function()
-            ns.db.buff.useWhisper = true
+            ns.db.buff.thankStyle = "whisper"
             for i = 1, 10 do buffedBy(i) end
             pressFor(120)
             assert.are.equal(ns.db.linesPerMinute, #sentIn("WHISPER"))
         end)
 
         it("drops the /say fallback for a failed whisper over the cap", function()
-            ns.db.buff.useWhisper = true
+            ns.db.buff.thankStyle = "whisper"
             ns.db.buff.messages = { "Thanks, {name}!" }
             local Q = ns.ChatQueue
             for _ = 1, Q.LinesPerMinute() do
@@ -702,8 +702,8 @@ describe("The chat rate limit (#35)", function()
                     ns.db.linesPerMinute = value
                     capNow = expectedCap(value)
                 end,
-                function() ns.db.buff.thankStyle = ({ "message", "emote", "both" })[random.random(3)] end,
-                function() ns.db.buff.useWhisper = random.random() < 0.5 end,
+                function() ns.db.buff.thankStyle = ({ "message", "whisper", "emote", "both" })[random.random(4)] end,
+                function() ns.db.buff.fallback = ({ "say", "emote", "none" })[random.random(3)] end,
                 function() wow.state.lockdown = not wow.state.lockdown end,
                 function() wow.state.inInstance = not wow.state.inInstance end,
                 function() setGameClock(wow.now - random.random(1, 5000)) end, -- the game clock back

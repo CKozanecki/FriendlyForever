@@ -171,22 +171,48 @@ local function Restore(entry)
     return data
 end
 
--- thanked: true once a thank-you went out. A favour is thanked at most once,
--- so a second channel (emote and line) going out changes nothing.
--- note: why it wasn't thanked, in words.
+-- The day each favour thanked this session was counted on, so taking the
+-- thanks back (Ledger.Unthank) takes back the count it added.
+local countedOn = setmetatable({}, { __mode = "k" })
+
+-- thanked: true once a thank-you went out. A favour is counted thanked at
+-- most once: a second channel (emote and line) going out only adds how.
+-- note: how it was thanked ("in /say"), or why it wasn't, in words.
 function Ledger.Settle(entry, thanked, note)
-    if entry.result == Ledger.THANKED then return end
+    if entry.result == Ledger.THANKED then
+        local how = CleanText(note)
+        if thanked and how and entry.note and not entry.note:find(how, 1, true) then
+            entry.note = Util.Utf8Truncate(entry.note .. " and " .. how, Ledger.MAX_TEXT)
+        end
+        return
+    end
     if thanked then
-        entry.result, entry.note = Ledger.THANKED, nil
+        entry.result, entry.note = Ledger.THANKED, CleanText(note)
         -- A favour from before the ledger was cleared isn't counted again.
         if entry.cleared then return end
         local data = Restore(entry)
         data.totals.thanked = data.totals.thanked + 1
         local today = TodayCounts()
         today.thanked = today.thanked + 1
+        countedOn[entry] = today.day
     else
         entry.result, entry.note = Ledger.NOT_THANKED, CleanText(note)
     end
+end
+
+-- A thank-you that went out but didn't reach them (a whisper the game
+-- couldn't deliver): the favour isn't thanked after all, and the count it
+-- added is taken back. note: why, in words.
+function Ledger.Unthank(entry, note)
+    if entry.result ~= Ledger.THANKED then return end
+    entry.result, entry.note = Ledger.NOT_THANKED, CleanText(note)
+    local day = countedOn[entry]
+    countedOn[entry] = nil
+    if not day or entry.cleared then return end
+    local data = Data()
+    data.totals.thanked = math.max(0, data.totals.thanked - 1)
+    local today = TodayCounts()
+    if today.day == day then today.thanked = math.max(0, today.thanked - 1) end
 end
 
 -- You buffed them back with spell (its name).
@@ -261,7 +287,7 @@ function Ledger.Lines(limit)
         local e = entries[i]
         local buffs = #e.buffs > 0 and Util.JoinList(e.buffs) or "a buff"
         local result = e.result
-        if e.result == Ledger.NOT_THANKED and e.note then result = result .. " (" .. e.note .. ")" end
+        if e.note then result = result .. " (" .. e.note .. ")" end
         if e.returned then
             result = result .. ", returned " .. e.returned
         elseif e.returnNote then

@@ -1,4 +1,4 @@
--- Spec: #52, #64
+-- Spec: #52, #64, #112
 -- Layout: the buff-back button's text stays inside the button, and on each
 -- options tab the message list follows the last row that tab shows. The
 -- checks work from the simulated client's own anchors and text widths
@@ -161,6 +161,30 @@ describe("Layout", function()
             local ns = wow.boot()
             ns.Window.Show({ title = "Test", hint = string.rep("a very long hint ", 40) })
             assert.are.equal(2, wow.drawnText(ns.Window.Frame().hint, ns.Window.Frame()).lines)
+        end)
+    end)
+
+    -- Each tab's help line, as wide as the game draws it, stays inside the
+    -- panel's content: a long one wraps at its right edge rather than
+    -- running past it (#112, found by the UI simulator's tab checks).
+    describe("the help line on each options tab", function()
+        it("stays inside the panel, wrapping when it's long", function()
+            local ns = wow.boot()
+            local w = ns.Options.widgets
+            local width = w.content:GetWidth()
+            local wrapped = 0
+            for _, msgType in ipairs(ns.Config.TYPES) do
+                wow.run(w.tabs[msgType], "OnClick")
+                local drawn = wow.drawnText(w.help, w.content)
+                assert.is_true(drawn.left >= 0 and drawn.right <= width, ("%s: help draws from %d to %d, outside 0 to %d")
+                    :format(msgType, drawn.left, drawn.right, width))
+                assert.are.equal(ns.Config.TYPE_INFO[msgType].help, drawn.text, msgType .. ": help is cut")
+                if drawn.lines > 1 then wrapped = wrapped + 1 end
+            end
+            assert.is_true(wrapped > 0, "no tab's help is long enough to wrap: the test checks nothing")
+            -- The rows below hang from it, so a wrapped help pushes them down.
+            local _, below = w.enabled:GetPoint(1)
+            assert.are.equal(w.help, below)
         end)
     end)
 

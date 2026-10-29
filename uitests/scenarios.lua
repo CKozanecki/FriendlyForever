@@ -280,6 +280,98 @@ test("the General page's chat limit row stays inside it (#35)", function()
     TextInside(page.content, w.capHelp, "chat limit help")
 end)
 
+-- The Buff Thanks tab (#101): "Thank them with" and "If that can't reach
+-- them", each a label and a button that cycles through its choices.
+
+-- The options' scrolling content, opened at the tab with this label.
+local function OpenTab(label)
+    SlashCmdList.FRIENDLYFOREVER("")
+    local panel = _G.FriendlyForeverOptionsPanel
+    assertNotNil(panel)
+    for _, child in ipairs({ panel:GetChildren() }) do
+        local content = child.GetScrollChild and child:GetScrollChild()
+        for _, tab in ipairs(content and { content:GetChildren() } or {}) do
+            if tab.GetText and tab:GetText() == label then
+                tab:GetScript("OnClick")(tab)
+                return panel, content
+            end
+        end
+    end
+    check(false, "no options tab called " .. label)
+end
+
+-- The button or text line in content whose text is text, or nil.
+local function WithText(content, text)
+    for _, list in ipairs({ { content:GetChildren() }, { content:GetRegions() } }) do
+        for _, region in ipairs(list) do
+            if region.GetText and region:GetText() == text then return region end
+        end
+    end
+end
+
+-- Its right edge is inside the options panel.
+local function EndsInside(panel, region, label)
+    local _, right = Edges(region, "GetLeft", "GetRight")
+    local _, panelRight = Edges(panel, "GetLeft", "GetRight")
+    if not (right and panelRight) then
+        report("LAYOUT " .. label .. ": edges can't be read here")
+        return
+    end
+    local line = ("LAYOUT %s: ends at %.0f, options end at %.0f"):format(label, right, panelRight)
+    report(line)
+    check(right <= panelRight + 1, line .. ": past the edge of the options")
+end
+
+-- The texts each button cycles through, in Options.THANK_STYLES' and
+-- Options.FALLBACKS' order.
+local THANK_WITH = { "a line in /say", "a whisper", "a /thank emote", "a line in /say and an emote" }
+local CANT_REACH = { "say it in /say as", "/thank instead", "do nothing" }
+
+-- The button in content showing one of texts, or nil.
+local function ShowingOneOf(content, texts)
+    for _, text in ipairs(texts) do
+        local found = WithText(content, text)
+        if found then return found end
+    end
+end
+
+-- Each button goes once round all its choices, so it ends where it began:
+-- nothing is left changed, even when a check fails part way.
+test("the Buff Thanks tab's two choices stay inside the options, whichever is chosen (#101)", function()
+    local panel, content = OpenTab("Buff Thanks")
+    local styleLabel = WithText(content, "Thank them with:")
+    local fallbackLabel = WithText(content, "If that can't reach them:")
+    local style, fallback = ShowingOneOf(content, THANK_WITH), ShowingOneOf(content, CANT_REACH)
+    check(styleLabel and fallbackLabel and style and fallback, "the two choices aren't on the Buff Thanks tab")
+    TextInside(panel, styleLabel, "Thank them with label", 1)
+    TextInside(panel, fallbackLabel, "If that can't reach them label", 1)
+    local failures = {}
+    local function Round(button, count, name, extra)
+        for _ = 1, count do
+            local label = name .. ": " .. tostring(button:GetText())
+            local ok, err = pcall(function()
+                TextInside(button, button:GetFontString(), label, 1)
+                EndsInside(panel, button, label)
+                if extra then extra() end
+            end)
+            if not ok then failures[#failures + 1] = tostring(err) end
+            button:GetScript("OnClick")(button)
+        end
+    end
+    Round(style, #THANK_WITH, "Thank them with")
+    Round(fallback, #CANT_REACH, "If that can't reach them", function()
+        if fallback:GetText() ~= CANT_REACH[1] then return end
+        local box
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child.GetObjectType and child:GetObjectType() == "EditBox" and child:IsShown()
+                and child:GetText() == FriendlyForeverDB.buff.unknownName then box = child end
+        end
+        check(box, "the fallback's name box isn't shown")
+        EndsInside(panel, box, "the fallback's name box")
+    end)
+    check(#failures == 0, table.concat(failures, "; "))
+end)
+
 -- The button's real states (#83), set up through game events by
 -- button_states.lua, which the simulator loads before this file. Each runs
 -- with Lua errors caught, and is put back even when a check fails.
@@ -672,7 +764,198 @@ test("the copy window keeps its text inside it, for export, import and the bug r
     end
 end)
 
+-- The main panel's tabs (#112), each opened by clicking its button the way
+-- a player would (pages.lua's OpenTab). Each tab's own rows are on the
+-- panel's scrolling content, and the rows of the other tabs are hidden.
+
+-- Every visible text line on content, checkbox label and button label, with
+-- the tab's name in its LAYOUT line: each must stay inside content (the
+-- panel, less its scroll bar), and a button's label inside its button, on
+-- one line. Lines on content may wrap on purpose (the notes at the bottom),
+-- so they aren't counted; a checkbox's label has no width set and never
+-- wraps. Every line is checked and printed before any failure is raised.
+local function TabTextInside(content, label)
+    local checks = {}
+    local function Add(frame, region, what, maxLines)
+        checks[#checks + 1] = function()
+            TextInside(frame, region, ("%s %s\"%s\""):format(label, what, Short(region:GetText())), maxLines)
+        end
+    end
+    local function Texts(frame)
+        local found = {}
+        for _, region in ipairs({ frame:GetRegions() }) do
+            if region:GetObjectType() == "FontString" and region:IsVisible() and (region:GetText() or "") ~= "" then
+                found[#found + 1] = region
+            end
+        end
+        return found
+    end
+    for _, region in ipairs(Texts(content)) do Add(content, region, "", nil) end
+    for _, child in ipairs({ content:GetChildren() }) do
+        if child:IsVisible() then
+            local kind = child:GetObjectType()
+            if kind == "CheckButton" then
+                for _, region in ipairs(Texts(child)) do Add(content, region, "checkbox ", 1) end
+            elseif kind == "Button" then
+                local text = child.GetFontString and child:GetFontString()
+                if text and (text:GetText() or "") ~= "" then
+                    Add(child, text, "button ", 1)
+                    Add(content, text, "button on the panel ", 1)
+                end
+            end
+        end
+    end
+    check(#checks > 0, label .. ": no text to check")
+    CheckAll(checks)
+end
+
+-- The simulator re-lays out only 16 links down an anchor chain when a
+-- region moves (docs/ui-simulator.md). Switching tabs moves the message
+-- list's header, so message rows past the 17th, the buttons and the notes
+-- below them keep the last tab's places. Setting each region's own anchors
+-- again, in the order they were made, and reading its place, carries the
+-- move down the chain: each one re-lays itself and 16 more. Twice, since
+-- regions and child frames hang from each other. The anchors are the same
+-- afterwards.
+local function Settle(content)
+    local function Again(region)
+        local points = {}
+        for i = 1, (Measure(region, "GetNumPoints") or 0) do points[i] = { region:GetPoint(i) } end
+        if #points == 0 then return end
+        region:ClearAllPoints()
+        for _, p in ipairs(points) do region:SetPoint(unpack(p, 1, 5)) end
+        -- Asking where it is lays it out now, from the regions above it,
+        -- which were laid out the same way just before.
+        Edges(region, "GetTop", "GetBottom")
+    end
+    for _ = 1, 2 do
+        for _, region in ipairs({ content:GetRegions() }) do Again(region) end
+        for _, child in ipairs({ content:GetChildren() }) do Again(child) end
+    end
+end
+
+-- Whether the message rows ("1." to "30.", each hung below the one before)
+-- are drawn in order, top to bottom, with what follows them (the first
+-- visible region whose top is named by follows) below the last. A stale
+-- layout (Settle) shows up as a row above the one before it, and its
+-- up-and-down checks would read the old tab's places. Prints a LAYOUT line,
+-- fails if they aren't, and returns the line.
+local function RowsInOrder(content, label, follows)
+    local rows = {}
+    for _, region in ipairs({ content:GetRegions() }) do
+        local n = region:GetObjectType() == "FontString" and region:IsVisible()
+            and tonumber((region:GetText() or ""):match("^(%d+)%.$"))
+        if n then rows[n] = region end
+    end
+    check(#rows > 0, label .. ": no message rows")
+    -- last: the top of the last row read, lastN its number.
+    local problems, last, lastN = {}, nil, nil
+    for n = 1, #rows do
+        local top = Edges(rows[n], "GetTop", "GetBottom")
+        if not top then
+            problems[#problems + 1] = ("%d. can't be read"):format(n)
+        else
+            if last and top >= last then
+                problems[#problems + 1] = ("%d. at %.0f is not below %d. at %.0f"):format(n, top, lastN, last)
+            end
+            last, lastN = top, n
+        end
+    end
+    local after
+    for _, child in ipairs({ content:GetChildren() }) do
+        if child:IsVisible() and child.GetText and child:GetText() == follows then after = child end
+    end
+    local afterTop = after and Edges(after, "GetTop", "GetBottom")
+    if not afterTop then
+        problems[#problems + 1] = "\"" .. follows .. "\" can't be read"
+    elseif last and afterTop >= last then
+        problems[#problems + 1] = ("\"%s\" at %.0f is not below %d. at %.0f"):format(follows, afterTop, lastN, last)
+    end
+    local line = ("LAYOUT %s message rows: 1. to %d. in order top to bottom, then \"%s\"%s"):format(
+        label, #rows, follows, #problems > 0 and ": " .. table.concat(problems, "; ") or "")
+    report(line)
+    check(#problems == 0, line .. ": the layout is stale or out of order")
+    return line
+end
+
+-- Runs fn(content, tab) with the options open at each tab in turn, then
+-- goes back to the first tab, even when a check fails.
+local function OnEachTab(fn)
+    local Pages = FriendlyForeverUIPages
+    local ok, err = pcall(function()
+        for _, tab in ipairs(Pages.TABS) do
+            local content = Pages.OpenTab(tab.name)
+            check(content ~= nil, "couldn't open the " .. tab.label .. " tab")
+            fn(content, tab)
+        end
+    end)
+    Pages.OpenTab(Pages.TABS[1].name)
+    if not ok then error(err, 0) end
+end
+
+-- The selected tab is the one whose button is disabled (Options.lua's Fill).
+local function SelectedTabs(content)
+    local selected = {}
+    for _, tab in ipairs(FriendlyForeverUIPages.TABS) do
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child:GetObjectType() == "Button" and child:GetText() == tab.label and not child:IsEnabled() then
+                selected[#selected + 1] = tab.label
+            end
+        end
+    end
+    return selected
+end
+
+test("each options tab opens by its button, and keeps its checkboxes and labels inside the panel", function()
+    local failures = {}
+    OnEachTab(function(content, tab)
+        local ok, err = pcall(function()
+            local name = tab.label .. " tab"
+            check(table.concat(SelectedTabs(content), ", ") == tab.label,
+                name .. ": the selected tabs are " .. table.concat(SelectedTabs(content), ", "))
+            check(ShowsText(content, tab.label .. "  "), name .. ": the header doesn't name the tab")
+            OnScreen(_G[FriendlyForeverUIPages.PANEL], "options panel (" .. name .. ")")
+            -- Every place below is read from a settled layout, or the
+            -- checks fail: none passes on the last tab's places.
+            Settle(content)
+            RowsInOrder(content, name, "Preview random")
+            CheckAll({
+                function() TabTextInside(content, name) end,
+                function() PushedDownInside(content, name) end,
+            })
+        end)
+        if not ok then failures[#failures + 1] = tostring(err) end
+    end)
+    check(#failures == 0, table.concat(failures, "\n"))
+end)
+
+-- Names the panel doesn't have, of every type the screenshot job or a
+-- typo could give: each is answered with a message, and the tab stays put.
+local BAD_TABS = { "", "Buff Back", "buffBack", "buff", "general", "nope", 42, true, { "buff-back" } }
+
+test("a tab name the panel doesn't know is answered with a message, not a Lua error", function()
+    local Pages = FriendlyForeverUIPages
+    local content = Pages.OpenTab("buff-back")
+    check(content ~= nil, "couldn't open the Buff Back tab")
+    local ok, err = pcall(function()
+        for i = 0, #BAD_TABS do
+            local name = BAD_TABS[i] -- BAD_TABS[0] is nil: no name at all
+            local called, opened, why = pcall(Pages.OpenTab, name)
+            check(called, "OpenTab(" .. tostring(name) .. ") raised a Lua error: " .. tostring(opened))
+            check(opened == nil, "OpenTab(" .. tostring(name) .. ") opened something")
+            check(type(why) == "string" and why:find("no options tab called", 1, true) ~= nil,
+                "OpenTab(" .. tostring(name) .. ") gave no message")
+            check(table.concat(SelectedTabs(content), ", ") == "Buff Back",
+                "OpenTab(" .. tostring(name) .. ") changed the tab")
+        end
+    end)
+    Pages.OpenTab(Pages.TABS[1].name)
+    if not ok then error(err, 0) end
+end)
+
 -- The layout checks, for spec/uitests_layout_spec.lua, which runs them
--- against regions whose edges it sets itself. The simulator ignores what a
--- test file returns.
-return { TextInside = TextInside, PushedDownInside = PushedDownInside }
+-- against regions whose edges it sets itself, and the Buff Thanks tab's
+-- choices, which spec/thankwith_spec.lua checks against the options. The
+-- simulator ignores what a test file returns.
+return { TextInside = TextInside, PushedDownInside = PushedDownInside, TabTextInside = TabTextInside,
+    Settle = Settle, RowsInOrder = RowsInOrder, THANK_WITH = THANK_WITH, CANT_REACH = CANT_REACH }

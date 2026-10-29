@@ -13,7 +13,7 @@ The chat messages:
 | Event | Sent to | Placeholders |
 |---|---|---|
 | Guild member logs in | Guild chat | `{name}`, `{fullname}` |
-| A player outside your group buffs you | Say, or a whisper to them | `{name}`, `{fullname}`, `{buff}` |
+| A player outside your group buffs you | Say, a whisper to them, or a `/thank` | `{name}`, `{fullname}`, `{buff}` |
 | New member joins the guild | Guild chat | `{name}`, `{fullname}` |
 | Player joins your group (not in battlegrounds; joins a few seconds apart share one line, which lists them all; in a raid, only the leader welcomes, at most once every 30 seconds) | Party or raid chat | `{name}`, `{fullname}` |
 | You join someone else's group | Party or raid chat | none |
@@ -95,19 +95,20 @@ No combat log is used. New buffs come from `UNIT_AURA`, and the caster is identi
 
 **Turn on friendly player nameplates.** The game can only name a caster it has a unit for. Without friendly player nameplates, most strangers who buff you can't be named. The buff tab warns you when they're off, and its **"Show friendly player names"** button (or `/friendly nameplates`) turns them on as names only. The addon never changes this setting by itself.
 
-**Say or whisper.** The game only allows addons to use `/say` outdoors right after a key press. Say thanks therefore wait and go out on your next key press, or when you type `/friendly say`. Turn on **"Whisper the caster instead of /say"** to whisper them immediately instead. While the interface is hidden (Alt+Z), key presses don't send waiting say thanks. Show it again and they go out on your next key press, unless they've waited longer than 2 minutes.
+**Thank them with** (on the Buff Thanks tab): a line in /say (the default), a whisper, a `/thank` emote, or a line in /say and an emote. The game only allows addons to use `/say` outdoors right after a key press, so /say thanks wait and go out on your next key press, or when you type `/friendly say`. A whisper goes out at once. While the interface is hidden (Alt+Z), key presses don't send waiting say thanks. Show it again and they go out on your next key press, unless they've waited longer than 2 minutes. The emote is aimed at the caster while the game still has them on a nameplate or as your target, and is a plain `/thank` otherwise. It waits for a key press, like /say. Whether the game requires that for emotes hasn't been tested yet, so the addon plays it safe.
 
-**The "friend" fallback** (on by default) thanks in `/say` as **"friend"** (wording configurable) when:
-- the caster is unidentified, in either mode, or
-- the game can't deliver the whisper ("No player named … is currently playing").
+**If that can't reach them:** what happens when the caster is unidentified, or the game can't deliver the whisper ("No player named … is currently playing"):
+- **say it in /say as "friend"** (the default; the name is yours to choose),
+- **/thank instead**: a `/thank` aimed at them if the game still shows them, otherwise a plain `/thank` ("You thank everyone around you"), or
+- **do nothing**. The ledger notes "no fallback chosen".
 
-It's off while you're in a group, because party-wide buffs such as a groupmate's totems, auras or shouts can arrive with no caster, and must never be mistaken for a stranger's. Strangers the game can name are still thanked while you're grouped.
+A fallback is a thank-you too: it goes under the chat limit, and is dropped over it.
+
+While you're in a group, an unidentified caster isn't thanked at all, because party-wide buffs such as a groupmate's totems, auras or shouts can arrive with no caster, and must never be mistaken for a stranger's. Strangers the game can name are still thanked while you're grouped.
 
 Buffs from one person that arrive before the thank-you goes out are combined: *"Thank you for the Power Word: Fortitude and Divine Spirit, Bob!"*. The repeat cooldown then stops any second thank-you.
 
 **Buff exchanges.** When you trade buffs with someone, your thank-you waits until the exchange is done, so it comes after your buff back and lists everything they gave you. It waits at least 2 seconds after the last buff either way, and while the buff back button holds them: up to 5 seconds, or, if they run the addon too, until you cast it or let it go. Their copy and yours tell each other what your buttons hold, so each also waits for the other's buff. A thank-you always goes within 30 seconds of the first buff it thanks for, and their later buffs in the same exchange aren't thanked again. An exchange ends 10 seconds after its last buff.
-
-**How to thank** (on the Buff Thanks tab): a line in /say or a whisper (the default), a `/thank` emote, or both. The emote is aimed at the caster while the game still has them on a nameplate or as your target, and is a plain `/thank` otherwise. It waits for a key press, like /say. Whether the game requires that for emotes hasn't been tested yet, so the addon plays it safe.
 
 **Quiet in capital cities** (on by default). In Stormwind, Ironforge, Darnassus, Orgrimmar, Thunder Bluff and Undercity (and, once their map numbers are known at launch, Valanaar and Dalaran), buffs come in waves from people running past, so no thank-yous go out there. The favour ledger still counts every buff. The buff back button stays hidden there too, unless you tick **"Show the button in capital cities"** on the Buff Back tab. Favours are still collected, and show once you leave if they haven't run out. Turn buff mode on in a city and thanks and the button work as usual. A stranger's buff doesn't turn buff mode on by itself in a city, since that would end the quiet. Inns, small towns and other rested areas aren't capitals. Greetings aren't affected. `/friendly status` shows which city the addon thinks you're in. The cities' map numbers are checked at launch.
 
@@ -131,7 +132,7 @@ When someone outside your group buffs you, a small button appears with their nam
 
   Pressing again while a cast is still on its way is fine: each answer is matched to its own press where the game says which, and otherwise to the newest.
 - **After a /reload in a fight** the button appears when the fight ends.
-- **Say a line once the buff lands** (off by default, on the **Buff Back** tab): 30 editable lines, with the flavour placeholders and `{buff}`. The line is said only after the game confirms your buff reached them, never for a cast that failed, went to someone else or found nobody. Like a thank-you, it goes out on your next key press (the game only lets /say follow one) and is dropped if that takes more than 30 seconds.
+- **Say a line once the buff lands** (off by default, on the **Buff Back** tab): 30 editable lines, with the flavour placeholders and `{buff}`. The line is said only after the game confirms your buff reached them, never for a cast that failed, went to someone else or found nobody. It goes the way **Thank them with** says: a line in /say (also for a line and an emote), a whisper to them, or a plain `/thank` aimed at them for the emote. Like a thank-you, a /say line or a `/thank` goes out on your next key press (the game only lets /say follow one) and is dropped if that takes more than 30 seconds.
 - **In combat** the button is empty: it clears itself as a fight starts and fills again afterwards. The game locks secure buttons in fights, so whatever it held would otherwise stay on it, aimed at the world outside the fight.
 - **Say a line** only while the addon may speak: not while snoozed, or AFK with "Don't send messages while I'm AFK" on.
 - `/friendly move` unlocks the button so you can drag it, and locks it again. `/friendly buffback` shows exactly what the button holds and why, for checking in game.
@@ -156,7 +157,7 @@ The button's macro is `/cleartarget`, `/targetexact First Surname`, `/cast [help
 
 ## Favour ledger
 
-Every buff from someone outside your group, while Buff Thanks or Buff Back is on, goes in the ledger: who it was, which buffs, whether you thanked them (or why not), and whether you buffed them back. Returning favours earns a title, from **Courteous** at 10 to **Friend to All Azeroth** at 1,000. The reasons a favour wasn't thanked look like this ("thanked them a moment ago", "snoozed", "you were AFK", "on your ignore list"). It counts today's favours and your all-time totals. See it on the **Favour Ledger** page or with `/friendly ledger`. The newest 200 are kept.
+Every buff from someone outside your group, while Buff Thanks or Buff Back is on, goes in the ledger: who it was, which buffs, whether you thanked them and how ("in /say", "by whisper", "with /thank"), or why not, and whether you buffed them back. Returning favours earns a title, from **Courteous** at 10 to **Friend to All Azeroth** at 1,000. The reasons a favour wasn't thanked look like this ("thanked them a moment ago", "snoozed", "you were AFK", "on your ignore list"). It counts today's favours and your all-time totals. See it on the **Favour Ledger** page or with `/friendly ledger`. The newest 200 are kept.
 
 ## Safety
 

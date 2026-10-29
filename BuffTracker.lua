@@ -14,10 +14,10 @@
 --      buffs such as a groupmate's totems can arrive with no caster unit.
 -- All buffs from one caster that arrive before the thank-you goes out are
 -- merged into that single message, and the repeat cooldown stops a second one.
--- With "whisper instead of say" on, thanks are whispered to the caster (no key
--- press needed). Casters that can't be named, and whispers the game can't
--- deliver, fall back to a "friend" thank-you in /say (if that is switched on).
--- "How to thank" can add, or swap the line for, a /thank emote.
+-- "Thank them with" picks a line in /say, a whisper (no key press needed), a
+-- /thank emote, or a line and an emote. When that can't reach them (a caster
+-- that can't be named, or a whisper the game can't deliver), "If that can't
+-- reach them" picks a "friend" line in /say, a /thank instead, or nothing (#101).
 -- In capital cities nothing is sent, unless buff mode is on (Cities.lua).
 -- Every favour goes into the ledger (Ledger.lua), thanked or not.
 local _, ns = ...
@@ -197,6 +197,10 @@ local function EmoteTarget(caster, unit)
     end
 end
 
+-- How a favour was thanked, in the ledger's words.
+local HOW = { SAY = "in /say", WHISPER = "by whisper", EMOTE = "with /thank" }
+BuffTracker.HOW = HOW
+
 -- caster: full player name (also the whisper target), or BuffTracker.UNKNOWN_KEY.
 -- unit: the token the caster was seen under, if any (for the /thank emote).
 -- spellId: the buff's spell ID when readable (crossed off their copy's plan).
@@ -222,9 +226,9 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId)
     -- A favour to return, whether or not a thank-you goes out.
     if not unknown and ns.db.buffBack.enabled then ns.Offers.Owe(caster, unit, entry) end
     local cfg = ns.db.buff
-    if unknown and not cfg.fallbackToSay then
-        ns.Diag.Log("buff", "not thanking: caster can't be named and the /say fallback is off")
-        ns.Ledger.Settle(entry, false, "couldn't tell who it was")
+    if unknown and cfg.fallback == "none" then
+        ns.Diag.Log("buff", "not thanking: caster can't be named, and no fallback is chosen")
+        ns.Ledger.Settle(entry, false, "couldn't tell who it was; no fallback chosen")
         return
     end
     if thankedAlready then
@@ -233,7 +237,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId)
         return
     end
 
-    local batch = { names = {}, seen = {}, count = 0, entry = entry, class = ClassText(unit, caster) }
+    local batch = { names = {}, seen = {}, count = 0, entry = entry, class = ClassText(unit, caster), unit = unit }
     AddToBatch(batch, buffKey, spellName)
     batches[caster] = batch
 
@@ -250,14 +254,23 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId)
         return
     end
 
+    -- Someone we can't name can't be whispered or aimed at: the fallback
+    -- alone thanks them, a line in /say or a plain /thank. A choice damaged
+    -- since loading sends nothing until it's repaired.
     local style = cfg.thankStyle
-    local withLine = style ~= "emote"
-    local withEmote = style ~= "message"
+    local withLine, withEmote, whisper
+    if unknown then
+        withLine, withEmote, whisper = cfg.fallback == "say", cfg.fallback == "emote", false
+    else
+        whisper = style == "whisper"
+        withLine = whisper or style == "message" or style == "both"
+        withEmote = style == "emote" or style == "both"
+    end
     -- Done once every thank-you scheduled for this favour has gone or been dropped.
     local waiting, firstReason = 0, nil
-    local function Done(sent, reason)
+    local function Done(sent, reason, how)
         waiting = waiting - 1
-        if sent then ns.Ledger.Settle(entry, true) end
+        if sent then ns.Ledger.Settle(entry, true, how) end
         firstReason = firstReason or reason
         if waiting == 0 then
             if batches[caster] == batch then batches[caster] = nil end
@@ -273,8 +286,6 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId)
         return true
     end
 
-    -- Someone we can't name can't be whispered: they get the /say fallback.
-    local whisper = cfg.useWhisper and not unknown
     -- After the delay, held until the exchange with them is done (Exchange.lua;
     -- someone unnamed has none, so theirs goes at once).
     local firstAt = GetTime()
@@ -301,7 +312,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId)
                 -- The line is said: later buffs start a favour of their own,
                 -- even while a /thank for this one still waits.
                 if batches[caster] == batch then batches[caster] = nil end
-                Done(sent, reason2)
+                Done(sent, reason2, whisper and HOW.WHISPER or HOW.SAY)
             end,
         })
         if ok then waiting, scheduled = waiting + 1, true else why = reason end
@@ -315,7 +326,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId)
             maxAge = BuffTracker.SAY_MAX_AGE,
             dropOverCap = true,
             isValid = StillWanted,
-            onDone = Done,
+            onDone = function(sent, reason2) Done(sent, reason2, HOW.EMOTE) end,
         })
         if ok then waiting, scheduled = waiting + 1, true else why = why or reason end
     end
@@ -327,27 +338,43 @@ end
 
 -- The game answers a whisper to someone it can't find with a system message
 -- ("No player named 'X' is currently playing."). If that follows one of our
--- thank-you whispers, thank them in /say instead, as the fallback name.
+-- thank-you whispers, the whisper didn't thank them: the fallback does, a
+-- "friend" line in /say or a /thank, or nothing if none is chosen.
 function BuffTracker.OnWhisperFailed(name)
     local w = recentWhispers[name]
     if not w or GetTime() - w.time > BuffTracker.WHISPER_FAIL_WINDOW then return end
     recentWhispers[name] = nil
-    if not ns.db.buff.fallbackToSay then
-        ns.Diag.Log("buff", "whisper to %s failed; the /say fallback is off", name)
+    local entry, fallback = w.batch.entry, ns.db.buff.fallback
+    if fallback ~= "say" and fallback ~= "emote" then -- "none", or damaged
+        ns.Diag.Log("buff", "whisper to %s failed; no fallback is chosen", name)
+        ns.Ledger.Unthank(entry, "the whisper didn't reach them; no fallback chosen")
         return
     end
-    ns.Diag.Log("buff", "whisper to %s failed; thanking in /say instead", name)
-    ns.Announcer.Schedule("buff", "whisper failed:" .. name, {
-        channel = "SAY",
+    ns.Ledger.Unthank(entry, "the whisper didn't reach them")
+    local emote = fallback == "emote"
+    ns.Diag.Log("buff", "whisper to %s failed; thanking %s instead", name, emote and "with /thank" or "in /say")
+    local ok, why = ns.Announcer.Schedule("buff", "whisper failed:" .. name, {
+        channel = (not emote) and "SAY" or nil,
+        emote = emote and "THANK" or nil,
+        emoteTarget = emote and EmoteTarget(name, w.batch.unit) or nil,
         cooldown = 0, -- the caster's own cooldown already stops repeats
         maxAge = BuffTracker.SAY_MAX_AGE,
         dropOverCap = true,
         isValid = function()
+            if ns.Ignore.Has(name) then return false, "on your ignore list" end
             if ns.Cities.ThanksQuiet() then return false, "quiet in a capital city" end
             return true
         end,
         vars = function() return FallbackVars(w.batch) end,
+        onDone = function(sent, reason)
+            if sent then
+                ns.Ledger.Settle(entry, true, (emote and HOW.EMOTE or HOW.SAY) .. ", as the whisper failed")
+            else
+                ns.Ledger.Settle(entry, false, "the whisper didn't reach them; " .. BuffTracker.NoteFor(reason))
+            end
+        end,
     })
+    if not ok then ns.Ledger.Settle(entry, false, "the whisper didn't reach them; " .. BuffTracker.NoteFor(why)) end
 end
 
 -- Returns caster (name or UNKNOWN_KEY) or nil, the reason in words, and the

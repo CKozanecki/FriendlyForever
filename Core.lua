@@ -194,8 +194,8 @@ local function StatusLines()
     local faction = UnitFactionGroup("player")
     add(string.format("your race: %s (id %s, %s), speaking as %s", ns.Diag.Safe(race), ns.Diag.Safe(raceId),
         ns.Diag.Safe(faction), ns.Diag.Safe(ns.Flavour.Context().race or "general lines")))
-    add(string.format("buff thanks: %s; whisper %s; profile %s; %d ignored", db.buff.thankStyle,
-        OnOff(db.buff.useWhisper), ns.Diag.Safe(ns.Profiles.Active()), #ns.Ignore.List()))
+    add(string.format("buff thanks: %s; if that can't reach them: %s; profile %s; %d ignored",
+        db.buff.thankStyle, db.buff.fallback, ns.Diag.Safe(ns.Profiles.Active()), #ns.Ignore.List()))
     add(ns.Cities.StatusLine())
     add(string.format("guild: %s, %d members known, %d roster updates",
         IsInGuild() and "yes" or "no", ns.Greeter.MemberCount(), c("rosterUpdates")))
