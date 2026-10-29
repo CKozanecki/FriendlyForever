@@ -62,6 +62,6 @@ files["uitests/**"] = {
         "FriendlyForeverDB", "SLASH_FRIENDLYFOREVER1", "SlashCmdList",
         "GetTime", "UnitClass", "UnitInRange", "UnitExists", "UnitName", "UnitLevel", "InCombatLockdown",
         "C_UnitAuras",
-        "geterrorhandler", "seterrorhandler",
+        "geterrorhandler", "seterrorhandler", "debugprofilestop",
     },
 }

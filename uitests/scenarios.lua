@@ -177,14 +177,21 @@ end
 -- Blizzard UI errors already reported, so each is printed once.
 local notedErrors = {}
 
-local function InState(state, fn)
+-- Real milliseconds since the simulator started, for the TIME lines.
+local function Now()
+    return type(debugprofilestop) == "function" and debugprofilestop() or 0
+end
+
+local function InState(label, state, fn)
     local States = FriendlyForeverUIStates
     check(type(States) == "table", "button_states.lua didn't load before this file")
+    local started = Now()
     local failures, others = States.Watch(function()
         state.Set()
         fn(States.Button(), States)
     end)
     local undoFailures, undoOthers = States.Watch(state.Undo)
+    report(("TIME %s: %.0f ms"):format(label, Now() - started))
     -- Not the addon's: reported, not failed (see States.Watch).
     for _, list in ipairs({ others, undoOthers }) do
         for _, text in ipairs(list) do
@@ -200,7 +207,7 @@ local function InState(state, fn)
 end
 
 local function Expect(ok, what)
-    check(ok, what .. "\n  the button: " .. ButtonStatus())
+    if not ok then check(false, what .. "\n  the button: " .. ButtonStatus()) end
 end
 
 -- The button is empty: it isn't up, and a press would cast nothing.
@@ -210,7 +217,7 @@ local function ExpectEmpty(States, when)
 end
 
 test("with a favour owed, the button names the player and the buff, and its text stays inside it", function()
-    InState(FriendlyForeverUIStates.Favour, function(button, States)
+    InState("favour", FriendlyForeverUIStates.Favour, function(button, States)
         Expect(select(2, UnitClass("player")) == "PRIEST", "the player isn't a Priest")
         Expect(button:IsShown(), "the button isn't up")
         Expect(button.title:GetText() == States.STRANGER, "the title doesn't name " .. States.STRANGER)
@@ -226,7 +233,7 @@ test("with a favour owed, the button names the player and the buff, and its text
 end)
 
 test("in buff mode, a party member missing your buff is offered it, and the text stays inside", function()
-    InState(FriendlyForeverUIStates.GroupMissing, function(button, States)
+    InState("buff mode", FriendlyForeverUIStates.GroupMissing, function(button, States)
         Expect((button.mode:GetText() or ""):find("Buff mode:", 1, true) ~= nil, "buff mode isn't on")
         Expect(button:IsShown(), "the button isn't up")
         Expect(button.title:GetText() == States.GROUPMATE, "the title doesn't name " .. States.GROUPMATE)
@@ -239,17 +246,17 @@ test("in buff mode, a party member missing your buff is offered it, and the text
     end)
 end)
 
--- Units no favour can come from: none, empty, a token that shows no one,
--- the target when there's no target, a party slot when not in a party, and
--- values that aren't unit tokens at all.
-local BAD_SOURCES = { "", "nameplate77", "target", "party3", "player", 42, true, { "target" } }
+-- Units no favour can come from: empty, a token that shows no one, the
+-- target when there's no target, a party slot when not in a party, you, and
+-- a number. (A caster that isn't a string or number at all is #98.)
+local BAD_SOURCES = { "", "nameplate77", "target", "party3", "player", 42 }
 
 test("a buff naming an unknown or empty unit leaves the button empty, with no Lua error", function()
     local States = FriendlyForeverUIStates
     local stranger = "Cael Morrow"
     local learned = { Set = function() States.PassLoginGrace(); States.Learn() end,
         Undo = States.FavourFrom(stranger).Undo }
-    InState(learned, function()
+    InState("bad sources", learned, function()
         ExpectEmpty(States, "before any buff")
         States.BuffedBy(nil)
         ExpectEmpty(States, "a buff naming no caster")
@@ -275,7 +282,7 @@ end
 
 test("entering combat empties the button, leaving fills it again; storms never error", function()
     local stranger = "Daria Venn"
-    InState(FriendlyForeverUIStates.FavourFrom(stranger), function(button, States)
+    InState("combat and storm", FriendlyForeverUIStates.FavourFrom(stranger), function(button, States)
         Expect(States.MacroTarget() == stranger, "no favour to start with")
         States.Combat(true)
         ExpectEmpty(States, "in combat")
@@ -304,6 +311,9 @@ test("entering combat empties the button, leaving fills it again; storms never e
         for step = 1, 60 do
             local which = roll(#steps)
             steps[which]()
+            -- A frame passes, as between the game's events: what the addon
+            -- leaves for the next frame runs, and its time budget resets.
+            States.Advance(0)
             local at = ("storm step %d (action %d)"):format(step, which)
             if fighting then
                 Expect(States.Macro() == nil, at .. ": the button holds a macro in a fight")

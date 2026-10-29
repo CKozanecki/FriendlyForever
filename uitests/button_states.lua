@@ -256,9 +256,10 @@ end
 
 -- Runs fn and sorts the Lua errors seen meanwhile. Returns two lists of
 -- error text:
---   failures  fn's own error, and errors the addon caught in itself (its
---             error count went up: the messages handed to the error
---             handler are listed with them)
+--   failures  fn's own error; errors the addon caught in itself (its error
+--             count went up: the messages handed to the error handler are
+--             listed with them); and the simulator stopping the addon for
+--             running too long in one frame
 --   others    errors the error handler saw while the addon's count stayed
 --             put: Blizzard's own UI tripping over what the simulator
 --             doesn't model (its TargetFrame, raid frames and voice chat
@@ -271,12 +272,18 @@ function States.Watch(fn, ...)
     local ok, err = pcall(fn, ...)
     seterrorhandler(previous)
     local after = States.AddonErrorCount()
-    local failures, others = {}, seen
+    local failures, others = {}, {}
+    for _, text in ipairs(seen) do
+        -- The simulator stops an addon whose code runs too long in one frame,
+        -- as the game does: that counts against the addon, whatever its count.
+        local list = text:find("budget exhausted for owner 'FriendlyForever'", 1, true) and failures or others
+        list[#list + 1] = text
+    end
     if not (before and after) then
-        failures[1] = "the addon's error count can't be read (/friendly status)"
+        table.insert(failures, 1, "the addon's error count can't be read (/friendly status)")
     elseif after > before then
-        failures[1] = ("the addon caught %d Lua error(s) in itself"):format(after - before)
-        for _, text in ipairs(seen) do failures[#failures + 1] = text end
+        table.insert(failures, 1, ("the addon caught %d Lua error(s) in itself"):format(after - before))
+        for _, text in ipairs(others) do failures[#failures + 1] = text end
         others = {}
     end
     if not ok then failures[#failures + 1] = tostring(err) end
