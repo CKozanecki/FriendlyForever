@@ -88,24 +88,29 @@ local function Measure(region, method)
 end
 
 -- Whether any of the region's anchor points pins the given side ("RIGHT",
--- "TOP", "BOTTOM"), as TOPRIGHT pins both its top and its right.
+-- "TOP", "BOTTOM"), as TOPRIGHT pins both its top and its right. Anchors
+-- the client can't give count as none.
 local function AnchoredOn(region, side)
-    for i = 1, region:GetNumPoints() do
-        local point = region:GetPoint(i)
-        if type(point) == "string" and point:find(side, 1, true) then return true end
+    local count = Measure(region, "GetNumPoints") or 0
+    for i = 1, count do
+        local ok, point = pcall(function() return region:GetPoint(i) end)
+        if ok and type(point) == "string" and point:find(side, 1, true) then return true end
     end
     return false
 end
 
 -- How far a text line's text reaches across: left, right, and a note if
 -- it is cut short. A line pinned on its left only grows to its text, so its
--- text ends where its width says. One pinned on its right too is cut off at
--- that edge (GetStringWidth still reports the uncut width).
-local function DrawnAcross(region, left, right)
+-- text ends where its width says. One pinned on its right too stops at that
+-- edge (GetStringWidth still reports the whole width): cut short there, or
+-- wrapped onto more lines when wraps says so.
+local function DrawnAcross(region, left, right, wraps)
     local width = Measure(region, "GetStringWidth")
     if not width then return left, right, "" end
     if not AnchoredOn(region, "RIGHT") then return left, math.max(right, left + width), "" end
-    if width > right - left + 1 then return left, right, (", cut short (its text is %.0f wide)"):format(width) end
+    if width > right - left + 1 and not wraps then
+        return left, right, (", cut short (its text is %.0f wide)"):format(width)
+    end
     return left, right, ""
 end
 
@@ -158,24 +163,24 @@ local function TextInside(frame, region, label, maxLines)
         report(line)
         return line
     end
-    local textLeft, textRight, cut = DrawnAcross(region, tl, tr)
-    local inside = textLeft >= fl - 1 and textRight <= fr + 1
-    local line = ("LAYOUT %s: text %.0f..%.0f, frame %.0f..%.0f%s"):format(label, textLeft, textRight, fl, fr, cut)
-
     -- The lines the client counts, and the lines the game would wrap onto if
-    -- that is more.
+    -- that is more than one and more than the client counts.
     local count = Measure(region, "GetNumLines")
     local wrapped = WrappedLines(region, tl, tr)
+    if wrapped and wrapped <= 1 then wrapped = nil end
+    local textLeft, textRight, cut = DrawnAcross(region, tl, tr, wrapped or (count and count > 1))
     if wrapped and wrapped <= (count or 0) then wrapped = nil end
+    local inside = textLeft >= fl - 1 and textRight <= fr + 1
+    local line = ("LAYOUT %s: text %.0f..%.0f, frame %.0f..%.0f%s"):format(label, textLeft, textRight, fl, fr, cut)
 
     local ft, fb = Edges(frame, "GetTop", "GetBottom")
     local tt, tb = Edges(region, "GetTop", "GetBottom")
     if ft and tt then
         local textTop, textBottom = DrawnUpDown(region, tt, tb, wrapped and wrapped / math.max(count or 1, 1) or 1)
         inside = inside and textTop <= ft + 1 and textBottom >= fb - 1
-        line = line .. (" x %.0f..%.0f, frame %.0f..%.0f"):format(textBottom, textTop, fb, ft)
+        line = line .. ("; up and down: text %.0f..%.0f, frame %.0f..%.0f"):format(textBottom, textTop, fb, ft)
     else
-        line = line .. ", top and bottom can't be read here"
+        line = line .. "; top and bottom can't be read here"
     end
 
     local lines

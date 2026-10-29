@@ -62,18 +62,18 @@ describe("UI simulator layout check (TextInside)", function()
     describe("white: the drawn text's top and bottom are checked against its frame", function()
         it("passes a one-line hint inside the button and reports its top and bottom and its line count", function()
             local line = checks.TextInside(region(BUTTON), hint(1), "hint", 1)
-            assert.are.equal("LAYOUT hint: text 46..214, frame 0..220 x 6..18, frame 0..44, 1 line", line)
+            assert.are.equal("LAYOUT hint: text 46..214, frame 0..220; up and down: text 6..18, frame 0..44, 1 line", line)
             assert.are.same({ line }, printed)
         end)
 
         it("fails a hint that wraps onto two lines, though they still fit inside the button", function()
             local err = fails(function() checks.TextInside(region(BUTTON), hint(2), "long favour", 1) end)
-            assert.truthy(err:find("x 6..30, frame 0..44, 2 lines: wraps onto more lines than 1", 1, true), err)
+            assert.truthy(err:find("up and down: text 6..30, frame 0..44, 2 lines: wraps onto more lines than 1", 1, true), err)
         end)
 
         it("passes a hint that wraps when no line limit is asked for", function()
             local line = checks.TextInside(region(BUTTON), hint(2), "hint")
-            assert.are.equal("LAYOUT hint: text 46..214, frame 0..220 x 6..30, frame 0..44", line)
+            assert.are.equal("LAYOUT hint: text 46..214, frame 0..220; up and down: text 6..30, frame 0..44", line)
         end)
 
         it("fails a line pinned on its top whose wrapped text hangs below the frame", function()
@@ -85,7 +85,7 @@ describe("UI simulator layout check (TextInside)", function()
                 points = { "TOPLEFT", "TOPRIGHT" }, width = 150, height = 36,
             })
             local err = fails(function() checks.TextInside(frame, title, "title") end)
-            assert.truthy(err:find("x -12..24, frame 0..30: spills out of its frame", 1, true), err)
+            assert.truthy(err:find("up and down: text -12..24, frame 0..30: spills out of its frame", 1, true), err)
         end)
 
         it("fails a line pinned on its bottom whose text grows above the frame's top", function()
@@ -93,7 +93,7 @@ describe("UI simulator layout check (TextInside)", function()
             local err = fails(function()
                 checks.TextInside(region(BUTTON), hint(1, { GetStringHeight = function() return 48 end }), "hint")
             end)
-            assert.truthy(err:find("x 6..54, frame 0..44: spills out of its frame", 1, true), err)
+            assert.truthy(err:find("up and down: text 6..54, frame 0..44: spills out of its frame", 1, true), err)
         end)
 
         it("fails a line pinned by its middle whose text grows past the frame both ways", function()
@@ -102,7 +102,7 @@ describe("UI simulator layout check (TextInside)", function()
                 points = { "LEFT" }, width = 150, height = 60,
             })
             local err = fails(function() checks.TextInside(region(BUTTON), centred, "centred") end)
-            assert.truthy(err:find("x -8..52, frame 0..44: spills out", 1, true), err)
+            assert.truthy(err:find("up and down: text -8..52, frame 0..44: spills out", 1, true), err)
         end)
 
         it("passes a line pinned on its top and bottom, which keeps between them however tall its text", function()
@@ -111,14 +111,14 @@ describe("UI simulator layout check (TextInside)", function()
                 points = { "TOPLEFT", "BOTTOMRIGHT" }, width = 150, height = 200,
             })
             local line = checks.TextInside(region(BUTTON), boxed, "boxed")
-            assert.are.equal("LAYOUT boxed: text 46..214, frame 0..220 x 6..38, frame 0..44", line)
+            assert.are.equal("LAYOUT boxed: text 46..214, frame 0..220; up and down: text 6..38, frame 0..44", line)
         end)
 
         it("notes a line pinned on its right whose text is cut short there", function()
             local cut = hint(1, { GetStringWidth = function() return 200 end })
             local line = checks.TextInside(region(BUTTON), cut, "hint")
             assert.are.equal(
-                "LAYOUT hint: text 46..214, frame 0..220, cut short (its text is 200 wide) x 6..18, frame 0..44", line)
+                "LAYOUT hint: text 46..214, frame 0..220, cut short (its text is 200 wide); up and down: text 6..18, frame 0..44", line)
         end)
 
         -- The simulator sizes the hint to its whole text (it is pinned to the
@@ -134,7 +134,30 @@ describe("UI simulator layout check (TextInside)", function()
         it("fails a hint the game would wrap at its width, though the client counts one line", function()
             local err = fails(function() checks.TextInside(region(BUTTON), wide(true), "long favour", 1) end)
             assert.truthy(err:find(
-                "x 6..30, frame 0..44, 2 lines once wrapped at its width: wraps onto more lines than 1", 1, true), err)
+                "up and down: text 6..30, frame 0..44, 2 lines once wrapped at its width: wraps onto more lines than 1", 1, true), err)
+        end)
+
+        it("doesn't call a line the game would wrap cut short", function()
+            local err = fails(function() checks.TextInside(region(BUTTON), wide(true), "long favour", 1) end)
+            assert.truthy(err:find("LAYOUT long favour: text 46..214, frame 0..220; up and down", 1, true), err)
+        end)
+
+        it("doesn't call a line the client wraps itself cut short", function()
+            local line = checks.TextInside(region(BUTTON), hint(2, { GetStringWidth = function() return 300 end }), "hint")
+            assert.are.equal("LAYOUT hint: text 46..214, frame 0..220; up and down: text 6..30, frame 0..44", line)
+        end)
+
+        it("counts the client's own lines when it already wraps as the game would", function()
+            local line = checks.TextInside(region(BUTTON), hint(2, { GetStringWidth = function() return 300 end,
+                CanWordWrap = function() return true end }), "hint", 2)
+            assert.truthy(line:find("up and down: text 6..30, frame 0..44, 2 lines$"), line)
+        end)
+
+        it("reports an empty hint with word wrap on as no lines, not as wrapped", function()
+            local empty = hint(1, { GetStringWidth = function() return 0 end, GetNumLines = function() return 0 end,
+                CanWordWrap = function() return true end })
+            local line = checks.TextInside(region(BUTTON), empty, "empty", 1)
+            assert.truthy(line:find(", 0 lines$"), line)
         end)
 
         it("works out the wrap at the line's own width", function()
@@ -147,7 +170,7 @@ describe("UI simulator layout check (TextInside)", function()
         it("passes a wide hint with word wrap off, which the game cuts short instead", function()
             local line = checks.TextInside(region(BUTTON), wide(false), "long favour", 1)
             assert.are.equal("LAYOUT long favour: text 46..214, frame 0..220, cut short (its text is 184 wide)"
-                .. " x 6..18, frame 0..44, 1 line", line)
+                .. "; up and down: text 6..18, frame 0..44, 1 line", line)
         end)
 
         it("passes a wide hint held to one line by its max lines", function()
@@ -163,7 +186,7 @@ describe("UI simulator layout check (TextInside)", function()
                 points = { "TOPLEFT", "TOPRIGHT" }, width = 400, height = 12, lines = 1,
             }, { CanWordWrap = function() return true end })
             local err = fails(function() checks.TextInside(frame, title, "title") end)
-            assert.truthy(err:find("x -12..24, frame 0..30: spills out of its frame", 1, true), err)
+            assert.truthy(err:find("up and down: text -12..24, frame 0..30: spills out of its frame", 1, true), err)
         end)
 
         it("grows the line's own height when its text height can't be read", function()
@@ -171,7 +194,7 @@ describe("UI simulator layout check (TextInside)", function()
                 checks.TextInside(region(BUTTON), wide(true, { GetStringHeight = false,
                     GetStringWidth = function() return 600 end }), "hint")
             end)
-            assert.truthy(err:find("x 6..54, frame 0..44: spills out", 1, true), err)
+            assert.truthy(err:find("up and down: text 6..54, frame 0..44: spills out", 1, true), err)
         end)
 
         it("allows the line a pixel of slack before it counts as wrapping", function()
@@ -186,7 +209,7 @@ describe("UI simulator layout check (TextInside)", function()
                 checks.TextInside(region(BUTTON), hint(2, { CanWordWrap = function() return true end,
                     GetStringWidth = function() return 600 end }), "hint")
             end)
-            assert.truthy(err:find("x 6..54, frame 0..44: spills out", 1, true), err)
+            assert.truthy(err:find("up and down: text 6..54, frame 0..44: spills out", 1, true), err)
         end)
 
         it("doesn't work out a wrap for a line with no room at all", function()
@@ -251,26 +274,26 @@ describe("UI simulator layout check (TextInside)", function()
             it("reports the frame's top giving " .. what .. " in its LAYOUT line", function()
                 local frame = region(BUTTON, { GetTop = fn })
                 local line = checks.TextInside(frame, hint(1), "hint")
-                assert.are.equal("LAYOUT hint: text 46..214, frame 0..220, top and bottom can't be read here", line)
+                assert.are.equal("LAYOUT hint: text 46..214, frame 0..220; top and bottom can't be read here", line)
                 assert.are.same({ line }, printed)
             end)
 
             it("reports the text line's bottom giving " .. what .. " in its LAYOUT line", function()
                 local line = checks.TextInside(region(BUTTON), hint(1, { GetBottom = fn }), "hint")
-                assert.are.equal("LAYOUT hint: text 46..214, frame 0..220, top and bottom can't be read here", line)
+                assert.are.equal("LAYOUT hint: text 46..214, frame 0..220; top and bottom can't be read here", line)
             end)
 
             it("reports a line count giving " .. what .. " in its LAYOUT line", function()
                 local line = checks.TextInside(region(BUTTON), hint(1, { GetNumLines = fn }), "hint", 1)
                 assert.are.equal(
-                    "LAYOUT hint: text 46..214, frame 0..220 x 6..18, frame 0..44, lines can't be counted here", line)
+                    "LAYOUT hint: text 46..214, frame 0..220; up and down: text 6..18, frame 0..44, lines can't be counted here", line)
             end)
         end
 
         for what, fn in pairs(unreadable()) do
             it("falls back to the line's own top and bottom when its text height gives " .. what, function()
                 local line = checks.TextInside(region(BUTTON), hint(1, { GetStringHeight = fn }), "hint")
-                assert.are.equal("LAYOUT hint: text 46..214, frame 0..220 x 6..18, frame 0..44", line)
+                assert.are.equal("LAYOUT hint: text 46..214, frame 0..220; up and down: text 6..18, frame 0..44", line)
             end)
 
             it("counts lines from the client, with word wrap on, when the text width gives " .. what, function()
@@ -281,9 +304,32 @@ describe("UI simulator layout check (TextInside)", function()
 
             it("falls back to the line's own left and right when its text width gives " .. what, function()
                 local line = checks.TextInside(region(BUTTON), hint(1, { GetStringWidth = fn }), "hint")
-                assert.are.equal("LAYOUT hint: text 46..214, frame 0..220 x 6..18, frame 0..44", line)
+                assert.are.equal("LAYOUT hint: text 46..214, frame 0..220; up and down: text 6..18, frame 0..44", line)
             end)
         end
+
+        it("says lines can't be counted, not that they wrapped, for a fitting line the client can't count", function()
+            local line = checks.TextInside(region(BUTTON),
+                hint(1, { GetNumLines = false, CanWordWrap = function() return true end }), "hint", 1)
+            assert.truthy(line:find(", lines can't be counted here$"), line)
+        end)
+
+        for what, fn in pairs(unreadable()) do
+            it("treats anchors giving " .. what .. " as none, still reporting the line", function()
+                local line = checks.TextInside(region(BUTTON), hint(1, { GetNumPoints = fn, GetPoint = fn }), "hint")
+                -- No anchors: the text grows both ways from its middle, 12 high.
+                assert.are.equal("LAYOUT hint: text 46..214, frame 0..220; up and down: text 6..18, frame 0..44", line)
+            end)
+        end
+
+        it("treats an anchor point that errors as none, whatever its error says", function()
+            -- Text 24 high: pinned by its bottom it would reach 6..30; with no
+            -- anchors it grows both ways from the middle, 12: 0..24.
+            local line = checks.TextInside(region(BUTTON), hint(1, {
+                GetPoint = function() error("BOTTOMLEFT") end, GetStringHeight = function() return 24 end,
+            }), "hint")
+            assert.are.equal("LAYOUT hint: text 46..214, frame 0..220; up and down: text 0..24, frame 0..44", line)
+        end)
 
         it("reports a frame whose left and right can't be read, as before", function()
             local line = checks.TextInside(region(BUTTON, { GetLeft = false }), hint(1), "hint", 1)
