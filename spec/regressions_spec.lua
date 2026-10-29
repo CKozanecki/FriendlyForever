@@ -1,4 +1,4 @@
--- Spec: #80
+-- Spec: #80, #35
 -- Regression tests for problems found in review of the 0.8.0 work.
 local wow = require("spec.support.wow")
 
@@ -295,31 +295,38 @@ describe("Regressions", function()
     end)
 
     describe("after an update and a /reload (no restart)", function()
-        local NEW_FILES = { ["Flavour.lua"] = true, ["FlavourText.lua"] = true, ["Ignore.lua"] = true,
-            ["Ledger.lua"] = true, ["Serialize.lua"] = true, ["Profiles.lua"] = true, ["Window.lua"] = true }
+        -- The files each update added, by the release it updates from.
+        local UPDATES = {
+            { from = "an older release", files = { ["Flavour.lua"] = true, ["FlavourText.lua"] = true, ["Ignore.lua"] = true,
+                ["Ledger.lua"] = true, ["Serialize.lua"] = true, ["Profiles.lua"] = true, ["Window.lua"] = true } },
+            { from = "0.8.0", files = { ["RateLimit.lua"] = true } }, -- #35
+        }
 
-        it("asks for a restart instead of erroring", function()
-            wow.reset()
-            local loaded = {}
-            local _, files = wow.parseToc()
-            for _, file in ipairs(files) do
-                if not NEW_FILES[file] then
-                    assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded)
+        for _, update in ipairs(UPDATES) do
+            local NEW_FILES = update.files
+            it("asks for a restart instead of erroring (updating from " .. update.from .. ")", function()
+                wow.reset()
+                local loaded = {}
+                local _, files = wow.parseToc()
+                for _, file in ipairs(files) do
+                    if not NEW_FILES[file] then
+                        assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded)
+                    end
                 end
-            end
-            wow.fire("ADDON_LOADED", wow.ADDON_NAME)
-            wow.fire("PLAYER_ENTERING_WORLD", true, false)
-            wow.advance(20)
-            wow.addUnit("target", { name = "Bob", surname = "Stone" })
-            wow.gainBuff({ sourceUnit = "target", name = "Arcane Intellect" })
-            wow.systemMessage("Bob-Stone has joined the guild.")
-            _G.SlashCmdList.FRIENDLYFOREVER("status")
-            wow.advance(10)
-            assert.are.same({}, wow.errors)
-            assert.are.equal(0, #wow.sent)
-            local all = table.concat(wow.printed, "\n")
-            assert.is_truthy(all:find("Restart the game", 1, true))
-            assert.is_truthy(all:find("restart the game (not /reload)", 1, true))
-        end)
+                wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+                wow.fire("PLAYER_ENTERING_WORLD", true, false)
+                wow.advance(20)
+                wow.addUnit("target", { name = "Bob", surname = "Stone" })
+                wow.gainBuff({ sourceUnit = "target", name = "Arcane Intellect" })
+                wow.systemMessage("Bob-Stone has joined the guild.")
+                _G.SlashCmdList.FRIENDLYFOREVER("status")
+                wow.advance(10)
+                assert.are.same({}, wow.errors)
+                assert.are.equal(0, #wow.sent)
+                local all = table.concat(wow.printed, "\n")
+                assert.is_truthy(all:find("Restart the game", 1, true))
+                assert.is_truthy(all:find("restart the game (not /reload)", 1, true))
+            end)
+        end
     end)
 end)
