@@ -48,12 +48,63 @@ It is **ready to merge** when, on top of that, every review conversation is reso
 
 ## Local setup
 
-You need Python 3 and `zip`. Everything else installs into `~/.cache/friendlyforever`:
+You need Python 3, `curl`, `make`, a C compiler, `zip` and `unzip`, and on Linux the readline headers (`libreadline-dev` on Ubuntu). Everything else installs into `~/.cache/friendlyforever`:
 
 ```
-make setup   # Lua 5.1, busted, luacheck (once)
+make setup   # the pinned Lua toolchain (re-running it is quick)
 make check   # lint, tests, release zip
 ```
+
+`make setup` runs `scripts/dev-setup.sh`, the one toolchain setup that local runs, CI, releases and claude.ai sessions all use (#103). It installs these versions:
+
+| Tool | Version |
+| --- | --- |
+| hererocks | 0.25.1 |
+| Lua | 5.1.5 |
+| LuaRocks | 3.8.0 |
+| busted | 2.2.0-1 |
+| luacheck | 1.2.0-1 |
+
+busted's and luacheck's own dependencies are pinned in the script too.
+
+- **Checksums:** every file it downloads must match its SHA-256 in `scripts/dev-setup.lock` before it's used. If one doesn't, or a download fails, it stops before installing anything. Never work around a mismatch: it means the file isn't the one that was reviewed.
+- **Re-running:** once the pinned tools are installed and run, it does nothing and downloads nothing. A changed pin, or a damaged or half-finished install, is installed again from scratch.
+- **Changing a version:** change the script and `scripts/dev-setup.lock` together, with each new checksum taken from a published source other than the download itself. Say in the pull request where each one came from.
+
+### Download hosts
+
+The script downloads only from these hosts. A host in brackets is a fallback, used only when the first can't be reached; it serves the same files.
+
+| Host | What |
+| --- | --- |
+| `files.pythonhosted.org` | hererocks |
+| `www.lua.org` (`archive.ubuntu.com`) | Lua |
+| `luarocks.github.io` | LuaRocks |
+| `luarocks.org` (`raw.githubusercontent.com`) | busted, luacheck and their dependencies |
+| `archive.ubuntu.com` | the sources of lua-term and mediator_lua, two of busted's dependencies |
+
+If a download fails, the script names the host. Behind a firewall or network policy, allow every host above.
+
+### claude.ai environment
+
+Claude's cloud sessions get the toolchain from the environment's setup script. The maintainer sets these in the environment's settings (the environment menu in a session's title bar, then **Edit**):
+
+- **Network access:** keep the default list of package managers, and add these allowed domains, one per line:
+
+  ```
+  www.lua.org
+  luarocks.github.io
+  luarocks.org
+  ```
+
+  The default list already has `files.pythonhosted.org`, `archive.ubuntu.com` and `raw.githubusercontent.com`.
+- **Setup script:** one line.
+
+  ```
+  make -C /home/user/FriendlyForever setup
+  ```
+
+  The environment keeps the installed tools for its later sessions. If the script fails, sessions don't start, and its log names the file and the host. A session that starts without the tools runs `make setup` itself.
 
 CI also builds the zip with the BigWigs packager that releases use, and fails if its files differ from `make package`'s. If that check fails, add the new top-level file to `.pkgmeta`'s `ignore` list, or to the TOC if it should ship.
 
