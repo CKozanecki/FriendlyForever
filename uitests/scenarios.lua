@@ -717,6 +717,74 @@ local function TabTextInside(content, label)
     CheckAll(checks)
 end
 
+-- The simulator re-lays out only 16 links down an anchor chain when a
+-- region moves (docs/ui-simulator.md). Switching tabs moves the message
+-- list's header, so message rows past the 17th, the buttons and the notes
+-- below them keep the last tab's places. Setting each region's own anchors
+-- again, in the order they were made, and reading its place, carries the
+-- move down the chain: each one re-lays itself and 16 more. Twice, since regions and child frames
+-- hang from each other. The anchors are the same afterwards.
+local function Settle(content)
+    local function Again(region)
+        local points = {}
+        for i = 1, (Measure(region, "GetNumPoints") or 0) do points[i] = { region:GetPoint(i) } end
+        if #points == 0 then return end
+        region:ClearAllPoints()
+        for _, p in ipairs(points) do region:SetPoint(unpack(p, 1, 5)) end
+        -- Asking where it is lays it out now, from the regions above it,
+        -- which were laid out the same way just before.
+        Edges(region, "GetTop", "GetBottom")
+    end
+    for _ = 1, 2 do
+        for _, region in ipairs({ content:GetRegions() }) do Again(region) end
+        for _, child in ipairs({ content:GetChildren() }) do Again(child) end
+    end
+end
+
+-- Whether the message rows ("1." to "30.", each hung below the one before)
+-- are drawn in order, top to bottom, with what follows them (the first
+-- visible region whose top is named by follows) below the last. A stale
+-- layout (Settle) shows up as a row above the one before it, and its
+-- up-and-down checks would read the old tab's places. Prints a LAYOUT line,
+-- fails if they aren't, and returns the line.
+local function RowsInOrder(content, label, follows)
+    local rows = {}
+    for _, region in ipairs({ content:GetRegions() }) do
+        local n = region:GetObjectType() == "FontString" and region:IsVisible()
+            and tonumber((region:GetText() or ""):match("^(%d+)%.$"))
+        if n then rows[n] = region end
+    end
+    check(#rows > 0, label .. ": no message rows")
+    -- last: the top of the last row read, lastN its number.
+    local problems, last, lastN = {}, nil, nil
+    for n = 1, #rows do
+        local top = Edges(rows[n], "GetTop", "GetBottom")
+        if not top then
+            problems[#problems + 1] = ("%d. can't be read"):format(n)
+        else
+            if last and top >= last then
+                problems[#problems + 1] = ("%d. at %.0f is not below %d. at %.0f"):format(n, top, lastN, last)
+            end
+            last, lastN = top, n
+        end
+    end
+    local after
+    for _, child in ipairs({ content:GetChildren() }) do
+        if child:IsVisible() and child.GetText and child:GetText() == follows then after = child end
+    end
+    local afterTop = after and Edges(after, "GetTop", "GetBottom")
+    if not afterTop then
+        problems[#problems + 1] = "\"" .. follows .. "\" can't be read"
+    elseif last and afterTop >= last then
+        problems[#problems + 1] = ("\"%s\" at %.0f is not below %d. at %.0f"):format(follows, afterTop, lastN, last)
+    end
+    local line = ("LAYOUT %s message rows: 1. to %d. in order top to bottom, then \"%s\"%s"):format(
+        label, #rows, follows, #problems > 0 and ": " .. table.concat(problems, "; ") or "")
+    report(line)
+    check(#problems == 0, line .. ": the layout is stale or out of order")
+    return line
+end
+
 -- Runs fn(content, tab) with the options open at each tab in turn, then
 -- goes back to the first tab, even when a check fails.
 local function OnEachTab(fn)
@@ -754,6 +822,10 @@ test("each options tab opens by its button, and keeps its checkboxes and labels 
                 name .. ": the selected tabs are " .. table.concat(SelectedTabs(content), ", "))
             check(ShowsText(content, tab.label .. "  "), name .. ": the header doesn't name the tab")
             OnScreen(_G[FriendlyForeverUIPages.PANEL], "options panel (" .. name .. ")")
+            -- Every place below is read from a settled layout, or the
+            -- checks fail: none passes on the last tab's places.
+            Settle(content)
+            RowsInOrder(content, name, "Preview random")
             CheckAll({
                 function() TabTextInside(content, name) end,
                 function() PushedDownInside(content, name) end,
@@ -791,4 +863,5 @@ end)
 -- The layout checks, for spec/uitests_layout_spec.lua, which runs them
 -- against regions whose edges it sets itself. The simulator ignores what a
 -- test file returns.
-return { TextInside = TextInside, PushedDownInside = PushedDownInside, TabTextInside = TabTextInside }
+return { TextInside = TextInside, PushedDownInside = PushedDownInside, TabTextInside = TabTextInside,
+    Settle = Settle, RowsInOrder = RowsInOrder }

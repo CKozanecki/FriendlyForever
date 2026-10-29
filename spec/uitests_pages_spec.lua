@@ -82,8 +82,49 @@ describe("the UI simulator's options tabs", function()
         local names = {}
         for i, tab in ipairs(Pages.TABS) do names[i] = tab.name end
         assert.are.equal(table.concat(names, " "), workflow:match("\n%s*OPTIONS_TABS: ([^\n]-)%s*\n"))
-        assert.is_truthy(workflow:find("FriendlyForeverUIPages.ShowTab(\"%s\")", 1, true))
+        -- The loop that writes each tab's script, whole: every tab, its own name, its own file.
+        assert.is_truthy(workflow:find('\n%s*for tab in $OPTIONS_TABS; do\n'
+            .. '%s*{ cat uitests/pages%.lua; printf \'\\nFriendlyForeverUIPages%.ShowTab%("%%s"%)\\n\' "$tab"; } \\\n'
+            .. '%s*> "$states/tab%-$tab%.lua"\n%s*done\n'), "the loop writing each tab's script")
         assert.is_truthy(workflow:find('for tab in $OPTIONS_TABS; do\n%s*shoot "options%-$tab" %-%-exec%-lua "@/shot%-lua/tab%-$tab%.lua"\n'))
+    end)
+
+    -- The step's own loop, run as the workflow runs it (with comments
+    -- dropped), into a scratch folder: one script per tab, each this file
+    -- then ShowTab for that tab, and nothing else.
+    it("writes each tab's screenshot script, named after the tab, ending with that tab (white)", function()
+        local workflow = wow.readFile(".github/workflows/ui-sim.yml")
+        local tabs = workflow:match("\n%s*OPTIONS_TABS: ([^\n]-)%s*\n")
+        local loop = workflow:match("\n(%s*for tab in %$OPTIONS_TABS; do\n.-\n%s*done)\n")
+        assert.is_truthy(tabs and loop, "the tab list or the loop writing the scripts is missing")
+        assert.is_falsy(loop:find("shoot", 1, true), "found the shoot loop, not the one writing the scripts")
+        local dir = os.tmpname()
+        os.remove(dir)
+        assert.is_true(os.execute("mkdir -p '" .. dir .. "'") == 0)
+        local script = dir .. "/run.sh"
+        local f = assert(io.open(script, "w"))
+        f:write("set -eu\nstates='" .. dir .. "/out'\nmkdir -p \"$states\"\nOPTIONS_TABS='" .. tabs .. "'\n"
+            .. loop .. "\n")
+        f:close()
+        local ok = os.execute("bash '" .. script .. "'")
+        local pages = wow.readFile("uitests/pages.lua")
+        local listed = io.popen("ls '" .. dir .. "/out'"):read("*a")
+        local files = {}
+        for name in listed:gmatch("[^\n]+") do files[#files + 1] = name end
+        local written = {}
+        for _, tab in ipairs(Pages.TABS) do
+            local path = dir .. "/out/tab-" .. tab.name .. ".lua"
+            local file = io.open(path)
+            written[tab.name] = file and file:read("*a")
+            if file then file:close() end
+        end
+        os.execute("rm -rf '" .. dir .. "'")
+        assert.are.equal(0, ok)
+        assert.are.equal(#Pages.TABS, #files, "scripts written: " .. listed)
+        for _, tab in ipairs(Pages.TABS) do
+            assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowTab("' .. tab.name .. '")\n', written[tab.name],
+                tab.name)
+        end
     end)
 
     it("answers a tab name it doesn't know with a message, not a Lua error (black)", function()

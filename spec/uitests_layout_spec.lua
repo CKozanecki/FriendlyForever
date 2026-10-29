@@ -537,6 +537,16 @@ describe("UI simulator layout check for an options tab (TabTextInside, #112)", f
         assert.truthy(err:find("spills out of its frame", 1, true), err)
     end)
 
+    it("fails a checkbox label wrapped onto two lines, though inside the panel (black)", function()
+        local box = checkbox("Stay quiet in capital cities", 12, 180)
+        local label = box.GetRegions()
+        label.GetNumLines = function() return 2 end
+        local err = fails(function() checks.TabTextInside(content({}, { box }), "Buff Thanks tab") end)
+        assert.truthy(err:find('LAYOUT Buff Thanks tab checkbox "Stay quiet in capital cities": text 40..220, '
+            .. "frame 0..600; up and down: text 268..280, frame 0..300, 2 lines: wraps onto more lines than 1",
+            1, true), err)
+    end)
+
     it("fails a label on the panel that spills out of it (black)", function()
         local err = fails(function()
             checks.TabTextInside(content({ text("Welcomes joiners, several per line", 16, 700) }), "Party Join tab")
@@ -567,9 +577,13 @@ describe("UI simulator layout check for an options tab (TabTextInside, #112)", f
     end)
 
     it("skips what another tab shows, hidden here, even when it would spill (white)", function()
+        -- A button with no label (the buff mode key before it's filled) has
+        -- nothing to check, even when it sits past the panel's edge.
         checks.TabTextInside(content({ text("Heading", 16, 50), text("Hidden note", 16, 900, false) },
-            { checkbox("Hidden box", 500, 300, false), checkbox("Shown box", 12, 60) }), "Guild Join tab")
+            { checkbox("Hidden box", 500, 300, false), checkbox("Shown box", 12, 60), button("", 590, 900, 300) }),
+            "Guild Join tab")
         assert.are.equal(2, #printed)
+        assert.is_nil(anyLine('LAYOUT Guild Join tab button'))
         assert.is_nil(anyLine('LAYOUT Guild Join tab "Hidden note"'))
         assert.is_nil(anyLine('LAYOUT Guild Join tab checkbox "Hidden box"'))
     end)
@@ -579,5 +593,141 @@ describe("UI simulator layout check for an options tab (TabTextInside, #112)", f
             checks.TabTextInside(content({ text("", 16, 0) }, { checkbox("Hidden", 12, 60, false) }), "Hello Again tab")
         end)
         assert.truthy(err:find("Hello Again tab: no text to check", 1, true), err)
+    end)
+end)
+
+describe("UI simulator: the message rows' order and settling a tab's layout (#112)", function()
+    local checks, printed
+
+    before_each(function() checks, printed = loadChecks() end)
+
+    -- A visible region on the content with text, top to top - 12.
+    local function at(label, top, kind)
+        return region({ left = 16, right = 40, top = top, bottom = top - 12 }, {
+            GetObjectType = function() return kind or "FontString" end,
+            IsVisible = function() return true end,
+            GetText = function() return label end,
+        })
+    end
+
+    -- Rows "1." to "n." 20 px apart from 600 down, except where tops says.
+    local function rows(n, tops)
+        local list = {}
+        for i = 1, n do list[i] = at(i .. ".", (tops or {})[i] or (620 - 20 * i)) end
+        return list
+    end
+
+    local function content(regions, children)
+        local c = region({ left = 0, right = 600, top = 1000, bottom = -900 })
+        function c.GetRegions() return unpack(regions) end
+        function c.GetChildren() return unpack(children or {}) end
+        return c
+    end
+
+    it("passes rows drawn top to bottom with the button below the last (white)", function()
+        local line = checks.RowsInOrder(content(rows(30), { at("Preview random", -20, "Button") }), "Buff Back tab",
+            "Preview random")
+        assert.are.equal('LAYOUT Buff Back tab message rows: 1. to 30. in order top to bottom, then "Preview random"',
+            line)
+        assert.are.same({ line }, printed)
+    end)
+
+    it("fails a row left in the last tab's place, above the row before it (black)", function()
+        -- As the simulator left Buff Thanks: 17. moved down to 280, 18. stayed at 440.
+        local err = fails(function()
+            checks.RowsInOrder(content(rows(30, { [17] = 280, [18] = 440 }), { at("Preview random", -20, "Button") }),
+                "Buff Thanks tab", "Preview random")
+        end)
+        assert.truthy(err:find("18. at 440 is not below 17. at 280", 1, true), err)
+        assert.truthy(err:find("the layout is stale or out of order", 1, true), err)
+    end)
+
+    it("fails a row drawn at the same place as the row before it (black)", function()
+        local err = fails(function()
+            checks.RowsInOrder(content(rows(30, { [18] = 280 }), { at("Preview random", -20, "Button") }),
+                "Guild Join tab", "Preview random")
+        end)
+        assert.truthy(err:find("18. at 280 is not below 17. at 280", 1, true), err)
+    end)
+
+    it("compares a row past an unreadable one with the last row read (black)", function()
+        local list = rows(3, { [3] = 650 })
+        list[2].GetTop = function() error("no") end
+        local err = fails(function()
+            checks.RowsInOrder(content(list, { at("Preview random", 0, "Button") }), "tab", "Preview random")
+        end)
+        assert.truthy(err:find("3. at 650 is not below 1. at 600", 1, true), err)
+        -- And the button with the last row read, when the last row can't be.
+        list = rows(3)
+        list[3].GetTop = function() error("no") end
+        err = fails(function()
+            checks.RowsInOrder(content(list, { at("Preview random", 590, "Button") }), "tab", "Preview random")
+        end)
+        assert.truthy(err:find('"Preview random" at 590 is not below 2. at 580', 1, true), err)
+    end)
+
+    it("reads only the rows and the visible button, not other text with numbers or a hidden copy (white)", function()
+        local list = rows(30)
+        -- Other lines with numbers, out of the rows' order.
+        list[#list + 1] = at("Offer for (minutes): 10", 900)
+        list[#list + 1] = at("10", 900)
+        local hidden = at("Preview random", 500, "Button")
+        hidden.IsVisible = function() return false end
+        local line = checks.RowsInOrder(content(list, { at("Preview random", -20, "Button"), hidden }), "Buff Back tab",
+            "Preview random")
+        assert.are.equal('LAYOUT Buff Back tab message rows: 1. to 30. in order top to bottom, then "Preview random"',
+            line)
+    end)
+
+    it("fails a button left above the last row (black)", function()
+        local err = fails(function()
+            checks.RowsInOrder(content(rows(30), { at("Preview random", 154, "Button") }), "Party Join tab",
+                "Preview random")
+        end)
+        assert.truthy(err:find('"Preview random" at 154 is not below 30. at 20', 1, true), err)
+    end)
+
+    it("fails when the rows or the button can't be read or found, rather than passing (black)", function()
+        local unreadable = rows(3)
+        unreadable[2].GetTop = function() error("no") end
+        local err = fails(function()
+            checks.RowsInOrder(content(unreadable, { at("Preview random", 0, "Button") }), "tab", "Preview random")
+        end)
+        assert.truthy(err:find("2. can't be read", 1, true), err)
+        err = fails(function() checks.RowsInOrder(content(rows(3)), "tab", "Preview random") end)
+        assert.truthy(err:find('"Preview random" can\'t be read', 1, true), err)
+        err = fails(function() checks.RowsInOrder(content({ at("Heading", 900) }), "tab", "Preview random") end)
+        assert.truthy(err:find("tab: no message rows", 1, true), err)
+    end)
+
+    -- A stand-in that records what is done to its anchors.
+    local function anchored(name, points, log)
+        local r = { points = points }
+        function r.GetNumPoints() return #r.points end
+        function r.GetPoint(_, i) return unpack(r.points[i], 1, 5) end
+        function r.ClearAllPoints() r.points = {}; log[#log + 1] = name .. " clear" end
+        function r.SetPoint(_, ...) r.points[#r.points + 1] = { ... }; log[#log + 1] = name .. " set" end
+        function r.GetTop() log[#log + 1] = name .. " read"; return 1 end
+        function r.GetBottom() return 0 end
+        return r
+    end
+
+    it("sets every region's anchors again, the same, in order, laying each out before the next (white)", function()
+        local log = {}
+        local first = anchored("1.", { { "TOPLEFT", "header", "BOTTOMLEFT", 0, -10 } }, log)
+        local second = anchored("2.", { { "TOPLEFT", first, "BOTTOMLEFT", 0, -8 } }, log)
+        local button = anchored("Preview", { { "TOPLEFT", second, "BOTTOMLEFT", 0, -16 },
+            { "RIGHT", "content", "RIGHT", -24, 0 } }, log)
+        local loose = anchored("loose", {}, log)
+        checks.Settle(content({ first, second, loose }, { button }))
+        assert.are.same({ { "TOPLEFT", "header", "BOTTOMLEFT", 0, -10 } }, first.points)
+        assert.are.same({ { "TOPLEFT", first, "BOTTOMLEFT", 0, -8 } }, second.points)
+        assert.are.same({ { "TOPLEFT", second, "BOTTOMLEFT", 0, -16 }, { "RIGHT", "content", "RIGHT", -24, 0 } },
+            button.points)
+        local once = { "1. clear", "1. set", "1. read", "2. clear", "2. set", "2. read",
+            "Preview clear", "Preview set", "Preview set", "Preview read" }
+        local twice = {}
+        for _ = 1, 2 do for _, step in ipairs(once) do twice[#twice + 1] = step end end
+        assert.are.same(twice, log, "a region with no anchors is left alone")
     end)
 end)
