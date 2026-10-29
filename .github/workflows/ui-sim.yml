@@ -158,7 +158,7 @@ jobs:
   # network, no capabilities and the sources read-only.
   screenshots:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 75
     continue-on-error: true
     env:
       SIM_REPO: https://github.com/Osso/wow-ui-sim.git
@@ -168,6 +168,10 @@ jobs:
       # the same Debian, so the binary finds the ICU it was linked with.
       BUILD_BASE: rust@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2 # 1.92-bookworm
       RENDER_BASE: debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 # bookworm-slim
+      # The options panel's tabs, one shot each (#112): uitests/pages.lua's
+      # Pages.TABS names, in the panel's order (spec/uitests_pages_spec.lua
+      # checks they match).
+      OPTIONS_TABS: guild-login buff-thanks guild-join party-join party-hello hello-again buff-back
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -183,9 +187,9 @@ jobs:
           unzip -q dist/FriendlyForever-*.zip -d "$addons"
           chmod -R a-w "$addons"
 
-      # One script per state of the buff-back button (#83) and per filled
-      # options page (#52): the scenarios' own setup (uitests/button_states.lua
-      # or uitests/pages.lua), then what to show.
+      # One script per state of the buff-back button (#83), per filled
+      # options page (#52) and per options tab (#112): the scenarios' own setup
+      # (uitests/button_states.lua or uitests/pages.lua), then what to show.
       - name: Stage the screenshot scripts
         run: |
           states="$RUNNER_TEMP/shot-lua"
@@ -198,6 +202,11 @@ jobs:
           for page in general ledger; do
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.Show("%s")\n' "$page"; } \
               > "$states/page-$page.lua"
+          done
+          # Each tab of the main panel, opened by clicking its button (#112).
+          for tab in $OPTIONS_TABS; do
+            { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowTab("%s")\n' "$tab"; } \
+              > "$states/tab-$tab.lua"
           done
           chmod -R a-w "$states"
 
@@ -286,8 +295,9 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Each one
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so 9 shots and the probe take at most about 31 minutes.
-        timeout-minutes: 35
+        # clean-up, so 15 shots and the probe take at most about 51 minutes.
+        # (Each usually takes about 8 s.)
+        timeout-minutes: 55
         run: |
           # WOW_SIM_CASC=0: never look for game files (no WoW install here).
           # Each shot runs as a detached container capped at 6 GB and 3 CPUs,
@@ -342,7 +352,11 @@ jobs:
           docker logs "$probe" 2>&1 | head -40 | sed 's/^/  probe> /'
           docker rm -f "$probe" >/dev/null 2>&1 || true
           shoot game
-          shoot options --exec-lua "SlashCmdList.FRIENDLYFOREVER('')"
+          # Each tab of the options panel (#112), named after the tab:
+          # options-guild-login (the tab the panel opens on), options-buff-thanks...
+          for tab in $OPTIONS_TABS; do
+            shoot "options-$tab" --exec-lua "@/shot-lua/tab-$tab.lua"
+          done
           # The General page (#35): it doesn't scroll, so everything must fit.
           shoot general --exec-lua "SlashCmdList.FRIENDLYFOREVER(''); Settings.OpenToCategory(FriendlyForeverOptionsPanel.generalPage.category:GetID())"
           # /friendly move shows the buff back button, unlocked, with nobody owed.

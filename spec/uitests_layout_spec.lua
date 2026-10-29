@@ -1,4 +1,4 @@
--- Spec: #35, #52, #90
+-- Spec: #35, #52, #90, #112
 -- The UI simulator's layout check (uitests/scenarios.lua), run here against
 -- stand-in regions whose edges, anchors and text sizes each test sets
 -- itself, so the expected answer comes from those numbers and not from the
@@ -459,5 +459,125 @@ describe("UI simulator layout check (PushedDownInside)", function()
         cut.CanWordWrap = function() return false end
         local line = checks.PushedDownInside(page({ text("Heading", 280, 50), cut }), "page")
         assert.are.equal('LAYOUT page pushed down by wrapped text: lowest "Row" ends at 28, frame bottom 0', line)
+    end)
+end)
+
+describe("UI simulator layout check for an options tab (TabTextInside, #112)", function()
+    local checks, printed
+
+    before_each(function() checks, printed = loadChecks() end)
+
+    -- A text line pinned on its left only, at left, one line high from top
+    -- 280: it grows to its text, width wide.
+    local function text(label, left, width, visible)
+        return region({ left = left, right = left + 10, top = 280, bottom = 268, points = { "TOPLEFT" } }, {
+            GetObjectType = function() return "FontString" end,
+            IsVisible = function() return visible ~= false end,
+            GetText = function() return label end,
+            GetStringWidth = function() return width end,
+            GetNumLines = function() return 1 end,
+        })
+    end
+
+    -- A frame (a checkbox or a button) 26 wide at left, holding regions.
+    local function frame(kind, left, regions, visible, methods)
+        local f = region({ left = left, right = left + 26, top = 284, bottom = 258 }, methods)
+        function f.GetObjectType() return kind end
+        function f.IsVisible() return visible ~= false end
+        function f.GetRegions() return unpack(regions or {}) end
+        return f
+    end
+
+    -- A checkbox at left, its label just right of it.
+    local function checkbox(label, left, width, visible)
+        return frame("CheckButton", left, { text(label, left + 28, width) }, visible)
+    end
+
+    -- A button from left to right, its label width wide from 4 inside it.
+    local function button(label, left, right, width)
+        local fs = text(label, left + 4, width)
+        local b = frame("Button", left, {}, true, { GetFontString = function() return fs end })
+        b.GetRight = function() return right end
+        return b
+    end
+
+    -- The panel's scrolling content: 600 wide, 300 high.
+    local function content(regions, children)
+        local c = region({ left = 0, right = 600, top = 300, bottom = 0 })
+        function c.GetRegions() return unpack(regions or {}) end
+        function c.GetChildren() return unpack(children or {}) end
+        return c
+    end
+
+    local function anyLine(prefix)
+        for _, line in ipairs(printed) do
+            if line:sub(1, #prefix) == prefix then return line end
+        end
+    end
+
+    it("passes a tab whose labels, checkboxes and buttons are inside, each LAYOUT line naming the tab (white)", function()
+        checks.TabTextInside(content({ text("Buff Back  (sent to /say)", 16, 200) },
+            { checkbox("Say a line once my buff lands", 12, 180), button("Up", 300, 344, 20) }), "Buff Back tab")
+        assert.are.equal(4, #printed)
+        assert.are.equal('LAYOUT Buff Back tab "Buff Back  (sent to /say)": text 16..216, frame 0..600; '
+            .. "up and down: text 268..280, frame 0..300", printed[1])
+        assert.are.equal('LAYOUT Buff Back tab checkbox "Say a line once my buff lands": text 40..220, '
+            .. "frame 0..600; up and down: text 268..280, frame 0..300, 1 line", printed[2])
+        assert.truthy(anyLine('LAYOUT Buff Back tab button "Up": text 304..324, frame 300..344'), printed[3])
+        assert.truthy(anyLine('LAYOUT Buff Back tab button on the panel "Up": text 304..324, frame 0..600'), printed[4])
+    end)
+
+    it("fails a checkbox label that spills out of the panel, naming the tab (black)", function()
+        local err = fails(function()
+            checks.TabTextInside(content({}, { checkbox("Show the button in capital cities", 400, 300) }),
+                "Buff Back tab")
+        end)
+        assert.truthy(err:find('LAYOUT Buff Back tab checkbox "Show the button in capital cities": text 428..728, '
+            .. "frame 0..600", 1, true), err)
+        assert.truthy(err:find("spills out of its frame", 1, true), err)
+    end)
+
+    it("fails a label on the panel that spills out of it (black)", function()
+        local err = fails(function()
+            checks.TabTextInside(content({ text("Welcomes joiners, several per line", 16, 700) }), "Party Join tab")
+        end)
+        assert.truthy(err:find('LAYOUT Party Join tab "Welcomes joiners, several per line": text 16..716, '
+            .. "frame 0..600", 1, true), err)
+    end)
+
+    it("fails a button whose label is wider than the button, though inside the panel (black)", function()
+        local err = fails(function()
+            checks.TabTextInside(content({}, { button("How to thank: a line and a /thank emote", 100, 390, 300) }),
+                "Buff Thanks tab")
+        end)
+        assert.truthy(err:find('LAYOUT Buff Thanks tab button "How to thank: a line and a /thank emote": text 104..404, '
+            .. "frame 100..390", 1, true), err)
+        -- The same label is inside the panel: only its button check failed.
+        assert.truthy(anyLine('LAYOUT Buff Thanks tab button on the panel "How to thank: a line and a /thank emote": '
+            .. "text 104..404, frame 0..600"))
+    end)
+
+    it("checks every line before failing, so one spill can't hide another (black)", function()
+        local err = fails(function()
+            checks.TabTextInside(content({ text("Too wide", 16, 700) }, { checkbox("Also too wide", 500, 200),
+                checkbox("Fits", 12, 40) }), "Guild Login tab")
+        end)
+        assert.truthy(err:find('"Too wide"', 1, true) and err:find('"Also too wide"', 1, true), err)
+        assert.are.equal(3, #printed)
+    end)
+
+    it("skips what another tab shows, hidden here, even when it would spill (white)", function()
+        checks.TabTextInside(content({ text("Heading", 16, 50), text("Hidden note", 16, 900, false) },
+            { checkbox("Hidden box", 500, 300, false), checkbox("Shown box", 12, 60) }), "Guild Join tab")
+        assert.are.equal(2, #printed)
+        assert.is_nil(anyLine('LAYOUT Guild Join tab "Hidden note"'))
+        assert.is_nil(anyLine('LAYOUT Guild Join tab checkbox "Hidden box"'))
+    end)
+
+    it("fails a tab that shows no text at all, rather than passing it (black)", function()
+        local err = fails(function()
+            checks.TabTextInside(content({ text("", 16, 0) }, { checkbox("Hidden", 12, 60, false) }), "Hello Again tab")
+        end)
+        assert.truthy(err:find("Hello Again tab: no text to check", 1, true), err)
     end)
 end)

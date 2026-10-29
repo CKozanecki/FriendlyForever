@@ -672,7 +672,123 @@ test("the copy window keeps its text inside it, for export, import and the bug r
     end
 end)
 
+-- The main panel's tabs (#112), each opened by clicking its button the way
+-- a player would (pages.lua's OpenTab). Each tab's own rows are on the
+-- panel's scrolling content, and the rows of the other tabs are hidden.
+
+-- Every visible text line on content, checkbox label and button label, with
+-- the tab's name in its LAYOUT line: each must stay inside content (the
+-- panel, less its scroll bar), and a button's label inside its button, on
+-- one line. Lines on content may wrap on purpose (the notes at the bottom),
+-- so they aren't counted; a checkbox's label has no width set and never
+-- wraps. Every line is checked and printed before any failure is raised.
+local function TabTextInside(content, label)
+    local checks = {}
+    local function Add(frame, region, what, maxLines)
+        checks[#checks + 1] = function()
+            TextInside(frame, region, ("%s %s\"%s\""):format(label, what, Short(region:GetText())), maxLines)
+        end
+    end
+    local function Texts(frame)
+        local found = {}
+        for _, region in ipairs({ frame:GetRegions() }) do
+            if region:GetObjectType() == "FontString" and region:IsVisible() and (region:GetText() or "") ~= "" then
+                found[#found + 1] = region
+            end
+        end
+        return found
+    end
+    for _, region in ipairs(Texts(content)) do Add(content, region, "", nil) end
+    for _, child in ipairs({ content:GetChildren() }) do
+        if child:IsVisible() then
+            local kind = child:GetObjectType()
+            if kind == "CheckButton" then
+                for _, region in ipairs(Texts(child)) do Add(content, region, "checkbox ", 1) end
+            elseif kind == "Button" then
+                local text = child.GetFontString and child:GetFontString()
+                if text and (text:GetText() or "") ~= "" then
+                    Add(child, text, "button ", 1)
+                    Add(content, text, "button on the panel ", 1)
+                end
+            end
+        end
+    end
+    check(#checks > 0, label .. ": no text to check")
+    CheckAll(checks)
+end
+
+-- Runs fn(content, tab) with the options open at each tab in turn, then
+-- goes back to the first tab, even when a check fails.
+local function OnEachTab(fn)
+    local Pages = FriendlyForeverUIPages
+    local ok, err = pcall(function()
+        for _, tab in ipairs(Pages.TABS) do
+            local content = Pages.OpenTab(tab.name)
+            check(content ~= nil, "couldn't open the " .. tab.label .. " tab")
+            fn(content, tab)
+        end
+    end)
+    Pages.OpenTab(Pages.TABS[1].name)
+    if not ok then error(err, 0) end
+end
+
+-- The selected tab is the one whose button is disabled (Options.lua's Fill).
+local function SelectedTabs(content)
+    local selected = {}
+    for _, tab in ipairs(FriendlyForeverUIPages.TABS) do
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child:GetObjectType() == "Button" and child:GetText() == tab.label and not child:IsEnabled() then
+                selected[#selected + 1] = tab.label
+            end
+        end
+    end
+    return selected
+end
+
+test("each options tab opens by its button, and keeps its checkboxes and labels inside the panel", function()
+    local failures = {}
+    OnEachTab(function(content, tab)
+        local ok, err = pcall(function()
+            local name = tab.label .. " tab"
+            check(table.concat(SelectedTabs(content), ", ") == tab.label,
+                name .. ": the selected tabs are " .. table.concat(SelectedTabs(content), ", "))
+            check(ShowsText(content, tab.label .. "  "), name .. ": the header doesn't name the tab")
+            OnScreen(_G[FriendlyForeverUIPages.PANEL], "options panel (" .. name .. ")")
+            CheckAll({
+                function() TabTextInside(content, name) end,
+                function() PushedDownInside(content, name) end,
+            })
+        end)
+        if not ok then failures[#failures + 1] = tostring(err) end
+    end)
+    check(#failures == 0, table.concat(failures, "\n"))
+end)
+
+-- Names the panel doesn't have, of every type the screenshot job or a
+-- typo could give: each is answered with a message, and the tab stays put.
+local BAD_TABS = { "", "Buff Back", "buffBack", "buff", "general", "nope", 42, true, { "buff-back" } }
+
+test("a tab name the panel doesn't know is answered with a message, not a Lua error", function()
+    local Pages = FriendlyForeverUIPages
+    local content = Pages.OpenTab("buff-back")
+    check(content ~= nil, "couldn't open the Buff Back tab")
+    local ok, err = pcall(function()
+        for i = 0, #BAD_TABS do
+            local name = BAD_TABS[i] -- BAD_TABS[0] is nil: no name at all
+            local called, opened, why = pcall(Pages.OpenTab, name)
+            check(called, "OpenTab(" .. tostring(name) .. ") raised a Lua error: " .. tostring(opened))
+            check(opened == nil, "OpenTab(" .. tostring(name) .. ") opened something")
+            check(type(why) == "string" and why:find("no options tab called", 1, true) ~= nil,
+                "OpenTab(" .. tostring(name) .. ") gave no message")
+            check(table.concat(SelectedTabs(content), ", ") == "Buff Back",
+                "OpenTab(" .. tostring(name) .. ") changed the tab")
+        end
+    end)
+    Pages.OpenTab(Pages.TABS[1].name)
+    if not ok then error(err, 0) end
+end)
+
 -- The layout checks, for spec/uitests_layout_spec.lua, which runs them
 -- against regions whose edges it sets itself. The simulator ignores what a
 -- test file returns.
-return { TextInside = TextInside, PushedDownInside = PushedDownInside }
+return { TextInside = TextInside, PushedDownInside = PushedDownInside, TabTextInside = TabTextInside }
