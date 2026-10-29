@@ -526,8 +526,15 @@ describe("One round each way between two copies of the addon (#37)", function()
 
     -- Everything sent so far reaches the other side: buffs first, then
     -- addon messages (a mark follows the cast it marks).
+    -- lag(): seconds the addon messages take after the buffs (a storm
+    -- sets it; 0 otherwise).
+    local lag
+    before_each(function() lag = nil end)
+
     local function settle()
         wow.deliverBuffs(net)
+        local seconds = lag and lag() or 0
+        if seconds > 0 then wow.advanceAll(net, seconds, seconds) end
         wow.deliver(net)
     end
 
@@ -594,19 +601,26 @@ describe("One round each way between two copies of the addon (#37)", function()
         assert.are.equal(0, owedBy(b))
     end)
 
-    -- Red: a storm of hand casts, button presses,
-    -- time jumps (past the window too), decoys sharing the other's first
-    -- name, and the game naming targets by first or full name. The
-    -- invariant is worked out from the simulated client alone: every buff
-    -- that answers (a button cast, or a hand cast made while the button
-    -- held that player; any other hand cast opens) is matched to an earlier opener the other way, so
-    -- answers X->Y never outnumber openers Y->X. A second round would be an
-    -- answer to an answer.
+    -- Red: a storm of hand casts, button presses, time jumps (late in the
+    -- window and past it), decoys sharing the other's first name, and the
+    -- game naming targets by first or full name. The invariant is worked out
+    -- from the simulated client alone (wow.landed and the button's macro):
+    -- a buff that answers (a button cast, or a hand cast made while the
+    -- button held that player; any other hand cast opens) must follow an
+    -- opener the other way since this side last answered. An answer with
+    -- none would answer an answer: a second round.
+    local JUMPS = { 5, 60, 150, 300, 400, 500, 590, 610, 1200, 2400 }
+
     local function storm(seed, opts)
         random.seed(seed)
         pair(opts)
-        local openers, answers = { [a] = 0, [b] = 0 }, { [a] = 0, [b] = 0 }
+        -- A mark arrives up to 10 seconds after the buff it marks.
+        lag = function() return random.random(0, 10) end
         local other = { [a] = b, [b] = a }
+        -- open[x]: when the other side last opened a favour x hasn't answered
+        -- since (nil when there is none).
+        local open = {}
+        local reach = { answers = 0, late = 0, pastWindow = 0 }
         local DECOY = { [a] = { name = "Bo", surname = "Stone", class = "MAGE", id = "Bo-Stone" },
             [b] = { name = "Ann", surname = "Rock", class = "DRUID", id = "Ann-Rock" } }
         -- Whether the client's button holds a cast on the other.
@@ -621,7 +635,7 @@ describe("One round each way between two copies of the addon (#37)", function()
             wow.use(client)
             return #wow.landed
         end
-        for step = 1, 120 do
+        for step = 1, 150 do
             local x = random.random() < 0.5 and a or b
             local roll = random.random()
             local before = landedBy(x)
@@ -641,8 +655,7 @@ describe("One round each way between two copies of the addon (#37)", function()
                 kind = armedFor(x) and "answer" or nil
                 press(x)
             elseif roll < 0.85 then
-                local jumps = { 5, 60, 400, 590, 610, 1200, 2400 }
-                wow.advanceAll(net, jumps[random.random(#jumps)], 30)
+                wow.advanceAll(net, JUMPS[random.random(#JUMPS)], 30)
             elseif roll < 0.95 and opts and opts.decoys then
                 wow.use(x)
                 wow.state.units.mouseover = (not wow.state.units.mouseover) and DECOY[x] or nil
@@ -651,39 +664,49 @@ describe("One round each way between two copies of the addon (#37)", function()
                 wow.state.sentTargetForm = random.random() < 0.5 and "first" or "full"
             end
             local landed = landedBy(x) - before
+            local where = string.format("seed %d step %d: %s", seed, step, x.full)
             assert.is_true(landed <= 1, "one cast per action")
             if landed == 1 then
-                assert.is_not_nil(kind, "seed " .. seed .. " step " .. step .. ": a press cast with nothing armed")
-                if kind == "opener" then openers[x] = openers[x] + 1 else answers[x] = answers[x] + 1 end
+                assert.is_not_nil(kind, where .. ": a press cast with nothing armed")
+                wow.use(x)
+                if kind == "opener" then
+                    open[other[x]] = wow.now
+                else
+                    assert.is_not_nil(open[x], where .. " answered with no opener to answer: a second round")
+                    local gap = wow.now - open[x]
+                    reach.answers = reach.answers + 1
+                    if gap >= 300 and gap <= 600 then reach.late = reach.late + 1 end
+                    if gap > 600 then reach.pastWindow = reach.pastWindow + 1 end
+                    open[x] = nil
+                end
             end
             for _, c in ipairs({ a, b }) do
-                assert.is_true(answers[c] <= openers[other[c]], string.format(
-                    "seed %d step %d: %s answered %d times to %d openers", seed, step, c.full, answers[c],
-                    openers[other[c]]))
                 wow.use(c)
                 assert.are.same({}, wow.errors)
                 assert.are.equal(0, count(c.ns, "luaErrors"))
             end
         end
-        return openers[a] + openers[b], answers[a] + answers[b]
+        return reach
+    end
+
+    local function storms(seeds, opts)
+        local total = { answers = 0, late = 0, pastWindow = 0 }
+        for _, seed in ipairs(seeds) do
+            for k, v in pairs(storm(seed, opts)) do total[k] = total[k] + v end
+        end
+        lag = nil
+        return total
     end
 
     it("a chaos storm of two clients buffing each other never goes past one round (red)", function()
-        local opened, answered = 0, 0
-        for seed = 1, 12 do
-            local o, n = storm(seed, { db = { owedMinutes = 60 }, decoys = true })
-            opened, answered = opened + o, answered + n
-        end
-        assert.is_true(answered > 20, "the storms returned favours: " .. answered)
-        assert.is_true(opened > 20, "the storms opened favours: " .. opened)
+        local reach = storms({ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }, { db = { owedMinutes = 60 }, decoys = true })
+        assert.is_true(reach.answers > 20, "the storms returned favours: " .. reach.answers)
+        assert.is_true(reach.pastWindow > 0, "some answers came past the window, where only the mark stops a second round")
     end)
 
     it("nor without the hidden channel, with favours kept no longer than the window (red)", function()
-        local answered = 0
-        for seed = 101, 108 do
-            local _, n = storm(seed, { noComm = true })
-            answered = answered + n
-        end
-        assert.is_true(answered > 10, "the storms returned favours: " .. answered)
+        local reach = storms({ 101, 102, 103, 104, 105, 106, 107, 108 }, { noComm = true })
+        assert.is_true(reach.answers > 10, "the storms returned favours: " .. reach.answers)
+        assert.is_true(reach.late > 0, "some answers came late in the window")
     end)
 end)
