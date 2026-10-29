@@ -1,3 +1,4 @@
+-- Spec: #35
 local wow = require("spec.support.wow")
 
 describe("ChatQueue", function()
@@ -20,6 +21,7 @@ describe("ChatQueue", function()
     end)
 
     it("spaces messages out to avoid flooding chat", function()
+        ns.db.linesPerMinute = 10 -- room for all five under the lines-per-minute cap
         for i = 1, 5 do push("GUILD", "m" .. i) end
         assert.are.equal(1, #wow.sent)
         wow.advance(Q.MIN_INTERVAL * 4 + 0.01)

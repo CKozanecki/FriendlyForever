@@ -343,6 +343,8 @@ jobs:
           docker rm -f "$probe" >/dev/null 2>&1 || true
           shoot game
           shoot options --exec-lua "SlashCmdList.FRIENDLYFOREVER('')"
+          # The General page (#35): it doesn't scroll, so everything must fit.
+          shoot general --exec-lua "SlashCmdList.FRIENDLYFOREVER(''); Settings.OpenToCategory(FriendlyForeverOptionsPanel.generalPage.category:GetID())"
           # /friendly move shows the buff back button, unlocked, with nobody owed.
           shoot button --exec-lua "SlashCmdList.FRIENDLYFOREVER('move')"
           # A favour owed: someone outside your group buffed you.

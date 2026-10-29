@@ -105,6 +105,7 @@ end
 --              of sending a line. Its repeat cooldown is its own, so a line
 --              and an emote for the same player don't block each other.
 --   emoteTarget = optional function() -> unit token to aim the emote at, or nil,
+--   dropOverCap = optional true for thanks: dropped, not held, over the chat cap,
 -- }
 -- Returns true if a message was scheduled, or false and the reason not.
 local function Skip(msgType, key, reason)
@@ -155,6 +156,7 @@ function Announcer.Schedule(msgType, key, opts)
             maxAge = opts.maxAge,
             label = msgType .. (opts.emote and " emote" or "") .. " for " .. key,
             automatic = true,
+            dropOverCap = opts.dropOverCap,
         })
     end))
     return true

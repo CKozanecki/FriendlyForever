@@ -259,6 +259,26 @@ test("the options panel is on the screen once open", function()
     OnScreen(panel, "options panel")
 end)
 
+-- Opens the options at the General page (#35). It doesn't scroll, so each
+-- section added to it pushes the rest down towards its bottom.
+local function OpenGeneralPage()
+    SlashCmdList.FRIENDLYFOREVER("")
+    local page = _G.FriendlyForeverOptionsPanel.generalPage
+    assertNotNil(page)
+    if Settings and Settings.OpenToCategory and page.category then
+        Settings.OpenToCategory(page.category:GetID())
+    end
+    return page
+end
+
+test("the General page's chat limit row stays inside it (#35)", function()
+    local page = OpenGeneralPage()
+    local w = page.widgets
+    TextInside(page, w.linesPerMinute.label, "chat limit label", 1)
+    TextInside(page, w.linesPerMinute.plus, "chat limit + button")
+    TextInside(page, w.capHelp, "chat limit help")
+end)
+
 -- The button's real states (#83), set up through game events by
 -- button_states.lua, which the simulator loads before this file. Each runs
 -- with Lua errors caught, and is put back even when a check fails.
@@ -601,6 +621,15 @@ test("the Favour Ledger page, with a full page of long entries, keeps its text i
             function() PushedDownInside(page, "Favour Ledger page") end,
         })
     end)
+end)
+
+-- The page doesn't scroll, so with the lists as a new player has them its
+-- last line must still be on it once every note has wrapped as it does in
+-- the game (#35). The filled page above is the worst case (#52).
+test("the General page's last line is still on the page (#35)", function()
+    local page = OpenGeneralPage()
+    check(page:IsVisible(), "the General page didn't open")
+    PushedDownInside(page, "General page (as a new player has it)")
 end)
 
 -- The copy window as each command opens it: export (a line to copy), import

@@ -1,4 +1,4 @@
--- Spec: #52, #90
+-- Spec: #35, #52, #90
 -- The UI simulator's layout check (uitests/scenarios.lua), run here against
 -- stand-in regions whose edges, anchors and text sizes each test sets
 -- itself, so the expected answer comes from those numbers and not from the
@@ -444,6 +444,14 @@ describe("UI simulator layout check (PushedDownInside)", function()
         broken.GetNumLines = function() return 2 end
         local line = checks.PushedDownInside(page({ broken }), "page")
         assert.are.equal('LAYOUT page pushed down by wrapped text: lowest "Two lines" ends at 28, frame bottom 0', line)
+    end)
+
+    it("adds nothing for a line whose edges can't be read, and raises no error (black)", function()
+        local unreadable = text("Note", 40, 1000)
+        unreadable.GetLeft = function() error("no") end
+        local line = checks.PushedDownInside(page({ text("Heading", 280, 50), unreadable }), "page")
+        -- Placed by its top and bottom as the client gives them, with no wrapping added.
+        assert.are.equal('LAYOUT page pushed down by wrapped text: lowest "Note" ends at 28, frame bottom 0', line)
     end)
 
     it("doesn't count a line that can't wrap (white)", function()
