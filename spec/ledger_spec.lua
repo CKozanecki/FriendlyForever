@@ -1,3 +1,4 @@
+-- Spec: #52
 -- The favour ledger and the /thank emote: what Buff Thanks remembers and the
 -- other way it can say thank you.
 local wow = require("spec.support.wow")

@@ -43,13 +43,14 @@ end
 local function MergeIgnore(list)
     local added = {}
     if type(list) ~= "table" then return added end
+    local mine = ns.Ignore.Data()
     local n = 0
-    for _ in pairs(ns.db.ignore) do n = n + 1 end
+    for _ in pairs(mine) do n = n + 1 end
     for key, value in pairs(list) do
         local full = ns.Config.IgnoreEntry(key, value)
         local k = full and ns.Config.IgnoreKey(full)
-        if k and not ns.db.ignore[k] and n < ns.Config.MAX_IGNORED then
-            ns.db.ignore[k] = full
+        if k and not mine[k] and n < ns.Config.MAX_IGNORED then
+            mine[k] = full
             added[#added + 1] = k
             n = n + 1
         end
@@ -81,6 +82,33 @@ local function Apply(snapshot)
     ns.BuffButton.Refresh()
 end
 
+-- Whether the profile data has the shape the code below relies on. Checked
+-- at the start of every public function (a few type checks, and one per
+-- profile), so data damaged mid-session (by another addon or a bad /run) is
+-- repaired before it can raise an error, as the ledger does.
+local function Healthy(db)
+    if type(db.activeProfile) ~= "string" or Profiles.CleanName(db.activeProfile) ~= db.activeProfile then
+        return false
+    end
+    if type(db.profiles) ~= "table" or type(db.charProfiles) ~= "table" then return false end
+    for name, snapshot in pairs(db.profiles) do
+        if type(name) ~= "string" or type(snapshot) ~= "table" then return false end
+    end
+    local undo = db.importUndo
+    if undo ~= nil and (type(undo) ~= "table" or type(undo.settings) ~= "table"
+        or type(undo.profile) ~= "string" or type(undo.ignoreAdded) ~= "table") then
+        return false
+    end
+    return true
+end
+
+local function Check()
+    if not Healthy(ns.db) then
+        ns.Diag.Log("profiles", "the profile data was damaged; repaired")
+        Profiles.Validate(ns.db)
+    end
+end
+
 ------------------------------------------------------------------------
 -- Export / import
 ------------------------------------------------------------------------
@@ -106,6 +134,7 @@ function Profiles.Import(text)
     if type(data) ~= "table" or data.v ~= 1 or type(data.settings) ~= "table" then
         return nil, "that line is from a version of Friendly Forever this one can't read"
     end
+    Check()
     local before = Profiles.Snapshot(ns.db)
     -- A line without a version was written by hand or before versions were
     -- stored: take it as current rather than running every old migration.
@@ -119,6 +148,7 @@ end
 
 -- Undo is for the profile the import went into, until you switch profiles.
 function Profiles.CanUndoImport()
+    Check()
     local undo = ns.db.importUndo
     return undo ~= nil and undo.profile == ns.db.activeProfile
 end
@@ -128,7 +158,8 @@ function Profiles.UndoImport()
     local undo = ns.db.importUndo
     Apply(undo.settings)
     -- Only the names the import added come off; ones you added since stay.
-    for _, key in ipairs(undo.ignoreAdded) do ns.db.ignore[key] = nil end
+    local mine = ns.Ignore.Data()
+    for _, key in ipairs(undo.ignoreAdded) do mine[key] = nil end
     ns.db.importUndo = nil
     return true
 end
@@ -191,11 +222,13 @@ function Profiles.Validate(db)
 end
 
 function Profiles.Active()
+    Check()
     return ns.db.activeProfile
 end
 
 -- Profile names, sorted, with the active one included even before it is saved.
 function Profiles.List()
+    Check()
     local seen, out = {}, {}
     for name in pairs(ns.db.profiles) do seen[name] = true end
     seen[ns.db.activeProfile] = true
@@ -213,6 +246,7 @@ end
 -- Keep the active profile's stored copy current. Nothing is stored until
 -- profiles are in use (some profile has been made).
 function Profiles.SaveActive()
+    Check()
     if next(ns.db.profiles) == nil then return end
     ns.db.profiles[ns.db.activeProfile] = Profiles.Snapshot(ns.db)
 end
@@ -226,6 +260,7 @@ end
 function Profiles.New(input)
     local name, why = Profiles.CleanName(input)
     if not name then return nil, why end
+    Check()
     if ns.db.profiles[name] or name == ns.db.activeProfile then
         return nil, "there's already a profile called " .. name
     end
@@ -245,6 +280,7 @@ end
 function Profiles.Use(input)
     local name, why = Profiles.CleanName(input)
     if not name then return nil, why end
+    Check()
     if name == ns.db.activeProfile then
         RememberForCharacter(name)
         return name
@@ -262,6 +298,7 @@ end
 function Profiles.Delete(input)
     local name, why = Profiles.CleanName(input)
     if not name then return nil, why end
+    Check()
     if name == ns.db.activeProfile then return nil, "you can't delete the profile you're using" end
     if not ns.db.profiles[name] then return nil, "there's no profile called " .. name end
     ns.db.profiles[name] = nil
@@ -273,6 +310,7 @@ end
 
 -- At login: switch to the profile this character used last, if it still exists.
 function Profiles.OnLogin()
+    Check()
     local me = Util.UnitFullName("player")
     local want = me and ns.db.charProfiles[me]
     if want and want ~= ns.db.activeProfile and ns.db.profiles[want] then

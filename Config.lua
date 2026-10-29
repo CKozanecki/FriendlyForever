@@ -432,6 +432,24 @@ function Config.CleanChatCap(saved)
     return clean
 end
 
+-- Players never greeted or thanked: [lowercased full name] = the full name
+-- as typed (shown in lists). Returns a checked copy of list. Keys are rebuilt
+-- from the names, so a damaged key can't hide an entry.
+function Config.ValidIgnore(list)
+    local ignore = {}
+    if type(list) == "table" then
+        local n = 0
+        for key, value in pairs(list) do
+            local full = Config.IgnoreEntry(key, value)
+            if full and n < Config.MAX_IGNORED and not ignore[Config.IgnoreKey(full)] then
+                ignore[Config.IgnoreKey(full)] = full
+                n = n + 1
+            end
+        end
+    end
+    return ignore
+end
+
 -- Everything in the saved file but the ledger (which checks itself as it's
 -- used, and whose live entries a full check would change: see Ledger.Data).
 local function ValidateSettings(db)
@@ -483,21 +501,7 @@ local function ValidateSettings(db)
     end
     db.messageBags = bags
 
-    -- Players never greeted or thanked: [lowercased full name] = the full name
-    -- as typed (shown in lists). Keys are rebuilt from the names, so a damaged
-    -- key can't hide an entry.
-    local ignore = {}
-    if type(db.ignore) == "table" then
-        local n = 0
-        for key, value in pairs(db.ignore) do
-            local full = Config.IgnoreEntry(key, value)
-            if full and n < Config.MAX_IGNORED and not ignore[Config.IgnoreKey(full)] then
-                ignore[Config.IgnoreKey(full)] = full
-                n = n + 1
-            end
-        end
-    end
-    db.ignore = ignore
+    db.ignore = Config.ValidIgnore(db.ignore)
 
     ns.Profiles.Validate(db)
 
