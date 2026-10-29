@@ -1265,6 +1265,13 @@ describe("Claude sessions' agents, knowledge and skills", function()
         return (line:gsub("https?://[^%s)]*/issues/50%f[%D][^%s)]*", ""):gsub("#50%f[%D]", ""))
     end
 
+    local function isSeparatorRow(row)
+        for cell in (row .. "|"):gmatch("([^|]*)|") do
+            if not cell:match("^%s*:?%-+:?%s*$") then return false end
+        end
+        return true
+    end
+
     local function factProblems(text)
         local problems = {}
         for _, line in ipairs(splitLines(text)) do
@@ -1283,9 +1290,10 @@ describe("Claude sessions' agents, knowledge and skills", function()
             end
             -- A table row's last cell, less its #50 links and what's left of
             -- them, must still name something (#122). The row under the
-            -- header is only dashes, colons and spaces, and needs none.
+            -- header, where every cell is dashes with optional colons, needs
+            -- none; a blank row isn't one.
             local cell = row and withoutLaunchCheckLinks(row:match("([^|]*)$")):gsub("%[[^%]]*%]%(%)", "")
-            if cell and not cell:find("%w") and not row:match("^[%s|:%-]+$") then
+            if cell and not cell:find("%w") and not isSeparatorRow(row) then
                 problems[#problems + 1] = "no source: " .. line
             end
             if fact and line:lower():find("launch check", 1, true) and not (line:find("#50%f[%D]")
@@ -1435,6 +1443,8 @@ describe("Claude sessions' agents, knowledge and skills", function()
             assert.are.equal(1, #factProblems(unsourced))
             assert.are.equal(1, #factProblems(tableText .. "| A launch check. | None. | #34 |\n"))
             assert.are.equal(1, #factProblems(tableText .. "| It's slow. | Wait. |  |   \n"))
+            assert.are.equal(1, #factProblems(tableText .. "|  |  |  |\n"))
+            assert.are.equal(1, #factProblems(tableText .. "| --- | --- |  |\n"))
         end)
 
         it("report a table row whose source cell holds only its #50 launch-check link as no source (#122)", function()
