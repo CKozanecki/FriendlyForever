@@ -926,8 +926,11 @@ function Options.CreateGeneralPage()
     local cap = Section(page, w.snooze15, "Chat limit")
     w.linesPerMinute = Stepper(page, "Lines per minute in each chat:", "linesPerMinute", function() return ns.db end)
     w.linesPerMinute.label:SetPoint("TOPLEFT", cap, "BOTTOMLEFT", 0, -10)
-    w.capHelp = Note(page, w.linesPerMinute.label, "The most lines sent to /say, whispers, emotes, guild "
-        .. "or group chat in any minute. Thank-yous over the limit are dropped; greetings wait for room.")
+    -- Says why the limit is there (#35): the addon helps people talk, and
+    -- mustn't become the spam it's meant to soften.
+    w.capHelp = Note(page, w.linesPerMinute.label, "Keeps Friendly Forever a helper, not a spammer: at most this "
+        .. "many lines a minute go to each chat (/say, whispers, emotes, guild, group). Thank-yous over the "
+        .. "limit are skipped; greetings wait their turn.")
     w.capHelp:SetPoint("TOPLEFT", w.linesPerMinute.label, "BOTTOMLEFT", 0, -10)
 
     -- Ignore list

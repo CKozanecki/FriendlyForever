@@ -73,7 +73,7 @@ To find the game folder, open the Battle.net app, choose WoW Forever, then the g
 - Buff back: `/friendly buffback` (what the button holds), `/friendly move` (drag it), `/friendly buffmode` (lend it a key) and `/friendly blessings` (paladins: the Blessings you give in this raid). See [Buff back](#buff-back).
 - Checking what the addon does: `/friendly status`, `/friendly selftest`, `/friendly names`, `/friendly nameplates`, `/friendly debug` and `/friendly report`. See [Troubleshooting](#troubleshooting).
 - **Don't send messages while I'm AFK** (on by default, at the top of the options): a greeting or thank-you that comes due while you're AFK is dropped, not saved for later. `/friendly test` and `/friendly selftest` still work.
-- **Lines per minute in each chat** (General page, 4 by default, 1 to 10): the most lines the addon sends to /say, whispers, emotes, guild chat or group chat in any minute. A thank-you over the limit is dropped, and the ledger says so ("chat rate limit reached"); greetings and welcomes wait for room, up to their usual 2 minutes. `/friendly status` counts what the limit held back and dropped.
+- **Lines per minute in each chat** (General page, 4 by default, 1 to 10), so the addon stays a helper, not a spammer: the most lines it sends to /say, whispers, emotes, guild chat or group chat in any minute. A thank-you over the limit is dropped, and the ledger says so ("chat rate limit reached"); the first one each session is also mentioned in your chat window, where only you see it; greetings and welcomes wait for room, up to their usual 2 minutes. `/friendly status` counts what the limit held back and dropped.
 
 ## Troubleshooting
 

@@ -35,6 +35,7 @@ local pending = {}
 -- one the cap trusts; the saved variables hold a copy so a /reload doesn't
 -- forget it, read back when they load (Init).
 local capStamps = {}
+local capHintShown = false -- the once-a-session note in your chat (CapHint)
 local lastSendTime = -math.huge
 local pumpScheduled = false
 local waitingForHardware = false
@@ -126,6 +127,16 @@ function ChatQueue.SaveCap()
         saved[key] = list
     end
     ns.db.chatCap = saved
+end
+
+-- The first thank-you the cap skips each session (login or /reload) says so
+-- in your own chat window, and why: the addon is a helper, not a spammer.
+-- Only you see it; later skips are counted in /friendly status.
+local function CapHint()
+    if capHintShown then return end
+    capHintShown = true
+    ns.Print(string.format("skipped a thank-you to keep chat from turning spammy (%d lines a minute in "
+        .. "each chat; set it on the General options page).", ChatQueue.LinesPerMinute()))
 end
 
 local function CapReason(channel)
@@ -226,6 +237,7 @@ function ChatQueue.Pump(hardware)
                 table.remove(pending, i)
                 ns.Diag.Count("capDropped")
                 Drop(item, CapReason(channel))
+                CapHint()
             else
                 if not item.capHeld then
                     item.capHeld = true

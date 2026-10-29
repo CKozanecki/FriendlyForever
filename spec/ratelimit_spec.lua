@@ -224,6 +224,62 @@ describe("The chat rate limit (#35)", function()
         end)
     end)
 
+    describe("the in-game hint (white)", function()
+        local function hints()
+            local n = 0
+            for _, line in ipairs(wow.printed) do
+                if line:find("skipped a thank-you to keep chat from turning spammy", 1, true) then n = n + 1 end
+            end
+            return n
+        end
+
+        it("tells you once a session, in your own chat, the first time the limit skips a thank-you", function()
+            for i = 1, 4 do buffedBy(i) end
+            pressFor(20)
+            assert.are.equal(0, hints(), "nothing skipped yet, so no hint")
+            for i = 5, 12 do buffedBy(i) end
+            pressFor(20)
+            assert.are.equal(1, hints(), "one hint for eight skipped thank-yous")
+            local said = false
+            for _, line in ipairs(wow.printed) do
+                if line:find("(4 lines a minute in each chat; set it on the General options page)", 1, true) then
+                    said = true
+                end
+            end
+            assert.is_true(said, "with the limit in force and where to change it")
+            for _, s in ipairs(wow.sent) do
+                assert.is_nil(s.text:find("spammy", 1, true), "never sent to anyone")
+            end
+            pressFor(70)
+            for i = 13, 30 do buffedBy(i) end
+            pressFor(20)
+            assert.are.equal(1, hints(), "still once")
+        end)
+
+        it("doesn't show for greetings that only wait", function()
+            ns.db.linesPerMinute = 1
+            online("Thrall")
+            online("Jaina")
+            wow.advance(90)
+            assert.are.equal(2, #sentIn("GUILD"))
+            assert.are.equal(0, hints())
+        end)
+
+        it("shows again in a new session", function()
+            for i = 1, 6 do buffedBy(i) end
+            pressFor(20)
+            assert.are.equal(1, hints())
+            local now = wow.now
+            wow.fire("PLAYER_LOGOUT")
+            boot(_G.FriendlyForeverDB)
+            wow.now = now
+            wow.advance(ns.Announcer.LOGIN_GRACE + 1)
+            for i = 7, 9 do buffedBy(i) end
+            pressFor(20)
+            assert.are.equal(1, hints(), "the reloaded session's own hint")
+        end)
+    end)
+
     describe("diagnostics (white)", function()
         it("count the lines held back and dropped, in /friendly status", function()
             ns.db.linesPerMinute = 1
@@ -262,6 +318,8 @@ describe("The chat rate limit (#35)", function()
             local stepper = ns.Options.widgets.general.linesPerMinute
             ns.Options.FillGeneral()
             assert.are.equal("4", stepper.box:GetText())
+            -- Its hint says what the limit is for (the owner's wording request on #35).
+            assert.is_truthy(ns.Options.widgets.general.capHelp:GetText():find("a helper, not a spammer", 1, true))
             wow.run(stepper.plus, "OnClick")
             assert.are.equal(5, ns.db.linesPerMinute)
             assert.are.equal("5", stepper.box:GetText())
