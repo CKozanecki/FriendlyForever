@@ -89,6 +89,8 @@ Procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `m
 
 ## Tests
 
+- **Toolchain:** `make setup` installs the pinned, checksummed tools (see [Local setup](CONTRIBUTING.md#local-setup)). If it can't, report the host it names; never install Lua, busted or luacheck another way.
+
 - **Which tests:** write the test each acceptance criterion names: white, black or red (see [Specs and traceability](CONTRIBUTING.md#specs-and-traceability)).
 - **Chaos tests:** check invariants independently. Work them out from the simulated client's own state, never by calling the code under test. #73's testing review caught a chaos test that only checked the rules against themselves.
 - **The simulated client** (`spec/support/wow.lua`):
