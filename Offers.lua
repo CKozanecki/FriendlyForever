@@ -283,12 +283,18 @@ end
 
 -- Tokens a hand cast can go to that the game may name only by first name.
 local CAST_TARGET_TOKENS = { "target", "mouseover", "focus", "softfriend" }
+-- Players a cast can reach without those tokens (a self-cast, an @party1
+-- macro): one of them sharing the first name makes it ambiguous.
+local CAST_OTHER_TOKENS = { "player" }
+for i = 1, 4 do CAST_OTHER_TOKENS[#CAST_OTHER_TOKENS + 1] = "party" .. i end
+for i = 1, 40 do CAST_OTHER_TOKENS[#CAST_OTHER_TOKENS + 1] = "raid" .. i end
 
 -- The full name of the player UNIT_SPELLCAST_SENT says a cast went to, or
 -- nil. The game may give "First", "First Surname" or "First-Surname". A
 -- first name alone counts only when exactly one player of that name is your
--- target, mouseover, focus or soft target: guessing could block a real
--- favour from someone else of that name.
+-- target, mouseover, focus or soft target, and neither you nor anyone in
+-- your group has it: guessing could block a real favour from someone else
+-- of that name.
 function Offers.CastTarget(reported)
     local full = Util.FullName(reported)
     if not full or full:find("-", 1, true) then return full end
@@ -299,6 +305,10 @@ function Offers.CastTarget(reported)
             if found and found ~= name then return nil end
             found = name
         end
+    end
+    for _, token in ipairs(CAST_OTHER_TOKENS) do
+        local name = Util.UnitFullName(token)
+        if name and name ~= found and Util.FirstName(name) == full then return nil end
     end
     return found
 end

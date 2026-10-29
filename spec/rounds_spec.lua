@@ -226,6 +226,39 @@ describe("One round each way (#37)", function()
             end
         end)
 
+        it("a first name you share is not remembered: a self-cast while targeting them returns nothing", function()
+            wow.state.units.player.name, wow.state.units.player.surname = "Bob", "Smith"
+            wow.state.units.player.id = "Bob-Smith"
+            stranger()
+            buffedBy()
+            stranger("target")
+            sentAndLanded("Bob", "Cast-1") -- the self-cast modifier: it went to you
+            assert.is_true(owes("Bob-Stone"), "still owed")
+            assert.is_nil(lastEntry().returned)
+            assert.are.same({}, answersSent())
+        end)
+
+        it("a first name a group member shares is not remembered (an @party macro)", function()
+            for _, token in ipairs({ "party4", "raid40" }) do
+                boot()
+                stranger()
+                wow.addUnit(token, { name = "Bob", surname = "Marsh", class = "PRIEST", id = "Bob-Marsh" })
+                stranger("target")
+                sentAndLanded("Bob", "Cast-1")
+                buffedBy()
+                assert.is_true(owes("Bob-Stone"), token)
+            end
+        end)
+
+        it("your target in your group is still one match", function()
+            stranger()
+            stranger("party1")
+            handCast()
+            wow.state.units.party1 = nil -- they leave your group, then buff you
+            buffedBy()
+            assert.are.equal(0, ns.Offers.Count())
+        end)
+
         it("the same player on two tokens is still one match", function()
             stranger()
             stranger("focus")
