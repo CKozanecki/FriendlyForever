@@ -22,6 +22,7 @@ Use the PR template too. This file only adds what applies to Claude sessions. Wh
   - no secrets.
 - **Secrets never pass through Claude.** The CurseForge key lives only in the `release` environment, as `CF_API_KEY`. Never ask for it, print it or commit it.
 - **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale branches for the owner, and say which they are.
+- **Merged branches:** GitHub deletes a PR's branch when it merges, and `ui-screenshots/pr-<n>` when PR n closes (#115), so don't list those (#119). A stale branch is one still there after its PR merged or closed, or one with no PR.
 - **Force-pushing:** never. Push a rebased branch under a new name and flag the old one for the owner to delete.
 
 ## Shared knowledge and skills
@@ -69,7 +70,7 @@ Procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `m
   Its check-in is only a safety net, so don't wait for it. Don't message for routine progress.
 - **Finishing:** once your PR has merged and nothing is left on your issue, or the coordinator tells you your work is done, finish on your own. Don't ask the owner what's next or wait for a suggestion.
   1. Leave a closing comment on the issue only if this file asks for one: a handoff, or launch checks still open on #50.
-  2. Send the coordinator one line: `done: #<issue>, PR #<n> merged`, plus any branches for the owner to delete.
+  2. Send the coordinator one line: `done: #<issue>, PR #<n> merged`, plus any step the owner still has to take (such as applying environment settings or running a workflow) and any stale branch.
   3. Remove your worktree, cancel any check-ins you scheduled, and end your turn with a short summary saying the work is complete and the session can be archived. Ask no questions.
 - **Merge order:** when several PRs are ready, trial-merge every pair locally. Recommend an order to the owner, with the reasons and which pairs conflict. Note what you ran in the descriptions of your own PRs, and send it to the drivers of the others.
 - **After each merge:** a session isn't told when the owner merges, so wait for the owner to say so; don't poll. Then the driver of each ready PR merges `main` into it and resolves any conflicts. Next comes `make check`, and both review loops confirm the merge (see Reviews). Then CI, an updated description, and the PR announced ready again.
