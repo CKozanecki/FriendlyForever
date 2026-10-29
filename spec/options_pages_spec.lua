@@ -102,6 +102,9 @@ describe("Options", function()
             assert.are.equal(page.scroll, page.content.parent)
             assert.are.equal(ns.Options.GENERAL_HEIGHT, page.content.height)
             assert.are.equal(page, page.heading.parent)
+            local point, relativeTo, relativePoint = page.scroll:GetPoint(1)
+            assert.are.same({ "TOPLEFT", page.heading, "BOTTOMLEFT" }, { point, relativeTo, relativePoint },
+                "the scrolling area starts below the heading")
             local sections = 0
             for _, f in ipairs(wow.frames) do
                 if f.kind == "FontString" and f.font == "GameFontNormal" and f.parent == page.content then
@@ -133,6 +136,9 @@ describe("Options", function()
             wow.run(page.scroll, "OnShow")
             wow.advance(0)
             assert.are.equal(655, page.content:GetWidth(), "a scroll frame not laid out yet changes nothing")
+            -- Resized while open (UI scale, resolution): no show, just a size change.
+            wow.run(page.scroll, "OnSizeChanged", 700, 400)
+            assert.are.equal(700, page.content:GetWidth())
         end)
 
         -- Black box: a long profile list is cut the way the ignore list is,
