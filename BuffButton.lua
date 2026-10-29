@@ -421,7 +421,9 @@ local function PressForCast(unit, castGUID, spellId)
         local sentFor = NewestPressFor(unit, spellId, function(press) return press.castGUID == guid end)
         if sentFor then return sentFor end
     end
-    return NewestPressFor(unit, spellId, function(press) return press.castGUID == nil end)
+    -- The game gave no readable GUID: a press that was sent without one. A
+    -- press still waiting to be sent isn't answered by a cast made by hand.
+    return NewestPressFor(unit, spellId, function(press) return press.sent and press.castGUID == nil end)
 end
 
 -- Whether the name the game says a cast went to is the intended player.
@@ -435,9 +437,12 @@ end
 
 -- UNIT_SPELLCAST_SENT: the game is sending a cast of the buff for the newest
 -- press not yet sent, and may name who it is going to (a second check on top
--- of /targetexact).
+-- of /targetexact). A cast the game says went to another player isn't that
+-- press's, which keeps waiting (#133).
 function BuffButton.OnSpellcastSent(unit, castTargetName, castGUID, spellId)
-    local press = NewestPressFor(unit, spellId, function(waiting) return not waiting.sent end)
+    local press = NewestPressFor(unit, spellId, function(waiting)
+        return not waiting.sent and BuffButton.IsIntendedPlayer(ReadableText(castTargetName), waiting.name) ~= false
+    end)
     -- Not the button's: a buff cast by hand is remembered too (#37).
     if not press then return ns.Offers.OnCastSent(unit, castTargetName, castGUID, spellId) end
     press.sent = true
@@ -487,11 +492,9 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
     if not press then return ns.Offers.OnCastLanded(unit, castGUID) end
     ForgetPress(press)
     local who = Util.DisplayName(press.name)
+    -- castTargetName is only ever the intended player's (OnSpellcastSent).
     local reachedThem = press.castTargetName and BuffButton.IsIntendedPlayer(press.castTargetName, press.name)
-    if reachedThem == false then
-        local actual = Util.StripChat(press.castTargetName)
-        ShowResult(string.format("%s went to %s, not %s.", press.spell, actual, who), true)
-    elseif reachedThem == nil then
+    if reachedThem == nil then
         ShowResult("Cast " .. press.spell .. ", but the game didn't say it reached " .. who .. ".")
     elseif press.revoke then
         ns.GroupBuffs.NoteRevoked(press.name)
