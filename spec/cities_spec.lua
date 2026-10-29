@@ -145,6 +145,31 @@ describe("Quiet mode in capital cities", function()
             assert.are.equal("quiet in a capital city", ledger()[1].note)
         end)
 
+        it("doesn't use up the chat's lines a minute with thank-yous it dropped in a capital", function()
+            local function waveFrom(names)
+                for i, name in ipairs(names) do
+                    stranger("nameplate" .. i, name)
+                    buffedBy("nameplate" .. i)
+                end
+            end
+            local function pressKeys()
+                for _ = 1, 8 do
+                    wow.advance(ns.ChatQueue.MIN_INTERVAL + 0.01)
+                    wow.keyDown()
+                end
+            end
+            assert.are.equal(4, ns.db.linesPerMinute, "the default cap: four would fill it")
+            waveFrom({ "Bob", "Gus", "Hal", "Ivy" })
+            wow.advance(1)
+            wow.setMap(wow.CAPITAL.stormwind)
+            pressKeys()
+            assert.are.equal(0, thanksSent(), "all four dropped in the city")
+            wow.setMap(wow.ELWYNN)
+            waveFrom({ "Jon", "Kay", "Lee", "Max" })
+            pressKeys()
+            assert.are.equal(4, #wow.sentTo("SAY"), "the next four, within the minute, all go out")
+        end)
+
         it("drops the /say fallback for a failed whisper once you're in a capital", function()
             ns.db.buff.useWhisper = true
             stranger()
