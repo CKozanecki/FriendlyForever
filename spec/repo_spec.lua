@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #104, #106
+-- Spec: #49, #65, #77, #80, #82, #89, #103, #104, #106, #118, #119
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -187,6 +187,23 @@ describe("CI workflow", function()
         assert.is_truthy(notes and notes < packager, "release notes aren't written before the packager runs")
         assert.is_truthy(package and compare and compare > packager and compare > package,
             "CI doesn't compare the two packages after building both")
+    end)
+    -- #103: the tools come from scripts/dev-setup.sh, so a change to it or to
+    -- its checksums must miss the cache, and a cache hit still runs the
+    -- script, which checks the install and downloads nothing.
+    it("installs the tools through make setup, keyed on the setup script and its checksums", function()
+        local _, order = parseWorkflow(path)
+        local job = jobWith(order, "make test")
+        local setup = indexOf(job.steps, "make setup")
+        assert.is_truthy(setup and setup < indexOf(job.steps, "make test"), "CI tests without make setup")
+        assert.is_falsy(job.steps[setup].text:find("if:", 1, true), "a cache hit skips make setup")
+        assert.is_falsy(job.text:find("continue%-on%-error"), "a failed make setup doesn't stop the job")
+        local cache = indexOf(job.steps, "actions/cache@")
+        assert.is_truthy(cache and cache < setup, "the tools aren't cached before make setup")
+        local key = job.steps[cache].text:match("key:%s*([^\n]+)")
+        for _, file in ipairs({ "Makefile", "scripts/dev-setup.sh", "scripts/dev-setup.lock" }) do
+            assert.is_truthy(key and key:find("'" .. file .. "'", 1, true), "the cache key doesn't cover " .. file)
+        end
     end)
 end)
 
@@ -776,6 +793,79 @@ describe("CurseForge packager config", function()
     end)
 end)
 
+-- #103: one pinned toolchain setup, documented in CONTRIBUTING.md.
+describe("Toolchain setup", function()
+    local function pin(name)
+        return wow.readFile("scripts/dev-setup.sh"):match("\n" .. name .. '="([^"]+)"')
+    end
+
+    -- The version table in CONTRIBUTING.md's Local setup section.
+    local function documented()
+        local docs = wow.readFile("CONTRIBUTING.md")
+        local section = docs:match("\n## Local setup\n(.-)\n## ")
+        local versions = {}
+        for tool, version in (section or ""):gmatch("\n| ([%w ]-) | ([%w.%-]+) |") do
+            versions[tool] = version
+        end
+        return versions, section
+    end
+
+    it("pins the versions CONTRIBUTING.md documents", function()
+        local versions, section = documented()
+        assert.is_truthy(section, "CONTRIBUTING.md has no Local setup section")
+        local pins = { hererocks = "HEREROCKS_VERSION", Lua = "LUA_VERSION", LuaRocks = "LUAROCKS_VERSION",
+            busted = "BUSTED_VERSION", luacheck = "LUACHECK_VERSION" }
+        for tool, variable in pairs(pins) do
+            assert.is_truthy(pin(variable), "dev-setup.sh doesn't pin " .. variable)
+            assert.are.equal(pin(variable), versions[tool], tool .. " in CONTRIBUTING.md")
+        end
+    end)
+
+    it("is what make setup runs", function()
+        local recipe = wow.readFile("Makefile"):match("\nsetup:\n(.-)\n\n")
+        assert.are.equal('\t./scripts/dev-setup.sh "$(TOOLS)"', recipe)
+    end)
+
+    it("documents every download host and the claude.ai setup script", function()
+        local _, section = documented()
+        for host in wow.readFile("scripts/dev-setup.lock"):gmatch("https://([^/%s]+)/") do
+            assert.is_truthy(section:find("`" .. host .. "`", 1, true), host .. " isn't listed in CONTRIBUTING.md")
+        end
+        assert.is_truthy(section:find("make %-C /home/user/FriendlyForever setup"), "no one-line setup script")
+    end)
+
+    it("allows every download host in the claude.ai environment settings", function()
+        local _, section = documented()
+        local claude = section:match("\n### claude%.ai environment\n(.*)") or ""
+        local allowed = {}
+        for host in (claude:match("```\n(.-)\n%s*```") or ""):gmatch("[^%s]+") do allowed[host] = true end
+        local default = claude:match("default list already has ([^\n]*)") or ""
+        for host in wow.readFile("scripts/dev-setup.lock"):gmatch("https://([^/%s]+)/") do
+            assert.is_truthy(allowed[host] or default:find("`" .. host .. "`", 1, true),
+                host .. " is neither allowed nor in the default list in CONTRIBUTING.md's claude.ai environment settings")
+        end
+    end)
+
+    it("keeps every development-only path out of the CurseForge package", function()
+        local ignored = {}
+        local inIgnore = false
+        for _, line in ipairs(lines(".pkgmeta")) do
+            if line:match("^%S") then inIgnore = line:match("^ignore:") ~= nil
+            elseif inIgnore then
+                local entry = line:match("^%s+%-%s+[\"']?([^%s#\"']+)")
+                if entry then ignored[entry] = true end
+            end
+        end
+        for _, path in ipairs({ "scripts", "spec", "uitests", ".github", "Makefile", "CONTRIBUTING.md", "CLAUDE.md",
+            ".busted", ".luacheckrc", ".gitignore" }) do
+            assert.is_true(ignored[path], path .. " isn't in .pkgmeta's ignore list")
+        end
+        -- The setup script and its checksums live in an ignored folder.
+        assert.is_true(ignored[("scripts/dev-setup.sh"):match("^[^/]+")])
+        assert.is_true(ignored[("scripts/dev-setup.lock"):match("^[^/]+")])
+    end)
+end)
+
 -- Claude Code keeps side sessions' checkouts in .claude/worktrees (#77).
 -- CI never has one, so only these tests notice if lint or git starts
 -- reading them again (make check would fail locally while one is open).
@@ -1166,10 +1256,15 @@ describe("Claude sessions' agents, knowledge and skills", function()
     end
 
     -- Facts without a source, and launch checks that don't link #50, in a
-    -- knowledge file. A bullet's source is an issue or a link; a table row's
-    -- is its last cell (an issue, or the file it comes from). A link with no
-    -- address goes nowhere, so it counts as no link, and a link shown as #N
-    -- must go to issue or pull request N.
+    -- knowledge file. A bullet's source is an issue or a link other than its
+    -- #50 launch-check link (#118); a table row's is its last cell (an issue,
+    -- or the file it comes from). A link with no address goes nowhere, so it
+    -- counts as no link, and a link shown as #N must go to issue or pull
+    -- request N.
+    local function withoutLaunchCheckLinks(line)
+        return (line:gsub("https?://[^%s)]*/issues/50%f[%D][^%s)]*", ""):gsub("#50%f[%D]", ""))
+    end
+
     local function factProblems(text)
         local problems = {}
         for _, line in ipairs(splitLines(text)) do
@@ -1182,7 +1277,8 @@ describe("Claude sessions' agents, knowledge and skills", function()
                     problems[#problems + 1] = "#" .. shown .. " links to #" .. issue .. ": " .. line
                 end
             end
-            if line:match("^%s*%- ") and not (line:find("#%d+") or line:find("https?://")) then
+            local sources = withoutLaunchCheckLinks(line)
+            if line:match("^%s*%- ") and not (sources:find("#%d+") or sources:find("https?://")) then
                 problems[#problems + 1] = "no source: " .. line
             end
             if row and not row:match("([^|]*)$"):find("%S") then
@@ -1284,19 +1380,41 @@ describe("Claude sessions' agents, knowledge and skills", function()
 
         it("catch a fact with no source, and a launch check that doesn't link #50", function()
             assert.are.same({}, factProblems("# T\n\nProse needs none.\n- A fact (#34).\n"
-                .. "- See https://example.org.\n- A **launch check** (#50).\n"
-                .. "- A launch check ([#50](https://github.com/o/r/issues/50#issuecomment-1)).\n"))
+                .. "- See https://example.org.\n- A **launch check** (#34; #50).\n"
+                .. "- A launch check (#34; [#50](https://github.com/o/r/issues/50#issuecomment-1)).\n"))
             assert.are.equal(1, #factProblems("- A fact with no source.\n"))
             assert.are.equal(1, #factProblems("- A launch check (#34).\n"))
             assert.are.equal(1, #factProblems("- A launch check (#500).\n"))
-            assert.are.equal(1, #factProblems("- A launch check ([#50]()).\n"))
+            assert.are.equal(1, #factProblems("- A launch check (#34; [#50]()).\n"))
             assert.are.equal(1, #factProblems("From #32 ([its comment]()).\n"))
-            assert.are.same({}, factProblems("- A launch check ([#50](https://github.com/o/r/issues/50#c-1)).\n"))
+            assert.are.same({}, factProblems("- A launch check (#34; [#50](https://github.com/o/r/issues/50#c-1)).\n"))
             assert.are.equal(1, #factProblems("- A launch check ([#50](https://github.com/o/r/issues/32#c-1)).\n"))
             assert.are.equal(1, #factProblems("- Fixed in [#94](https://github.com/o/r/pull/93).\n"))
-            assert.are.same({}, factProblems("- A launch check ([its item](https://github.com/o/r/issues/50#c-1)).\n"))
+            assert.are.same({}, factProblems("- A launch check (#34; [its item](https://github.com/o/r/issues/50#c-1)).\n"))
             assert.are.equal(1, #factProblems("- A launch check ([its item](https://github.com/o/r/issues/32#c-1)).\n"))
             assert.are.equal(1, #factProblems("- A fact ([#34]( )).\n"))
+        end)
+
+        it("report a bullet whose only reference is its #50 launch-check link as no source (#118)", function()
+            for _, onlyFifty in ipairs({
+                "- A **launch check** (#50).\n",
+                "- A launch check ([#50](https://github.com/o/r/issues/50#issuecomment-1)).\n",
+                "- A launch check ([its item](https://github.com/o/r/issues/50#c-1)).\n",
+                "- A launch check (https://github.com/o/r/issues/50#c-1).\n",
+                "- A launch check ([#50](https://github.com/o/r/issues/50)), and #50 again.\n",
+                "  - a nested launch check (#50).\n",
+            }) do
+                assert.are.same({ "no source: " .. onlyFifty:sub(1, -2) }, factProblems(onlyFifty), onlyFifty)
+            end
+            for _, sourced in ipairs({
+                "- A launch check (#50). Source: #32.\n",
+                "- A launch check (#50). Source: [#32](https://github.com/o/r/issues/32#c-1).\n",
+                "- A launch check (#50). Source: [a guide](https://example.org/guide).\n",
+                "- A launch check ([#50](https://github.com/o/r/issues/50#c-1)), from #500.\n",
+                "- A launch check (#50), from https://github.com/o/r/issues/500.\n",
+            }) do
+                assert.are.same({}, factProblems(sourced), sourced)
+            end
         end)
 
         it("check nested bullets like any other", function()
@@ -1331,7 +1449,8 @@ describe("Claude sessions' agents, knowledge and skills", function()
 
     -- Files of game and simulator facts: every bullet has its source.
     for _, path in ipairs({ "docs/forever-facts.md", "docs/ui-simulator.md" }) do
-        it(path .. " gives every fact a source, and links #50 for every launch check", function()
+        it(path .. " gives every fact a source other than its #50 link, and links #50 for every launch check",
+            function()
             assert.are.same({}, factProblems(wow.readFile(path)))
         end)
     end
@@ -1352,5 +1471,33 @@ describe("Claude sessions' agents, knowledge and skills", function()
         for _, name in ipairs(SKILLS) do assert.is_truthy(text:find("`" .. name .. "`", 1, true), name) end
         for _, path in ipairs(DOCS) do assert.is_truthy(text:find("(" .. path .. ")", 1, true), path) end
         assert.is_truthy(text:find("**Keep them current:**", 1, true), "the keep-current rule")
+    end)
+
+    -- GitHub deletes merged branches and #115 deletes screenshot branches, so
+    -- sessions flag only the ones that outlived their PR, or have none (#119).
+    it("CLAUDE.md and the coordinator skill flag only stale branches, and keep the never-delete"
+        .. " and never-force-push rules", function()
+        local claude = wow.readFile("CLAUDE.md")
+        local coordinator = wow.readFile(".claude/skills/coordinator/SKILL.md")
+        for name, text in pairs({ ["CLAUDE.md"] = claude, coordinator = coordinator }) do
+            assert.is_falsy(text:find("any branches for the owner to delete", 1, true), name .. " lists merged branches")
+            assert.is_falsy(text:find("branches it names for the owner", 1, true), name .. " lists merged branches")
+            assert.is_truthy(text:find("still there after its PR merged or closed, or one with no PR", 1, true),
+                name .. " flags a branch that outlived its PR or has none")
+        end
+        for _, rule in ipairs({
+            "\n  2. Send the coordinator one line: `done: #<issue>, PR #<n> merged`, plus any step the owner still has"
+                .. " to take (such as applying environment settings or running a workflow) and any stale branch.\n",
+            "\n- **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale"
+                .. " branches for the owner, and say which they are.\n",
+            "\n- **Force-pushing:** never. Push a rebased branch under a new name and flag the old one for the owner"
+                .. " to delete.\n",
+        }) do
+            assert.is_truthy(claude:find(rule, 1, true), rule)
+        end
+        assert.is_truthy(coordinator:find("- **Never merges, approves or deletes:** not a PR, a branch, an issue"
+            .. " or a comment.", 1, true), "the coordinator's never-delete rule")
+        assert.is_truthy(wow.readFile(".claude/skills/after-merge/SKILL.md"):find("Never force-push.", 1, true),
+            "after-merge's never-force-push rule")
     end)
 end)

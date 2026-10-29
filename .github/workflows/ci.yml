@@ -25,20 +25,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      # The tools are pinned in the Makefile, so it keys the cache.
+      # The setup script and its checksums pin the tools, so they key the cache.
       - name: Cache Lua tools
-        id: tools
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/lua
-          key: lua-tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          key: lua-tools-${{ runner.os }}-${{ hashFiles('Makefile', 'scripts/dev-setup.sh', 'scripts/dev-setup.lock') }}
 
       # Always installed: cached Lua still links against readline at run time.
       - name: Install build dependencies
         run: sudo apt-get update -q && sudo apt-get install -yq libreadline-dev
 
+      # Always run: from the cache it only checks the install, in seconds.
       - name: Install Lua 5.1, busted and luacheck
-        if: steps.tools.outputs.cache-hit != 'true'
         run: make setup TOOLS="$RUNNER_TEMP/lua"
 
       - name: Lint

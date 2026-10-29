@@ -29,6 +29,7 @@ Config.LIMITS = {
     unknownName    = { maxBytes = 24 },
     owedMinutes    = { min = 1, max = 60 },  -- how long a favour stays on the buff-back button
     autoOffMinutes = { min = 0, max = 30 },  -- buff mode a trigger turned on ends after this (0: never)
+    linesPerMinute = { min = 1, max = 10 },  -- the most lines each chat type gets a minute (ChatQueue)
 }
 
 -- Order of message types (also the order of the options tabs).
@@ -85,6 +86,9 @@ Config.DEFAULTS = {
     -- General switch (not a message type): drop automatic messages that
     -- come due while you're AFK, instead of greeting people for hours.
     skipWhileAFK = true,
+    -- General: the most lines the addon sends to each chat type (/say,
+    -- whispers, emotes, guild, group) in any minute (#35).
+    linesPerMinute = 4,
     guildLogin = {
         enabled = true,
         delay = 3,
@@ -401,6 +405,39 @@ function Config.IgnoreEntry(key, value)
     if full and Config.IgnoreKey(full) == key then return full end
 end
 
+-- When lines went to each chat type lately (ChatQueue's cap, #35): [group]
+-- = list of { t = GetTime(), w = time() }. Only the newest the cap could
+-- ever need are kept. A reading that isn't a usable time becomes now, as the
+-- cap reads it, so damage can only hold lines back for a minute, never let
+-- more through.
+Config.MAX_CAP_GROUPS = 16
+local function Reading(value, now)
+    if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then return now end
+    return value
+end
+function Config.CleanChatCap(saved)
+    local clean, groups = {}, 0
+    if type(saved) ~= "table" then return clean end
+    for key, list in pairs(saved) do
+        if groups >= Config.MAX_CAP_GROUPS then break end
+        if type(key) == "string" and #key <= 32 and type(list) == "table" then
+            local stamps = {}
+            for _, e in ipairs(list) do
+                local t, w
+                if type(e) == "table" then t, w = e.t, e.w end
+                stamps[#stamps + 1] = { t = Reading(t, GetTime()), w = Reading(w, time()) }
+            end
+            local keep = {}
+            for i = math.max(1, #stamps - Config.LIMITS.linesPerMinute.max + 1), #stamps do
+                keep[#keep + 1] = stamps[i]
+            end
+            clean[key] = keep
+            groups = groups + 1
+        end
+    end
+    return clean
+end
+
 -- Players never greeted or thanked: [lowercased full name] = the full name
 -- as typed (shown in lists). Returns a checked copy of list. Keys are rebuilt
 -- from the names, so a damaged key can't hide an entry.
@@ -424,6 +461,9 @@ end
 local function ValidateSettings(db)
     if type(db.enabled) ~= "boolean" then db.enabled = true end
     if type(db.skipWhileAFK) ~= "boolean" then db.skipWhileAFK = Config.DEFAULTS.skipWhileAFK end
+    local lines = Config.LIMITS.linesPerMinute
+    db.linesPerMinute = Util.ClampNumber(db.linesPerMinute, lines.min, lines.max, Config.DEFAULTS.linesPerMinute)
+    db.chatCap = Config.CleanChatCap(db.chatCap)
 
     if type(db.minimap) ~= "table" then db.minimap = {} end
     db.minimap.angle = Util.ClampNumber(db.minimap.angle, 0, 360, 220)

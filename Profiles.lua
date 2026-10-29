@@ -31,7 +31,8 @@ Profiles.LOCAL_ONLY = { buffBack = { "position", "unlocked" } }
 
 -- The portable settings of db, as a plain table.
 function Profiles.Snapshot(db, withIgnore)
-    local out = { schemaVersion = ns.Config.SCHEMA_VERSION, skipWhileAFK = db.skipWhileAFK }
+    local out = { schemaVersion = ns.Config.SCHEMA_VERSION, skipWhileAFK = db.skipWhileAFK,
+        linesPerMinute = db.linesPerMinute }
     for _, msgType in ipairs(ns.Config.TYPES) do out[msgType] = Copy(db[msgType]) end
     if withIgnore then out.ignore = Copy(db.ignore) end
     return out
@@ -57,7 +58,7 @@ local function MergeIgnore(list)
     return added
 end
 
--- Put a snapshot's message settings and Skip while AFK into ns.db: brought
+-- Put a snapshot's message settings, Skip while AFK and the chat cap into ns.db: brought
 -- up to date, then checked by Config.Load, like the saved file.
 local function Apply(snapshot)
     local snap = Copy(snapshot)
@@ -67,6 +68,7 @@ local function Apply(snapshot)
         if snap[msgType] ~= nil then candidate[msgType] = snap[msgType] end
     end
     if snap.skipWhileAFK ~= nil then candidate.skipWhileAFK = snap.skipWhileAFK end
+    if snap.linesPerMinute ~= nil then candidate.linesPerMinute = snap.linesPerMinute end
     for msgType, keys in pairs(Profiles.LOCAL_ONLY) do
         if type(candidate[msgType]) == "table" then
             for _, key in ipairs(keys) do candidate[msgType][key] = Copy(ns.db[msgType][key]) end
@@ -75,6 +77,7 @@ local function Apply(snapshot)
     candidate = ns.Config.Load(candidate)
     for _, msgType in ipairs(ns.Config.TYPES) do ns.db[msgType] = candidate[msgType] end
     ns.db.skipWhileAFK = candidate.skipWhileAFK
+    ns.db.linesPerMinute = candidate.linesPerMinute
     ns.RefreshEvents()
     ns.BuffButton.Refresh()
 end

@@ -456,6 +456,7 @@ local function SayLineFor(press)
         delay = 0,
         cooldown = 0, -- a favour is only returned once, so each return says one line
         maxAge = ns.BuffTracker.SAY_MAX_AGE,
+        dropOverCap = true, -- a thank-you of sorts: dropped over the chat cap, like thanks
         vars = function()
             local vars = Util.NameVars(press.name)
             vars.buff = press.spell

@@ -11,7 +11,7 @@ The tools are the remote-session ones: `list_sessions`, `get_session`, `list_eve
 
 ## What the coordinator never does
 
-- **Never merges, approves or deletes:** not a PR, a branch, an issue or a comment. The owner merges (CLAUDE.md). Stale branches are listed for the owner.
+- **Never merges, approves or deletes:** not a PR, a branch, an issue or a comment. The owner merges (CLAUDE.md). Stale branches are listed for the owner: only a branch still there after its PR merged or closed, or one with no PR. A merged PR's branch and its `ui-screenshots/pr-<n>` branch delete themselves, so they aren't listed (#119).
 - **Never drives another session's PR:** it doesn't push to it, edit its description or announce it ready. It sends that PR's driver a message.
 - **Never passes secrets on,** and never asks for one.
 
@@ -48,7 +48,7 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
 
 The owner says so; sessions aren't told, so don't poll.
 1. Tell the driver of each other ready PR to merge `main` in (the `after-merge` skill). Name the conflicts the trial merges predicted.
-2. **Let the merged PR's session finish.** It finishes on its own (CLAUDE.md's "Finishing"): an issue comment if one is owed, a `done: #<issue>, PR #<n> merged` line to you, then a closing summary. If it hasn't, send it a "your work is done" message. List any branches it names for the owner to delete.
+2. **Let the merged PR's session finish.** It finishes on its own (CLAUDE.md's "Finishing"): an issue comment if one is owed, a `done: #<issue>, PR #<n> merged` line to you, then a closing summary. If it hasn't, send it a "your work is done" message. Relay any owner step or stale branch it names; don't list the merged PR's own branch.
 3. **Archive that session only after its closing summary,** once it's idle. Read its transcript first, not just its status. Don't archive a session that is working or waiting on the owner.
 4. Update the recommended order for what's left.
 
