@@ -2,9 +2,10 @@
 
 ### Unreleased
 
-- This version adds files (the new icon, Battleground.lua, Cities.lua and RateLimit.lua). After updating, restart the game; /reload isn't enough. (#34, #35, #65, #71)
+- This version adds files (the new icon, Battleground.lua, Cities.lua, Comm.lua and RateLimit.lua). After updating, restart the game; /reload isn't enough. (#32, #34, #35, #65, #71)
 - **Quiet in capital cities** (on by default): no buff thank-yous in Stormwind, Ironforge, Darnassus, Orgrimmar, Thunder Bluff or Undercity, though the favour ledger still counts them. The buff back button stays hidden there unless you switch **Show the button in capital cities** on, and shows your favours once you leave. Buff mode turned on in a city works as usual; a stranger's buff doesn't turn it on there. (#34)
 - Friendly Forever has its own icon, the gold heart from its logo, on the minimap button, in the addon compartment and in the AddOns list. (#65)
+- Copies of Friendly Forever can now talk to each other with hidden addon messages, for features to come. No chat channel is ever joined. Every message from another player is checked and rate-limited, and none can make the addon cast, speak or change your settings. `/friendly status` shows what was sent, received and dropped. (#32)
 - **Chat limit:** at most 4 lines a minute in each chat (/say, whispers, emotes, guild, group) by default, set from 1 to 10 on the **General** page. It keeps the addon a helper, not a spammer: thank-yous over the limit are dropped and the ledger says why (the first one each session is also mentioned in your own chat window), and greetings wait for room. `/friendly status` counts both. (#35)
 - Fix: settings damaged while you play (by another addon or a bad `/run`) no longer cause Lua errors in the ignore list, snooze, profiles or import undo. They are repaired as soon as they're used, and a damaged snooze never lasts more than a day. (#52)
 - Fix: after the favour ledger is damaged while you play, its counts stay right. A favour still waiting for its thanks or return is counted again, and the all-time totals never fall below today's. (#52)

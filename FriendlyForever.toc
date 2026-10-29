@@ -28,6 +28,7 @@ Profiles.lua
 Nameplates.lua
 RateLimit.lua
 ChatQueue.lua
+Comm.lua
 Parser.lua
 Announcer.lua
 Greeter.lua
