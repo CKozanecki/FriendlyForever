@@ -589,6 +589,23 @@ function Options.CurrentType()
     return currentType
 end
 
+-- Keeps a scrolling area's content as wide as its scroll frame: on a size
+-- change, and on each show, now and on the next frame. The settings window
+-- may lay a panel out without a size change reaching its scroll frame, and
+-- a stale width would wrap or cut every line pinned to the content's right
+-- (#52, #112).
+local function FollowWidth(scroll, content)
+    scroll:SetScript("OnSizeChanged", function(_, width) content:SetWidth(width) end)
+    local function Fit()
+        local width = scroll:GetWidth()
+        if width and width > 0 then content:SetWidth(width) end
+    end
+    scroll:SetScript("OnShow", function()
+        Fit()
+        C_Timer.After(0, ns.Diag.Wrap(Fit))
+    end)
+end
+
 function Options.Create()
     if panel then return end
     panel = CreateFrame("Frame", "FriendlyForeverOptionsPanel")
@@ -601,8 +618,8 @@ function Options.Create()
     local content = CreateFrame("Frame", nil, scroll)
     content:SetSize(600, Options.CONTENT_HEIGHT)
     scroll:SetScrollChild(content)
-    scroll:SetScript("OnSizeChanged", function(_, width) content:SetWidth(width) end)
-    widgets.content = content
+    FollowWidth(scroll, content)
+    widgets.scroll, widgets.content = scroll, content
 
     local title = Label(content, ns.TITLE, "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 16, -16)
@@ -629,8 +646,12 @@ function Options.Create()
 
     widgets.header = Label(content, "", "GameFontNormal")
     widgets.header:SetPoint("TOPLEFT", widgets.tabs[Config.TYPES[1]], "BOTTOMLEFT", 0, -16)
+    -- Wraps at the panel's right edge: the Buff Back tab's runs wider than
+    -- the panel (#112). The rows below hang from it, so they move down.
     widgets.help = Label(content, "", "GameFontHighlightSmall")
     widgets.help:SetPoint("TOPLEFT", widgets.header, "BOTTOMLEFT", 0, -4)
+    widgets.help:SetPoint("RIGHT", content, "RIGHT", -24, 0)
+    widgets.help:SetWordWrap(true)
 
     -- Row 1: enabled, delay
     widgets.enabled = Checkbox(content, "Enabled", function(on)
@@ -961,18 +982,7 @@ local function ScrollArea(page, height)
     local content = CreateFrame("Frame", nil, scroll)
     content:SetSize(600, height)
     scroll:SetScrollChild(content)
-    scroll:SetScript("OnSizeChanged", function(_, width) content:SetWidth(width) end)
-    -- And on each show, now and on the next frame: the settings window may
-    -- lay the page out without a size change reaching the scroll frame, and
-    -- a stale width would wrap or cut every line on it.
-    local function Fit()
-        local width = scroll:GetWidth()
-        if width and width > 0 then content:SetWidth(width) end
-    end
-    scroll:SetScript("OnShow", function()
-        Fit()
-        C_Timer.After(0, ns.Diag.Wrap(Fit))
-    end)
+    FollowWidth(scroll, content)
     page.scroll, page.content = scroll, content
     return content
 end
