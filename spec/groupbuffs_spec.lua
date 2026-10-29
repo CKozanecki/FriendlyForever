@@ -1,4 +1,4 @@
--- Spec: #30, #76
+-- Spec: #30, #76, #99
 -- Buff mode buffs group members missing your buffs, one per press, with the
 -- same safety rules as buff back.
 local wow = require("spec.support.wow")
@@ -268,6 +268,38 @@ describe("Buffing your group in buff mode", function()
             wow.state.castFailures["Ann-Vale"] = nil
             wow.advance(ns.GroupBuffs.HELD_BACK_SECONDS + 1)
             assert.are.equal("Ann Vale: Mark of the Wild", armed(), "then back on the list")
+        end)
+
+        it("doesn't offer a buff to a member whose name hasn't loaded ('Unknown'); once it loads, does, without a reload", function()
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.state.units.party1.nameLoading = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(0)
+            assert.is_nil(macro())
+            assert.are.equal("a group member's name can't be read", button.subtitle:GetText())
+            assert.is_true(ns.BuffMode.IsOn(), "not settled: buff mode stays on")
+            wow.state.units.party1.nameLoading = nil -- no event comes with it
+            wow.advance(ns.BuffButton.RECHECK_SECONDS)
+            assert.are.equal("Ann Vale: Mark of the Wild", armed())
+        end)
+
+        it("doesn't take a player whose name is the localised UNKNOWNOBJECT, nor 'Unknown' when the global is missing or empty", function()
+            local realUnknown = _G.UNKNOWNOBJECT
+            finally(function() _G.UNKNOWNOBJECT = realUnknown end)
+            _G.UNKNOWNOBJECT = "Inconnu"
+            wow.setGroup("party", { "Inconnu", "Unknown-Vale" })
+            ns.BuffButton.Refresh()
+            assert.are.equal("Unknown Vale: Mark of the Wild", armed(), "a surnamed 'Unknown' is a real player")
+            wow.setGroup("party", { "Inconnu" })
+            ns.BuffButton.Refresh()
+            assert.is_nil(macro())
+            for _, missing in ipairs({ false, "" }) do
+                _G.UNKNOWNOBJECT = missing or nil
+                wow.setGroup("party", { "Unknown" })
+                ns.BuffButton.Refresh()
+                assert.is_nil(macro())
+                assert.are.equal("a group member's name can't be read", button.subtitle:GetText())
+            end
         end)
 
 

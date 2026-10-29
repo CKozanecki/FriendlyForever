@@ -125,9 +125,23 @@ function Util.NameVars(fullName)
     return { name = Util.FirstName(fullName), fullname = Util.DisplayName(fullName) }
 end
 
--- Full name of a unit token ("player", "target", ...), or nil.
+-- The name the client gives a unit whose details haven't loaded yet (a
+-- player who just joined your group): UNKNOWNOBJECT, "Unknown" in English.
+-- It is nobody's name. "Unknown" when the global is missing or unreadable.
+local function UnloadedName()
+    local text = Util.Readable(UNKNOWNOBJECT)
+    if type(text) ~= "string" or text == "" then return "Unknown" end
+    return text
+end
+
+-- Full name of a unit token ("player", "target", ...), or nil, also while
+-- the client still calls them UNKNOWNOBJECT (#99).
 function Util.UnitFullName(unit)
-    return Util.FullName(UnitName(unit))
+    local name, surname = UnitName(unit)
+    local full = Util.FullName(name, surname)
+    -- A name came back, so the first value is plain text: safe to compare.
+    if full == nil or name == UnloadedName() then return nil end
+    return full
 end
 
 -- Up to three values from a game function, for reads that may fail: each is

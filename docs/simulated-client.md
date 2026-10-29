@@ -33,7 +33,7 @@ These mirror real restrictions the addon must live with. Each one makes the clie
 
 ## The ASSUMPTIONS block
 
-The block headed `ASSUMPTIONS ABOUT WOW FOREVER` near the top of `wow.lua` lists every behaviour that is a guess rather than a known fact. Each is a `state` setting where possible, so specs can try the alternatives. Examples: how `/targetexact` spells a two-part name (`state.targetNameForm`), what `UNIT_SPELLCAST_SENT` gives as the target, key-down versus key-up casting, the order of a refused cast's error and its `UNIT_SPELLCAST_FAILED`, `state.castLandsOn`, which role APIs exist, how battlegrounds signal their preparation phase (#71).
+The block headed `ASSUMPTIONS ABOUT WOW FOREVER` near the top of `wow.lua` lists every behaviour that is a guess rather than a known fact. Each is a `state` setting where possible, so specs can try the alternatives. Examples: how `/targetexact` spells a two-part name (`state.targetNameForm`), what `UNIT_SPELLCAST_SENT` gives as the target, key-down versus key-up casting, the order of a refused cast's error and its `UNIT_SPELLCAST_FAILED`, `state.castLandsOn`, which role APIs exist, how battlegrounds signal their preparation phase (#71), and a group member whose name is still loading (`unit.nameLoading`: `UnitName` gives `UNKNOWNOBJECT`, the surname still comes, and no event fires when it loads; #99).
 
 ## Extending it
 
