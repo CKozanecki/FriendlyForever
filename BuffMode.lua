@@ -12,7 +12,8 @@
 -- what's wanted, so switching the addon or Buff Back off hands the key back.
 --
 -- Buff mode is off after a login or reload: the game drops override
--- bindings then anyway.
+-- bindings then anyway. Once a battleground's battle has started it is off
+-- until you leave (Battleground.lua).
 local _, ns = ...
 local Util = ns.Util
 
@@ -101,6 +102,9 @@ function BuffMode.Apply()
         -- quietly take the key again when they come back on.
         wanted = false
         ns.Print("buff mode off: the addon or Buff Back is switched off.")
+    elseif wanted and ns.Battleground.Quiet() then
+        wanted, auto = false, false
+        ns.Print("buff mode off: " .. ns.Battleground.QuietReason() .. ".")
     end
     if not wanted or not ns.BuffButton.Frame() then return HandBack() end
     local key, why = BuffMode.Key()
@@ -129,9 +133,11 @@ end
 function BuffMode.Set(on, how)
     on = on and true or false
     how = how or {}
-    if on and not Allowed() then
+    -- Off for now: a trigger says nothing; you're told why.
+    if on and (not Allowed() or ns.Battleground.Quiet()) then
         if how.auto then return end
-        return ns.Print("buff mode needs the addon and Buff Back switched on.")
+        if not Allowed() then return ns.Print("buff mode needs the addon and Buff Back switched on.") end
+        return ns.Print("buff mode stays off: " .. ns.Battleground.QuietReason() .. ".")
     end
     local changed = wanted ~= on
     wanted = on
