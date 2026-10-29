@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76
+-- Spec: #27, #57, #64, #76, #84
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -1441,7 +1441,8 @@ describe("Buff back", function()
 
         it("survives random storms of events, presses, fights and settings changes", function()
             local received, casts, returned, said, elsewhere, gone = 0, 0, 0, 0, 0, 0
-            for _, seed in ipairs({ 1, 7, 21, 35, 42, 99, 404, 2026, 4242, 31337 }) do
+            -- Seeds 6 and 51 once sent a redirected cast to a dead unit (#84).
+            for _, seed in ipairs({ 1, 6, 7, 21, 35, 42, 51, 99, 404, 2026, 4242, 31337 }) do
                 local s, lines, wentElsewhere, nothingWaiting = storm(seed)
                 received, casts, returned = received + s.received, casts + #wow.casts, returned + s.returned
                 said, elsewhere, gone = said + lines, elsewhere + wentElsewhere, gone + nothingWaiting

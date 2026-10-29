@@ -372,7 +372,11 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         else"; nil by default). A PvP flag such a cast
 --                         catches goes in M.flaggedElsewhere, not M.flaggedBy:
 --                         in the game /targetexact can't land on a player with
---                         another name (#76).
+--                         another name (#76). A macro's conditions ([help,nodead])
+--                         are checked on the unit the cast lands on as well as
+--                         on your target, and nothing is cast unless both hold
+--                         (#84): in the game they apply to the unit the cast
+--                         goes to, and requiring both is the pessimistic choice.
 --   Override bindings (SetOverrideBindingClick, ClearOverrideBindings) are
 --                         blocked in combat, and allowed in PLAYER_REGEN_DISABLED's
 --                         handlers (as secure frames are). state.unbindable[key]:
@@ -476,16 +480,16 @@ local function knownRank(name)
     return best
 end
 
--- Macro conditions on the current target: help (friendly), nodead.
+-- Macro conditions on a unit: help (friendly), nodead.
 local CONDITIONS = {
     help = function(t) return t ~= nil and not t.hostile end,
     nodead = function(t) return t ~= nil and not t.dead end,
 }
-local function conditionsHold(list)
+local function conditionsHold(list, unit)
     for cond in list:gmatch("[^,%s]+") do
         local check = CONDITIONS[cond]
         if not check then error("the simulated client doesn't know the macro condition " .. cond) end
-        if not check(M.state.units.target) then return false end
+        if not check(unit) then return false end
     end
     return true
 end
@@ -493,8 +497,11 @@ end
 local castCount = 0
 local function cast(args)
     local conds, name = args:match("^%[(.-)%]%s*(.+)$")
+    local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
     if conds then
-        if not conditionsHold(conds) then return end
+        if not conditionsHold(conds, M.state.units.target) then return end
+        -- The conditions apply to the unit the cast goes to (#84).
+        if elsewhere and not conditionsHold(conds, elsewhere) then return end
     else
         name = args
     end
@@ -506,7 +513,6 @@ local function cast(args)
     -- A helpful spell with no friendly target lands on yourself.
     local target = M.state.units.target
     if not (target and not target.hostile) then target = M.state.units.player end
-    local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
     local redirected = elsewhere ~= nil and elsewhere.id ~= target.id -- another player, not another token
     if elsewhere then target = elsewhere end
     local failure = M.state.castFailures[target.id]
