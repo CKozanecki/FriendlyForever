@@ -223,7 +223,7 @@ end
 function BuffButton.OnCombatStart()
     ns.BuffMode.OnCombatStart()
     if not button then return end
-    local _ = ("in combat: the button is empty until the fight ends", false)
+    local _ = "in combat: the button is empty until the fight ends"
 end
 
 ------------------------------------------------------------------------
