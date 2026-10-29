@@ -310,10 +310,16 @@ test("entering combat empties the button, leaving fills it again; storms never e
         local allowed = { [stranger] = true, [States.GROUPMATE] = true }
         for step = 1, 60 do
             local which = roll(#steps)
+            local stepStarted = Now()
             steps[which]()
+            local acted = Now()
             -- A frame passes, as between the game's events: what the addon
             -- leaves for the next frame runs, and its time budget resets.
             States.Advance(0)
+            if Now() - stepStarted > 250 then
+                report(("TIME storm step %d (action %d, %s): %.0f ms, then a frame: %.0f ms"):format(
+                    step, which, fighting and "in a fight" or "out of one", acted - stepStarted, Now() - acted))
+            end
             local at = ("storm step %d (action %d)"):format(step, which)
             if fighting then
                 Expect(States.Macro() == nil, at .. ": the button holds a macro in a fight")
