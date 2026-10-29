@@ -205,6 +205,38 @@ describe("Quiet mode in capital cities", function()
             assert.is_false(button:IsShown())
         end)
 
+        it("shows or hides the button as soon as the option is ticked or unticked", function()
+            wow.setMap(wow.CAPITAL.stormwind)
+            stranger()
+            buffedBy()
+            assert.is_false(button:IsShown())
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffBack, "OnClick")
+            w.showInCities:SetChecked(true)
+            wow.run(w.showInCities, "OnClick")
+            assert.is_true(button:IsShown(), "shown at once")
+            w.showInCities:SetChecked(false)
+            wow.run(w.showInCities, "OnClick")
+            assert.is_false(button:IsShown(), "hidden at once")
+        end)
+
+        it("follows a move between a city and its surroundings on any of the game's zone events", function()
+            for _, event in ipairs({ "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA" }) do
+                boot()
+                stranger()
+                buffedBy()
+                assert.is_true(button:IsShown(), event)
+                wow.setMap(wow.CAPITAL.stormwind, { silent = true })
+                wow.fire(event)
+                wow.advance(0.01)
+                assert.is_false(button:IsShown(), event .. ": hidden on entering")
+                wow.setMap(wow.ELWYNN, { silent = true })
+                wow.fire(event)
+                wow.advance(0.01)
+                assert.is_true(button:IsShown(), event .. ": shown on leaving")
+            end
+        end)
+
         it("shows the button in a capital when the option is on", function()
             ns.db.buffBack.showInCities = true
             wow.setMap(wow.CAPITAL.stormwind)
