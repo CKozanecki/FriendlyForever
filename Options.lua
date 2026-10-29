@@ -923,6 +923,17 @@ local function ScrollArea(page, height)
     content:SetSize(600, height)
     scroll:SetScrollChild(content)
     scroll:SetScript("OnSizeChanged", function(_, width) content:SetWidth(width) end)
+    -- And on each show, now and on the next frame: the settings window may
+    -- lay the page out without a size change reaching the scroll frame, and
+    -- a stale width would wrap or cut every line on it.
+    local function Fit()
+        local width = scroll:GetWidth()
+        if width and width > 0 then content:SetWidth(width) end
+    end
+    scroll:SetScript("OnShow", function()
+        Fit()
+        C_Timer.After(0, ns.Diag.Wrap(Fit))
+    end)
     page.scroll, page.content = scroll, content
     return content
 end

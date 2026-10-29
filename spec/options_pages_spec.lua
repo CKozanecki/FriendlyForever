@@ -118,6 +118,23 @@ describe("Options", function()
             end
         end)
 
+        -- The content takes the scroll frame's width each time the page is
+        -- shown, and again a frame later, not only when a size change
+        -- reaches the scroll frame (#52).
+        it("fits its scrolling content to the page's width when shown", function()
+            local page = ns.Options.Pages()
+            page.scroll.width = 640
+            wow.run(page.scroll, "OnShow")
+            assert.are.equal(640, page.content:GetWidth())
+            page.scroll.width = 655
+            wow.advance(0)
+            assert.are.equal(655, page.content:GetWidth())
+            page.scroll.width = 0
+            wow.run(page.scroll, "OnShow")
+            wow.advance(0)
+            assert.are.equal(655, page.content:GetWidth(), "a scroll frame not laid out yet changes nothing")
+        end)
+
         -- Black box: a long profile list is cut the way the ignore list is,
         -- and says where to see the rest (#52).
         it("lists six profiles, then counts the rest", function()
