@@ -53,10 +53,14 @@ files["spec/**"] = {
 -- UI scenarios run inside the wow-ui-sim simulator (issue #49), which
 -- provides the test functions and A_Print.
 files["uitests/**"] = {
-    globals = { "_G", "DEFAULT_CHAT_FRAME" },
+    -- C_SpellBook and C_Spell: the spellbook fixture in button_states.lua
+    -- answers for one spell while a scenario runs (#83).
+    globals = { "_G", "DEFAULT_CHAT_FRAME", "C_SpellBook", "C_Spell", "FriendlyForeverUIStates" },
     read_globals = {
         "test", "assertTrue", "assertType", "assertEquals", "assertNotNil",
-        "print", "A_Print", "C_SpellBook", "UIParent",
+        "print", "A_Print", "A_Admin", "UIParent",
         "FriendlyForeverDB", "SLASH_FRIENDLYFOREVER1", "SlashCmdList",
+        "GetTime", "UnitClass", "UnitInRange", "InCombatLockdown", "IsInGroup", "C_UnitAuras",
+        "geterrorhandler", "seterrorhandler",
     },
 }
