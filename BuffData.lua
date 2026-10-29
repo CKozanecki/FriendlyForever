@@ -51,7 +51,9 @@ BuffData.CLASSES = {
         { key = "salvation", ranks = { 1038 }, group = { 25895 }, groupOnly = true, defaultRule = "notTanks" },
     },
     WARLOCK = {
-        { key = "breath", ranks = { 5697 }, group = { 131 } },
+        -- 131 is the shaman's Water Breathing: no group version of Unending
+        -- Breath, but it does the same job, so it's a blocker (#135).
+        { key = "breath", ranks = { 5697 }, blockers = { 131 } },
     },
     WARRIOR = {
         { key = "battleshout", ranks = { 25289, 11551, 11550, 11549, 6192, 5242, 6673 }, selfCast = true },

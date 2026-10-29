@@ -343,6 +343,8 @@ nameSpell("Shadow Protection", { 10958, 10957, 976 })
 nameSpell("Blessing of Kings", { 20217 })
 nameSpell("Blessing of Might", { 25291, 19838, 19837, 19836, 19835, 19834, 19740 })
 nameSpell("Blessing of Wisdom", { 25290, 19854, 19853, 19852, 19850, 19742 })
+nameSpell("Unending Breath", { 5697 })
+nameSpell("Water Breathing", { 131 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 -- Forever's Revoke (paladins). Its real ID isn't known yet (#50): this one
 -- is the simulation's own, and the addon finds Revoke by name.
