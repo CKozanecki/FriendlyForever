@@ -461,9 +461,6 @@ describe("CurseForge packager config", function()
     end)
 end)
 
--- Claude Code keeps side sessions' checkouts in .claude/worktrees (#77).
--- CI never has one, so only these tests notice if lint or git starts
--- reading them again (make check would fail locally while one is open).
 -- #103: one pinned toolchain setup, documented in CONTRIBUTING.md.
 describe("Toolchain setup", function()
     local function pin(name)
@@ -505,6 +502,18 @@ describe("Toolchain setup", function()
         assert.is_truthy(section:find("make %-C /home/user/FriendlyForever setup"), "no one-line setup script")
     end)
 
+    it("allows every download host in the claude.ai environment settings", function()
+        local _, section = documented()
+        local claude = section:match("\n### claude%.ai environment\n(.*)") or ""
+        local allowed = {}
+        for host in (claude:match("```\n(.-)\n%s*```") or ""):gmatch("[^%s]+") do allowed[host] = true end
+        local default = claude:match("default list already has ([^\n]*)") or ""
+        for host in wow.readFile("scripts/dev-setup.lock"):gmatch("https://([^/%s]+)/") do
+            assert.is_truthy(allowed[host] or default:find("`" .. host .. "`", 1, true),
+                host .. " is neither allowed nor in the default list in CONTRIBUTING.md's claude.ai environment settings")
+        end
+    end)
+
     it("keeps every development-only path out of the CurseForge package", function()
         local ignored = {}
         local inIgnore = false
@@ -525,6 +534,9 @@ describe("Toolchain setup", function()
     end)
 end)
 
+-- Claude Code keeps side sessions' checkouts in .claude/worktrees (#77).
+-- CI never has one, so only these tests notice if lint or git starts
+-- reading them again (make check would fail locally while one is open).
 describe("Claude Code worktrees", function()
     it("are left out of the lint", function()
         -- Run the config as luacheck does: its per-file sections (files[...])

@@ -104,6 +104,8 @@ describe("Toolchain setup script", function()
 
     -- Stand-ins for every download, each with its checksum: a hererocks that
     -- "installs" a luarocks which records what it builds, and lists it back.
+    -- hererocks records its arguments. Without --deps-mode=none, luarocks
+    -- fails, as the real one would reach the network for dependencies.
     -- Like real LuaRocks, a call without --tree also reaches the user's own
     -- rocks in ~/.luarocks, which then show up in its list.
     -- FAKE_LUAROCKS_FAIL names a rock to fail on, FAKE_LUAROCKS_SKIP one to
@@ -112,6 +114,8 @@ describe("Toolchain setup script", function()
 import os, stat, sys
 bin = os.path.join(sys.argv[1], "bin")
 os.makedirs(bin)
+with open(os.path.join(sys.argv[1], "hererocks-args.txt"), "w") as f:
+    f.write(" ".join(sys.argv[1:]))
 def tool(name, text):
     path = os.path.join(bin, name)
     with open(path, "w") as f:
@@ -122,6 +126,8 @@ tool("luacheck", "printf 'Luacheck: 1.2.0\\nLua: Lua 5.1\\n'\n")
 tool("luarocks", """tree="$(cd "$(dirname "$0")/.." && pwd)"
 log="$tree/built.txt"
 case " $* " in *" --tree $tree "*) ;; *) echo "user-rock-1.0-1" >> "$log" ;; esac
+# Without --deps-mode=none, real LuaRocks would fetch dependencies itself.
+case "$1" in build|make) case " $* " in *" --deps-mode=none "*) ;; *) exit 1 ;; esac ;; esac
 if [ "$1" = list ]; then
     while read -r rock; do
         rest="${rock%-*}"
@@ -172,6 +178,12 @@ done
                 "luasystem-0.7.1-1", "dkjson-2.11-1", "say-1.4.1-3", "luassert-1.9.0-1", "lua-term-0.8-1",
                 "penlight-1.15.0-1", "mediator_lua-1.1.2-0", "busted-2.2.0-1" }, built())
             assert.is_true(exists(tools .. "/lua51/.dev-setup-stamp"))
+            -- The pinned Lua and LuaRocks, from the verified downloads only.
+            local p = io.popen("cd " .. quote(tools) .. " && pwd")
+            local root = p:read("*l")
+            p:close()
+            assert.are.equal(root .. "/lua51 -l 5.1.5 -r 3.8.0 --downloads " .. root .. "/downloads --no-git-cache",
+                readAll(tools .. "/lua51/hererocks-args.txt"))
             assert.is_false(shell("ls -d " .. quote(tools) .. "/build.* >/dev/null 2>&1"), "build folder left behind")
             assert.is_false(shell("ls " .. quote(tools) .. "/downloads/*.part* >/dev/null 2>&1"), "partial download left behind")
 
