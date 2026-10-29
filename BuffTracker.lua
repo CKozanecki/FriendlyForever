@@ -108,7 +108,7 @@ function BuffTracker.Watching()
 end
 
 function BuffTracker.OnSpellcastSucceeded(unit, _, spellId)
-    if not BuffTracker.Watching() then return end
+    if not BuffTracker.Watching() or ns.Battleground.Quiet() then return end
     if Util.IsSecret(unit) or type(unit) ~= "string" or not IsCastUnit(unit) then return end
     if Util.IsSecret(spellId) or type(spellId) ~= "number" then return end
     local caster = BuffTracker.Classify(unit)
@@ -458,7 +458,9 @@ function BuffTracker.OnPlayerAura(updateInfo)
         return
     end
 
-    local active = BuffTracker.Watching() and ns.Announcer.IsWatching()
+    -- A battle under way: buffs you get aren't thanked or owed (Battleground.lua),
+    -- but are still noted as known, so they aren't new once you leave.
+    local active = BuffTracker.Watching() and ns.Announcer.IsWatching() and not ns.Battleground.Quiet()
     local now = GetTime()
 
     -- A full update gives no list of what is new, so compare against the
