@@ -32,7 +32,7 @@ How the simulated client models secrets, and its limits, is in [simulated-client
 
 ## Addon messages
 
-From #32 ([research comment](https://github.com/CKozanecki/FriendlyForever/issues/32#issuecomment-6484071238); [SendAddonMessage](https://warcraft.wiki.gg/wiki/API_C_ChatInfo.SendAddonMessage), [Patch 10.2.7 API changes](https://warcraft.wiki.gg/wiki/Patch_10.2.7/API_changes), [Icy Veins: combat restrictions eased](https://www.icy-veins.com/wow/news/combat-addon-restrictions-eased-in-midnight/)). Every item here is a **launch check** ([#50](https://github.com/CKozanecki/FriendlyForever/issues/32#issuecomment-6484071238)).
+From #32 ([research comment](https://github.com/CKozanecki/FriendlyForever/issues/32#issuecomment-6484071238); [SendAddonMessage](https://warcraft.wiki.gg/wiki/API_C_ChatInfo.SendAddonMessage), [Patch 10.2.7 API changes](https://warcraft.wiki.gg/wiki/Patch_10.2.7/API_changes), [Icy Veins: combat restrictions eased](https://www.icy-veins.com/wow/news/combat-addon-restrictions-eased-in-midnight/)). Every item here is a **launch check** ([#50](https://github.com/CKozanecki/FriendlyForever/issues/50#issuecomment-6484203880)).
 
 - Since 10.2.7, `C_ChatInfo.SendAddonMessage` is throttled per prefix: 10 messages, refilled at 1 a second. The server can change these numbers at any time (#32).
 - A throttled send returns `Enum.SendAddonMessageResult.AddonMessageThrottle`; 0 means success (#32).

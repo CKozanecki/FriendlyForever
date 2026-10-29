@@ -849,13 +849,20 @@ describe("Claude sessions' agents, knowledge and skills", function()
     -- Facts without a source, and launch checks that don't link #50, in a
     -- knowledge file. A bullet's source is an issue or a link; a table row's
     -- is its last cell (an issue, or the file it comes from). A link with no
-    -- address goes nowhere, so it counts as no link.
+    -- address goes nowhere, so it counts as no link, and a link shown as #N
+    -- must go to issue or pull request N.
     local function factProblems(text)
         local problems = {}
         for _, line in ipairs(splitLines(text)) do
             local row = line:match("^|(.*)|%s*$")
             local fact = line:match("^%s*%- ") or row
             if line:find("%]%(%s*%)") then problems[#problems + 1] = "empty link: " .. line end
+            for shown, address in line:gmatch("%[#(%d+)%]%(([^)]*)%)") do
+                local issue = address:match("/issues/(%d+)") or address:match("/pull/(%d+)")
+                if issue and issue ~= shown then
+                    problems[#problems + 1] = "#" .. shown .. " links to #" .. issue .. ": " .. line
+                end
+            end
             if line:match("^%s*%- ") and not (line:find("#%d+") or line:find("https?://")) then
                 problems[#problems + 1] = "no source: " .. line
             end
@@ -926,6 +933,9 @@ describe("Claude sessions' agents, knowledge and skills", function()
             assert.are.equal(1, #factProblems("- A launch check (#500).\n"))
             assert.are.equal(1, #factProblems("- A launch check ([#50]()).\n"))
             assert.are.equal(1, #factProblems("From #32 ([its comment]()).\n"))
+            assert.are.same({}, factProblems("- A launch check ([#50](https://github.com/o/r/issues/50#c-1)).\n"))
+            assert.are.equal(1, #factProblems("- A launch check ([#50](https://github.com/o/r/issues/32#c-1)).\n"))
+            assert.are.equal(1, #factProblems("- Fixed in [#94](https://github.com/o/r/pull/93).\n"))
         end)
 
         it("check every row of a table for its source", function()
