@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #103
+-- Spec: #49, #65, #77, #80, #82, #89, #103, #104, #106
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -353,6 +353,337 @@ describe("UI simulator workflow", function()
             assert.is_falsy(publish.text:find(banned), "the publish job runs " .. banned)
         end
         assert.is_truthy(publish.text:find("89504e470d0a1a0a", 1, true), "the publish job doesn't check for PNGs")
+    end)
+end)
+
+describe("UI screenshots clean-up workflow", function()
+    local path = ".github/workflows/ui-screenshots-cleanup.yml"
+    local text, header, jobs, order
+
+    setup(function()
+        text = withoutComments(wow.readFile(path))
+        header = text:match("^(.-)\njobs:")
+        jobs, order = parseWorkflow(path)
+    end)
+
+    -- A step's run: | block, as the shell gets it.
+    local function runBlock(job)
+        assert.are.equal(1, #job.steps, job.name .. " should have one step")
+        local body, indent = {}, nil
+        local inRun = false
+        for _, line in ipairs(splitLines(job.steps[1].text)) do
+            if inRun then
+                if not line:match("^%s*$") then
+                    indent = indent or indentOf(line)
+                    if indentOf(line) < indent then break end
+                end
+                body[#body + 1] = line:sub((indent or 0) + 1)
+            elseif line:match("^%s*run: |%s*$") then
+                inRun = true
+            end
+        end
+        assert.is_true(#body > 0, job.name .. " has no run: | block")
+        return (table.concat(body, "\n"):gsub("%s+$", "")) .. "\n"
+    end
+
+    local function nameCheck(job)
+        -- Both functions, up to the end of delete_branch (the first unindented }).
+        local block = runBlock(job):match("pr_of_branch%(%) {\n.-\ndelete_branch%(%) {\n.-\n}\n")
+        assert.is_truthy(block, job.name .. " has no name check")
+        return block
+    end
+
+    local function quote(value) return "'" .. value:gsub("'", "'\\''") .. "'" end
+
+    local function write(file, content)
+        local handle = assert(io.open(file, "w"))
+        handle:write(content)
+        handle:close()
+    end
+
+    local function read(file)
+        local handle = io.open(file, "r")
+        if not handle then return "" end
+        local content = handle:read("*a")
+        handle:close()
+        return content
+    end
+
+    -- A stand-in for curl that answers like GitHub's API from files in its
+    -- folder, and logs each call ("METHOD URL") and the config it read. Like
+    -- curl, it reads its config from stdin only with -K -, writes the body
+    -- unless -o /dev/null (and, with -f, not for a status of 400 or more),
+    -- writes the status only with -w '%{http_code}', and with -f exits 22 on
+    -- a status of 400 or more. A request without the token gets 401.
+    local fakeCurl = [=[#!/bin/bash
+dir=$(dirname "$0")
+method=GET url= config= out= format= fail=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -X) method=$2; shift ;;
+    -K) [ "$2" = - ] && config=$(cat); shift ;;
+    -o) out=$2; shift ;;
+    -w) format=$2; shift ;;
+    -H) shift ;;
+    --*) ;;
+    -*f*) fail=1 ;;
+    -*) ;;
+    *) url=$1 ;;
+  esac
+  shift
+done
+echo "$method $url" >> "$dir/calls"
+[ -n "$config" ] && printf '%s\n' "$config" >> "$dir/stdin"
+body= status=404
+if [ "$config" != 'header = "Authorization: Bearer secret-token-123"' ]; then
+  status=401 body='{"message":"Requires authentication"}'
+else
+  case "$method $url" in
+    "DELETE "*/git/refs/heads/ui-screenshots/pr-*)
+      n=${url##*/pr-}
+      status=204
+      if [ -f "$dir/delete-$n" ]; then status=$(cat "$dir/delete-$n"); fi
+      if [ "$status" = unreachable ]; then
+        [ "$format" = '%{http_code}' ] && printf 000
+        exit 7
+      fi
+      [ "$status" = 204 ] || body='{"message":"Reference does not exist"}' ;;
+    "GET "*/git/matching-refs/heads/ui-screenshots/)
+      if [ -f "$dir/refs.json" ]; then status=200 body=$(cat "$dir/refs.json"); fi ;;
+    "GET "*/pulls/*)
+      n=${url##*/pulls/}
+      if [ -f "$dir/pr-$n" ]; then
+        status=200 body=$(printf '{"number":%s,"state":"%s"}' "$n" "$(cat "$dir/pr-$n")")
+      fi ;;
+  esac
+fi
+[ "$status" -ge 400 ] && [ -z "$body" ] && body='{"message":"Not Found"}'
+if [ "$out" != /dev/null ] && ! { [ -n "$fail" ] && [ "$status" -ge 400 ]; }; then printf '%s' "$body"; fi
+[ "$format" = '%{http_code}' ] && printf '%s' "$status"
+if [ -n "$fail" ] && [ "$status" -ge 400 ]; then exit 22; fi
+exit 0
+]=]
+
+    -- Runs a script as GitHub Actions runs a step (bash -eo pipefail), with
+    -- the fake curl first on PATH. files are written next to it first.
+    -- Returns the exit code, the output, the curl calls, what curl read on
+    -- stdin, and the step summary.
+    local function runStep(script, env, files)
+        local dir = os.tmpname()
+        os.remove(dir)
+        os.execute('mkdir -p "' .. dir .. '/bin"')
+        write(dir .. "/bin/curl", fakeCurl)
+        os.execute('chmod +x "' .. dir .. '/bin/curl"')
+        for name, content in pairs(files or {}) do write(dir .. "/bin/" .. name, content) end
+        local exports = { 'export PATH="' .. dir .. '/bin:$PATH"', "export GITHUB_API_URL=https://api.test",
+            'export GITHUB_STEP_SUMMARY="' .. dir .. '/summary"', "export REPO=owner/repo",
+            "export TOKEN=secret-token-123" }
+        for key, value in pairs(env or {}) do exports[#exports + 1] = "export " .. key .. "=" .. quote(value) end
+        write(dir .. "/step.sh", table.concat(exports, "\n") .. "\n" .. script)
+        local p = io.popen('bash --noprofile --norc -eo pipefail "' .. dir .. '/step.sh" < /dev/null 2>&1; echo "exit=$?"')
+        local output = p:read("*a")
+        p:close()
+        local code = tonumber(output:match("exit=(%d+)\n$"))
+        output = output:gsub("exit=%d+\n$", "")
+        local calls, stdin, summary = read(dir .. "/bin/calls"), read(dir .. "/bin/stdin"), read(dir .. "/summary")
+        os.execute('rm -rf "' .. dir .. '"')
+        return code, output, calls, stdin, summary
+    end
+
+    it("runs on closed pull requests and by hand, never on pull_request_target", function()
+        assert.is_truthy(header, "no jobs found")
+        assert.is_truthy(header:find("\non:\n  pull_request:\n    types: %[closed%]\n  workflow_dispatch:\n"),
+            "the triggers aren't exactly pull_request (closed) and workflow_dispatch")
+        assert.is_falsy(text:find("pull_request_target"), path .. " uses pull_request_target")
+    end)
+
+    it("has no access by default, no secrets, and write access only in its two jobs", function()
+        assert.is_truthy(header:find("\npermissions: {}\n"), "the default access isn't none")
+        assert.is_falsy(header:find("write"), "the workflow grants write access to every job")
+        assert.is_falsy(text:find("secrets%."), path .. " uses secrets")
+        local names = {}
+        for _, job in ipairs(order) do names[#names + 1] = job.name end
+        assert.are.same({ "delete-on-close", "sweep" }, names)
+
+        local function permissions(job)
+            local _, block = job.text:match("\n(%s*)permissions:\n(.-)\n%1[%w_-]+:")
+            assert.is_truthy(block, job.name .. " has no permissions of its own")
+            return block
+        end
+        local close, sweep = permissions(jobs["delete-on-close"]), permissions(jobs.sweep)
+        assert.is_truthy(close:match("^%s*contents: write%s*$"), "delete-on-close has more than contents: write")
+        local sweepKeys = {}
+        for key, value in sweep:gmatch("([%w_-]+):%s*(%w+)") do sweepKeys[key] = value end
+        assert.are.same({ contents = "write", ["pull-requests"] = "read" }, sweepKeys)
+        local _, writes = text:gsub("write", "")
+        assert.are.equal(2, writes, "write access appears outside the two jobs' contents: write")
+    end)
+
+    it("checks out and runs nothing: no actions, no checkout, only curl and jq", function()
+        assert.is_falsy(text:find("uses:"), path .. " uses an action")
+        assert.is_falsy(text:find("checkout"), path .. " checks something out")
+        for _, job in ipairs(order) do
+            local run = runBlock(job)
+            for _, banned in ipairs({ "%f[%w]git%s", "docker", "make ", "%./", "%f[%w]bash%s", "%f[%w]sh%s",
+                "source ", "eval", "%f[%w]gh%s", "npm", "pip", "python", "wget", "%${{" }) do
+                assert.is_falsy(run:find(banned), job.name .. " runs " .. banned)
+            end
+        end
+    end)
+
+    it("builds the close-time branch name only from the event's pull request number", function()
+        local close = jobs["delete-on-close"]
+        assert.is_truthy(close, "no delete-on-close job")
+        local condition = "github%.event_name == 'pull_request' && "
+            .. "github%.event%.pull_request%.head%.repo%.full_name == github%.repository"
+        assert.is_truthy(close.text:find("\n    if: %${{ " .. condition .. " }}\n"),
+            "delete-on-close runs for forks or outside pull requests")
+        for field in close.text:gmatch("github%.event%.pull_request%.([%w_.]+)") do
+            assert.is_truthy(field == "number" or field == "head.repo.full_name",
+                "delete-on-close reads github.event.pull_request." .. field)
+        end
+        assert.is_truthy(close.text:find("\n%s+PR: %${{ github%.event%.pull_request%.number }}\n"),
+            "PR isn't the event's pull request number")
+        assert.is_falsy(jobs.sweep.text:find("github%.event%."), "the sweep reads the event")
+        assert.is_truthy(jobs.sweep.text:find("\n    if: %${{ github%.event_name == 'workflow_dispatch' }}\n"),
+            "the sweep doesn't run only by hand")
+    end)
+
+    it("never fails the pull request's checks", function()
+        local close = jobs["delete-on-close"]
+        local key = "\n" .. (" "):rep(close.keyIndent) .. "continue%-on%-error:%s*true"
+        assert.is_truthy(close.text:find(key), "delete-on-close can fail the pull request")
+        assert.is_truthy(runBlock(close):find('\ndelete_branch "%$PR" || true\n$'),
+            "delete-on-close's last line can fail")
+    end)
+
+    it("uses the same name check in both jobs", function()
+        assert.are.equal(nameCheck(jobs["delete-on-close"]), nameCheck(jobs.sweep))
+    end)
+
+    describe("close-time job", function()
+        local function close(pr, files)
+            return runStep(runBlock(jobs["delete-on-close"]), { PR = pr }, files)
+        end
+
+        it("deletes the closed pull request's branch, passing the token on stdin only", function()
+            local code, output, calls, stdin = close("106")
+            assert.are.equal(0, code)
+            assert.are.equal("deleted ui-screenshots/pr-106\n", output)
+            assert.are.equal("DELETE https://api.test/repos/owner/repo/git/refs/heads/ui-screenshots/pr-106\n", calls)
+            assert.are.equal('header = "Authorization: Bearer secret-token-123"\n', stdin)
+        end)
+
+        it("treats a branch that's already gone as fine", function()
+            for _, status in ipairs({ "404", "422" }) do
+                local code, output, calls = close("88", { ["delete-88"] = status })
+                assert.are.equal(0, code)
+                assert.are.equal("ui-screenshots/pr-88 is already gone\n", output)
+                assert.are.equal(1, select(2, calls:gsub("\n", "")))
+            end
+        end)
+
+        it("only warns when GitHub refuses, so the pull request's checks stay green", function()
+            local code, output = close("91", { ["delete-91"] = "403" })
+            assert.are.equal(0, code)
+            assert.are.equal("::warning::could not delete ui-screenshots/pr-91 (HTTP 403)\n", output)
+            code, output = close("91", { ["delete-91"] = "unreachable" })
+            assert.are.equal(0, code)
+            assert.are.equal("::warning::could not delete ui-screenshots/pr-91 (HTTP 000)\n", output)
+        end)
+
+        it("refuses a pull request number that isn't plain digits, and calls nothing", function()
+            for _, pr in ipairs({ "", "abc", "12a", "012", "0", "-1", "1 2", "12\n", "12/../main", "../main",
+                "12*", "١٢" }) do
+                local code, output, calls = close(pr)
+                assert.are.equal(0, code, pr)
+                assert.are.equal("::warning::refusing to delete a branch for pull request number '" .. pr .. "'\n",
+                    output)
+                assert.are.equal("", calls, "curl was called for '" .. pr .. "'")
+            end
+        end)
+    end)
+
+    describe("name check", function()
+        local function prOf(branch)
+            local script = nameCheck(jobs.sweep) .. "pr_of_branch " .. quote(branch) .. "\n"
+            local code, output = runStep(script)
+            return code == 0 and output:gsub("\n$", "") or nil
+        end
+
+        it("reads the number from a screenshots branch", function()
+            assert.are.equal("7", prOf("ui-screenshots/pr-7"))
+            assert.are.equal("106", prOf("ui-screenshots/pr-106"))
+        end)
+
+        it("refuses every branch outside ui-screenshots/pr-<digits>", function()
+            for _, branch in ipairs({ "main", "claude/106-x", "ui-screenshots/pr-", "ui-screenshots/pr-07",
+                "ui-screenshots/pr-7/x", "ui-screenshots/pr-7a", "ui-screenshots/pr-7\n", "refs/heads/ui-screenshots/pr-7",
+                "xui-screenshots/pr-7", "ui-screenshots/pr-7 main", "ui-screenshots/PR-7", "ui-screenshots/pr--7" }) do
+                assert.is_nil(prOf(branch), branch)
+            end
+        end)
+    end)
+
+    describe("sweep", function()
+        local function refs(names)
+            local list = {}
+            for _, name in ipairs(names) do list[#list + 1] = '{"ref":"refs/heads/' .. name .. '"}' end
+            return "[" .. table.concat(list, ",") .. "]"
+        end
+
+        local function sweep(files)
+            return runStep(runBlock(jobs.sweep), {}, files)
+        end
+
+        it("deletes the branches of closed pull requests only, and keeps the rest", function()
+            local code, output, calls, _, summary = sweep({
+                ["refs.json"] = refs({ "ui-screenshots/pr-88", "ui-screenshots/pr-91", "ui-screenshots/pr-96",
+                    "ui-screenshots/pr-5/x", "ui-screenshots/pr-404", "ui-screenshots/pr-77", "ui-screenshots/pr-08" }),
+                ["pr-88"] = "closed", ["pr-91"] = "closed", ["pr-96"] = "open", ["pr-77"] = "closed",
+                ["pr-8"] = "closed", ["delete-77"] = "422",
+            })
+            assert.are.equal(0, code, output)
+            local deletes = {}
+            for n in calls:gmatch("DELETE https://api%.test/repos/owner/repo/git/refs/heads/ui%-screenshots/pr%-(%d+)\n") do
+                deletes[#deletes + 1] = n
+            end
+            assert.are.same({ "88", "91", "77" }, deletes)
+            assert.is_truthy(output:find("keeping ui-screenshots/pr-96: pull request #96 is open", 1, true))
+            assert.is_truthy(output:find("keeping ui-screenshots/pr-404: pull request #404 is unknown", 1, true))
+            assert.is_truthy(output:find("keeping ui-screenshots/pr-5/x: not a", 1, true))
+            assert.is_truthy(output:find("keeping ui-screenshots/pr-08: not a", 1, true))
+            assert.is_truthy(output:find("ui-screenshots/pr-77 is already gone", 1, true))
+            assert.are.equal("Screenshot branches: deleted 3, kept 4, failed 0.\n", summary)
+            assert.is_falsy(calls:find("pulls/8\n", 1, true), "looked up a pull request from a refused name")
+        end)
+
+        it("finishes cleanly with nothing to delete", function()
+            local code, output, calls = sweep({ ["refs.json"] = "[]" })
+            assert.are.equal(0, code)
+            assert.are.equal("deleted 0, kept 0, failed 0\n", output)
+            assert.are.equal("GET https://api.test/repos/owner/repo/git/matching-refs/heads/ui-screenshots/\n", calls)
+        end)
+
+        it("fails, deleting nothing, when it can't list the branches", function()
+            for _, listing in ipairs({ false, '{"message":"Not Found"}', "not json" }) do
+                local code, output, calls = sweep({ ["refs.json"] = listing or nil })
+                assert.are_not.equal(0, code)
+                assert.is_truthy(output:find("::error::could not list the branches", 1, true))
+                assert.is_falsy(calls:find("DELETE"), "deleted after a failed listing")
+            end
+        end)
+
+        it("carries on past a branch it can't delete, then fails so the owner sees it", function()
+            local code, output, calls, _, summary = sweep({
+                ["refs.json"] = refs({ "ui-screenshots/pr-1", "ui-screenshots/pr-2" }),
+                ["pr-1"] = "closed", ["pr-2"] = "closed", ["delete-1"] = "500",
+            })
+            assert.are_not.equal(0, code)
+            assert.is_truthy(output:find("::warning::could not delete ui-screenshots/pr-1 (HTTP 500)", 1, true))
+            assert.is_truthy(calls:find("heads/ui-screenshots/pr-2\n", 1, true))
+            assert.are.equal("Screenshot branches: deleted 1, kept 0, failed 1.\n", summary)
+        end)
     end)
 end)
 
@@ -869,5 +1200,246 @@ describe("Release docs", function()
             assert.is_truthy(flat:find("creates the GitHub release for the tag, with the same notes", 1, true))
             assert.is_truthy(flat:find("Once the job is green, there's nothing left to do.", 1, true))
         end)
+    end)
+end)
+
+-- Claude sessions' reviewer agents, knowledge files and skills (#104). They
+-- never ship, and the agents must ask for the output CLAUDE.md requires.
+describe("Claude sessions' agents, knowledge and skills", function()
+    -- The YAML front matter's simple "key: value" lines (none without one).
+    local function frontMatter(text)
+        local body = text:gsub("\r\n", "\n"):match("^%-%-%-\n(.-)\n%-%-%-") or ""
+        local fields = {}
+        for _, line in ipairs(splitLines(body)) do
+            local k, v = line:match("^([%w_-]+):%s*(.-)%s*$")
+            if k then fields[k] = v end
+        end
+        return fields
+    end
+
+    -- The text under a "## title" heading, up to the next "## " heading
+    -- ("" without one).
+    local function section(text, title)
+        local out, inside = {}, false
+        for _, line in ipairs(splitLines(text)) do
+            if line:match("^## ") then inside = line == "## " .. title
+            elseif inside then out[#out + 1] = line end
+        end
+        return table.concat(out, "\n")
+    end
+
+    -- What an agent file is missing of its required output, as a list.
+    local function agentProblems(text, name)
+        local problems = {}
+        local fields = frontMatter(text)
+        if fields.name ~= name then problems[#problems + 1] = "name isn't " .. name end
+        if not fields.description or fields.description == "" then problems[#problems + 1] = "no description" end
+        local output = section(text, "Output")
+        for _, words in ipairs({ "`file:line`", "concrete failure scenario", "as the last line" }) do
+            if not output:find(words, 1, true) then problems[#problems + 1] = "Output doesn't say " .. words end
+        end
+        local verdicts = {}
+        for verdict in output:gmatch("\n%s*%- `([A-Z ]+)`") do verdicts[#verdicts + 1] = verdict end
+        if table.concat(verdicts, ", ") ~= "APPROVED, CHANGES REQUESTED" then
+            problems[#problems + 1] = "verdicts aren't APPROVED and CHANGES REQUESTED"
+        end
+        local count = 0
+        for _, line in ipairs(splitLines(section(text, "Lessons"))) do
+            if line:match("^%s*%- ") then
+                count = count + 1
+                if not line:find("#%d+") then problems[#problems + 1] = "a lesson cites nothing: " .. line end
+            end
+        end
+        if count == 0 then problems[#problems + 1] = "no Lessons" end
+        return problems
+    end
+
+    -- Facts without a source, and launch checks that don't link #50, in a
+    -- knowledge file. A bullet's source is an issue or a link; a table row's
+    -- is its last cell (an issue, or the file it comes from). A link with no
+    -- address goes nowhere, so it counts as no link, and a link shown as #N
+    -- must go to issue or pull request N.
+    local function factProblems(text)
+        local problems = {}
+        for _, line in ipairs(splitLines(text)) do
+            local row = line:match("^|(.*)|%s*$")
+            local fact = line:match("^%s*%- ") or row
+            if line:find("%]%(%s*%)") then problems[#problems + 1] = "empty link: " .. line end
+            for shown, address in line:gmatch("%[#(%d+)%]%(([^)]*)%)") do
+                local issue = address:match("/issues/(%d+)") or address:match("/pull/(%d+)")
+                if issue and issue ~= shown then
+                    problems[#problems + 1] = "#" .. shown .. " links to #" .. issue .. ": " .. line
+                end
+            end
+            if line:match("^%s*%- ") and not (line:find("#%d+") or line:find("https?://")) then
+                problems[#problems + 1] = "no source: " .. line
+            end
+            if row and not row:match("([^|]*)$"):find("%S") then
+                problems[#problems + 1] = "no source: " .. line
+            end
+            if fact and line:lower():find("launch check", 1, true) and not (line:find("#50%f[%D]")
+                or line:find("/issues/50#", 1, true)) then
+                problems[#problems + 1] = "launch check without #50: " .. line
+            end
+        end
+        return problems
+    end
+
+    -- What a skill's SKILL.md is missing, as a list.
+    local function skillProblems(text, name)
+        local fields = frontMatter(text)
+        local problems = {}
+        if fields.name ~= name then problems[#problems + 1] = "name isn't " .. name end
+        if not fields.description or fields.description == "" then problems[#problems + 1] = "no description" end
+        return problems
+    end
+
+    local AGENTS = { "lua-architect", "lua-tester" }
+    local SKILLS = { "after-merge", "merge-order", "coordinator" }
+    local DOCS = { "docs/forever-facts.md", "docs/simulated-client.md", "docs/ui-simulator.md" }
+
+    it(".pkgmeta keeps .claude/ and docs/ out of the release", function()
+        local ignored = {}
+        for _, line in ipairs(lines(".pkgmeta")) do
+            local entry = line:match("^%s+%-%s+[\"']?([^%s#\"']+)")
+            if entry then ignored[entry] = true end
+        end
+        assert.is_true(ignored[".claude"], ".claude")
+        assert.is_true(ignored["docs"], "docs")
+    end)
+
+    describe("the checks themselves", function()
+        local good = table.concat({
+            "---", "name: lua-x", "description: A review.", "---", "", "## Output", "",
+            "1. **Findings,** each with `file:line` and a **concrete failure scenario**.",
+            "2. **The verdict, as the last line, exactly one of:**",
+            "   - `APPROVED`: no findings;", "   - `CHANGES REQUESTED`: at least one finding.", "",
+            "## Lessons", "", "- Check this (#72).", "",
+        }, "\n")
+
+        it("pass a complete agent file", function()
+            assert.are.same({}, agentProblems(good, "lua-x"))
+        end)
+
+        it("catch an agent file missing any part of its required output", function()
+            for _, cut in ipairs({
+                { "name: lua%-x", "name: other" },
+                { "description: A review%.", "description:" },
+                { "`file:line`", "the file" },
+                { "concrete failure scenario", "scenario" },
+                { "as the last line", "somewhere" },
+                { "   %- `CHANGES REQUESTED`[^\n]*\n", "" },
+                { "`APPROVED`", "`LGTM`" },
+                { "## Output", "## Result" },
+                { " %(#72%)", "" },
+                { "%- Check this %(#72%)%.", "" },
+                { "%- Check this %(#72%)%.", "- Check this (#72).\n  - And this." },
+                { "^%-%-%-\n", "" },
+                { "^", "# Title\n\n" },
+            }) do
+                local broken = good:gsub(cut[1], cut[2])
+                assert.are_not.equal(good, broken, cut[1])
+                assert.are_not.same({}, agentProblems(broken, "lua-x"), cut[1])
+            end
+        end)
+
+        it("read an agent file with Windows line endings", function()
+            local crlf = good:gsub("\n", "\r\n")
+            assert.is_truthy(crlf:find("\r\n", 1, true))
+            assert.are.same({}, agentProblems(crlf, "lua-x"))
+        end)
+
+        it("look for the required output only in the Output section", function()
+            for _, cut in ipairs({
+                { "as the last line", "somewhere", "It ends as the last line." },
+                { "   %- `CHANGES REQUESTED`[^\n]*\n", "", "   - `CHANGES REQUESTED`: not (#1)." },
+            }) do
+                local moved = good:gsub(cut[1], cut[2]) .. "\n## Other\n\n" .. cut[3] .. "\n"
+                assert.is_falsy(section(moved, "Output"):find(cut[3], 1, true), cut[1])
+                assert.are_not.same({}, agentProblems(moved, "lua-x"), cut[1])
+            end
+        end)
+
+        it("pass a complete skill, and catch one with the wrong name, no description or no front matter", function()
+            local skill = "---\nname: merge-x\ndescription: Does it.\n---\n\n# Merge x\n"
+            assert.are.same({}, skillProblems(skill, "merge-x"))
+            for _, cut in ipairs({ { "name: merge%-x", "name: other" }, { "description: Does it%.", "description:" },
+                { "^%-%-%-\n", "" }, { "^", "# Title\n\n" } }) do
+                local broken = skill:gsub(cut[1], cut[2])
+                assert.are_not.equal(skill, broken, cut[1])
+                assert.are_not.same({}, skillProblems(broken, "merge-x"), cut[1])
+            end
+        end)
+
+        it("catch a fact with no source, and a launch check that doesn't link #50", function()
+            assert.are.same({}, factProblems("# T\n\nProse needs none.\n- A fact (#34).\n"
+                .. "- See https://example.org.\n- A **launch check** (#50).\n"
+                .. "- A launch check ([#50](https://github.com/o/r/issues/50#issuecomment-1)).\n"))
+            assert.are.equal(1, #factProblems("- A fact with no source.\n"))
+            assert.are.equal(1, #factProblems("- A launch check (#34).\n"))
+            assert.are.equal(1, #factProblems("- A launch check (#500).\n"))
+            assert.are.equal(1, #factProblems("- A launch check ([#50]()).\n"))
+            assert.are.equal(1, #factProblems("From #32 ([its comment]()).\n"))
+            assert.are.same({}, factProblems("- A launch check ([#50](https://github.com/o/r/issues/50#c-1)).\n"))
+            assert.are.equal(1, #factProblems("- A launch check ([#50](https://github.com/o/r/issues/32#c-1)).\n"))
+            assert.are.equal(1, #factProblems("- Fixed in [#94](https://github.com/o/r/pull/93).\n"))
+            assert.are.same({}, factProblems("- A launch check ([its item](https://github.com/o/r/issues/50#c-1)).\n"))
+            assert.are.equal(1, #factProblems("- A launch check ([its item](https://github.com/o/r/issues/32#c-1)).\n"))
+            assert.are.equal(1, #factProblems("- A fact ([#34]( )).\n"))
+        end)
+
+        it("check nested bullets like any other", function()
+            assert.are.equal(1, #factProblems("- A fact (#34):\n  - and one with no source.\n"))
+            assert.are.equal(1, #factProblems("- Facts (#34):\n  - a launch check (#34).\n"))
+        end)
+
+        it("check every row of a table for its source", function()
+            local tableText = "| Quirk | Workaround | Source |\n|---|---|---|\n| It wraps. | Measure it. | #91 |\n"
+                .. "| It logs twice. | Drop repeats. | `ui-sim.yml` |\n"
+            assert.are.same({}, factProblems(tableText))
+            local unsourced = tableText:gsub("| #91 |", "|  |")
+            assert.are_not.equal(tableText, unsourced)
+            assert.are.equal(1, #factProblems(unsourced))
+            assert.are.equal(1, #factProblems(tableText .. "| A launch check. | None. | #34 |\n"))
+            assert.are.equal(1, #factProblems(tableText .. "| It's slow. | Wait. |  |   \n"))
+        end)
+    end)
+
+    for _, name in ipairs(AGENTS) do
+        it(".claude/agents/" .. name .. ".md names its required output, ending in APPROVED or CHANGES REQUESTED,"
+            .. " and cites every lesson", function()
+            assert.are.same({}, agentProblems(wow.readFile(".claude/agents/" .. name .. ".md"), name))
+        end)
+    end
+
+    for _, name in ipairs(SKILLS) do
+        it(".claude/skills/" .. name .. " is a skill named " .. name, function()
+            assert.are.same({}, skillProblems(wow.readFile(".claude/skills/" .. name .. "/SKILL.md"), name))
+        end)
+    end
+
+    -- Files of game and simulator facts: every bullet has its source.
+    for _, path in ipairs({ "docs/forever-facts.md", "docs/ui-simulator.md" }) do
+        it(path .. " gives every fact a source, and links #50 for every launch check", function()
+            assert.are.same({}, factProblems(wow.readFile(path)))
+        end)
+    end
+
+    -- The simulated client's guide describes the code: that's its source.
+    it("docs/simulated-client.md names spec/support/wow.lua as its source, and links #50 for every launch check",
+        function()
+            local text = wow.readFile("docs/simulated-client.md")
+            assert.is_truthy(text:find("**Source:** everything here describes `spec/support/wow.lua`", 1, true))
+            for _, problem in ipairs(factProblems(text)) do
+                assert.is_falsy(problem:find("^launch check"), problem)
+            end
+        end)
+
+    it("CLAUDE.md sends reviews to the agents and points to every knowledge file and skill", function()
+        local text = wow.readFile("CLAUDE.md")
+        for _, name in ipairs(AGENTS) do assert.is_truthy(text:find("`" .. name .. "`", 1, true), name) end
+        for _, name in ipairs(SKILLS) do assert.is_truthy(text:find("`" .. name .. "`", 1, true), name) end
+        for _, path in ipairs(DOCS) do assert.is_truthy(text:find("(" .. path .. ")", 1, true), path) end
+        assert.is_truthy(text:find("**Keep them current:**", 1, true), "the keep-current rule")
     end)
 end)
