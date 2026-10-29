@@ -576,7 +576,7 @@ local function cast(args)
             local list = redirected and M.flaggedElsewhere or M.flaggedBy
             list[#list + 1] = target.id
         end
-        M.landed[#M.landed + 1] = { spell = name, id = id, target = target.id }
+        M.landed[#M.landed + 1] = { spell = name, id = id, target = target.id, at = M.now }
         M.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, id)
     end
     local latency = M.state.castLatency or 0
@@ -1625,6 +1625,8 @@ local function wants(r, sender, msg)
 end
 
 -- net = M.network({ clientA, clientB }). Clients in a guild share it.
+-- net.lose = function(msg, sender, receiver) -> true drops that copy of a
+-- message on its way (a chaos test's message loss, #36).
 function M.network(clients)
     local net = { clients = clients, seen = {} }
     for _, c in ipairs(clients) do net.seen[c] = 0 end
@@ -1652,7 +1654,8 @@ function M.deliver(net)
             local msg = out.msg
             for _, r in ipairs(net.clients) do
                 M.use(r)
-                if wants(r, out.sender, msg) and M.addonPrefixes[msg.prefix] then
+                if wants(r, out.sender, msg) and M.addonPrefixes[msg.prefix]
+                    and not (net.lose and net.lose(msg, out.sender, r)) then
                     M.fire("CHAT_MSG_ADDON", msg.prefix, msg.text, msg.channel, senderName(out.sender), "", 0, 0, "", 0)
                 end
             end

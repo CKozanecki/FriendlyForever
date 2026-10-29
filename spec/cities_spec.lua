@@ -37,9 +37,10 @@ describe("Quiet mode in capital cities", function()
         wow.gainBuff({ sourceUnit = token or "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
     end
 
-    -- Past the thank-you's delay, with a key press for a waiting /say.
+    -- Past the thank-you's delay, and its hold while the button is armed for
+    -- them (#36), with a key press for a waiting /say.
     local function settle()
-        wow.advance(ns.db.buff.delay + 0.01)
+        wow.advance(math.max(ns.db.buff.delay, ns.Exchange.HOLD_CAP) + 0.01)
         wow.keyDown()
     end
 
@@ -200,7 +201,7 @@ describe("Quiet mode in capital cities", function()
             ns.db.buff.useWhisper = true
             stranger()
             buffedBy()
-            wow.advance(ns.db.buff.delay + 0.01)
+            wow.advance(math.max(ns.db.buff.delay, ns.Exchange.HOLD_CAP) + 0.01)
             assert.are.equal(1, #wow.sentTo("WHISPER"))
             wow.setMap(wow.CAPITAL.undercity)
             wow.systemMessage("No player named '" .. wow.sent[1].target .. "' is currently playing.")

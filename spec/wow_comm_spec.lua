@@ -1,4 +1,4 @@
--- Spec: #32, #37
+-- Spec: #32, #37, #36
 -- The simulated client's addon messages and its several-clients network,
 -- which the hidden channel's tests rely on: if these were wrong, those
 -- tests could pass while the addon breaks the game's rules.
@@ -176,6 +176,21 @@ describe("The simulated network of clients", function()
         assert.are.same({}, heard.a, "not to yourself")
     end)
 
+    it("drops each copy of a message net.lose says to, and only that copy (white, #36)", function()
+        local asked = {}
+        net.lose = function(msg, sender, receiver)
+            asked[#asked + 1] = msg.text .. ":" .. sender.full .. ">" .. receiver.full
+            return receiver == b
+        end
+        from(a, "g", "GUILD")
+        from(a, "w", "WHISPER", "Bo-Lake")
+        assert.are.same({}, heard.b)
+        assert.are.equal(1, #heard.c, "Cid still hears the guild message")
+        assert.are.equal(1, #heard.a, "and it still comes back to Ann")
+        assert.are.same({ "g:Ann-Vale>Ann-Vale", "g:Ann-Vale>Bo-Lake", "g:Ann-Vale>Cid-Rock",
+            "w:Ann-Vale>Bo-Lake" }, asked, "asked only about copies that would arrive")
+    end)
+
     it("delivers a group message to the group and back to its sender, not to others (white)", function()
         from(a, "p", "PARTY")
         assert.are.equal(1, #heard.a)
@@ -298,8 +313,18 @@ describe("Buffs between simulated clients (#37)", function()
         castOn({ name = "Bo", surname = "Lake", id = "Bo-Lake" })
         wow.state.castFailures["Bo-Lake"] = "Out of range"
         castOn({ name = "Bo", surname = "Lake", id = "Bo-Lake" })
-        assert.are.same({ { spell = "Mark of the Wild", id = MOTW_1, target = "Bo-Lake" } }, wow.landed)
+        assert.are.same({ { spell = "Mark of the Wild", id = MOTW_1, target = "Bo-Lake", at = wow.now } }, wow.landed)
         assert.are.equal(2, #wow.casts)
+    end)
+
+    it("records when each cast landed, latency included (white, #36)", function()
+        wow.use(a)
+        wow.state.castLatency = 0.5
+        local sentAt = wow.now
+        castOn({ name = "Bo", surname = "Lake", id = "Bo-Lake" })
+        assert.are.same({}, wow.landed, "not before the server answers")
+        wow.advance(1)
+        assert.are.equal(sentAt + 0.5, wow.landed[1].at)
     end)
 
     it("brings a landed buff to its target only, once, named by its first token showing the caster (white)", function()

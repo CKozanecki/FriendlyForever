@@ -199,7 +199,11 @@ end
 
 -- caster: full player name (also the whisper target), or BuffTracker.UNKNOWN_KEY.
 -- unit: the token the caster was seen under, if any (for the /thank emote).
-function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
+-- spellId: the buff's spell ID when readable (crossed off their copy's plan).
+function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId)
+    local unknown = caster == BuffTracker.UNKNOWN_KEY
+    -- Part of an exchange with them (Exchange.lua), which has one thank-you.
+    local thankedAlready = not unknown and ns.Exchange.NoteReceived(caster, spellId)
     local existing = batches[caster]
     if existing then
         AddToBatch(existing, buffKey, spellName)
@@ -208,7 +212,6 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
         return
     end
 
-    local unknown = caster == BuffTracker.UNKNOWN_KEY
     local entry = ns.Ledger.Received(unknown and ns.Ledger.UNKNOWN or caster, spellName)
 
     if not unknown and ns.Ignore.Has(caster) then
@@ -222,6 +225,11 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
     if unknown and not cfg.fallbackToSay then
         ns.Diag.Log("buff", "not thanking: caster can't be named and the /say fallback is off")
         ns.Ledger.Settle(entry, false, "couldn't tell who it was")
+        return
+    end
+    if thankedAlready then
+        ns.Diag.Log("buff", "not thanking %s: thanked them already in this exchange", caster)
+        ns.Ledger.Settle(entry, false, "thanked them already in this exchange")
         return
     end
 
@@ -267,12 +275,17 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
 
     -- Someone we can't name can't be whispered: they get the /say fallback.
     local whisper = cfg.useWhisper and not unknown
+    -- After the delay, held until the exchange with them is done (Exchange.lua;
+    -- someone unnamed has none, so theirs goes at once).
+    local firstAt = GetTime()
+    local function hold(go) ns.Exchange.Hold(caster, firstAt, go) end
     local scheduled, why = false, nil
     if withLine then
         local ok, reason = ns.Announcer.Schedule("buff", caster, {
             channel = whisper and "WHISPER" or "SAY",
             target = whisper and caster or nil,
             cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
+            hold = hold,
             maxAge = (not whisper) and BuffTracker.SAY_MAX_AGE or nil,
             dropOverCap = true,
             isValid = StillWanted,
@@ -298,6 +311,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
             emote = "THANK",
             emoteTarget = EmoteTarget(caster, unit),
             cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
+            hold = hold,
             maxAge = BuffTracker.SAY_MAX_AGE,
             dropOverCap = true,
             isValid = StillWanted,
@@ -435,7 +449,7 @@ local function HandleAddedAura(aura, now)
     ns.Diag.Log("buff", "%s (spell %s): %s -> %s", spellName or "?", spellId, reason,
         caster and ("thank " .. caster) or "skip")
     if caster then
-        BuffTracker.AddBuff(caster, spellName or spellId or ReadAuraId(aura) or "?", spellName, unit)
+        BuffTracker.AddBuff(caster, spellName or spellId or ReadAuraId(aura) or "?", spellName, unit, spellId)
     end
 end
 

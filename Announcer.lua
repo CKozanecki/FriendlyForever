@@ -106,6 +106,8 @@ end
 --              and an emote for the same player don't block each other.
 --   emoteTarget = optional function() -> unit token to aim the emote at, or nil,
 --   dropOverCap = optional true for thanks: dropped, not held, over the chat cap,
+--   hold     = optional function(go): after the delay, call go() once when the
+--              message may be queued (a thank-you waits for its exchange: #36),
 -- }
 -- Returns true if a message was scheduled, or false and the reason not.
 local function Skip(msgType, key, reason)
@@ -136,7 +138,7 @@ function Announcer.Schedule(msgType, key, opts)
     local delay = opts.delay or cfg.delay
     ns.Diag.Log(msgType, "scheduled for %s in %ss", key, delay)
 
-    C_Timer.After(delay, ns.Diag.Wrap(function()
+    local function Queue()
         ns.ChatQueue.Push({
             channel = opts.emote and "EMOTE" or opts.channel,
             target = opts.target,
@@ -158,6 +160,9 @@ function Announcer.Schedule(msgType, key, opts)
             automatic = true,
             dropOverCap = opts.dropOverCap,
         })
+    end
+    C_Timer.After(delay, ns.Diag.Wrap(function()
+        if opts.hold then opts.hold(Queue) else Queue() end
     end))
     return true
 end
