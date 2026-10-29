@@ -1,4 +1,4 @@
--- Spec: #64
+-- Spec: #52, #64
 -- Layout: the buff-back button's text stays inside the button, and on each
 -- options tab the message list follows the last row that tab shows. The
 -- checks work from the simulated client's own anchors and text widths
@@ -115,6 +115,52 @@ describe("Layout", function()
             assert.are.equal("Wolfgangamad Wolfgangamad", button.title:GetText())
             assertInside(button, button.title, "the name")
             assertInside(button, button.subtitle, "the favour")
+        end)
+    end)
+
+    describe("the Favour Ledger page", function()
+        it("keeps each row on one line, cut with …, so a long one can't push the rows below it off the page", function()
+            local ns = wow.boot()
+            local entry = ns.Ledger.Received("Aerendhiliel-Stormwhisper", "Power Word: Fortitude")
+            ns.Ledger.AddBuff(entry, "Divine Spirit")
+            ns.Ledger.AddBuff(entry, "Shadow Protection")
+            ns.Ledger.Settle(entry, false, "too many messages waiting")
+            ns.Ledger.NoteNotReturned(entry, "the time to return it ran out")
+            ns.Options.FillLedger()
+            local _, page = ns.Options.Pages()
+            page:SetWidth(665) -- as the Settings panel sizes it in the UI simulator (LAYOUT 573..1238)
+            local row = ns.Options.widgets.ledger.rows[1]
+            local drawn = wow.drawnText(row, page)
+            assert.are.equal(1, drawn.lines)
+            assert.truthy(drawn.text:find("…", 1, true), "a row longer than the page is cut, not wrapped")
+            assert.truthy(row:GetText():find("Shadow Protection", 1, true), "the row still holds the whole line")
+        end)
+    end)
+
+    describe("the copy window", function()
+        -- A line of the small font the hint uses, in pixels: the UI simulator
+        -- draws two of them 33 px tall (docs/ui-simulator.md), so 17 is the
+        -- pessimistic choice. The game's real height is checked on #50.
+        local SMALL_LINE = 17
+
+        it("keeps its hint to two lines, above the text box, for export, import and the bug report", function()
+            local ns = wow.boot()
+            for _, command in ipairs({ "export", "import", "report" }) do
+                slash(command)
+                local window = ns.Window.Frame()
+                local drawn = wow.drawnText(window.hint, window)
+                assert.is_true(drawn.lines <= 2, command .. ": the hint wraps onto " .. drawn.lines .. " lines")
+                local _, _, _, _, hintTop = window.hint:GetPoint(1)
+                local _, _, _, _, boxTop = window.scroll:GetPoint(1)
+                assert.is_true(boxTop <= hintTop - 2 * SMALL_LINE - 4,
+                    ("%s: the text box starts at %d, inside the hint's two lines from %d"):format(command, boxTop, hintTop))
+            end
+        end)
+
+        it("cuts a hint too long for two lines, rather than running into the text box", function()
+            local ns = wow.boot()
+            ns.Window.Show({ title = "Test", hint = string.rep("a very long hint ", 40) })
+            assert.are.equal(2, wow.drawnText(ns.Window.Frame().hint, ns.Window.Frame()).lines)
         end)
     end)
 

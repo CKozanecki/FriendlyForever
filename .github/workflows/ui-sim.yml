@@ -183,15 +183,21 @@ jobs:
           unzip -q dist/FriendlyForever-*.zip -d "$addons"
           chmod -R a-w "$addons"
 
-      # One script per state of the buff-back button (#83): the scenarios'
-      # own setup, uitests/button_states.lua, then the state to show.
-      - name: Stage the button-state scripts
+      # One script per state of the buff-back button (#83) and per filled
+      # options page (#52): the scenarios' own setup (uitests/button_states.lua
+      # or uitests/pages.lua), then what to show.
+      - name: Stage the screenshot scripts
         run: |
           states="$RUNNER_TEMP/shot-lua"
           mkdir -p "$states"
           for state in favour buffmode; do
             { cat uitests/button_states.lua; printf '\nFriendlyForeverUIStates.Show("%s")\n' "$state"; } \
               > "$states/$state.lua"
+          done
+          # The phase 1 options pages (#52), filled by uitests/pages.lua.
+          for page in general ledger; do
+            { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.Show("%s")\n' "$page"; } \
+              > "$states/page-$page.lua"
           done
           chmod -R a-w "$states"
 
@@ -278,8 +284,10 @@ jobs:
           DOCKERFILE
 
       - name: Take screenshots (no network, addon read-only)
-        # A backstop: the shots below stop themselves well inside this.
-        timeout-minutes: 15
+        # A backstop: the shots below stop themselves inside this. Each one
+        # that hits its own 180 s limit takes about 200 s with its checks and
+        # clean-up, so 9 shots and the probe take at most about 31 minutes.
+        timeout-minutes: 35
         run: |
           # WOW_SIM_CASC=0: never look for game files (no WoW install here).
           # Each shot runs as a detached container capped at 6 GB and 3 CPUs,
@@ -343,6 +351,11 @@ jobs:
           shoot button-favour --exec-lua @/shot-lua/favour.lua
           # Buff mode, with a party member missing your buff.
           shoot button-buffmode --exec-lua @/shot-lua/buffmode.lua
+          # The General and Favour Ledger pages, filled with long names and
+          # many entries, and the copy window as /friendly export opens it (#52).
+          shoot options-general --exec-lua @/shot-lua/page-general.lua
+          shoot options-ledger --exec-lua @/shot-lua/page-ledger.lua
+          shoot copy-window --exec-lua "SlashCmdList.FRIENDLYFOREVER('export')"
           ls -la "$RUNNER_TEMP/shots"
           for log in "$RUNNER_TEMP"/shots/*.log; do
             echo "::group::$(basename "$log")"; tail -60 "$log"; echo "::endgroup::"
