@@ -61,6 +61,11 @@ describe("Addon icon", function()
             assert.are.equal(ICON, _G.FriendlyForeverMinimapButton.icon.texture)
         end)
 
+        it("the minimap button shows the whole icon, not cropped like a game icon", function()
+            wow.boot()
+            assert.is_nil(_G.FriendlyForeverMinimapButton.icon.texCoord)
+        end)
+
         it("the compartment entry uses the new icon", function()
             wow.boot()
             assert.are.equal(1, #wow.compartment)
@@ -129,7 +134,7 @@ describe("Addon icon", function()
                 ["RLE compression"] = patch(good, 2, 10),
                 ["the wrong width"] = patch(good, 12, 32),
                 ["the wrong height"] = patch(good, 14, 128),
-                ["24 bits, no alpha"] = patch(patch(good, 16, 24), 17, 0),
+                ["24 bits per pixel"] = patch(good, 16, 24),
                 ["32 bits but no alpha bits"] = patch(good, 17, 0),
                 ["interleaved rows"] = patch(good, 17, 8 + 64),
                 ["an unused alpha channel"] = goodTga(true),
