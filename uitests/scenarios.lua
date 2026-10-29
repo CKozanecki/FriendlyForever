@@ -174,16 +174,29 @@ local function ButtonStatus()
     return ok and table.concat(lines, " / ") or "(couldn't ask: " .. tostring(lines) .. ")"
 end
 
+-- Blizzard UI errors already reported, so each is printed once.
+local notedErrors = {}
+
 local function InState(state, fn)
     local States = FriendlyForeverUIStates
     check(type(States) == "table", "button_states.lua didn't load before this file")
-    local errors = States.Watch(function()
+    local failures, others = States.Watch(function()
         state.Set()
         fn(States.Button(), States)
     end)
-    local undoErrors = States.Watch(state.Undo)
-    check(#errors == 0, table.concat(errors, " | ") .. "\n  the button: " .. ButtonStatus())
-    check(#undoErrors == 0, "putting it back: " .. table.concat(undoErrors, " | "))
+    local undoFailures, undoOthers = States.Watch(state.Undo)
+    -- Not the addon's: reported, not failed (see States.Watch).
+    for _, list in ipairs({ others, undoOthers }) do
+        for _, text in ipairs(list) do
+            local first = text:match("^[^\n]*")
+            if not notedErrors[first] then
+                notedErrors[first] = true
+                report("NOTE Blizzard UI error in the simulator, not the addon's: " .. first)
+            end
+        end
+    end
+    check(#failures == 0, table.concat(failures, " | ") .. "\n  the button: " .. ButtonStatus())
+    check(#undoFailures == 0, "putting it back: " .. table.concat(undoFailures, " | "))
 end
 
 local function Expect(ok, what)
@@ -232,11 +245,11 @@ end)
 local BAD_SOURCES = { "", "nameplate77", "target", "party3", "player", 42, true, { "target" } }
 
 test("a buff naming an unknown or empty unit leaves the button empty, with no Lua error", function()
-    InState(FriendlyForeverUIStates.Favour, function(_, States)
-        -- Favour's Set has made Aria a favour already: let it go first.
-        States.Favour.Undo()
-        States.PassLoginGrace()
-        States.Learn()
+    local States = FriendlyForeverUIStates
+    local stranger = "Cael Morrow"
+    local learned = { Set = function() States.PassLoginGrace(); States.Learn() end,
+        Undo = States.FavourFrom(stranger).Undo }
+    InState(learned, function()
         ExpectEmpty(States, "before any buff")
         States.BuffedBy(nil)
         ExpectEmpty(States, "a buff naming no caster")
@@ -245,9 +258,9 @@ test("a buff naming an unknown or empty unit leaves the button empty, with no Lu
             ExpectEmpty(States, "a buff from " .. tostring(source))
         end
         -- The same buff from a real player does fill it: the fixture works.
-        States.Target(States.STRANGER)
+        States.Target(stranger)
         States.BuffedBy("target")
-        Expect(States.MacroTarget() == States.STRANGER, "a buff from your target owes no favour")
+        Expect(States.MacroTarget() == stranger, "a buff from your target owes no favour")
     end)
 end)
 
@@ -261,12 +274,13 @@ local function Random(seed)
 end
 
 test("entering combat empties the button, leaving fills it again; storms never error", function()
-    InState(FriendlyForeverUIStates.Favour, function(button, States)
-        Expect(States.MacroTarget() == States.STRANGER, "no favour to start with")
+    local stranger = "Daria Venn"
+    InState(FriendlyForeverUIStates.FavourFrom(stranger), function(button, States)
+        Expect(States.MacroTarget() == stranger, "no favour to start with")
         States.Combat(true)
         ExpectEmpty(States, "in combat")
         States.Combat(false)
-        Expect(button:IsShown() and States.MacroTarget() == States.STRANGER,
+        Expect(button:IsShown() and States.MacroTarget() == stranger,
             "the button didn't fill again after combat")
 
         -- A storm of fights, buffs from anyone, targets and roster changes.
@@ -280,13 +294,13 @@ test("entering combat empties the button, leaving fills it again; storms never e
             function() if not fighting then States.Combat(true); fighting = true end end,
             function() if fighting then States.Combat(false); fighting = false end end,
             function() States.BuffedBy(sources[roll(#sources)]) end,
-            function() States.Target(States.STRANGER) end,
+            function() States.Target(stranger) end,
             function() States.Target(nil) end,
             function() States.Party(States.GROUPMATE) end,
             function() States.Party(nil) end,
             function() States.Advance(roll(4) - 1) end,
         }
-        local allowed = { [States.STRANGER] = true, [States.GROUPMATE] = true }
+        local allowed = { [stranger] = true, [States.GROUPMATE] = true }
         for step = 1, 60 do
             local which = roll(#steps)
             steps[which]()
@@ -302,11 +316,11 @@ test("entering combat empties the button, leaving fills it again; storms never e
             end
         end
 
-        -- After the storm: out of the fight and the party, Aria targeted.
+        -- After the storm: out of the fight and the party, the stranger targeted.
         if fighting then States.Combat(false) end
         States.Party(nil)
-        States.Target(States.STRANGER)
-        Expect(button:IsShown() and States.MacroTarget() == States.STRANGER,
+        States.Target(stranger)
+        Expect(button:IsShown() and States.MacroTarget() == stranger,
             "the favour didn't come back after the storm")
     end)
 end)

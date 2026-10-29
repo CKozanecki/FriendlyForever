@@ -209,17 +209,47 @@ function States.MacroTarget()
     return type(macro) == "string" and macro:match("/targetexact ([^\n]+)") or nil
 end
 
--- Runs fn, catching Lua errors from the addon as well as from fn: the addon
--- hands its own to the error handler (Diagnostics.lua) and carries on.
--- Returns the errors seen, as text.
+-- How many Lua errors the addon has caught in itself, as /friendly status
+-- reports it: every one of its event handlers and timers runs through
+-- Diag.Call (Diagnostics.lua), which counts them. nil if it can't be read.
+function States.AddonErrorCount()
+    local chat = DEFAULT_CHAT_FRAME
+    local original, count = chat.AddMessage, nil
+    chat.AddMessage = function(_, text)
+        count = count or tonumber(tostring(text):match("Lua errors in this addon: (%d+)"))
+    end
+    local ok = pcall(Command, "status")
+    chat.AddMessage = original
+    return ok and count or nil
+end
+
+-- Runs fn and sorts the Lua errors seen meanwhile. Returns two lists of
+-- error text:
+--   failures  fn's own error, and errors the addon caught in itself (its
+--             error count went up: the messages handed to the error
+--             handler are listed with them)
+--   others    errors the error handler saw while the addon's count stayed
+--             put: Blizzard's own UI tripping over what the simulator
+--             doesn't model (its TargetFrame, raid frames and voice chat
+--             answer some events with errors there)
 function States.Watch(fn, ...)
-    local errors = {}
+    local seen = {}
+    local before = States.AddonErrorCount()
     local previous = geterrorhandler()
-    seterrorhandler(function(err) errors[#errors + 1] = tostring(err) end)
+    seterrorhandler(function(err) seen[#seen + 1] = tostring(err) end)
     local ok, err = pcall(fn, ...)
     seterrorhandler(previous)
-    if not ok then errors[#errors + 1] = tostring(err) end
-    return errors
+    local after = States.AddonErrorCount()
+    local failures, others = {}, seen
+    if not (before and after) then
+        failures[1] = "the addon's error count can't be read (/friendly status)"
+    elseif after > before then
+        failures[1] = ("the addon caught %d Lua error(s) in itself"):format(after - before)
+        for _, text in ipairs(seen) do failures[#failures + 1] = text end
+        others = {}
+    end
+    if not ok then failures[#failures + 1] = tostring(err) end
+    return failures, others
 end
 
 ------------------------------------------------------------------------
@@ -229,29 +259,36 @@ end
 -- Each state has Set, which sets it up, and Undo, which puts everything
 -- back. Undo is safe to run however far Set got, or twice.
 
--- A favour owed: Aria, your target, buffs you from outside your group.
--- Undo ends any fight and party a scenario left, lets her favour go with a
--- right-click (the player's way), turns off buff mode (the "someone buffed
--- you" trigger turns it on), and waits out the line under the button.
-States.Favour = {
-    Set = function()
-        States.PassLoginGrace()
-        States.Learn()
-        States.Target(States.STRANGER)
-        States.BuffedBy("target")
-    end,
-    Undo = function()
-        if InCombatLockdown() then States.Combat(false) end
-        local button = States.Button()
-        if button and States.MacroTarget() == States.STRANGER then button:Click("RightButton") end
-        Command("buffmode off")
-        if IsInGroup() then States.Party(nil) end
-        States.Unbuff()
-        States.Target(nil)
-        States.Unlearn()
-        States.Advance(States.RESULT_SECONDS)
-    end,
-}
+-- A favour owed: name (Aria by default), your target, buffs you from
+-- outside your group. Each scenario uses its own stranger: a second buff
+-- from someone whose thank-you is still waiting joins that thank-you and
+-- owes nothing new (BuffTracker.lua), and on this clock their thank-you
+-- waits until the scenario moves time on. Undo ends any fight and party a
+-- scenario left, lets the favour go with a right-click (the player's way),
+-- turns off buff mode (the "someone buffed you" trigger turns it on), and
+-- waits out the line under the button.
+function States.FavourFrom(name)
+    return {
+        Set = function()
+            States.PassLoginGrace()
+            States.Learn()
+            States.Target(name)
+            States.BuffedBy("target")
+        end,
+        Undo = function()
+            if InCombatLockdown() then States.Combat(false) end
+            local button = States.Button()
+            if button and States.MacroTarget() == name then button:Click("RightButton") end
+            Command("buffmode off")
+            if IsInGroup() then States.Party(nil) end
+            States.Unbuff()
+            States.Target(nil)
+            States.Unlearn()
+            States.Advance(States.RESULT_SECONDS)
+        end,
+    }
+end
+States.Favour = States.FavourFrom(States.STRANGER)
 
 -- Buff mode, in a party with Brenna, who is missing your buff.
 States.GroupMissing = {
