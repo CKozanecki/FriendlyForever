@@ -466,7 +466,8 @@ exit 0
 ]=]
 
     -- Runs a script as GitHub Actions runs a step with shell: bash (bash
-    -- --noprofile --norc -eo pipefail), with the fake curl first on PATH. files are written next to it first.
+    -- --noprofile --norc -eo pipefail), with the fake curl first on PATH.
+    -- files are written next to it first.
     -- Returns the exit code, the output, the curl calls, what curl read on
     -- stdin, and the step summary.
     local function runStep(script, env, files)
