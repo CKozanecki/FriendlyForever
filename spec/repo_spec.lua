@@ -845,19 +845,25 @@ describe("Claude sessions' agents, knowledge and skills", function()
         return problems
     end
 
-    -- Facts without a source (an issue or a link), and launch checks that
-    -- don't link #50, in a knowledge file.
+    -- Facts without a source, and launch checks that don't link #50, in a
+    -- knowledge file. A bullet's source is an issue or a link; a table row's
+    -- is its last cell (an issue, or the file it comes from). A link with no
+    -- address goes nowhere, so it counts as no link.
     local function factProblems(text)
         local problems = {}
         for _, line in ipairs(splitLines(text)) do
-            if line:match("^%s*%- ") then
-                if not (line:find("#%d+") or line:find("https?://")) then
-                    problems[#problems + 1] = "no source: " .. line
-                end
-                if line:lower():find("launch check", 1, true) and not (line:find("#50%f[%D]")
-                    or line:find("/issues/50#", 1, true)) then
-                    problems[#problems + 1] = "launch check without #50: " .. line
-                end
+            local row = line:match("^|(.*)|%s*$")
+            local fact = line:match("^%s*%- ") or row
+            if line:find("%]%(%s*%)") then problems[#problems + 1] = "empty link: " .. line end
+            if line:match("^%s*%- ") and not (line:find("#%d+") or line:find("https?://")) then
+                problems[#problems + 1] = "no source: " .. line
+            end
+            if row and not row:match("([^|]*)$"):find("%S") then
+                problems[#problems + 1] = "no source: " .. line
+            end
+            if fact and line:lower():find("launch check", 1, true) and not (line:find("#50%f[%D]")
+                or line:find("/issues/50#", 1, true)) then
+                problems[#problems + 1] = "launch check without #50: " .. line
             end
         end
         return problems
@@ -917,6 +923,18 @@ describe("Claude sessions' agents, knowledge and skills", function()
             assert.are.equal(1, #factProblems("- A fact with no source.\n"))
             assert.are.equal(1, #factProblems("- A launch check (#34).\n"))
             assert.are.equal(1, #factProblems("- A launch check (#500).\n"))
+            assert.are.equal(1, #factProblems("- A launch check ([#50]()).\n"))
+            assert.are.equal(1, #factProblems("From #32 ([its comment]()).\n"))
+        end)
+
+        it("check every row of a table for its source", function()
+            local tableText = "| Quirk | Workaround | Source |\n|---|---|---|\n| It wraps. | Measure it. | #91 |\n"
+                .. "| It logs twice. | Drop repeats. | `ui-sim.yml` |\n"
+            assert.are.same({}, factProblems(tableText))
+            local unsourced = tableText:gsub("| #91 |", "|  |")
+            assert.are_not.equal(tableText, unsourced)
+            assert.are.equal(1, #factProblems(unsourced))
+            assert.are.equal(1, #factProblems(tableText .. "| A launch check. | None. | #34 |\n"))
         end)
     end)
 
