@@ -30,6 +30,7 @@ on:
       - "*.lua"
       - "*.toc"
       - "*.xml"
+      - "Media/**"
   pull_request:
     paths:
       - "uitests/**"
@@ -39,6 +40,7 @@ on:
       - "*.lua"
       - "*.toc"
       - "*.xml"
+      - "Media/**"
   workflow_dispatch:
 
 concurrency:
@@ -181,6 +183,18 @@ jobs:
           unzip -q dist/FriendlyForever-*.zip -d "$addons"
           chmod -R a-w "$addons"
 
+      # One script per state of the buff-back button (#83): the scenarios'
+      # own setup, uitests/button_states.lua, then the state to show.
+      - name: Stage the button-state scripts
+        run: |
+          states="$RUNNER_TEMP/shot-lua"
+          mkdir -p "$states"
+          for state in favour buffmode; do
+            { cat uitests/button_states.lua; printf '\nFriendlyForeverUIStates.Show("%s")\n' "$state"; } \
+              > "$states/$state.lua"
+          done
+          chmod -R a-w "$states"
+
       - name: Fetch the simulator and Blizzard's UI code at their pinned commits
         run: |
           git init -q "$RUNNER_TEMP/sim"
@@ -287,6 +301,7 @@ jobs:
               -v "$RUNNER_TEMP/sim-target/release:/sim:ro" \
               -v "$RUNNER_TEMP/blizzard-ui/Interface/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
               -v "$RUNNER_TEMP/addons:/test-addons:ro" \
+              -v "$RUNNER_TEMP/shot-lua:/shot-lua:ro" \
               -v "$RUNNER_TEMP/shots:/shots" \
               ff-render /sim/wow-sim --addons-path /test-addons "$@" \
               screenshot --png --width 1024 --height 768 -o "/shots/$name.png")
@@ -322,6 +337,10 @@ jobs:
           shoot options --exec-lua "SlashCmdList.FRIENDLYFOREVER('')"
           # /friendly move shows the buff back button, unlocked, with nobody owed.
           shoot button --exec-lua "SlashCmdList.FRIENDLYFOREVER('move')"
+          # A favour owed: someone outside your group buffed you.
+          shoot button-favour --exec-lua @/shot-lua/favour.lua
+          # Buff mode, with a party member missing your buff.
+          shoot button-buffmode --exec-lua @/shot-lua/buffmode.lua
           ls -la "$RUNNER_TEMP/shots"
           for log in "$RUNNER_TEMP"/shots/*.log; do
             echo "::group::$(basename "$log")"; tail -60 "$log"; echo "::endgroup::"
