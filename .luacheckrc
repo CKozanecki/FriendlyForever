@@ -60,7 +60,8 @@ files["uitests/**"] = {
         "test", "assertTrue", "assertType", "assertEquals", "assertNotNil",
         "print", "A_Print", "A_Admin", "UIParent",
         "FriendlyForeverDB", "SLASH_FRIENDLYFOREVER1", "SlashCmdList",
-        "GetTime", "UnitClass", "UnitInRange", "InCombatLockdown", "IsInGroup", "C_UnitAuras",
+        "GetTime", "UnitClass", "UnitInRange", "UnitExists", "UnitName", "UnitLevel", "InCombatLockdown",
+        "C_UnitAuras",
         "geterrorhandler", "seterrorhandler",
     },
 }

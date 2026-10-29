@@ -174,15 +174,46 @@ function States.Combat(on)
     end
 end
 
--- Join a party with one other member, or (size 0) leave it. The simulator
--- fires GROUP_ROSTER_UPDATE itself.
+-- The party as it was before the first change here, to put back: nil
+-- until then. The screenshot build starts in a party of four whose members
+-- wear buffs; the scenario run starts in none.
+local savedParty
+
+local function SaveParty()
+    if savedParty then return end
+    savedParty = {}
+    for i = 1, 4 do
+        local unit = "party" .. i
+        if UnitExists(unit) then
+            local _, _, classId = UnitClass(unit)
+            savedParty[#savedParty + 1] = { name = UnitName(unit), class = classId, level = UnitLevel(unit) }
+        end
+    end
+end
+
+-- Join a party with one other member, newly made (so wearing no buffs), or
+-- (no name) leave it. The simulator fires GROUP_ROSTER_UPDATE itself.
 function States.Party(name, classIndex)
+    SaveParty()
+    Admin("SetPartySize", 0)
     if name then
         Admin("SetPartySize", 1)
         Admin("SetPartyMember", 1, name, classIndex or States.WARRIOR, 60)
-    else
-        Admin("SetPartySize", 0)
     end
+end
+
+-- Put the party back as it was (its members' names, classes and levels;
+-- not their buffs), if anything here changed it.
+function States.RestoreParty()
+    if not savedParty then return end
+    Admin("SetPartySize", 0)
+    if #savedParty > 0 then
+        Admin("SetPartySize", #savedParty)
+        for i, member in ipairs(savedParty) do
+            Admin("SetPartyMember", i, member.name, member.class, member.level)
+        end
+    end
+    savedParty = nil
 end
 
 local function Command(text)
@@ -280,7 +311,7 @@ function States.FavourFrom(name)
             local button = States.Button()
             if button and States.MacroTarget() == name then button:Click("RightButton") end
             Command("buffmode off")
-            if IsInGroup() then States.Party(nil) end
+            States.RestoreParty()
             States.Unbuff()
             States.Target(nil)
             States.Unlearn()
@@ -300,7 +331,7 @@ States.GroupMissing = {
     end,
     Undo = function()
         Command("buffmode off")
-        States.Party(nil)
+        States.RestoreParty()
         States.Unlearn()
         States.Advance(States.RESULT_SECONDS)
     end,
