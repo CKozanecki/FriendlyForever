@@ -120,6 +120,7 @@ local function Busy(ex, name, now)
 end
 
 local function SendPlan(name, ex)
+    if ns.Ignore.Has(name) then return end -- ignored mid-exchange: nothing more goes to them
     local plan = Intent(name) or Exchange.NONE
     if plan == ex.sentPlan or ex.plansSent >= Exchange.MAX_PLANS_SENT then return end
     ex.sentPlan, ex.plansSent = plan, ex.plansSent + 1
@@ -196,7 +197,9 @@ function Exchange.Hold(name, firstAt, go)
     ex.held = ex.held or { firstAt = firstAt, goes = {} }
     table.insert(ex.held.goes, go)
     -- Otherwise the ticks, which run while any exchange is open, let it go.
-    if not Busy(ex, name, GetTime()) then Release(name, ex, "nothing holds it") end
+    local now = GetTime()
+    if now - firstAt >= Exchange.MAX_DELAY then return Release(name, ex, "the longest wait is up") end
+    if not Busy(ex, name, now) then Release(name, ex, "nothing holds it") end
 end
 
 -- PLAN from their copy (Comm.lua): the buff keys it will still give you,

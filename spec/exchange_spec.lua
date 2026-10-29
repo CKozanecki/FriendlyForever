@@ -338,6 +338,19 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             assert.are.equal(1, #thanks(a), "and Ann thanks him once")
         end)
 
+        it("a delay past the longest wait: the thank-you goes when the delay ends, held or not", function()
+            pair({ noComm = true, db = { delay = E.MAX_DELAY + 1 } })
+            handCast(a, "Power Word: Fortitude")
+            local at = wow.now
+            advance(E.MAX_DELAY - 1.5)
+            -- Her last buff: within the cap of it, the button would hold her
+            -- past the delay.
+            handCast(a, "Divine Spirit")
+            advance(4)
+            assert.are.equal(1, #thanks(b))
+            assert.are.equal(at + E.MAX_DELAY + 1, thanks(b)[1].time)
+        end)
+
         it("a delay longer than the exchange: the thank-you goes when the delay ends", function()
             pair({ noComm = true, db = { delay = E.GAP + 5 } })
             handCast(a, "Power Word: Fortitude")
@@ -595,6 +608,18 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             assert.are.same({}, plansSent(b))
             assert.are.equal(0, a.ns.Exchange.Count())
             assert.are.equal(0, b.ns.Exchange.Count())
+        end)
+
+        it("ignoring someone mid-exchange sends them nothing more", function()
+            pair()
+            handCast(a, "Power Word: Fortitude")
+            advance(E.TICK + 0.5)
+            assert.are.same({ "motw" }, plansSent(b))
+            wow.use(b)
+            b.ns.Ignore.Add("Ann-Vale")
+            advance(E.MAX_DELAY)
+            assert.are.same({ "motw" }, plansSent(b), "no \"-\" after the ignore")
+            assert.are.same({}, thanks(b))
         end)
 
         it("a caster nobody can name opens no exchange and gets no plan", function()
