@@ -92,6 +92,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A test of a rule in a doc pins the whole line the criterion names (the step, the whole bullet), not a phrase that may sit anywhere in the file (#119: a phrase check passed with "Finishing" no longer flagging stale branches).
 - Checkers that parse text match their real consumer exactly (a differential test against the script, `LC_ALL=C`), run in linear time and are fuzzed (#54, #56).
 - A fake for an external tool checks the arguments that matter (pinned versions, offline and tree flags) and fails the way the real tool would without them. A fake that ignores its arguments lets a changed pin or a network fetch through (#103).
+- A fake that stands in for a long-running tool (Docker) keeps its own clock and its own records, and honours the filters the script relies on. A time limit is checked by when the fake saw the kill, against a job that takes real time, not by the script's message. `ps --filter label=` and `-a` are honoured, and a job fails when the files it's given aren't where it's told to look. Twenty mutations passed #143's first fake, among them killing every shot after a second and cleaning up all of the owner's containers (#139).
 - A check on docs reads the part the reader acts on, not the whole section: a host listed in a table elsewhere doesn't prove it's in the allowlist the owner copies (#103).
 
 **The simulated client**

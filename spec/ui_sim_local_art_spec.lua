@@ -79,34 +79,55 @@ local function linesMatching(text, pattern)
     return found
 end
 
--- A stand-in for docker. It logs each call's arguments, one call a line, to
--- "calls". A detached run (a shot) gets the next container ID, c1, c2 and so
--- on, and plays what the file behave-<shot> says: hang (runs until killed),
--- crash (exits 139), nostart (docker refuses it), plant (exits 0 after
--- planting links, to the path in plant-target, in the folder mounted at
--- /shots) or, by default, ok (exits 0 after writing a PNG into that folder). Its state is a
--- file per container: exists-<id>, and running-<id> while it runs.
--- "no-daemon" makes docker info fail, as when Docker Desktop is stopped;
--- "arch" sets the architecture it reports.
+-- A stand-in for docker, as pessimistic as real Docker where the script
+-- relies on it. It logs each call's arguments, one call a line, to "calls".
+-- A detached run (a shot) gets the next container ID, c1, c2 and so on, keeps
+-- its --label, and plays what the file behave-<shot> says:
+-- - ok (the default): exits 0 after writing its PNG into the folder mounted
+--   at /shots;
+-- - slow:N: runs for N seconds, then writes its PNG and exits 0;
+-- - hang: runs until killed; crash: exits 139; nostart: docker refuses it;
+-- - empty: exits 0 after writing an empty PNG;
+-- - plant: exits 0 after planting links, to the path in plant-target, in the
+--   folder mounted at /shots.
+-- Like the real simulator, a shot fails (exit 1, no PNG) when the addon isn't
+-- in the folder mounted at /test-addons, or its --exec-lua @/shot-lua/<file>
+-- isn't in the folder mounted at /shot-lua. Its state is a file per
+-- container: exists-<id>, label-<id>, running-<id> while it runs, start-<id>
+-- (when it started) and killed-<id> (seconds from start to a kill while it
+-- ran). ps honours -a and --filter label=; without -a it lists only running
+-- containers. "no-daemon" makes docker info fail, as when Docker Desktop is
+-- stopped; "arch" and "ncpu" set the architecture and CPUs it reports.
 local fakeDocker = [=[#!/bin/bash
 dir=$(dirname "$0")
 printf '%s\n' "$*" >> "$dir/calls"
 command=$1; shift
+now() { date +%s; }
+finish() { # container, PNG path
+  rm -f "$dir/running-$1"; echo 0 > "$dir/exit-$1"; printf '\211PNG\r\n\032\n' > "$2"
+}
 case "$command" in
   info)
     [ -f "$dir/no-daemon" ] && exit 1
     case "$*" in
       *Architecture*) cat "$dir/arch" 2>/dev/null || echo x86_64 ;;
       *MemTotal*) echo 16000000000 ;;
-      *NCPU*) echo 4 ;;
+      *NCPU*) cat "$dir/ncpu" 2>/dev/null || echo 4 ;;
     esac ;;
   run)
     [ "$1" = -d ] || exit 0
-    name= shots= previous=
+    name= shots= lua= addons= label= exec= previous=
     for arg in "$@"; do
       case "$previous" in
         -o) name=${arg#/shots/sim-}; name=${name%.png} ;;
-        -v) case "$arg" in *:/shots) shots=${arg%:/shots} ;; esac ;;
+        --label) label=$arg ;;
+        --exec-lua) exec=$arg ;;
+        -v)
+          case "$arg" in
+            *:/shots) shots=${arg%:/shots} ;;
+            *:/shot-lua:ro) lua=${arg%:/shot-lua:ro} ;;
+            *:/test-addons:ro) addons=${arg%:/test-addons:ro} ;;
+          esac ;;
       esac
       previous=$arg
     done
@@ -116,27 +137,58 @@ case "$command" in
     echo "$n" > "$dir/count"
     cid=c$n
     touch "$dir/exists-$cid"
+    printf '%s' "$label" > "$dir/label-$cid"
+    now > "$dir/start-$cid"
+    png="$shots/sim-$name.png"
+    if [ ! -f "$addons/FriendlyForever/FriendlyForever.toc" ]; then behaviour=fail; fi
+    case "$exec" in
+      @/shot-lua/*) [ -f "$lua/${exec#@/shot-lua/}" ] || behaviour=fail ;;
+    esac
     case "$behaviour" in
       hang) touch "$dir/running-$cid" ;;
+      slow:*) touch "$dir/running-$cid"; echo "$(( $(now) + ${behaviour#slow:} )) $png" > "$dir/slow-$cid" ;;
       crash) echo 139 > "$dir/exit-$cid" ;;
+      fail) echo 1 > "$dir/exit-$cid" ;;
+      empty) echo 0 > "$dir/exit-$cid"; : > "$png" ;;
       plant)
         echo 0 > "$dir/exit-$cid"
         for link in README-simulated.txt logs; do ln -s "$(cat "$dir/plant-target")" "$shots/$link"; done ;;
-      *) echo 0 > "$dir/exit-$cid"; printf '\211PNG\r\n\032\n' > "$shots/sim-$name.png" ;;
+      *) finish "$cid" "$png" ;;
     esac
     echo "$cid" ;;
   inspect)
     cid=$3
+    if [ -f "$dir/running-$cid" ] && [ -f "$dir/slow-$cid" ]; then
+      read -r end png < "$dir/slow-$cid"
+      [ "$(now)" -ge "$end" ] && finish "$cid" "$png"
+    fi
     case "$2" in
       *Running*) if [ -f "$dir/running-$cid" ]; then echo true; else echo false; fi ;;
       *ExitCode*) cat "$dir/exit-$cid" ;;
     esac ;;
   kill)
-    if [ -f "$dir/running-$1" ]; then rm -f "$dir/running-$1"; echo 137 > "$dir/exit-$1"; fi ;;
+    if [ -f "$dir/running-$1" ]; then
+      echo $(( $(now) - $(cat "$dir/start-$1") )) > "$dir/killed-$1"
+      rm -f "$dir/running-$1"; echo 137 > "$dir/exit-$1"
+    fi ;;
   rm)
-    for cid; do rm -f "$dir/exists-$cid" "$dir/running-$cid"; done ;;
+    for cid; do [ "$cid" = -f ] || rm -f "$dir/exists-$cid" "$dir/running-$cid"; done ;;
   ps)
-    for file in "$dir"/exists-*; do [ -e "$file" ] && echo "${file##*/exists-}"; done ;;
+    all= filter=
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -a | -aq | -qa) all=1 ;;
+        --filter) filter=${2#label=}; shift ;;
+      esac
+      shift
+    done
+    for file in "$dir"/exists-*; do
+      [ -e "$file" ] || continue
+      cid=${file##*/exists-}
+      [ -n "$all" ] || [ -f "$dir/running-$cid" ] || continue
+      [ -z "$filter" ] || [ "$(cat "$dir/label-$cid" 2>/dev/null)" = "$filter" ] || continue
+      echo "$cid"
+    done ;;
   logs) echo "log of $1" ;;
   stats) echo "1MiB cpu 1%" ;;
 esac
@@ -325,6 +377,10 @@ describe("Local art screenshots script", function()
                     shots = shots + 1
                     assert.are.same({ '"$OUT/shots:/shots"' }, writable)
                     assert.is_truthy(command:find("--read-only", 1, true), "a shot's root is writable")
+                    for _, cap in ipairs({ "--memory 6g --memory-swap 6g", '--cpus "$SHOT_CPUS"', "--pids-limit 4096",
+                        "--init", '--label "$LABEL"' }) do
+                        assert.is_truthy(command:find(cap, 1, true), "a shot runs without " .. cap)
+                    end
                     assert.is_truthy(command:find("--tmpfs /tmp:", 1, true), "a shot has no tmpfs")
                     assert.is_truthy(command:find("-e HOME=/tmp -e XDG_CACHE_HOME=/tmp/.cache", 1, true),
                         "a shot's cache isn't on its tmpfs")
@@ -422,10 +478,32 @@ describe("Local art screenshots script", function()
 
         it("stops on a --product that isn't a plain product code", function()
             local install = fakeInstall(dir)
-            for _, product in ipairs({ "", "wow f", "wowf;id", "../wowf", "WOWF", ("a"):rep(33) }) do
-                refused("--product", { "--product", product, dir .. "/out", install })
+            for _, product in ipairs({ "", "wow f", "wowf;id", "../wowf", "WOWF" }) do
+                refused("--product must be a CASC product code", { "--product", product, dir .. "/out", install })
+                refused("--product must be a CASC product code", { "--product=" .. product, dir .. "/out", install })
             end
+            refused("--product is too long", { "--product", ("a"):rep(33), dir .. "/out", install })
             refused("--product needs a code.", { dir .. "/out", install, "--product" })
+        end)
+
+        it("takes another product with --product, in either form, when the install lists it", function()
+            local install = fakeInstall(dir, { "wow", "wow_forever" })
+            write(bin .. "/bin/no-daemon", "")
+            for _, args in ipairs({ { "--product", "wow_forever" }, { "--product=wow_forever" } }) do
+                args[#args + 1] = dir .. "/out"
+                args[#args + 1] = install
+                local code, output = run(args)
+                assert.are_not.equal(0, code)
+                assert.is_truthy(output:find("Docker isn't running", 1, true), output)
+            end
+        end)
+
+        it("stops on an install path that would change its docker mounts", function()
+            for _, name in ipairs({ "a:b", "a\nb" }) do
+                local parent = dir .. "/" .. name
+                assert(shell("mkdir -p " .. quote(parent)))
+                refused("can't contain a colon or a line break", { dir .. "/out", fakeInstall(parent) })
+            end
         end)
 
         it("stops on an output folder inside this repository, or any git repository", function()
@@ -447,6 +525,9 @@ describe("Local art screenshots script", function()
             write(dir .. "/file", "")
             refused("The output path isn't a folder", { dir .. "/file", install })
             refused("can't contain a colon", { dir .. "/a:b", install })
+            refused("can't contain a colon or a line break", { dir .. "/a\nb", install })
+            refused("The output folder is inside the script's working folder",
+                { dir .. "/cache/friendlyforever/ui-sim-local-art/out", install })
             refused("The output folder is inside the Forever install", { install .. "/shots", install })
             assert.is_false(exists(dir .. "/a:b"))
         end)
@@ -462,11 +543,14 @@ describe("Local art screenshots script", function()
             end
             -- The right names, as links elsewhere or the wrong kind of file.
             for _, case in ipairs({ { "shots", "link" }, { "logs", "link" }, { "README-simulated.txt", "link" },
-                { "logs", "file" }, { "README-simulated.txt", "folder" } }) do
+                { "logs", "file" }, { "README-simulated.txt", "folder" }, { "README-simulated.txt", "dangling" } }) do
                 local out = dir .. "/out-" .. case[1] .. "-" .. case[2]
                 assert(shell("mkdir -p " .. quote(out)))
                 if case[2] == "link" then
                     assert(shell("ln -s " .. quote(dir) .. " " .. quote(out .. "/" .. case[1])))
+                elseif case[2] == "dangling" then
+                    -- Writing the README through it would create its target.
+                    assert(shell("ln -s " .. quote(dir .. "/planted") .. " " .. quote(out .. "/" .. case[1])))
                 elseif case[2] == "file" then
                     write(out .. "/" .. case[1], "")
                 else
@@ -474,6 +558,7 @@ describe("Local art screenshots script", function()
                 end
                 refused("The output folder holds other files, such as " .. case[1], { out, install })
             end
+            assert.is_false(exists(dir .. "/planted"))
         end)
 
         it("takes an output folder an earlier run made, then goes on to check Docker", function()
@@ -506,6 +591,61 @@ describe("Local art screenshots script", function()
             assert.is_truthy(output:find("Docker isn't running", 1, true), output)
             assert.are.equal("info\n", calls)
             assert.is_false(exists(dir .. "/out"))
+        end)
+
+        it("stops when its working folder would be inside this repository", function()
+            refused("The working folder is inside this repository", { dir .. "/out", fakeInstall(dir) },
+                { XDG_CACHE_HOME = ROOT .. "/.cache-test" })
+            os.execute("rm -rf " .. quote(ROOT .. "/.cache-test"))
+        end)
+
+        it("gives each shot at most 3 CPUs, and no more than Docker has", function()
+            for ncpu, expected in pairs({ ["8"] = "3", ["3"] = "3", ["2"] = "2", ["1"] = "1", ["0"] = "1", x = "1" }) do
+                write(bin .. "/bin/ncpu", ncpu .. "\n")
+                write(dir .. "/cpus.sh", "export PATH=" .. quote(bin .. "/bin") .. ':"$PATH"\nsource ' .. quote(SCRIPT)
+                    .. "\ncheck_docker > /dev/null\necho \"$SHOT_CPUS\"\n")
+                local p = io.popen("bash " .. quote(dir .. "/cpus.sh") .. " 2>&1")
+                assert.are.equal(expected .. "\n", p:read("*a"), "with " .. ncpu .. " CPUs")
+                p:close()
+            end
+        end)
+
+        it("runs its steps in order: an earlier run's containers go before anything is staged or shot", function()
+            local install = fakeInstall(dir)
+            write(bin .. "/bin/exists-old1", "")
+            write(bin .. "/bin/running-old1", "")
+            write(bin .. "/bin/label-old1", "friendlyforever.ui-sim-local-art")
+            -- Every step that builds, fetches or shoots logs its name instead.
+            local steps = { "stage_addon", "stage_shot_scripts", "fetch_sources", "build_images", "probe_mounts",
+                "build_simulator", "take_shots" }
+            local stubs = {}
+            for _, step in ipairs(steps) do
+                stubs[#stubs + 1] = step .. "() { echo " .. step .. " >> " .. quote(dir .. "/steps")
+                    .. "; ls " .. quote(bin .. "/bin") .. " | grep -cE '^(exists|running)-old1$' >> " .. quote(dir .. "/steps") .. " || true; }"
+            end
+            write(dir .. "/main.sh", table.concat({
+                "export PATH=" .. quote(bin .. "/bin") .. ':"$PATH" HOME=' .. quote(dir) .. " XDG_CACHE_HOME="
+                    .. quote(dir .. "/cache"),
+                "unset WOW_INSTALL_PATH UI_SIM_SHOT_SECONDS",
+                "source " .. quote(SCRIPT),
+                table.concat(stubs, "\n"),
+                "main " .. quote(dir .. "/out") .. " " .. quote(install),
+            }, "\n") .. "\n")
+            local p = io.popen("bash " .. quote(dir .. "/main.sh") .. " < /dev/null 2>&1; echo \"exit=$?\"")
+            local output = p:read("*a")
+            p:close()
+            assert.is_truthy(output:find("Done: all 0 shots", 1, true), output)
+            local log = {}
+            for line in read(dir .. "/steps"):gmatch("[^\n]+") do log[#log + 1] = line end
+            local expected = {}
+            for _, step in ipairs(steps) do
+                expected[#expected + 1] = step
+                expected[#expected + 1] = "0"
+            end
+            assert.are.same(expected, log)
+            -- Its own files are in place, written by the host.
+            assert.is_true(shell("test -f " .. quote(dir .. "/out/README-simulated.txt") .. " && test -d "
+                .. quote(dir .. "/out/shots") .. " && test -d " .. quote(dir .. "/out/logs")))
         end)
 
         it("stops on Docker for another architecture than the pinned images'", function()
@@ -548,6 +688,49 @@ describe("Local art screenshots script", function()
                 assert.are_not.equal(0, code, bad)
                 assert.is_truthy(output:find("has a name that isn't plain", 1, true), output)
             end
+        end)
+    end)
+
+    describe("checkouts", function()
+        local dir
+
+        before_each(function() dir = tempDir() end)
+        after_each(function() os.execute("chmod -R u+w " .. quote(dir) .. "; rm -rf " .. quote(dir)) end)
+
+        -- Runs fetch_commit from a local repository, so nothing downloads.
+        local function fetch(commit)
+            write(dir .. "/fetch.sh", "source " .. quote(SCRIPT) .. "\nfetch_commit " .. quote(dir .. "/origin") .. " "
+                .. commit .. " " .. quote(dir .. "/copy") .. "\n")
+            local p = io.popen("bash " .. quote(dir .. "/fetch.sh") .. " < /dev/null 2>&1; echo \"exit=$?\"")
+            local output = p:read("*a")
+            p:close()
+            return tonumber(output:match("exit=(%d+)\n$")), output
+        end
+
+        it("are fetched at their commit, kept when clean, and fetched again when changed", function()
+            assert(shell("mkdir -p " .. quote(dir .. "/origin")))
+            write(dir .. "/origin/file", "pinned\n")
+            assert(shell("cd " .. quote(dir .. "/origin") .. " && git init -q && git add -A && git -c user.name=t "
+                .. "-c user.email=t@t commit -qm pin"))
+            local p = io.popen("git -C " .. quote(dir .. "/origin") .. " rev-parse HEAD")
+            local commit = p:read("*l")
+            p:close()
+            local code, output = fetch(commit)
+            assert.are.equal(0, code, output)
+            assert.are.equal("pinned\n", read(dir .. "/copy/file"))
+            -- Kept: an untracked file the script added survives.
+            write(dir .. "/copy/marker", "")
+            assert.are.equal(0, (fetch(commit)))
+            assert.is_true(exists(dir .. "/copy/marker"))
+            -- Changed: fetched again, the change gone.
+            write(dir .. "/copy/file", "tampered\n")
+            code, output = fetch(commit)
+            assert.are.equal(0, code, output)
+            assert.are.equal("pinned\n", read(dir .. "/copy/file"))
+            -- A commit the source doesn't have stops the script.
+            code, output = fetch(("0"):rep(40))
+            assert.are_not.equal(0, code)
+            assert.is_truthy(output:find("Couldn't fetch", 1, true), output)
         end)
     end)
 
@@ -631,7 +814,7 @@ describe("Local art screenshots script", function()
         end)
 
         after_each(function()
-            os.execute("rm -rf " .. quote(dir) .. " " .. quote(bin))
+            os.execute("chmod -R u+w " .. quote(dir) .. " 2>/dev/null; rm -rf " .. quote(dir) .. " " .. quote(bin))
         end)
 
         -- Sources the script (which then runs nothing by itself) with the
@@ -645,6 +828,8 @@ describe("Local art screenshots script", function()
                 'OPTIONS_TABS="$(options_tabs)" SHOTS=""',
                 "OUT=" .. quote(dir .. "/out") .. " WORK=" .. quote(dir .. "/work") .. " INSTALL=" .. quote(dir .. "/wow")
                     .. " PRODUCT=wowf SHOT_CPUS=1",
+                -- The addon and the shots' scripts, as main stages them.
+                "mkdir -p " .. quote(dir .. "/work") .. " && stage_addon > /dev/null && stage_shot_scripts",
                 body,
             }, "\n") .. "\n")
             local p = io.popen("bash " .. quote(dir .. "/run.sh") .. " < /dev/null 2>&1; echo \"exit=$?\"")
@@ -703,7 +888,8 @@ describe("Local art screenshots script", function()
         it("kills a shot that hangs at its time limit, and still takes the others, leaving no container", function()
             local started, total = os.time(), #expectedShots()
             local code, output, calls = source("prepare_output; take_shots; report",
-                { ["options-guild-login"] = "hang", button = "crash", ["copy-window"] = "hang" })
+                { ["options-guild-login"] = "hang", ["options-buff"] = "empty", button = "crash",
+                    ["copy-window"] = "hang" })
             assert.is_true(os.time() - started < 40, "the shots took too long")
             assert.are_not.equal(0, code)
             assert.are.equal(total, #startedShots(calls), "a failed shot stopped the others")
@@ -716,8 +902,57 @@ describe("Local art screenshots script", function()
             assert.is_truthy(calls:find("\nkill " .. cidOf("copy-window") .. "\n", 1, true), calls)
             for n = 1, total do assert.is_truthy(calls:find("\nrm %-f c" .. n .. "\n"), "c" .. n .. " wasn't removed") end
             assert.are.equal("", leftovers())
-            assert.is_truthy(output:find((total - 3) .. " of " .. total .. " shots written to", 1, true), output)
-            assert.is_truthy(output:find("Missing: options-guild-login button copy-window", 1, true), output)
+            -- An empty PNG doesn't count as written.
+            assert.is_truthy(output:find((total - 4) .. " of " .. total .. " shots written to", 1, true), output)
+            assert.is_truthy(output:find("Missing: options-guild-login options-buff button copy-window\n", 1, true),
+                output)
+        end)
+
+        -- From the stand-in's own clock: when each shot started, and how long
+        -- after that it was killed (nil if it never was while running).
+        local function killedAfter(name)
+            local seconds = read(bin .. "/bin/killed-" .. cidOf(name))
+            return tonumber(seconds:match("%d+"))
+        end
+
+        it("gives every shot its whole time limit, and kills a hung one soon after it", function()
+            local code, output = source("prepare_output; take_shots; report",
+                { game = "slow:2", ["options-guild-login"] = "hang" }, "4")
+            assert.are_not.equal(0, code)
+            -- Slower than a poll, faster than the limit: written, never killed.
+            assert.is_nil(killedAfter("game"), "a shot within its limit was killed")
+            assert.is_true(exists(dir .. "/out/shots/sim-game.png"), output)
+            assert.is_truthy(output:find("game: exited with 0 after", 1, true), output)
+            -- The hung one: killed no sooner than the limit, and within two
+            -- seconds of it.
+            local after = killedAfter("options-guild-login")
+            assert.is_truthy(after, "the hung shot was never killed")
+            assert.is_true(after >= 4 and after <= 6, "killed after " .. after .. " s, with a 4 s limit")
+            assert.are.equal("", leftovers())
+        end)
+
+        it("stages the addon and every shot's script exactly as ui-sim.yml does", function()
+            -- ui-sim.yml's own staging step, run as CI runs it.
+            local yml = wow.readFile(".github/workflows/ui-sim.yml")
+            local step = yml:match("%- name: Stage the screenshot scripts\n%s*run: |\n(.-)\n%s*%- name:")
+            assert.is_truthy(step, "no staging step in ui-sim.yml")
+            local indent = #step:match("^( *)")
+            local lines = {}
+            for line in (step .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line:sub(indent + 1) end
+            local tabs = yml:match("\n%s*OPTIONS_TABS: ([^\n]+)")
+            write(dir .. "/ci.sh", "export RUNNER_TEMP=" .. quote(dir .. "/ci") .. " OPTIONS_TABS=" .. quote(tabs)
+                .. "\nmkdir -p \"$RUNNER_TEMP\"\n" .. table.concat(lines, "\n") .. "\n")
+            assert(shell("cd " .. quote(ROOT) .. " && bash -eo pipefail " .. quote(dir .. "/ci.sh")))
+            local code, output = source("ls -R " .. quote(dir .. "/work/addons") .. " > " .. quote(dir .. "/addons.txt"))
+            assert.are.equal(0, code, output)
+            assert.is_true(shell("diff -r " .. quote(dir .. "/ci/shot-lua") .. " " .. quote(dir .. "/work/shot-lua")),
+                "the shots' scripts differ from CI's")
+            -- The packaged addon, read-only, where the shots mount it.
+            assert.is_true(exists(dir .. "/work/addons/FriendlyForever/FriendlyForever.toc"))
+            local p = io.popen("find " .. quote(dir .. "/work/addons") .. " " .. quote(dir .. "/work/shot-lua")
+                .. " -perm -u=w")
+            assert.are.equal("", p:read("*a"), "staged files are left writable")
+            p:close()
         end)
 
         it("carries on when docker refuses to start a shot", function()
@@ -759,14 +994,16 @@ describe("Local art screenshots script", function()
             assert.are.equal("", leftovers())
         end)
 
-        it("removes containers an earlier run left behind", function()
-            for _, cid in ipairs({ "old1", "old2" }) do
+        it("removes the containers an earlier run left behind, running or not, and no others", function()
+            -- old1 still runs, old2 has exited, mine is the owner's own.
+            for cid, state in pairs({ old1 = "running", old2 = "exited", mine = "running" }) do
                 write(bin .. "/bin/exists-" .. cid, "")
-                write(bin .. "/bin/running-" .. cid, "")
+                write(bin .. "/bin/label-" .. cid, cid == "mine" and "" or "friendlyforever.ui-sim-local-art")
+                if state == "running" then write(bin .. "/bin/running-" .. cid, "") end
             end
             local code = source("cleanup_containers")
             assert.are.equal(0, code)
-            assert.are.equal("", leftovers())
+            assert.are.equal("exists-mine\nrunning-mine\n", leftovers())
         end)
     end)
 end)

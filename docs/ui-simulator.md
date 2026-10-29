@@ -68,7 +68,7 @@ CONTRIBUTING covers what they show (our text, layout and colours, without Blizza
 scripts/ui-sim-local-art.sh ~/ui-sim-art "/Applications/World of Warcraft"
 ```
 
-- **The two arguments:** the output folder (a new one, or one an earlier run made, since every shot can write to all of it; outside any git repository), then the install folder: the one that holds `Data/` and `.build.info`, not the `_forever_` client folder inside it. `WOW_INSTALL_PATH` can replace the second. The script never guesses the install, and stops with a message saying what's wrong and what to do (#139).
+- **The two arguments:** the output folder (a new one, or one an earlier run made; outside any git repository), then the install folder: the one that holds `Data/` and `.build.info`, not the `_forever_` client folder inside it. `WOW_INSTALL_PATH` can replace the second. The script never guesses the install, and stops with a message saying what's wrong and what to do (#139).
 - **Docker Desktop settings** (#139):
   - **File sharing:** `/Applications` isn't shared by default. Add `/Applications/World of Warcraft` under Settings, Resources, File sharing. The defaults are `/Users`, `/Volumes`, `/private`, `/tmp` and `/var/folders`, so the output folder and the script's working folder (`~/.cache/friendlyforever/ui-sim-local-art`) need nothing. The script checks the install is shared before the long build, and says how to fix it if it isn't (#139, [Docker docs](https://docs.docker.com/desktop/settings/mac/)).
   - **Memory:** at least 8 GB (Settings, Resources, Memory); it warns below that (#139, from CI's build limit in `ui-sim.yml`).
