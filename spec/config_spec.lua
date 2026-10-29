@@ -1,4 +1,4 @@
--- Spec: #80
+-- Spec: #52, #80
 local wow = require("spec.support.wow")
 
 describe("Config", function()

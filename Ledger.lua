@@ -84,7 +84,7 @@ function Ledger.Validate(saved)
 
     local totals = type(ledger.totals) == "table" and ledger.totals or {}
     local today = type(ledger.today) == "table" and ledger.today or {}
-    return {
+    local out = {
         entries = entries,
         totals = { received = Count(totals.received), thanked = Count(totals.thanked),
             returned = Count(totals.returned) },
@@ -93,6 +93,12 @@ function Ledger.Validate(saved)
             received = Count(today.received), thanked = Count(today.thanked), returned = Count(today.returned),
         },
     }
+    -- Today's favours are part of the all-time ones: damaged totals start
+    -- again from today's, never below them.
+    for key, n in pairs(out.today) do
+        if key ~= "day" and out.totals[key] < n then out.totals[key] = n end
+    end
+    return out
 end
 
 -- Whether the ledger has the shape the counting code relies on. Checked on
@@ -149,6 +155,22 @@ function Ledger.AddBuff(entry, buffName)
     entry.buffs[#entry.buffs + 1] = name
 end
 
+-- A favour still waiting for its thanks or return when the ledger was lost
+-- to damage mid-session goes back in, counted again, so what is credited for
+-- it never outnumbers the favours.
+local function Restore(entry)
+    local data = Data()
+    for _, e in ipairs(data.entries) do
+        if e == entry then return data end
+    end
+    data.entries[#data.entries + 1] = entry
+    while #data.entries > Ledger.MAX_ENTRIES do table.remove(data.entries, 1) end
+    data.totals.received = data.totals.received + 1
+    local today = TodayCounts()
+    today.received = today.received + 1
+    return data
+end
+
 -- thanked: true once a thank-you went out. A favour is thanked at most once,
 -- so a second channel (emote and line) going out changes nothing.
 -- note: why it wasn't thanked, in words.
@@ -158,7 +180,7 @@ function Ledger.Settle(entry, thanked, note)
         entry.result, entry.note = Ledger.THANKED, nil
         -- A favour from before the ledger was cleared isn't counted again.
         if entry.cleared then return end
-        local data = Data()
+        local data = Restore(entry)
         data.totals.thanked = data.totals.thanked + 1
         local today = TodayCounts()
         today.thanked = today.thanked + 1
@@ -172,7 +194,7 @@ function Ledger.Returned(entry, spell)
     if entry.returned then return end
     entry.returned, entry.returnNote = CleanText(spell) or "a buff", nil
     if entry.cleared then return end
-    local data = Data()
+    local data = Restore(entry)
     data.totals.returned = data.totals.returned + 1
     local today = TodayCounts()
     today.returned = today.returned + 1
