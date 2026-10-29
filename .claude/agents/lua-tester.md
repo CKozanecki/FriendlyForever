@@ -75,6 +75,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A storm must be able to catch the regression its criterion names: include time-only steps so a timeout has to fire, check the step that starts a fight, keep departed members targetable so a stale choice would land outside the group (#63, #67).
 - A storm asserts that it reached each outcome it's for (counters), and the committed seeds still reach them; swap a seed that never does (#21, #60, #67, #87).
 - Chaos tests use `spec/support/random.lua`, never `math.random`, which differs between platforms (#76, #87).
+- An invariant about pairs of events (each answer follows its own opener) is checked per event against state kept since the last one, not as running totals: openers left unanswered become slack that hides a violation. The storm also asserts it reached the boundary cases, such as an answer late in the window or past it. #37's first storm passed with its window cut from 10 minutes to 100 seconds.
 - A storm's per-step checks mustn't repair the damage it injects. Reads such as `Ignore.List`, `Profiles.List` or `Ledger.Summary` heal damaged data as they read, so damage checked in the same step never meets a later action. Leave a few steps unchecked after each damage, and keep the send checks every step. Judge a time-bound rule (snooze) by each send's own time, not by whether the step began and ended inside it (#113: a reverted on-use check and a send just before a snooze ended both passed the storm).
 
 **Tests that can fail**
