@@ -34,9 +34,10 @@ BuffTracker.WHISPER_FAIL_WINDOW = 5 -- seconds a "no player named" reply counts 
 -- (logging in, reconnecting, zoning). The login grace period alone isn't
 -- enough: a slow loading screen can outlast it.
 BuffTracker.STALE_AFTER = 5
--- A /say thank-you waits for a key press. Past this many seconds the buffer
--- has likely moved on, so it is dropped rather than said late. Whispers keep
--- the chat queue's usual limit.
+-- A /say thank-you waits for a key press. Past this many seconds after its
+-- delay (held for an exchange or not: #36), the buffer has likely moved on,
+-- so it is dropped rather than said late. Whispers keep the chat queue's
+-- usual limit.
 BuffTracker.SAY_MAX_AGE = 30
 
 -- Unit tokens whose casts we remember. Group tokens are skipped because
@@ -290,6 +291,10 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId)
     -- someone unnamed has none, so theirs goes at once).
     local firstAt = GetTime()
     local function hold(go) ns.Exchange.Hold(caster, firstAt, go) end
+    -- A /say or /thank may wait SAY_MAX_AGE from when it would have been
+    -- queued without a hold, not from its release.
+    local limits = ns.Config.LIMITS.delay
+    local dueAt = firstAt + Util.ClampNumber(cfg.delay, limits.min, limits.max, ns.Config.DEFAULTS.buff.delay)
     local scheduled, why = false, nil
     if withLine then
         local ok, reason = ns.Announcer.Schedule("buff", caster, {
@@ -297,6 +302,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId)
             target = whisper and caster or nil,
             cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
             hold = hold,
+            ageFrom = dueAt,
             maxAge = (not whisper) and BuffTracker.SAY_MAX_AGE or nil,
             dropOverCap = true,
             isValid = StillWanted,
@@ -323,6 +329,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId)
             emoteTarget = EmoteTarget(caster, unit),
             cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
             hold = hold,
+            ageFrom = dueAt,
             maxAge = BuffTracker.SAY_MAX_AGE,
             dropOverCap = true,
             isValid = StillWanted,

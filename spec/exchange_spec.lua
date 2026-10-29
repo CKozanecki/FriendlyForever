@@ -438,6 +438,64 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             assert.is_true(thanks(a)[1].time <= at + a.ns.db.buff.delay + E.TICK)
         end)
 
+        it("buffing your own raid by hand opens no exchange and sends no plans", function()
+            pair()
+            wow.use(b)
+            local raid = {}
+            for i = 1, 10 do raid[i] = "Mem-" .. string.char(96 + i) .. "ber" end
+            wow.setGroup("raid", raid)
+            for i = 1, 10 do
+                wow.use(b)
+                wow.addUnit("target", wow.state.units["raid" .. i])
+                wow.runMacro("/cast Thorns")
+                advance(1.5)
+            end
+            wow.use(b)
+            assert.are.equal(10, #wow.landed, "every buff landed")
+            assert.are.same({}, plansSent(b))
+            assert.are.equal(0, b.ns.Exchange.Count())
+        end)
+
+        it("nor does a buff to someone when the game won't say who is in your group", function()
+            pair()
+            wow.use(a)
+            wow.setGroup("party", { "Cid-Rock" })
+            wow.state.units.party1.secrets = { name = true }
+            handCast(a, "Power Word: Fortitude")
+            advance(E.TICK + 0.5)
+            assert.are.same({}, plansSent(a))
+        end)
+
+        it("a held /say and /thank wait no longer for a key press than they would unheld", function()
+            pair({ db = { thankStyle = "both" } })
+            handCast(a, "Power Word: Fortitude")
+            local firstAt = wow.now
+            advance(E.MAX_DELAY + E.TICK)
+            wow.use(b)
+            local limit = firstAt + b.ns.db.buff.delay + b.ns.BuffTracker.SAY_MAX_AGE
+            assert.is_true(wow.now < limit, "released before the limit")
+            advance(limit - wow.now + 0.5)
+            wow.use(b)
+            wow.keyDown()
+            assert.are.same({}, wow.sentTo("SAY"), "released at the longest wait, then too old to say")
+            assert.are.same({}, wow.emotes)
+            local entries = b.ns.db.ledger.entries
+            assert.are.equal("no key press in time", entries[#entries].note)
+        end)
+
+        it("but a /say released early still waits for a key press until then", function()
+            pair({ db = { thankStyle = "message" } })
+            handCast(a, "Power Word: Fortitude")
+            local firstAt = wow.now
+            press(b, "RightButton") -- let go: nothing holds it
+            advance(b.ns.db.buff.delay + b.ns.BuffTracker.SAY_MAX_AGE - 2)
+            assert.are.same({}, wow.sentTo("SAY"))
+            wow.use(b)
+            wow.keyDown()
+            assert.are.equal(1, #wow.sentTo("SAY"))
+            assert.is_true(wow.now - firstAt < b.ns.db.buff.delay + b.ns.BuffTracker.SAY_MAX_AGE)
+        end)
+
         it("a player who walks off mid-exchange is thanked once, without waiting for a buff back", function()
             pair()
             handCast(a, "Power Word: Fortitude")

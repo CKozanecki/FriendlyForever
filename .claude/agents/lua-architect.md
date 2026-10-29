@@ -76,6 +76,9 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - Turning a feature off, or what it depends on, cancels its queued and dependent state, so nothing stays "wanted" and quietly comes back (#62: buff mode stayed wanted when switched off; #20; #60).
 - A player named by first name alone (a cast's target, a message's sender) is matched against every unit it could be, including you (`player`) and your group (`party1-4`, `raid1-40`), not only the tokens it usually comes from; any second player of that first name makes it ambiguous. A self-cast while targeting a stranger who shared your first name returned that stranger's favour (#37).
 
+- A per-player addon message is sent only to players the feature can use it for. Group members are never thanked, so a plan whispered to each one you buff would fill Comm's 8-place send queue in a raid and push out a stranger's `ANSWER` (#36).
+- Holding a message before it is queued restarts the queue's age limit. A limit meant to count from the event (a /say thank-you's 30 s from when it was due) is passed on with its start time (`Announcer`'s `ageFrom`), or a held /say goes out a minute late (#36).
+
 **Saved settings and imports**
 - Every saved or imported field has its own validator, and a spec checks every default has one. Unknown keys, infinite numbers, duplicates and wrong types are dropped, sizes capped. Imports are parsed as data with size, depth and count limits, and an export never exceeds what import reads (#20, #21, #61, #73: `Serialize.MAX_DEPTH`).
 - New fields go into profiles and export, old saves load unchanged, and a value damaged mid-session reads as its safe default when used. One feature's damaged settings can't break another tab, and self-repair doesn't touch live state (#21, #61, #67, #74, #88).

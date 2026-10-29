@@ -147,7 +147,10 @@ function Tick()
 end
 
 -- A buff of yours reached them (Offers.MarkReturned: the button or by hand).
+-- Your group is never thanked, so a buff to a member (or to someone the game
+-- won't say isn't one) opens nothing: no plans go to a raid you buff.
 function Exchange.NoteGiven(name)
+    if ns.Greeter.IsInMyGroup(name) ~= false then return end
     Touch(name)
 end
 
