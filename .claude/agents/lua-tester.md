@@ -85,6 +85,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - Tests of workflows and scripts run the real snippet, its failure handler included, read the file without comments, and reject `if:` and `continue-on-error` on the gating step and job (#81: `exit 1` changed to `exit 0` passed every test; #92).
 - Tests for settings damaged mid-session require that the addon still works, with no errors, before any reload, and that a reload heals it (#21, #61).
 - Test helpers find frames and listeners deterministically, and no test depends on another's order (#21, #62).
+- A test of a rule in a doc pins the whole line the criterion names (the step, the whole bullet), not a phrase that may sit anywhere in the file (#119: a phrase check passed with "Finishing" no longer flagging stale branches).
 - Checkers that parse text match their real consumer exactly (a differential test against the script, `LC_ALL=C`), run in linear time and are fuzzed (#54, #56).
 - A fake for an external tool checks the arguments that matter (pinned versions, offline and tree flags) and fails the way the real tool would without them. A fake that ignores its arguments lets a changed pin or a network fetch through (#103).
 - A check on docs reads the part the reader acts on, not the whole section: a host listed in a table elsewhere doesn't prove it's in the allowlist the owner copies (#103).

@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #103, #104, #106
+-- Spec: #49, #65, #77, #80, #82, #89, #103, #104, #106, #118, #119
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -1256,10 +1256,15 @@ describe("Claude sessions' agents, knowledge and skills", function()
     end
 
     -- Facts without a source, and launch checks that don't link #50, in a
-    -- knowledge file. A bullet's source is an issue or a link; a table row's
-    -- is its last cell (an issue, or the file it comes from). A link with no
-    -- address goes nowhere, so it counts as no link, and a link shown as #N
-    -- must go to issue or pull request N.
+    -- knowledge file. A bullet's source is an issue or a link other than its
+    -- #50 launch-check link (#118); a table row's is its last cell (an issue,
+    -- or the file it comes from). A link with no address goes nowhere, so it
+    -- counts as no link, and a link shown as #N must go to issue or pull
+    -- request N.
+    local function withoutLaunchCheckLinks(line)
+        return (line:gsub("https?://[^%s)]*/issues/50%f[%D][^%s)]*", ""):gsub("#50%f[%D]", ""))
+    end
+
     local function factProblems(text)
         local problems = {}
         for _, line in ipairs(splitLines(text)) do
@@ -1272,7 +1277,8 @@ describe("Claude sessions' agents, knowledge and skills", function()
                     problems[#problems + 1] = "#" .. shown .. " links to #" .. issue .. ": " .. line
                 end
             end
-            if line:match("^%s*%- ") and not (line:find("#%d+") or line:find("https?://")) then
+            local sources = withoutLaunchCheckLinks(line)
+            if line:match("^%s*%- ") and not (sources:find("#%d+") or sources:find("https?://")) then
                 problems[#problems + 1] = "no source: " .. line
             end
             if row and not row:match("([^|]*)$"):find("%S") then
@@ -1374,19 +1380,41 @@ describe("Claude sessions' agents, knowledge and skills", function()
 
         it("catch a fact with no source, and a launch check that doesn't link #50", function()
             assert.are.same({}, factProblems("# T\n\nProse needs none.\n- A fact (#34).\n"
-                .. "- See https://example.org.\n- A **launch check** (#50).\n"
-                .. "- A launch check ([#50](https://github.com/o/r/issues/50#issuecomment-1)).\n"))
+                .. "- See https://example.org.\n- A **launch check** (#34; #50).\n"
+                .. "- A launch check (#34; [#50](https://github.com/o/r/issues/50#issuecomment-1)).\n"))
             assert.are.equal(1, #factProblems("- A fact with no source.\n"))
             assert.are.equal(1, #factProblems("- A launch check (#34).\n"))
             assert.are.equal(1, #factProblems("- A launch check (#500).\n"))
-            assert.are.equal(1, #factProblems("- A launch check ([#50]()).\n"))
+            assert.are.equal(1, #factProblems("- A launch check (#34; [#50]()).\n"))
             assert.are.equal(1, #factProblems("From #32 ([its comment]()).\n"))
-            assert.are.same({}, factProblems("- A launch check ([#50](https://github.com/o/r/issues/50#c-1)).\n"))
+            assert.are.same({}, factProblems("- A launch check (#34; [#50](https://github.com/o/r/issues/50#c-1)).\n"))
             assert.are.equal(1, #factProblems("- A launch check ([#50](https://github.com/o/r/issues/32#c-1)).\n"))
             assert.are.equal(1, #factProblems("- Fixed in [#94](https://github.com/o/r/pull/93).\n"))
-            assert.are.same({}, factProblems("- A launch check ([its item](https://github.com/o/r/issues/50#c-1)).\n"))
+            assert.are.same({}, factProblems("- A launch check (#34; [its item](https://github.com/o/r/issues/50#c-1)).\n"))
             assert.are.equal(1, #factProblems("- A launch check ([its item](https://github.com/o/r/issues/32#c-1)).\n"))
             assert.are.equal(1, #factProblems("- A fact ([#34]( )).\n"))
+        end)
+
+        it("report a bullet whose only reference is its #50 launch-check link as no source (#118)", function()
+            for _, onlyFifty in ipairs({
+                "- A **launch check** (#50).\n",
+                "- A launch check ([#50](https://github.com/o/r/issues/50#issuecomment-1)).\n",
+                "- A launch check ([its item](https://github.com/o/r/issues/50#c-1)).\n",
+                "- A launch check (https://github.com/o/r/issues/50#c-1).\n",
+                "- A launch check ([#50](https://github.com/o/r/issues/50)), and #50 again.\n",
+                "  - a nested launch check (#50).\n",
+            }) do
+                assert.are.same({ "no source: " .. onlyFifty:sub(1, -2) }, factProblems(onlyFifty), onlyFifty)
+            end
+            for _, sourced in ipairs({
+                "- A launch check (#50). Source: #32.\n",
+                "- A launch check (#50). Source: [#32](https://github.com/o/r/issues/32#c-1).\n",
+                "- A launch check (#50). Source: [a guide](https://example.org/guide).\n",
+                "- A launch check ([#50](https://github.com/o/r/issues/50#c-1)), from #500.\n",
+                "- A launch check (#50), from https://github.com/o/r/issues/500.\n",
+            }) do
+                assert.are.same({}, factProblems(sourced), sourced)
+            end
         end)
 
         it("check nested bullets like any other", function()
@@ -1421,7 +1449,8 @@ describe("Claude sessions' agents, knowledge and skills", function()
 
     -- Files of game and simulator facts: every bullet has its source.
     for _, path in ipairs({ "docs/forever-facts.md", "docs/ui-simulator.md" }) do
-        it(path .. " gives every fact a source, and links #50 for every launch check", function()
+        it(path .. " gives every fact a source other than its #50 link, and links #50 for every launch check",
+            function()
             assert.are.same({}, factProblems(wow.readFile(path)))
         end)
     end
@@ -1442,5 +1471,33 @@ describe("Claude sessions' agents, knowledge and skills", function()
         for _, name in ipairs(SKILLS) do assert.is_truthy(text:find("`" .. name .. "`", 1, true), name) end
         for _, path in ipairs(DOCS) do assert.is_truthy(text:find("(" .. path .. ")", 1, true), path) end
         assert.is_truthy(text:find("**Keep them current:**", 1, true), "the keep-current rule")
+    end)
+
+    -- GitHub deletes merged branches and #115 deletes screenshot branches, so
+    -- sessions flag only the ones that outlived their PR, or have none (#119).
+    it("CLAUDE.md and the coordinator skill flag only stale branches, and keep the never-delete"
+        .. " and never-force-push rules", function()
+        local claude = wow.readFile("CLAUDE.md")
+        local coordinator = wow.readFile(".claude/skills/coordinator/SKILL.md")
+        for name, text in pairs({ ["CLAUDE.md"] = claude, coordinator = coordinator }) do
+            assert.is_falsy(text:find("any branches for the owner to delete", 1, true), name .. " lists merged branches")
+            assert.is_falsy(text:find("branches it names for the owner", 1, true), name .. " lists merged branches")
+            assert.is_truthy(text:find("still there after its PR merged or closed, or one with no PR", 1, true),
+                name .. " flags a branch that outlived its PR or has none")
+        end
+        for _, rule in ipairs({
+            "\n  2. Send the coordinator one line: `done: #<issue>, PR #<n> merged`, plus any step the owner still has"
+                .. " to take (such as applying environment settings or running a workflow) and any stale branch.\n",
+            "\n- **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale"
+                .. " branches for the owner, and say which they are.\n",
+            "\n- **Force-pushing:** never. Push a rebased branch under a new name and flag the old one for the owner"
+                .. " to delete.\n",
+        }) do
+            assert.is_truthy(claude:find(rule, 1, true), rule)
+        end
+        assert.is_truthy(coordinator:find("- **Never merges, approves or deletes:** not a PR, a branch, an issue"
+            .. " or a comment.", 1, true), "the coordinator's never-delete rule")
+        assert.is_truthy(wow.readFile(".claude/skills/after-merge/SKILL.md"):find("Never force-push.", 1, true),
+            "after-merge's never-force-push rule")
     end)
 end)
