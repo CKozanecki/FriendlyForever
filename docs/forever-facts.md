@@ -16,7 +16,7 @@ Many sessions couldn't reach wowhead.com or warcraft.wiki.gg and used web search
 
 - In restricted moments the game hands addons **secret values**. Addon code must never compare, index, measure, concatenate or send one; it tests for them with `issecretvalue` and `issecrettable` (`Util.IsSecret`, `Util.Readable`). Source: #32 (Midnight's rules, sources above); CLAUDE.md's "Secret values".
 - Chat received inside an instance can arrive as secret values. Source: #32. **Launch check** ([#50](https://github.com/CKozanecki/FriendlyForever/issues/50#issuecomment-6484203880), "Instances").
-- Whether your own PvP flag, and other players' flags and names, are secret, and when: **launch check** (#50). Until then the addon reads them as possibly secret. Source: as built for #27 and #28 (`Offers.lua`, `GroupBuffs.lua`).
+- Whether your own PvP flag, and other players' flags and names, are secret, and when: **launch check** (#50). Until then the addon reads them as possibly secret. Source: as built for #27 and #30 (`Offers.lua`, `GroupBuffs.lua`).
 - Whether group members' roles and aura casters are readable: **launch check** ([#50](https://github.com/CKozanecki/FriendlyForever/issues/50#issuecomment-6459299223), from #68).
 
 How the simulated client models secrets, and its limits, is in [simulated-client.md](simulated-client.md).
