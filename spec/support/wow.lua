@@ -372,7 +372,11 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         else"; nil by default). A PvP flag such a cast
 --                         catches goes in M.flaggedElsewhere, not M.flaggedBy:
 --                         in the game /targetexact can't land on a player with
---                         another name (#76).
+--                         another name (#76). A macro's conditions ([help,nodead])
+--                         are checked on the unit the cast lands on as well as
+--                         on your target, and nothing is cast unless both hold
+--                         (#84): in the game they apply to the unit the cast
+--                         goes to, and requiring both is the pessimistic choice.
 --   Override bindings (SetOverrideBindingClick, ClearOverrideBindings) are
 --                         blocked in combat, and allowed in PLAYER_REGEN_DISABLED's
 --                         handlers (as secure frames are). state.unbindable[key]:
@@ -433,6 +437,17 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         before PLAYER_ENTERING_WORLD, and the aura may
 --                         already be on you then, with no UNIT_AURA for it
 --                         (the defaults; the other orders are options).
+--   unit.nameLoading = true: the client hasn't loaded that unit's details
+--                         yet (#99), so UnitName (and UnitFullName,
+--                         GetUnitName) gives UNKNOWNOBJECT ("Unknown") as the
+--                         first name. Pessimistically the surname still comes,
+--                         so the pair looks like a real player's ("Unknown
+--                         Vale"). Loading it (nameLoading = nil) fires no
+--                         event: pessimistically, the real client's
+--                         UNIT_NAME_UPDATE may not come, so the addon must
+--                         find the name on its own next check. What Forever's
+--                         UnitName returns for a member still loading is
+--                         checked at launch (#50).
 ------------------------------------------------------------------------
 
 local function targetableName(u)
@@ -473,16 +488,16 @@ local function knownRank(name)
     return best
 end
 
--- Macro conditions on the current target: help (friendly), nodead.
+-- Macro conditions on a unit: help (friendly), nodead.
 local CONDITIONS = {
     help = function(t) return t ~= nil and not t.hostile end,
     nodead = function(t) return t ~= nil and not t.dead end,
 }
-local function conditionsHold(list)
+local function conditionsHold(list, unit)
     for cond in list:gmatch("[^,%s]+") do
         local check = CONDITIONS[cond]
         if not check then error("the simulated client doesn't know the macro condition " .. cond) end
-        if not check(M.state.units.target) then return false end
+        if not check(unit) then return false end
     end
     return true
 end
@@ -490,8 +505,11 @@ end
 local castCount = 0
 local function cast(args)
     local conds, name = args:match("^%[(.-)%]%s*(.+)$")
+    local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
     if conds then
-        if not conditionsHold(conds) then return end
+        if not conditionsHold(conds, M.state.units.target) then return end
+        -- The conditions apply to the unit the cast goes to (#84).
+        if elsewhere and not conditionsHold(conds, elsewhere) then return end
     else
         name = args
     end
@@ -503,7 +521,6 @@ local function cast(args)
     -- A helpful spell with no friendly target lands on yourself.
     local target = M.state.units.target
     if not (target and not target.hostile) then target = M.state.units.player end
-    local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
     local redirected = elsewhere ~= nil and elsewhere.id ~= target.id -- another player, not another token
     if elsewhere then target = elsewhere end
     local failure = M.state.castFailures[target.id]
@@ -704,6 +721,8 @@ local function unitField(unit, field)
     local u = M.state.units[unit]
     if not u then return nil end
     local value = u[field]
+    -- A name still loading reads as UNKNOWNOBJECT (the surname still comes).
+    if u.nameLoading and field == "name" then value = _G.UNKNOWNOBJECT end
     if value ~= nil and (M.state.unitsRestricted or (u.secrets and u.secrets[field])) then return M.secret(value) end
     return value
 end
@@ -842,6 +861,7 @@ function M.reset()
     _G.ERR_RAID_MEMBER_ADDED_S = "%s has joined the raid group."
     _G.ERR_INSTANCE_GROUP_ADDED_S = "%s has joined the instance group."
     _G.ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
+    _G.UNKNOWNOBJECT = "Unknown"
     _G.LE_PARTY_CATEGORY_HOME = 1
     _G.LE_PARTY_CATEGORY_INSTANCE = 2
 

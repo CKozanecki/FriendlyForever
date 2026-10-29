@@ -78,6 +78,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 **Saved settings and imports**
 - Every saved or imported field has its own validator, and a spec checks every default has one. Unknown keys, infinite numbers, duplicates and wrong types are dropped, sizes capped. Imports are parsed as data with size, depth and count limits, and an export never exceeds what import reads (#20, #21, #61, #73: `Serialize.MAX_DEPTH`).
 - New fields go into profiles and export, old saves load unchanged, and a value damaged mid-session reads as its safe default when used. One feature's damaged settings can't break another tab, and self-repair doesn't touch live state (#21, #61, #67, #74, #88).
+- Saved data read mid-session is checked where it's read, as `Ignore.Data` and Ledger's local `Data()` do: a few type checks on every use, then the load-time validator if they fail. Waiting for `Config.Repair` after an error still shows the player that error. A count credited for an in-flight item (a favour waiting for its thanks) must find it again after a repair, or be counted again (#113: damage to the ignore list, snooze or profiles raised errors, and a lost ledger gave "buffed by 0, thanked 1").
 - An edit box saves to the item it was opened for. Finish open edits before anything changes what the box shows or writes the same list (#73, #75).
 
 **CI, packaging and external code**

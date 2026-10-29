@@ -161,7 +161,7 @@ Every buff from someone outside your group, while Buff Thanks or Buff Back is on
 - Output is rate-limited (one message per 1.5 s). At most 25 messages can wait, and none waits longer than 2 minutes, so a wave of guild logins can't flood chat.
 - Nothing is sent during the game's chat lockdown. Messages wait until it ends.
 - The 10 seconds after login or reload are ignored, and buffs you already had (re-sent by the game when you log in, reconnect or zone) are never thanked.
-- Saved settings are type-checked and clamped on load, so a corrupted or hand-edited file can't break the addon. If they're damaged while you play (by another addon or a bad `/run`), they're repaired as soon as they cause an error in the addon, rather than at the next reload.
+- Saved settings are type-checked and clamped on load, so a corrupted or hand-edited file can't break the addon. If they're damaged while you play (by another addon or a bad `/run`), they're repaired as soon as they cause an error in the addon, rather than at the next reload. The ignore list, snooze, profiles and the favour ledger are checked each time they're used, so damage there is repaired before it can cause one.
 - The buff back button won't offer a buff to a player the game shows flagged for PvP unless you're flagged too (see [Buff back](#buff-back)). It's empty in a fight, and its cast only goes off on a friendly, living target.
 - Buff mode only lends a key to the button with an override binding, never changes your saved key bindings, and never lends Esc or Enter. The key is handed back when buff mode ends, during fights, while the addon or Buff Back is off, and on every login or reload.
 - "Secret" values from the Midnight-era API are detected and never used.

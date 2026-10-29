@@ -1,4 +1,4 @@
--- Spec: #76
+-- Spec: #52, #76
 -- Settings as text (export/import), profiles, the bug report and the addon
 -- compartment entry.
 local wow = require("spec.support.wow")

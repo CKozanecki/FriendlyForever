@@ -5,8 +5,11 @@
 - This version adds files (the new icon, Battleground.lua and Cities.lua). After updating, restart the game; /reload isn't enough. (#34, #65, #71)
 - **Quiet in capital cities** (on by default): no buff thank-yous in Stormwind, Ironforge, Darnassus, Orgrimmar, Thunder Bluff or Undercity, though the favour ledger still counts them. The buff back button stays hidden there unless you switch **Show the button in capital cities** on, and shows your favours once you leave. Buff mode turned on in a city works as usual; a stranger's buff doesn't turn it on there. (#34)
 - Friendly Forever has its own icon, the gold heart from its logo, on the minimap button, in the addon compartment and in the AddOns list. (#65)
+- Fix: settings damaged while you play (by another addon or a bad `/run`) no longer cause Lua errors in the ignore list, snooze, profiles or import undo. They are repaired as soon as they're used, and a damaged snooze never lasts more than a day. (#52)
+- Fix: after the favour ledger is damaged while you play, its counts stay right. A favour still waiting for its thanks or return is counted again, and the all-time totals never fall below today's. (#52)
 - The buff-back button keeps its text inside it: a name or favour too long for the button is cut off with "…", and the hint while you move it is shorter. On the options tabs, the message lines no longer sit below an empty gap. (#64)
 - **Battlegrounds:** before the gates open, buff mode and buff back work as in any raid. Once the battle starts the addon goes quiet until you leave or the battleground ends: buff mode ends and nothing turns it on, the buff back button hides, buffs you get aren't thanked or owed, and no lines are sent (guild hellos still go to guild chat). If the game doesn't say the battle hasn't started, it counts as started. Switch off **Buff in the preparation phase** on the **Buff Back** tab to keep the preparation phase quiet too. (#71)
+- **Buff mode:** a group member whose name hasn't loaded yet (shown as "Unknown") is no longer offered a buff. Buff mode stays on and offers it once the name loads. A buff from a player whose name hasn't loaded owes no favour. (#99)
 - Buff thanks no longer raises a Lua error on a buff whose caster the game reports as something other than a unit name. Such a buff isn't thanked or owed. (#98)
 
 ## 0.8.0
