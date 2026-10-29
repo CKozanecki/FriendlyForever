@@ -23,7 +23,13 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
 
 ## Notices for the owner
 
-- Every session, when it stops to wait for the owner (a question, a decision, a PR marked ready, a blocker), sends the coordinator a one- or two-line notice: the issue, what it needs, and where.
+- Every session sends the coordinator a one- or two-line notice (the issue, the PR link, what's needed) the moment one of these happens, without being asked (CLAUDE.md's "Tell the coordinator"):
+  - a PR is marked ready, or ready again after a merge of `main`;
+  - it needs the owner: a question (one asked in its own session too), a decision or a blocker;
+  - it's done: its PR merged and nothing is left;
+  - something failed that it can't fix.
+
+  A notice wakes the coordinator at once, so the owner hears without waiting for the check-in. When you start a session, give it your session ID and this rule.
 - **Before telling the owner something is pending, read that session's transcript** (`list_events` with `kinds: ["user", "assistant", "result"]`), not just its status. A status says idle; only the transcript says whether it's waiting on the owner, finished, or stuck, and whether the owner already answered.
 - Relay to the owner in one short list: what's needed, from whom, with the link. Don't relay routine progress.
 
@@ -42,8 +48,9 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
 
 The owner says so; sessions aren't told, so don't poll.
 1. Tell the driver of each other ready PR to merge `main` in (the `after-merge` skill). Name the conflicts the trial merges predicted.
-2. **Archive the merged PR's session** once its PR has merged and the session is idle (read its transcript first: it may still be filing a follow-up). Don't archive a session that is working or waiting on the owner.
-3. Update the recommended order for what's left.
+2. **Let the merged PR's session finish.** It finishes on its own (CLAUDE.md's "Finishing"): an issue comment if one is owed, a `done: #<issue>, PR #<n> merged` line to you, then a closing summary. If it hasn't, send it a "your work is done" message. List any branches it names for the owner to delete.
+3. **Archive that session only after its closing summary,** once it's idle. Read its transcript first, not just its status. Don't archive a session that is working or waiting on the owner.
+4. Update the recommended order for what's left.
 
 ## The 30-minute check-in
 

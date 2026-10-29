@@ -786,16 +786,9 @@ end)
 -- Claude sessions' reviewer agents, knowledge files and skills (#104). They
 -- never ship, and the agents must ask for the output CLAUDE.md requires.
 describe("Claude sessions' agents, knowledge and skills", function()
-    local function exists(path)
-        local f = io.open(wow.ROOT .. path, "rb")
-        if f then f:close() end
-        return f ~= nil
-    end
-
-    -- The YAML front matter's simple "key: value" lines, or nil without one.
+    -- The YAML front matter's simple "key: value" lines (none without one).
     local function frontMatter(text)
-        local body = text:gsub("\r\n", "\n"):match("^%-%-%-\n(.-)\n%-%-%-\n")
-        if not body then return nil end
+        local body = text:gsub("\r\n", "\n"):match("^%-%-%-\n(.-)\n%-%-%-") or ""
         local fields = {}
         for _, line in ipairs(splitLines(body)) do
             local k, v = line:match("^([%w_-]+):%s*(.-)%s*$")
@@ -804,40 +797,35 @@ describe("Claude sessions' agents, knowledge and skills", function()
         return fields
     end
 
-    -- The text under a "## title" heading, up to the next "## " heading.
+    -- The text under a "## title" heading, up to the next "## " heading
+    -- ("" without one).
     local function section(text, title)
         local out, inside = {}, false
         for _, line in ipairs(splitLines(text)) do
             if line:match("^## ") then inside = line == "## " .. title
             elseif inside then out[#out + 1] = line end
         end
-        return #out > 0 and table.concat(out, "\n") or nil
+        return table.concat(out, "\n")
     end
 
     -- What an agent file is missing of its required output, as a list.
     local function agentProblems(text, name)
         local problems = {}
         local fields = frontMatter(text)
-        if not fields then return { "no front matter" } end
         if fields.name ~= name then problems[#problems + 1] = "name isn't " .. name end
         if not fields.description or fields.description == "" then problems[#problems + 1] = "no description" end
         local output = section(text, "Output")
-        if not output then
-            problems[#problems + 1] = "no Output section"
-        else
-            for _, words in ipairs({ "`file:line`", "concrete failure scenario", "as the last line" }) do
-                if not output:find(words, 1, true) then problems[#problems + 1] = "Output doesn't say " .. words end
-            end
-            local verdicts = {}
-            for verdict in output:gmatch("\n%s*%- `([A-Z ]+)`") do verdicts[#verdicts + 1] = verdict end
-            if table.concat(verdicts, ", ") ~= "APPROVED, CHANGES REQUESTED" then
-                problems[#problems + 1] = "verdicts aren't APPROVED and CHANGES REQUESTED"
-            end
+        for _, words in ipairs({ "`file:line`", "concrete failure scenario", "as the last line" }) do
+            if not output:find(words, 1, true) then problems[#problems + 1] = "Output doesn't say " .. words end
         end
-        local lessons = section(text, "Lessons")
+        local verdicts = {}
+        for verdict in output:gmatch("\n%s*%- `([A-Z ]+)`") do verdicts[#verdicts + 1] = verdict end
+        if table.concat(verdicts, ", ") ~= "APPROVED, CHANGES REQUESTED" then
+            problems[#problems + 1] = "verdicts aren't APPROVED and CHANGES REQUESTED"
+        end
         local count = 0
-        for _, line in ipairs(splitLines(lessons or "")) do
-            if line:match("^%- ") then
+        for _, line in ipairs(splitLines(section(text, "Lessons"))) do
+            if line:match("^%s*%- ") then
                 count = count + 1
                 if not line:find("#%d+") then problems[#problems + 1] = "a lesson cites nothing: " .. line end
             end
@@ -877,6 +865,15 @@ describe("Claude sessions' agents, knowledge and skills", function()
         return problems
     end
 
+    -- What a skill's SKILL.md is missing, as a list.
+    local function skillProblems(text, name)
+        local fields = frontMatter(text)
+        local problems = {}
+        if fields.name ~= name then problems[#problems + 1] = "name isn't " .. name end
+        if not fields.description or fields.description == "" then problems[#problems + 1] = "no description" end
+        return problems
+    end
+
     local AGENTS = { "lua-architect", "lua-tester" }
     local SKILLS = { "after-merge", "merge-order", "coordinator" }
     local DOCS = { "docs/forever-facts.md", "docs/simulated-client.md", "docs/ui-simulator.md" }
@@ -885,7 +882,7 @@ describe("Claude sessions' agents, knowledge and skills", function()
         local ignored = {}
         for _, line in ipairs(lines(".pkgmeta")) do
             local entry = line:match("^%s+%-%s+[\"']?([^%s#\"']+)")
-            if entry then ignored[(entry:gsub("/$", ""))] = true end
+            if entry then ignored[entry] = true end
         end
         assert.is_true(ignored[".claude"], ".claude")
         assert.is_true(ignored["docs"], "docs")
@@ -916,11 +913,40 @@ describe("Claude sessions' agents, knowledge and skills", function()
                 { "## Output", "## Result" },
                 { " %(#72%)", "" },
                 { "%- Check this %(#72%)%.", "" },
+                { "%- Check this %(#72%)%.", "- Check this (#72).\n  - And this." },
                 { "^%-%-%-\n", "" },
             }) do
                 local broken = good:gsub(cut[1], cut[2])
                 assert.are_not.equal(good, broken, cut[1])
                 assert.are_not.same({}, agentProblems(broken, "lua-x"), cut[1])
+            end
+        end)
+
+        it("read an agent file with Windows line endings", function()
+            local crlf = good:gsub("\n", "\r\n")
+            assert.is_truthy(crlf:find("\r\n", 1, true))
+            assert.are.same({}, agentProblems(crlf, "lua-x"))
+        end)
+
+        it("look for the required output only in the Output section", function()
+            for _, cut in ipairs({
+                { "as the last line", "somewhere", "It ends as the last line." },
+                { "   %- `CHANGES REQUESTED`[^\n]*\n", "", "   - `CHANGES REQUESTED`: not (#1)." },
+            }) do
+                local moved = good:gsub(cut[1], cut[2]) .. "\n## Other\n\n" .. cut[3] .. "\n"
+                assert.is_falsy(section(moved, "Output"):find(cut[3], 1, true), cut[1])
+                assert.are_not.same({}, agentProblems(moved, "lua-x"), cut[1])
+            end
+        end)
+
+        it("pass a complete skill, and catch one with the wrong name, no description or no front matter", function()
+            local skill = "---\nname: merge-x\ndescription: Does it.\n---\n\n# Merge x\n"
+            assert.are.same({}, skillProblems(skill, "merge-x"))
+            for _, cut in ipairs({ { "name: merge%-x", "name: other" }, { "description: Does it%.", "description:" },
+                { "^%-%-%-\n", "" } }) do
+                local broken = skill:gsub(cut[1], cut[2])
+                assert.are_not.equal(skill, broken, cut[1])
+                assert.are_not.same({}, skillProblems(broken, "merge-x"), cut[1])
             end
         end)
 
@@ -936,6 +962,14 @@ describe("Claude sessions' agents, knowledge and skills", function()
             assert.are.same({}, factProblems("- A launch check ([#50](https://github.com/o/r/issues/50#c-1)).\n"))
             assert.are.equal(1, #factProblems("- A launch check ([#50](https://github.com/o/r/issues/32#c-1)).\n"))
             assert.are.equal(1, #factProblems("- Fixed in [#94](https://github.com/o/r/pull/93).\n"))
+            assert.are.same({}, factProblems("- A launch check ([its item](https://github.com/o/r/issues/50#c-1)).\n"))
+            assert.are.equal(1, #factProblems("- A launch check ([its item](https://github.com/o/r/issues/32#c-1)).\n"))
+            assert.are.equal(1, #factProblems("- A fact ([#34]( )).\n"))
+        end)
+
+        it("check nested bullets like any other", function()
+            assert.are.equal(1, #factProblems("- A fact (#34):\n  - and one with no source.\n"))
+            assert.are.equal(1, #factProblems("- Facts (#34):\n  - a launch check (#34).\n"))
         end)
 
         it("check every row of a table for its source", function()
@@ -946,6 +980,7 @@ describe("Claude sessions' agents, knowledge and skills", function()
             assert.are_not.equal(tableText, unsourced)
             assert.are.equal(1, #factProblems(unsourced))
             assert.are.equal(1, #factProblems(tableText .. "| A launch check. | None. | #34 |\n"))
+            assert.are.equal(1, #factProblems(tableText .. "| It's slow. | Wait. |  |   \n"))
         end)
     end)
 
@@ -958,17 +993,13 @@ describe("Claude sessions' agents, knowledge and skills", function()
 
     for _, name in ipairs(SKILLS) do
         it(".claude/skills/" .. name .. " is a skill named " .. name, function()
-            local fields = frontMatter(wow.readFile(".claude/skills/" .. name .. "/SKILL.md"))
-            assert.is_truthy(fields, "front matter")
-            assert.are.equal(name, fields.name)
-            assert.is_truthy(fields.description and fields.description ~= "", "description")
+            assert.are.same({}, skillProblems(wow.readFile(".claude/skills/" .. name .. "/SKILL.md"), name))
         end)
     end
 
     -- Files of game and simulator facts: every bullet has its source.
     for _, path in ipairs({ "docs/forever-facts.md", "docs/ui-simulator.md" }) do
         it(path .. " gives every fact a source, and links #50 for every launch check", function()
-            assert.is_true(exists(path), path)
             assert.are.same({}, factProblems(wow.readFile(path)))
         end)
     end

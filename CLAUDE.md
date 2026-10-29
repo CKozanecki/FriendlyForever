@@ -60,6 +60,17 @@ Procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `m
 
 - **Your own worktree:** other sessions share the main checkout and switch its branches. Work in a worktree of your own, never switch branches in the shared checkout, and remove your worktree when you're done.
 - **One driver per PR:** only the session driving a PR pushes to its branch, updates its description or announces it ready. Anyone else sends that session a message.
+- **Tell the coordinator:** when a coordinating session is running, send it one or two lines (the issue, the PR link, what's needed) the moment one of these happens, without waiting to be asked:
+  - a PR is marked ready, or ready again after a merge of `main`;
+  - you need the owner: a question (one you ask in your own session too), a decision or a blocker;
+  - you're done: your PR merged and nothing is left;
+  - something failed that you can't fix.
+
+  Its check-in is only a safety net, so don't wait for it. Don't message for routine progress.
+- **Finishing:** once your PR has merged and nothing is left on your issue, or the coordinator tells you your work is done, finish on your own. Don't ask the owner what's next or wait for a suggestion.
+  1. Leave a closing comment on the issue only if this file asks for one: a handoff, or launch checks still open on #50.
+  2. Send the coordinator one line: `done: #<issue>, PR #<n> merged`, plus any branches for the owner to delete.
+  3. Remove your worktree, cancel any check-ins you scheduled, and end your turn with a short summary saying the work is complete and the session can be archived. Ask no questions.
 - **Merge order:** when several PRs are ready, trial-merge every pair locally. Recommend an order to the owner, with the reasons and which pairs conflict. Note what you ran in the descriptions of your own PRs, and send it to the drivers of the others.
 - **After each merge:** a session isn't told when the owner merges, so wait for the owner to say so; don't poll. Then the driver of each ready PR merges `main` into it and resolves any conflicts. Next comes `make check`, and both review loops confirm the merge (see Reviews). Then CI, an updated description, and the PR announced ready again.
 
