@@ -47,7 +47,7 @@ Something you find that isn't this PR's job is not a finding against it: list it
 For a PR that changes what players see, wait for its UI simulator run, then:
 1. `git fetch origin ui-screenshots/pr-<number>` and view every PNG (read them as images).
 2. Read the `LAYOUT` lines in the run's summary or the scenario output.
-3. Decide whether what you see is right: text inside its frame, frames on screen, nothing overlapping, the states the PR claims. Compare with the screenshots of `main` or an earlier run where it helps.
+3. Decide whether what you see is right: text inside its frame, frames on screen, nothing overlapping, the states the PR claims. Where it helps, compare with a before set: the `ui-screenshots/pr-<n>` branch of another open PR that shows the same screen, or PNGs saved from this PR's earlier run before it was replaced. `main` has no screenshots branch, and a closed PR's branch is deleted (#115). When no before set is available, say so.
 4. Say in your review what you saw, image by image, and what the screenshots can't show.
 
 Your verdict is the only look the screenshots get: the owner doesn't review them. Sizes are approximate, since Blizzard's art and WoW's fonts aren't there; the known quirks are in [docs/ui-simulator.md](../../docs/ui-simulator.md).
@@ -96,6 +96,6 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - Any change after a loop approved goes back to it: test-only and test-helper changes, merges of `main` (above all ones that resolved conflicts), rebases. Check the PR records each confirmation (#72: a helper change after approval hid a real bug; #85, #87, #88).
 
 **Screenshots**
-- View every image and read the `LAYOUT` lines; compare with a before set; say what isn't shown (an options tab that isn't in the shot is judged from its anchor specs, and its look goes to #50). Layout checks put state back even when they fail (#53, #85, #88).
+- View every image and read the `LAYOUT` lines; compare with a before set where one exists (step 3 says where), and say when none did; say what isn't shown (an options tab that isn't in the shot is judged from its anchor specs, and its look goes to #50). Layout checks put state back even when they fail (#53, #85, #88).
 - The simulator never wraps a line pinned to two different frames, so a passing layout check there isn't proof (#91).
 - Tests mustn't print workflow command syntax (`::error::`) to stdout, which makes false CI annotations (#89, #92).

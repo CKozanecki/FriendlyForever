@@ -51,4 +51,5 @@ CONTRIBUTING covers what they show (our text, layout and colours, without Blizza
 - The published image is built without the renderer, so screenshots need a separate sandboxed build (#53).
 - It renders off screen with software GL, as the runner's user with `HOME` in `/tmp`, since with every capability dropped root can't write the PNG; `xvfb-run` sat idle under Docker (#53, `ui-sim.yml`).
 - Between two runs of the same code, only the simulated buff timers at the top right differ (#91). Treat other differences as real.
+- A before set for comparing is hard to come by: each run replaces its PR's `ui-screenshots/pr-<n>` branch, a closed PR's branch is deleted, and `main`'s runs keep theirs only as an Actions artifact, which a cloud session's network can't reach (#115, `ui-sim.yml`). Save the PNGs of an earlier run before pushing again, or use another open PR's branch.
 - The minimap and the button's border aren't drawn, so the minimap button's icon floats alone (#93).
