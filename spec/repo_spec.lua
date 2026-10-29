@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #103, #104, #106, #118, #119
+-- Spec: #49, #65, #77, #80, #82, #89, #103, #104, #106, #118, #119, #122
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -1258,7 +1258,7 @@ describe("Claude sessions' agents, knowledge and skills", function()
     -- Facts without a source, and launch checks that don't link #50, in a
     -- knowledge file. A bullet's source is an issue or a link other than its
     -- #50 launch-check link (#118); a table row's is its last cell (an issue,
-    -- or the file it comes from). A link with no address goes nowhere, so it
+    -- or the file it comes from), less any #50 link (#122). A link with no address goes nowhere, so it
     -- counts as no link, and a link shown as #N must go to issue or pull
     -- request N.
     local function withoutLaunchCheckLinks(line)
@@ -1281,7 +1281,11 @@ describe("Claude sessions' agents, knowledge and skills", function()
             if line:match("^%s*%- ") and not (sources:find("#%d+") or sources:find("https?://")) then
                 problems[#problems + 1] = "no source: " .. line
             end
-            if row and not row:match("([^|]*)$"):find("%S") then
+            -- A table row's last cell, less its #50 links and what's left of
+            -- them, must still name something (#122). The row under the
+            -- header is only dashes, colons and spaces, and needs none.
+            local cell = row and withoutLaunchCheckLinks(row:match("([^|]*)$")):gsub("%[[^%]]*%]%(%)", "")
+            if cell and not cell:find("%w") and not row:match("^[%s|:%-]+$") then
                 problems[#problems + 1] = "no source: " .. line
             end
             if fact and line:lower():find("launch check", 1, true) and not (line:find("#50%f[%D]")
@@ -1431,6 +1435,36 @@ describe("Claude sessions' agents, knowledge and skills", function()
             assert.are.equal(1, #factProblems(unsourced))
             assert.are.equal(1, #factProblems(tableText .. "| A launch check. | None. | #34 |\n"))
             assert.are.equal(1, #factProblems(tableText .. "| It's slow. | Wait. |  |   \n"))
+        end)
+
+        it("report a table row whose source cell holds only its #50 launch-check link as no source (#122)", function()
+            local tableText = "| Quirk | Workaround | Source |\n|:---|---:|:-:|\n| It wraps. | Measure it. | #91 |\n"
+            assert.are.same({}, factProblems(tableText))
+            for _, onlyFifty in ipairs({
+                "#50",
+                " #50 ",
+                "#50, #50",
+                "[#50](https://github.com/o/r/issues/50#issuecomment-1)",
+                "[its item](https://github.com/o/r/issues/50#c-1)",
+                "https://github.com/o/r/issues/50#c-1",
+                "[#50](https://github.com/o/r/issues/50) (#50)",
+            }) do
+                local row = "| A launch check. | None. | " .. onlyFifty .. " |"
+                assert.are.same({ "no source: " .. row }, factProblems(tableText .. row .. "\n"), onlyFifty)
+            end
+            for _, sourced in ipairs({
+                "#50, #116",
+                "#116; #50",
+                "#500",
+                "#5000",
+                "[#50](https://github.com/o/r/issues/50#c-1), [#32](https://github.com/o/r/issues/32#c-1)",
+                "#50, [a guide](https://example.org/guide)",
+                "#50, `ui-sim.yml`",
+                "https://github.com/o/r/issues/500",
+            }) do
+                local row = "| A launch check (#50). | None. | " .. sourced .. " |"
+                assert.are.same({}, factProblems(tableText .. row .. "\n"), sourced)
+            end
         end)
     end)
 
