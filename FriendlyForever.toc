@@ -25,6 +25,7 @@ Offers.lua
 Serialize.lua
 Profiles.lua
 Nameplates.lua
+RateLimit.lua
 ChatQueue.lua
 Comm.lua
 Parser.lua

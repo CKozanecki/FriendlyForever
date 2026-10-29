@@ -1,4 +1,4 @@
--- Spec: #80
+-- Spec: #80, #35
 local wow = require("spec.support.wow")
 
 describe("Greetings", function()
@@ -215,6 +215,9 @@ describe("Greetings", function()
             for i = 1, 6 do wow.state.guildRoster[#wow.state.guildRoster + 1] = "Member" .. string.char(96 + i) end
             wow.fire("GUILD_ROSTER_UPDATE")
             for i = 1, 6 do online("Member" .. string.char(96 + i)) end
+            wow.advance(60)
+            -- The lines-per-minute cap (#35) holds the rest for the next minute.
+            assert.are.equal(ns.db.linesPerMinute, #wow.sent)
             wow.advance(60)
             assert.are.equal(6, #wow.sent)
             for i = 2, #wow.sent do

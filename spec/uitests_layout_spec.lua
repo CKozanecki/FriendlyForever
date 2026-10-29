@@ -1,4 +1,4 @@
--- Spec: #90
+-- Spec: #90, #35
 -- The UI simulator's layout check (uitests/scenarios.lua), run here against
 -- stand-in regions whose edges, anchors and text sizes each test sets
 -- itself, so the expected answer comes from those numbers and not from the
@@ -355,5 +355,41 @@ describe("UI simulator layout check (TextInside)", function()
             assert.are.equal("LAYOUT hint: edges can't be read here", line)
             assert.are.same({ line }, printed)
         end)
+    end)
+end)
+
+-- #35: on the General page, which doesn't scroll, every note above the last
+-- line pushes it down by its wrapped lines in the game; the client doesn't wrap.
+describe("UI simulator layout check (WrapDrop)", function()
+    local checks
+
+    before_each(function() checks = loadChecks() end)
+
+    -- A note 400 wide, one 12-high line in the client, its text width given.
+    local function note(width, methods)
+        local fields = { left = 0, right = 400, top = 112, bottom = 100, width = width, height = 12 }
+        local base = { CanWordWrap = function() return true end }
+        for k, v in pairs(methods or {}) do base[k] = v end
+        return region(fields, base)
+    end
+
+    it("adds the extra lines each wrapping note takes in the game (white)", function()
+        assert.are.equal(24, checks.WrapDrop({ note(1000) }), "three lines: two more")
+        assert.are.equal(36, checks.WrapDrop({ note(1000), note(500) }), "and one more for a second note")
+    end)
+
+    it("adds nothing for a note that fits, doesn't wrap, or is capped at one line (white)", function()
+        assert.are.equal(0, checks.WrapDrop({ note(300) }))
+        assert.are.equal(0, checks.WrapDrop({ note(1000, { CanWordWrap = function() return false end }) }))
+        assert.are.equal(0, checks.WrapDrop({ note(1000, { GetMaxLines = function() return 1 end }) }))
+        assert.are.equal(12, checks.WrapDrop({ note(1000, { GetMaxLines = function() return 2 end }) }))
+    end)
+
+    it("adds nothing for a note whose edges, width or height can't be read (black)", function()
+        assert.are.equal(0, checks.WrapDrop({ note(1000, { GetLeft = function() error("no") end }) }))
+        assert.are.equal(0, checks.WrapDrop({ note(1000, { GetStringWidth = false }) }))
+        assert.are.equal(0, checks.WrapDrop({ note(1000, { GetStringHeight = function() return "tall" end }) }))
+        assert.are.equal(0, checks.WrapDrop({ note(1000, { CanWordWrap = function() error("no") end }) }))
+        assert.are.equal(0, checks.WrapDrop({}))
     end)
 end)
