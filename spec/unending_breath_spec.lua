@@ -304,6 +304,23 @@ describe("Unending Breath", function()
                 -- The button re-checks every few seconds; a buff that lands
                 -- in between leaves the last offer armed until then. So the
                 -- invariants hold at each re-check, done after every step.
+                -- What the re-checks saw, from the client's own state: the
+                -- storm must reach every way of wearing it, or it proves
+                -- nothing about them.
+                local reached = { breath = 0, waterBreathing = 0, secret = 0, restricted = 0 }
+                local function count()
+                    if wow.state.aurasRestricted then reached.restricted = reached.restricted + 1 end
+                    for i = 1, #everyone do
+                        local u = wow.state.units["party" .. i]
+                        local auras = u.auras or {}
+                        if u.secrets and u.secrets.auras and #auras > 0 then reached.secret = reached.secret + 1 end
+                        for index, id in ipairs(auras) do
+                            local fromYou = u.auraSources and u.auraSources[index] == "player"
+                            if id == BREATH and not fromYou then reached.breath = reached.breath + 1 end
+                            if id == WATER_BREATHING then reached.waterBreathing = reached.waterBreathing + 1 end
+                        end
+                    end
+                end
                 ns.BuffButton.Refresh()
                 local wearing = wearingNow()
                 for step = 1, 500 do
@@ -318,6 +335,7 @@ describe("Unending Breath", function()
                     end
                     ns.BuffButton.Refresh()
                     wearing = wearingNow()
+                    count()
                     local text = macro()
                     if text then
                         local who = text:match("/targetexact ([^\n]+)"):gsub(" ", "-")
@@ -326,6 +344,9 @@ describe("Unending Breath", function()
                     end
                 end
                 assert.are.same({}, wow.errors, "seed " .. seed)
+                for what, n in pairs(reached) do
+                    assert.is_true(n > 0, ("seed %d never reached %s"):format(seed, what))
+                end
             end
             assert.is_true(casts > 30, "casts: " .. casts)
             assert.is_true(offers > 100, "offers: " .. offers)
