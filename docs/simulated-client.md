@@ -38,6 +38,7 @@ These mirror real restrictions the addon must live with. Each one makes the clie
   - anything during lockdown or while `state.addonBlocked` is set (an instance under Midnight's rules).
 
   The game's throttle applies per prefix: 10 at once, then one a second (`wow.ADDON_BURST`, `wow.ADDON_REFILL`). A chaos test can therefore check that the addon never reaches it. `state.noAddonMessages` makes a client without the API.
+- **Maps:** `C_Map.GetBestMapForUnit("player")` answers `state.mapId` (1429, Elwynn Forest, by default), and `nil` for any other unit. `wow.setMap(id)` moves you and fires `ZONE_CHANGED_NEW_AREA`; `wow.setMap(id, { silent = true })` moves you with no event, since the addon mustn't rely on one. `wow.CAPITAL` names the six capitals' Classic Era IDs and `wow.ELWYNN` a map that isn't one. `nil` is a map that can't be read, as on a loading screen (#34).
 - **Spells by name:** `C_Spell.GetSpellInfo(name)` and `GetSpellTexture(name)` answer only for spells you know, since the game's name lookup goes through your spellbook; by ID they answer for any spell.
 
 ## The ASSUMPTIONS block

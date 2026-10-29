@@ -196,7 +196,7 @@ describe("Buff order and never offer", function()
             assert.is_false(w.who.header:IsShown())
             assert.is_false(w.who.always:IsShown())
             assert.are.same({}, rows())
-            assert.are.equal(w.fallback, select(2, w.msgHeader:GetPoint()))
+            assert.are.equal(w.quiet, select(2, w.msgHeader:GetPoint()))
         end)
     end)
 
