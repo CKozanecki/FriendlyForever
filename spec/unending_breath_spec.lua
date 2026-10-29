@@ -274,7 +274,10 @@ describe("Unending Breath", function()
                         u.auras[#u.auras + 1] = random.random() < 0.5 and BREATH or WATER_BREATHING
                     end,
                     -- It wears off (or is cancelled).
-                    function() someone().auras = nil end,
+                    function()
+                        local u = someone()
+                        u.auras, u.auraSources = nil, nil
+                    end,
                     function()
                         local u = someone()
                         u.secrets = random.random() < 0.3 and { auras = true } or nil
