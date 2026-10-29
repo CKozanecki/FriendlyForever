@@ -244,6 +244,29 @@ describe("Battlegrounds", function()
             assert.are.equal(1, #wow.sentTo("GUILD"))
         end)
 
+        it("doesn't owe a buff that arrives in the same update as the gates opening", function()
+            boot()
+            ns.db.buffBack.autoOnBuffed = false
+            wow.enterBattleground(TEAM)
+            wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", class = "WARRIOR", id = "Bob-Stone" })
+            local removed
+            for i = #wow.state.playerAuras, 1, -1 do
+                local a = wow.state.playerAuras[i]
+                if a.spellId == wow.PREPARATION_ID then
+                    removed = a.auraInstanceID
+                    table.remove(wow.state.playerAuras, i)
+                end
+            end
+            local bob = { isHelpful = true, auraInstanceID = 777777, duration = 3600, expirationTime = wow.now + 3600,
+                sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT }
+            wow.state.playerAuras[#wow.state.playerAuras + 1] = bob
+            wow.fire("UNIT_AURA", "player", { addedAuras = { bob }, removedAuraInstanceIDs = { removed } })
+            assert.are.equal("battle", ns.Battleground.Phase())
+            assert.are.equal(0, ns.Offers.Count())
+            wow.advance(30)
+            assert.are.same({}, nonGuildLines())
+        end)
+
         it("drops a thank-you that was waiting as the gates opened", function()
             boot()
             wow.enterBattleground(TEAM)
@@ -388,6 +411,25 @@ describe("Battlegrounds", function()
             assert.are.equal("preparation", ns.Battleground.Phase())
         end)
 
+        it("reads the next battleground afresh when its aura comes after the loading screen", function()
+            wow.enterBattleground(TEAM)
+            wow.openGates()
+            wow.leaveBattleground()
+            wow.enterBattleground(TEAM, { auraLate = true })
+            assert.are.equal("preparation", ns.Battleground.Phase())
+        end)
+
+        it("with the preparation phase switched off, the end of a battleground still puts everything back", function()
+            ns.db.buffBack.bgPrepBuff = false
+            wow.enterBattleground(TEAM)
+            wow.openGates()
+            wow.endBattleground(1)
+            assert.is_false(ns.Battleground.Quiet())
+            strangerBuffs()
+            wow.advance(10)
+            assert.are.same({ "Thanks Bob" }, wow.sentTo("SAY"))
+        end)
+
         it("reads the next battleground afresh", function()
             wow.enterBattleground(TEAM)
             wow.openGates()
@@ -484,6 +526,39 @@ describe("Battlegrounds", function()
             wow.gainBuff({ spellId = wow.secret(wow.PREPARATION_ID) })
             assert.are.equal("battle", ns.Battleground.Phase())
             assert.are.same({}, wow.errors)
+        end)
+
+        it("on a client without the aura API", function()
+            local api = _G.C_UnitAuras.GetAuraDataByIndex
+            _G.C_UnitAuras.GetAuraDataByIndex = nil
+            finally(function() _G.C_UnitAuras.GetAuraDataByIndex = api end)
+            wow.enterBattleground(TEAM)
+            assert.are.equal("battle", ns.Battleground.Phase())
+            assert.is_false(ns.BuffMode.IsOn())
+        end)
+
+        it("while an aura before the Preparation aura has a secret ID", function()
+            wow.enterBattleground(TEAM, { preparation = false })
+            wow.gainBuff({ spellId = wow.secret(1) })
+            wow.gainBuff({ spellId = wow.PREPARATION_ID })
+            assert.are.equal("battle", ns.Battleground.Phase())
+        end)
+
+        it("but a moment your buffs can't be read doesn't open the gates", function()
+            wow.enterBattleground(TEAM)
+            wow.state.aurasRestricted = true
+            wow.fire("UNIT_AURA", "player", { isFullUpdate = true })
+            assert.are.equal("battle", ns.Battleground.Phase(), "quiet while unreadable")
+            wow.state.aurasRestricted = false
+            wow.fire("UNIT_AURA", "player", { isFullUpdate = true })
+            assert.are.equal("preparation", ns.Battleground.Phase())
+        end)
+
+        it("caps a countdown too long to be the gates (milliseconds, say)", function()
+            wow.enterBattleground(TEAM, { preparation = false, timer = 60000 })
+            assert.are.equal("preparation", ns.Battleground.Phase())
+            wow.advance(301)
+            assert.are.equal("battle", ns.Battleground.Phase())
         end)
 
         it("ignores a secret timer, another kind of countdown, and a nonsense one", function()
