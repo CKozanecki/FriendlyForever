@@ -460,3 +460,20 @@ Comm.RegisterType("HELLO", {
     handler = OnHello,
 })
 
+
+------------------------------------------------------------------------
+-- ANSWER: "the buff I just gave you answers yours" (#37)
+------------------------------------------------------------------------
+
+-- Whispered to a player whose favour you just returned, so their copy
+-- doesn't owe you one back (Offers.lua). It has no fields: the sender is
+-- the subject, and it can only stop the receiver owing the sender.
+function Comm.SendAnswer(name)
+    return Comm.Send("ANSWER", {}, "WHISPER", name)
+end
+
+Comm.RegisterType("ANSWER", {
+    fields = {},
+    routes = { WHISPER = true },
+    handler = function(sender) ns.Offers.OnAnswerMark(sender) end,
+})

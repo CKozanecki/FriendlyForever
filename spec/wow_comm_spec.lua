@@ -1,4 +1,4 @@
--- Spec: #32
+-- Spec: #32, #37
 -- The simulated client's addon messages and its several-clients network,
 -- which the hidden channel's tests rely on: if these were wrong, those
 -- tests could pass while the addon breaks the game's rules.
@@ -269,5 +269,79 @@ describe("The simulated network of clients", function()
         end
         assert.has_error(function() from(a, "go", "WHISPER", "Bo-Lake") end,
             "M.deliver: the clients never stopped answering each other")
+    end)
+end)
+
+describe("Buffs between simulated clients (#37)", function()
+    local a, b, c, net
+    local MOTW_1 = 1126
+
+    before_each(function()
+        a = wow.newClient({ name = "Ann", surname = "Vale", before = function(state)
+            state.class, state.knownSpells = "DRUID", { [MOTW_1] = true }
+        end })
+        b = wow.newClient({ name = "Bo", surname = "Lake", before = function()
+            wow.addUnit("nameplate3", { name = "Ann", surname = "Vale", id = "Ann-Vale" })
+            wow.addUnit("nameplate2", { name = "Ann", surname = "Vale", id = "Ann-Vale" })
+        end })
+        c = wow.newClient({ name = "Cid", surname = "Rock" })
+        net = wow.network({ a, b, c })
+    end)
+
+    local function castOn(target)
+        wow.use(a)
+        wow.addUnit("target", target)
+        wow.runMacro("/cast Mark of the Wild")
+    end
+
+    it("records each cast that lands, and none that fails (white)", function()
+        castOn({ name = "Bo", surname = "Lake", id = "Bo-Lake" })
+        wow.state.castFailures["Bo-Lake"] = "Out of range"
+        castOn({ name = "Bo", surname = "Lake", id = "Bo-Lake" })
+        assert.are.same({ { spell = "Mark of the Wild", id = MOTW_1, target = "Bo-Lake" } }, wow.landed)
+        assert.are.equal(2, #wow.casts)
+    end)
+
+    it("brings a landed buff to its target only, once, named by its first token showing the caster (white)", function()
+        castOn({ name = "Bo", surname = "Lake", id = "Bo-Lake" })
+        wow.deliverBuffs(net)
+        wow.use(b)
+        local aura = wow.state.playerAuras[1]
+        wow.deliverBuffs(net)
+        wow.use(b)
+        assert.are.equal(1, #wow.state.playerAuras)
+        assert.are.equal(aura, wow.state.playerAuras[1], "not brought again")
+        assert.are.equal("nameplate2", aura.sourceUnit)
+        assert.are.equal(MOTW_1, aura.spellId)
+        assert.are.equal("Mark of the Wild", aura.name)
+        wow.use(c)
+        assert.are.equal(0, #wow.state.playerAuras)
+        wow.use(a)
+        assert.are.equal(0, #wow.state.playerAuras, "not back to its caster")
+    end)
+
+    it("names no caster when the target has no unit for them, and replaces a buff it refreshes (white)", function()
+        castOn({ name = "Cid", surname = "Rock", id = "Cid-Rock" })
+        castOn({ name = "Cid", surname = "Rock", id = "Cid-Rock" })
+        wow.deliverBuffs(net)
+        wow.use(c)
+        assert.are.equal(1, #wow.state.playerAuras)
+        assert.is_nil(wow.state.playerAuras[1].sourceUnit)
+    end)
+
+    it("never brings a buff on yourself back to you as another's (white)", function()
+        wow.use(a)
+        castOn(wow.state.units.player)
+        assert.are.equal("Ann-Vale", wow.landed[1].target)
+        wow.deliverBuffs(net)
+        wow.use(a)
+        assert.are.equal(0, #wow.state.playerAuras)
+    end)
+
+    it("leaves the live client as it was (white)", function()
+        castOn({ name = "Bo", surname = "Lake", id = "Bo-Lake" })
+        wow.use(c)
+        wow.deliverBuffs(net)
+        assert.are.equal("Cid", (_G.UnitName("player")))
     end)
 end)
