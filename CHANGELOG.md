@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- This version adds a file (the new icon). After updating, restart the game; /reload isn't enough. (#65)
+- Friendly Forever has its own icon, the gold heart from its logo, on the minimap button, in the addon compartment and in the AddOns list. (#65)
 - The buff-back button keeps its text inside it: a name or favour too long for the button is cut off with "…", and the hint while you move it is shorter. On the options tabs, the message lines no longer sit below an empty gap. (#64)
 
 ## 0.8.0

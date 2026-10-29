@@ -1,4 +1,4 @@
--- Spec: #49, #77, #80, #82
+-- Spec: #49, #65, #77, #80, #82
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -418,9 +418,10 @@ describe("CurseForge packager config", function()
         local ignored = pkgmeta()
         assert.is_truthy(next(ignored), ".pkgmeta has no ignore list")
         -- The TOC itself and scripts/package.sh's extras (Bindings.xml is
-        -- loaded by the game without being listed in the TOC).
+        -- loaded by the game without being listed in the TOC, and Media/
+        -- holds the textures the code and the TOC name by path).
         local shipped = { ["FriendlyForever.toc"] = true, ["README.md"] = true,
-            ["CHANGELOG.md"] = true, ["LICENSE"] = true, ["Bindings.xml"] = true }
+            ["CHANGELOG.md"] = true, ["LICENSE"] = true, ["Bindings.xml"] = true, ["Media"] = true }
         local _, files = wow.parseToc()
         for _, file in ipairs(files) do shipped[file:match("^[^/]+")] = true end
 
