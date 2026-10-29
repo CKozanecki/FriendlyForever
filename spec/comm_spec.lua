@@ -884,6 +884,33 @@ describe("Hidden channel edge cases, continued", function()
 
     local function anything() return true end
 
+    it("needs a whole token to send: most of a refill after a burst, nothing more goes (black)", function()
+        local C = ns.Comm
+        for _ = 1, C.SEND_BURST do C.SayHello("GUILD") end
+        wow.advance(0.9 * C.SEND_REFILL)
+        C.SayHello("GUILD")
+        assert.are.equal(C.SEND_BURST, #wow.addonSent)
+    end)
+
+    it("needs a whole token to hear a sender: most of a refill after a burst is still a flood (black)", function()
+        local C = ns.Comm
+        for _ = 1, C.PEER_BURST do receive(hello("Ann-Vale"), "GUILD") end
+        wow.advance(0.9 * C.PEER_REFILL)
+        receive(hello("Ann-Vale"), "GUILD")
+        assert.are.equal(1, count(ns, "commFlood"))
+    end)
+
+    it("answers a whispered hello again if the clock goes backwards (black)", function()
+        receive(hello("Ann-Vale", nil, "1"), "WHISPER")
+        assert.are.equal(1, #wow.addonSent)
+        wow.now = wow.now - 10
+        wow.advance(ns.Comm.PEER_BURST * ns.Comm.PEER_REFILL) -- not a flood
+        receive(hello("Ann-Vale", nil, "1"), "WHISPER")
+        -- A second answer is attempted (the game may refuse it: its own
+        -- throttle doesn't refill when the clock goes back).
+        assert.are.equal(2, count(ns, "commSent") + count(ns, "commNotSent"))
+    end)
+
     it("sends no target on group and guild routes (white)", function()
         ns.Comm.SayHello("GUILD", "Bo-Lake")
         assert.is_nil(wow.addonSent[1].target)
