@@ -105,6 +105,18 @@ describe("UI simulator layout check (TextInside)", function()
             assert.truthy(err:find("up and down: text -8..52, frame 0..44: spills out", 1, true), err)
         end)
 
+        it("allows text a pixel of slack past the frame's top and bottom", function()
+            -- Pinned by its bottom at 6, 39 high: its top at 45, one past the frame's 44.
+            local line = checks.TextInside(region(BUTTON), hint(1, { GetStringHeight = function() return 39 end }), "hint")
+            assert.are.equal("LAYOUT hint: text 46..214, frame 0..220; up and down: text 6..45, frame 0..44", line)
+            local low = region({
+                left = 46, right = 214, top = 11, bottom = -1,
+                points = { "TOPLEFT", "TOPRIGHT" }, width = 150, height = 12,
+            })
+            line = checks.TextInside(region(BUTTON), low, "title")
+            assert.are.equal("LAYOUT title: text 46..214, frame 0..220; up and down: text -1..11, frame 0..44", line)
+        end)
+
         it("passes a line pinned on its top and bottom, which keeps between them however tall its text", function()
             local boxed = region({
                 left = 46, right = 214, top = 38, bottom = 6,
@@ -151,6 +163,13 @@ describe("UI simulator layout check (TextInside)", function()
             local line = checks.TextInside(region(BUTTON), hint(2, { GetStringWidth = function() return 300 end,
                 CanWordWrap = function() return true end }), "hint", 2)
             assert.truthy(line:find("up and down: text 6..30, frame 0..44, 2 lines$"), line)
+        end)
+
+        it("grows a line the client counts no lines for by all the lines the game wraps onto", function()
+            -- 400 wide in a 168 line wraps onto 3: 36 high, from 6 up to 42.
+            local line = checks.TextInside(region(BUTTON), hint(1, { GetStringWidth = function() return 400 end,
+                GetNumLines = function() return 0 end, CanWordWrap = function() return true end }), "hint", 3)
+            assert.truthy(line:find("up and down: text 6..42, frame 0..44, 3 lines once wrapped at its width$"), line)
         end)
 
         it("reports an empty hint with word wrap on as no lines, not as wrapped", function()
