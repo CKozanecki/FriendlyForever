@@ -75,6 +75,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A storm must be able to catch the regression its criterion names: include time-only steps so a timeout has to fire, check the step that starts a fight, keep departed members targetable so a stale choice would land outside the group (#63, #67).
 - A storm asserts that it reached each outcome it's for (counters), and the committed seeds still reach them; swap a seed that never does (#21, #60, #67, #87).
 - Chaos tests use `spec/support/random.lua`, never `math.random`, which differs between platforms (#76, #87).
+- A storm's per-step checks mustn't repair the damage it injects. Reads such as `Ignore.List`, `Profiles.List` or `Ledger.Summary` heal damaged data as they read, so damage checked in the same step never meets a later action. Leave a few steps unchecked after each damage, and keep the send checks every step. Judge a time-bound rule (snooze) by each send's own time, not by whether the step began and ended inside it (#113: a reverted on-use check and a send just before a snooze ended both passed the storm).
 
 **Tests that can fail**
 - Mutation-check every new or changed line. Each survivor gets a test, or a stated reason it can't be caught (an equivalent mutant; a guard the simulated client can't reach, such as `Util.IsSecret`, since Lua 5.1 compares a table without error). A survivor that shows code can't be reached means delete the code (#21, #54, #61, #62, #88).
