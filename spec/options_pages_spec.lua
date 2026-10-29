@@ -1,4 +1,4 @@
--- Spec: #58, #80
+-- Spec: #52, #58, #80
 -- The options added with 0.8.0: thank style, loading a line set, and the
 -- General and Favour Ledger pages.
 local wow = require("spec.support.wow")
@@ -18,6 +18,12 @@ describe("Options", function()
             assert.are.equal(4242, sub.parent:GetID())
         end
         assert.are.same({ "General", "Favour Ledger" }, names)
+    end)
+
+    it("names the pages' frames, so the UI simulator's scenarios can find them", function()
+        local general, ledger = ns.Options.Pages()
+        assert.are.equal(general, _G.FriendlyForeverGeneralPage)
+        assert.are.equal(ledger, _G.FriendlyForeverLedgerPage)
     end)
 
     describe("message tabs", function()

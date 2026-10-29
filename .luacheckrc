@@ -10,6 +10,8 @@ exclude_files = { ".tools/**", "dist/**", ".release/**", ".claude/**" }
 globals = {
     "FriendlyForeverDB",
     "FriendlyForeverTextWindow",
+    "FriendlyForeverGeneralPage", -- the options pages, named for the UI simulator's scenarios (#52)
+    "FriendlyForeverLedgerPage",
     "FriendlyForeverBuffButton",
     "FriendlyForever_ToggleBuffMode", -- called by its key binding (Bindings.xml)
     "SLASH_FRIENDLYFOREVER1",
@@ -55,13 +57,17 @@ files["spec/**"] = {
 files["uitests/**"] = {
     -- C_SpellBook and C_Spell: the spellbook fixture in button_states.lua
     -- answers for one spell while a scenario runs (#83).
-    globals = { "_G", "DEFAULT_CHAT_FRAME", "C_SpellBook", "C_Spell", "FriendlyForeverUIStates" },
+    -- FriendlyForeverDB: pages.lua fills the saved settings the phase 1 pages
+    -- show, and puts them back (#52).
+    globals = { "_G", "DEFAULT_CHAT_FRAME", "C_SpellBook", "C_Spell", "FriendlyForeverUIStates",
+        "FriendlyForeverUIPages", "FriendlyForeverDB" },
     read_globals = {
         "test", "assertTrue", "assertType", "assertEquals", "assertNotNil",
         "print", "A_Print", "A_Admin", "UIParent",
-        "FriendlyForeverDB", "SLASH_FRIENDLYFOREVER1", "SlashCmdList",
+        "SLASH_FRIENDLYFOREVER1", "SlashCmdList",
         "GetTime", "UnitClass", "UnitInRange", "UnitExists", "UnitName", "UnitLevel", "InCombatLockdown",
         "C_UnitAuras",
         "geterrorhandler", "seterrorhandler", "debugprofilestop",
+        "Settings", "time", "date",
     },
 }

@@ -471,6 +471,97 @@ end)
 -- rest of the run: a later test whose timers must fire calls
 -- A_Admin.AdvanceTime itself.
 
+-- The phase 1 pages (#52): the options' General and Favour Ledger pages,
+-- filled by pages.lua with the longest names and most entries a player
+-- could have, and the copy window. Text on a page may wrap on purpose, so
+-- its lines aren't counted; a button's text stays on one line. Every line is
+-- checked and printed before any failure is raised.
+
+local function Short(text)
+    text = tostring(text):gsub("\n", " ")
+    return #text > 40 and text:sub(1, 37) .. "..." or text
+end
+
+-- Runs each check, collecting failures instead of stopping at the first.
+local function CheckAll(checks)
+    local failures = {}
+    for _, fn in ipairs(checks) do
+        local ok, err = pcall(fn)
+        if not ok then failures[#failures + 1] = tostring(err) end
+    end
+    check(#failures == 0, table.concat(failures, "\n"))
+end
+
+-- Every shown text line on frame, on at most maxLines lines when given,
+-- and every shown button's label on it, on one line.
+local function FrameTextInside(frame, label, maxLines)
+    local checks = {}
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if region:GetObjectType() == "FontString" and region:IsShown() and (region:GetText() or "") ~= "" then
+            checks[#checks + 1] = function()
+                TextInside(frame, region, label .. " \"" .. Short(region:GetText()) .. "\"", maxLines)
+            end
+        end
+    end
+    for _, child in ipairs({ frame:GetChildren() }) do
+        local text = child:IsShown() and child:GetObjectType() == "Button" and child.GetFontString
+            and child:GetFontString()
+        if text and (text:GetText() or "") ~= "" then
+            checks[#checks + 1] = function()
+                TextInside(child, text, label .. " button \"" .. Short(text:GetText()) .. "\"", 1)
+            end
+        end
+    end
+    check(#checks > 0, label .. ": no text to check")
+    CheckAll(checks)
+end
+
+-- Runs fn with the pages filled, and puts the saved settings back after,
+-- even when fn fails.
+local function WithPagesFilled(fn)
+    local undo = FriendlyForeverUIPages.Fill()
+    local ok, err = pcall(fn)
+    undo()
+    if not ok then error(err, 0) end
+end
+
+test("the General page, with a long ignore list and several profiles, keeps its text inside it", function()
+    WithPagesFilled(function()
+        local page = FriendlyForeverUIPages.Open("general")
+        check(page:IsVisible(), "the General page didn't open")
+        OnScreen(page, "General page")
+        FrameTextInside(page, "General page")
+    end)
+end)
+
+test("the Favour Ledger page, with a full page of long entries, keeps its text inside it", function()
+    WithPagesFilled(function()
+        local page = FriendlyForeverUIPages.Open("ledger")
+        check(page:IsVisible(), "the Favour Ledger page didn't open")
+        OnScreen(page, "Favour Ledger page")
+        FrameTextInside(page, "Favour Ledger page")
+    end)
+end)
+
+-- The copy window as each command opens it: export (a line to copy), import
+-- (a box to paste into, and an Import button) and the bug report. The
+-- window's own text (its title and hint) stays on one line: the text box
+-- starts just below the hint.
+test("the copy window keeps its text inside it, for export, import and the bug report", function()
+    for _, command in ipairs({ "export", "import", "report" }) do
+        SlashCmdList.FRIENDLYFOREVER(command)
+        local window = _G[FriendlyForeverUIPages.WINDOW]
+        local ok, err = pcall(function()
+            check(window and window:IsShown(), "/friendly " .. command .. " didn't open the copy window")
+            local label = "copy window (" .. command .. ")"
+            OnScreen(window, label)
+            FrameTextInside(window, label, 1)
+        end)
+        if window then window:Hide() end
+        if not ok then error(err, 0) end
+    end
+end)
+
 -- The layout checks, for spec/uitests_layout_spec.lua, which runs them
 -- against regions whose edges it sets itself. The simulator ignores what a
 -- test file returns.

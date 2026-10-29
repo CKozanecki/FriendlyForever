@@ -18,6 +18,9 @@ Options.widgets = widgets -- exposed for tests
 
 Options.LEDGER_ROWS = 25
 Options.IGNORE_SHOWN = 12 -- names listed on the General page; the rest are counted
+-- The pages' frame names, so the UI simulator's scenarios can find them (#52).
+Options.GENERAL_PAGE = "FriendlyForeverGeneralPage"
+Options.LEDGER_PAGE = "FriendlyForeverLedgerPage"
 
 -- How to thank someone who buffs you, in the order the button cycles.
 Options.THANK_STYLES = { "message", "emote", "both" }
@@ -871,8 +874,8 @@ function Options.Create()
 end
 
 -- A page listed under Friendly Forever in the AddOns options.
-local function SubPage(name, title)
-    local page = CreateFrame("Frame", nil)
+local function SubPage(name, title, frameName)
+    local page = CreateFrame("Frame", frameName)
     page.name = name
     page.parent = ns.TITLE
     local heading = Label(page, ns.TITLE .. ": " .. title, "GameFontNormalLarge")
@@ -907,7 +910,7 @@ end
 
 function Options.CreateGeneralPage()
     local w = widgets.general
-    generalPage = SubPage("General", "General")
+    generalPage = SubPage("General", "General", Options.GENERAL_PAGE)
     local page = generalPage
 
     -- Snooze
@@ -1012,7 +1015,7 @@ end
 
 function Options.CreateLedgerPage()
     local w = widgets.ledger
-    ledgerPage = SubPage("Favour Ledger", "Favour Ledger")
+    ledgerPage = SubPage("Favour Ledger", "Favour Ledger", Options.LEDGER_PAGE)
     local page = ledgerPage
     w.summary = Note(page, page.heading, "")
     local anchor = w.summary
