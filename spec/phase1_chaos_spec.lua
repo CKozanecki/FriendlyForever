@@ -391,6 +391,19 @@ describe("Phase 1 chaos (red tests)", function()
                 slash("ignore " .. DISPLAY[who])
                 m.ignored[who] = true
             end,
+            -- Someone you'd rather not hear from: ignored while their line waits.
+            function()
+                local who = pick(GUILD)
+                online(who)
+                slash("ignore " .. DISPLAY[who])
+                m.ignored[who] = true
+            end,
+            function()
+                local who = pick(STRANGERS)
+                buffedBy(who, "nameplate" .. random.random(1, 3))
+                slash("ignore " .. DISPLAY[who])
+                m.ignored[who] = true
+            end,
             function()
                 local who = pick(EVERYONE)
                 slash("unignore " .. DISPLAY[who])
@@ -480,12 +493,18 @@ describe("Phase 1 chaos (red tests)", function()
                 ns.Options.Refresh()
             end,
             reload,
-            -- Damage, as another addon or a bad /run would do it.
+        }
+
+        -- Damage, as another addon or a bad /run would do it.
+        local damages = {
             function()
                 ns.db.ignore = pick({ 42, "x", true })
                 m.ignored = {}
             end,
-            function() ns.db.ignore[pick({ 7, "zed-bad", "x" })] = pick({ 42, {}, "Not-Them" }) end,
+            function()
+                local list = ns.db.ignore
+                if type(list) == "table" then list[pick({ 7, "zed-bad", "x" })] = pick({ 42, {}, "Not-Them" }) end
+            end,
             function()
                 local damage = random.random(1, 4)
                 if damage == 1 then
@@ -524,6 +543,17 @@ describe("Phase 1 chaos (red tests)", function()
             end,
         }
 
+        -- The checks below that the addon agrees with the model read through
+        -- code that repairs damage as it reads. So after each damage they wait
+        -- a few steps, and what the player does next meets the damage first.
+        local unchecked = 0
+        for _, damage in ipairs(damages) do
+            actions[#actions + 1] = function()
+                damage()
+                unchecked = random.random(2, 8)
+            end
+        end
+
         -- What a player does most: meet people and play on.
         local meet, buffed, playOn = actions[1], actions[2], actions[6]
         for _ = 1, 3 do
@@ -535,6 +565,7 @@ describe("Phase 1 chaos (red tests)", function()
         for step = 1, steps do
             local at = ("seed %d, step %d"):format(seed, step)
             local snoozedBefore, enabledBefore = snoozed(), m.enabled
+            local snoozeEnds = snoozedBefore and m.snoozeUntil
             local ignoredBefore = {}
             for who in pairs(m.ignored) do ignoredBefore[who] = true end
             local which = random.random(#actions)
@@ -546,7 +577,10 @@ describe("Phase 1 chaos (red tests)", function()
             if snoozedBefore and snoozedNow then seen.snoozedSteps = seen.snoozedSteps + 1 end
             for i = sentBefore + 1, #wow.sent do
                 local record = wow.sent[i]
-                assert.is_false(snoozedBefore and snoozedNow, at .. ": sent while snoozed: " .. record.text)
+                -- When it was sent, by the wall clock (time()) the snooze runs on.
+                -- Nothing that changes the snooze moves time, so this is exact.
+                local sentAt = wow.state.clock + (record.time - 1000)
+                assert.is_false(snoozeEnds and sentAt < snoozeEnds, at .. ": sent while snoozed: " .. record.text)
                 assert.is_false(not enabledBefore and not m.enabled, at .. ": sent while off: " .. record.text)
                 local kind, first = record.text:match("^(%u%u) (%a+)$")
                 local who = first and BY_FIRST[first]
@@ -564,27 +598,31 @@ describe("Phase 1 chaos (red tests)", function()
 
             -- The addon agrees with the model.
             assert.are.equal(m.enabled, ns.db.enabled, at .. ": the on/off switch")
-            local shown = {}
-            for who in pairs(m.ignored) do shown[#shown + 1] = DISPLAY[who] end
-            table.sort(shown)
-            assert.are.same(shown, ns.Ignore.List(), at .. ": the ignore list")
-            local names = {}
-            for name in pairs(m.profiles) do names[name] = true end
-            names[m.active] = true
-            assert.are.same(sorted(names), ns.Profiles.List(), at .. ": the profiles")
-            assert.are.equal(m.active, ns.Profiles.Active(), at .. ": the active profile")
-            assert.are.equal(m.undo ~= nil and m.undo.profile == m.active, ns.Profiles.CanUndoImport(),
-                at .. ": whether there's an import to undo")
-            local left = ns.Announcer.SnoozeLeft()
-            assert.is_true(left == nil or left <= ns.Config.SNOOZE_MAX_SECONDS, at .. ": snoozed for over a day")
-            if snoozedNow then assert.is_truthy(left, at .. ": the snooze ended early") end
-            local s = ns.Ledger.Summary()
-            assert.is_true(s.stored <= ns.Ledger.MAX_ENTRIES, at .. ": ledger entries")
-            assert.is_true(s.thanked <= s.received, at .. ": more thanked than received")
-            assert.is_true(s.thanked <= thanksSinceClear,
-                ("%s: the ledger counts %d thanks, %d were said since it was cleared"):format(at, s.thanked,
-                    thanksSinceClear))
-            assert.is_true(s.todayReceived <= s.received and s.todayThanked <= s.thanked, at .. ": today's counts")
+            if unchecked > 0 then
+                unchecked = unchecked - 1
+            else
+                local shown = {}
+                for who in pairs(m.ignored) do shown[#shown + 1] = DISPLAY[who] end
+                table.sort(shown)
+                assert.are.same(shown, ns.Ignore.List(), at .. ": the ignore list")
+                local names = {}
+                for name in pairs(m.profiles) do names[name] = true end
+                names[m.active] = true
+                assert.are.same(sorted(names), ns.Profiles.List(), at .. ": the profiles")
+                assert.are.equal(m.active, ns.Profiles.Active(), at .. ": the active profile")
+                assert.are.equal(m.undo ~= nil and m.undo.profile == m.active, ns.Profiles.CanUndoImport(),
+                    at .. ": whether there's an import to undo")
+                local left = ns.Announcer.SnoozeLeft()
+                assert.is_true(left == nil or left <= ns.Config.SNOOZE_MAX_SECONDS, at .. ": snoozed for over a day")
+                if snoozedNow then assert.is_truthy(left, at .. ": the snooze ended early") end
+                local s = ns.Ledger.Summary()
+                assert.is_true(s.stored <= ns.Ledger.MAX_ENTRIES, at .. ": ledger entries")
+                assert.is_true(s.thanked <= s.received, at .. ": more thanked than received")
+                assert.is_true(s.thanked <= thanksSinceClear,
+                    ("%s: the ledger counts %d thanks, %d were said since it was cleared"):format(at, s.thanked,
+                        thanksSinceClear))
+                assert.is_true(s.todayReceived <= s.received and s.todayThanked <= s.thanked, at .. ": today's counts")
+            end
         end
         return seen
     end
