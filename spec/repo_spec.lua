@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #103, #104, #106, #118, #119
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #118, #119
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -895,8 +895,13 @@ describe("Release version check", function()
     -- with the tag and exit 1 on a mismatch, so a wrong tag can't start an upload.
     local text = withoutComments(wow.readFile(".github/workflows/release.yml"))
     local readToc = text:match('(toc="%$%(sed [^\n]*%)")')
-    -- The comparison and the line that stops the job when it fails.
-    local compare = text:match('(%[%[ "v%$toc" == "%$GITHUB_REF_NAME" %]%] \\\n[^\n]*exit 1; })')
+    -- The comparison and the line that stops the job when it fails. The match
+    -- must run to the end of the line: anything after `exit 1; }`, such as
+    -- `|| true`, would let a mismatched tag through (#95).
+    local function compareLines(workflow)
+        return (workflow .. "\n"):match('(%[%[ "v%$toc" == "%$GITHUB_REF_NAME" %]%] \\\n[^\n]*exit 1; })[ \t]*\n')
+    end
+    local compare = compareLines(text)
 
     local function accepts(toc, tag)
         assert(readToc and compare, "release.yml no longer reads the TOC version and compares it with the tag")
@@ -947,6 +952,22 @@ describe("Release version check", function()
     it("finds the release job's two lines", function()
         assert.is_truthy(readToc, "release.yml no longer reads the TOC version")
         assert.is_truthy(compare, "release.yml no longer compares the tag with the TOC")
+    end)
+
+    it("doesn't find the compare line when anything follows exit 1 on it, such as || true", function()
+        -- Changes only the tag compare line, the one that ends with the TOC version.
+        local line = 'TOC version $toc"; exit 1; }'
+        local function withTail(tail)
+            local at = text:find(line, 1, true)
+            assert.is_truthy(at, "release.yml has no tag compare line to change")
+            local stop = at + #line
+            return text:sub(1, stop - 1) .. tail .. text:sub(stop)
+        end
+        for _, tail in ipairs({ " || true", "; true", " ||true", " || :" }) do
+            assert.is_falsy(compareLines(withTail(tail)), "the compare line still matches with" .. tail .. " after it")
+        end
+        -- Trailing spaces change nothing, so they still match.
+        assert.is_truthy(compareLines(withTail("  ")))
     end)
 
     it("accepts the tag for the TOC's own version, and prints nothing", function()
