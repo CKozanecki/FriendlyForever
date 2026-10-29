@@ -177,7 +177,7 @@ local function ArmButton()
         return
     end
     local offer, reason = NextOffer()
-    if not offer then return Empty(reason, showingResult) end
+    if not offer then return Empty(reason, true) end
 
     local hadTarget = HasTarget()
     local macroText = BuffButton.BuildCastMacro(offer.name, offer.spell, hadTarget)
