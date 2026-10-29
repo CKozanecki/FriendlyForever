@@ -1,4 +1,4 @@
--- Spec: #64
+-- Spec: #52, #64
 -- Layout: the buff-back button's text stays inside the button, and on each
 -- options tab the message list follows the last row that tab shows. The
 -- checks work from the simulated client's own anchors and text widths
@@ -115,6 +115,33 @@ describe("Layout", function()
             assert.are.equal("Wolfgangamad Wolfgangamad", button.title:GetText())
             assertInside(button, button.title, "the name")
             assertInside(button, button.subtitle, "the favour")
+        end)
+    end)
+
+    describe("the copy window", function()
+        -- A line of the small font the hint uses, in pixels, as the UI
+        -- simulator draws it (its LAYOUT lines for the hint); checked in game
+        -- on #50.
+        local SMALL_LINE = 12
+
+        it("keeps its hint to two lines, above the text box, for export, import and the bug report", function()
+            local ns = wow.boot()
+            for _, command in ipairs({ "export", "import", "report" }) do
+                slash(command)
+                local window = ns.Window.Frame()
+                local drawn = wow.drawnText(window.hint, window)
+                assert.is_true(drawn.lines <= 2, command .. ": the hint wraps onto " .. drawn.lines .. " lines")
+                local _, _, _, _, hintTop = window.hint:GetPoint(1)
+                local _, _, _, _, boxTop = window.scroll:GetPoint(1)
+                assert.is_true(boxTop <= hintTop - 2 * SMALL_LINE - 4,
+                    ("%s: the text box starts at %d, inside the hint's two lines from %d"):format(command, boxTop, hintTop))
+            end
+        end)
+
+        it("cuts a hint too long for two lines, rather than running into the text box", function()
+            local ns = wow.boot()
+            ns.Window.Show({ title = "Test", hint = string.rep("a very long hint ", 40) })
+            assert.are.equal(2, wow.drawnText(ns.Window.Frame().hint, ns.Window.Frame()).lines)
         end)
     end)
 

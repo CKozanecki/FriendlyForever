@@ -545,8 +545,8 @@ end)
 
 -- The copy window as each command opens it: export (a line to copy), import
 -- (a box to paste into, and an Import button) and the bug report. The
--- window's own text (its title and hint) stays on one line: the text box
--- starts just below the hint.
+-- window's own text (its title and hint) keeps to two lines: the text box
+-- starts below the hint's second line.
 test("the copy window keeps its text inside it, for export, import and the bug report", function()
     for _, command in ipairs({ "export", "import", "report" }) do
         SlashCmdList.FRIENDLYFOREVER(command)
@@ -555,7 +555,7 @@ test("the copy window keeps its text inside it, for export, import and the bug r
             check(window and window:IsShown(), "/friendly " .. command .. " didn't open the copy window")
             local label = "copy window (" .. command .. ")"
             OnScreen(window, label)
-            FrameTextInside(window, label, 1)
+            FrameTextInside(window, label, 2)
         end)
         if window then window:Hide() end
         if not ok then error(err, 0) end
