@@ -415,6 +415,16 @@ describe("Thank them with, and if that can't reach them (#101)", function()
             end)
         end
 
+        it("repairs a damaged old whisper switch to the default, keeping a good style", function()
+            for _, bad in ipairs({ "yes", 1, {}, "true" }) do
+                ns = boot({ schemaVersion = 6, buff = { thankStyle = "message", useWhisper = bad } })
+                assert.are.equal("message", ns.db.buff.thankStyle, tostring(bad))
+                ns = boot({ schemaVersion = 6, buff = { thankStyle = "both", fallbackToSay = bad } })
+                assert.are.equal("both", ns.db.buff.thankStyle, tostring(bad))
+                assert.are.equal("say", ns.db.buff.fallback, tostring(bad))
+            end
+        end)
+
         it("sends nothing for a choice damaged after loading, without an error", function()
             ns = boot()
             ns.db.buff.thankStyle, ns.db.buff.fallback = "dance", "shout"
@@ -426,27 +436,121 @@ describe("Thank them with, and if that can't reach them (#101)", function()
         end)
     end)
 
+    describe("a failed whisper after things changed (black)", function()
+        -- A whisper to Bob-Stone has just gone out (no key press needed, no delay).
+        local function whispered()
+            ns = boot()
+            ns.db.buff.thankStyle, ns.db.buff.delay = "whisper", 0
+            named()
+            wow.advance(0.01)
+            assert.are.same({ WHISPER }, sent().whisper)
+        end
+
+        it("sends nothing for a fallback damaged since the whisper went", function()
+            whispered()
+            ns.db.buff.fallback = "shout"
+            wow.systemMessage(FAIL)
+            drain()
+            assert.are.same({ say = {}, whisper = { WHISPER }, emote = {} }, sent())
+            assert.are.equal("not thanked", ns.db.ledger.entries[1].result)
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("notes why when the fallback can't be sent (Buff Thanks switched off meanwhile)", function()
+            whispered()
+            ns.db.buff.enabled = false
+            wow.systemMessage(FAIL)
+            drain()
+            assert.are.same({}, sent().say)
+            assert.are.equal("not thanked", ns.db.ledger.entries[1].result)
+            assert.are.equal("the whisper didn't reach them; Buff Thanks is off", ns.db.ledger.entries[1].note)
+        end)
+
+        local function annWhispered()
+            wow.addUnit("mouseover", { name = "Ann", surname = "Vale" })
+            wow.gainBuff({ sourceUnit = "mouseover", name = "Int" })
+            -- Sends are spaced (ChatQueue.MIN_INTERVAL), still inside Bob's failure window.
+            wow.advance(ns.ChatQueue.MIN_INTERVAL + 0.1)
+            assert.are.equal("Ann-Vale", wow.sent[#wow.sent].target)
+        end
+
+        it("takes the count back from the day it was counted, not the day it failed", function()
+            whispered()
+            ns.db.buff.fallback = "none"
+            wow.state.today = "2026-10-27" -- midnight passes
+            annWhispered()
+            assert.are.equal(1, ns.Ledger.Summary().todayThanked, "Ann, today")
+            wow.systemMessage(FAIL)
+            assert.are.equal(1, ns.Ledger.Summary().todayThanked, "Ann is still thanked today")
+            assert.are.equal(1, ns.Ledger.Summary().thanked, "Bob's count is taken off the totals")
+        end)
+
+        it("takes nothing back for a favour from before the ledger was cleared", function()
+            whispered()
+            ns.db.buff.fallback = "none"
+            ns.Ledger.Clear()
+            annWhispered()
+            assert.are.equal(1, ns.Ledger.Summary().thanked, "Ann, after the clear")
+            wow.systemMessage(FAIL)
+            assert.are.equal(1, ns.Ledger.Summary().thanked, "Ann's count stays")
+            assert.are.equal(1, ns.Ledger.Summary().todayThanked)
+        end)
+    end)
+
     describe("a storm of buffs, failed whispers, unnamed casters and option changes (red)", function()
         local NAMES = { "Bob", "Gus", "Hal", "Ivy" }
         local TOKENS = { "target", "mouseover", "nameplate1", "nameplate2" }
+        local MOTW, MOTW_1 = 9885, 1126
 
-        -- noSay: the options only ever change between choices without /say.
+        -- One seeded storm, as a druid who can buff back. noSay: the options
+        -- only ever change between choices without /say. Returns what it
+        -- reached, counted from what the client sent: failures that followed
+        -- a thank-you whisper within the game's window, by the fallback
+        -- chosen at that moment.
         local function storm(seed, noSay)
             random.seed(seed)
-            ns = boot()
+            ns = wow.boot({ before = function(state)
+                state.class = "DRUID"
+                state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
+            end })
+            ns.db.buff.messages = { "Thanks for the {buff}, {name}!" }
+            ns.db.buffBack.messages = { "Back to you, {name}!" }
             ns.db.buffBack.sayLine = true
+            -- Short, so each name is thanked (and whispered) again and again.
+            ns.db.buff.repeatCooldown = 5
+            local button = ns.BuffButton.Frame()
             local styles = noSay and { "whisper", "emote" } or STYLES
             local fallbacks = noSay and { "emote", "none" } or FALLBACKS
             local function pick(list) return list[random.random(#list)] end
             ns.db.buff.thankStyle, ns.db.buff.fallback = pick(styles), pick(fallbacks)
+            local reached = { failedWhisper = { say = 0, emote = 0, none = 0 } }
+
+            -- The newest thank-you whisper the client sent, if any.
+            local function lastThanksWhisper()
+                for i = #wow.sent, 1, -1 do
+                    local m = wow.sent[i]
+                    if m.channel == "WHISPER" and m.text:find("Thanks for the", 1, true) then return m end
+                end
+            end
+
             local actions = {
                 function()
                     local token, name = pick(TOKENS), pick(NAMES)
-                    wow.addUnit(token, { name = name, surname = "Stone" })
+                    wow.addUnit(token, { name = name, surname = "Stone", id = name .. "-Stone", class = "WARRIOR" })
                     wow.gainBuff({ sourceUnit = token, name = pick({ "Fort", "Int", "Mark" }) })
                 end,
                 function() wow.gainBuff({ name = pick({ "Fort", "Int" }) }) end,
-                function() wow.systemMessage("No player named '" .. pick(NAMES) .. "-Stone' is currently playing.") end,
+                function()
+                    -- Mostly about the newest thank-you whisper, as a real failure is.
+                    local last = lastThanksWhisper()
+                    local target = (last and random.random() < 0.75) and last.target or (pick(NAMES) .. "-Stone")
+                    if last and target == last.target and wow.now - last.time <= ns.BuffTracker.WHISPER_FAIL_WINDOW then
+                        local f = ns.db.buff.fallback
+                        reached.failedWhisper[f] = reached.failedWhisper[f] + 1
+                    end
+                    wow.systemMessage("No player named '" .. target .. "' is currently playing.")
+                end,
+                function() wow.press(button) end,
                 function() ns.db.buff.thankStyle = pick(styles) end,
                 function() ns.db.buff.fallback = pick(fallbacks) end,
                 function() wow.state.units[pick(TOKENS)] = nil end,
@@ -454,28 +558,41 @@ describe("Thank them with, and if that can't reach them (#101)", function()
                 function() wow.keyDown() end,
                 function() wow.state.lockdown = not wow.state.lockdown end,
             }
-            for _ = 1, 400 do
+            for _ = 1, 800 do
                 actions[random.random(#actions)]()
             end
             wow.state.lockdown = false
             drain()
             assert.are.same({}, wow.errors, "seed " .. seed)
+            reached.returned = ns.db.ledger.totals.returned
+            return reached
+        end
+
+        -- /say lines the client sent or held back, whatever sent them.
+        local function saidCount()
+            local said = 0
+            for _, m in ipairs(wow.sent) do if m.channel == "SAY" then said = said + 1 end end
+            for _, m in ipairs(wow.blocked) do if m.channel == "SAY" then said = said + 1 end end
+            return said
         end
 
         for seed = 1, 6 do
             it("never sends a /say line when neither choice has /say, and never errors: seed " .. seed, function()
-                storm(seed * 7919, true)
-                -- Counted from what the client sent and held back, not from the addon.
-                local said = 0
-                for _, m in ipairs(wow.sent) do if m.channel == "SAY" then said = said + 1 end end
-                for _, m in ipairs(wow.blocked) do if m.channel == "SAY" then said = said + 1 end end
-                assert.are.equal(0, said, "seed " .. seed)
-                assert.is_true(#wow.sent + #wow.emotes > 0, "the storm thanked someone")
+                local reached = storm(seed * 7919, true)
+                assert.are.equal(0, saidCount(), "seed " .. seed)
+                -- The storm reached each path a /say line could come from.
+                assert.is_true(reached.failedWhisper.emote > 0, "a failed whisper with /thank instead")
+                assert.is_true(reached.failedWhisper.none > 0, "a failed whisper with nothing chosen")
+                assert.is_true(reached.returned > 0, "a favour returned, with its line")
+                local plain = 0
+                for _, e in ipairs(wow.emotes) do if e.target == nil then plain = plain + 1 end end
+                assert.is_true(plain > 0, "a plain /thank")
             end)
 
             it("never errors with every choice in play: seed " .. seed, function()
-                storm(seed * 104729, false)
-                assert.is_true(#wow.sent + #wow.emotes > 0, "the storm thanked someone")
+                local reached = storm(seed * 104729, false)
+                assert.is_true(saidCount() > 0, "with /say chosen, something is said")
+                assert.is_true(reached.returned > 0, "a favour returned, with its line")
             end)
         end
     end)
