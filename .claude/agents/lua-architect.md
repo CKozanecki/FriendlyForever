@@ -74,6 +74,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 **State and events**
 - Login or `/reload` while grouped isn't joining; a ghost, or someone who joins dead, isn't a new death; state can already be there at `PLAYER_ENTERING_WORLD` with no event for it; a reload loses session memory (#67, #88).
 - Turning a feature off, or what it depends on, cancels its queued and dependent state, so nothing stays "wanted" and quietly comes back (#62: buff mode stayed wanted when switched off; #20; #60).
+- A player named by first name alone (a cast's target, a message's sender) is matched against every unit it could be, including you (`player`) and your group (`party1-4`, `raid1-40`), not only the tokens it usually comes from; any second player of that first name makes it ambiguous. A self-cast while targeting a stranger who shared your first name returned that stranger's favour (#37).
 
 **Saved settings and imports**
 - Every saved or imported field has its own validator, and a spec checks every default has one. Unknown keys, infinite numbers, duplicates and wrong types are dropped, sizes capped. Imports are parsed as data with size, depth and count limits, and an export never exceeds what import reads (#20, #21, #61, #73: `Serialize.MAX_DEPTH`).

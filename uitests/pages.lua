@@ -4,6 +4,9 @@
 -- job runs this file, then FriendlyForeverUIPages.Show("<page>"), through
 -- --exec-lua. So this file only defines things, and calls no test().
 --
+-- The main panel's tabs (#112) too: FriendlyForeverUIPages.ShowTab("<tab>")
+-- opens the panel and clicks that tab's button, as a player would.
+--
 -- The simulator loads the test files in name order, so this one comes before
 -- scenarios.lua and FriendlyForeverUIPages is there when they run.
 --
@@ -115,4 +118,72 @@ end
 function Pages.Show(which)
     Pages.Fill()
     Pages.Open(which)
+end
+
+-- The main panel's tabs (#112), in the panel's order (Config.TYPES): the
+-- name each screenshot and LAYOUT line goes by, and the text on its button.
+-- spec/uitests_pages_spec.lua checks this list against Config.TYPE_INFO, so
+-- a new tab can't go without its shot.
+Pages.TABS = {
+    { name = "guild-login", label = "Guild Login" },
+    { name = "buff-thanks", label = "Buff Thanks" },
+    { name = "guild-join", label = "Guild Join" },
+    { name = "party-join", label = "Party Join" },
+    { name = "party-hello", label = "Party Hello" },
+    { name = "hello-again", label = "Hello Again" },
+    { name = "buff-back", label = "Buff Back" },
+}
+Pages.PANEL = "FriendlyForeverOptionsPanel"
+
+local report = type(A_Print) == "function" and A_Print or print
+
+-- The tab called name, or nothing and why not. Only a name from Pages.TABS
+-- is known: anything else, of any type, gets the list of names.
+local function FindTab(name)
+    for _, tab in ipairs(Pages.TABS) do
+        if tab.name == name then return tab end
+    end
+    local names = {}
+    for i, tab in ipairs(Pages.TABS) do names[i] = tab.name end
+    return nil, ("no options tab called %s; the tabs are %s"):format(tostring(name), table.concat(names, ", "))
+end
+
+-- The button under frame (the panel, its scroll frame and its content)
+-- whose text is label, if any.
+local function FindButton(frame, label, depth)
+    for _, child in ipairs({ frame:GetChildren() }) do
+        if child:GetObjectType() == "Button" and child.GetText and child:GetText() == label then return child end
+        if depth > 1 then
+            local found = FindButton(child, label, depth - 1)
+            if found then return found end
+        end
+    end
+end
+
+-- Opens the options panel at the tab called name (a Pages.TABS name), by
+-- clicking that tab's button, as a player would. Returns the panel's
+-- scrolling content, where the tab's rows are, and the tab. An unknown name
+-- is answered with a message, and nothing is returned: no Lua error.
+function Pages.OpenTab(name)
+    local tab, why = FindTab(name)
+    if not tab then
+        report(why)
+        return nil, why
+    end
+    SlashCmdList.FRIENDLYFOREVER("")
+    local panel = _G[Pages.PANEL]
+    local button = type(panel) == "table" and FindButton(panel, tab.label, 3)
+    if not button then
+        why = "the options panel has no " .. tab.label .. " tab button"
+        report(why)
+        return nil, why
+    end
+    -- The selected tab's button is disabled, and a click on it does nothing.
+    if button:IsEnabled() then button:Click() end
+    return button:GetParent(), tab
+end
+
+-- For the screenshot job: show one tab.
+function Pages.ShowTab(name)
+    Pages.OpenTab(name)
 end

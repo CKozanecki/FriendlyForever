@@ -1,4 +1,4 @@
--- Spec: #52
+-- Spec: #52, #101
 -- The favour ledger and the /thank emote: what Buff Thanks remembers and the
 -- other way it can say thank you.
 local wow = require("spec.support.wow")
@@ -231,8 +231,8 @@ describe("Thank emote", function()
         assert.is_nil(wow.emotes[1].target)
     end)
 
-    it("makes a plain /thank for someone it can't name", function()
-        ns.db.buff.thankStyle = "emote"
+    it("makes a plain /thank for someone it can't name, when that is the fallback", function()
+        ns.db.buff.thankStyle, ns.db.buff.fallback = "emote", "emote"
         wow.gainBuff({ name = "Mark of the Wild" })
         settle()
         assert.are.equal(1, #wow.emotes)

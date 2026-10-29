@@ -1,3 +1,4 @@
+-- Spec: #101
 local wow = require("spec.support.wow")
 
 describe("Diagnostics", function()
@@ -90,9 +91,9 @@ describe("Diagnostics", function()
 
         it("logs why an unidentified caster isn't thanked", function()
             slash("debug")
-            ns.db.buff.fallbackToSay = false
+            ns.db.buff.fallback = "none"
             wow.gainBuff({ name = "Fort" })
-            assert.is_true(logHas("not thanking: caster can't be named and the /say fallback is off"))
+            assert.is_true(logHas("not thanking: caster can't be named, and no fallback is chosen"))
         end)
 
         it("logs buffs merged into a waiting thank-you", function()

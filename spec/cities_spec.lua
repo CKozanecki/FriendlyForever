@@ -1,4 +1,4 @@
--- Spec: #34
+-- Spec: #34, #101
 -- Quiet mode in capital cities: no thank-yous and no buff-back button there,
 -- unless buff mode is on; the ledger and the favours still count.
 local wow = require("spec.support.wow")
@@ -62,11 +62,11 @@ describe("Quiet mode in capital cities", function()
         end)
 
         it("sends no thank-you lines, in /say, a whisper or a /thank, in every capital", function()
-            for _, style in ipairs({ "message", "emote", "both" }) do
-                for _, whisper in ipairs({ false, true }) do
+            for _, style in ipairs({ "message", "whisper", "emote", "both" }) do
+                for _, fallback in ipairs({ "say", "emote" }) do
                     for _, id in pairs(wow.CAPITAL) do
                         boot()
-                        ns.db.buff.thankStyle, ns.db.buff.useWhisper = style, whisper
+                        ns.db.buff.thankStyle, ns.db.buff.fallback = style, fallback
                         wow.setMap(id)
                         stranger()
                         buffedBy()
@@ -197,7 +197,7 @@ describe("Quiet mode in capital cities", function()
         end)
 
         it("drops the /say fallback for a failed whisper once you're in a capital", function()
-            ns.db.buff.useWhisper = true
+            ns.db.buff.thankStyle = "whisper"
             stranger()
             buffedBy()
             wow.advance(ns.db.buff.delay + 0.01)
@@ -373,7 +373,7 @@ describe("Quiet mode in capital cities", function()
                 local point, relativeTo, relativePoint, _, y = region:GetPoint(1)
                 return point == "TOPLEFT" and relativeTo == above and relativePoint == "BOTTOMLEFT" and y < 0
             end
-            assert.is_true(below(w.quiet, w.fallback), "quiet mode under the /say fallback")
+            assert.is_true(below(w.quiet, w.fallbackLabel), "quiet mode under the fallback choice")
             assert.is_true(below(w.nameplateWarning, w.quiet), "then the nameplate warning")
             assert.is_true(below(w.showInCities, w.sayLine), "the capital-city button option under the line")
             assert.is_true(below(w.buffOrderHeader, w.showInCities), "then the buff order")
@@ -551,8 +551,8 @@ describe("Quiet mode in capital cities", function()
         local function storm(seed, opts)
             random.seed(seed)
             boot(nil, opts)
-            ns.db.buff.thankStyle = ({ "message", "emote", "both" })[random.random(3)]
-            ns.db.buff.useWhisper = random.random() < 0.5
+            ns.db.buff.thankStyle = ({ "message", "whisper", "emote", "both" })[random.random(4)]
+            ns.db.buff.fallback = ({ "say", "emote", "none" })[random.random(3)]
             local maps = { 1453, 1454, 1455, 1456, 1457, 1458, 1429, 1411, 1426, false }
             local names = { "Bob", "Gus", "Hal", "Ivy" }
             local thanked, quietSteps = 0, 0
