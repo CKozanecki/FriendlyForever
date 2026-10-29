@@ -1,4 +1,4 @@
--- Spec: #99
+-- Spec: #98, #99
 local wow = require("spec.support.wow")
 
 describe("Buff thanks", function()
@@ -799,6 +799,25 @@ describe("Buff thanks", function()
             settle()
             assert.are.same({ "Thank you for the buff, Bob!" }, wow.sentTo("SAY"))
         end)
+
+        -- #98: the game sends a unit token or nil; anything else is damaged data.
+        for _, case in ipairs({
+            { "true", true }, { "false", false }, { "a table", {} }, { "a function", function() end },
+            { "a number", 1 }, { "empty text", "" },
+        }) do
+            it("a buff whose caster unit is " .. case[1] .. " owes no favour, isn't thanked by name, and raises no Lua error",
+                function()
+                    ns.db.debug = true
+                    ns.db.buffBack.enabled = true
+                    stranger()
+                    wow.gainBuff({ sourceUnit = case[2], name = "Arcane Intellect", spellId = 1459 })
+                    settle()
+                    assert.are.same({}, wow.errors)
+                    assert.are.equal(0, ns.Offers.Count())
+                    assert.are.equal(0, #wow.sent)
+                    assert.is_true(logHas("caster unit isn't a unit token (" .. type(case[2]) .. ")"))
+                end)
+        end
 
         it("ignores secret cast events", function()
             ns.db.buff.fallbackToSay = false
