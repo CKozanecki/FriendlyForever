@@ -7,8 +7,9 @@ local _, ns = ...
 local MinimapButton = {}
 ns.Minimap = MinimapButton
 
--- A clasped handshake: friendly, and fitting for greetings and thanks.
-MinimapButton.ICON = "Interface\\Icons\\Achievement_Reputation_01"
+-- Our own icon (#65): the logo's heart and sparkle on a navy disc. The same
+-- texture is the AddOns list's ## IconTexture in the TOC.
+MinimapButton.ICON = "Interface\\AddOns\\FriendlyForever\\Media\\Icon"
 MinimapButton.EDGE_OFFSET = 5
 
 local button
@@ -96,7 +97,6 @@ function MinimapButton.Create()
     icon:SetTexture(MinimapButton.ICON)
     icon:SetSize(17, 17)
     icon:SetPoint("TOPLEFT", 7, -6)
-    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     button.icon = icon
 
     local border = button:CreateTexture(nil, "OVERLAY")

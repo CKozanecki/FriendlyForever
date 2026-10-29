@@ -244,21 +244,6 @@ test("the buff-back button's text stays inside it (unlocked, the longest hint)",
     end)
 end)
 
--- From #64: the longest favour text a button can show. Set directly, since
--- these scenarios can't yet make a favour (#83), and put back afterwards.
-test("the buff-back button's text stays inside it (a long favour)", function()
-    WithButtonUnlocked(function(button)
-        assertNotNil(button)
-        local hint = button.subtitle:GetText()
-        local ok, err = pcall(function()
-            button.subtitle:SetText("missing your Power Word: Fortitude")
-            TextInside(button, button.subtitle, "long favour hint", 1)
-        end)
-        button.subtitle:SetText(hint)
-        if not ok then error(err, 0) end
-    end)
-end)
-
 test("the buff-back button is on the screen where it starts (unlocked)", function()
     WithButtonUnlocked(function(button)
         assertNotNil(button)
@@ -272,6 +257,188 @@ test("the options panel is on the screen once open", function()
     local panel = _G.FriendlyForeverOptionsPanel
     assertNotNil(panel)
     OnScreen(panel, "options panel")
+end)
+
+-- The button's real states (#83), set up through game events by
+-- button_states.lua, which the simulator loads before this file. Each runs
+-- with Lua errors caught, and is put back even when a check fails.
+
+-- What /friendly buffback says the button holds, for a failed check's message.
+local function ButtonStatus()
+    local ok, lines = pcall(CapturePrints, function() SlashCmdList.FRIENDLYFOREVER("buffback") end)
+    return ok and table.concat(lines, " / ") or "(couldn't ask: " .. tostring(lines) .. ")"
+end
+
+-- Blizzard UI errors already reported, so each is printed once.
+local notedErrors = {}
+
+-- Real milliseconds since the simulator started, for the TIME lines.
+local function Now()
+    return type(debugprofilestop) == "function" and debugprofilestop() or 0
+end
+
+local function InState(label, state, fn)
+    local States = FriendlyForeverUIStates
+    check(type(States) == "table", "button_states.lua didn't load before this file")
+    local started = Now()
+    local failures, others = States.Watch(function()
+        state.Set()
+        fn(States.Button(), States)
+    end)
+    local undoFailures, undoOthers = States.Watch(state.Undo)
+    report(("TIME %s: %.0f ms"):format(label, Now() - started))
+    -- Not the addon's: reported, not failed (see States.Watch).
+    for _, list in ipairs({ others, undoOthers }) do
+        for _, text in ipairs(list) do
+            local first = text:match("^[^\n]*")
+            if not notedErrors[first] then
+                notedErrors[first] = true
+                report("NOTE Blizzard UI error in the simulator, not the addon's: " .. first)
+            end
+        end
+    end
+    check(#failures == 0, table.concat(failures, " | ") .. "\n  the button: " .. ButtonStatus())
+    check(#undoFailures == 0, "putting it back: " .. table.concat(undoFailures, " | "))
+end
+
+local function Expect(ok, what)
+    if not ok then check(false, what .. "\n  the button: " .. ButtonStatus()) end
+end
+
+-- The button is empty: it isn't up, and a press would cast nothing.
+local function ExpectEmpty(States, when)
+    Expect(States.Macro() == nil, when .. ": the button holds a macro")
+    Expect(not States.Button():IsShown(), when .. ": the button is up")
+end
+
+-- The last argument to TextInside, 1: each button line stays on one line.
+test("with a favour owed, the button names the player and the buff, and its text stays inside it", function()
+    InState("favour", FriendlyForeverUIStates.Favour, function(button, States)
+        Expect(select(2, UnitClass("player")) == "PRIEST", "the player isn't a Priest")
+        Expect(button:IsShown(), "the button isn't up")
+        Expect(button.title:GetText() == States.STRANGER, "the title doesn't name " .. States.STRANGER)
+        Expect(button.subtitle:GetText() == "buffed you - give " .. States.SPELL.name,
+            "the hint doesn't name " .. States.SPELL.name)
+        Expect(States.MacroTarget() == States.STRANGER, "the macro doesn't target " .. States.STRANGER)
+        Expect((States.Macro() or ""):find("/cast [help,nodead] " .. States.SPELL.name, 1, true) ~= nil,
+            "the macro doesn't cast " .. States.SPELL.name)
+        TextInside(button, button.title, "favour title", 1)
+        TextInside(button, button.subtitle, "favour hint", 1)
+        OnScreen(button, "buff-back button (favour)")
+    end)
+end)
+
+test("in buff mode, a party member missing your buff is offered it, and the text stays inside", function()
+    InState("buff mode", FriendlyForeverUIStates.GroupMissing, function(button, States)
+        Expect((button.mode:GetText() or ""):find("Buff mode:", 1, true) ~= nil, "buff mode isn't on")
+        Expect(button:IsShown(), "the button isn't up")
+        Expect(button.title:GetText() == States.GROUPMATE, "the title doesn't name " .. States.GROUPMATE)
+        Expect(button.subtitle:GetText() == "missing your " .. States.SPELL.name,
+            "the hint doesn't offer " .. States.SPELL.name)
+        Expect(States.MacroTarget() == States.GROUPMATE, "the macro doesn't target " .. States.GROUPMATE)
+        TextInside(button, button.title, "buff mode title", 1)
+        TextInside(button, button.subtitle, "buff mode hint", 1)
+        OnScreen(button, "buff-back button (buff mode)")
+    end)
+end)
+
+-- Units no favour can come from: empty, a token that shows no one, the
+-- target when there's no target, a party slot when not in a party, you, and
+-- a number. (A caster that isn't a string or number at all is #98.)
+local BAD_SOURCES = { "", "nameplate77", "target", "party3", "player", 42 }
+
+test("a buff naming an unknown or empty unit leaves the button empty, with no Lua error", function()
+    local States = FriendlyForeverUIStates
+    local stranger = "Cael Morrow"
+    local learned = { Set = function() States.PassLoginGrace(); States.Learn() end,
+        Undo = States.FavourFrom(stranger).Undo }
+    InState("bad sources", learned, function()
+        ExpectEmpty(States, "before any buff")
+        States.BuffedBy(nil)
+        ExpectEmpty(States, "a buff naming no caster")
+        for _, source in ipairs(BAD_SOURCES) do
+            States.BuffedBy(source)
+            ExpectEmpty(States, "a buff from " .. tostring(source))
+        end
+        -- The same buff from a real player does fill it: the fixture works.
+        States.Target(stranger)
+        States.BuffedBy("target")
+        Expect(States.MacroTarget() == stranger, "a buff from your target owes no favour")
+    end)
+end)
+
+-- A small deterministic random sequence (Park-Miller), the same on every run.
+local function Random(seed)
+    local x = seed
+    return function(n)
+        x = (x * 16807) % 2147483647
+        return x % n + 1
+    end
+end
+
+test("entering combat empties the button, leaving fills it again; storms never error", function()
+    local stranger = "Daria Venn"
+    InState("combat and storm", FriendlyForeverUIStates.FavourFrom(stranger), function(button, States)
+        Expect(States.MacroTarget() == stranger, "no favour to start with")
+        States.Combat(true)
+        ExpectEmpty(States, "in combat")
+        States.Combat(false)
+        Expect(button:IsShown() and States.MacroTarget() == stranger,
+            "the button didn't fill again after combat")
+
+        -- A storm of fights, buffs from anyone, targets and roster changes.
+        -- The rules are worked out from what was done here, not by asking
+        -- the addon: in a fight the button holds nothing; out of one it
+        -- holds nothing, or a buff for one of the two players who could be
+        -- owed or offered one, and its title names whoever the macro targets.
+        local roll, fighting = Random(83), false
+        local sources = { "target", "", "nameplate3", "party1", 42 }
+        local steps = {
+            function() if not fighting then States.Combat(true); fighting = true end end,
+            function() if fighting then States.Combat(false); fighting = false end end,
+            function() States.BuffedBy(sources[roll(#sources)]) end,
+            function() States.Target(stranger) end,
+            function() States.Target(nil) end,
+            -- Party changes only out of a fight: in one, the simulator's
+            -- Blizzard party and raid frames take 20-90 seconds over each
+            -- (their own errors, not the addon's). spec/buffmodeauto_spec.lua
+            -- covers the roster changing in a fight.
+            function() if not fighting then States.Party(States.GROUPMATE) end end,
+            function() if not fighting then States.Party(nil) end end,
+            function() States.Advance(roll(4) - 1) end,
+        }
+        local allowed = { [stranger] = true, [States.GROUPMATE] = true }
+        for step = 1, 60 do
+            local which = roll(#steps)
+            local stepStarted = Now()
+            steps[which]()
+            local acted = Now()
+            -- A frame passes, as between the game's events: what the addon
+            -- leaves for the next frame runs, and its time budget resets.
+            States.Advance(0)
+            if Now() - stepStarted > 250 then
+                report(("TIME storm step %d (action %d, %s): %.0f ms, then a frame: %.0f ms"):format(
+                    step, which, fighting and "in a fight" or "out of one", acted - stepStarted, Now() - acted))
+            end
+            local at = ("storm step %d (action %d)"):format(step, which)
+            if fighting then
+                Expect(States.Macro() == nil, at .. ": the button holds a macro in a fight")
+            else
+                local target = States.MacroTarget()
+                Expect(States.Macro() == nil or allowed[target], at .. ": the button targets " .. tostring(target))
+                if target then
+                    Expect(button.title:GetText() == target, at .. ": the title doesn't name " .. target)
+                end
+            end
+        end
+
+        -- After the storm: out of the fight and the party, the stranger targeted.
+        if fighting then States.Combat(false) end
+        States.Party(nil)
+        States.Target(stranger)
+        Expect(button:IsShown() and States.MacroTarget() == stranger,
+            "the favour didn't come back after the storm")
+    end)
 end)
 
 -- Facts about the simulated client, printed in the report: they are
@@ -295,11 +462,14 @@ test("reports the client facts our own simulated client assumes", function()
     assertTrue(true)
 end)
 
--- Not covered here: anything that waits in game time (the login grace,
--- message delays). The simulator runs timers as fast as it can, at most 500
--- updates per async test, with no way to move the clock forward, so a
--- 10-second wait can't pass. Those flows stay in spec/, whose simulated
--- client controls time (wow.advance).
+-- Not covered here: flows about waiting in game time (the login grace,
+-- message delays). The simulator does have a manual clock
+-- (A_Admin.SetManualClock and AdvanceTime), which button_states.lua uses
+-- to get past the login grace, but those flows stay in spec/, whose
+-- simulated client controls time too (wow.advance) and models Forever.
+-- Once the button-state scenarios have run, game time stays frozen for the
+-- rest of the run: a later test whose timers must fire calls
+-- A_Admin.AdvanceTime itself.
 
 -- The layout checks, for spec/uitests_layout_spec.lua, which runs them
 -- against regions whose edges it sets itself. The simulator ignores what a
