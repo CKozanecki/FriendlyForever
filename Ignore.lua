@@ -9,8 +9,19 @@ ns.Ignore = Ignore
 
 local Key = function(fullName) return ns.Config.IgnoreKey(fullName) end
 
+-- The list. Its type is checked on every use, so a list damaged mid-session
+-- (by another addon or a bad /run) is repaired before it can raise an error.
+-- A damaged entry is skipped where it's read, and dropped at the next load.
+function Ignore.Data()
+    if type(ns.db.ignore) ~= "table" then
+        ns.Diag.Log("ignore", "the ignore list was damaged; repaired")
+        ns.db.ignore = ns.Config.ValidIgnore(ns.db.ignore)
+    end
+    return ns.db.ignore
+end
+
 function Ignore.Has(fullName)
-    return ns.db ~= nil and fullName ~= nil and ns.db.ignore[Key(fullName)] ~= nil
+    return ns.db ~= nil and fullName ~= nil and Ignore.Data()[Key(fullName)] ~= nil
 end
 
 -- Accepts "Nikki Shifts", "Nikki-Shifts" or a unit token's player.
@@ -31,12 +42,13 @@ end
 function Ignore.Add(input)
     local name, why = Resolve(input)
     if not name then return nil, why end
-    if not ns.db.ignore[Key(name)] then
+    local list = Ignore.Data()
+    if not list[Key(name)] then
         local n = 0
-        for _ in pairs(ns.db.ignore) do n = n + 1 end
+        for _ in pairs(list) do n = n + 1 end
         if n >= ns.Config.MAX_IGNORED then return nil, "the list is full (" .. n .. " names)" end
     end
-    ns.db.ignore[Key(name)] = name
+    list[Key(name)] = name
     ns.Offers.Forget(name)
     return name
 end
@@ -45,16 +57,21 @@ end
 function Ignore.Remove(input)
     local name, why = Resolve(input)
     if not name then return nil, why end
-    local listed = ns.db.ignore[Key(name)]
-    if not listed then return nil, Util.DisplayName(name) .. " isn't on the list" end
-    ns.db.ignore[Key(name)] = nil
+    local list, key = Ignore.Data(), Key(name)
+    if list[key] == nil then return nil, Util.DisplayName(name) .. " isn't on the list" end
+    -- The name as it was listed; as typed, if the entry was damaged.
+    local listed = ns.Config.IgnoreEntry(key, list[key]) or name
+    list[key] = nil
     return listed
 end
 
 -- Display names, sorted.
 function Ignore.List()
     local out = {}
-    for _, name in pairs(ns.db.ignore) do out[#out + 1] = Util.DisplayName(name) end
+    for key, value in pairs(Ignore.Data()) do
+        local name = ns.Config.IgnoreEntry(key, value)
+        if name then out[#out + 1] = Util.DisplayName(name) end
+    end
     table.sort(out)
     return out
 end
