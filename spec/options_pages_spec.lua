@@ -1,4 +1,4 @@
--- Spec: #52, #58, #80
+-- Spec: #52, #58, #80, #112
 -- The options added with 0.8.0: thank style, loading a line set, and the
 -- General and Favour Ledger pages.
 local wow = require("spec.support.wow")
@@ -40,6 +40,26 @@ describe("Options", function()
             assert.are.equal("both", ns.db.buff.thankStyle)
             wow.run(w.thankStyle, "OnClick")
             assert.are.equal("message", ns.db.buff.thankStyle)
+        end)
+
+        -- The tabs' rows are on the panel's scrolling content, which takes
+        -- the scroll frame's width each time the panel is shown, and again a
+        -- frame later, as the General page's does (#52). The UI simulator
+        -- laid it out without a size change, leaving it 28 px wide (#112).
+        it("fits its scrolling content to the panel's width when shown", function()
+            assert.are.equal(w.scroll, w.content.parent)
+            w.scroll.width = 640
+            wow.run(w.scroll, "OnShow")
+            assert.are.equal(640, w.content:GetWidth())
+            w.scroll.width = 655
+            wow.advance(0)
+            assert.are.equal(655, w.content:GetWidth())
+            w.scroll.width = 0
+            wow.run(w.scroll, "OnShow")
+            wow.advance(0)
+            assert.are.equal(655, w.content:GetWidth(), "a scroll frame not laid out yet changes nothing")
+            wow.run(w.scroll, "OnSizeChanged", 700, 400)
+            assert.are.equal(700, w.content:GetWidth())
         end)
 
         it("loads the fantasy or casual lines into this tab only, keeping its other settings", function()
