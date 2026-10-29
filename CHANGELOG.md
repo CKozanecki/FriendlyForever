@@ -16,6 +16,7 @@
 - **Buff mode:** a group member whose name hasn't loaded yet (shown as "Unknown") is no longer offered a buff. Buff mode stays on and offers it once the name loads. A buff from a player whose name hasn't loaded owes no favour. (#99)
 - Buff thanks no longer raises a Lua error on a buff whose caster the game reports as something other than a unit name. Such a buff isn't thanked or owed. (#98)
 - Fix: buff thanks no longer raises a Lua error when the game sends a damaged aura ID (not a number, or NaN). The buff is still thanked as usual. (#108)
+- Buff data: the shaman's Water Breathing is listed as doing the same job as a warlock's Unending Breath, not as a group version of it. A player wearing either still counts as having Unending Breath. (#135)
 
 ## 0.8.0
 
