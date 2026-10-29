@@ -1,4 +1,4 @@
--- Spec: #90, #35
+-- Spec: #35, #52, #90
 -- The UI simulator's layout check (uitests/scenarios.lua), run here against
 -- stand-in regions whose edges, anchors and text sizes each test sets
 -- itself, so the expected answer comes from those numbers and not from the
@@ -358,38 +358,106 @@ describe("UI simulator layout check (TextInside)", function()
     end)
 end)
 
--- #35: on the General page, which doesn't scroll, every note above the last
--- line pushes it down by its wrapped lines in the game; the client doesn't wrap.
-describe("UI simulator layout check (WrapDrop)", function()
-    local checks
+describe("UI simulator layout check (PushedDownInside)", function()
+    local checks, printed
 
-    before_each(function() checks = loadChecks() end)
+    before_each(function() checks, printed = loadChecks() end)
 
-    -- A note 400 wide, one 12-high line in the client, its text width given.
-    local function note(width, methods)
-        local fields = { left = 0, right = 400, top = 112, bottom = 100, width = width, height = 12 }
-        local base = { CanWordWrap = function() return true end }
-        for k, v in pairs(methods or {}) do base[k] = v end
-        return region(fields, base)
+    -- A page 300 high, 120 wide, its regions and buttons given.
+    local function page(regions, children)
+        local p = region({ left = 0, right = 120, top = 300, bottom = 0 })
+        function p.GetRegions() return unpack(regions) end
+        function p.GetChildren() return unpack(children or {}) end
+        return p
     end
 
-    it("adds the extra lines each wrapping note takes in the game (white)", function()
-        assert.are.equal(24, checks.WrapDrop({ note(1000) }), "three lines: two more")
-        assert.are.equal(36, checks.WrapDrop({ note(1000), note(500) }), "and one more for a second note")
+    -- A shown text line, pinned on its left and right 10 to 110 (100 wide),
+    -- one line high from top; its text is width wide, so it wraps at 100.
+    local function text(label, top, width)
+        return region({ left = 10, right = 110, top = top, bottom = top - 12, points = { "TOPLEFT", "RIGHT" } }, {
+            GetObjectType = function() return "FontString" end,
+            IsShown = function() return true end,
+            GetText = function() return label end,
+            CanWordWrap = function() return true end,
+            GetStringWidth = function() return width end,
+            GetNumLines = function() return 1 end,
+            GetMaxLines = function() return 0 end,
+        })
+    end
+
+    local function button(label, top)
+        return region({ left = 10, right = 90, top = top, bottom = top - 22 }, {
+            GetObjectType = function() return "Button" end,
+            IsShown = function() return true end,
+            GetText = function() return label end,
+        })
+    end
+
+    it("passes a page with no wrapped text, and names its lowest region (white)", function()
+        local line = checks.PushedDownInside(page({ text("Heading", 280, 50) }, { button("Clear", 40) }), "page")
+        assert.are.equal('LAYOUT page pushed down by wrapped text: lowest "Clear" ends at 18, frame bottom 0', line)
+        assert.are.same({ line }, printed)
     end)
 
-    it("adds nothing for a note that fits, doesn't wrap, or is capped at one line (white)", function()
-        assert.are.equal(0, checks.WrapDrop({ note(300) }))
-        assert.are.equal(0, checks.WrapDrop({ note(1000, { CanWordWrap = function() return false end }) }))
-        assert.are.equal(0, checks.WrapDrop({ note(1000, { GetMaxLines = function() return 1 end }) }))
-        assert.are.equal(12, checks.WrapDrop({ note(1000, { GetMaxLines = function() return 2 end }) }))
+    it("fails a button pushed off the page by text that wraps above it (black)", function()
+        -- 1000 wide in 100: ten lines, nine extra, 153 px. The button's bottom
+        -- at 98 ends at -55.
+        local err = fails(function()
+            checks.PushedDownInside(page({ text("Long note", 280, 1000) }, { button("Clear", 120) }), "page")
+        end)
+        assert.truthy(err:find('lowest "Clear" ends at -55, frame bottom 0: would leave its frame in the game', 1, true), err)
     end)
 
-    it("adds nothing for a note whose edges, width or height can't be read (black)", function()
-        assert.are.equal(0, checks.WrapDrop({ note(1000, { GetLeft = function() error("no") end }) }))
-        assert.are.equal(0, checks.WrapDrop({ note(1000, { GetStringWidth = false }) }))
-        assert.are.equal(0, checks.WrapDrop({ note(1000, { GetStringHeight = function() return "tall" end }) }))
-        assert.are.equal(0, checks.WrapDrop({ note(1000, { CanWordWrap = function() error("no") end }) }))
-        assert.are.equal(0, checks.WrapDrop({}))
+    it("doesn't push a region that is above the wrapping text (white)", function()
+        -- The note at 60 wraps to three lines (34 px extra) and ends at 14.
+        -- The button above it, at 280, stays where it is.
+        local line = checks.PushedDownInside(page({ text("Note", 60, 250) }, { button("Clear", 280) }), "page")
+        assert.are.equal('LAYOUT page pushed down by wrapped text: lowest "Note" ends at 14, frame bottom 0', line)
+    end)
+
+    it("counts the lowest region's own wrapped lines too (black)", function()
+        -- Alone, one line high from 40 to 28, but three lines in the game: it
+        -- ends at -6, below the page.
+        local err = fails(function() checks.PushedDownInside(page({ text("Note", 40, 250) }), "page") end)
+        assert.truthy(err:find('lowest "Note" ends at -6, frame bottom 0', 1, true), err)
+    end)
+
+    it("adds the wrapping of every line above, and the region's own (black)", function()
+        -- Two notes above wrap one extra line each (34 px); the bottom note at
+        -- 80 wraps two extra (34 px) itself: its bottom at 68 ends at 0.
+        local line = checks.PushedDownInside(page({ text("A", 280, 150), text("B", 200, 150), text("C", 80, 250) }),
+            "page")
+        assert.are.equal('LAYOUT page pushed down by wrapped text: lowest "C" ends at 0, frame bottom 0', line)
+        -- A pixel of slack, like TextInside's.
+        line = checks.PushedDownInside(page({ text("A", 280, 150), text("B", 200, 150), text("C", 79, 250) }), "page")
+        assert.are.equal('LAYOUT page pushed down by wrapped text: lowest "C" ends at -1, frame bottom 0', line)
+        local err = fails(function()
+            checks.PushedDownInside(page({ text("A", 280, 150), text("B", 200, 150), text("C", 77, 250) }), "page")
+        end)
+        assert.truthy(err:find('lowest "C" ends at -3, frame bottom 0: would leave its frame', 1, true), err)
+    end)
+
+    it("doesn't lift a line the client already draws on more lines than it needs (black)", function()
+        -- Two lines by a line break, though its text fits on one: nothing to add,
+        -- and nothing taken away either.
+        local broken = text("Two lines", 40, 50)
+        broken.GetNumLines = function() return 2 end
+        local line = checks.PushedDownInside(page({ broken }), "page")
+        assert.are.equal('LAYOUT page pushed down by wrapped text: lowest "Two lines" ends at 28, frame bottom 0', line)
+    end)
+
+    it("adds nothing for a line whose edges can't be read, and raises no error (black)", function()
+        local unreadable = text("Note", 40, 1000)
+        unreadable.GetLeft = function() error("no") end
+        local line = checks.PushedDownInside(page({ text("Heading", 280, 50), unreadable }), "page")
+        -- Placed by its top and bottom as the client gives them, with no wrapping added.
+        assert.are.equal('LAYOUT page pushed down by wrapped text: lowest "Note" ends at 28, frame bottom 0', line)
+    end)
+
+    it("doesn't count a line that can't wrap (white)", function()
+        local cut = text("Row", 40, 1000)
+        cut.CanWordWrap = function() return false end
+        local line = checks.PushedDownInside(page({ text("Heading", 280, 50), cut }), "page")
+        assert.are.equal('LAYOUT page pushed down by wrapped text: lowest "Row" ends at 28, frame bottom 0', line)
     end)
 end)

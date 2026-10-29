@@ -4,6 +4,7 @@
 
 - This version adds files (the new icon, Battleground.lua, Cities.lua, Comm.lua and RateLimit.lua). After updating, restart the game; /reload isn't enough. (#32, #34, #35, #65, #71)
 - **Quiet in capital cities** (on by default): no buff thank-yous in Stormwind, Ironforge, Darnassus, Orgrimmar, Thunder Bluff or Undercity, though the favour ledger still counts them. The buff back button stays hidden there unless you switch **Show the button in capital cities** on, and shows your favours once you leave. Buff mode turned on in a city works as usual; a stranger's buff doesn't turn it on there. (#34)
+- The copy window (export, import and the bug report) has room for a hint on two lines, so the import hint no longer runs into the box you paste into. On the **Favour Ledger** page, each row stays on one line, cut with "…" when it's long, so a long row can't push the rest off the page; `/friendly ledger` shows them in full. The **General** page scrolls, so long lists can't push its last settings out of reach, and it lists your first 6 profiles and counts the rest (`/friendly profile` shows them all). (#52)
 - Friendly Forever has its own icon, the gold heart from its logo, on the minimap button, in the addon compartment and in the AddOns list. (#65)
 - Copies of Friendly Forever can now talk to each other with hidden addon messages, for features to come. No chat channel is ever joined. Every message from another player is checked and rate-limited, and none can make the addon cast, speak or change your settings. `/friendly status` shows what was sent, received and dropped. (#32)
 - **Chat limit:** at most 4 lines a minute in each chat (/say, whispers, emotes, guild, group) by default, set from 1 to 10 on the **General** page. It keeps the addon a helper, not a spammer: thank-yous over the limit are dropped and the ledger says why (the first one each session is also mentioned in your own chat window), and greetings wait for room. `/friendly status` counts both. (#35)
@@ -14,6 +15,7 @@
 - **Buff mode:** a group member whose name hasn't loaded yet (shown as "Unknown") is no longer offered a buff. Buff mode stays on and offers it once the name loads. A buff from a player whose name hasn't loaded owes no favour. (#99)
 - **Buff back: one round each way.** Buffs you cast by hand are now remembered too, so a stranger's buff back within 10 minutes answers yours and isn't owed. A buff you cast by hand on someone you owe returns their favour. When you return a favour, your copy of the addon tells theirs, so they don't owe you one back even after a longer wait. (#37)
 - Buff thanks no longer raises a Lua error on a buff whose caster the game reports as something other than a unit name. Such a buff isn't thanked or owed. (#98)
+- Fix: buff thanks no longer raises a Lua error when the game sends a damaged aura ID (not a number, or NaN). The buff is still thanked as usual. (#108)
 
 ## 0.8.0
 
