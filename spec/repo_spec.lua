@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #106
+-- Spec: #49, #65, #77, #80, #82, #89, #104, #106
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -1111,5 +1111,246 @@ describe("Release docs", function()
             assert.is_truthy(flat:find("creates the GitHub release for the tag, with the same notes", 1, true))
             assert.is_truthy(flat:find("Once the job is green, there's nothing left to do.", 1, true))
         end)
+    end)
+end)
+
+-- Claude sessions' reviewer agents, knowledge files and skills (#104). They
+-- never ship, and the agents must ask for the output CLAUDE.md requires.
+describe("Claude sessions' agents, knowledge and skills", function()
+    -- The YAML front matter's simple "key: value" lines (none without one).
+    local function frontMatter(text)
+        local body = text:gsub("\r\n", "\n"):match("^%-%-%-\n(.-)\n%-%-%-") or ""
+        local fields = {}
+        for _, line in ipairs(splitLines(body)) do
+            local k, v = line:match("^([%w_-]+):%s*(.-)%s*$")
+            if k then fields[k] = v end
+        end
+        return fields
+    end
+
+    -- The text under a "## title" heading, up to the next "## " heading
+    -- ("" without one).
+    local function section(text, title)
+        local out, inside = {}, false
+        for _, line in ipairs(splitLines(text)) do
+            if line:match("^## ") then inside = line == "## " .. title
+            elseif inside then out[#out + 1] = line end
+        end
+        return table.concat(out, "\n")
+    end
+
+    -- What an agent file is missing of its required output, as a list.
+    local function agentProblems(text, name)
+        local problems = {}
+        local fields = frontMatter(text)
+        if fields.name ~= name then problems[#problems + 1] = "name isn't " .. name end
+        if not fields.description or fields.description == "" then problems[#problems + 1] = "no description" end
+        local output = section(text, "Output")
+        for _, words in ipairs({ "`file:line`", "concrete failure scenario", "as the last line" }) do
+            if not output:find(words, 1, true) then problems[#problems + 1] = "Output doesn't say " .. words end
+        end
+        local verdicts = {}
+        for verdict in output:gmatch("\n%s*%- `([A-Z ]+)`") do verdicts[#verdicts + 1] = verdict end
+        if table.concat(verdicts, ", ") ~= "APPROVED, CHANGES REQUESTED" then
+            problems[#problems + 1] = "verdicts aren't APPROVED and CHANGES REQUESTED"
+        end
+        local count = 0
+        for _, line in ipairs(splitLines(section(text, "Lessons"))) do
+            if line:match("^%s*%- ") then
+                count = count + 1
+                if not line:find("#%d+") then problems[#problems + 1] = "a lesson cites nothing: " .. line end
+            end
+        end
+        if count == 0 then problems[#problems + 1] = "no Lessons" end
+        return problems
+    end
+
+    -- Facts without a source, and launch checks that don't link #50, in a
+    -- knowledge file. A bullet's source is an issue or a link; a table row's
+    -- is its last cell (an issue, or the file it comes from). A link with no
+    -- address goes nowhere, so it counts as no link, and a link shown as #N
+    -- must go to issue or pull request N.
+    local function factProblems(text)
+        local problems = {}
+        for _, line in ipairs(splitLines(text)) do
+            local row = line:match("^|(.*)|%s*$")
+            local fact = line:match("^%s*%- ") or row
+            if line:find("%]%(%s*%)") then problems[#problems + 1] = "empty link: " .. line end
+            for shown, address in line:gmatch("%[#(%d+)%]%(([^)]*)%)") do
+                local issue = address:match("/issues/(%d+)") or address:match("/pull/(%d+)")
+                if issue and issue ~= shown then
+                    problems[#problems + 1] = "#" .. shown .. " links to #" .. issue .. ": " .. line
+                end
+            end
+            if line:match("^%s*%- ") and not (line:find("#%d+") or line:find("https?://")) then
+                problems[#problems + 1] = "no source: " .. line
+            end
+            if row and not row:match("([^|]*)$"):find("%S") then
+                problems[#problems + 1] = "no source: " .. line
+            end
+            if fact and line:lower():find("launch check", 1, true) and not (line:find("#50%f[%D]")
+                or line:find("/issues/50#", 1, true)) then
+                problems[#problems + 1] = "launch check without #50: " .. line
+            end
+        end
+        return problems
+    end
+
+    -- What a skill's SKILL.md is missing, as a list.
+    local function skillProblems(text, name)
+        local fields = frontMatter(text)
+        local problems = {}
+        if fields.name ~= name then problems[#problems + 1] = "name isn't " .. name end
+        if not fields.description or fields.description == "" then problems[#problems + 1] = "no description" end
+        return problems
+    end
+
+    local AGENTS = { "lua-architect", "lua-tester" }
+    local SKILLS = { "after-merge", "merge-order", "coordinator" }
+    local DOCS = { "docs/forever-facts.md", "docs/simulated-client.md", "docs/ui-simulator.md" }
+
+    it(".pkgmeta keeps .claude/ and docs/ out of the release", function()
+        local ignored = {}
+        for _, line in ipairs(lines(".pkgmeta")) do
+            local entry = line:match("^%s+%-%s+[\"']?([^%s#\"']+)")
+            if entry then ignored[entry] = true end
+        end
+        assert.is_true(ignored[".claude"], ".claude")
+        assert.is_true(ignored["docs"], "docs")
+    end)
+
+    describe("the checks themselves", function()
+        local good = table.concat({
+            "---", "name: lua-x", "description: A review.", "---", "", "## Output", "",
+            "1. **Findings,** each with `file:line` and a **concrete failure scenario**.",
+            "2. **The verdict, as the last line, exactly one of:**",
+            "   - `APPROVED`: no findings;", "   - `CHANGES REQUESTED`: at least one finding.", "",
+            "## Lessons", "", "- Check this (#72).", "",
+        }, "\n")
+
+        it("pass a complete agent file", function()
+            assert.are.same({}, agentProblems(good, "lua-x"))
+        end)
+
+        it("catch an agent file missing any part of its required output", function()
+            for _, cut in ipairs({
+                { "name: lua%-x", "name: other" },
+                { "description: A review%.", "description:" },
+                { "`file:line`", "the file" },
+                { "concrete failure scenario", "scenario" },
+                { "as the last line", "somewhere" },
+                { "   %- `CHANGES REQUESTED`[^\n]*\n", "" },
+                { "`APPROVED`", "`LGTM`" },
+                { "## Output", "## Result" },
+                { " %(#72%)", "" },
+                { "%- Check this %(#72%)%.", "" },
+                { "%- Check this %(#72%)%.", "- Check this (#72).\n  - And this." },
+                { "^%-%-%-\n", "" },
+                { "^", "# Title\n\n" },
+            }) do
+                local broken = good:gsub(cut[1], cut[2])
+                assert.are_not.equal(good, broken, cut[1])
+                assert.are_not.same({}, agentProblems(broken, "lua-x"), cut[1])
+            end
+        end)
+
+        it("read an agent file with Windows line endings", function()
+            local crlf = good:gsub("\n", "\r\n")
+            assert.is_truthy(crlf:find("\r\n", 1, true))
+            assert.are.same({}, agentProblems(crlf, "lua-x"))
+        end)
+
+        it("look for the required output only in the Output section", function()
+            for _, cut in ipairs({
+                { "as the last line", "somewhere", "It ends as the last line." },
+                { "   %- `CHANGES REQUESTED`[^\n]*\n", "", "   - `CHANGES REQUESTED`: not (#1)." },
+            }) do
+                local moved = good:gsub(cut[1], cut[2]) .. "\n## Other\n\n" .. cut[3] .. "\n"
+                assert.is_falsy(section(moved, "Output"):find(cut[3], 1, true), cut[1])
+                assert.are_not.same({}, agentProblems(moved, "lua-x"), cut[1])
+            end
+        end)
+
+        it("pass a complete skill, and catch one with the wrong name, no description or no front matter", function()
+            local skill = "---\nname: merge-x\ndescription: Does it.\n---\n\n# Merge x\n"
+            assert.are.same({}, skillProblems(skill, "merge-x"))
+            for _, cut in ipairs({ { "name: merge%-x", "name: other" }, { "description: Does it%.", "description:" },
+                { "^%-%-%-\n", "" }, { "^", "# Title\n\n" } }) do
+                local broken = skill:gsub(cut[1], cut[2])
+                assert.are_not.equal(skill, broken, cut[1])
+                assert.are_not.same({}, skillProblems(broken, "merge-x"), cut[1])
+            end
+        end)
+
+        it("catch a fact with no source, and a launch check that doesn't link #50", function()
+            assert.are.same({}, factProblems("# T\n\nProse needs none.\n- A fact (#34).\n"
+                .. "- See https://example.org.\n- A **launch check** (#50).\n"
+                .. "- A launch check ([#50](https://github.com/o/r/issues/50#issuecomment-1)).\n"))
+            assert.are.equal(1, #factProblems("- A fact with no source.\n"))
+            assert.are.equal(1, #factProblems("- A launch check (#34).\n"))
+            assert.are.equal(1, #factProblems("- A launch check (#500).\n"))
+            assert.are.equal(1, #factProblems("- A launch check ([#50]()).\n"))
+            assert.are.equal(1, #factProblems("From #32 ([its comment]()).\n"))
+            assert.are.same({}, factProblems("- A launch check ([#50](https://github.com/o/r/issues/50#c-1)).\n"))
+            assert.are.equal(1, #factProblems("- A launch check ([#50](https://github.com/o/r/issues/32#c-1)).\n"))
+            assert.are.equal(1, #factProblems("- Fixed in [#94](https://github.com/o/r/pull/93).\n"))
+            assert.are.same({}, factProblems("- A launch check ([its item](https://github.com/o/r/issues/50#c-1)).\n"))
+            assert.are.equal(1, #factProblems("- A launch check ([its item](https://github.com/o/r/issues/32#c-1)).\n"))
+            assert.are.equal(1, #factProblems("- A fact ([#34]( )).\n"))
+        end)
+
+        it("check nested bullets like any other", function()
+            assert.are.equal(1, #factProblems("- A fact (#34):\n  - and one with no source.\n"))
+            assert.are.equal(1, #factProblems("- Facts (#34):\n  - a launch check (#34).\n"))
+        end)
+
+        it("check every row of a table for its source", function()
+            local tableText = "| Quirk | Workaround | Source |\n|---|---|---|\n| It wraps. | Measure it. | #91 |\n"
+                .. "| It logs twice. | Drop repeats. | `ui-sim.yml` |\n"
+            assert.are.same({}, factProblems(tableText))
+            local unsourced = tableText:gsub("| #91 |", "|  |")
+            assert.are_not.equal(tableText, unsourced)
+            assert.are.equal(1, #factProblems(unsourced))
+            assert.are.equal(1, #factProblems(tableText .. "| A launch check. | None. | #34 |\n"))
+            assert.are.equal(1, #factProblems(tableText .. "| It's slow. | Wait. |  |   \n"))
+        end)
+    end)
+
+    for _, name in ipairs(AGENTS) do
+        it(".claude/agents/" .. name .. ".md names its required output, ending in APPROVED or CHANGES REQUESTED,"
+            .. " and cites every lesson", function()
+            assert.are.same({}, agentProblems(wow.readFile(".claude/agents/" .. name .. ".md"), name))
+        end)
+    end
+
+    for _, name in ipairs(SKILLS) do
+        it(".claude/skills/" .. name .. " is a skill named " .. name, function()
+            assert.are.same({}, skillProblems(wow.readFile(".claude/skills/" .. name .. "/SKILL.md"), name))
+        end)
+    end
+
+    -- Files of game and simulator facts: every bullet has its source.
+    for _, path in ipairs({ "docs/forever-facts.md", "docs/ui-simulator.md" }) do
+        it(path .. " gives every fact a source, and links #50 for every launch check", function()
+            assert.are.same({}, factProblems(wow.readFile(path)))
+        end)
+    end
+
+    -- The simulated client's guide describes the code: that's its source.
+    it("docs/simulated-client.md names spec/support/wow.lua as its source, and links #50 for every launch check",
+        function()
+            local text = wow.readFile("docs/simulated-client.md")
+            assert.is_truthy(text:find("**Source:** everything here describes `spec/support/wow.lua`", 1, true))
+            for _, problem in ipairs(factProblems(text)) do
+                assert.is_falsy(problem:find("^launch check"), problem)
+            end
+        end)
+
+    it("CLAUDE.md sends reviews to the agents and points to every knowledge file and skill", function()
+        local text = wow.readFile("CLAUDE.md")
+        for _, name in ipairs(AGENTS) do assert.is_truthy(text:find("`" .. name .. "`", 1, true), name) end
+        for _, name in ipairs(SKILLS) do assert.is_truthy(text:find("`" .. name .. "`", 1, true), name) end
+        for _, path in ipairs(DOCS) do assert.is_truthy(text:find("(" .. path .. ")", 1, true), path) end
+        assert.is_truthy(text:find("**Keep them current:**", 1, true), "the keep-current rule")
     end)
 end)
