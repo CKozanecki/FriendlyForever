@@ -23,7 +23,7 @@ read_globals = {
     "DEFAULT_CHAT_FRAME", "GameTooltip", "GetCursorPosition", "GetGuildRosterInfo",
     "GetNumGuildMembers", "GetTime", "GuildRoster", "InCombatLockdown",
     "InterfaceOptionsFrame_OpenToCategory", "InterfaceOptions_AddCategory",
-    "IsInGroup", "IsInGuild", "IsInInstance", "IsInRaid", "LE_PARTY_CATEGORY_INSTANCE",
+    "IsInGroup", "IsInGuild", "IsInInstance", "IsInRaid", "LE_PARTY_CATEGORY_INSTANCE", "LE_PARTY_CATEGORY_HOME",
     "Minimap", "SendChatMessage", "Settings", "UIParent", "UnitCanAttack",
     "UnitInParty", "UnitInRaid", "UnitIsGroupLeader", "UnitIsPlayer", "UnitIsUnit", "UnitName", "UnitExists",
     "UnitIsAFK",

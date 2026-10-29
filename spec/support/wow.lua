@@ -405,6 +405,19 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         "…". Pinned on one side, it grows to fit its text.
 --                         Widths come from M.CHAR_WIDTH (a little wide on
 --                         purpose); real fonts are checked in game (#50).
+--   Addon messages (#32): C_ChatInfo.RegisterAddonMessagePrefix and
+--                         SendAddonMessage answer with the 10.2.7+ result codes
+--                         (Enum.*Result). The game's throttle is a burst of 10
+--                         per prefix, then one a second (M.ADDON_BURST,
+--                         M.ADDON_REFILL); 255 bytes at most. Lockdown and
+--                         state.addonBlocked (an instance under Midnight's
+--                         rules) refuse with GeneralError: the real code is
+--                         unconfirmed. Group and guild messages come back to
+--                         their sender. state.addonSenderForm: how
+--                         CHAT_MSG_ADDON spells the sender ("hyphen", default,
+--                         or "space"). An addon whisper reaches anyone by full
+--                         name; whether it reaches a stranger is checked at
+--                         launch (#50).
 --   A secret value used as a table key reads as missing (byAuraId[secret]
 --                         is nil); the real client may raise an error instead,
 --                         which the addon's callers also survive.
@@ -665,6 +678,75 @@ local function SendChat(text, channel, _, target)
 end
 
 ------------------------------------------------------------------------
+-- Addon messages
+------------------------------------------------------------------------
+
+-- The game's result codes (Enum.SendAddonMessageResult and
+-- Enum.RegisterAddonMessagePrefixResult on 10.2.7+).
+local SEND_RESULT = {
+    Success = 0, InvalidPrefix = 1, InvalidMessage = 2, AddonMessageThrottle = 3, InvalidChatType = 4,
+    NotInGroup = 5, TargetRequired = 6, InvalidChannel = 7, ChannelThrottle = 8, GeneralError = 9,
+}
+local PREFIX_RESULT = { Success = 0, DuplicatePrefix = 1, InvalidPrefix = 2, MaxPrefixes = 3 }
+
+-- The game's throttle per prefix: a burst of 10, then one a second.
+M.ADDON_BURST, M.ADDON_REFILL = 10, 1
+M.ADDON_MAX_BYTES = 255
+
+local function RegisterAddonMessagePrefix(prefix)
+    if M.state.noAddonMessages then error("RegisterAddonMessagePrefix: not in this client") end
+    if type(prefix) ~= "string" or prefix == "" or #prefix > 16 then return PREFIX_RESULT.InvalidPrefix end
+    if M.addonPrefixes[prefix] then return PREFIX_RESULT.DuplicatePrefix end
+    M.addonPrefixes[prefix] = true
+    return PREFIX_RESULT.Success
+end
+
+local ADDON_ROUTES = { WHISPER = true, PARTY = true, RAID = true, INSTANCE_CHAT = true, GUILD = true }
+
+-- Whether I'm in the group or guild a route needs, as the game sees it.
+local function routeOpen(route)
+    if route == "WHISPER" then return true end
+    if route == "GUILD" then return M.state.inGuild == true end
+    if route == "RAID" then return _G.IsInRaid() end
+    if route == "INSTANCE_CHAT" then return M.state.groupType == "instance" end
+    return M.state.groupType ~= nil and M.state.groupType ~= "instance" -- PARTY: my home group
+end
+
+-- Sent messages go in M.addonSent; refused ones in M.addonRefused with the
+-- code. state.addonBlocked: the game refuses every addon message (as in an
+-- instance under Midnight's rules; GeneralError here, unconfirmed).
+local function SendAddonMessage(prefix, text, chatType, target)
+    if M.state.noAddonMessages then error("SendAddonMessage: not in this client") end
+    local record = { prefix = prefix, text = text, channel = chatType, target = target, time = M.now }
+    local function refuse(code)
+        record.result = code
+        M.addonRefused[#M.addonRefused + 1] = record
+        return code
+    end
+    if type(prefix) ~= "string" or prefix == "" or #prefix > 16 then return refuse(SEND_RESULT.InvalidPrefix) end
+    if type(text) ~= "string" or #text > M.ADDON_MAX_BYTES or text:find("%z") then
+        return refuse(SEND_RESULT.InvalidMessage)
+    end
+    if not ADDON_ROUTES[chatType] then return refuse(SEND_RESULT.InvalidChatType) end
+    if chatType == "WHISPER" and (type(target) ~= "string" or target == "") then
+        return refuse(SEND_RESULT.TargetRequired)
+    end
+    if not routeOpen(chatType) then return refuse(SEND_RESULT.NotInGroup) end
+    if M.state.addonBlocked or M.state.lockdown then return refuse(SEND_RESULT.GeneralError) end
+    local bucket = M.addonThrottle[prefix]
+    if not bucket then
+        bucket = { tokens = M.ADDON_BURST, at = M.now }
+        M.addonThrottle[prefix] = bucket
+    end
+    bucket.tokens = math.min(M.ADDON_BURST, bucket.tokens + (M.now - bucket.at) / M.ADDON_REFILL)
+    bucket.at = M.now
+    if bucket.tokens < 1 then return refuse(SEND_RESULT.AddonMessageThrottle) end
+    bucket.tokens = bucket.tokens - 1
+    M.addonSent[#M.addonSent + 1] = record
+    return SEND_RESULT.Success
+end
+
+------------------------------------------------------------------------
 -- Units
 ------------------------------------------------------------------------
 
@@ -809,6 +891,12 @@ function M.reset()
         SendChatMessage = SendChat,
         InChatMessagingLockdown = function() return M.state.lockdown end,
     }
+    -- Addon messages (#32): see AddonMessages below. state.noAddonMessages:
+    -- this client has none.
+    M.addonPrefixes, M.addonSent, M.addonRefused, M.addonThrottle = {}, {}, {}, {}
+    _G.Enum = { SendAddonMessageResult = SEND_RESULT, RegisterAddonMessagePrefixResult = PREFIX_RESULT }
+    _G.C_ChatInfo.RegisterAddonMessagePrefix = RegisterAddonMessagePrefix
+    _G.C_ChatInfo.SendAddonMessage = SendAddonMessage
     _G.SendChatMessage = SendChat
 
     _G.ERR_FRIEND_ONLINE_SS = "|Hplayer:%s|h[%s]|h has come online."
@@ -1276,6 +1364,142 @@ function M.sentTo(channel)
         if s.channel == channel then out[#out + 1] = s.text end
     end
     return out
+end
+
+------------------------------------------------------------------------
+-- Several clients (#32)
+------------------------------------------------------------------------
+
+-- Each client is a whole simulated game running its own copy of the addon.
+-- One is live at a time: M.use(client) puts its globals and simulator state
+-- in place, saving the one that was live. A network (M.network) carries
+-- what each client's addon sends to the others.
+
+local live -- the live client, or nil before the first M.newClient
+
+local function capture()
+    local G, fields = {}, {}
+    for k, v in pairs(_G) do G[k] = v end
+    for k, v in pairs(M) do
+        if type(v) ~= "function" then fields[k] = v end
+    end
+    return { G = G, fields = fields }
+end
+
+local function restore(snap)
+    for k in pairs(_G) do
+        if snap.G[k] == nil then _G[k] = nil end
+    end
+    for k, v in pairs(snap.G) do _G[k] = v end
+    for k, v in pairs(M) do
+        if type(v) ~= "function" and snap.fields[k] == nil then M[k] = nil end
+    end
+    for k, v in pairs(snap.fields) do M[k] = v end
+end
+
+function M.use(client)
+    if live == client then return end
+    if live then live.snap = capture() end
+    restore(client.snap)
+    live = client
+end
+
+-- A new client, booted like M.boot(opts) and left live, whose player is
+-- opts.name and opts.surname. Returns { ns, full = "Name-Surname" }.
+function M.newClient(opts)
+    if live then live.snap = capture() end
+    local bootOpts = {}
+    for k, v in pairs(opts) do bootOpts[k] = v end
+    local full = opts.name .. "-" .. opts.surname
+    bootOpts.before = function(state)
+        M.addUnit("player", { name = opts.name, surname = opts.surname, id = full })
+        if opts.before then opts.before(state) end
+    end
+    local client = { full = full, name = opts.name, surname = opts.surname }
+    client.ns = M.boot(bootOpts)
+    live = client
+    return client
+end
+
+-- How CHAT_MSG_ADDON names the sender: state.addonSenderForm "hyphen"
+-- ("Nikki-Shifts", default) or "space" ("Nikki Shifts"), on the receiving
+-- client.
+local function senderName(sender)
+    if M.state.addonSenderForm == "space" then return sender.name .. " " .. sender.surname end
+    return sender.full
+end
+
+-- Whether the live client receives a message on a group route sent by
+-- `sender`: it must be in that group (with the sender in it) or the guild.
+local function receives(route, sender)
+    if not routeOpen(route) then return false end
+    if route == "GUILD" then return true end
+    return M.state.groupMembers[sender.full] == true
+end
+
+-- Whether the live client r gets msg, sent by `sender`: a whisper only
+-- when it names r; a group or guild message when r is in that group (with
+-- the sender) or a guild, and always back to its sender, as in the game.
+local function wants(r, sender, msg)
+    if msg.channel == "WHISPER" then
+        return r ~= sender and (msg.target == r.full or msg.target == r.name .. " " .. r.surname)
+    end
+    return r == sender or receives(msg.channel, sender)
+end
+
+-- net = M.network({ clientA, clientB }). Clients in a guild share it.
+function M.network(clients)
+    local net = { clients = clients, seen = {} }
+    for _, c in ipairs(clients) do net.seen[c] = 0 end
+    return net
+end
+
+-- Carry every message sent so far to its recipients, as CHAT_MSG_ADDON,
+-- until nothing new is sent (answers included). Leaves the live client as
+-- it was. The event's last five arguments are placeholders: the addon reads
+-- only the first four.
+function M.deliver(net)
+    local was = assert(live, "M.deliver: no clients")
+    for _ = 1, 1000 do
+        local outbox = {}
+        for _, sender in ipairs(net.clients) do
+            M.use(sender)
+            for i = net.seen[sender] + 1, #M.addonSent do outbox[#outbox + 1] = { sender = sender, msg = M.addonSent[i] } end
+            net.seen[sender] = #M.addonSent
+        end
+        if #outbox == 0 then
+            M.use(was)
+            return
+        end
+        for _, out in ipairs(outbox) do
+            local msg = out.msg
+            for _, r in ipairs(net.clients) do
+                M.use(r)
+                if wants(r, out.sender, msg) and M.addonPrefixes[msg.prefix] then
+                    M.fire("CHAT_MSG_ADDON", msg.prefix, msg.text, msg.channel, senderName(out.sender), "", 0, 0, "", 0)
+                end
+            end
+        end
+    end
+    error("M.deliver: the clients never stopped answering each other")
+end
+
+-- Move every client's clock on together, step seconds at a time,
+-- delivering messages after each step.
+function M.advanceAll(net, seconds, step)
+    assert(type(step) == "number" and step > 0, "advanceAll: give a step")
+    local was = assert(live, "M.advanceAll: no clients")
+    local done = 0
+    while done < seconds do
+        local dt = math.min(step, seconds - done)
+        for _, c in ipairs(net.clients) do
+            M.use(c)
+            M.advance(dt)
+        end
+        M.deliver(net)
+        done = done + dt
+    end
+    M.use(was)
 end
 
 M.reset()

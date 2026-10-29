@@ -2,6 +2,7 @@
 
 ### Unreleased
 
+- Copies of Friendly Forever can now talk to each other with hidden addon messages, for features to come. No chat channel is ever joined. Every message from another player is checked and rate-limited, and none can make the addon cast, speak or change your settings. `/friendly status` shows what was sent, received and dropped. (#32)
 - The buff-back button keeps its text inside it: a name or favour too long for the button is cut off with "…", and the hint while you move it is shorter. On the options tabs, the message lines no longer sit below an empty gap. (#64)
 
 ## 0.8.0

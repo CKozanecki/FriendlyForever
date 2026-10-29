@@ -64,7 +64,7 @@ function handlers.ADDON_LOADED(name)
     -- added files, /reload runs the new code without them. Stay inert and
     -- say so, rather than erroring on every event.
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
-        "BuffData", "Offers", "BuffButton" }) do
+        "BuffData", "Offers", "BuffButton", "Comm" }) do
         if ns[module] == nil then
             ns.Print("|cffff4040this update added files. Restart the game (not /reload) to finish updating.|r")
             return
@@ -75,6 +75,7 @@ function handlers.ADDON_LOADED(name)
     ns.db = FriendlyForeverDB
 
     ns.ChatQueue.Init()
+    ns.Comm.Init()
     ns.Options.Create()
     ns.Minimap.Create()
     ns.BuffMode.Create()
@@ -90,6 +91,7 @@ function handlers.ADDON_LOADED(name)
         end
     end)
     Register("CHAT_MSG_SYSTEM", ns.Greeter.OnSystemMessage)
+    Register("CHAT_MSG_ADDON", ns.Comm.OnAddonMessage)
     Register("GROUP_ROSTER_UPDATE", function(...)
         -- Forget this raid's Blessings as you leave it, so they can't carry
         -- into the next raid (BuffRules.lua).
@@ -128,12 +130,17 @@ frame:RegisterEvent("ADDON_LOADED")
 -- Events whose handler only reads the first argument. CHAT_MSG_SYSTEM
 -- brings about 17, which would miss Diag.Call's fast path (four or fewer).
 local FIRST_ARG_ONLY = { CHAT_MSG_SYSTEM = true }
+-- CHAT_MSG_ADDON brings about 9, for every addon's messages; ours reads 4.
+local FIRST_FOUR_ARGS = { CHAT_MSG_ADDON = true }
 
 frame:SetScript("OnEvent", function(_, event, ...)
     local handler = handlers[event]
     if not handler then return end
     if FIRST_ARG_ONLY[event] then
         ns.Diag.Call(handler, (...))
+    elseif FIRST_FOUR_ARGS[event] then
+        local a1, a2, a3, a4 = ...
+        ns.Diag.Call(handler, a1, a2, a3, a4)
     else
         ns.Diag.Call(handler, ...)
     end
@@ -193,6 +200,14 @@ local function StatusLines()
         c("systemMessages"), c("systemMatched"), c("buffsSeen"), c("restrictedAuraUpdates")))
     add(string.format("sending: %d queued, %d sent, %d dropped, %d send errors, %d blocked by the game",
         c("queued"), c("sent"), c("dropped"), c("sendErrors"), c("actionsBlocked")))
+    local commState = ns.Comm.Ready() and "|cff00ff00open|r"
+        or ns.Comm.Registered() and "closed (addon off)" or "|cffff4040closed|r"
+    add(string.format("addon messages: %s; %d sent, %d not sent, %d received; %d other copies seen", commState,
+        c("commSent"), c("commNotSent"), c("commReceived"), ns.Comm.PeerCount()))
+    add(string.format("addon messages dropped: %d unreadable, %d oversized, %d malformed, %d wrong version, "
+        .. "%d unknown type, %d wrong route, %d spoofed, %d flooding", c("commUnreadable"), c("commOversized"),
+        c("commMalformed"), c("commWrongVersion"), c("commUnknownType"), c("commWrongRoute"), c("commSpoofed"),
+        c("commFlood")))
     add(string.format("Lua errors in this addon: %d%s", c("luaErrors"),
         ns.Diag.lastError and (" (last: " .. ns.Diag.lastError .. ")") or ""))
     add(string.format("APIs: SendChatMessage %s, chat lockdown check %s, aura query %s, secret check %s, emote %s",

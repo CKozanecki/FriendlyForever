@@ -26,6 +26,7 @@ Serialize.lua
 Profiles.lua
 Nameplates.lua
 ChatQueue.lua
+Comm.lua
 Parser.lua
 Announcer.lua
 Greeter.lua
