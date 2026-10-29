@@ -196,15 +196,16 @@ for rock in "${ROCKS[@]}"; do
         tar -xzf "$DOWNLOADS/$source" -C "$WORK/$rock"
         dirs=("$WORK/$rock"/*/)
         [[ ${#dirs[@]} -eq 1 && -d "${dirs[0]}" ]] || die "$source didn't unpack into one folder"
-        (cd "${dirs[0]}" && "$LUAROCKS" make --deps-mode=none "$DOWNLOADS/$rock.rockspec")
+        (cd "${dirs[0]}" && "$LUAROCKS" make --tree "$LUA_DIR" --deps-mode=none "$DOWNLOADS/$rock.rockspec")
     else
-        "$LUAROCKS" build --deps-mode=none "$DOWNLOADS/$rock.src.rock"
+        "$LUAROCKS" build --tree "$LUA_DIR" --deps-mode=none "$DOWNLOADS/$rock.src.rock"
     fi
 done
 
 # Exactly the pinned rocks, and tools that run and report the pinned versions.
+# --tree on every luarocks call: it would otherwise also use ~/.luarocks.
 want="$(printf '%s\n' "${ROCKS[@]}" | sort)"
-have="$("$LUAROCKS" list --porcelain | awk '{ print $1 "-" $2 }' | sort)"
+have="$("$LUAROCKS" list --porcelain --tree "$LUA_DIR" | awk '{ print $1 "-" $2 }' | sort)"
 [[ "$have" == "$want" ]] || die "the installed rocks aren't the pinned ones:" "$have"
 printf '%s\n' "$WANT" > "$STAMP"
 installed || { rm -f "$STAMP"; die "busted or luacheck doesn't run or isn't the pinned version."; }

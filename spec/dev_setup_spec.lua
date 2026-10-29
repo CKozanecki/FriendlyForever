@@ -104,6 +104,8 @@ describe("Toolchain setup script", function()
 
     -- Stand-ins for every download, each with its checksum: a hererocks that
     -- "installs" a luarocks which records what it builds, and lists it back.
+    -- Like real LuaRocks, a call without --tree also reaches the user's own
+    -- rocks in ~/.luarocks, which then show up in its list.
     -- FAKE_LUAROCKS_FAIL names a rock to fail on, FAKE_LUAROCKS_SKIP one to
     -- build without installing, and FAKE_BUSTED_VERSION what busted reports.
     local FAKE_HEREROCKS = [[
@@ -117,7 +119,9 @@ def tool(name, text):
     os.chmod(path, stat.S_IRWXU)
 tool("busted", "echo ${FAKE_BUSTED_VERSION:-2.2.0}\n")
 tool("luacheck", "printf 'Luacheck: 1.2.0\\nLua: Lua 5.1\\n'\n")
-tool("luarocks", """log="$(dirname "$0")/../built.txt"
+tool("luarocks", """tree="$(cd "$(dirname "$0")/.." && pwd)"
+log="$tree/built.txt"
+case " $* " in *" --tree $tree "*) ;; *) echo "user-rock-1.0-1" >> "$log" ;; esac
 if [ "$1" = list ]; then
     while read -r rock; do
         rest="${rock%-*}"
