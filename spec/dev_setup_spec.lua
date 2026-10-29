@@ -114,8 +114,8 @@ describe("Toolchain setup script", function()
     -- fails, as the real one would reach the network for dependencies.
     -- Like real LuaRocks, a call without --tree also reaches the user's own
     -- rocks in ~/.luarocks, which then show up in its list.
-    -- It also fails when LUA_INIT or LUAROCKS_CONFIG reach it, and when make
-    -- doesn't run in an unpacked source folder.
+    -- It also fails when LUA_INIT, LUAROCKS_CONFIG, LUA_PATH or LUA_CPATH
+    -- reach it, and when make doesn't run in an unpacked source folder.
     -- FAKE_LUAROCKS_FAIL names a rock to fail on, FAKE_LUAROCKS_SKIP one to
     -- build without installing, and FAKE_BUSTED_VERSION what busted reports.
     local FAKE_HEREROCKS = [[
@@ -136,8 +136,9 @@ log="$tree/built.txt"
 case " $* " in *" --tree $tree "*) ;; *) echo "user-rock-1.0-1" >> "$log" ;; esac
 # Without --deps-mode=none, real LuaRocks would fetch dependencies itself.
 case "$1" in build|make) case " $* " in *" --deps-mode=none "*) ;; *) exit 1 ;; esac ;; esac
-# A user's LUA_INIT or LUAROCKS_CONFIG would change what real LuaRocks does.
-[ -z "$LUA_INIT$LUAROCKS_CONFIG" ] || exit 1
+# A user's LUA_INIT, LUAROCKS_CONFIG, LUA_PATH or LUA_CPATH would change what
+# real LuaRocks and the modules it builds load.
+[ -z "$LUA_INIT$LUAROCKS_CONFIG$LUA_PATH$LUA_CPATH" ] || exit 1
 # make builds from the current folder, which must be the unpacked source.
 [ "$1" != make ] || [ -f .fake-source ] || exit 1
 if [ "$1" = list ]; then
