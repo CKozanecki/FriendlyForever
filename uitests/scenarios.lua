@@ -519,43 +519,42 @@ end
 -- In the game a text line with no height set grows with its wrapped text,
 -- and pushes down whatever is anchored below it. The simulator doesn't wrap
 -- a line pinned to two frames (WrappedLines), so nothing moves there. This
--- works out how far each region would be pushed: by the extra lines of every
--- text line above it, at the pessimistic 17 px a line (docs/ui-simulator.md).
--- Prints a LAYOUT line for the lowest region, and fails if it would leave
--- frame. Pages here are one column, so everything above a region pushes it.
+-- works out where each region would end in the game: pushed down by the
+-- extra lines of every text line above it, and lower still by its own extra
+-- lines, at the pessimistic 17 px a line (docs/ui-simulator.md). Prints a
+-- LAYOUT line for the lowest region, fails if it would leave frame, and
+-- returns the line. Pages here are one column, so everything above a region
+-- pushes it.
 local PUSH_LINE = 17
 local function PushedDownInside(frame, label)
     local _, fb = Edges(frame, "GetTop", "GetBottom")
-    if not fb then return report("LAYOUT " .. label .. " pushed down: edges can't be read here") end
-    local texts, items = {}, {}
+    if not fb then
+        local line = "LAYOUT " .. label .. " pushed down: edges can't be read here"
+        report(line)
+        return line
+    end
+    local items, extra = {}, {}
     for _, region in ipairs({ frame:GetRegions() }) do
         if region:GetObjectType() == "FontString" and region:IsShown() and (region:GetText() or "") ~= "" then
-            texts[#texts + 1] = region
             items[#items + 1] = region
+            local tl, tr = Edges(region, "GetLeft", "GetRight")
+            local wrapped = tl and WrappedLines(region, tl, tr)
+            local count = Measure(region, "GetNumLines") or 1
+            if wrapped and wrapped > count then extra[region] = (wrapped - count) * PUSH_LINE end
         end
     end
     for _, child in ipairs({ frame:GetChildren() }) do
         if child:IsShown() then items[#items + 1] = child end
     end
-    local extras = {}
-    for _, region in ipairs(texts) do
-        local tl, tr = Edges(region, "GetLeft", "GetRight")
-        local wrapped = tl and WrappedLines(region, tl, tr)
-        local count = Measure(region, "GetNumLines") or 1
-        local top = Edges(region, "GetTop", "GetBottom")
-        if wrapped and wrapped > count and top then
-            extras[#extras + 1] = { top = top, px = (wrapped - count) * PUSH_LINE }
-        end
-    end
     local lowest, lowestName
     for _, item in ipairs(items) do
         local top, bottom = Edges(item, "GetTop", "GetBottom")
         if top then
-            local push = 0
-            for _, e in ipairs(extras) do
-                if e.top > top + 1 then push = push + e.px end
+            local push = extra[item] or 0
+            for _, other in ipairs(items) do
+                local otherTop = extra[other] and Edges(other, "GetTop", "GetBottom")
+                if otherTop and otherTop > top + 1 then push = push + extra[other] end
             end
-            -- A text line's own wrapping is TextInside's; here only what's above it.
             local drawn = bottom - push
             if not lowest or drawn < lowest then
                 lowest = drawn
@@ -564,10 +563,11 @@ local function PushedDownInside(frame, label)
         end
     end
     if not lowest then return end
-    local line = ("LAYOUT %s pushed down by wrapped text above: lowest \"%s\" at %.0f, frame bottom %.0f"):format(
+    local line = ("LAYOUT %s pushed down by wrapped text: lowest \"%s\" ends at %.0f, frame bottom %.0f"):format(
         label, Short(lowestName), lowest, fb)
     report(line)
     check(lowest >= fb - 1, line .. ": would leave its frame in the game")
+    return line
 end
 
 -- Runs fn with the pages filled, and puts the saved settings back after,
@@ -625,4 +625,4 @@ end)
 -- The layout checks, for spec/uitests_layout_spec.lua, which runs them
 -- against regions whose edges it sets itself. The simulator ignores what a
 -- test file returns.
-return { TextInside = TextInside }
+return { TextInside = TextInside, PushedDownInside = PushedDownInside }
