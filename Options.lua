@@ -483,6 +483,7 @@ local function FillAuto(shown)
     widgets.bgHeader:SetShown(shown)
     widgets.bgPrepBuff:SetShown(shown)
     if shown then widgets.bgPrepBuff:SetChecked(ns.db.buffBack.bgPrepBuff == true) end
+    widgets.waterHeader:SetShown(shown)
     widgets.breathNearWater:SetShown(shown)
     if shown then widgets.breathNearWater:SetChecked(ns.db.buffBack.breathNearWater == true) end
 end
@@ -871,11 +872,14 @@ function Options.Create()
     widgets.bgPrepBuff:SetPoint("TOPLEFT", widgets.bgHeader, "BOTTOMLEFT", -4, -2)
 
     -- Unending Breath and Water Breathing wait for water (Water.lua, #136).
+    -- Its own heading, so it doesn't read as a battleground setting.
+    widgets.waterHeader = Label(content, "Unending Breath and Water Breathing:", "GameFontNormalSmall")
+    widgets.waterHeader:SetPoint("TOPLEFT", widgets.bgPrepBuff, "BOTTOMLEFT", 4, -10)
     widgets.breathNearWater = Checkbox(content, "Water breathing: only near water", function(on)
         ns.db.buffBack.breathNearWater = on
         ns.BuffButton.Refresh()
     end)
-    widgets.breathNearWater:SetPoint("TOPLEFT", widgets.bgPrepBuff, "BOTTOMLEFT", 0, -4)
+    widgets.breathNearWater:SetPoint("TOPLEFT", widgets.waterHeader, "BOTTOMLEFT", -4, -2)
     Tooltip(widgets.breathNearWater, Options.BREATH_TOOLTIP)
 
     local anchor = msgHeader

@@ -266,6 +266,31 @@ describe("Water breathing near water", function()
         end)
     end)
 
+    describe("buff mode that turned itself on (white)", function()
+        local function printedHas(fragment)
+            for _, line in ipairs(wow.printed) do
+                if line:find(fragment, 1, true) then return true end
+            end
+            return false
+        end
+
+        for _, caster in ipairs(CASTERS) do
+            it("turns off past the 2 minutes on dry land, saying " .. caster.spell .. " waits for water", function()
+                boot({ caster = caster, db = { buffBack = { autoOnJoin = true } },
+                    before = function(state) state.swimming = true end })
+                party({ "Ann-Vale" })
+                assert.is_true(ns.BuffMode.IsAuto(), "joining turned it on")
+                wow.state.swimming = false
+                wow.advance(GRACE - 10)
+                assert.is_true(ns.BuffMode.IsOn(), "still within the 2 minutes")
+                wow.advance(20)
+                assert.is_false(ns.BuffMode.IsOn())
+                assert.is_true(printedHas("buff mode off (" .. caster.spell .. " waits until you're near water)."))
+                assert.is_false(printedHas("everyone has your buffs"), "nobody has it")
+            end)
+        end
+    end)
+
     describe("buff thanks (white)", function()
         it("still thanks a stranger who gives you Unending Breath or Water Breathing on dry land", function()
             for _, caster in ipairs(CASTERS) do
@@ -429,6 +454,9 @@ describe("Water breathing near water", function()
             slash("")
             wow.run(w.tabs.buffBack, "OnClick")
             assert.is_true(w.breathNearWater:IsShown())
+            assert.is_true(w.waterHeader:IsShown())
+            assert.are.equal("Unending Breath and Water Breathing:", w.waterHeader:GetText(),
+                "its own heading, not under Battlegrounds")
             assert.is_true(w.breathNearWater:GetChecked())
             -- The owner's wording (#136).
             assert.are.equal("Water breathing: only near water", w.breathNearWater.label:GetText())
@@ -448,6 +476,7 @@ describe("Water breathing near water", function()
             assert.is_nil(armed())
             wow.run(w.tabs.buff, "OnClick")
             assert.is_false(w.breathNearWater:IsShown())
+            assert.is_false(w.waterHeader:IsShown())
         end)
 
         it("is in /friendly status", function()

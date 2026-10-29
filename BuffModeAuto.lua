@@ -44,10 +44,14 @@ end
 
 -- Nothing left to do: no favours owed, and no group member missing your buffs
 -- that you could see and reach (GroupBuffs never calls an unreadable member done).
+-- Also why, for the message.
 local function Settled()
     if ns.Offers.Count() > 0 then return false end
-    local offer, _, settled = ns.GroupBuffs.Next()
-    return offer == nil and settled == true
+    local offer, _, settled, held = ns.GroupBuffs.Next()
+    if offer ~= nil or settled ~= true then return false end
+    -- Your water buff waits for water (Water.lua): nobody has it, so say so.
+    if held then return true, ns.Water.HeldReason(held) end
+    return true, "everyone has your buffs"
 end
 
 -- The timeout in minutes (0: none); a value damaged mid-session reads as the default.
@@ -66,9 +70,9 @@ function Auto.Check(timedOutAfter)
         return ns.BuffMode.Set(false, { why = timedOutAfter .. " minutes passed" })
     end
     if InCombatLockdown() then return end
-    if cfg.autoOffDone == true and Settled() then
-        ns.BuffMode.Set(false, { why = "everyone has your buffs" })
-    end
+    if cfg.autoOffDone ~= true then return end
+    local done, why = Settled()
+    if done then ns.BuffMode.Set(false, { why = why }) end
 end
 
 local function StartTimeout()
