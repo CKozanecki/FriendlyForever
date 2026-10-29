@@ -1,4 +1,4 @@
--- Spec: #98, #99, #101
+-- Spec: #98, #99, #101, #108
 local wow = require("spec.support.wow")
 
 describe("Buff thanks", function()
@@ -818,6 +818,61 @@ describe("Buff thanks", function()
                     assert.is_true(logHas("caster unit isn't a unit token (" .. type(case[2]) .. ")"))
                 end)
         end
+
+        -- #108: the game sends whole numbers; anything else is damaged data and
+        -- must never be used as a table key.
+        local badIds = {
+            { "NaN", 0 / 0 }, { "a table", {} }, { "true", true }, { "a string", "7" }, { "secret", wow.secret(7) },
+        }
+
+        for _, case in ipairs(badIds) do
+            it("an added aura whose instance ID is " .. case[1] .. " raises no Lua error, and a later normal buff "
+                .. "from the same stranger is still thanked", function()
+                stranger()
+                wow.gainBuff({ sourceUnit = "target", name = "Fort", auraInstanceID = case[2] })
+                settle()
+                wow.advance(ns.db.buff.repeatCooldown + 1)
+                wow.gainBuff({ sourceUnit = "target", name = "Arcane Intellect", spellId = 1459 })
+                settle()
+                assert.are.same({}, wow.errors)
+                local said = wow.sentTo("SAY")
+                assert.are.equal("Thank you for the Arcane Intellect, Bob!", said[#said])
+            end)
+
+            it("a removedAuraInstanceIDs list holding " .. case[1] .. " raises no Lua error, and real IDs in the "
+                .. "same list are still forgotten", function()
+                stranger()
+                -- No duration: the same aura comes back later and must not look stale.
+                local aura = wow.gainBuff({ sourceUnit = "target", name = "Fort", duration = 0, expirationTime = 0 })
+                settle()
+                wow.state.playerAuras = {}
+                wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = { case[2], aura.auraInstanceID } })
+                wow.advance(ns.db.buff.repeatCooldown + 1)
+                wow.state.playerAuras = { aura }
+                wow.fire("UNIT_AURA", "player", { isFullUpdate = true })
+                settle()
+                assert.are.same({}, wow.errors)
+                assert.are.same({ "Thank you for the Fort, Bob!", "Thank you for the Fort, Bob!" }, wow.sentTo("SAY"))
+            end)
+        end
+
+        for _, case in ipairs({ { "secret", wow.secret(7) }, { "NaN", 0 / 0 } }) do
+            it("a buff with no usable name or spell ID and a " .. case[1] .. " instance ID raises no Lua error "
+                .. "and is thanked once", function()
+                stranger()
+                wow.gainBuff({ sourceUnit = "target", spellId = wow.secret(1459), auraInstanceID = case[2] })
+                settle()
+                assert.are.same({}, wow.errors)
+                assert.are.same({ "Thank you for the buff, Bob!" }, wow.sentTo("SAY"))
+            end)
+        end
+
+        it("two buffs with no usable name or spell ID from one stranger in one wave are thanked as buffs", function()
+            stranger()
+            wow.gainBuffs({ { sourceUnit = "target", spellId = wow.secret(1) }, { sourceUnit = "target", spellId = wow.secret(2) } })
+            settle()
+            assert.are.same({ "Thank you for the buffs, Bob!" }, wow.sentTo("SAY"))
+        end)
 
         it("ignores secret cast events", function()
             ns.db.buff.fallback = "none"

@@ -14,6 +14,8 @@ name: UI screenshots clean-up
 #   branch. A branch that's already gone is fine.
 # - Each job alone has contents: write; the workflow default is no access.
 # - The close-time job never fails the pull request's checks.
+# - Each step says shell: bash, so it runs under bash -eo pipefail, the shell
+#   the tests run it with. With no shell: it would run without pipefail (#117).
 
 on:
   pull_request:
@@ -36,6 +38,7 @@ jobs:
       contents: write
     steps:
       - name: Delete ui-screenshots/pr-${{ github.event.pull_request.number }}
+        shell: bash
         env:
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
@@ -81,6 +84,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Delete screenshot branches of closed pull requests
+        shell: bash
         env:
           REPO: ${{ github.repository }}
           TOKEN: ${{ github.token }}

@@ -402,12 +402,20 @@ local function IsReadable(aura)
     return type(aura) == "table" and not Util.IsSecret(aura)
 end
 
+-- id when it is usable as a table key, else nil. The game sends whole
+-- numbers; a secret, text, a table or NaN (an error as a key) is damaged
+-- data (#108).
+local function ValidAuraId(id)
+    if Util.IsSecret(id) or type(id) ~= "number" then return nil end
+    if id == id then return id end -- only NaN differs from itself
+end
+
 -- The event's copy of an aura can be locked while the game's own query is
 -- readable; the instance ID is never secret. Errors (when restricted) are
 -- caught and treated as "can't read it".
 local function ReadAuraId(aura)
     local ok, id = pcall(function() return aura.auraInstanceID end)
-    if ok and not Util.IsSecret(id) and type(id) == "number" then return id end
+    if ok then return ValidAuraId(id) end
 end
 
 local function QueryAura(id)
@@ -454,7 +462,7 @@ local function HandleAddedAura(aura, now)
     ns.Diag.Log("buff", "%s (spell %s): %s -> %s", spellName or "?", spellId, reason,
         caster and ("thank " .. caster) or "skip")
     if caster then
-        BuffTracker.AddBuff(caster, spellName or spellId or aura.auraInstanceID or "?", spellName, unit)
+        BuffTracker.AddBuff(caster, spellName or spellId or ReadAuraId(aura) or "?", spellName, unit)
     end
 end
 
@@ -508,7 +516,8 @@ function BuffTracker.OnPlayerAura(updateInfo)
 
     if type(removed) == "table" then
         for _, id in ipairs(removed) do
-            if not Util.IsSecret(id) then knownAuraIds[id] = nil end
+            id = ValidAuraId(id)
+            if id then knownAuraIds[id] = nil end
         end
     end
 
