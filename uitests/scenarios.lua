@@ -399,9 +399,9 @@ test("in buff mode, a party member missing your buff is offered it, and the text
 end)
 
 -- Units no favour can come from: empty, a token that shows no one, the
--- target when there's no target, a party slot when not in a party, you, and
--- a number. (A caster that isn't a string or number at all is #98.)
-local BAD_SOURCES = { "", "nameplate77", "target", "party3", "player", 42 }
+-- target when there's no target, a party slot when not in a party, you, a
+-- number, and values that aren't text at all (#98).
+local BAD_SOURCES = { "", "nameplate77", "target", "party3", "player", 42, true, { "target" } }
 
 test("a buff naming an unknown or empty unit leaves the button empty, with no Lua error", function()
     local States = FriendlyForeverUIStates

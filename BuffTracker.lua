@@ -320,6 +320,11 @@ end
 local function FindCaster(aura, spellId, now)
     local src = aura.sourceUnit
     if Util.IsSecret(src) then return nil, "caster unit is secret (restricted)" end
+    -- The game sends a unit token or nothing; anything else is a damaged
+    -- event, so it names nobody. Its type, not its value, goes in the log.
+    if src ~= nil and (type(src) ~= "string" or src == "") then
+        return nil, "caster unit isn't a unit token (" .. type(src) .. ")"
+    end
     if src ~= nil then
         local caster = BuffTracker.Classify(src)
         if caster then return caster, "caster unit " .. src, src end
