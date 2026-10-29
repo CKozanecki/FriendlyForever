@@ -438,7 +438,8 @@ end
 -- of /targetexact).
 function BuffButton.OnSpellcastSent(unit, castTargetName, castGUID, spellId)
     local press = NewestPressFor(unit, spellId, function(waiting) return not waiting.sent end)
-    if not press then return end
+    -- Not the button's: a buff cast by hand is remembered too (#37).
+    if not press then return ns.Offers.OnCastSent(unit, castTargetName, castGUID, spellId) end
     press.sent = true
     press.castGUID = ReadableText(castGUID)
     press.castTargetName = ReadableText(castTargetName)
@@ -475,7 +476,7 @@ end
 -- other way in the same moment mustn't be credited to the favour.
 function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
     local press = PressForCast(unit, castGUID, spellId)
-    if not press then return end
+    if not press then return ns.Offers.OnCastLanded(unit, castGUID) end
     ForgetPress(press)
     local who = Util.DisplayName(press.name)
     local reachedThem = press.castTargetName and BuffButton.IsIntendedPlayer(press.castTargetName, press.name)

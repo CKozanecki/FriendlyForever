@@ -423,6 +423,14 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         or "space"). An addon whisper reaches anyone by full
 --                         name; whether it reaches a stranger is checked at
 --                         launch (#50).
+--   Buffs between clients (#37; deliverBuffs): a buff that lands on another
+--                         client arrives there as a new aura (UNIT_AURA's
+--                         addedAuras), replacing any of the same spell, even
+--                         when it only refreshes one: the pessimistic choice,
+--                         since each looks like a new favour. Its caster is
+--                         named (sourceUnit) only when the receiver has a unit
+--                         token for them. Whether Forever reports a refreshed
+--                         buff as added is checked at launch (#50).
 --   state.mapId           what C_Map.GetBestMapForUnit("player") answers: the
 --                         uiMapID, or nil as on a loading screen (1429, Elwynn
 --                         Forest, by default). Capitals use Classic Era's
@@ -566,6 +574,7 @@ local function cast(args)
             local list = redirected and M.flaggedElsewhere or M.flaggedBy
             list[#list + 1] = target.id
         end
+        M.landed[#M.landed + 1] = { spell = name, id = id, target = target.id }
         M.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, id)
     end
     local latency = M.state.castLatency or 0
@@ -881,6 +890,7 @@ function M.reset()
     M.now = 1000
     M.timers, M.frames, M.sent, M.blocked, M.printed = {}, {}, {}, {}, {}
     M.casts = {}
+    M.landed = {} -- casts the server said landed: { spell, id, target } (see cast; deliverBuffs)
     M.keyActions = {}
     M.flaggedBy = {} -- players whose PvP flag a buff of yours caught (see cast)
     M.flaggedElsewhere = {} -- the same, for casts state.castLandsOn sent elsewhere
@@ -1647,6 +1657,38 @@ function M.deliver(net)
         end
     end
     error("M.deliver: the clients never stopped answering each other")
+end
+
+-- Carry every buff that landed so far on another client in the network to
+-- that client (#37), as a new aura from the caster: named by the first unit
+-- token (in sorted order) that shows the caster there, or by none. Leaves
+-- the live client as it was.
+function M.deliverBuffs(net)
+    local was = assert(live, "M.deliverBuffs: no clients")
+    net.landedSeen = net.landedSeen or {}
+    local arrivals = {}
+    for _, sender in ipairs(net.clients) do
+        M.use(sender)
+        for i = (net.landedSeen[sender] or 0) + 1, #M.landed do
+            arrivals[#arrivals + 1] = { sender = sender, cast = M.landed[i] }
+        end
+        net.landedSeen[sender] = #M.landed
+    end
+    for _, arrival in ipairs(arrivals) do
+        for _, r in ipairs(net.clients) do
+            if r ~= arrival.sender and r.full == arrival.cast.target then
+                M.use(r)
+                local tokens = {}
+                for token, u in pairs(M.state.units) do
+                    if u.id == arrival.sender.full then tokens[#tokens + 1] = token end
+                end
+                table.sort(tokens)
+                M.loseBuff(arrival.cast.id)
+                M.gainBuff({ sourceUnit = tokens[1], spellId = arrival.cast.id, name = arrival.cast.spell })
+            end
+        end
+    end
+    M.use(was)
 end
 
 -- Move every client's clock on together, step seconds at a time,

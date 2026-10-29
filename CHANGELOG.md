@@ -12,6 +12,7 @@
 - The buff-back button keeps its text inside it: a name or favour too long for the button is cut off with "…", and the hint while you move it is shorter. On the options tabs, the message lines no longer sit below an empty gap. (#64)
 - **Battlegrounds:** before the gates open, buff mode and buff back work as in any raid. Once the battle starts the addon goes quiet until you leave or the battleground ends: buff mode ends and nothing turns it on, the buff back button hides, buffs you get aren't thanked or owed, and no lines are sent (guild hellos still go to guild chat). If the game doesn't say the battle hasn't started, it counts as started. Switch off **Buff in the preparation phase** on the **Buff Back** tab to keep the preparation phase quiet too. (#71)
 - **Buff mode:** a group member whose name hasn't loaded yet (shown as "Unknown") is no longer offered a buff. Buff mode stays on and offers it once the name loads. A buff from a player whose name hasn't loaded owes no favour. (#99)
+- **Buff back: one round each way.** Buffs you cast by hand are now remembered too, so a stranger's buff back within 10 minutes answers yours and isn't owed. A buff you cast by hand on someone you owe returns their favour. When you return a favour, your copy of the addon tells theirs, so they don't owe you one back even after a longer wait. (#37)
 - Buff thanks no longer raises a Lua error on a buff whose caster the game reports as something other than a unit name. Such a buff isn't thanked or owed. (#98)
 
 ## 0.8.0

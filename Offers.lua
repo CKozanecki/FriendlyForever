@@ -15,6 +15,14 @@
 -- can flag at any time.
 --
 -- Favours are kept in memory only: a /reload or logout forgets them.
+--
+-- One round each way (#37): every buff of yours the game says went to a
+-- player (UNIT_SPELLCAST_SENT names them), from the button or cast by hand,
+-- is remembered. Their buff back within RETURNED_RECENTLY answers yours, so
+-- it isn't owed. A hand-cast buff that reaches someone you owe returns their
+-- favour, as the button would. And when you return a favour, your copy tells
+-- theirs over the hidden channel (Comm.lua) that this buff answers theirs,
+-- so their copy doesn't owe you one back, however long the favour waited.
 local _, ns = ...
 local Util = ns.Util
 local Read = Util.ReadGameValues
@@ -24,11 +32,20 @@ ns.Offers = Offers
 
 Offers.MAX = 20                 -- favours kept at once; the oldest goes first
 Offers.MAX_AURAS = 40           -- buffs read per player when checking what they wear
-Offers.RETURNED_RECENTLY = 600  -- seconds after you return a favour that their buff back isn't a new one
+Offers.RETURNED_RECENTLY = 600  -- seconds after you buff someone that their buff back isn't a new one
 Offers.MAX_NAMEPLATES = 40      -- nameplate tokens looked through for a player
+Offers.MAX_REMEMBERED = 200     -- players whose buff from you is remembered at once; the oldest goes first
+Offers.CAST_WAIT = 15           -- seconds a hand-cast buff of yours may take to land after it is sent
+Offers.MAX_CASTS_WAITING = 8    -- hand-cast buffs remembered as sent; the oldest goes first
+-- A copy's "this answers yours" mark and the buff it marks arrive apart, in
+-- either order: they belong together within this many seconds.
+Offers.MARK_SECONDS = 30
+Offers.MAX_MARKS = 50           -- marks waiting for their buff at once; the oldest goes first
 
 local favours = {}          -- newest last: { name, unit, class, owedAt, ledgerEntry }
-local returnedAt = {}       -- [full name] = GetTime() you last returned their favour
+local buffedAt = {}         -- [full name] = GetTime() a buff of yours last reached them
+local marks = {}            -- [full name] = GetTime() their copy said their buff answers yours
+local castsWaiting = {}     -- newest last: { guid, name, spell, at }, hand-cast buffs sent
 local listeners = {}
 local oweListeners = {}
 
@@ -119,19 +136,41 @@ function Offers.Wears(unit, buff)
     return false
 end
 
+-- Room for name in a [name] = time table that holds at most limit: when it
+-- is full, the oldest goes. Old entries otherwise stay until pushed out;
+-- Within ignores them.
+local function MakeRoom(times, name, limit)
+    if times[name] then return end
+    local count, oldest = 0, nil
+    for who, at in pairs(times) do
+        count = count + 1
+        if not oldest or at < times[oldest] then oldest = who end
+    end
+    if count >= limit then times[oldest] = nil end
+end
+
+-- Whether the time at is at most maxAge seconds before now (never after it).
+local function Within(at, maxAge, now)
+    return at ~= nil and now >= at and now - at <= maxAge
+end
+
 -- Someone outside your group buffed you. unit: the token they were seen
 -- under, if any; ledgerEntry: their ledger entry, marked when you return it.
 function Offers.Owe(name, unit, ledgerEntry)
-    local returned = returnedAt[name]
-    if returned and GetTime() - returned <= Offers.RETURNED_RECENTLY then
+    local now = GetTime()
+    local marked = Within(marks[name], Offers.MARK_SECONDS, now)
+    if marked or Within(buffedAt[name], Offers.RETURNED_RECENTLY, now) then
         -- Their buff answers yours: owing it back would trade buffs forever.
+        -- A mark answers one buff.
+        if marked then marks[name] = nil end
         if ledgerEntry then ns.Ledger.NoteNotReturned(ledgerEntry, "it answered your buff to them") end
-        ns.Diag.Log("buffBack", "not owing %s: their buff answers the one you just gave them", name)
+        ns.Diag.Log("buffBack", "not owing %s: their buff answers yours%s", name,
+            marked and " (their copy said so)" or "")
         return
     end
     local i = IndexOf(name)
     if i then table.remove(favours, i) end
-    local favour = { name = name, unit = unit, owedAt = GetTime(), ledgerEntry = ledgerEntry }
+    local favour = { name = name, unit = unit, owedAt = now, ledgerEntry = ledgerEntry }
     Observe(favour)
     favours[#favours + 1] = favour
     while #favours > Offers.MAX do table.remove(favours, 1) end
@@ -207,20 +246,99 @@ function Offers.Current()
     return nil, firstReason
 end
 
--- You buffed them back with spell: the favour is returned. false if they
--- weren't owed (it expired or was let go before the cast landed).
+-- A buff of yours (spell) reached them, from the button or by hand. Their
+-- buff back within RETURNED_RECENTLY answers it. If you owed them, the
+-- favour is returned and their copy is told this buff answers theirs.
+-- false if they weren't owed (it expired or was let go before the cast landed).
 function Offers.MarkReturned(name, spell)
     local now = GetTime()
-    for who, at in pairs(returnedAt) do
-        if now - at > Offers.RETURNED_RECENTLY then returnedAt[who] = nil end
-    end
-    returnedAt[name] = now
+    MakeRoom(buffedAt, name, Offers.MAX_REMEMBERED)
+    buffedAt[name] = now
     local i = IndexOf(name)
     if not i then return false end
     local favour = table.remove(favours, i)
     if favour.ledgerEntry then ns.Ledger.Returned(favour.ledgerEntry, spell) end
+    ns.Comm.SendAnswer(name)
     Changed()
     return true
+end
+
+-- Their copy says the buff they just gave you answers yours (Comm.lua's
+-- ANSWER). Untrusted, but it can only stop you owing the sender. A favour
+-- owed for their buff a moment ago is let go; otherwise the mark waits for
+-- their buff.
+function Offers.OnAnswerMark(name)
+    local now = GetTime()
+    local i = IndexOf(name)
+    if i and Within(favours[i].owedAt, Offers.MARK_SECONDS, now) then
+        local favour = table.remove(favours, i)
+        if favour.ledgerEntry then ns.Ledger.NoteNotReturned(favour.ledgerEntry, "it answered your buff to them") end
+        ns.Diag.Log("buffBack", "not owing %s: their copy says their buff answers yours", name)
+        Changed()
+        return
+    end
+    MakeRoom(marks, name, Offers.MAX_MARKS)
+    marks[name] = now
+end
+
+-- Tokens a hand cast can go to that the game may name only by first name.
+local CAST_TARGET_TOKENS = { "target", "mouseover", "focus", "softfriend" }
+
+-- The full name of the player UNIT_SPELLCAST_SENT says a cast went to, or
+-- nil. The game may give "First", "First Surname" or "First-Surname". A
+-- first name alone counts only when exactly one player of that name is your
+-- target, mouseover, focus or soft target: guessing could block a real
+-- favour from someone else of that name.
+function Offers.CastTarget(reported)
+    local full = Util.FullName(reported)
+    if not full or full:find("-", 1, true) then return full end
+    local found
+    for _, token in ipairs(CAST_TARGET_TOKENS) do
+        local name = Util.UnitFullName(token)
+        if name and Util.FirstName(name) == full then
+            if found and found ~= name then return nil end
+            found = name
+        end
+    end
+    return found
+end
+
+-- A text the game gave that is usable as a key: a non-empty string, not secret.
+local function ReadableText(value)
+    if Util.IsSecret(value) or type(value) ~= "string" or value == "" then return nil end
+    return value
+end
+
+-- UNIT_SPELLCAST_SENT for a cast of yours no press of the button sent (one
+-- cast by hand): a buff to a player the game names waits to land. Unreadable
+-- details remember nothing.
+function Offers.OnCastSent(unit, castTargetName, castGUID, spellId)
+    if unit ~= "player" or Util.IsSecret(spellId) or type(spellId) ~= "number" then return end
+    local buff = ns.BuffData.ForCast(spellId)
+    if not buff or buff == ns.BuffData.REVOKE then return end
+    local guid, name = ReadableText(castGUID), Offers.CastTarget(castTargetName)
+    if not guid or not name then
+        ns.Diag.Log("buffBack", "a buff cast by hand: can't tell which player it went to")
+        return
+    end
+    local cast = { guid = guid, name = name, spell = ns.BuffData.SpellName(buff), at = GetTime() }
+    castsWaiting[#castsWaiting + 1] = cast
+    if #castsWaiting > Offers.MAX_CASTS_WAITING then table.remove(castsWaiting, 1) end
+end
+
+-- UNIT_SPELLCAST_SUCCEEDED for a cast no press of the button answers: a
+-- hand-cast buff sent to a player has reached them, if it landed in time.
+function Offers.OnCastLanded(unit, castGUID)
+    local guid = ReadableText(castGUID)
+    if unit ~= "player" or not guid or not ns.db or not ns.db.enabled or not ns.db.buffBack.enabled then return end
+    for _, cast in ipairs(castsWaiting) do
+        if cast.guid == guid and Within(cast.at, Offers.CAST_WAIT, GetTime()) then
+            if Offers.MarkReturned(cast.name, cast.spell) then
+                ns.Diag.Log("buffBack", "returned %s's favour by hand", cast.name)
+            end
+            return
+        end
+    end
 end
 
 -- Let a favour go (right-click on the button).

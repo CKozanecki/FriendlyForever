@@ -38,6 +38,7 @@ From #32 ([research comment](https://github.com/CKozanecki/FriendlyForever/issue
 - A throttled send returns `Enum.SendAddonMessageResult.AddonMessageThrottle`; 0 means success (#32).
 - A prefix is at most 16 characters, and a message at most 255 bytes (#32).
 - Under Midnight's rules addons may not message other players inside instances (on live: boss encounters and Mythic+) (#32).
+- Message types so far: `HELLO` (#32) and `ANSWER` (#37), whispered to a player whose favour you just returned, so their copy doesn't owe you one back. Whether an addon whisper reaches a stranger nearby decides whether `ANSWER` works at all; without it, buff back still stops after one round within its 10-minute window (#37). **Launch check** ([#50](https://github.com/CKozanecki/FriendlyForever/issues/50#issuecomment-6504872140)).
 - Unknown: the sender name's form in `CHAT_MSG_ADDON` (`First-Surname` or `First Surname`), and whether an addon whisper reaches a stranger nearby (#32).
 
 ## Names and races
@@ -66,6 +67,7 @@ From #68 (beta build 70425, mid-October 2026; [Paladin deep dive](https://www.wo
 - **Launch checks** ([#50](https://github.com/CKozanecki/FriendlyForever/issues/50#issuecomment-6459299223)): the Salvation, Mass Salvation and Revoke IDs; whether Revoke takes off another paladin's Salvation; which role APIs exist (`UnitGroupRolesAssigned` or `GetPartyAssignment("MAINTANK", unit)`) (#68).
 - The buff spell IDs in `BuffData.lua` are Classic Era's (1.15); Forever's may differ. Source: as built for #27. **Launch check** (#50).
 - Unit power is secret for strangers, so the addon decides who uses mana by class. Source: as built for #27 (`BuffData.MANA_CLASSES`). **Launch check** (#50).
+- Buff back remembers every buff of yours the game says reached a player, cast by hand too (#37). It relies on `UNIT_SPELLCAST_SENT` firing for every cast of yours with the target's name and a `castGUID`, and on `UNIT_SPELLCAST_SUCCEEDED` giving the same `castGUID`, as in the retail API ([UNIT_SPELLCAST_SENT](https://warcraft.wiki.gg/wiki/UNIT_SPELLCAST_SENT)). Whether the name is the first name alone, or "First Surname", and whether a refreshed buff arrives as a new aura (`addedAuras`): **launch check** ([#50](https://github.com/CKozanecki/FriendlyForever/issues/50#issuecomment-6504872140)).
 - Whether group members' aura caster (`sourceUnit`) is readable, whether `C_Spell.IsSpellInRange` or `IsSpellInRange` answer for them, and the exact "Out of range" and line-of-sight error texts: **launch check** (#50, from #30).
 
 ## Battlegrounds
