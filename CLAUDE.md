@@ -24,6 +24,16 @@ Use the PR template too. This file only adds what applies to Claude sessions. Wh
 - **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale branches for the owner, and say which they are.
 - **Force-pushing:** never. Push a rebased branch under a new name and flag the old one for the owner to delete.
 
+## Shared knowledge and skills
+
+Facts sessions kept rediscovering, each with its source. Read the one you need before you research it again, and add to it in the PR that finds something new:
+
+- [`docs/forever-facts.md`](docs/forever-facts.md): WoW Forever API and game facts the code depends on, and which are launch checks;
+- [`docs/simulated-client.md`](docs/simulated-client.md): how `spec/support/wow.lua` models the game, and how to extend it;
+- [`docs/ui-simulator.md`](docs/ui-simulator.md): the UI simulator's known quirks and workarounds (#100).
+
+Procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `merge-order` and `coordinator` (running several sessions for the owner). They carry out the rules in "Several sessions at once" below; where they differ, these rules win.
+
 ## Starting and stopping
 
 - **Continuing an issue:** read its latest handoff comment first and follow its working rules.
@@ -58,12 +68,13 @@ Use the PR template too. This file only adds what applies to Claude sessions. Wh
 - **Fix everything a review finds,** optional nits included.
 - **Changes after an approval:** any change a review loop hasn't seen goes back to it for confirmation before the PR is called ready. That includes test-only and test-helper changes, merges that resolved conflicts, and rebases. On #72, a test-helper change made after the architecture approval hid a real bug, and the re-check caught it.
 - **UI changes:** before the testing review, wait for the [UI simulator](CONTRIBUTING.md#ui-simulator) run, then tell the testing reviewer to fetch `ui-screenshots/pr-<number>`, view the screenshots, read the `LAYOUT` lines, and decide. Their verdict is the only look the screenshots get: the owner won't review them. Say in the PR what the reviewer saw.
-- **Reviewer instructions:** tell each review agent:
+- **Reviewer agents:** run the architecture review with the `lua-architect` agent and the testing review with the `lua-tester` agent ([`.claude/agents/`](.claude/agents/)). Their files hold the scope, the output format and the lessons of past reviews. Tell each one:
   - the worktree path and the diff range to review;
   - that "everything is OK" is a valid answer;
   - to report only real defects, each with file:line and a concrete failure scenario;
   - to restore every mutation and leave `git status` clean;
   - to end with APPROVED or CHANGES REQUESTED.
+- **Keep them current:** when a review finds a lesson rather than a one-off (a bug class that can recur, or a check that would have caught it), the same PR adds it, citing the PR or issue, to the right agent's Lessons, or a fact to the right file in `docs/`.
 
 ## Tests
 
