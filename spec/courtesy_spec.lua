@@ -1,3 +1,4 @@
+-- Spec: #52
 -- The ignore list and snooze: two ways to keep the addon quiet.
 local wow = require("spec.support.wow")
 

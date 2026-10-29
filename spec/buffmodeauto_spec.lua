@@ -1,4 +1,4 @@
--- Spec: #29, #71, #76
+-- Spec: #29, #71, #76, #99
 -- When buff mode turns on and off by itself.
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
@@ -382,6 +382,16 @@ describe("Buff mode turning on and off by itself", function()
             wow.state.units.party1.auras = { MOTW }
             wow.state.units.party2.secrets = { name = true }
             wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(ns.BuffMode.IsAuto())
+        end)
+
+        it("is kept on by a member whose name hasn't loaded ('Unknown')", function()
+            wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+            wow.state.units.party1.auras = { MOTW }
+            wow.state.units.party2.auras = { MOTW }
+            wow.state.units.party2.nameLoading = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(0)
             assert.is_true(ns.BuffMode.IsAuto())
         end)
 

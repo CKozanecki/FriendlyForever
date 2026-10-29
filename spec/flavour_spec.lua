@@ -1,3 +1,4 @@
+-- Spec: #52
 -- Flavour placeholders and the shipped message lines that use them.
 local wow = require("spec.support.wow")
 
