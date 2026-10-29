@@ -462,11 +462,13 @@ local function Fill()
 
     local isBuffBack = currentType == "buffBack"
     widgets.sayLine:SetShown(isBuffBack)
+    widgets.showInCities:SetShown(isBuffBack)
     widgets.buffModeKey:SetShown(isBuffBack)
     if not widgets.keyCapture.active then widgets.buffModeKey:SetText(KeyButtonText()) end
     ShowStepper(widgets.steppers.owedMinutes, isBuffBack)
     if isBuffBack then
         widgets.sayLine:SetChecked(cfg.sayLine)
+        widgets.showInCities:SetChecked(cfg.showInCities)
         FillBox(widgets.steppers.owedMinutes.box, tostring(cfg.owedMinutes))
     end
     FillBuffRows(isBuffBack)
@@ -476,12 +478,14 @@ local function Fill()
     widgets.thankStyle:SetShown(isBuff)
     widgets.whisper:SetShown(isBuff)
     widgets.fallback:SetShown(isBuff)
+    widgets.quiet:SetShown(isBuff)
     widgets.unknownName:SetShown(isBuff)
     if isBuff then
         widgets.listNames:SetChecked(cfg.listBuffNames)
         widgets.thankStyle:SetText(Options.THANK_STYLE_TEXT[cfg.thankStyle])
         widgets.whisper:SetChecked(cfg.useWhisper)
         widgets.fallback:SetChecked(cfg.fallbackToSay)
+        widgets.quiet:SetChecked(cfg.quietInCities)
         FillBox(widgets.unknownName, cfg.unknownName)
     end
 
@@ -498,7 +502,7 @@ local function Fill()
     elseif warn then
         above = widgets.nameplateWarning
     elseif isBuff then
-        above, x, y = widgets.fallback, 4, -14
+        above, x, y = widgets.quiet, 4, -14
     end
     widgets.msgHeader:SetPoint("TOPLEFT", above, "BOTTOMLEFT", x, y)
 
@@ -617,6 +621,12 @@ function Options.Create()
     local owedMinutes = Stepper(content, "Offer for (minutes):", "owedMinutes")
     owedMinutes.label:SetPoint("LEFT", widgets.sayLine.label, "RIGHT", 40, 0)
     widgets.steppers.owedMinutes = owedMinutes
+    widgets.showInCities = Checkbox(content, "Show the button in capital cities (buff mode always shows it)",
+        function(on)
+            ns.db.buffBack.showInCities = on
+            ns.BuffButton.Refresh()
+        end)
+    widgets.showInCities:SetPoint("TOPLEFT", widgets.sayLine, "BOTTOMLEFT", 0, -4)
 
     -- Same row: a line, a /thank emote, or both (click to cycle).
     widgets.thankStyle = Button(content, Options.THANK_STYLE_TEXT.message, 290, function()
@@ -646,10 +656,15 @@ function Options.Create()
         if userInput then ns.db.buff.unknownName = Config.CleanUnknownName(self:GetText()) end
     end)
 
-    -- Row 6: warning + one-click fix when friendly nameplates are off
+    -- Row 6: quiet in capital cities (Cities.lua)
+    widgets.quiet = Checkbox(content, "Stay quiet in capital cities (no thank-yous; the ledger still counts)",
+        function(on) ns.db.buff.quietInCities = on end)
+    widgets.quiet:SetPoint("TOPLEFT", widgets.fallback, "BOTTOMLEFT", 0, -4)
+
+    -- Row 7: warning + one-click fix when friendly nameplates are off
     widgets.nameplateWarning = Label(content, "|cffff8040Friendly player nameplates are off, so the game "
         .. "can't tell you who buffed you.|r", "GameFontHighlightSmall")
-    widgets.nameplateWarning:SetPoint("TOPLEFT", widgets.fallback, "BOTTOMLEFT", 4, -8)
+    widgets.nameplateWarning:SetPoint("TOPLEFT", widgets.quiet, "BOTTOMLEFT", 4, -8)
     widgets.nameplateButton = Button(content, "Show friendly player names", 200, function()
         local ok, reason = ns.Nameplates.EnableFriendlyNames()
         ns.Print(ok and "friendly player names are now shown (names only)." or ("couldn't turn them on: " .. reason))
@@ -661,13 +676,13 @@ function Options.Create()
     local msgHeader = Label(content,
         "Messages (all are used in random order before any repeats; leave a line blank to skip it):",
         "GameFontNormalSmall")
-    msgHeader:SetPoint("TOPLEFT", widgets.fallback, "BOTTOMLEFT", 4, -32)
+    msgHeader:SetPoint("TOPLEFT", widgets.quiet, "BOTTOMLEFT", 4, -32)
     widgets.msgHeader = msgHeader
 
     -- Buff Back tab only, in the buff tab's rows 4 to 6: the buff order, one
     -- row per buff of your class (the most any class has).
     widgets.buffOrderHeader = Label(content, "", "GameFontNormalSmall")
-    widgets.buffOrderHeader:SetPoint("TOPLEFT", widgets.sayLine, "BOTTOMLEFT", 4, -10)
+    widgets.buffOrderHeader:SetPoint("TOPLEFT", widgets.showInCities, "BOTTOMLEFT", 4, -10)
     local most = 0
     for _, list in pairs(ns.BuffData.CLASSES) do most = math.max(most, #list) end
     widgets.buffRows = {}

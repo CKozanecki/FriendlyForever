@@ -18,6 +18,7 @@
 -- press needed). Casters that can't be named, and whispers the game can't
 -- deliver, fall back to a "friend" thank-you in /say (if that is switched on).
 -- "How to thank" can add, or swap the line for, a /thank emote.
+-- In capital cities nothing is sent, unless buff mode is on (Cities.lua).
 -- Every favour goes into the ledger (Ledger.lua), thanked or not.
 local _, ns = ...
 local Util = ns.Util
@@ -141,6 +142,7 @@ local NOTES = {
     { "blank", "no message lines" },
     { "queue full", "too many messages waiting" },
     { "ignore list", "on your ignore list" },
+    { "capital city", "quiet in a capital city" },
 }
 function BuffTracker.NoteFor(reason)
     if type(reason) ~= "string" then return "not sent" end
@@ -226,6 +228,19 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
     AddToBatch(batch, buffKey, spellName)
     batches[caster] = batch
 
+    if ns.Cities.ThanksQuiet() then
+        ns.Diag.Log("buff", "not thanking %s: quiet in a capital city", caster)
+        ns.Ledger.Settle(entry, false, "quiet in a capital city")
+        -- Their other buffs in this wave join this favour, for as long as a
+        -- thank-you would have waited.
+        local limits = ns.Config.LIMITS.delay
+        local delay = Util.ClampNumber(cfg.delay, limits.min, limits.max, ns.Config.DEFAULTS.buff.delay)
+        C_Timer.After(delay, ns.Diag.Wrap(function()
+            if batches[caster] == batch then batches[caster] = nil end
+        end))
+        return
+    end
+
     local style = cfg.thankStyle
     local withLine = style ~= "emote"
     local withEmote = style ~= "message"
@@ -241,9 +256,11 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
         end
     end
 
-    -- Checked again just before sending: they may have been ignored meanwhile.
-    local function NotIgnored()
+    -- Checked again just before sending: they may have been ignored, or you
+    -- may have walked into a capital, meanwhile.
+    local function StillWanted()
         if not unknown and ns.Ignore.Has(caster) then return false, "on your ignore list" end
+        if ns.Cities.ThanksQuiet() then return false, "quiet in a capital city" end
         return true
     end
 
@@ -256,7 +273,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
             target = whisper and caster or nil,
             cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
             maxAge = (not whisper) and BuffTracker.SAY_MAX_AGE or nil,
-            isValid = NotIgnored,
+            isValid = StillWanted,
             vars = function()
                 if unknown then return FallbackVars(batch) end
                 local vars = Util.NameVars(caster)
@@ -280,7 +297,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
             emoteTarget = EmoteTarget(caster, unit),
             cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
             maxAge = BuffTracker.SAY_MAX_AGE,
-            isValid = NotIgnored,
+            isValid = StillWanted,
             onDone = Done,
         })
         if ok then waiting, scheduled = waiting + 1, true else why = why or reason end
@@ -307,6 +324,10 @@ function BuffTracker.OnWhisperFailed(name)
         channel = "SAY",
         cooldown = 0, -- the caster's own cooldown already stops repeats
         maxAge = BuffTracker.SAY_MAX_AGE,
+        isValid = function()
+            if ns.Cities.ThanksQuiet() then return false, "quiet in a capital city" end
+            return true
+        end,
         vars = function() return FallbackVars(w.batch) end,
     })
 end

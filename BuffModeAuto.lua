@@ -6,7 +6,8 @@
 --   joining a group or raid;
 --   a group member dying, after the group's first pull (until the next one);
 --   someone outside your group buffing you (a group member's buff isn't a
---   favour, so it doesn't count).
+--   favour, so it doesn't count), except where quiet mode holds in a capital
+--   city: there it would end quiet mode at the first stranger's buff (#34).
 -- Turns off (on by default), but only buff mode a trigger turned on, never
 -- buff mode you turned on yourself:
 --   the first pull (PLAYER_REGEN_DISABLED);
@@ -185,6 +186,7 @@ end
 
 -- Someone outside your group buffed you (Offers.Owe).
 function Auto.OnBuffed()
+    if ns.Cities.ThanksQuiet() or ns.Cities.ButtonHidden() then return end
     if Cfg().autoOnBuffed == true then TurnOn("someone buffed you") end
 end
 

@@ -17,6 +17,7 @@ Diagnostics.lua
 Messages.lua
 Flavour.lua
 Cooldowns.lua
+Cities.lua
 Ignore.lua
 Ledger.lua
 BuffData.lua

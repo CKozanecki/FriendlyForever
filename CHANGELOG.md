@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- This version adds a file. After updating, restart the game; /reload isn't enough. (#34)
+- **Quiet in capital cities** (on by default): no buff thank-yous in Stormwind, Ironforge, Darnassus, Orgrimmar, Thunder Bluff or Undercity, though the favour ledger still counts them. The buff back button stays hidden there unless you switch **Show the button in capital cities** on, and shows your favours once you leave. Buff mode turned on in a city works as usual; a stranger's buff doesn't turn it on there. (#34)
 - The buff-back button keeps its text inside it: a name or favour too long for the button is cut off with "…", and the hint while you move it is shorter. On the options tabs, the message lines no longer sit below an empty gap. (#64)
 
 ## 0.8.0

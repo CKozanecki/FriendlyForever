@@ -176,6 +176,10 @@ local function ArmButton()
         button.icon:SetTexture(BuffButton.PLACEHOLDER_ICON)
         return
     end
+    -- Favours are still owed: they show once you leave (Cities.lua).
+    if ns.Cities.ButtonHidden() then
+        return Empty("you're in a capital city: favours show once you leave", false)
+    end
     local offer, reason = NextOffer()
     if not offer then return Empty(reason, showingResult) end
 
@@ -628,6 +632,10 @@ local function CreateEventFrame()
         -- In buff mode, who's in your group decides whom to buff.
         GROUP_ROSTER_UPDATE = RefreshSoon,
         NAME_PLATE_UNIT_REMOVED = RefreshSoon,
+        -- Into or out of a capital city, where the button may stay hidden.
+        ZONE_CHANGED = RefreshSoon,
+        ZONE_CHANGED_INDOORS = RefreshSoon,
+        ZONE_CHANGED_NEW_AREA = RefreshSoon,
         PLAYER_REGEN_DISABLED = BuffButton.OnCombatStart,
         PLAYER_REGEN_ENABLED = BuffButton.Refresh,
         SPELLS_CHANGED = OnSpellsChanged,
