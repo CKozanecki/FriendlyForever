@@ -1,0 +1,138 @@
+name: UI screenshots clean-up
+
+# Deletes the UI simulator's screenshot branches, ui-screenshots/pr-<number>,
+# once their pull request is closed (issue #106). The publish-screenshots job
+# in ui-sim.yml makes them; see "UI simulator" in CONTRIBUTING.md.
+#
+# Safety, in keeping with ui-sim.yml (spec/repo_spec.lua checks all of it):
+# - It runs on pull_request (closed), never pull_request_target, and checks
+#   out and runs nothing: no checkout, no actions, only curl and jq on the
+#   runner, with the workflow's own GITHUB_TOKEN and no secrets.
+# - The close-time job builds the branch name only from the event's pull
+#   request number. Both jobs delete only a branch named exactly
+#   ui-screenshots/pr-<digits>, so they can never delete main or a work
+#   branch. A branch that's already gone is fine.
+# - Each job alone has contents: write; the workflow default is no access.
+# - The close-time job never fails the pull request's checks.
+
+on:
+  pull_request:
+    types: [closed]
+  # The sweep, run by hand: Actions, UI screenshots clean-up, Run workflow.
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  # When a pull request closes, merged or not, delete its screenshots branch.
+  # Pull requests from forks never get one (publishing is limited to this
+  # repository's own), so the job is skipped for them.
+  delete-on-close:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: write
+    steps:
+      - name: Delete ui-screenshots/pr-${{ github.event.pull_request.number }}
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          TOKEN: ${{ github.token }}
+        run: |
+          # --- name check: the same in both jobs ---
+          # The pull request number for a screenshots branch name: exactly
+          # ui-screenshots/pr-<digits>, no leading zero, nothing after.
+          pr_of_branch() {
+            [[ "$1" =~ ^ui-screenshots/pr-([1-9][0-9]*)$ ]] || return 1
+            printf '%s\n' "${BASH_REMATCH[1]}"
+          }
+          # Deletes ui-screenshots/pr-<$1>, only if that name passes the check
+          # above. The token goes to curl on stdin, never on its command line.
+          delete_branch() {
+            local branch="ui-screenshots/pr-$1" status
+            if ! pr_of_branch "$branch" > /dev/null; then
+              echo "::warning::refusing to delete a branch for pull request number '$1'"
+              return 1
+            fi
+            status=$(printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" |
+              curl -sS -K - -o /dev/null -w '%{http_code}' -X DELETE \
+                -H "Accept: application/vnd.github+json" \
+                "$GITHUB_API_URL/repos/$REPO/git/refs/heads/$branch") || status=000
+            case "$status" in
+              204) echo "deleted $branch" ;;
+              404|422) echo "$branch is already gone" ;;
+              *) echo "::warning::could not delete $branch (HTTP $status)"; return 1 ;;
+            esac
+          }
+          # --- end of name check ---
+          # Report only: a failure warns, and never fails the pull request.
+          delete_branch "$PR" || true
+
+  # The sweep, for leftovers: deletes ui-screenshots/pr-N wherever pull
+  # request N is closed, and keeps every other branch.
+  sweep:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Delete screenshot branches of closed pull requests
+        env:
+          REPO: ${{ github.repository }}
+          TOKEN: ${{ github.token }}
+        run: |
+          # --- name check: the same in both jobs ---
+          # The pull request number for a screenshots branch name: exactly
+          # ui-screenshots/pr-<digits>, no leading zero, nothing after.
+          pr_of_branch() {
+            [[ "$1" =~ ^ui-screenshots/pr-([1-9][0-9]*)$ ]] || return 1
+            printf '%s\n' "${BASH_REMATCH[1]}"
+          }
+          # Deletes ui-screenshots/pr-<$1>, only if that name passes the check
+          # above. The token goes to curl on stdin, never on its command line.
+          delete_branch() {
+            local branch="ui-screenshots/pr-$1" status
+            if ! pr_of_branch "$branch" > /dev/null; then
+              echo "::warning::refusing to delete a branch for pull request number '$1'"
+              return 1
+            fi
+            status=$(printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" |
+              curl -sS -K - -o /dev/null -w '%{http_code}' -X DELETE \
+                -H "Accept: application/vnd.github+json" \
+                "$GITHUB_API_URL/repos/$REPO/git/refs/heads/$branch") || status=000
+            case "$status" in
+              204) echo "deleted $branch" ;;
+              404|422) echo "$branch is already gone" ;;
+              *) echo "::warning::could not delete $branch (HTTP $status)"; return 1 ;;
+            esac
+          }
+          # --- end of name check ---
+          get() {
+            printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" |
+              curl -sSf -K - -H "Accept: application/vnd.github+json" "$GITHUB_API_URL/repos/$REPO/$1"
+          }
+          refs=$(get "git/matching-refs/heads/ui-screenshots/") && jq -e 'type == "array"' <<<"$refs" >/dev/null ||
+            { echo "::error::could not list the branches"; exit 1; }
+          deleted=0 kept=0 failed=0
+          while IFS= read -r ref; do
+            name="${ref#refs/heads/}"
+            if ! pr=$(pr_of_branch "$name"); then
+              printf 'keeping %s: not a ui-screenshots/pr-<digits> name\n' "$name"
+              kept=$((kept + 1)); continue
+            fi
+            # Only a pull request GitHub reports closed: anything else,
+            # including a failed lookup, keeps the branch.
+            state=$(get "pulls/$pr" | jq -r '.state') || state=unknown
+            if [ "$state" != "closed" ]; then
+              echo "keeping $name: pull request #$pr is $state"
+              kept=$((kept + 1)); continue
+            fi
+            if delete_branch "$pr"; then deleted=$((deleted + 1)); else failed=$((failed + 1)); fi
+          done < <(jq -r '.[].ref' <<<"$refs")
+          echo "deleted $deleted, kept $kept, failed $failed"
+          echo "Screenshot branches: deleted $deleted, kept $kept, failed $failed." >> "$GITHUB_STEP_SUMMARY"
+          [ "$failed" -eq 0 ]
