@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds dist/FriendlyForever-<version>.zip in the layout WoW and CurseForge
 # expect: one top-level FriendlyForever/ folder holding the .toc and exactly
-# the files the .toc loads (plus README/CHANGELOG/LICENSE). Tests, tooling
+# the files the .toc loads (plus README/CHANGELOG/LICENSE and Media/). Tests, tooling
 # and editor settings never ship.
 set -euo pipefail
 
@@ -29,6 +29,9 @@ done < "$TOC"
 for extra in README.md CHANGELOG.md LICENSE Bindings.xml; do
     [[ -f "$ROOT/$extra" ]] && cp "$ROOT/$extra" "$STAGE/$ADDON/"
 done
+# Textures aren't listed in the TOC either: the code and the TOC's
+# ## IconTexture name them by path.
+cp -R "$ROOT/Media" "$STAGE/$ADDON/"
 
 mkdir -p "$ROOT/dist"
 OUT="$ROOT/dist/$ADDON-$VERSION.zip"
