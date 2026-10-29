@@ -27,7 +27,7 @@ read_globals = {
     "Minimap", "SendChatMessage", "Settings", "UIParent", "UnitCanAttack",
     "UnitInParty", "UnitInRaid", "UnitIsGroupLeader", "UnitIsPlayer", "UnitIsUnit", "UnitName", "UnitExists",
     "UnitIsAFK", "UNKNOWNOBJECT",
-    "issecretvalue", "issecrettable", "date", "C_UnitAuras", "C_AddOns", "geterrorhandler",
+    "issecretvalue", "issecrettable", "date", "C_UnitAuras", "C_AddOns", "C_Map", "geterrorhandler",
     "ERR_FRIEND_ONLINE_SS", "ERR_GUILD_JOIN_S", "ERR_JOINED_GROUP_S",
     "ERR_RAID_MEMBER_ADDED_S", "ERR_INSTANCE_GROUP_ADDED_S", "ERR_CHAT_PLAYER_NOT_FOUND_S",
     "C_CVar", "GetCVar", "SetCVar",
