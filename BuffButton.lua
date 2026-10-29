@@ -445,17 +445,25 @@ function BuffButton.OnSpellcastSent(unit, castTargetName, castGUID, spellId)
     WatchForAnswer(press, BuffButton.SENT_ANSWER_SECONDS)
 end
 
--- After a favour is returned: queue the optional line in /say, the same way
--- (and under the same rules) as a thank-you. ChatQueue sends it on your next
--- key press; it's dropped if it waits too long, or if the setting is turned
--- off or they're ignored meanwhile.
+-- After a favour is returned: queue the optional line, sent the way Buff
+-- Thanks' "Thank them with" choice says (#101): in /say (also for "a line and an emote"),
+-- whispered to them, or, for the emote, a plain /thank aimed at them (or at
+-- everyone around, if the game shows them under no unit). It goes under the
+-- same rules as a thank-you: ChatQueue sends a /say line or an emote on your
+-- next key press, and drops it if it waits too long, or if the setting is
+-- turned off or they're ignored meanwhile.
 local function SayLineFor(press)
     if ns.db.buffBack.sayLine ~= true then return end
+    local style = ns.db.buff.thankStyle
+    local whisper, emote = style == "whisper", style == "emote"
     ns.Announcer.Schedule("buffBack", press.name, {
-        channel = "SAY",
+        channel = whisper and "WHISPER" or "SAY",
+        target = whisper and press.name or nil,
+        emote = emote and "THANK" or nil,
+        emoteTarget = emote and function() return ns.Offers.UnitFor(press.name) end or nil,
         delay = 0,
         cooldown = 0, -- a favour is only returned once, so each return says one line
-        maxAge = ns.BuffTracker.SAY_MAX_AGE,
+        maxAge = (not whisper) and ns.BuffTracker.SAY_MAX_AGE or nil,
         dropOverCap = true, -- a thank-you of sorts: dropped over the chat cap, like thanks
         vars = function()
             local vars = Util.NameVars(press.name)

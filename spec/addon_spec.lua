@@ -1,4 +1,4 @@
--- Spec: #65
+-- Spec: #65, #101
 -- End-to-end: the addon as the game loads it, plus its UI and commands.
 local wow = require("spec.support.wow")
 
@@ -176,10 +176,10 @@ describe("Addon", function()
 
         it("shows buff-only options only on the buff tab", function()
             wow.run(w.tabs.guildLogin, "OnClick")
-            assert.is_false(w.whisper:IsShown())
+            assert.is_false(w.fallback:IsShown())
             assert.is_false(w.unknownName:IsShown())
             wow.run(w.tabs.buff, "OnClick")
-            assert.is_true(w.whisper:IsShown())
+            assert.is_true(w.fallback:IsShown())
             assert.is_true(w.listNames:IsShown())
             assert.are.equal("friend", w.unknownName:GetText())
         end)
@@ -229,11 +229,8 @@ describe("Addon", function()
             assert.are.equal(3600, ns.db.guildLogin.repeatCooldown, "blank keeps the old value")
         end)
 
-        it("toggles whisper mode and buff name listing", function()
+        it("toggles buff name listing", function()
             wow.run(w.tabs.buff, "OnClick")
-            w.whisper:SetChecked(true)
-            wow.run(w.whisper, "OnClick")
-            assert.is_true(ns.db.buff.useWhisper)
             w.listNames:SetChecked(false)
             wow.run(w.listNames, "OnClick")
             assert.is_false(ns.db.buff.listBuffNames)

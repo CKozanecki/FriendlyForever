@@ -86,6 +86,12 @@ local function LiveUnits(favour, visible)
     return units
 end
 
+-- A unit token that is them right now (your target first), or nil.
+function Offers.UnitFor(name)
+    local units = VisiblePlayers()[name]
+    return units and units[1] or nil
+end
+
 -- Read what we can about them now. Returns a unit token that is them (or
 -- nil), and whether they're flagged for PvP: true if any token showing them
 -- says so, false if every one says not, nil if none can say.

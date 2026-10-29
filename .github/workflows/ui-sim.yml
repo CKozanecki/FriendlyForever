@@ -335,6 +335,8 @@ jobs:
           docker rm -f "$probe" >/dev/null 2>&1 || true
           shoot game
           shoot options --exec-lua "SlashCmdList.FRIENDLYFOREVER('')"
+          # The Buff Thanks tab (#101), with the longest "Thank them with" choice.
+          shoot options-buff --exec-lua "FriendlyForeverDB.buff.thankStyle = 'both'; SlashCmdList.FRIENDLYFOREVER(''); for _, f in ipairs({ FriendlyForeverOptionsPanel:GetChildren() }) do local c = f.GetScrollChild and f:GetScrollChild(); for _, b in ipairs(c and { c:GetChildren() } or {}) do if b.GetText and b:GetText() == 'Buff Thanks' then b:GetScript('OnClick')(b) end end end"
           # The General page (#35): it doesn't scroll, so everything must fit.
           shoot general --exec-lua "SlashCmdList.FRIENDLYFOREVER(''); Settings.OpenToCategory(FriendlyForeverOptionsPanel.generalPage.category:GetID())"
           # /friendly move shows the buff back button, unlocked, with nobody owed.

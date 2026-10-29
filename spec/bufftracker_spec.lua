@@ -1,4 +1,4 @@
--- Spec: #98, #99
+-- Spec: #98, #99, #101
 local wow = require("spec.support.wow")
 
 describe("Buff thanks", function()
@@ -283,7 +283,7 @@ describe("Buff thanks", function()
         end)
 
         it("not when the cast was too long ago", function()
-            ns.db.buff.fallbackToSay = false
+            ns.db.buff.fallback = "none"
             buffer("mouseover", "Carol")
             wow.fire("UNIT_SPELLCAST_SUCCEEDED", "mouseover", "cast-guid", 1459)
             wow.advance(ns.BuffTracker.CAST_MATCH_WINDOW + 1)
@@ -321,7 +321,7 @@ describe("Buff thanks", function()
         end)
 
         it("not from a cast aimed at someone else, with the /say fallback off: nobody is thanked", function()
-            ns.db.buff.fallbackToSay = false
+            ns.db.buff.fallback = "none"
             aliceBuffsDave()
             assert.are.equal(0, #wow.sent)
         end)
@@ -384,7 +384,7 @@ describe("Buff thanks", function()
         end)
 
         it("ignores casts from group unit tokens", function()
-            ns.db.buff.fallbackToSay = false
+            ns.db.buff.fallback = "none"
             wow.addUnit("party1", { name = "Pal", inParty = false })
             wow.fire("UNIT_SPELLCAST_SUCCEEDED", "party1", "g", 1459)
             wow.gainBuff({ name = "Arcane Intellect", spellId = 1459 })
@@ -438,7 +438,7 @@ describe("Buff thanks", function()
         end)
 
         it("isn't thanked when the /say fallback is switched off", function()
-            ns.db.buff.fallbackToSay = false
+            ns.db.buff.fallback = "none"
             wow.gainBuff({ name = "A" })
             settle()
             assert.are.equal(0, #wow.sent)
@@ -570,7 +570,7 @@ describe("Buff thanks", function()
     end)
 
     describe("whisper instead of say", function()
-        before_each(function() ns.db.buff.useWhisper = true end)
+        before_each(function() ns.db.buff.thankStyle = "whisper" end)
 
         it("whispers the caster without needing a key press", function()
             stranger()
@@ -590,8 +590,8 @@ describe("Buff thanks", function()
             assert.are.equal(0, #wow.sentTo("WHISPER"))
         end)
 
-        it("doesn't thank a caster it can't name when the /say fallback is off", function()
-            ns.db.buff.fallbackToSay = false
+        it("doesn't thank a caster it can't name when no fallback is chosen", function()
+            ns.db.buff.fallback = "none"
             wow.gainBuff({ name = "Fort" })
             settle()
             assert.are.equal(0, #wow.sent)
@@ -608,8 +608,8 @@ describe("Buff thanks", function()
             assert.are.same({ "Thank you for the Fort and Int, friend!" }, wow.sentTo("SAY"))
         end)
 
-        it("doesn't fall back for a failed whisper when the /say fallback is off", function()
-            ns.db.buff.fallbackToSay = false
+        it("doesn't fall back for a failed whisper when no fallback is chosen", function()
+            ns.db.buff.fallback = "none"
             stranger()
             wow.gainBuff({ sourceUnit = "target", name = "Fort" })
             wow.advance(ns.db.buff.delay + 0.01)
@@ -820,7 +820,7 @@ describe("Buff thanks", function()
         end
 
         it("ignores secret cast events", function()
-            ns.db.buff.fallbackToSay = false
+            ns.db.buff.fallback = "none"
             buffer("mouseover", "Carol")
             wow.fire("UNIT_SPELLCAST_SUCCEEDED", "mouseover", "g", wow.secret(1459))
             wow.gainBuff({ name = "A", spellId = 1459 })
