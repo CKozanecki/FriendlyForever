@@ -1024,6 +1024,9 @@ function Options.CreateLedgerPage()
         local row = Label(page, "", "GameFontHighlightSmall")
         row:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, i == 1 and -12 or -4)
         row:SetPoint("RIGHT", page, "RIGHT", -24, 0)
+        -- One line each, cut with "…" when long: a row that wrapped would push
+        -- the rows below it off the page (#52). /friendly ledger shows them whole.
+        row:SetWordWrap(false)
         w.rows[i] = row
         anchor = row
     end

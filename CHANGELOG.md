@@ -2,6 +2,7 @@
 
 ### Unreleased
 
+- The copy window (export, import and the bug report) has room for a hint on two lines, so the import hint no longer runs into the box you paste into. On the **Favour Ledger** page, each row stays on one line, cut with "…" when it's long, so a long row can't push the rest off the page; `/friendly ledger` shows them in full. (#52)
 - This version adds files (the new icon and Battleground.lua). After updating, restart the game; /reload isn't enough. (#65, #71)
 - Friendly Forever has its own icon, the gold heart from its logo, on the minimap button, in the addon compartment and in the AddOns list. (#65)
 - The buff-back button keeps its text inside it: a name or favour too long for the button is cut off with "…", and the hint while you move it is shorter. On the options tabs, the message lines no longer sit below an empty gap. (#64)

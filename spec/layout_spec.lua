@@ -118,6 +118,25 @@ describe("Layout", function()
         end)
     end)
 
+    describe("the Favour Ledger page", function()
+        it("keeps each row on one line, cut with …, so a long one can't push the rows below it off the page", function()
+            local ns = wow.boot()
+            local entry = ns.Ledger.Received("Aerendhiliel-Stormwhisper", "Power Word: Fortitude")
+            ns.Ledger.AddBuff(entry, "Divine Spirit")
+            ns.Ledger.AddBuff(entry, "Shadow Protection")
+            ns.Ledger.Settle(entry, false, "too many messages waiting")
+            ns.Ledger.NoteNotReturned(entry, "the time to return it ran out")
+            ns.Options.FillLedger()
+            local _, page = ns.Options.Pages()
+            page:SetWidth(665) -- as the Settings panel sizes it in the UI simulator (LAYOUT 573..1238)
+            local row = ns.Options.widgets.ledger.rows[1]
+            local drawn = wow.drawnText(row, page)
+            assert.are.equal(1, drawn.lines)
+            assert.truthy(drawn.text:find("…", 1, true), "a row longer than the page is cut, not wrapped")
+            assert.truthy(row:GetText():find("Shadow Protection", 1, true), "the row still holds the whole line")
+        end)
+    end)
+
     describe("the copy window", function()
         -- A line of the small font the hint uses, in pixels: the UI simulator
         -- draws two of them 33 px tall (docs/ui-simulator.md), so 17 is the
