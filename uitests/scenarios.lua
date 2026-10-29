@@ -81,7 +81,8 @@ local function Edges(region, first, second)
     if ok and type(a) == "number" and type(b) == "number" then return a, b end
 end
 
--- A text line's measure, as region:method(), if it is a number.
+-- One of a region's measures (a size, a count), as region:method(), if it
+-- is a number.
 local function Measure(region, method)
     local ok, value = pcall(function() return region[method](region) end)
     if ok and type(value) == "number" then return value end
