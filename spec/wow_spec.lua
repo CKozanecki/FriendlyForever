@@ -1,4 +1,4 @@
--- Spec: #76
+-- Spec: #76, #84
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -67,6 +67,36 @@ describe("The simulated client", function()
             assert.is_falsy(wow.state.pvp)
             assert.are.same({}, wow.flaggedBy)
             assert.are.same({}, wow.flaggedElsewhere)
+        end)
+    end)
+
+    describe("a macro's conditions on the unit state.castLandsOn sends the cast to (white)", function()
+        it("casts nothing for a [help,nodead] macro when the cast would land on a dead unit", function()
+            wow.addUnit("nameplate2", { name = "Cid", surname = "Stone", class = "MAGE", id = "Cid-Stone", dead = true })
+            wow.state.castLandsOn = "nameplate2"
+            wow.runMacro(MACRO)
+            assert.are.equal(0, #wow.casts, "no cast on the dead unit")
+        end)
+
+        it("casts nothing for a [help,nodead] macro when the cast would land on a hostile unit", function()
+            wow.addUnit("nameplate2", { name = "Cid", surname = "Stone", class = "MAGE", id = "Cid-Stone", hostile = true })
+            wow.state.castLandsOn = "nameplate2"
+            wow.runMacro(MACRO)
+            assert.are.equal(0, #wow.casts, "no cast on the hostile unit")
+        end)
+
+        it("still lands on a living friendly unit", function()
+            wow.state.castLandsOn = "nameplate4"
+            wow.runMacro(MACRO)
+            assert.are.equal(1, #wow.casts)
+            assert.are.equal("Dot-Stone", wow.casts[1].target)
+        end)
+
+        it("still checks your target: a dead target casts nothing, wherever the cast would land", function()
+            wow.addUnit("nameplate2", { name = "Cid", surname = "Stone", class = "MAGE", id = "Cid-Stone", dead = true })
+            wow.state.castLandsOn = "nameplate4"
+            wow.runMacro("/targetexact Cid Stone\n/cast [help,nodead] Mark of the Wild")
+            assert.are.equal(0, #wow.casts)
         end)
     end)
 end)
