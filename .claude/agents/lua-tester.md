@@ -85,6 +85,8 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - Tests for settings damaged mid-session require that the addon still works, with no errors, before any reload, and that a reload heals it (#21, #61).
 - Test helpers find frames and listeners deterministically, and no test depends on another's order (#21, #62).
 - Checkers that parse text match their real consumer exactly (a differential test against the script, `LC_ALL=C`), run in linear time and are fuzzed (#54, #56).
+- A fake for an external tool checks the arguments that matter (pinned versions, offline and tree flags) and fails the way the real tool would without them. A fake that ignores its arguments lets a changed pin or a network fetch through (#103).
+- A check on docs reads the part the reader acts on, not the whole section: a host listed in a table elsewhere doesn't prove it's in the allowlist the owner copies (#103).
 
 **The simulated client**
 - New behaviour is realistic, pessimistic when unsure, in the ASSUMPTIONS block, with a launch check on #50 (#21, #60, #62, #88).
