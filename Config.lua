@@ -324,8 +324,8 @@ local OLD_GUILD_LOGIN = {
 -- fallback another (#101). A whisper replaces the line (an emote alone had
 -- no line to whisper), and the fallback switched off is "do nothing". Run on
 -- every load, not by version: a settings line written by hand carries no
--- version, and is taken as current. Only the old fields are read, so it does
--- nothing to settings already in the new form.
+-- version, and is taken as current. It changes nothing in settings already
+-- in the new form, which always have a fallback once loaded.
 local function UpgradeThankFields(buff)
     if type(buff) ~= "table" then return end
     if buff.useWhisper == true and (buff.thankStyle == nil or buff.thankStyle == "message"
@@ -334,11 +334,9 @@ local function UpgradeThankFields(buff)
     end
     if buff.fallback == nil and buff.fallbackToSay == false then buff.fallback = "none" end
     -- An emote-only thank-you used to /thank a caster it couldn't name, never
-    -- a line in /say: that stays so, rather than starting /say lines.
-    if buff.fallback == nil and buff.fallbackToSay == true and buff.thankStyle == "emote" then
-        buff.fallback = "emote"
-    end
-    buff.useWhisper, buff.fallbackToSay = nil, nil
+    -- a line in /say: that stays so, rather than starting /say lines (the
+    -- owner's decision on #101). Loading drops the old fields afterwards.
+    if buff.fallback == nil and buff.thankStyle == "emote" then buff.fallback = "emote" end
 end
 
 -- Each entry upgrades a saved file from version (key - 1) to key.

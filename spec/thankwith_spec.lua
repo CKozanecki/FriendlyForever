@@ -143,6 +143,22 @@ describe("Thank them with, and if that can't reach them (#101)", function()
             assert.are.same({ "THANK" }, out.emote)
         end)
 
+        it("shows how a favour was thanked in /friendly ledger", function()
+            run("whisper", "say", named)
+            assert.is_truthy(ns.Ledger.Lines(1)[1]:find(" - thanked (by whisper) - ", 1, true))
+        end)
+
+        it("names both choices in /friendly status", function()
+            ns = boot()
+            ns.db.buff.thankStyle, ns.db.buff.fallback = "emote", "none"
+            _G.SlashCmdList.FRIENDLYFOREVER("status")
+            local found = false
+            for _, line in ipairs(wow.printed) do
+                if line:find("buff thanks: emote; if that can't reach them: none;", 1, true) then found = true end
+            end
+            assert.is_true(found)
+        end)
+
         it("calls an unnamed caster the name chosen for the /say fallback", function()
             local out = run("whisper", "say", function()
                 ns.db.buff.unknownName = "pal"
@@ -205,6 +221,16 @@ describe("Thank them with, and if that can't reach them (#101)", function()
         it("is a plain /thank when the game shows them under no unit", function()
             local out = returnFavour("emote", function() wow.state.units.nameplate1 = nil end)
             assert.are.same({ "THANK" }, out.emote)
+        end)
+
+        it("a buff-back whisper held back longer than the /say limit still goes out", function()
+            local out = returnFavour("whisper", function()
+                wow.state.lockdown = true
+                wow.advance(ns.BuffTracker.SAY_MAX_AGE + 30)
+                wow.state.lockdown = false
+                wow.advance(ns.ChatQueue.RETRY_DELAY)
+            end)
+            assert.are.same({ "Bob-Stone: " .. LINE }, out.whisper)
         end)
 
         it("still sends nothing when the line is switched off", function()
@@ -299,6 +325,7 @@ describe("Thank them with, and if that can't reach them (#101)", function()
             { old = { thankStyle = "emote", useWhisper = false, fallbackToSay = false }, style = "emote", fb = "none" },
             { old = { useWhisper = true }, style = "whisper", fb = "say" },
             { old = { fallbackToSay = false }, style = "message", fb = "none" },
+            { old = { thankStyle = "emote" }, style = "emote", fb = "emote" },
         }
         local function describeOld(old)
             return string.format("thankStyle %s, useWhisper %s, fallbackToSay %s", tostring(old.thankStyle),
