@@ -1,4 +1,4 @@
--- Spec: #80
+-- Spec: #80, #71
 -- Regression tests for problems found in review of the 0.8.0 work.
 local wow = require("spec.support.wow")
 
@@ -320,6 +320,21 @@ describe("Regressions", function()
             local all = table.concat(wow.printed, "\n")
             assert.is_truthy(all:find("Restart the game", 1, true))
             assert.is_truthy(all:find("restart the game (not /reload)", 1, true))
+        end)
+
+        it("asks for a restart when only Battleground.lua is new", function()
+            wow.reset()
+            local loaded = {}
+            local _, files = wow.parseToc()
+            for _, file in ipairs(files) do
+                if file ~= "Battleground.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+            end
+            wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+            wow.fire("PLAYER_ENTERING_WORLD", true, false)
+            wow.advance(20)
+            wow.gainBuff({ spellId = 1 })
+            assert.are.same({}, wow.errors)
+            assert.is_truthy(table.concat(wow.printed, "\n"):find("Restart the game", 1, true))
         end)
     end)
 end)
