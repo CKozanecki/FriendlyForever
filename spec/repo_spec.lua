@@ -1396,9 +1396,12 @@ describe("Claude sessions' agents, knowledge and skills", function()
                 name .. " flags a branch that outlived its PR or has none")
         end
         for _, rule in ipairs({
-            "- **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything.",
-            "- **Force-pushing:** never. Push a rebased branch under a new name and flag the old one for the owner"
-                .. " to delete.",
+            "\n  2. Send the coordinator one line: `done: #<issue>, PR #<n> merged`, plus any step the owner still has"
+                .. " to take (such as applying environment settings or running a workflow) and any stale branch.\n",
+            "\n- **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale"
+                .. " branches for the owner, and say which they are.\n",
+            "\n- **Force-pushing:** never. Push a rebased branch under a new name and flag the old one for the owner"
+                .. " to delete.\n",
         }) do
             assert.is_truthy(claude:find(rule, 1, true), rule)
         end
