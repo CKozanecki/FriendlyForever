@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -915,9 +915,11 @@ describe("Release version check", function()
     local readToc = text:match('(toc="%$%(sed [^\n]*%)")')
     -- The comparison and the line that stops the job when it fails. The match
     -- must run to the end of the line: anything after `exit 1; }`, such as
-    -- `|| true`, would let a mismatched tag through (#95).
+    -- `|| true`, would let a mismatched tag through (#95). The start is
+    -- anchored too: only spaces or tabs may come before `[[`, since `true || `
+    -- or `! ` there would also let one through (#127).
     local function compareLines(workflow)
-        return (workflow .. "\n"):match('(%[%[ "v%$toc" == "%$GITHUB_REF_NAME" %]%] \\\n[^\n]*exit 1; })[ \t]*\n')
+        return ("\n" .. workflow .. "\n"):match('\n[ \t]*(%[%[ "v%$toc" == "%$GITHUB_REF_NAME" %]%] \\\n[^\n]*exit 1; })[ \t]*\n')
     end
     local compare = compareLines(text)
 
@@ -986,6 +988,20 @@ describe("Release version check", function()
         end
         -- Trailing spaces change nothing, so they still match.
         assert.is_truthy(compareLines(withTail("  ")))
+    end)
+
+    it("doesn't find the compare line when anything comes before [[ on it, such as true ||", function()
+        local start = '[[ "v$toc" == "$GITHUB_REF_NAME" ]]'
+        local function withHead(head)
+            local at = text:find(start, 1, true)
+            assert.is_truthy(at, "release.yml has no tag compare line to change")
+            return text:sub(1, at - 1) .. head .. text:sub(at)
+        end
+        for _, head in ipairs({ "true || ", "! ", "true||", "x=1; ", ": && " }) do
+            assert.is_falsy(compareLines(withHead(head)), "the compare line still matches with " .. head .. " before it")
+        end
+        -- Spaces and tabs change nothing, so they still match.
+        assert.is_truthy(compareLines(withHead("\t ")))
     end)
 
     it("accepts the tag for the TOC's own version, and prints nothing", function()
@@ -1313,7 +1329,8 @@ describe("Claude sessions' agents, knowledge and skills", function()
 
     local function factProblems(text)
         local problems = {}
-        for _, line in ipairs(splitLines(text)) do
+        local all = splitLines(text)
+        for at, line in ipairs(all) do
             local row = line:match("^|(.*)|%s*$")
             local fact = line:match("^%s*%- ") or row
             if line:find("%]%(%s*%)") then problems[#problems + 1] = "empty link: " .. line end
@@ -1328,11 +1345,17 @@ describe("Claude sessions' agents, knowledge and skills", function()
                 problems[#problems + 1] = "no source: " .. line
             end
             -- A table row's last cell, less its #50 links and what's left of
-            -- them, must still name something (#122). The row under the
-            -- header, where every cell is dashes with optional colons, needs
-            -- none; a blank row isn't one.
+            -- them, must still name a source (#122, #130): an issue or pull
+            -- request, a link, or a file name in code quotes (no spaces, so
+            -- `see guide` isn't one). Words alone don't count. The header
+            -- row, just above the separator, needs none, and nor does the
+            -- separator row, where every cell is dashes with optional colons;
+            -- a blank row isn't one.
             local cell = row and withoutLaunchCheckLinks(row:match("([^|]*)$")):gsub("%[[^%]]*%]%(%)", "")
-            if cell and not cell:find("%w") and not isSeparatorRow(row) then
+            local nextRow = all[at + 1] and all[at + 1]:match("^|(.*)|%s*$")
+            local header = row and nextRow and isSeparatorRow(nextRow)
+            if cell and not header and not isSeparatorRow(row)
+                and not (cell:find("#%d+") or cell:find("https?://") or cell:find("`[^`%s]+`")) then
                 problems[#problems + 1] = "no source: " .. line
             end
             if fact and line:lower():find("launch check", 1, true) and not (line:find("#50%f[%D]")
@@ -1484,6 +1507,25 @@ describe("Claude sessions' agents, knowledge and skills", function()
             assert.are.equal(1, #factProblems(tableText .. "| It's slow. | Wait. |  |   \n"))
             assert.are.equal(1, #factProblems(tableText .. "|  |  |  |\n"))
             assert.are.equal(1, #factProblems(tableText .. "| --- | --- |  |\n"))
+        end)
+
+        it("report a table row whose source cell holds only words, besides its #50 links (#130)", function()
+            local head = "| Quirk | Workaround | Source |\n|---|---|---|\n"
+            for _, cell in ipairs({ "See #50", "launch check, #50", "See the guide", "`see guide`", "``", "`a b`",
+                "words (#50)", "`` `" }) do
+                assert.are.equal(1, #factProblems(head .. "| It wraps. | Measure it. | " .. cell .. " |\n"), cell)
+            end
+            for _, cell in ipairs({ "#50, #116", "#50, `ui-sim.yml`", "#50, [a guide](https://example.org)",
+                "See #116", "`uitests/scenarios.lua`", "https://example.org/x", "#102 (from `src/c_map.rs`)" }) do
+                assert.are.same({}, factProblems(head .. "| It wraps. | Measure it. | " .. cell .. " |\n"), cell)
+            end
+            -- A header row passes, with or without alignment colons, and so does
+            -- the second table's header after a first; its rows are held to it.
+            assert.are.same({}, factProblems("| Quirk | Workaround | Source |\n|:---|---:|:-:|\n"))
+            local two = head .. "| A. | B. | #91 |\n\n| Other | Source |\n|---|---|\n| C. | words |\n"
+            assert.are.equal(1, #factProblems(two))
+            -- A row of words with no separator under it is not a header.
+            assert.are.equal(1, #factProblems(head .. "| A. | B. | #91 |\n| Quirk | Workaround | Source |\n"))
         end)
 
         it("report a table row whose source cell holds only its #50 launch-check link as no source (#122)", function()
