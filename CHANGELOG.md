@@ -2,7 +2,7 @@
 
 ### Unreleased
 
-- This version adds files (the new icon, Battleground.lua, Cities.lua, Comm.lua and RateLimit.lua). After updating, restart the game; /reload isn't enough. (#32, #34, #35, #65, #71)
+- This version adds files (the new icon, Battleground.lua, Cities.lua, Comm.lua, RateLimit.lua and Water.lua). After updating, restart the game; /reload isn't enough. (#32, #34, #35, #65, #71, #136)
 - **Quiet in capital cities** (on by default): no buff thank-yous in Stormwind, Ironforge, Darnassus, Orgrimmar, Thunder Bluff or Undercity, though the favour ledger still counts them. The buff back button stays hidden there unless you switch **Show the button in capital cities** on, and shows your favours once you leave. Buff mode turned on in a city works as usual; a stranger's buff doesn't turn it on there. (#34)
 - The copy window (export, import and the bug report) has room for a hint on two lines, so the import hint no longer runs into the box you paste into. On the **Favour Ledger** page, each row stays on one line, cut with "…" when it's long, so a long row can't push the rest off the page; `/friendly ledger` shows them in full. The **General** page scrolls, so long lists can't push its last settings out of reach, and it lists your first 6 profiles and counts the rest (`/friendly profile` shows them all). (#52)
 - Friendly Forever has its own icon, the gold heart from its logo, on the minimap button, in the addon compartment and in the AddOns list. (#65)
@@ -16,6 +16,8 @@
 - Buff thanks no longer raises a Lua error on a buff whose caster the game reports as something other than a unit name. Such a buff isn't thanked or owed. (#98)
 - Fix: buff thanks no longer raises a Lua error when the game sends a damaged aura ID (not a number, or NaN). The buff is still thanked as usual. (#108)
 - Buff data: the shaman's Water Breathing is listed as doing the same job as a warlock's Unending Breath, not as a group version of it. A player wearing either still counts as having Unending Breath. (#135)
+- **Water breathing only near water** (on by default): buff mode and buff back offer a warlock's Unending Breath and a shaman's Water Breathing only while you're swimming or underwater, for 2 minutes after you leave the water, or in an underwater dungeon (Blackfathom Deeps, The Drowned City). Switch it off on the **Buff Back** tab to offer them anywhere. Someone who gives you either is still thanked. (#136)
+- **Shamans:** Water Breathing is now a shaman buff the button offers, and either it or a warlock's Unending Breath counts as having the other. (#136)
 
 ## 0.8.0
 

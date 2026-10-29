@@ -178,8 +178,11 @@ end
 function GroupBuffs.Next()
     local units = GroupUnits()
     if #units == 0 then return nil, "you're not in a group", true end
-    local myBuffs = ns.BuffData.Offerable()
-    if #myBuffs == 0 then return nil, "you have no buffs to offer", true end
+    -- Water breathing waits for water (Water.lua): nothing to do now.
+    local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
+    if #myBuffs == 0 then
+        return nil, held and ns.Water.HeldReason(held) or "you have no buffs to offer", true
+    end
     local members, firstReason, open = Candidates(units)
     local unreadable, outOfRange = {}, {}
     local family = {} -- [name .. family] = whether they wear one of yours (read once)

@@ -452,6 +452,22 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         before PLAYER_ENTERING_WORLD, and the aura may
 --                         already be on you then, with no UNIT_AURA for it
 --                         (the defaults; the other orders are options).
+--   Water (#136): IsSwimming() and IsSubmerged() answer state.swimming and
+--                         state.submerged (true or false); the breath bar is
+--                         mirror timer 1 (GetMirrorTimerInfo(1) names
+--                         "BREATH"), with MIRROR_TIMER_START on a dive and
+--                         MIRROR_TIMER_STOP once it has refilled
+--                         (M.BREATH_REFILL_SECONDS after you surface). An unused
+--                         timer is named "UNKNOWN". The game has no call for
+--                         whether another player is swimming. No event fires
+--                         for swimming on the surface or climbing out
+--                         (pessimistic: the addon must look). state.waterSecret
+--                         makes all three secrets; specs remove the functions
+--                         for a client without them. GetInstanceInfo() gives
+--                         the instance's name and its ID 8th; in the world, the
+--                         continent and "none". Blackfathom Deeps is Classic's
+--                         48; The Drowned City's ID is unknown (nil here, the
+--                         pessimistic choice) until launch (#50).
 --   unit.nameLoading = true: the client hasn't loaded that unit's details
 --                         yet (#99), so UnitName (and UnitFullName,
 --                         GetUnitName) gives UNKNOWNOBJECT ("Unknown") as the
@@ -1093,6 +1109,38 @@ function M.reset()
     _G.GetZoneText = function() return M.state.zone end
     _G.GetGameTime = function() return M.state.hour, 0 end
     _G.IsResting = function() return M.state.resting == true end
+    -- Water (#136; see ASSUMPTIONS): state.swimming, state.submerged, and
+    -- state.breath ("draining" underwater, "refilling" after, nil: no bar).
+    -- state.waterSecret: all three read as secrets.
+    local function water(value)
+        if M.state.waterSecret then return M.secret(value) end
+        return value
+    end
+    _G.IsSwimming = function() return water(M.state.swimming == true) end
+    _G.IsSubmerged = function() return water(M.state.submerged == true) end
+    _G.GetMirrorTimerInfo = function(index)
+        assert(type(index) == "number", "GetMirrorTimerInfo: bad index")
+        if index == 1 and M.state.breath then
+            local scale = M.state.breath == "draining" and -1 or 10
+            return water("BREATH"), 180000, 180000, scale, 0, "Breath"
+        end
+        return water("UNKNOWN"), 0, 0, 0, 0, ""
+    end
+    -- In the world: the continent (Eastern Kingdoms, 0) and "none". In an
+    -- instance: state.instanceName and state.instanceId (both nil, as a
+    -- name and ID the game didn't give, by default). state.instanceSecret:
+    -- everything reads as secrets.
+    _G.GetInstanceInfo = function()
+        local name, kind, id = "Eastern Kingdoms", "none", 0
+        if M.state.inInstance then
+            name, kind, id = M.state.instanceName, M.state.instanceType or "party", M.state.instanceId
+        end
+        if M.state.instanceSecret then
+            return M.secret(name), M.secret(kind), M.secret(0), M.secret(""), M.secret(5), M.secret(false),
+                M.secret(false), M.secret(id)
+        end
+        return name, kind, 1, "Normal", 5, false, false, id
+    end
     _G.C_Map = {
         GetBestMapForUnit = function(unit)
             assert(type(unit) == "string", "C_Map.GetBestMapForUnit: bad unit")
@@ -1425,6 +1473,73 @@ function M.gainBuffs(auras)
         M.state.playerAuras[#M.state.playerAuras + 1] = full
     end
     M.fire("UNIT_AURA", "player", { addedAuras = list })
+end
+
+------------------------------------------------------------------------
+-- Water (#136; see ASSUMPTIONS)
+------------------------------------------------------------------------
+
+-- Seconds your breath bar takes to refill once you surface (from empty or
+-- not: kept simple), before the game hides it with MIRROR_TIMER_STOP.
+M.BREATH_REFILL_SECONDS = 10
+local breathRun = 0 -- which dive's refill is running, so an older one's stop is dropped
+
+-- Swim on the surface (no breath bar).
+function M.swim()
+    M.state.swimming = true
+end
+
+-- Dive: you're underwater, swimming, and your breath bar starts draining.
+function M.dive()
+    M.state.swimming, M.state.submerged = true, true
+    if M.state.breath ~= "draining" then
+        breathRun = breathRun + 1
+        local fresh = M.state.breath == nil
+        M.state.breath = "draining"
+        -- A bar already refilling turns round without a new START.
+        if fresh then M.fire("MIRROR_TIMER_START", "BREATH", 180000, 180000, -1, 0, "Breath") end
+    end
+end
+
+-- Come up to the surface: still swimming; the breath bar refills, then goes.
+function M.surface()
+    M.state.submerged = false
+    if M.state.breath ~= "draining" then return end
+    M.state.breath = "refilling"
+    breathRun = breathRun + 1
+    local run = breathRun
+    M.timers[#M.timers + 1] = { at = M.now + M.BREATH_REFILL_SECONDS, fn = function()
+        if breathRun ~= run or M.state.breath ~= "refilling" then return end
+        M.state.breath = nil
+        M.state.breathStoppedAt = M.now
+        M.fire("MIRROR_TIMER_STOP", "BREATH")
+    end }
+end
+
+-- Climb out onto dry land (from the surface or underwater: a bar that was
+-- draining refills as above).
+function M.leaveWater()
+    M.surface()
+    M.state.swimming = false
+end
+
+-- Whether the client's own state says you're in the water (for specs'
+-- invariants): swimming, underwater or with a breath bar showing.
+function M.inWater()
+    return M.state.swimming == true or M.state.submerged == true or M.state.breath ~= nil
+end
+
+-- Zone into a dungeon: inInstance, with this instance ID and name (either
+-- may be nil). Fires PLAYER_ENTERING_WORLD, as a loading screen does.
+function M.enterDungeon(id, name)
+    M.state.inInstance, M.state.instanceType = true, "party"
+    M.state.instanceId, M.state.instanceName = id, name
+    M.fire("PLAYER_ENTERING_WORLD", false, false)
+end
+
+function M.leaveDungeon()
+    M.state.inInstance, M.state.instanceType, M.state.instanceId, M.state.instanceName = false, nil, nil, nil
+    M.fire("PLAYER_ENTERING_WORLD", false, false)
 end
 
 ------------------------------------------------------------------------

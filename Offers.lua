@@ -114,7 +114,7 @@ function Offers.Wears(unit, buff)
         if aura == nil then return false end
         local id = aura.spellId
         if Util.IsSecret(id) then return nil end
-        if ns.BuffData.ForAura(id) == buff then return true end
+        if ns.BuffData.Covers(buff, id) then return true end
     end
     return false
 end
@@ -161,7 +161,7 @@ local function Expire(now)
 end
 
 -- The buff to give this favour, or nil and why not.
-local function ChooseBuff(favour, myBuffs, visible)
+local function ChooseBuff(favour, myBuffs, held, visible)
     local unit, flagged = Observe(favour, visible)
     if unit and Read(UnitIsDeadOrGhost, unit) == true then return nil, "they're dead" end
     if Read(UnitIsPVP, "player") ~= true then
@@ -171,6 +171,7 @@ local function ChooseBuff(favour, myBuffs, visible)
         end
     end
     if #myBuffs == 0 then
+        if held then return nil, ns.Water.HeldReason(held) end
         if #ns.BuffData.Mine() > 0 then return nil, "you've marked all your buffs never offer" end
         return nil, "you know no buffs to give"
     end
@@ -193,12 +194,13 @@ function Offers.Current()
     -- No Changed() here: the button is the caller, and would re-enter.
     Expire(GetTime())
     if #favours == 0 then return nil, "nobody is owed a buff" end
-    local myBuffs = ns.BuffData.Offerable()
+    -- Water breathing waits for water (Water.lua).
+    local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
     local visible = VisiblePlayers()
     local firstReason
     for i = #favours, 1, -1 do
         local favour = favours[i]
-        local buff, reason = ChooseBuff(favour, myBuffs, visible)
+        local buff, reason = ChooseBuff(favour, myBuffs, held, visible)
         local spell = buff and ns.BuffData.SpellName(buff)
         if spell then return { name = favour.name, buff = buff, spell = spell } end
         firstReason = firstReason

@@ -163,6 +163,9 @@ Config.DEFAULTS = {
         -- Battlegrounds (Battleground.lua): buff before the gates open. Off,
         -- the preparation phase is as quiet as the battle.
         bgPrepBuff = true,
+        -- Unending Breath and Water Breathing only near water (Water.lua, #136).
+        -- Off: offered anywhere, as before.
+        breathNearWater = true,
         -- buffOrder: buff keys, offered first in this order (empty: each
         -- class's own order). neverOffer: [buff key] = true. They hold keys
         -- of any class, so one profile serves all your characters.
@@ -238,6 +241,7 @@ Config.FIELD_VALIDATORS = {
     autoOffDone = Bool,
     autoOffMinutes = Limited("autoOffMinutes"),
     bgPrepBuff = Bool,
+    breathNearWater = Bool,
     unlocked = Bool,
     listBuffNames = Bool,
     useWhisper = Bool,

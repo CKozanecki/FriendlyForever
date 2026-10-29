@@ -1,4 +1,4 @@
--- Spec: #76, #84
+-- Spec: #76, #84, #136
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -97,6 +97,88 @@ describe("The simulated client", function()
             wow.state.castLandsOn = "nameplate4"
             wow.runMacro("/targetexact Cid Stone\n/cast [help,nodead] Mark of the Wild")
             assert.are.equal(0, #wow.casts)
+        end)
+    end)
+    describe("water and dungeons (#136, white)", function()
+        -- The mirror timer events a frame hears, as "EVENT NAME".
+        local heard
+        before_each(function()
+            heard = {}
+            local f = _G.CreateFrame("Frame")
+            f:RegisterEvent("MIRROR_TIMER_START")
+            f:RegisterEvent("MIRROR_TIMER_STOP")
+            f:SetScript("OnEvent", function(_, event, name) heard[#heard + 1] = event .. " " .. tostring(name) end)
+        end)
+
+        local function readings()
+            return { _G.IsSwimming(), _G.IsSubmerged(), (_G.GetMirrorTimerInfo(1)) }
+        end
+
+        it("starts on dry land: not swimming, not underwater, no breath bar", function()
+            assert.are.same({ false, false, "UNKNOWN" }, readings())
+            assert.is_false(wow.inWater())
+            for i = 2, 3 do assert.are.equal("UNKNOWN", (_G.GetMirrorTimerInfo(i))) end
+        end)
+
+        it("swims, dives, surfaces and climbs out, with the breath bar's events", function()
+            wow.swim()
+            assert.are.same({ true, false, "UNKNOWN" }, readings())
+            assert.are.same({}, heard, "no event for swimming on the surface")
+            wow.dive()
+            assert.are.same({ true, true, "BREATH" }, readings())
+            assert.are.same({ "MIRROR_TIMER_START BREATH" }, heard)
+            local _, _, _, scale = _G.GetMirrorTimerInfo(1)
+            assert.is_true(scale < 0, "draining")
+            wow.surface()
+            assert.are.same({ true, false, "BREATH" }, readings())
+            _, _, _, scale = _G.GetMirrorTimerInfo(1)
+            assert.is_true(scale > 0, "refilling")
+            wow.leaveWater()
+            assert.are.same({ false, false, "BREATH" }, readings())
+            assert.is_true(wow.inWater(), "the bar still shows")
+            wow.advance(wow.BREATH_REFILL_SECONDS - 0.5)
+            assert.are.equal(1, #heard)
+            wow.advance(0.5)
+            assert.are.same({ "MIRROR_TIMER_START BREATH", "MIRROR_TIMER_STOP BREATH" }, heard)
+            assert.are.equal(wow.now, wow.state.breathStoppedAt)
+            assert.is_false(wow.inWater())
+        end)
+
+        it("drops an older refill's stop when you dive again before it ends", function()
+            wow.dive()
+            wow.surface()
+            wow.advance(3)
+            wow.dive()
+            assert.are.equal(1, #heard, "a refilling bar turns round without a new start")
+            wow.advance(wow.BREATH_REFILL_SECONDS)
+            assert.are.equal("BREATH", (_G.GetMirrorTimerInfo(1)))
+            assert.are.equal(1, #heard)
+            wow.leaveWater()
+            wow.advance(wow.BREATH_REFILL_SECONDS)
+            assert.are.equal(2, #heard)
+            assert.is_nil(wow.state.breath)
+        end)
+
+        it("makes every reading a secret with state.waterSecret", function()
+            wow.state.waterSecret = true
+            for _, value in ipairs(readings()) do assert.is_true(_G.issecretvalue(value)) end
+        end)
+
+        it("answers GetInstanceInfo in the world, in a dungeon, and with secrets", function()
+            local name, kind, _, _, _, _, _, id = _G.GetInstanceInfo()
+            assert.are.same({ "Eastern Kingdoms", "none", 0 }, { name, kind, id })
+            wow.enterDungeon(48, "Blackfathom Deeps")
+            assert.is_true(_G.IsInInstance())
+            name, kind, _, _, _, _, _, id = _G.GetInstanceInfo()
+            assert.are.same({ "Blackfathom Deeps", "party", 48 }, { name, kind, id })
+            wow.state.instanceSecret = true
+            name, kind, _, _, _, _, _, id = _G.GetInstanceInfo()
+            for _, value in ipairs({ name, kind, id }) do assert.is_true(_G.issecretvalue(value)) end
+            wow.state.instanceSecret = false
+            wow.leaveDungeon()
+            assert.is_false(_G.IsInInstance())
+            name, kind = _G.GetInstanceInfo()
+            assert.are.same({ "Eastern Kingdoms", "none" }, { name, kind })
         end)
     end)
 end)
