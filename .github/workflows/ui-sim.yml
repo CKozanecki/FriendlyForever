@@ -30,6 +30,7 @@ on:
       - "*.lua"
       - "*.toc"
       - "*.xml"
+      - "Media/**"
   pull_request:
     paths:
       - "uitests/**"
@@ -39,6 +40,7 @@ on:
       - "*.lua"
       - "*.toc"
       - "*.xml"
+      - "Media/**"
   workflow_dispatch:
 
 concurrency:

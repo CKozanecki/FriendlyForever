@@ -3,7 +3,7 @@
 ## Notes: Greets guildmates who log in, welcomes new guild and party members, and thanks people who buff you.
 ## Author: Chris Kozanecki
 ## Version: 0.8.0
-## IconTexture: Interface\Icons\Achievement_Reputation_01
+## IconTexture: Interface\AddOns\FriendlyForever\Media\Icon
 ## SavedVariables: FriendlyForeverDB
 ## Category: Chat
 ## X-License: MIT
