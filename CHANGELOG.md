@@ -14,6 +14,7 @@
 - **Battlegrounds:** before the gates open, buff mode and buff back work as in any raid. Once the battle starts the addon goes quiet until you leave or the battleground ends: buff mode ends and nothing turns it on, the buff back button hides, buffs you get aren't thanked or owed, and no lines are sent (guild hellos still go to guild chat). If the game doesn't say the battle hasn't started, it counts as started. Switch off **Buff in the preparation phase** on the **Buff Back** tab to keep the preparation phase quiet too. (#71)
 - **Buff mode:** a group member whose name hasn't loaded yet (shown as "Unknown") is no longer offered a buff. Buff mode stays on and offers it once the name loads. A buff from a player whose name hasn't loaded owes no favour. (#99)
 - Buff thanks no longer raises a Lua error on a buff whose caster the game reports as something other than a unit name. Such a buff isn't thanked or owed. (#98)
+- Fix: buff thanks no longer raises a Lua error when the game sends a damaged aura ID (not a number, or NaN). The buff is still thanked as usual. (#108)
 
 ## 0.8.0
 
