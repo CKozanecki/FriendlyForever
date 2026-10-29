@@ -121,6 +121,112 @@ describe("UI simulator layout check (TextInside)", function()
                 "LAYOUT hint: text 46..214, frame 0..220, cut short (its text is 200 wide) x 6..18, frame 0..44", line)
         end)
 
+        -- The simulator sizes the hint to its whole text (it is pinned to the
+        -- icon on one side and the button on the other), so it never wraps it
+        -- and GetNumLines says 1. The game wraps it.
+        local function wide(wraps, methods)
+            methods = methods or {}
+            methods.GetStringWidth = methods.GetStringWidth or function() return 184 end
+            methods.CanWordWrap = function() return wraps end
+            return hint(1, methods)
+        end
+
+        it("fails a hint the game would wrap at its width, though the client counts one line", function()
+            local err = fails(function() checks.TextInside(region(BUTTON), wide(true), "long favour", 1) end)
+            assert.truthy(err:find(
+                "x 6..30, frame 0..44, 2 lines once wrapped at its width: wraps onto more lines than 1", 1, true), err)
+        end)
+
+        it("works out the wrap at the line's own width", function()
+            local err = fails(function()
+                checks.TextInside(region(BUTTON), wide(true, { GetStringWidth = function() return 337 end }), "hint", 2)
+            end)
+            assert.truthy(err:find(", 3 lines once wrapped at its width", 1, true), err)
+        end)
+
+        it("passes a wide hint with word wrap off, which the game cuts short instead", function()
+            local line = checks.TextInside(region(BUTTON), wide(false), "long favour", 1)
+            assert.are.equal("LAYOUT long favour: text 46..214, frame 0..220, cut short (its text is 184 wide)"
+                .. " x 6..18, frame 0..44, 1 line", line)
+        end)
+
+        it("passes a wide hint held to one line by its max lines", function()
+            local line = checks.TextInside(region(BUTTON), wide(true, { GetMaxLines = function() return 1 end }),
+                "long favour", 1)
+            assert.truthy(line:find(", 1 line$"), line)
+        end)
+
+        it("fails a line pinned on its top that the game would wrap below the frame, though the client doesn't", function()
+            local frame = region({ left = 0, right = 220, top = 30, bottom = 0 })
+            local title = region({
+                left = 46, right = 214, top = 24, bottom = 12,
+                points = { "TOPLEFT", "TOPRIGHT" }, width = 400, height = 12, lines = 1,
+            }, { CanWordWrap = function() return true end })
+            local err = fails(function() checks.TextInside(frame, title, "title") end)
+            assert.truthy(err:find("x -12..24, frame 0..30: spills out of its frame", 1, true), err)
+        end)
+
+        it("grows the line's own height when its text height can't be read", function()
+            local err = fails(function()
+                checks.TextInside(region(BUTTON), wide(true, { GetStringHeight = false,
+                    GetStringWidth = function() return 600 end }), "hint")
+            end)
+            assert.truthy(err:find("x 6..54, frame 0..44: spills out", 1, true), err)
+        end)
+
+        it("allows the line a pixel of slack before it counts as wrapping", function()
+            local line = checks.TextInside(region(BUTTON), wide(true, { GetStringWidth = function() return 169 end }),
+                "hint", 1)
+            assert.truthy(line:find(", 1 line$"), line)
+        end)
+
+        it("grows a line the client already wraps by the lines it misses", function()
+            -- The client draws 2 lines, 24 high; the game wraps onto 4: 48 high.
+            local err = fails(function()
+                checks.TextInside(region(BUTTON), hint(2, { CanWordWrap = function() return true end,
+                    GetStringWidth = function() return 600 end }), "hint")
+            end)
+            assert.truthy(err:find("x 6..54, frame 0..44: spills out", 1, true), err)
+        end)
+
+        it("doesn't work out a wrap for a line with no room at all", function()
+            local squashed = region({
+                left = 46, right = 46, bottom = 6, top = 18,
+                points = { "BOTTOMLEFT", "BOTTOMRIGHT" }, width = 100, height = 12, lines = 1,
+            }, { CanWordWrap = function() return true end })
+            local line = checks.TextInside(region(BUTTON), squashed, "hint", 1)
+            assert.truthy(line:find(", 1 line$"), line)
+        end)
+
+        it("passes a hint that wraps onto no more lines than its limit", function()
+            local line = checks.TextInside(region(BUTTON), wide(true, { GetMaxLines = function() return 0 end }),
+                "hint", 2)
+            assert.truthy(line:find(", 2 lines once wrapped at its width$"), line)
+        end)
+
+        it("passes a hint that fits its line with word wrap on", function()
+            local line = checks.TextInside(region(BUTTON), wide(true, { GetStringWidth = function() return 150 end }),
+                "hint", 1)
+            assert.truthy(line:find(", 1 line$"), line)
+        end)
+
+        it("counts lines from the client when it can't say whether the line wraps", function()
+            local methods = { GetStringWidth = function() return 184 end }
+            local line = checks.TextInside(region(BUTTON),
+                hint(1, { GetStringWidth = methods.GetStringWidth, CanWordWrap = function() error("no") end }), "hint", 1)
+            assert.truthy(line:find(", 1 line$"), line)
+            line = checks.TextInside(region(BUTTON), hint(1, { GetStringWidth = methods.GetStringWidth,
+                CanWordWrap = function() return 1 end }), "hint", 1)
+            assert.truthy(line:find(", 1 line$"), line)
+        end)
+
+        it("counts the wrapped lines when the client can't count them itself", function()
+            local err = fails(function()
+                checks.TextInside(region(BUTTON), wide(true, { GetNumLines = false }), "hint", 1)
+            end)
+            assert.truthy(err:find(", 2 lines once wrapped at its width", 1, true), err)
+        end)
+
         it("still fails text that runs past the frame's right edge", function()
             local wide = region({
                 left = 46, right = 196, top = 38, bottom = 26,
@@ -165,6 +271,12 @@ describe("UI simulator layout check (TextInside)", function()
             it("falls back to the line's own top and bottom when its text height gives " .. what, function()
                 local line = checks.TextInside(region(BUTTON), hint(1, { GetStringHeight = fn }), "hint")
                 assert.are.equal("LAYOUT hint: text 46..214, frame 0..220 x 6..18, frame 0..44", line)
+            end)
+
+            it("counts lines from the client, with word wrap on, when the text width gives " .. what, function()
+                local line = checks.TextInside(region(BUTTON),
+                    hint(1, { GetStringWidth = fn, CanWordWrap = function() return true end }), "hint", 1)
+                assert.truthy(line:find(", 1 line$"), line)
             end)
 
             it("falls back to the line's own left and right when its text width gives " .. what, function()

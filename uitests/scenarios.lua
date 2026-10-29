@@ -109,14 +109,35 @@ local function DrawnAcross(region, left, right)
     return left, right, ""
 end
 
+-- How many lines the game wraps a text line's text onto, worked out from
+-- its width rather than counted: with word wrap on, text wider than its
+-- line wraps at that width, up to its max lines. This matters where the
+-- client doesn't wrap a line itself: the simulator sizes a line whose two
+-- sides are pinned to different frames (like the button's hint) to its
+-- whole text, so it stays on one line there. Nothing when the client can't
+-- say.
+local function WrappedLines(region, left, right)
+    -- pcall gives back the error message, never true, when it fails.
+    local _, wraps = pcall(function() return region:CanWordWrap() end)
+    local width = Measure(region, "GetStringWidth")
+    if not (wraps == true and width) or right - left <= 0 then return end
+    local lines = width > right - left + 1 and math.ceil(width / (right - left)) or 1
+    local most = Measure(region, "GetMaxLines")
+    if most and most > 0 then lines = math.min(lines, most) end
+    return lines
+end
+
 -- How far a text line's text reaches up and down: top, bottom. A line with
 -- no height set is as tall as its text, wrapped lines and all, so it grows
 -- away from the side it is pinned on: down from its top, up from its
 -- bottom, or both ways from its middle. One pinned on its top and bottom
--- keeps between them, and the client cuts what doesn't fit.
-local function DrawnUpDown(region, top, bottom)
+-- keeps between them, and the client cuts what doesn't fit. growth is how
+-- many times taller the game draws it than the client does, for a line the
+-- client doesn't wrap (WrappedLines).
+local function DrawnUpDown(region, top, bottom, growth)
     local height = Measure(region, "GetStringHeight")
-    if not height then return top, bottom end
+    if not height and growth == 1 then return top, bottom end
+    height = (height or (top - bottom)) * growth
     local onTop, onBottom = AnchoredOn(region, "TOP"), AnchoredOn(region, "BOTTOM")
     if onTop and onBottom then return top, bottom end
     if onTop then return top, math.min(bottom, top - height) end
@@ -141,10 +162,16 @@ local function TextInside(frame, region, label, maxLines)
     local inside = textLeft >= fl - 1 and textRight <= fr + 1
     local line = ("LAYOUT %s: text %.0f..%.0f, frame %.0f..%.0f%s"):format(label, textLeft, textRight, fl, fr, cut)
 
+    -- The lines the client counts, and the lines the game would wrap onto if
+    -- that is more.
+    local count = Measure(region, "GetNumLines")
+    local wrapped = WrappedLines(region, tl, tr)
+    if wrapped and wrapped <= (count or 0) then wrapped = nil end
+
     local ft, fb = Edges(frame, "GetTop", "GetBottom")
     local tt, tb = Edges(region, "GetTop", "GetBottom")
     if ft and tt then
-        local textTop, textBottom = DrawnUpDown(region, tt, tb)
+        local textTop, textBottom = DrawnUpDown(region, tt, tb, wrapped and wrapped / math.max(count or 1, 1) or 1)
         inside = inside and textTop <= ft + 1 and textBottom >= fb - 1
         line = line .. (" x %.0f..%.0f, frame %.0f..%.0f"):format(textBottom, textTop, fb, ft)
     else
@@ -153,8 +180,10 @@ local function TextInside(frame, region, label, maxLines)
 
     local lines
     if maxLines then
-        local count = Measure(region, "GetNumLines")
-        if count then
+        if wrapped then
+            lines = wrapped
+            line = line .. (", %d lines once wrapped at its width"):format(wrapped)
+        elseif count then
             lines = count
             line = line .. (", %d line%s"):format(count, count == 1 and "" or "s")
         else
