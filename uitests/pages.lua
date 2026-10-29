@@ -97,7 +97,11 @@ end
 function Pages.Open(which)
     local page = _G[which == "ledger" and Pages.LEDGER or Pages.GENERAL]
     if type(page) ~= "table" then error("no options page called " .. tostring(which), 2) end
+    -- A page fills itself when shown. One an earlier scenario left open is
+    -- hidden first, so it shows, and fills, afresh from what Fill set.
+    if page:IsShown() then page:Hide() end
     Settings.OpenToCategory(page.category:GetID())
+    if not page:IsShown() then page:Show() end
     return page
 end
 

@@ -590,6 +590,17 @@ local function PushedDownInside(frame, label)
     return line
 end
 
+-- Whether any shown text line on frame contains fragment (plain text).
+local function ShowsText(frame, fragment)
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if region:GetObjectType() == "FontString" and region:IsShown()
+            and (region:GetText() or ""):find(fragment, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
 -- Runs fn with the pages filled, and puts the saved settings back after,
 -- even when fn fails.
 local function WithPagesFilled(fn)
@@ -603,6 +614,10 @@ test("the General page, with a long ignore list and several profiles, keeps its 
     WithPagesFilled(function()
         local page = FriendlyForeverUIPages.Open("general")
         check(page:IsVisible(), "the General page didn't open")
+        -- The checks below mean nothing on a page still showing the default
+        -- lists, so first make sure it shows the fill.
+        check(ShowsText(page, "Aerendhiliel Stormwhisper") and ShowsText(page, "Raid nights in Naxxramas"),
+            "the General page doesn't show the filled ignore list and profiles")
         OnScreen(page, "General page")
         CheckAll({
             function() FrameTextInside(page, "General page") end,
@@ -615,6 +630,8 @@ test("the Favour Ledger page, with a full page of long entries, keeps its text i
     WithPagesFilled(function()
         local page = FriendlyForeverUIPages.Open("ledger")
         check(page:IsVisible(), "the Favour Ledger page didn't open")
+        check(not ShowsText(page, "Nobody outside your group has buffed you yet."),
+            "the Favour Ledger page doesn't show the filled ledger")
         OnScreen(page, "Favour Ledger page")
         CheckAll({
             function() FrameTextInside(page, "Favour Ledger page") end,
