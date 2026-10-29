@@ -26,13 +26,30 @@ Options.GENERAL_HEIGHT = 720
 Options.GENERAL_PAGE = "FriendlyForeverGeneralPage"
 Options.LEDGER_PAGE = "FriendlyForeverLedgerPage"
 
--- How to thank someone who buffs you, in the order the button cycles.
-Options.THANK_STYLES = { "message", "emote", "both" }
+-- How to thank someone who buffs you, and what to do when that can't reach
+-- them (#101), in the order each button cycles.
+Options.THANK_STYLES = { "message", "whisper", "emote", "both" }
 Options.THANK_STYLE_TEXT = {
-    message = "How to thank: a line in /say or a whisper",
-    emote = "How to thank: a /thank emote",
-    both = "How to thank: a line and a /thank emote",
+    message = "a line in /say",
+    whisper = "a whisper",
+    emote = "a /thank emote",
+    both = "a line in /say and an emote",
 }
+Options.FALLBACKS = { "say", "emote", "none" }
+-- "say" is followed by the box with the name they're called.
+Options.FALLBACK_TEXT = {
+    say = "say it in /say as",
+    emote = "/thank instead",
+    none = "do nothing",
+}
+
+-- The next entry after current in list (the first, after the last or an unknown one).
+local function NextIn(list, current)
+    for i, value in ipairs(list) do
+        if value == current then return list[i % #list + 1] end
+    end
+    return list[1]
+end
 
 local function Label(parent, text, font)
     local fs = parent:CreateFontString(nil, "ARTWORK", font or "GameFontHighlight")
@@ -504,16 +521,17 @@ local function Fill()
     FillAuto(isBuffBack)
 
     widgets.listNames:SetShown(isBuff)
+    widgets.thankStyleLabel:SetShown(isBuff)
     widgets.thankStyle:SetShown(isBuff)
-    widgets.whisper:SetShown(isBuff)
+    widgets.fallbackLabel:SetShown(isBuff)
     widgets.fallback:SetShown(isBuff)
     widgets.quiet:SetShown(isBuff)
-    widgets.unknownName:SetShown(isBuff)
+    -- The name box only means something for the /say fallback.
+    widgets.unknownName:SetShown(isBuff and cfg.fallback == "say")
     if isBuff then
         widgets.listNames:SetChecked(cfg.listBuffNames)
         widgets.thankStyle:SetText(Options.THANK_STYLE_TEXT[cfg.thankStyle])
-        widgets.whisper:SetChecked(cfg.useWhisper)
-        widgets.fallback:SetChecked(cfg.fallbackToSay)
+        widgets.fallback:SetText(Options.FALLBACK_TEXT[cfg.fallback])
         widgets.quiet:SetChecked(cfg.quietInCities)
         FillBox(widgets.unknownName, cfg.unknownName)
     end
@@ -657,30 +675,27 @@ function Options.Create()
         end)
     widgets.showInCities:SetPoint("TOPLEFT", widgets.sayLine, "BOTTOMLEFT", 0, -4)
 
-    -- Same row: a line, a /thank emote, or both (click to cycle).
-    widgets.thankStyle = Button(content, Options.THANK_STYLE_TEXT.message, 290, function()
-        local cfg = ns.db.buff
-        for i, style in ipairs(Options.THANK_STYLES) do
-            if style == cfg.thankStyle then
-                cfg.thankStyle = Options.THANK_STYLES[i % #Options.THANK_STYLES + 1]
-                break
-            end
-        end
+    -- Row 4: thank them with a line in /say, a whisper, a /thank emote, or a
+    -- line and an emote (click to cycle).
+    widgets.thankStyleLabel = Label(content, "Thank them with:")
+    widgets.thankStyleLabel:SetPoint("TOPLEFT", widgets.listNames, "BOTTOMLEFT", 4, -10)
+    widgets.thankStyle = Button(content, Options.THANK_STYLE_TEXT.message, 220, function()
+        ns.db.buff.thankStyle = NextIn(Options.THANK_STYLES, ns.db.buff.thankStyle)
         Options.Refresh()
     end)
-    widgets.thankStyle:SetPoint("LEFT", widgets.listNames.label, "RIGHT", 30, 0)
+    widgets.thankStyle:SetPoint("LEFT", widgets.thankStyleLabel, "RIGHT", 10, 0)
 
-    -- Row 4: whisper instead of say
-    widgets.whisper = Checkbox(content, "Whisper the caster instead of /say (sends without a key press)",
-        function(on) ns.db.buff.useWhisper = on end)
-    widgets.whisper:SetPoint("TOPLEFT", widgets.listNames, "BOTTOMLEFT", 0, -4)
-
-    -- Row 5: /say fallback for casters that can't be named or whispered
-    widgets.fallback = Checkbox(content, "If the caster can't be named or whispered, thank them in /say as:",
-        function(on) ns.db.buff.fallbackToSay = on end)
-    widgets.fallback:SetPoint("TOPLEFT", widgets.whisper, "BOTTOMLEFT", 0, -4)
+    -- Row 5: if that can't reach them (no name, or the whisper fails): a
+    -- line in /say calling them the name in the box, a /thank, or nothing.
+    widgets.fallbackLabel = Label(content, "If that can't reach them:")
+    widgets.fallbackLabel:SetPoint("TOPLEFT", widgets.thankStyleLabel, "BOTTOMLEFT", 0, -16)
+    widgets.fallback = Button(content, Options.FALLBACK_TEXT.say, 160, function()
+        ns.db.buff.fallback = NextIn(Options.FALLBACKS, ns.db.buff.fallback)
+        Options.Refresh()
+    end)
+    widgets.fallback:SetPoint("LEFT", widgets.fallbackLabel, "RIGHT", 10, 0)
     widgets.unknownName = TextBox(content, 100, Config.LIMITS.unknownName.maxBytes)
-    widgets.unknownName:SetPoint("LEFT", widgets.fallback.label, "RIGHT", 10, 0)
+    widgets.unknownName:SetPoint("LEFT", widgets.fallback, "RIGHT", 10, 0)
     widgets.unknownName:SetScript("OnTextChanged", function(self, userInput)
         if userInput then ns.db.buff.unknownName = Config.CleanUnknownName(self:GetText()) end
     end)
@@ -688,7 +703,7 @@ function Options.Create()
     -- Row 6: quiet in capital cities (Cities.lua)
     widgets.quiet = Checkbox(content, "Stay quiet in capital cities (no thank-yous; the ledger still counts)",
         function(on) ns.db.buff.quietInCities = on end)
-    widgets.quiet:SetPoint("TOPLEFT", widgets.fallback, "BOTTOMLEFT", 0, -4)
+    widgets.quiet:SetPoint("TOPLEFT", widgets.fallbackLabel, "BOTTOMLEFT", -4, -8)
 
     -- Row 7: warning + one-click fix when friendly nameplates are off
     widgets.nameplateWarning = Label(content, "|cffff8040Friendly player nameplates are off, so the game "

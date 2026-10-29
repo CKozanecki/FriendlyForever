@@ -21,7 +21,13 @@ Config.MAX_LOG = 400 -- diagnostic log lines kept in saved variables
 Config.MAX_IGNORED = 500
 Config.REPAIR_INTERVAL_SECONDS = 1 -- the shortest time between mid-session repairs (Config.Repair)
 Config.SNOOZE_MAX_SECONDS = 24 * 60 * 60
-Config.THANK_STYLES = { message = true, emote = true, both = true }
+-- How to thank someone who buffs you (#101): "message" (a line in /say),
+-- "whisper", "emote" (/thank them) or "both" (a line in /say and /thank).
+Config.THANK_STYLES = { message = true, whisper = true, emote = true, both = true }
+-- What to do when that can't reach them (no name, or the whisper fails):
+-- "say" (a line in /say, calling them unknownName), "emote" (/thank instead)
+-- or "none".
+Config.FALLBACKS = { say = true, emote = true, none = true }
 
 Config.LIMITS = {
     delay          = { min = 0, max = 60 },    -- seconds
@@ -43,7 +49,7 @@ Config.TYPE_INFO = {
     },
     buff = {
         label   = "Buff Thanks",
-        channel = "Say or whisper",
+        channel = "/say, a whisper or /thank",
         help    = "Thanks players outside your group who buff you. Placeholders: {name}, {fullname}, {buff}",
     },
     guildJoin = {
@@ -71,9 +77,9 @@ Config.TYPE_INFO = {
     -- so it has no delay or repeat cooldown of its own.
     buffBack = {
         label   = "Buff Back",
-        channel = "/say, once your buff lands",
+        channel = "/say, a whisper or /thank, once your buff lands",
         help    = "Said once your buff from the buff-back button reaches them (if switched on), "
-            .. "on your next key press, like a thank-you. "
+            .. "the way Buff Thanks thanks them: in /say, as a whisper, or a /thank for the emote. "
             .. "Placeholders: {name}, {fullname}, {buff} (the spell you cast)",
         noTiming = true,
         enabledLabel = "Offer to buff back players who buff me",
@@ -100,13 +106,11 @@ Config.DEFAULTS = {
         delay = 4,
         repeatCooldown = 180,
         listBuffNames = true,
-        useWhisper = false,
-        -- Thank casters that can't be named (or whose whisper fails) in /say,
-        -- calling them unknownName.
-        fallbackToSay = true,
-        unknownName = "friend",
-        -- "message" (a line in /say or a whisper), "emote" (/thank them) or "both".
+        -- Thank them with (Config.THANK_STYLES), and if that can't reach
+        -- them (Config.FALLBACKS). The "say" fallback calls them unknownName.
         thankStyle = "message",
+        fallback = "say",
+        unknownName = "friend",
         -- No thank-yous in capital cities (Cities.lua), unless buff mode is on.
         quietInCities = true,
         messages = DefaultMessages.buff,
@@ -244,14 +248,13 @@ Config.FIELD_VALIDATORS = {
     breathNearWater = Bool,
     unlocked = Bool,
     listBuffNames = Bool,
-    useWhisper = Bool,
-    fallbackToSay = Bool,
     quietInCities = Bool,
     showInCities = Bool,
     delay = Limited("delay"),
     repeatCooldown = Limited("repeatCooldown"),
     owedMinutes = Limited("owedMinutes"),
     thankStyle = function(value, default) return Config.THANK_STYLES[value] and value or default end,
+    fallback = function(value, default) return Config.FALLBACKS[value] and value or default end,
     unknownName = function(value, default)
         if value == nil then return default end
         return Config.CleanUnknownName(value)
@@ -320,6 +323,25 @@ local OLD_GUILD_LOGIN = {
     "Hey {name}, welcome back! Let us know if you need anything.",
     "o/ {name}! Glad you could join us.",
 }
+
+-- Up to 0.8.0, a whisper was a switch beside "how to thank", and the /say
+-- fallback another (#101). A whisper replaces the line (an emote alone had
+-- no line to whisper), and the fallback switched off is "do nothing". Run on
+-- every load, not by version: a settings line written by hand carries no
+-- version, and is taken as current. It changes nothing in settings already
+-- in the new form, which always have a fallback once loaded.
+local function UpgradeThankFields(buff)
+    if type(buff) ~= "table" then return end
+    if buff.useWhisper == true and (buff.thankStyle == nil or buff.thankStyle == "message"
+        or buff.thankStyle == "both") then
+        buff.thankStyle = "whisper"
+    end
+    if buff.fallback == nil and buff.fallbackToSay == false then buff.fallback = "none" end
+    -- An emote-only thank-you used to /thank a caster it couldn't name, never
+    -- a line in /say: that stays so, rather than starting /say lines (the
+    -- owner's decision on #101). Loading drops the old fields afterwards.
+    if buff.fallback == nil and buff.thankStyle == "emote" then buff.fallback = "emote" end
+end
 
 -- Each entry upgrades a saved file from version (key - 1) to key.
 local MIGRATIONS = {
@@ -390,6 +412,7 @@ function Config.Migrate(db)
     for v = version + 1, Config.SCHEMA_VERSION do
         if MIGRATIONS[v] then MIGRATIONS[v](db) end
     end
+    UpgradeThankFields(db.buff)
     db.schemaVersion = Config.SCHEMA_VERSION
 end
 

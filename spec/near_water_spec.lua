@@ -181,7 +181,7 @@ describe("Water breathing near water", function()
                     kept, held = ns.Water.Filter({ breath, shaman })
                     assert.are.same({}, kept)
                     assert.are.equal(breath, held)
-                    kept, held = ns.Water.Filter({ shaman, breath })
+                    _, held = ns.Water.Filter({ shaman, breath })
                     assert.are.equal(shaman, held)
                     -- Nothing left to give in buff mode is settled: buff mode
                     -- that turned itself on may turn off ("everyone has my buffs").
