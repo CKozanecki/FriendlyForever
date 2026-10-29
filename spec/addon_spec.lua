@@ -1,3 +1,4 @@
+-- Spec: #65
 -- End-to-end: the addon as the game loads it, plus its UI and commands.
 local wow = require("spec.support.wow")
 
@@ -389,8 +390,8 @@ describe("Addon", function()
             button = _G.FriendlyForeverMinimapButton
         end)
 
-        it("uses the handshake icon", function()
-            assert.are.equal("Interface\\Icons\\Achievement_Reputation_01", button.icon.texture)
+        it("uses the addon's own icon", function()
+            assert.are.equal("Interface\\AddOns\\FriendlyForever\\Media\\Icon", button.icon.texture)
         end)
 
         it("left-click opens the options", function()
