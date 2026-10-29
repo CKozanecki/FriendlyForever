@@ -300,6 +300,31 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             assert.is_true(lines[1].time > lastLanded(b))
         end)
 
+        it("a delay of exactly the longest wait sends it then, with the checks out of step", function()
+            pair()
+            setDelay(E.MAX_DELAY)
+            -- Bo hand-buffs Cid every 3 seconds, half a second off Ann's beat.
+            local function cid()
+                wow.use(b)
+                wow.addUnit("target", { name = "Cid", surname = "Rock", class = "WARRIOR", id = "Cid-Rock" })
+                wow.runMacro("/cast Thorns")
+            end
+            handCast(a, "Power Word: Fortitude")
+            local firstAt = wow.now
+            advance(0.5)
+            cid()
+            for i = 1, 11 do
+                advance(3)
+                cid()
+                -- Her second buff keeps the exchange open at 30 s (it joins the
+                -- same thank-you).
+                if i == 8 then handCast(a, "Divine Spirit") end
+            end
+            assert.are.equal(1, #thanks(b), "his button held her all along (her copy is there)")
+            assert.are.equal("Thanks Ann: Power Word: Fortitude and Divine Spirit", thanks(b)[1].text)
+            assert.are.equal(firstAt + E.MAX_DELAY, thanks(b)[1].time)
+        end)
+
         it("a new exchange after a quiet gap has its own thank-you", function()
             pair({ db = { repeatCooldown = 0 } })
             handCast(a, "Power Word: Fortitude")
@@ -344,31 +369,6 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             advance(E.MAX_DELAY)
             assert.are.equal(1, #thanks(b), "his late buff back doesn't make another")
             assert.are.equal(1, #thanks(a), "and Ann thanks him once")
-        end)
-
-        it("a delay of exactly the longest wait sends it then, with the checks out of step", function()
-            pair()
-            setDelay(E.MAX_DELAY)
-            -- Bo hand-buffs Cid every 3 seconds, half a second off Ann's beat.
-            local function cid()
-                wow.use(b)
-                wow.addUnit("target", { name = "Cid", surname = "Rock", class = "WARRIOR", id = "Cid-Rock" })
-                wow.runMacro("/cast Thorns")
-            end
-            handCast(a, "Power Word: Fortitude")
-            local firstAt = wow.now
-            advance(0.5)
-            cid()
-            for i = 1, 11 do
-                advance(3)
-                cid()
-                -- Her second buff keeps the exchange open at 30 s (it joins the
-                -- same thank-you).
-                if i == 8 then handCast(a, "Divine Spirit") end
-            end
-            assert.are.equal(1, #thanks(b), "his button held her all along (her copy is there)")
-            assert.are.equal("Thanks Ann: Power Word: Fortitude and Divine Spirit", thanks(b)[1].text)
-            assert.are.equal(firstAt + E.MAX_DELAY, thanks(b)[1].time)
         end)
 
         it("a delay past the longest wait: the thank-you goes when the delay ends, held or not", function()
