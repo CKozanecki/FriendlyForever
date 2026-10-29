@@ -287,7 +287,7 @@ describe("Hidden channel", function()
                 end
                 wow.advance(10)
             end
-            times(1, hello("Ann-Vale"), "GUILD", "Bo-Lake", wow.secret(PREFIX))
+            times(1, wow.secret(hello("Bo-Lake")), "GUILD", "Bo-Lake")
             times(2, string.rep("x", 300), "GUILD")
             times(3, "junk", "GUILD")
             times(4, hello("Ann-Vale", nil, nil, "2"), "GUILD")
@@ -371,15 +371,15 @@ describe("Hidden channel", function()
         end)
 
         it("drops unreadable (secret) messages without comparing them", function()
-            dropped("commUnreadable", hello("Ann-Vale"), "GUILD", "Ann-Vale", wow.secret(PREFIX))
             dropped("commUnreadable", wow.secret(hello("Ann-Vale")), "GUILD", "Ann-Vale")
             dropped("commUnreadable", hello("Ann-Vale"), "GUILD", wow.secret("Ann-Vale"))
             dropped("commUnreadable", hello("Ann-Vale"), wow.secret("GUILD"), "Ann-Vale")
         end)
 
-        it("ignores other addons' messages without counting them", function()
+        it("ignores other addons' messages, and any with an unreadable prefix, without counting them", function()
             receive(hello("Ann-Vale"), "GUILD", "Ann-Vale", "OtherAddon")
             receive("anything", "GUILD", "Ann-Vale", 5)
+            receive(hello("Ann-Vale"), "GUILD", "Ann-Vale", wow.secret(PREFIX))
             for key, n in pairs(ns.Diag.Counters()) do
                 assert.is_nil(key:find("^comm"), key .. " = " .. n)
             end
@@ -697,12 +697,35 @@ describe("Hidden channel limits and edge cases", function()
             noErrors(ns)
         end)
 
+        it("never reads a secret answer, to a send or a registration", function()
+            local ns = wow.boot({ db = { debug = true }, before = function()
+                _G.C_ChatInfo.RegisterAddonMessagePrefix = function() return wow.secret(0) end
+            end })
+            assert.is_false(ns.Comm.Registered())
+            assert.truthy(logText(ns):find("couldn't register the prefix: unreadable answer", 1, true))
+            ns = wow.boot({ db = { debug = true } })
+            _G.C_ChatInfo.SendAddonMessage = function() return wow.secret(0) end
+            ns.Comm.SayHello("GUILD")
+            assert.truthy(logText(ns):find("didn't send HELLO on GUILD: unreadable answer", 1, true))
+            assert.is_nil(logText(ns):find("<secret>", 1, true))
+            noErrors(ns)
+        end)
+
         it("stays closed and says why when the client has no addon messages", function()
             local ns = wow.boot({ db = { debug = true }, before = function()
                 _G.C_ChatInfo.RegisterAddonMessagePrefix = nil
             end })
             assert.is_false(ns.Comm.Registered())
             assert.truthy(logText(ns):find("this game client has no addon messages", 1, true))
+        end)
+
+        it("stays closed when registering raises an error", function()
+            local ns = wow.boot({ db = { debug = true }, before = function()
+                _G.C_ChatInfo.RegisterAddonMessagePrefix = function() error("no") end
+            end })
+            assert.is_false(ns.Comm.Registered())
+            assert.truthy(logText(ns):find("couldn't register the prefix: error", 1, true))
+            noErrors(ns)
         end)
 
         it("logs a prefix the game won't register", function()

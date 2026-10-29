@@ -173,16 +173,19 @@ function Comm.Init()
         return
     end
     local ok, result = pcall(info.RegisterAddonMessagePrefix, Comm.PREFIX)
+    -- Each case is its own branch: a secret answer must never be tested.
+    if not ok then return ns.Diag.Log("comm", "couldn't register the prefix: error") end
+    if Util.IsSecret(result) then return ns.Diag.Log("comm", "couldn't register the prefix: unreadable answer") end
     -- Older clients answer true; newer ones Enum.RegisterAddonMessagePrefixResult,
     -- where Success (0) and DuplicatePrefix (1: already registered) both mean
     -- messages will arrive.
     local codes = Enum and Enum.RegisterAddonMessagePrefixResult
     local success = codes and codes.Success or 0
     local duplicate = codes and codes.DuplicatePrefix or 1
-    if ok and not Util.IsSecret(result) and (result == true or result == success or result == duplicate) then
+    if result == true or result == success or result == duplicate then
         registered = true
     else
-        ns.Diag.Log("comm", "couldn't register the prefix: %s", ok and result or "error")
+        ns.Diag.Log("comm", "couldn't register the prefix: %s", result)
     end
 end
 
@@ -221,9 +224,9 @@ end
 
 -- CHAT_MSG_ADDON: prefix, text, route, sender.
 function Comm.OnAddonMessage(prefix, text, route, sender)
-    -- A secret prefix can't be compared, so we can't tell whose it is.
-    if Util.IsSecret(prefix) then return Reject("commUnreadable", "unreadable prefix") end
-    if prefix ~= Comm.PREFIX then return end
+    -- A secret prefix can't be compared, so we can't tell whose message it
+    -- is: most are other addons', so it isn't counted or logged.
+    if Util.IsSecret(prefix) or prefix ~= Comm.PREFIX then return end
     if not Comm.Ready() then return end
     if Util.IsSecret(text) or Util.IsSecret(route) or Util.IsSecret(sender) then
         return Reject("commUnreadable", "unreadable text, route or sender")
@@ -291,13 +294,15 @@ local function Transmit(item)
     if ns.ChatQueue.InChatLockdown() then return Drop(item, "commNotSent", "chat lockdown") end
     if not RouteOpen(item.route) then return Drop(item, "commNotSent", "not in that group any more") end
     local ok, result = pcall(C_ChatInfo.SendAddonMessage, Comm.PREFIX, item.text, item.route, item.target)
+    -- Each case is its own branch: a secret answer must never be tested.
+    if not ok then return Drop(item, "commNotSent", "error") end
+    if Util.IsSecret(result) then return Drop(item, "commNotSent", "unreadable answer") end
     -- Older clients answer true; newer ones Enum.SendAddonMessageResult,
-    -- where only Success (0) means sent. Anything else, unreadable included,
-    -- counts as not sent.
+    -- where only Success (0) means sent.
     local codes = Enum and Enum.SendAddonMessageResult
     local success = codes and codes.Success or 0
-    if not ok or Util.IsSecret(result) or (result ~= true and result ~= success) then
-        return Drop(item, "commNotSent", ok and ("the game answered " .. tostring(result)) or "error")
+    if result ~= true and result ~= success then
+        return Drop(item, "commNotSent", "the game answered " .. tostring(result))
     end
     ns.Diag.Count("commSent")
 end
