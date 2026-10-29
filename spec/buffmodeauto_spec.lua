@@ -1,4 +1,4 @@
--- Spec: #29, #76
+-- Spec: #29, #71, #76
 -- When buff mode turns on and off by itself.
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
@@ -62,6 +62,13 @@ describe("Buff mode turning on and off by itself", function()
     before_each(function() boot() end)
 
     describe("turning on", function()
+        it("says nothing when a trigger can't turn it on (Buff Back off)", function()
+            ns.db.buffBack.enabled = false
+            join()
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_false(printedHas("buff mode needs"))
+        end)
+
         it("turns on by default for each trigger: joining, a stranger's buff, a death after a pull", function()
             local b = ns.db.buffBack
             assert.is_true(b.autoOnJoin)
