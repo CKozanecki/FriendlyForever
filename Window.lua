@@ -35,7 +35,7 @@ local function Create()
     frame.hint:SetMaxLines(2)
 
     local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 14, -64)
+    scroll:SetPoint("TOPLEFT", 14, -72)
     scroll:SetPoint("BOTTOMRIGHT", -34, 44)
     frame.scroll = scroll
     local box = CreateFrame("EditBox", nil, scroll)

@@ -119,10 +119,10 @@ describe("Layout", function()
     end)
 
     describe("the copy window", function()
-        -- A line of the small font the hint uses, in pixels, as the UI
-        -- simulator draws it (its LAYOUT lines for the hint); checked in game
-        -- on #50.
-        local SMALL_LINE = 12
+        -- A line of the small font the hint uses, in pixels: the UI simulator
+        -- draws two of them 33 px tall (docs/ui-simulator.md), so 17 is the
+        -- pessimistic choice. The game's real height is checked on #50.
+        local SMALL_LINE = 17
 
         it("keeps its hint to two lines, above the text box, for export, import and the bug report", function()
             local ns = wow.boot()
