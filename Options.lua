@@ -18,6 +18,10 @@ Options.widgets = widgets -- exposed for tests
 
 Options.LEDGER_ROWS = 25
 Options.IGNORE_SHOWN = 12 -- names listed on the General page; the rest are counted
+Options.PROFILES_SHOWN = 6 -- profiles listed there, the same way
+-- The General page's scrolling content: room for its sections with both
+-- lists at their longest (#52).
+Options.GENERAL_HEIGHT = 720
 -- The pages' frame names, so the UI simulator's scenarios can find them (#52).
 Options.GENERAL_PAGE = "FriendlyForeverGeneralPage"
 Options.LEDGER_PAGE = "FriendlyForeverLedgerPage"
@@ -907,6 +911,22 @@ local function SubPage(name, title, frameName)
     return page
 end
 
+-- A scrolling area filling page below its heading, for a page whose text
+-- can outgrow it (#52). height is the scrolled content's, which holds the
+-- page's longest text as the game wraps it. Returns the content frame, which
+-- is also page.content.
+local function ScrollArea(page, height)
+    local scroll = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", page.heading, "BOTTOMLEFT", -16, -4)
+    scroll:SetPoint("BOTTOMRIGHT", -28, 4)
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetSize(600, height)
+    scroll:SetScrollChild(content)
+    scroll:SetScript("OnSizeChanged", function(_, width) content:SetWidth(width) end)
+    page.scroll, page.content = scroll, content
+    return content
+end
+
 local function Section(page, anchor, text, gap)
     local label = Label(page, text, "GameFontNormal")
     label:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -(gap or 20))
@@ -930,58 +950,63 @@ function Options.CreateGeneralPage()
     local w = widgets.general
     generalPage = SubPage("General", "General", Options.GENERAL_PAGE)
     local page = generalPage
+    -- Everything below the heading scrolls (#52): a long ignore list or
+    -- profile list, or text that wraps more in the game than expected, can't
+    -- push the last lines out of reach.
+    local area = ScrollArea(page, Options.GENERAL_HEIGHT)
 
     -- Snooze
-    local snooze = Section(page, page.heading, "Snooze", 16)
-    w.snoozeState = Note(page, snooze, "")
-    w.snooze15 = Button(page, "15 minutes", 110, function() ns.SnoozeFor(15) end)
+    local snooze = Label(area, "Snooze", "GameFontNormal")
+    snooze:SetPoint("TOPLEFT", 16, -12)
+    w.snoozeState = Note(area, snooze, "")
+    w.snooze15 = Button(area, "15 minutes", 110, function() ns.SnoozeFor(15) end)
     w.snooze15:SetPoint("TOPLEFT", w.snoozeState, "BOTTOMLEFT", 0, -6)
-    w.snooze60 = Button(page, "1 hour", 90, function() ns.SnoozeFor(60) end)
+    w.snooze60 = Button(area, "1 hour", 90, function() ns.SnoozeFor(60) end)
     w.snooze60:SetPoint("LEFT", w.snooze15, "RIGHT", 8, 0)
-    w.wake = Button(page, "Wake up", 90, function() ns.SnoozeFor(nil) end)
+    w.wake = Button(area, "Wake up", 90, function() ns.SnoozeFor(nil) end)
     w.wake:SetPoint("LEFT", w.snooze60, "RIGHT", 8, 0)
 
-    -- Chat limit (#35). The stepper is its own section heading: this page
-    -- doesn't scroll, and a heading line of its own would cost a line below.
-    w.linesPerMinute = Stepper(page, "Lines per minute in each chat:", "linesPerMinute", function() return ns.db end,
+    -- Chat limit (#35). The stepper is its own section heading, which keeps
+    -- the page short.
+    w.linesPerMinute = Stepper(area, "Lines per minute in each chat:", "linesPerMinute", function() return ns.db end,
         "GameFontNormal")
     w.linesPerMinute.label:SetPoint("TOPLEFT", w.snooze15, "BOTTOMLEFT", 0, -20)
     -- Says why the limit is there (#35): the addon helps people talk, and
     -- mustn't become the spam it's meant to soften.
-    w.capHelp = Note(page, w.linesPerMinute.label, "Keeps Friendly Forever a helper, not a spammer: at most this "
+    w.capHelp = Note(area, w.linesPerMinute.label, "Keeps Friendly Forever a helper, not a spammer: at most this "
         .. "many lines a minute go to each chat (/say, whispers, emotes, guild, group). Thank-yous over the "
         .. "limit are skipped; greetings wait their turn.")
     w.capHelp:SetPoint("TOPLEFT", w.linesPerMinute.label, "BOTTOMLEFT", 0, -10)
 
     -- Ignore list
-    local ignore = Section(page, w.capHelp, "Never greet or thank")
-    w.ignoreList = Note(page, ignore, "")
-    w.ignoreBox = TextBox(page, 220, 60)
+    local ignore = Section(area, w.capHelp, "Never greet or thank")
+    w.ignoreList = Note(area, ignore, "")
+    w.ignoreBox = TextBox(area, 220, 60)
     w.ignoreBox:SetPoint("TOPLEFT", w.ignoreList, "BOTTOMLEFT", 6, -8)
-    w.ignoreAdd = Button(page, "Add", 70, function()
+    w.ignoreAdd = Button(area, "Add", 70, function()
         local name, why = ns.Ignore.Add(w.ignoreBox:GetText())
         if name then w.ignoreBox:SetText("") end
         Say(name, "couldn't add: " .. tostring(why),
             name and (ns.Util.DisplayName(name) .. " won't be greeted or thanked."))
     end)
     w.ignoreAdd:SetPoint("LEFT", w.ignoreBox, "RIGHT", 8, 0)
-    w.ignoreRemove = Button(page, "Remove", 80, function()
+    w.ignoreRemove = Button(area, "Remove", 80, function()
         local name, why = ns.Ignore.Remove(w.ignoreBox:GetText())
         if name then w.ignoreBox:SetText("") end
         Say(name, "couldn't remove: " .. tostring(why), name and (ns.Util.DisplayName(name) .. " is off the list."))
     end)
     w.ignoreRemove:SetPoint("LEFT", w.ignoreAdd, "RIGHT", 6, 0)
-    w.ignoreHelp = Note(page, w.ignoreBox, "Full names, such as Nikki Shifts. Leave the box empty and click Add "
+    w.ignoreHelp = Note(area, w.ignoreBox, "Full names, such as Nikki Shifts. Leave the box empty and click Add "
         .. "to add your target.")
     w.ignoreHelp:SetPoint("TOPLEFT", w.ignoreBox, "BOTTOMLEFT", -6, -6)
 
     -- Profiles
-    local profiles = Section(page, w.ignoreHelp, "Profiles")
-    w.profileState = Note(page, profiles, "")
-    w.profileBox = TextBox(page, 160, ns.Profiles.MAX_NAME)
+    local profiles = Section(area, w.ignoreHelp, "Profiles")
+    w.profileState = Note(area, profiles, "")
+    w.profileBox = TextBox(area, 160, ns.Profiles.MAX_NAME)
     w.profileBox:SetPoint("TOPLEFT", w.profileState, "BOTTOMLEFT", 6, -8)
     local function ProfileButton(text, width, fn, success)
-        return Button(page, text, width, function()
+        return Button(area, text, width, function()
             local name, why = fn(w.profileBox:GetText())
             if name then w.profileBox:SetText("") end
             Say(name, "profile: " .. tostring(why), name and success(name))
@@ -993,37 +1018,45 @@ function Options.CreateGeneralPage()
     w.profileUse:SetPoint("LEFT", w.profileNew, "RIGHT", 6, 0)
     w.profileDelete = ProfileButton("Delete", 70, ns.Profiles.Delete, function(n) return "deleted profile " .. n end)
     w.profileDelete:SetPoint("LEFT", w.profileUse, "RIGHT", 6, 0)
-    w.profileHelp = Note(page, w.profileBox, "Type a name, then New (a copy of your settings) or Use. "
+    w.profileHelp = Note(area, w.profileBox, "Type a name, then New (a copy of your settings) or Use. "
         .. "Each character switches to the profile it used last when it logs in.")
     w.profileHelp:SetPoint("TOPLEFT", w.profileBox, "BOTTOMLEFT", -6, -6)
 
     -- Export / import
-    local share = Section(page, w.profileHelp, "Share your settings")
-    w.export = Button(page, "Export", 90, function() ns.ShowExport() end)
+    local share = Section(area, w.profileHelp, "Share your settings")
+    w.export = Button(area, "Export", 90, function() ns.ShowExport() end)
     w.export:SetPoint("TOPLEFT", share, "BOTTOMLEFT", 0, -8)
-    w.import = Button(page, "Import", 90, function() ns.ShowImport() end)
+    w.import = Button(area, "Import", 90, function() ns.ShowImport() end)
     w.import:SetPoint("LEFT", w.export, "RIGHT", 8, 0)
-    w.undoImport = Button(page, "Undo import", 110, function()
+    w.undoImport = Button(area, "Undo import", 110, function()
         local ok, why = ns.Profiles.UndoImport()
         Say(ok, "couldn't undo: " .. tostring(why), "your settings from before the import are back.")
     end)
     w.undoImport:SetPoint("LEFT", w.import, "RIGHT", 8, 0)
-    w.shareHelp = Note(page, w.export, "One line of text with your messages and options. Importing never turns "
+    w.shareHelp = Note(area, w.export, "One line of text with your messages and options. Importing never turns "
         .. "the addon on or off and only adds to your ignore list.")
 
     -- Bug report
-    local help = Section(page, w.shareHelp, "Something not working?")
-    w.report = Button(page, "Copy for a bug report", 180, function() ns.ShowBugReport() end)
+    local help = Section(area, w.shareHelp, "Something not working?")
+    w.report = Button(area, "Copy for a bug report", 180, function() ns.ShowBugReport() end)
     w.report:SetPoint("TOPLEFT", help, "BOTTOMLEFT", 0, -8)
-    w.reportHelp = Note(page, w.report, "Shows /friendly status and the debug log as text to copy. "
+    w.reportHelp = Note(area, w.report, "Shows /friendly status and the debug log as text to copy. "
         .. "Turn on /friendly debug and make the problem happen first, so the log shows it.")
 
     page:SetScript("OnShow", function() FillGeneral() end)
     -- For the UI simulator's layout checks and screenshot (uitests/), which
-    -- see the addon only through its globals: the page doesn't scroll, so
-    -- everything must fit on it.
+    -- see the addon only through its globals: everything must fit in
+    -- page.content, the scrolling area.
     page.widgets = w
     panel.generalPage = page
+end
+
+-- The first shown items of list, then how many more there are and the
+-- command that lists them all.
+local function Shown(list, shown, command)
+    if #list <= shown then return table.concat(list, ", ") end
+    return table.concat(list, ", ", 1, shown)
+        .. string.format(" and %d more (%s shows them all).", #list - shown, command)
 end
 
 FillGeneral = function()
@@ -1033,19 +1066,12 @@ FillGeneral = function()
         or "Awake: messages are sent as usual.")
     w.wake:SetEnabled(left ~= nil)
     FillBox(w.linesPerMinute.box, tostring(ns.db.linesPerMinute))
-    -- A few names and a count, so a long list can't push the page's other
-    -- controls out of sight (the page doesn't scroll).
+    -- A few names or profiles and a count, so a long list stays inside the
+    -- page's scrolling content (Options.GENERAL_HEIGHT), and the page tidy.
     local names = ns.Ignore.List()
-    local text = "Nobody."
-    if #names > Options.IGNORE_SHOWN then
-        text = table.concat(names, ", ", 1, Options.IGNORE_SHOWN) .. string.format(
-            " and %d more (/friendly ignore list shows them all).", #names - Options.IGNORE_SHOWN)
-    elseif #names > 0 then
-        text = table.concat(names, ", ")
-    end
-    w.ignoreList:SetText(text)
+    w.ignoreList:SetText(#names > 0 and Shown(names, Options.IGNORE_SHOWN, "/friendly ignore list") or "Nobody.")
     w.profileState:SetText("Using " .. ns.Profiles.Active() .. ". All profiles: "
-        .. table.concat(ns.Profiles.List(), ", "))
+        .. Shown(ns.Profiles.List(), Options.PROFILES_SHOWN, "/friendly profile"))
     w.undoImport:SetEnabled(ns.Profiles.CanUndoImport())
 end
 

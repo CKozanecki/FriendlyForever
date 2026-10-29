@@ -9,7 +9,7 @@
 --
 -- The fill is a worst case a player could reach: names as long as WoW
 -- Forever allows (a first name and a surname of up to 12 letters each), more
--- ignored names than the General page lists, several profiles, and a full
+-- ignored names and profiles than the General page lists, and a full
 -- page of ledger entries with long buff names and notes. Fill's undo puts
 -- back everything it changed.
 
@@ -50,6 +50,7 @@ local RESULTS = {
 -- rest) and ledger entries (Options.LEDGER_ROWS rows show) to fill in.
 Pages.IGNORED = 14
 Pages.ENTRIES = 25
+Pages.PROFILES = 9 -- Options.PROFILES_SHOWN lists 6
 
 local function Today()
     return type(date) == "function" and date("%Y-%m-%d") or ""
@@ -68,9 +69,14 @@ function Pages.Fill()
     end
     db.ignore = ignore
 
-    db.profiles = { ["Raid nights in Naxxramas"] = {}, ["Battlegrounds"] = {}, ["Quiet questing"] = {},
-        ["Dungeons with friends"] = {} }
-    db.activeProfile = "Raid nights in Naxxramas"
+    -- More profiles than the page lists (Options.PROFILES_SHOWN), with names
+    -- as long as they get (Profiles.MAX_NAME, 32 letters).
+    local profiles = {}
+    for i = 1, Pages.PROFILES do
+        profiles[string.format("Raid nights in Naxxramas, team %02d", i)] = {}
+    end
+    db.profiles = profiles
+    db.activeProfile = "Raid nights in Naxxramas, team 01"
 
     local now = type(time) == "function" and time() or 0
     local entries = {}

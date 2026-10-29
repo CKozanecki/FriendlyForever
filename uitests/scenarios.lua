@@ -259,8 +259,9 @@ test("the options panel is on the screen once open", function()
     OnScreen(panel, "options panel")
 end)
 
--- Opens the options at the General page (#35). It doesn't scroll, so each
--- section added to it pushes the rest down towards its bottom.
+-- Opens the options at the General page (#35). Its lines are on
+-- page.content, which scrolls (#52); each section added to it pushes the
+-- rest down towards the content's bottom (Options.GENERAL_HEIGHT).
 local function OpenGeneralPage()
     SlashCmdList.FRIENDLYFOREVER("")
     local page = _G.FriendlyForeverOptionsPanel.generalPage
@@ -274,9 +275,9 @@ end
 test("the General page's chat limit row stays inside it (#35)", function()
     local page = OpenGeneralPage()
     local w = page.widgets
-    TextInside(page, w.linesPerMinute.label, "chat limit label", 1)
-    TextInside(page, w.linesPerMinute.plus, "chat limit + button")
-    TextInside(page, w.capHelp, "chat limit help")
+    TextInside(page.content, w.linesPerMinute.label, "chat limit label", 1)
+    TextInside(page.content, w.linesPerMinute.plus, "chat limit + button")
+    TextInside(page.content, w.capHelp, "chat limit help")
 end)
 
 -- The button's real states (#83), set up through game events by
@@ -614,14 +615,16 @@ test("the General page, with a long ignore list and several profiles, keeps its 
     WithPagesFilled(function()
         local page = FriendlyForeverUIPages.Open("general")
         check(page:IsVisible(), "the General page didn't open")
-        -- The checks below mean nothing on a page still showing the default
-        -- lists, so first make sure it shows the fill.
-        check(ShowsText(page, "Aerendhiliel Stormwhisper") and ShowsText(page, "Raid nights in Naxxramas"),
+        -- The page's lines are on its scrolling content (#52). The checks
+        -- below mean nothing on a page still showing the default lists, so
+        -- first make sure it shows the fill.
+        local content = page.content
+        check(ShowsText(content, "Aerendhiliel Stormwhisper") and ShowsText(content, "team 01"),
             "the General page doesn't show the filled ignore list and profiles")
         OnScreen(page, "General page")
         CheckAll({
-            function() FrameTextInside(page, "General page") end,
-            function() PushedDownInside(page, "General page") end,
+            function() FrameTextInside(content, "General page") end,
+            function() PushedDownInside(content, "General page") end,
         })
     end)
 end)
@@ -640,13 +643,13 @@ test("the Favour Ledger page, with a full page of long entries, keeps its text i
     end)
 end)
 
--- The page doesn't scroll, so with the lists as a new player has them its
--- last line must still be on it once every note has wrapped as it does in
+-- With the lists as a new player has them, the page's last line must still
+-- be inside its scrolling content once every note has wrapped as it does in
 -- the game (#35). The filled page above is the worst case (#52).
 test("the General page's last line is still on the page (#35)", function()
     local page = OpenGeneralPage()
     check(page:IsVisible(), "the General page didn't open")
-    PushedDownInside(page, "General page (as a new player has it)")
+    PushedDownInside(page.content, "General page (as a new player has it)")
 end)
 
 -- The copy window as each command opens it: export (a line to copy), import
