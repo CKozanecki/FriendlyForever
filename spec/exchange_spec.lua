@@ -67,6 +67,14 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
         settle()
     end
 
+    -- Both clients' thank-you delay (after pair(), which sets E).
+    local function setDelay(seconds)
+        for _, c in ipairs({ a, b }) do
+            wow.use(c)
+            c.ns.db.buff.delay = seconds
+        end
+    end
+
     local function press(client, mouseButton)
         wow.use(client)
         wow.press(client.ns.BuffButton.Frame(), mouseButton)
@@ -338,8 +346,34 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             assert.are.equal(1, #thanks(a), "and Ann thanks him once")
         end)
 
+        it("a delay of exactly the longest wait sends it then, with the checks out of step", function()
+            pair()
+            setDelay(E.MAX_DELAY)
+            -- Bo hand-buffs Cid every 3 seconds, half a second off Ann's beat.
+            local function cid()
+                wow.use(b)
+                wow.addUnit("target", { name = "Cid", surname = "Rock", class = "WARRIOR", id = "Cid-Rock" })
+                wow.runMacro("/cast Thorns")
+            end
+            handCast(a, "Power Word: Fortitude")
+            local firstAt = wow.now
+            advance(0.5)
+            cid()
+            for i = 1, 11 do
+                advance(3)
+                cid()
+                -- Her second buff keeps the exchange open at 30 s (it joins the
+                -- same thank-you).
+                if i == 8 then handCast(a, "Divine Spirit") end
+            end
+            assert.are.equal(1, #thanks(b), "his button held her all along (her copy is there)")
+            assert.are.equal("Thanks Ann: Power Word: Fortitude and Divine Spirit", thanks(b)[1].text)
+            assert.are.equal(firstAt + E.MAX_DELAY, thanks(b)[1].time)
+        end)
+
         it("a delay past the longest wait: the thank-you goes when the delay ends, held or not", function()
-            pair({ noComm = true, db = { delay = E.MAX_DELAY + 1 } })
+            pair({ noComm = true })
+            setDelay(E.MAX_DELAY + 1)
             handCast(a, "Power Word: Fortitude")
             local at = wow.now
             advance(E.MAX_DELAY - 1.5)
@@ -352,7 +386,8 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
         end)
 
         it("a delay longer than the exchange: the thank-you goes when the delay ends", function()
-            pair({ noComm = true, db = { delay = E.GAP + 5 } })
+            pair({ noComm = true })
+            setDelay(E.GAP + 5)
             handCast(a, "Power Word: Fortitude")
             local at = wow.now
             advance(E.GAP + 5 + E.TICK)
@@ -603,11 +638,12 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             a.ns.Ignore.Add("Bo-Lake")
             handCast(a, "Power Word: Fortitude")
             handCast(b, "Thorns")
+            advance(E.TICK + 0.5)
+            assert.are.equal(0, a.ns.Exchange.Count(), "none opened, whoever buffed")
+            assert.are.equal(0, b.ns.Exchange.Count())
             advance(E.MAX_DELAY)
             assert.are.same({}, plansSent(a))
             assert.are.same({}, plansSent(b))
-            assert.are.equal(0, a.ns.Exchange.Count())
-            assert.are.equal(0, b.ns.Exchange.Count())
         end)
 
         it("ignoring someone mid-exchange sends them nothing more", function()
