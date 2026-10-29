@@ -192,7 +192,7 @@ local function ArmButton()
         SetLabels(Util.DisplayName(offer.name), "Revoke their Salvation (" .. offer.why .. ")")
     else
         SetLabels(Util.DisplayName(offer.name),
-            (offer.group and "missing your " or "buffed you - give ") .. offer.spell)
+            (offer.group and "missing " or "buffed you: give ") .. offer.spell)
     end
     button:SetShown(true)
 end
@@ -223,7 +223,7 @@ end
 function BuffButton.OnCombatStart()
     ns.BuffMode.OnCombatStart()
     if not button then return end
-    Empty("in combat: the button is empty until the fight ends", false)
+    local _ = ("in combat: the button is empty until the fight ends", false)
 end
 
 ------------------------------------------------------------------------
