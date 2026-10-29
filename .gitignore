@@ -6,3 +6,11 @@ dist/
 RELEASE_NOTES.md
 # Claude Code's local worktrees (side sessions)
 .claude/worktrees/
+# Screenshots with Blizzard's art from scripts/ui-sim-local-art.sh (#139):
+# never committed. The script refuses folders inside a repository; this is
+# the backstop.
+sim-*.png
+ui-sim-art/
+ui-sim-local-art/
+local-art/
+README-simulated.txt
