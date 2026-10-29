@@ -26,7 +26,7 @@ ns.Water = Water
 
 Water.GRACE_SECONDS = 120   -- still near water this long after leaving it
 Water.SAMPLE_SECONDS = 5    -- how often it looks while you know a water buff
-Water.MIRROR_TIMERS = 3     -- the game's mirror timers (MIRRORTIMER_NUMTIMERS): breath, fatigue, feign death
+Water.MIRROR_TIMERS = 3     -- the game's mirror timers (MIRRORTIMER_NUMTIMERS): fatigue, breath, feign death
 Water.BREATH_TIMER = "BREATH"
 -- The names a mirror timer can have; anything else is a reading that can't
 -- be trusted ("UNKNOWN" is an unused timer).
