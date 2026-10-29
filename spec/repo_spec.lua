@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #118, #119, #122
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -465,8 +465,9 @@ if [ -n "$fail" ] && [ "$status" -ge 400 ]; then exit 22; fi
 exit 0
 ]=]
 
-    -- Runs a script as GitHub Actions runs a step (bash -eo pipefail), with
-    -- the fake curl first on PATH. files are written next to it first.
+    -- Runs a script as GitHub Actions runs a step with shell: bash (bash
+    -- --noprofile --norc -eo pipefail), with the fake curl first on PATH.
+    -- files are written next to it first.
     -- Returns the exit code, the output, the curl calls, what curl read on
     -- stdin, and the step summary.
     local function runStep(script, env, files)
@@ -518,6 +519,23 @@ exit 0
         assert.are.same({ contents = "write", ["pull-requests"] = "read" }, sweepKeys)
         local _, writes = text:gsub("write", "")
         assert.are.equal(2, writes, "write access appears outside the two jobs' contents: write")
+    end)
+
+    -- Without shell:, GitHub runs a step as bash -e, without pipefail, so the
+    -- tests above would check a shell the step doesn't get (#117).
+    it("runs each job's step with shell: bash, the shell the tests use", function()
+        for _, job in ipairs(order) do
+            assert.are.equal(1, #job.steps, job.name .. " should have one step")
+            -- A step's own keys line up after its "- ", as name: does.
+            local step = "\n" .. job.steps[1].text:gsub("^(%s*)%-(%s+)", "%1 %2")
+            local key = step:match("^\n(%s*)name:")
+            assert.is_truthy(key, job.name .. "'s step doesn't start with - name:")
+            local shells = {}
+            for indent, value in step:gmatch("\n(%s*)shell:%s*([^\n]*)") do
+                shells[#shells + 1] = (indent == key and "" or "nested ") .. value
+            end
+            assert.are.same({ "bash" }, shells, job.name .. "'s step doesn't say shell: bash, once, as its own key")
+        end
     end)
 
     it("checks out and runs nothing: no actions, no checkout, only curl and jq", function()
