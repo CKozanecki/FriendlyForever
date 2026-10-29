@@ -1379,7 +1379,7 @@ describe("Buff back", function()
             local handCasts, nothingWaiting = 0, 0
             -- The simulated client's own account of casts that landed, as they happen:
             -- the hand casts of this step, and how many of wow.landed were seen.
-            local handNew, landedSeen, returnedSeen = {}, 0, {}
+            local handNew, landedSeen, returnedSeen = nil, 0, {}
             local waitingPressAt, overlaps = nil, 0 -- a press with no cast yet; hand casts made then, for someone else
             local log = ns.Diag.Log
             ns.Diag.Log = function(category, fmt, ...)
