@@ -145,6 +145,57 @@ describe("Quiet mode in capital cities", function()
             assert.are.equal("quiet in a capital city", ledger()[1].note)
         end)
 
+        it("doesn't use up the chat's lines a minute with thank-yous it dropped in a capital", function()
+            local function waveFrom(names)
+                for i, name in ipairs(names) do
+                    stranger("nameplate" .. i, name)
+                    buffedBy("nameplate" .. i)
+                end
+            end
+            local function pressKeys()
+                for _ = 1, 8 do
+                    wow.advance(ns.ChatQueue.MIN_INTERVAL + 0.01)
+                    wow.keyDown()
+                end
+            end
+            assert.are.equal(4, ns.db.linesPerMinute, "the default cap: four would fill it")
+            waveFrom({ "Bob", "Gus", "Hal", "Ivy" })
+            wow.advance(1)
+            wow.setMap(wow.CAPITAL.stormwind)
+            pressKeys()
+            assert.are.equal(0, thanksSent(), "all four dropped in the city")
+            wow.setMap(wow.ELWYNN)
+            waveFrom({ "Jon", "Kay", "Lee", "Max" })
+            pressKeys()
+            assert.are.equal(4, #wow.sentTo("SAY"), "the next four, within the minute, all go out")
+        end)
+
+        it("records a thank-you dropped on walking into a capital as quiet, even with the chat's cap full", function()
+            for i, name in ipairs({ "Bob", "Gus", "Hal", "Ivy" }) do
+                stranger("nameplate" .. i, name)
+                buffedBy("nameplate" .. i)
+            end
+            for _ = 1, 8 do
+                wow.advance(ns.ChatQueue.MIN_INTERVAL + 0.01)
+                wow.keyDown()
+            end
+            assert.are.equal(4, #wow.sentTo("SAY"), "the /say cap is full")
+            stranger("nameplate5", "Jon")
+            buffedBy("nameplate5")
+            wow.advance(1)
+            wow.setMap(wow.CAPITAL.stormwind)
+            local printedBefore = #wow.printed
+            settle()
+            wow.advance(ns.ChatQueue.MIN_INTERVAL + 0.01)
+            wow.keyDown()
+            local entry = ledger()[#ledger()]
+            assert.are.equal("Jon-Stone", entry.who)
+            assert.are.equal("quiet in a capital city", entry.note, "dropped by quiet mode, not the cap")
+            for i = printedBefore + 1, #wow.printed do
+                assert.is_nil(wow.printed[i]:find("skipped a thank-you", 1, true), "no chat-cap hint")
+            end
+        end)
+
         it("drops the /say fallback for a failed whisper once you're in a capital", function()
             ns.db.buff.useWhisper = true
             stranger()
