@@ -71,8 +71,9 @@ end
 
 -- Label, [-] [number] [+], bound to settings()[field] within limits;
 -- settings defaults to ns.db[currentType]. Does nothing on a type without
--- that field (its stepper is hidden there).
-local function Stepper(parent, text, field, settings)
+-- that field (its stepper is hidden there). font: the label's, if not the
+-- usual one.
+local function Stepper(parent, text, field, settings, font)
     local limits = Config.LIMITS[field]
     local s = {}
     settings = settings or function() return ns.db[currentType] end
@@ -93,7 +94,7 @@ local function Stepper(parent, text, field, settings)
         if current ~= nil then Set(current + by) end
     end
 
-    s.label = Label(parent, text)
+    s.label = Label(parent, text, font)
     s.minus = Button(parent, "-", 24, function() Step(-1) end)
     s.minus:SetPoint("LEFT", s.label, "RIGHT", 8, 0)
     s.box = TextBox(parent, 44, 4)
@@ -922,10 +923,11 @@ function Options.CreateGeneralPage()
     w.wake = Button(page, "Wake up", 90, function() ns.SnoozeFor(nil) end)
     w.wake:SetPoint("LEFT", w.snooze60, "RIGHT", 8, 0)
 
-    -- Chat limit (#35)
-    local cap = Section(page, w.snooze15, "Chat limit")
-    w.linesPerMinute = Stepper(page, "Lines per minute in each chat:", "linesPerMinute", function() return ns.db end)
-    w.linesPerMinute.label:SetPoint("TOPLEFT", cap, "BOTTOMLEFT", 0, -10)
+    -- Chat limit (#35). The stepper is its own section heading: this page
+    -- doesn't scroll, and a heading line of its own would cost a line below.
+    w.linesPerMinute = Stepper(page, "Lines per minute in each chat:", "linesPerMinute", function() return ns.db end,
+        "GameFontNormal")
+    w.linesPerMinute.label:SetPoint("TOPLEFT", w.snooze15, "BOTTOMLEFT", 0, -20)
     -- Says why the limit is there (#35): the addon helps people talk, and
     -- mustn't become the spam it's meant to soften.
     w.capHelp = Note(page, w.linesPerMinute.label, "Keeps Friendly Forever a helper, not a spammer: at most this "
@@ -951,12 +953,12 @@ function Options.CreateGeneralPage()
         Say(name, "couldn't remove: " .. tostring(why), name and (ns.Util.DisplayName(name) .. " is off the list."))
     end)
     w.ignoreRemove:SetPoint("LEFT", w.ignoreAdd, "RIGHT", 6, 0)
-    local ignoreHelp = Note(page, w.ignoreBox, "Full names, such as Nikki Shifts. Leave the box empty and click Add "
+    w.ignoreHelp = Note(page, w.ignoreBox, "Full names, such as Nikki Shifts. Leave the box empty and click Add "
         .. "to add your target.")
-    ignoreHelp:SetPoint("TOPLEFT", w.ignoreBox, "BOTTOMLEFT", -6, -6)
+    w.ignoreHelp:SetPoint("TOPLEFT", w.ignoreBox, "BOTTOMLEFT", -6, -6)
 
     -- Profiles
-    local profiles = Section(page, ignoreHelp, "Profiles")
+    local profiles = Section(page, w.ignoreHelp, "Profiles")
     w.profileState = Note(page, profiles, "")
     w.profileBox = TextBox(page, 160, ns.Profiles.MAX_NAME)
     w.profileBox:SetPoint("TOPLEFT", w.profileState, "BOTTOMLEFT", 6, -8)
@@ -973,12 +975,12 @@ function Options.CreateGeneralPage()
     w.profileUse:SetPoint("LEFT", w.profileNew, "RIGHT", 6, 0)
     w.profileDelete = ProfileButton("Delete", 70, ns.Profiles.Delete, function(n) return "deleted profile " .. n end)
     w.profileDelete:SetPoint("LEFT", w.profileUse, "RIGHT", 6, 0)
-    local profileHelp = Note(page, w.profileBox, "Type a name, then New (a copy of your settings) or Use. "
+    w.profileHelp = Note(page, w.profileBox, "Type a name, then New (a copy of your settings) or Use. "
         .. "Each character switches to the profile it used last when it logs in.")
-    profileHelp:SetPoint("TOPLEFT", w.profileBox, "BOTTOMLEFT", -6, -6)
+    w.profileHelp:SetPoint("TOPLEFT", w.profileBox, "BOTTOMLEFT", -6, -6)
 
     -- Export / import
-    local share = Section(page, profileHelp, "Share your settings")
+    local share = Section(page, w.profileHelp, "Share your settings")
     w.export = Button(page, "Export", 90, function() ns.ShowExport() end)
     w.export:SetPoint("TOPLEFT", share, "BOTTOMLEFT", 0, -8)
     w.import = Button(page, "Import", 90, function() ns.ShowImport() end)
@@ -988,11 +990,11 @@ function Options.CreateGeneralPage()
         Say(ok, "couldn't undo: " .. tostring(why), "your settings from before the import are back.")
     end)
     w.undoImport:SetPoint("LEFT", w.import, "RIGHT", 8, 0)
-    local shareHelp = Note(page, w.export, "One line of text with your messages and options. Importing never turns "
+    w.shareHelp = Note(page, w.export, "One line of text with your messages and options. Importing never turns "
         .. "the addon on or off and only adds to your ignore list.")
 
     -- Bug report
-    local help = Section(page, shareHelp, "Something not working?")
+    local help = Section(page, w.shareHelp, "Something not working?")
     w.report = Button(page, "Copy for a bug report", 180, function() ns.ShowBugReport() end)
     w.report:SetPoint("TOPLEFT", help, "BOTTOMLEFT", 0, -8)
     w.reportHelp = Note(page, w.report, "Shows /friendly status and the debug log as text to copy. "

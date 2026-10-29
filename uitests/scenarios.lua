@@ -294,9 +294,40 @@ test("the General page's chat limit row stays inside it (#35)", function()
     TextInside(page, w.capHelp, "chat limit help")
 end)
 
+-- How much lower a line sits in the game than here because of the notes
+-- above it: the client doesn't wrap, so it places what follows a note as if
+-- the note were one line, while the game draws each of its wrapped lines.
+local function WrapDrop(notes)
+    local drop = 0
+    for _, note in ipairs(notes) do
+        local left, right = Edges(note, "GetLeft", "GetRight")
+        local lines = left and WrappedLines(note, left, right)
+        local height = Measure(note, "GetStringHeight")
+        if lines and height then drop = drop + height * (lines - 1) end
+    end
+    return drop
+end
+
+-- The page doesn't scroll, so its last line must still be on it once every
+-- note above it has wrapped as it does in the game.
 test("the General page's last line is still on the page (#35)", function()
     local page = OpenGeneralPage()
-    TextInside(page, page.widgets.reportHelp, "bug report help")
+    local w = page.widgets
+    TextInside(page, w.reportHelp, "bug report help")
+    local left, right = Edges(w.reportHelp, "GetLeft", "GetRight")
+    local top, bottom = Edges(w.reportHelp, "GetTop", "GetBottom")
+    local pageBottom = select(2, Edges(page, "GetTop", "GetBottom"))
+    if not (left and top and pageBottom) then
+        report("LAYOUT General page bottom: edges can't be read here")
+        return
+    end
+    local _, drawnBottom = DrawnUpDown(w.reportHelp, top, bottom, WrappedLines(w.reportHelp, left, right) or 1)
+    local drop = WrapDrop({ w.snoozeState, w.capHelp, w.ignoreList, w.ignoreHelp, w.profileState, w.profileHelp,
+        w.shareHelp })
+    local line = ("LAYOUT General page bottom: last line ends at %.0f here, %.0f once the notes above it wrap "
+        .. "(%.0f lower); page bottom %.0f"):format(drawnBottom, drawnBottom - drop, drop, pageBottom)
+    report(line)
+    check(drawnBottom - drop >= pageBottom - 1, line .. ": below the bottom of the page")
 end)
 
 -- Facts about the simulated client, printed in the report: they are
@@ -329,4 +360,4 @@ end)
 -- The layout checks, for spec/uitests_layout_spec.lua, which runs them
 -- against regions whose edges it sets itself. The simulator ignores what a
 -- test file returns.
-return { TextInside = TextInside }
+return { TextInside = TextInside, WrapDrop = WrapDrop }
