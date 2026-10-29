@@ -123,7 +123,7 @@ When someone outside your group buffs you, a small button appears with their nam
 - **Feedback:** what each press did, under the button (and in chat where it needs your attention):
   - returned: "Returned Mark of the Wild to Bob Stone.";
   - the game doesn't say who it reached: "Cast Mark of the Wild, but the game didn't say it reached Bob Stone." The favour isn't counted as returned;
-  - it went to someone else: "Mark of the Wild went to Ann Vale, not Bob Stone." in chat, and the favour stays;
+  - it went to someone else: "Mark of the Wild went to Ann Vale, not Bob Stone." in chat, a few seconds after the press, and the favour stays. The buff counts as a buff to Ann, as a cast by hand does. A cast by hand on someone else while the button waits is treated the same way, but if the button's own cast follows, the button reports that instead;
   - the game refuses it: its reason in chat ("Couldn't buff Bob Stone: Out of range."), or "Couldn't buff Bob Stone (the game gave no reason).", and the favour stays;
   - nothing was cast: "No answer: couldn't find Bob Stone (out of sight?)." in chat;
   - the server never answers (a lag spike): "No word back on Mark of the Wild for Bob Stone. If it didn't land, press again.";
