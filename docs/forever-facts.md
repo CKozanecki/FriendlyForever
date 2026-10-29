@@ -43,6 +43,7 @@ From #32 ([research comment](https://github.com/CKozanecki/FriendlyForever/issue
 ## Names and races
 
 - Every character has a first name and a surname (`Nikki-Shifts`), with no realms, and the game can't find a player by first name alone. Source: as built (README, `Util.lua`). How `/targetexact` spells a two-part name, and how `UNIT_SPELLCAST_SENT` gives the target: **launch check** (#50).
+- Until a group member's details load (just after they join), the client can name them `UNKNOWNOBJECT` ("Unknown" in English), and the addon treats that as no readable name (`Util.UnitFullName`). Source: #99, found by the UI simulator (#83, PR #96); the default UI's `UNKNOWNOBJECT` global string. What Forever's `UnitName` returns then (with or without a surname, secret or not), and whether `UNIT_NAME_UPDATE` fires when it loads: **launch check** ([#50](https://github.com/CKozanecki/FriendlyForever/issues/50#issuecomment-6485285625)).
 - There are 10 playable races: Classic's eight plus the two Skyborne peoples, High Order (Alliance) and Windshaper (Horde). Source: [#52](https://github.com/CKozanecki/FriendlyForever/issues/52#issuecomment-6484052636) ([Warcraft Tavern: races](https://www.warcrafttavern.com/forever/guides/races/), [seemeta](https://seemeta.com/en/wow-forever/races)).
 - The Skyborne share one race file name; the addon tells them apart by race ID 95 (High Order) and 96 (Windshaper), with the faction as the fallback. Source: #52 (no external source for the IDs). **Launch check** (#50: the race and ID in `/friendly status`).
 
