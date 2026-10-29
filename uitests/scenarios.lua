@@ -619,7 +619,8 @@ test("the General page, with a long ignore list and several profiles, keeps its 
         -- below mean nothing on a page still showing the default lists, so
         -- first make sure it shows the fill.
         local content = page.content
-        check(ShowsText(content, "Aerendhiliel Stormwhisper") and ShowsText(content, "team 01"),
+        check(ShowsText(content, "Aerendhiliel Stormwhisper")
+            and ShowsText(content, "Using Raid nights in Naxxramas, team 1."),
             "the General page doesn't show the filled ignore list and profiles")
         OnScreen(page, "General page")
         CheckAll({

@@ -73,10 +73,10 @@ function Pages.Fill()
     -- as long as they get (Profiles.MAX_NAME, 32 letters).
     local profiles = {}
     for i = 1, Pages.PROFILES do
-        profiles[string.format("Raid nights in Naxxramas, team %02d", i)] = {}
+        profiles[string.format("Raid nights in Naxxramas, team %d", i)] = {}
     end
     db.profiles = profiles
-    db.activeProfile = "Raid nights in Naxxramas, team 01"
+    db.activeProfile = "Raid nights in Naxxramas, team 1"
 
     local now = type(time) == "function" and time() or 0
     local entries = {}
