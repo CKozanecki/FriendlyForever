@@ -429,6 +429,17 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         before PLAYER_ENTERING_WORLD, and the aura may
 --                         already be on you then, with no UNIT_AURA for it
 --                         (the defaults; the other orders are options).
+--   unit.nameLoading = true: the client hasn't loaded that unit's details
+--                         yet (#99), so UnitName (and UnitFullName,
+--                         GetUnitName) gives UNKNOWNOBJECT ("Unknown") as the
+--                         first name. Pessimistically the surname still comes,
+--                         so the pair looks like a real player's ("Unknown
+--                         Vale"). Loading it (nameLoading = nil) fires no
+--                         event: pessimistically, the real client's
+--                         UNIT_NAME_UPDATE may not come, so the addon must
+--                         find the name on its own next check. What Forever's
+--                         UnitName returns for a member still loading is
+--                         checked at launch (#50).
 ------------------------------------------------------------------------
 
 local function targetableName(u)
@@ -702,6 +713,8 @@ local function unitField(unit, field)
     local u = M.state.units[unit]
     if not u then return nil end
     local value = u[field]
+    -- A name still loading reads as UNKNOWNOBJECT (the surname still comes).
+    if u.nameLoading and field == "name" then value = _G.UNKNOWNOBJECT end
     if value ~= nil and (M.state.unitsRestricted or (u.secrets and u.secrets[field])) then return M.secret(value) end
     return value
 end
@@ -840,6 +853,7 @@ function M.reset()
     _G.ERR_RAID_MEMBER_ADDED_S = "%s has joined the raid group."
     _G.ERR_INSTANCE_GROUP_ADDED_S = "%s has joined the instance group."
     _G.ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
+    _G.UNKNOWNOBJECT = "Unknown"
     _G.LE_PARTY_CATEGORY_HOME = 1
     _G.LE_PARTY_CATEGORY_INSTANCE = 2
 
