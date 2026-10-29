@@ -1,4 +1,4 @@
--- Spec: #49, #77, #80, #82, #89
+-- Spec: #49, #77, #80, #82, #89, #106
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -337,6 +337,315 @@ describe("UI simulator workflow", function()
             assert.is_falsy(publish.text:find(banned), "the publish job runs " .. banned)
         end
         assert.is_truthy(publish.text:find("89504e470d0a1a0a", 1, true), "the publish job doesn't check for PNGs")
+    end)
+end)
+
+describe("UI screenshots clean-up workflow", function()
+    local path = ".github/workflows/ui-screenshots-cleanup.yml"
+    local text, header, jobs, order
+
+    setup(function()
+        text = withoutComments(wow.readFile(path))
+        header = text:match("^(.-)\njobs:")
+        jobs, order = parseWorkflow(path)
+    end)
+
+    -- A step's run: | block, as the shell gets it.
+    local function runBlock(job)
+        assert.are.equal(1, #job.steps, job.name .. " should have one step")
+        local body, indent = {}, nil
+        local inRun = false
+        for _, line in ipairs(splitLines(job.steps[1].text)) do
+            if inRun then
+                if not line:match("^%s*$") then
+                    indent = indent or indentOf(line)
+                    if indentOf(line) < indent then break end
+                end
+                body[#body + 1] = line:sub((indent or 0) + 1)
+            elseif line:match("^%s*run: |%s*$") then
+                inRun = true
+            end
+        end
+        assert.is_true(#body > 0, job.name .. " has no run: | block")
+        return (table.concat(body, "\n"):gsub("%s+$", "")) .. "\n"
+    end
+
+    local function nameCheck(job)
+        -- Both functions, up to the end of delete_branch (the first unindented }).
+        local block = runBlock(job):match("pr_of_branch%(%) {\n.-\ndelete_branch%(%) {\n.-\n}\n")
+        assert.is_truthy(block, job.name .. " has no name check")
+        return block
+    end
+
+    local function quote(value) return "'" .. value:gsub("'", "'\\''") .. "'" end
+
+    local function write(file, content)
+        local handle = assert(io.open(file, "w"))
+        handle:write(content)
+        handle:close()
+    end
+
+    local function read(file)
+        local handle = io.open(file, "r")
+        if not handle then return "" end
+        local content = handle:read("*a")
+        handle:close()
+        return content
+    end
+
+    -- A stand-in for curl that answers like GitHub's API from files in its
+    -- folder, and logs each call ("METHOD URL") and what it read on stdin.
+    local fakeCurl = [=[#!/bin/bash
+dir=$(dirname "$0")
+method=GET url=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -X) method=$2; shift ;;
+    -K|-o|-w|-H) shift ;;
+    -*) ;;
+    *) url=$1 ;;
+  esac
+  shift
+done
+echo "$method $url" >> "$dir/calls"
+cat >> "$dir/stdin"
+case "$method $url" in
+  "DELETE "*/git/refs/heads/ui-screenshots/pr-*)
+    n=${url##*/pr-}
+    if [ ! -f "$dir/delete-$n" ]; then printf 204
+    elif [ "$(cat "$dir/delete-$n")" = unreachable ]; then printf 000; exit 7
+    else cat "$dir/delete-$n"; fi ;;
+  "GET "*/git/matching-refs/heads/ui-screenshots/)
+    [ -f "$dir/refs.json" ] || exit 22
+    cat "$dir/refs.json" ;;
+  "GET "*/pulls/*)
+    n=${url##*/pulls/}
+    [ -f "$dir/pr-$n" ] || exit 22
+    printf '{"number":%s,"state":"%s"}' "$n" "$(cat "$dir/pr-$n")" ;;
+  *) exit 22 ;;
+esac
+]=]
+
+    -- Runs a script as GitHub Actions runs a step (bash -eo pipefail), with
+    -- the fake curl first on PATH. files are written next to it first.
+    -- Returns the exit code, the output, the curl calls, what curl read on
+    -- stdin, and the step summary.
+    local function runStep(script, env, files)
+        local dir = os.tmpname()
+        os.remove(dir)
+        os.execute('mkdir -p "' .. dir .. '/bin"')
+        write(dir .. "/bin/curl", fakeCurl)
+        os.execute('chmod +x "' .. dir .. '/bin/curl"')
+        for name, content in pairs(files or {}) do write(dir .. "/bin/" .. name, content) end
+        local exports = { 'export PATH="' .. dir .. '/bin:$PATH"', "export GITHUB_API_URL=https://api.test",
+            'export GITHUB_STEP_SUMMARY="' .. dir .. '/summary"', "export REPO=owner/repo",
+            "export TOKEN=secret-token-123" }
+        for key, value in pairs(env or {}) do exports[#exports + 1] = "export " .. key .. "=" .. quote(value) end
+        write(dir .. "/step.sh", table.concat(exports, "\n") .. "\n" .. script)
+        local p = io.popen('bash --noprofile --norc -eo pipefail "' .. dir .. '/step.sh" < /dev/null 2>&1; echo "exit=$?"')
+        local output = p:read("*a")
+        p:close()
+        local code = tonumber(output:match("exit=(%d+)\n$"))
+        output = output:gsub("exit=%d+\n$", "")
+        local calls, stdin, summary = read(dir .. "/bin/calls"), read(dir .. "/bin/stdin"), read(dir .. "/summary")
+        os.execute('rm -rf "' .. dir .. '"')
+        return code, output, calls, stdin, summary
+    end
+
+    it("runs on closed pull requests and by hand, never on pull_request_target", function()
+        assert.is_truthy(header, "no jobs found")
+        assert.is_truthy(header:find("\non:\n  pull_request:\n    types: %[closed%]\n  workflow_dispatch:\n"),
+            "the triggers aren't exactly pull_request (closed) and workflow_dispatch")
+        assert.is_falsy(text:find("pull_request_target"), path .. " uses pull_request_target")
+    end)
+
+    it("has no access by default, no secrets, and write access only in its two jobs", function()
+        assert.is_truthy(header:find("\npermissions: {}\n"), "the default access isn't none")
+        assert.is_falsy(header:find("write"), "the workflow grants write access to every job")
+        assert.is_falsy(text:find("secrets%."), path .. " uses secrets")
+        local names = {}
+        for _, job in ipairs(order) do names[#names + 1] = job.name end
+        assert.are.same({ "delete-on-close", "sweep" }, names)
+
+        local function permissions(job)
+            local _, block = job.text:match("\n(%s*)permissions:\n(.-)\n%1[%w_-]+:")
+            assert.is_truthy(block, job.name .. " has no permissions of its own")
+            return block
+        end
+        local close, sweep = permissions(jobs["delete-on-close"]), permissions(jobs.sweep)
+        assert.is_truthy(close:match("^%s*contents: write%s*$"), "delete-on-close has more than contents: write")
+        local sweepKeys = {}
+        for key, value in sweep:gmatch("([%w_-]+):%s*(%w+)") do sweepKeys[key] = value end
+        assert.are.same({ contents = "write", ["pull-requests"] = "read" }, sweepKeys)
+        local _, writes = text:gsub("write", "")
+        assert.are.equal(2, writes, "write access appears outside the two jobs' contents: write")
+    end)
+
+    it("checks out and runs nothing: no actions, no checkout, only curl and jq", function()
+        assert.is_falsy(text:find("uses:"), path .. " uses an action")
+        assert.is_falsy(text:find("checkout"), path .. " checks something out")
+        for _, job in ipairs(order) do
+            local run = runBlock(job)
+            for _, banned in ipairs({ "%f[%w]git%s", "docker", "make ", "%./", "%f[%w]bash%s", "%f[%w]sh%s",
+                "source ", "eval", "%f[%w]gh%s", "npm", "pip", "python", "wget", "%${{" }) do
+                assert.is_falsy(run:find(banned), job.name .. " runs " .. banned)
+            end
+        end
+    end)
+
+    it("builds the close-time branch name only from the event's pull request number", function()
+        local close = jobs["delete-on-close"]
+        assert.is_truthy(close, "no delete-on-close job")
+        local condition = "github%.event_name == 'pull_request' && "
+            .. "github%.event%.pull_request%.head%.repo%.full_name == github%.repository"
+        assert.is_truthy(close.text:find("\n    if: %${{ " .. condition .. " }}\n"),
+            "delete-on-close runs for forks or outside pull requests")
+        for field in close.text:gmatch("github%.event%.pull_request%.([%w_.]+)") do
+            assert.is_truthy(field == "number" or field == "head.repo.full_name",
+                "delete-on-close reads github.event.pull_request." .. field)
+        end
+        assert.is_truthy(close.text:find("\n%s+PR: %${{ github%.event%.pull_request%.number }}\n"),
+            "PR isn't the event's pull request number")
+        assert.is_falsy(jobs.sweep.text:find("github%.event%."), "the sweep reads the event")
+        assert.is_truthy(jobs.sweep.text:find("\n    if: %${{ github%.event_name == 'workflow_dispatch' }}\n"),
+            "the sweep doesn't run only by hand")
+    end)
+
+    it("never fails the pull request's checks", function()
+        local close = jobs["delete-on-close"]
+        local key = "\n" .. (" "):rep(close.keyIndent) .. "continue%-on%-error:%s*true"
+        assert.is_truthy(close.text:find(key), "delete-on-close can fail the pull request")
+        assert.is_truthy(runBlock(close):find('\ndelete_branch "%$PR" || true\n$'),
+            "delete-on-close's last line can fail")
+    end)
+
+    it("uses the same name check in both jobs", function()
+        assert.are.equal(nameCheck(jobs["delete-on-close"]), nameCheck(jobs.sweep))
+    end)
+
+    describe("close-time job", function()
+        local function close(pr, files)
+            return runStep(runBlock(jobs["delete-on-close"]), { PR = pr }, files)
+        end
+
+        it("deletes the closed pull request's branch, passing the token on stdin only", function()
+            local code, output, calls, stdin = close("106")
+            assert.are.equal(0, code)
+            assert.are.equal("deleted ui-screenshots/pr-106\n", output)
+            assert.are.equal("DELETE https://api.test/repos/owner/repo/git/refs/heads/ui-screenshots/pr-106\n", calls)
+            assert.are.equal('header = "Authorization: Bearer secret-token-123"\n', stdin)
+        end)
+
+        it("treats a branch that's already gone as fine", function()
+            for _, status in ipairs({ "404", "422" }) do
+                local code, output, calls = close("88", { ["delete-88"] = status })
+                assert.are.equal(0, code)
+                assert.are.equal("ui-screenshots/pr-88 is already gone\n", output)
+                assert.are.equal(1, select(2, calls:gsub("\n", "")))
+            end
+        end)
+
+        it("only warns when GitHub refuses, so the pull request's checks stay green", function()
+            local code, output = close("91", { ["delete-91"] = "403" })
+            assert.are.equal(0, code)
+            assert.are.equal("::warning::could not delete ui-screenshots/pr-91 (HTTP 403)\n", output)
+            code, output = close("91", { ["delete-91"] = "unreachable" })
+            assert.are.equal(0, code)
+            assert.are.equal("::warning::could not delete ui-screenshots/pr-91 (HTTP 000)\n", output)
+        end)
+
+        it("refuses a pull request number that isn't plain digits, and calls nothing", function()
+            for _, pr in ipairs({ "", "abc", "12a", "012", "0", "-1", "1 2", "12\n", "12/../main", "../main",
+                "12*", "١٢" }) do
+                local code, output, calls = close(pr)
+                assert.are.equal(0, code, pr)
+                assert.are.equal("::warning::refusing to delete a branch for pull request number '" .. pr .. "'\n",
+                    output)
+                assert.are.equal("", calls, "curl was called for '" .. pr .. "'")
+            end
+        end)
+    end)
+
+    describe("name check", function()
+        local function prOf(branch)
+            local script = nameCheck(jobs.sweep) .. "pr_of_branch " .. quote(branch) .. "\n"
+            local code, output = runStep(script)
+            return code == 0 and output:gsub("\n$", "") or nil
+        end
+
+        it("reads the number from a screenshots branch", function()
+            assert.are.equal("7", prOf("ui-screenshots/pr-7"))
+            assert.are.equal("106", prOf("ui-screenshots/pr-106"))
+        end)
+
+        it("refuses every branch outside ui-screenshots/pr-<digits>", function()
+            for _, branch in ipairs({ "main", "claude/106-x", "ui-screenshots/pr-", "ui-screenshots/pr-07",
+                "ui-screenshots/pr-7/x", "ui-screenshots/pr-7a", "ui-screenshots/pr-7\n", "refs/heads/ui-screenshots/pr-7",
+                "xui-screenshots/pr-7", "ui-screenshots/pr-7 main", "ui-screenshots/PR-7", "ui-screenshots/pr--7" }) do
+                assert.is_nil(prOf(branch), branch)
+            end
+        end)
+    end)
+
+    describe("sweep", function()
+        local function refs(names)
+            local list = {}
+            for _, name in ipairs(names) do list[#list + 1] = '{"ref":"refs/heads/' .. name .. '"}' end
+            return "[" .. table.concat(list, ",") .. "]"
+        end
+
+        local function sweep(files)
+            return runStep(runBlock(jobs.sweep), {}, files)
+        end
+
+        it("deletes the branches of closed pull requests only, and keeps the rest", function()
+            local code, output, calls, _, summary = sweep({
+                ["refs.json"] = refs({ "ui-screenshots/pr-88", "ui-screenshots/pr-91", "ui-screenshots/pr-96",
+                    "ui-screenshots/pr-5/x", "ui-screenshots/pr-404", "ui-screenshots/pr-77", "ui-screenshots/pr-08" }),
+                ["pr-88"] = "closed", ["pr-91"] = "closed", ["pr-96"] = "open", ["pr-77"] = "closed",
+                ["pr-8"] = "closed", ["delete-77"] = "422",
+            })
+            assert.are.equal(0, code, output)
+            local deletes = {}
+            for n in calls:gmatch("DELETE https://api%.test/repos/owner/repo/git/refs/heads/ui%-screenshots/pr%-(%d+)\n") do
+                deletes[#deletes + 1] = n
+            end
+            assert.are.same({ "88", "91", "77" }, deletes)
+            assert.is_truthy(output:find("keeping ui-screenshots/pr-96: pull request #96 is open", 1, true))
+            assert.is_truthy(output:find("keeping ui-screenshots/pr-404: pull request #404 is unknown", 1, true))
+            assert.is_truthy(output:find("keeping ui-screenshots/pr-5/x: not a", 1, true))
+            assert.is_truthy(output:find("keeping ui-screenshots/pr-08: not a", 1, true))
+            assert.is_truthy(output:find("ui-screenshots/pr-77 is already gone", 1, true))
+            assert.are.equal("Screenshot branches: deleted 3, kept 4, failed 0.\n", summary)
+            assert.is_falsy(calls:find("pulls/8\n", 1, true), "looked up a pull request from a refused name")
+        end)
+
+        it("finishes cleanly with nothing to delete", function()
+            local code, output, calls = sweep({ ["refs.json"] = "[]" })
+            assert.are.equal(0, code)
+            assert.are.equal("deleted 0, kept 0, failed 0\n", output)
+            assert.are.equal("GET https://api.test/repos/owner/repo/git/matching-refs/heads/ui-screenshots/\n", calls)
+        end)
+
+        it("fails, deleting nothing, when it can't list the branches", function()
+            for _, listing in ipairs({ false, '{"message":"Not Found"}', "not json" }) do
+                local code, output, calls = sweep({ ["refs.json"] = listing or nil })
+                assert.are_not.equal(0, code)
+                assert.is_truthy(output:find("::error::could not list the branches", 1, true))
+                assert.is_falsy(calls:find("DELETE"), "deleted after a failed listing")
+            end
+        end)
+
+        it("carries on past a branch it can't delete, then fails so the owner sees it", function()
+            local code, output, calls, _, summary = sweep({
+                ["refs.json"] = refs({ "ui-screenshots/pr-1", "ui-screenshots/pr-2" }),
+                ["pr-1"] = "closed", ["pr-2"] = "closed", ["delete-1"] = "500",
+            })
+            assert.are_not.equal(0, code)
+            assert.is_truthy(output:find("::warning::could not delete ui-screenshots/pr-1 (HTTP 500)", 1, true))
+            assert.is_truthy(calls:find("heads/ui-screenshots/pr-2\n", 1, true))
+            assert.are.equal("Screenshot branches: deleted 1, kept 0, failed 1.\n", summary)
+        end)
     end)
 end)
 

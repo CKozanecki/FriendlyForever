@@ -336,8 +336,8 @@ jobs:
   # Publishes the screenshots where reviewers (people, and Claude sessions,
   # whose network reaches git but not artifact storage) can open them: an
   # orphan branch per pull request, ui-screenshots/pr-<number>, replaced on
-  # every run of that pull request. The branches outlive their pull
-  # requests: the maintainer deletes them. This job runs nothing from the
+  # every run of that pull request. ui-screenshots-cleanup.yml deletes each
+  # when its pull request closes (#106). This job runs nothing from the
   # simulator or the pull request: it only checks the files are PNG images
   # of a sane size and commits them. It alone may write, and only for pull
   # requests from this repository.
