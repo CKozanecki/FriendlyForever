@@ -612,8 +612,12 @@ function Options.Create()
 
     widgets.header = Label(content, "", "GameFontNormal")
     widgets.header:SetPoint("TOPLEFT", widgets.tabs[Config.TYPES[1]], "BOTTOMLEFT", 0, -16)
+    -- Wraps at the panel's right edge: the Buff Back tab's runs wider than
+    -- the panel (#112). The rows below hang from it, so they move down.
     widgets.help = Label(content, "", "GameFontHighlightSmall")
     widgets.help:SetPoint("TOPLEFT", widgets.header, "BOTTOMLEFT", 0, -4)
+    widgets.help:SetPoint("RIGHT", content, "RIGHT", -24, 0)
+    widgets.help:SetWordWrap(true)
 
     -- Row 1: enabled, delay
     widgets.enabled = Checkbox(content, "Enabled", function(on)
