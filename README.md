@@ -167,7 +167,12 @@ Every buff from someone outside your group, while Buff Thanks or Buff Back is on
 - The buff back button won't offer a buff to a player the game shows flagged for PvP unless you're flagged too (see [Buff back](#buff-back)). It's empty in a fight, and its cast only goes off on a friendly, living target.
 - Buff mode only lends a key to the button with an override binding, never changes your saved key bindings, and never lends Esc or Enter. The key is handed back when buff mode ends, during fights, while the addon or Buff Back is off, and on every login or reload.
 - "Secret" values from the Midnight-era API are detected and never used.
-- The addon never runs text as code and doesn't read whispers or addon messages, so other players have no way to control it.
+- The addon never runs text as code and doesn't read whispers, so other players have no way to control it.
+- **Other copies of Friendly Forever:** copies talk to each other with hidden addon messages, which players never see. **No chat channel is ever joined.** Messages go only over the game's own whisper, party, raid, instance and guild routes, so General, Trade and LocalDefense keep their numbers.
+  - Every message from another player is treated as untrusted. It's dropped, and counted in `/friendly status`, if it's unreadable, too long, malformed, from another protocol version, about someone other than its sender, or part of a flood.
+  - A message can only tell this copy something, such as "this player runs Friendly Forever". It can never make the addon cast, say anything in chat or change your settings.
+  - The addon sends at most a few messages at once and then one every two seconds, well below the game's limit, and drops what it can't send soon.
+  - While the addon is switched off, it sends nothing and ignores what it receives. Everything works without other copies, or when the game blocks addon messages (as it may in instances).
 - The buff-back button's macro is built only from a checked player name and the game's own spell name, and each part is refused if it could end its line or start another command (a line break, a `|` escape code, or a leading `/`).
 - A pasted settings line (`/friendly import`) is read as data only, with limits on its size and depth, and every value in it is checked like the saved file before it's used.
 

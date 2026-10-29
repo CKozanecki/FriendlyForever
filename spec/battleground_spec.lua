@@ -1,4 +1,4 @@
--- Spec: #71
+-- Spec: #71, #32
 -- Battlegrounds: buffing in the preparation phase, then quiet until you
 -- leave or the battleground ends.
 local wow = require("spec.support.wow")
@@ -140,6 +140,15 @@ describe("Battlegrounds", function()
             assert.are.equal("preparation", ns.Battleground.Phase())
             wow.advance(30)
             assert.are.equal("battle", ns.Battleground.Phase())
+        end)
+
+        it("reads the older timer type in a client with no Enum at all (black)", function()
+            _G.Enum = nil
+            wow.enterBattleground(TEAM, { preparation = false, timer = 30 })
+            assert.are.equal("preparation", ns.Battleground.Phase())
+            wow.advance(30)
+            assert.are.equal("battle", ns.Battleground.Phase())
+            assert.are.same({}, wow.errors)
         end)
 
         it("thanks and welcomes as usual in the preparation phase", function()
