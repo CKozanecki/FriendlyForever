@@ -284,8 +284,10 @@ jobs:
           DOCKERFILE
 
       - name: Take screenshots (no network, addon read-only)
-        # A backstop: the shots below stop themselves well inside this.
-        timeout-minutes: 25
+        # A backstop: the shots below stop themselves inside this. Each one
+        # that hits its own 180 s limit takes about 200 s with its checks and
+        # clean-up, so 8 shots and the probe take at most about 27 minutes.
+        timeout-minutes: 30
         run: |
           # WOW_SIM_CASC=0: never look for game files (no WoW install here).
           # Each shot runs as a detached container capped at 6 GB and 3 CPUs,
