@@ -1,4 +1,4 @@
--- Spec: #49, #77, #80, #82, #89
+-- Spec: #49, #77, #80, #82, #89, #103
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -187,6 +187,22 @@ describe("CI workflow", function()
         assert.is_truthy(notes and notes < packager, "release notes aren't written before the packager runs")
         assert.is_truthy(package and compare and compare > packager and compare > package,
             "CI doesn't compare the two packages after building both")
+    end)
+    -- #103: the tools come from scripts/dev-setup.sh, so a change to it or to
+    -- its checksums must miss the cache, and a cache hit still runs the
+    -- script, which checks the install and downloads nothing.
+    it("installs the tools through make setup, keyed on the setup script and its checksums", function()
+        local _, order = parseWorkflow(path)
+        local job = jobWith(order, "make test")
+        local setup = indexOf(job.steps, "make setup")
+        assert.is_truthy(setup and setup < indexOf(job.steps, "make test"), "CI tests without make setup")
+        assert.is_falsy(job.steps[setup].text:find("if:", 1, true), "a cache hit skips make setup")
+        local cache = indexOf(job.steps, "actions/cache@")
+        assert.is_truthy(cache and cache < setup, "the tools aren't cached before make setup")
+        local key = job.steps[cache].text:match("key:%s*([^\n]+)")
+        for _, file in ipairs({ "Makefile", "scripts/dev-setup.sh", "scripts/dev-setup.lock" }) do
+            assert.is_truthy(key and key:find("'" .. file .. "'", 1, true), "the cache key doesn't cover " .. file)
+        end
     end)
 end)
 
@@ -447,6 +463,67 @@ end)
 -- Claude Code keeps side sessions' checkouts in .claude/worktrees (#77).
 -- CI never has one, so only these tests notice if lint or git starts
 -- reading them again (make check would fail locally while one is open).
+-- #103: one pinned toolchain setup, documented in CONTRIBUTING.md.
+describe("Toolchain setup", function()
+    local function pin(name)
+        return wow.readFile("scripts/dev-setup.sh"):match("\n" .. name .. '="([^"]+)"')
+    end
+
+    -- The version table in CONTRIBUTING.md's Local setup section.
+    local function documented()
+        local docs = wow.readFile("CONTRIBUTING.md")
+        local section = docs:match("\n## Local setup\n(.-)\n## ")
+        local versions = {}
+        for tool, version in (section or ""):gmatch("\n| ([%w ]-) | ([%w.%-]+) |") do
+            versions[tool] = version
+        end
+        return versions, section
+    end
+
+    it("pins the versions CONTRIBUTING.md documents", function()
+        local versions, section = documented()
+        assert.is_truthy(section, "CONTRIBUTING.md has no Local setup section")
+        local pins = { hererocks = "HEREROCKS_VERSION", Lua = "LUA_VERSION", LuaRocks = "LUAROCKS_VERSION",
+            busted = "BUSTED_VERSION", luacheck = "LUACHECK_VERSION" }
+        for tool, variable in pairs(pins) do
+            assert.is_truthy(pin(variable), "dev-setup.sh doesn't pin " .. variable)
+            assert.are.equal(pin(variable), versions[tool], tool .. " in CONTRIBUTING.md")
+        end
+    end)
+
+    it("is what make setup runs", function()
+        local recipe = wow.readFile("Makefile"):match("\nsetup:\n(.-)\n\n")
+        assert.are.equal('\t./scripts/dev-setup.sh "$(TOOLS)"', recipe)
+    end)
+
+    it("documents every download host and the claude.ai setup script", function()
+        local _, section = documented()
+        for host in wow.readFile("scripts/dev-setup.lock"):gmatch("https://([^/%s]+)/") do
+            assert.is_truthy(section:find("`" .. host .. "`", 1, true), host .. " isn't listed in CONTRIBUTING.md")
+        end
+        assert.is_truthy(section:find("make %-C /home/user/FriendlyForever setup"), "no one-line setup script")
+    end)
+
+    it("keeps every development-only path out of the CurseForge package", function()
+        local ignored = {}
+        local inIgnore = false
+        for _, line in ipairs(lines(".pkgmeta")) do
+            if line:match("^%S") then inIgnore = line:match("^ignore:") ~= nil
+            elseif inIgnore then
+                local entry = line:match("^%s+%-%s+[\"']?([^%s#\"']+)")
+                if entry then ignored[entry] = true end
+            end
+        end
+        for _, path in ipairs({ "scripts", "spec", "uitests", ".github", "Makefile", "CONTRIBUTING.md", "CLAUDE.md",
+            ".busted", ".luacheckrc", ".gitignore" }) do
+            assert.is_true(ignored[path], path .. " isn't in .pkgmeta's ignore list")
+        end
+        -- The setup script and its checksums live in an ignored folder.
+        assert.is_true(ignored[("scripts/dev-setup.sh"):match("^[^/]+")])
+        assert.is_true(ignored[("scripts/dev-setup.lock"):match("^[^/]+")])
+    end)
+end)
+
 describe("Claude Code worktrees", function()
     it("are left out of the lint", function()
         -- Run the config as luacheck does: its per-file sections (files[...])
