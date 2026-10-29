@@ -1,4 +1,4 @@
--- Spec: #31, #76
+-- Spec: #31, #71, #76
 -- Buff order and the never-offer list: which of your buffs the button offers
 -- first, and which it never offers.
 local wow = require("spec.support.wow")
@@ -189,7 +189,8 @@ describe("Buff order and never offer", function()
             wow.run(w.tabs.buffBack, "OnClick")
             assert.are.equal(w.buffRows[2].up, select(2, w.who.header:GetPoint()), "who gets each follows the list")
             assert.are.equal(w.who.neverLabel, select(2, w.autoHeader:GetPoint()), "then buff mode's rows")
-            assert.are.equal(w.steppers.autoOffMinutes.label, select(2, w.msgHeader:GetPoint()), "then the lines")
+            assert.are.equal(w.steppers.autoOffMinutes.label, select(2, w.bgHeader:GetPoint()), "then battlegrounds")
+            assert.are.equal(w.bgPrepBuff, select(2, w.msgHeader:GetPoint()), "then the lines")
             wow.run(w.tabs.buff, "OnClick")
             assert.is_false(w.buffOrderHeader:IsShown())
             assert.is_false(w.who.header:IsShown())

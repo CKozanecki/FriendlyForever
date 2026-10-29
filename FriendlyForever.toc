@@ -36,6 +36,7 @@ BuffButton.lua
 BuffMode.lua
 GroupBuffs.lua
 BuffModeAuto.lua
+Battleground.lua
 Options.lua
 Minimap.lua
 Core.lua

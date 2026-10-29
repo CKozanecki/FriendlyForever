@@ -64,7 +64,7 @@ function handlers.ADDON_LOADED(name)
     -- added files, /reload runs the new code without them. Stay inert and
     -- say so, rather than erroring on every event.
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
-        "BuffData", "Offers", "BuffButton", "RateLimit" }) do
+        "BuffData", "Offers", "BuffButton", "Battleground", "RateLimit" }) do
         if ns[module] == nil then
             ns.Print("|cffff4040this update added files. Restart the game (not /reload) to finish updating.|r")
             return
@@ -80,6 +80,7 @@ function handlers.ADDON_LOADED(name)
     ns.BuffMode.Create()
     ns.BuffButton.Create()
     ns.BuffModeAuto.Create()
+    ns.Battleground.Create()
 
     Register("PLAYER_ENTERING_WORLD", function(isLogin, isReload)
         if isLogin or isReload then
@@ -99,7 +100,12 @@ function handlers.ADDON_LOADED(name)
     end)
     Register("GUILD_ROSTER_UPDATE", ns.Greeter.OnRosterUpdate)
     Register("PLAYER_GUILD_UPDATE", ns.Greeter.RequestRoster)
-    Register("UNIT_AURA", function(_, updateInfo) ns.BuffTracker.OnPlayerAura(updateInfo) end, "player")
+    -- The battleground phase first: buffs that arrive as the battle starts
+    -- aren't tracked (Battleground.lua).
+    Register("UNIT_AURA", function(_, updateInfo)
+        ns.Battleground.OnPlayerAura()
+        ns.BuffTracker.OnPlayerAura(updateInfo)
+    end, "player")
     handlers.UNIT_SPELLCAST_SUCCEEDED = ns.BuffTracker.OnSpellcastSucceeded
     ns.RefreshEvents()
     Register("CVAR_UPDATE", function() ns.Options.Refresh() end)
