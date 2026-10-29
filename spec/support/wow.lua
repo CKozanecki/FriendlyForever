@@ -462,8 +462,10 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         (the defaults; the other orders are options).
 --   Water (#136): IsSwimming() and IsSubmerged() answer state.swimming and
 --                         state.submerged (true or false); the breath bar is
---                         mirror timer 1 (GetMirrorTimerInfo(1) names
---                         "BREATH"), with MIRROR_TIMER_START on a dive and
+--                         mirror timer 2 (GetMirrorTimerInfo(2) names
+--                         "BREATH"; 1 is fatigue, 3 feign death, the
+--                         documented order, so not the first slot: the
+--                         pessimistic choice, M.BREATH_TIMER_SLOT), with MIRROR_TIMER_START on a dive and
 --                         MIRROR_TIMER_STOP once it has refilled
 --                         (M.BREATH_REFILL_SECONDS after you surface). An unused
 --                         timer is named "UNKNOWN". The game has no call for
@@ -1130,7 +1132,8 @@ function M.reset()
     _G.IsSubmerged = function() return water(M.state.submerged == true) end
     _G.GetMirrorTimerInfo = function(index)
         assert(type(index) == "number", "GetMirrorTimerInfo: bad index")
-        if index == 1 and M.state.breath then
+        -- Breath is the second timer (1 is fatigue, 3 feign death): see ASSUMPTIONS.
+        if index == M.BREATH_TIMER_SLOT and M.state.breath then
             local scale = M.state.breath == "draining" and -1 or 10
             return water("BREATH"), 180000, 180000, scale, 0, "Breath"
         end
@@ -1489,6 +1492,8 @@ end
 -- Water (#136; see ASSUMPTIONS)
 ------------------------------------------------------------------------
 
+-- The mirror timer slot the breath bar is in (#136, see ASSUMPTIONS).
+M.BREATH_TIMER_SLOT = 2
 -- Seconds your breath bar takes to refill once you surface (from empty or
 -- not: kept simple), before the game hides it with MIRROR_TIMER_STOP.
 M.BREATH_REFILL_SECONDS = 10

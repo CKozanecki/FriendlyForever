@@ -86,7 +86,8 @@ end
 -- The underwater dungeon you're in, or nil (none, or it can't be read).
 function Water.Dungeon()
     local ok, name, instanceType, _, _, _, _, _, id = pcall(GetInstanceInfo)
-    if not ok or Util.IsSecret(instanceType) or instanceType ~= "party" and instanceType ~= "raid" then return nil end
+    -- Dungeons only: the list has no raids.
+    if not ok or Util.IsSecret(instanceType) or instanceType ~= "party" then return nil end
     -- A secret mustn't be used as a table key (the game raises an error).
     if not Util.IsSecret(id) and Water.UNDERWATER_INSTANCES[id] then
         return Water.UNDERWATER_INSTANCES[id]

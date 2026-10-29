@@ -85,7 +85,6 @@ describe("Water breathing near water", function()
                     assert.are.equal("Ann Vale: " .. spell, refresh())
                     wow.state.swimming = false
                     wow.state.submerged = true -- IsSubmerged alone
-                    ns.Water.Create() -- (already made: no second frame)
                     assert.are.equal("Ann Vale: " .. spell, refresh())
                     wow.press(button)
                     assert.are.same({ caster.id, "Ann-Vale" }, { wow.casts[1].id, wow.casts[1].target })
@@ -162,6 +161,11 @@ describe("Water breathing near water", function()
                     wow.leaveDungeon()
                     wow.enterDungeon(36, "The Deadmines")
                     assert.is_nil(refresh(), "a dungeon that isn't underwater")
+                    wow.leaveDungeon()
+                    -- Only dungeons count: an instance the game calls a raid doesn't.
+                    wow.enterDungeon(BLACKFATHOM, "Blackfathom Deeps")
+                    wow.state.instanceType = "raid"
+                    assert.is_nil(refresh(), "a raid")
                 end)
 
                 it("holds back only water buffs: others in the same list stay, in order", function()
@@ -258,11 +262,27 @@ describe("Water breathing near water", function()
             assert.are.same({}, wow.timers, "nothing left waiting")
         end)
 
-        it("doesn't for a warlock who hasn't learned it, or with the setting off", function()
+        it("doesn't for a warlock who hasn't learned it, with the setting off, or the addon off", function()
             boot({ known = {} })
             assert.are.equal(0, count())
             boot({ db = { buffBack = { breathNearWater = false } } })
             assert.are.equal(0, count())
+            boot()
+            ns.db.enabled = false
+            assert.are.equal(0, count())
+        end)
+
+        it("looks no more often when made a second time (one look, one event frame)", function()
+            boot()
+            local once = count()
+            local refreshes = 0
+            local realRefresh = ns.BuffButton.Refresh
+            ns.BuffButton.Refresh = function() refreshes = refreshes + 1 end
+            ns.Water.Create()
+            assert.are.equal(once, count())
+            wow.fire("MIRROR_TIMER_START", "BREATH", 1, 1, -1, 0, "Breath")
+            assert.are.equal(1, refreshes, "one frame heard it")
+            ns.BuffButton.Refresh = realRefresh
         end)
     end)
 
@@ -319,6 +339,8 @@ describe("Water breathing near water", function()
             assert.are.equal("breath", ns.BuffData.ForAura(BREATH).key)
             assert.are.equal("waterbreathing", ns.BuffData.ForCast(WATER_BREATHING).key)
             assert.is_false(ns.BuffData.Covers(list[1], INTELLECT))
+            assert.is_false(ns.BuffData.Covers(ns.BuffData.REVOKE, WATER_BREATHING), "not a buff in the data")
+            assert.is_false(ns.BuffData.Covers({}, BREATH))
             for _, class in ipairs(ns.BuffRules.CLASSES) do
                 assert.is_true(ns.BuffData.Useful(list[1], class), class)
             end
@@ -335,6 +357,22 @@ describe("Water breathing near water", function()
             party({ "Ann-Vale" })
             assert.is_nil(refresh())
         end)
+    end)
+
+    it("asks for a restart, not erroring, after an update that added Water.lua and only a /reload (black)", function()
+        wow.reset()
+        wow.state.class = "WARLOCK"
+        wow.state.knownSpells = { [BREATH] = true }
+        local loaded = {}
+        local _, files = wow.parseToc()
+        for _, file in ipairs(files) do
+            if file ~= "Water.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+        end
+        wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+        wow.fire("PLAYER_ENTERING_WORLD", true, false)
+        wow.advance(20)
+        assert.are.same({}, wow.errors)
+        assert.truthy(table.concat(wow.printed, "\n"):find("Restart the game (not /reload)", 1, true))
     end)
 
     describe("unreadable state (black)", function()
@@ -462,11 +500,15 @@ describe("Water breathing near water", function()
             assert.are.equal("Water breathing: only near water", w.breathNearWater.label:GetText())
             assert.are.equal("Offer Unending Breath and Water Breathing only while you're swimming or underwater, "
                 .. "for 2 minutes after, or in an underwater dungeon.", w.breathNearWater.tooltip)
-            local shown
-            _G.GameTooltip.SetText = function(_, text) shown = text end
+            local tip = {}
+            _G.GameTooltip.SetOwner = function(_, owner) tip.owner = owner end
+            _G.GameTooltip.SetText = function(_, text) tip.text = text end
+            _G.GameTooltip.Show = function() tip.shown = true end
+            _G.GameTooltip.Hide = function() tip.shown = false end
             wow.run(w.breathNearWater, "OnEnter")
-            assert.are.equal(w.breathNearWater.tooltip, shown)
+            assert.are.same({ owner = w.breathNearWater, text = w.breathNearWater.tooltip, shown = true }, tip)
             wow.run(w.breathNearWater, "OnLeave")
+            assert.is_false(tip.shown)
             w.breathNearWater:SetChecked(false)
             wow.run(w.breathNearWater, "OnClick")
             assert.is_false(ns.db.buffBack.breathNearWater)
@@ -479,14 +521,20 @@ describe("Water breathing near water", function()
             assert.is_false(w.waterHeader:IsShown())
         end)
 
-        it("is in /friendly status", function()
+        it("is in /friendly status, with the setting on or off", function()
+            local function said(pattern)
+                for _, line in ipairs(wow.printed) do
+                    if line:find(pattern) then return true end
+                end
+                return false
+            end
             boot()
             slash("status")
-            local found
-            for _, line in ipairs(wow.printed) do
-                if line:find("near water: no %(not near water%); water breathing only near water") then found = true end
-            end
-            assert.is_true(found)
+            assert.is_true(said("near water: no %(not near water%); water breathing only near water"))
+            boot({ db = { buffBack = { breathNearWater = false } } })
+            wow.swim()
+            slash("status")
+            assert.is_true(said("near water: yes %(in the water%); water breathing offered anywhere"))
         end)
     end)
 

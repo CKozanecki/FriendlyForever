@@ -111,13 +111,16 @@ describe("The simulated client", function()
         end)
 
         local function readings()
-            return { _G.IsSwimming(), _G.IsSubmerged(), (_G.GetMirrorTimerInfo(1)) }
+            return { _G.IsSwimming(), _G.IsSubmerged(), (_G.GetMirrorTimerInfo(2)) }
         end
 
         it("starts on dry land: not swimming, not underwater, no breath bar", function()
             assert.are.same({ false, false, "UNKNOWN" }, readings())
             assert.is_false(wow.inWater())
-            for i = 2, 3 do assert.are.equal("UNKNOWN", (_G.GetMirrorTimerInfo(i))) end
+            for _, i in ipairs({ 1, 3 }) do assert.are.equal("UNKNOWN", (_G.GetMirrorTimerInfo(i))) end
+            wow.dive()
+            assert.are.same({ "UNKNOWN", "BREATH", "UNKNOWN" }, { (_G.GetMirrorTimerInfo(1)),
+                (_G.GetMirrorTimerInfo(2)), (_G.GetMirrorTimerInfo(3)) }, "breath is the second slot")
         end)
 
         it("swims, dives, surfaces and climbs out, with the breath bar's events", function()
@@ -127,11 +130,11 @@ describe("The simulated client", function()
             wow.dive()
             assert.are.same({ true, true, "BREATH" }, readings())
             assert.are.same({ "MIRROR_TIMER_START BREATH" }, heard)
-            local _, _, _, scale = _G.GetMirrorTimerInfo(1)
+            local _, _, _, scale = _G.GetMirrorTimerInfo(2)
             assert.is_true(scale < 0, "draining")
             wow.surface()
             assert.are.same({ true, false, "BREATH" }, readings())
-            _, _, _, scale = _G.GetMirrorTimerInfo(1)
+            _, _, _, scale = _G.GetMirrorTimerInfo(2)
             assert.is_true(scale > 0, "refilling")
             wow.leaveWater()
             assert.are.same({ false, false, "BREATH" }, readings())
@@ -151,7 +154,7 @@ describe("The simulated client", function()
             wow.dive()
             assert.are.equal(1, #heard, "a refilling bar turns round without a new start")
             wow.advance(wow.BREATH_REFILL_SECONDS)
-            assert.are.equal("BREATH", (_G.GetMirrorTimerInfo(1)))
+            assert.are.equal("BREATH", (_G.GetMirrorTimerInfo(2)))
             assert.are.equal(1, #heard)
             wow.leaveWater()
             wow.advance(wow.BREATH_REFILL_SECONDS)
