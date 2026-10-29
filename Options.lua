@@ -912,12 +912,12 @@ function Options.CreateGeneralPage()
     local cap = Section(page, w.snooze15, "Chat limit")
     w.linesPerMinute = Stepper(page, "Lines per minute in each chat:", "linesPerMinute", function() return ns.db end)
     w.linesPerMinute.label:SetPoint("TOPLEFT", cap, "BOTTOMLEFT", 0, -10)
-    local capHelp = Note(page, w.linesPerMinute.label, "The most lines sent to /say, whispers, emotes, guild "
+    w.capHelp = Note(page, w.linesPerMinute.label, "The most lines sent to /say, whispers, emotes, guild "
         .. "or group chat in any minute. Thank-yous over the limit are dropped; greetings wait for room.")
-    capHelp:SetPoint("TOPLEFT", w.linesPerMinute.label, "BOTTOMLEFT", 0, -10)
+    w.capHelp:SetPoint("TOPLEFT", w.linesPerMinute.label, "BOTTOMLEFT", 0, -10)
 
     -- Ignore list
-    local ignore = Section(page, capHelp, "Never greet or thank")
+    local ignore = Section(page, w.capHelp, "Never greet or thank")
     w.ignoreList = Note(page, ignore, "")
     w.ignoreBox = TextBox(page, 220, 60)
     w.ignoreBox:SetPoint("TOPLEFT", w.ignoreList, "BOTTOMLEFT", 6, -8)
@@ -978,10 +978,15 @@ function Options.CreateGeneralPage()
     local help = Section(page, shareHelp, "Something not working?")
     w.report = Button(page, "Copy for a bug report", 180, function() ns.ShowBugReport() end)
     w.report:SetPoint("TOPLEFT", help, "BOTTOMLEFT", 0, -8)
-    Note(page, w.report, "Shows /friendly status and the debug log as text to copy. Turn on /friendly debug "
-        .. "and make the problem happen first, so the log shows it.")
+    w.reportHelp = Note(page, w.report, "Shows /friendly status and the debug log as text to copy. "
+        .. "Turn on /friendly debug and make the problem happen first, so the log shows it.")
 
     page:SetScript("OnShow", function() FillGeneral() end)
+    -- For the UI simulator's layout checks and screenshot (uitests/), which
+    -- see the addon only through its globals: the page doesn't scroll, so
+    -- everything must fit on it.
+    page.widgets = w
+    panel.generalPage = page
 end
 
 FillGeneral = function()

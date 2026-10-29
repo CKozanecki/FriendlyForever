@@ -179,6 +179,43 @@ test("the options panel is on the screen once open", function()
     OnScreen(panel, "options panel")
 end)
 
+-- Opens the options at the General page (#35). It doesn't scroll, so each
+-- section added to it pushes the rest down towards its bottom.
+local function OpenGeneralPage()
+    SlashCmdList.FRIENDLYFOREVER("")
+    local page = _G.FriendlyForeverOptionsPanel.generalPage
+    assertNotNil(page)
+    if Settings and Settings.OpenToCategory and page.category then
+        Settings.OpenToCategory(page.category:GetID())
+    end
+    return page
+end
+
+-- Layout: a region doesn't reach below its frame's bottom edge.
+local function AboveBottom(frame, region, label)
+    local ok, frameBottom, bottom = pcall(function() return frame:GetBottom(), region:GetBottom() end)
+    if not (ok and type(frameBottom) == "number" and type(bottom) == "number") then
+        report("LAYOUT " .. label .. ": edges can't be read here")
+        return
+    end
+    local line = ("LAYOUT %s: bottom %.0f, frame bottom %.0f"):format(label, bottom, frameBottom)
+    report(line)
+    check(bottom >= frameBottom - 1, line .. ": below the bottom of its frame")
+end
+
+test("the General page's chat limit row stays inside it (#35)", function()
+    local page = OpenGeneralPage()
+    local w = page.widgets
+    TextInside(page, w.linesPerMinute.label, "chat limit label")
+    TextInside(page, w.linesPerMinute.plus, "chat limit + button")
+    AboveBottom(page, w.capHelp, "chat limit help")
+end)
+
+test("the General page's last line is still on the page (#35)", function()
+    local page = OpenGeneralPage()
+    AboveBottom(page, page.widgets.reportHelp, "bug report help")
+end)
+
 -- Facts about the simulated client, printed in the report: they are
 -- compared with the ASSUMPTIONS block in spec/support/wow.lua.
 test("reports the client facts our own simulated client assumes", function()

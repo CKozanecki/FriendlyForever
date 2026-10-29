@@ -56,7 +56,7 @@ files["uitests/**"] = {
     globals = { "_G", "DEFAULT_CHAT_FRAME" },
     read_globals = {
         "test", "assertTrue", "assertType", "assertEquals", "assertNotNil",
-        "print", "A_Print", "C_SpellBook", "UIParent",
+        "print", "A_Print", "C_SpellBook", "UIParent", "Settings",
         "FriendlyForeverDB", "SLASH_FRIENDLYFOREVER1", "SlashCmdList",
     },
 }
