@@ -26,7 +26,17 @@ end
 function Announcer.SnoozeLeft()
     local untilTime = ns.db and ns.db.snoozeUntil
     if not untilTime then return nil end
+    -- Damaged mid-session: not a number means awake, as at load (so does
+    -- NaN, below), and never longer than the longest snooze.
+    if type(untilTime) ~= "number" then
+        ns.db.snoozeUntil = nil
+        return nil
+    end
     local left = untilTime - time()
+    if left > ns.Config.SNOOZE_MAX_SECONDS then
+        left = ns.Config.SNOOZE_MAX_SECONDS
+        ns.db.snoozeUntil = time() + left
+    end
     if left > 0 then return left end
     ns.db.snoozeUntil = nil
     return nil
