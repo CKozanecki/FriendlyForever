@@ -292,11 +292,10 @@ local function Unanswered(press)
             -- also kept as a cast by hand (#133).
             ShowResult(string.format("%s went to %s, not %s.", press.spell,
                 Util.StripChat(press.elsewhere.name), who), true)
-            BuffButton.Refresh()
-            return
+        else
+            if press.group then ns.GroupBuffs.NoteRefused(press.name) end
+            ShowResult("No answer: couldn't find " .. who .. " (out of sight?).", true)
         end
-        if press.group then ns.GroupBuffs.NoteRefused(press.name) end
-        ShowResult("No answer: couldn't find " .. who .. " (out of sight?).", true)
     else
         return
     end

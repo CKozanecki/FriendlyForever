@@ -519,6 +519,33 @@ describe("Buff back", function()
             assert.is_true(printedHas("Mark of the Wild went to Ann Vale, not Bob Stone."))
         end)
 
+        it("another cast landing doesn't make a redirected cast that never lands look landed (#133)", function()
+            stranger()
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2")
+            buffedBy()
+            button.scripts.PreClick(button, "LeftButton", true)
+            button.scripts.PreClick(button, "LeftButton", false)
+            ns.BuffButton.OnSpellcastSent("player", "Ann Vale", "Cast-1", MOTW) -- never lands
+            ns.BuffButton.OnSpellcastSucceeded("player", "Cast-2", MOTW) -- another cast lands
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+            assert.is_false(printedHas("went to"))
+            assert.is_true(printedHas("No answer"))
+        end)
+
+        it("casts with unreadable GUIDs are never matched to each other (#133)", function()
+            stranger()
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2")
+            buffedBy()
+            button.scripts.PreClick(button, "LeftButton", true)
+            button.scripts.PreClick(button, "LeftButton", false)
+            ns.BuffButton.OnSpellcastSent("player", "Ann Vale", "", MOTW) -- the redirected cast
+            ns.BuffButton.OnSpellcastSucceeded("player", "", MOTW)        -- a cast, but it can't be told apart
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+            assert.is_false(printedHas("went to"))
+        end)
+
         it("a button cast sent to someone else that never lands isn't reported as having gone there (#133)", function()
             stranger()
             stranger("nameplate2", { name = "Ann", surname = "Vale" })
