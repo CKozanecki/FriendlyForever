@@ -82,8 +82,9 @@ end
 -- A stand-in for docker. It logs each call's arguments, one call a line, to
 -- "calls". A detached run (a shot) gets the next container ID, c1, c2 and so
 -- on, and plays what the file behave-<shot> says: hang (runs until killed),
--- crash (exits 139), nostart (docker refuses it) or, by default, ok (exits 0
--- after writing a PNG into the folder mounted at /shots). Its state is a
+-- crash (exits 139), nostart (docker refuses it), plant (exits 0 after
+-- planting links, to the path in plant-target, in the folder mounted at
+-- /shots) or, by default, ok (exits 0 after writing a PNG into that folder). Its state is a
 -- file per container: exists-<id>, and running-<id> while it runs.
 -- "no-daemon" makes docker info fail, as when Docker Desktop is stopped;
 -- "arch" sets the architecture it reports.
@@ -118,6 +119,9 @@ case "$command" in
     case "$behaviour" in
       hang) touch "$dir/running-$cid" ;;
       crash) echo 139 > "$dir/exit-$cid" ;;
+      plant)
+        echo 0 > "$dir/exit-$cid"
+        for link in README-simulated.txt logs; do ln -s "$(cat "$dir/plant-target")" "$shots/$link"; done ;;
       *) echo 0 > "$dir/exit-$cid"; printf '\211PNG\r\n\032\n' > "$shots/sim-$name.png" ;;
     esac
     echo "$cid" ;;
@@ -223,21 +227,32 @@ describe("Local art screenshots script", function()
         end)
     end)
 
+    -- CI's shot block: from the first shot to the copy window's, without
+    -- comments, each line trimmed.
+    local function shotBlock(source)
+        local block = source:match("\n(%s*shoot game\n.-shoot copy%-window[^\n]*)\n")
+        assert.is_truthy(block, "no shot block")
+        local kept = {}
+        for line in (block .. "\n"):gmatch("([^\n]*)\n") do
+            if not line:match("^%s*#") and line:match("%S") then kept[#kept + 1] = line:match("^%s*(.-)%s*$") end
+        end
+        return kept
+    end
+
     it("takes the same shots as ui-sim.yml, at 1024×768, each named as simulated", function()
         local workflow = workflowText()
-        local shots = linesMatching(text, "^%s*shoot [%w-]")
+        local shots = shotBlock(text)
         assert.is_true(#shots >= 9, "expected the screenshot job's shots")
-        assert.are.same(linesMatching(workflow, "^%s*shoot [%w-]"), shots)
+        assert.are.same(shotBlock(workflow), shots)
         -- The scripts the shots run, staged the same way.
-        for _, loop in ipairs({ "^%s*for state in ", "^%s*for page in " }) do
+        for _, loop in ipairs({ "^%s*for state in ", "^%s*for page in ", "^%s*for tab in " }) do
             assert.are.same(linesMatching(workflow, loop), linesMatching(text, loop))
         end
+        assert.is_truthy(text:find("FriendlyForeverUIPages.ShowTab", 1, true), "the tabs' scripts aren't staged")
         assert.is_truthy(text:find('screenshot --png --width 1024 --height 768 -o "/shots/sim-$name.png"', 1, true))
-        -- The report expects every one of them.
-        local names = {}
-        for _, shot in ipairs(shots) do names[#names + 1] = shot:match("^shoot ([%w-]+)") end
-        assert.is_truthy(text:find("for name in " .. table.concat(names, " ") .. "; do", 1, true),
-            "the report doesn't check for every shot")
+        -- The tab list is read from ui-sim.yml, not copied.
+        assert.is_falsy(text:find("OPTIONS_TABS=[^\"]"), "the tab list is copied into the script")
+        assert.is_truthy(text:find('OPTIONS_TABS="$(options_tabs)"', 1, true))
     end)
 
     it("is never run in CI", function()
@@ -308,7 +323,7 @@ describe("Local art screenshots script", function()
                 end
                 if command:find("screenshot", 1, true) then
                     shots = shots + 1
-                    assert.are.same({ '"$OUT:/shots"' }, writable)
+                    assert.are.same({ '"$OUT/shots:/shots"' }, writable)
                     assert.is_truthy(command:find("--read-only", 1, true), "a shot's root is writable")
                     assert.is_truthy(command:find("--tmpfs /tmp:", 1, true), "a shot has no tmpfs")
                     assert.is_truthy(command:find("-e HOME=/tmp -e XDG_CACHE_HOME=/tmp/.cache", 1, true),
@@ -436,26 +451,36 @@ describe("Local art screenshots script", function()
             assert.is_false(exists(dir .. "/a:b"))
         end)
 
-        it("stops on an output folder that holds anything but an earlier run's shots", function()
+        it("stops on an output folder that holds anything but an earlier run's shots/, logs/ and README", function()
             local install = fakeInstall(dir)
-            for _, other in ipairs({ "notes.txt", ".ssh", "Documents" }) do
+            for _, other in ipairs({ "notes.txt", ".ssh", "Documents", "sim-game.png" }) do
                 local out = dir .. "/out-" .. other
-                assert(shell("mkdir -p " .. quote(out .. "/logs")))
-                write(out .. "/sim-game.png", "")
+                assert(shell("mkdir -p " .. quote(out .. "/logs") .. " " .. quote(out .. "/shots")))
+                write(out .. "/README-simulated.txt", "")
                 assert(shell("mkdir -p " .. quote(out .. "/" .. other)))
                 refused("The output folder holds other files, such as " .. other, { out, install })
             end
-            -- A shot's name that's really a link elsewhere.
-            assert(shell("mkdir -p " .. quote(dir .. "/out-link")))
-            assert(shell("ln -s " .. quote(dir) .. " " .. quote(dir .. "/out-link/sim-game.png")))
-            refused("The output folder holds other files, such as sim-game.png", { dir .. "/out-link", install })
+            -- The right names, as links elsewhere or the wrong kind of file.
+            for _, case in ipairs({ { "shots", "link" }, { "logs", "link" }, { "README-simulated.txt", "link" },
+                { "logs", "file" }, { "README-simulated.txt", "folder" } }) do
+                local out = dir .. "/out-" .. case[1] .. "-" .. case[2]
+                assert(shell("mkdir -p " .. quote(out)))
+                if case[2] == "link" then
+                    assert(shell("ln -s " .. quote(dir) .. " " .. quote(out .. "/" .. case[1])))
+                elseif case[2] == "file" then
+                    write(out .. "/" .. case[1], "")
+                else
+                    assert(shell("mkdir " .. quote(out .. "/" .. case[1])))
+                end
+                refused("The output folder holds other files, such as " .. case[1], { out, install })
+            end
         end)
 
         it("takes an output folder an earlier run made, then goes on to check Docker", function()
             local install = fakeInstall(dir)
             local out = dir .. "/out"
-            assert(shell("mkdir -p " .. quote(out .. "/logs")))
-            write(out .. "/sim-game.png", "")
+            assert(shell("mkdir -p " .. quote(out .. "/logs") .. " " .. quote(out .. "/shots")))
+            write(out .. "/shots/sim-game.png", "")
             write(out .. "/README-simulated.txt", "")
             write(bin .. "/bin/no-daemon", "")
             local code, output, calls = run({ out, install })
@@ -490,6 +515,39 @@ describe("Local art screenshots script", function()
             assert.are_not.equal(0, code)
             assert.is_truthy(output:find("Intel (x86_64)", 1, true), output)
             assert.is_falsy(calls:find("run", 1, true) or calls:find("build", 1, true), calls)
+        end)
+    end)
+
+    describe("options tabs", function()
+        -- Runs options_tabs against a ui-sim.yml holding workflow.
+        local function tabs(workflow)
+            local dir = tempDir()
+            assert(shell("mkdir -p " .. quote(dir .. "/.github/workflows")))
+            write(dir .. "/.github/workflows/ui-sim.yml", workflow)
+            write(dir .. "/run.sh", "source " .. quote(SCRIPT) .. "\nREPO_ROOT=" .. quote(dir) .. "\noptions_tabs\n")
+            local p = io.popen("bash " .. quote(dir .. "/run.sh") .. " < /dev/null 2>&1; echo \"exit=$?\"")
+            local output = p:read("*a")
+            p:close()
+            os.execute("rm -rf " .. quote(dir))
+            return tonumber(output:match("exit=(%d+)\n$")), output:gsub("exit=%d+\n$", "")
+        end
+
+        it("are ui-sim.yml's own list", function()
+            local code, output = tabs(wow.readFile(".github/workflows/ui-sim.yml"))
+            assert.are.equal(0, code, output)
+            local listed = wow.readFile(".github/workflows/ui-sim.yml"):match("\n%s*OPTIONS_TABS: ([^\n]+)")
+            assert.are.equal(listed .. "\n", output)
+        end)
+
+        it("stop the script when the list is missing or holds a name that isn't plain", function()
+            local code, output = tabs("jobs:\n")
+            assert.are_not.equal(0, code)
+            assert.is_truthy(output:find("ui-sim.yml has no OPTIONS_TABS list.", 1, true), output)
+            for _, bad in ipairs({ "a $(id)", "a;b", "../x", "Tab", "a*" }) do
+                code, output = tabs("      OPTIONS_TABS: guild-login " .. bad .. "\n")
+                assert.are_not.equal(0, code, bad)
+                assert.is_truthy(output:find("has a name that isn't plain", 1, true), output)
+            end
         end)
     end)
 
@@ -584,6 +642,7 @@ describe("Local art screenshots script", function()
                 "export PATH=" .. quote(bin .. "/bin") .. ':"$PATH"',
                 "export UI_SIM_SHOT_SECONDS=" .. (seconds or "2"),
                 "source " .. quote(SCRIPT),
+                'OPTIONS_TABS="$(options_tabs)" SHOTS=""',
                 "OUT=" .. quote(dir .. "/out") .. " WORK=" .. quote(dir .. "/work") .. " INSTALL=" .. quote(dir .. "/wow")
                     .. " PRODUCT=wowf SHOT_CPUS=1",
                 body,
@@ -593,6 +652,25 @@ describe("Local art screenshots script", function()
             p:close()
             local code = tonumber(output:match("exit=(%d+)\n$"))
             return code, output:gsub("exit=%d+\n$", ""), read(bin .. "/bin/calls")
+        end
+
+        -- The shots CI takes, in its order, with ui-sim.yml's tabs.
+        local function expectedShots()
+            local tabs = wow.readFile(".github/workflows/ui-sim.yml"):match("\n%s*OPTIONS_TABS: ([^\n]+)")
+            local list = { "game" }
+            for tab in tabs:gmatch("%S+") do list[#list + 1] = "options-" .. tab end
+            for _, name in ipairs({ "options-buff", "general", "button", "button-favour", "button-buffmode",
+                "options-general", "options-ledger", "copy-window" }) do
+                list[#list + 1] = name
+            end
+            return list
+        end
+
+        -- A shot's container ID: c1 for the first, and so on.
+        local function cidOf(name)
+            for i, shot in ipairs(expectedShots()) do
+                if shot == name then return "c" .. i end
+            end
         end
 
         local function leftovers()
@@ -609,52 +687,72 @@ describe("Local art screenshots script", function()
         end
 
         it("writes every shot, named as simulated, with its log, and reports them all", function()
-            local code, output, calls = source("take_shots; report")
+            local code, output, calls = source("prepare_output; take_shots; report")
             assert.are.equal(0, code, output)
-            assert.are.same({ "game", "options", "general", "button", "button-favour", "button-buffmode",
-                "options-general", "options-ledger", "copy-window" }, startedShots(calls))
-            for _, name in ipairs(startedShots(calls)) do
-                assert.is_true(exists(dir .. "/out/sim-" .. name .. ".png"), name)
+            local expected = expectedShots()
+            assert.is_true(#expected >= 16, "expected CI's shots, a tab each")
+            assert.are.same(expected, startedShots(calls))
+            for _, name in ipairs(expected) do
+                assert.is_true(exists(dir .. "/out/shots/sim-" .. name .. ".png"), name)
                 assert.is_true(exists(dir .. "/out/logs/sim-" .. name .. ".log"), name)
             end
-            assert.is_truthy(output:find("Done: all 9 shots are in", 1, true), output)
+            assert.is_truthy(output:find("Done: all " .. #expected .. " shots are in", 1, true), output)
             assert.are.equal("", leftovers())
         end)
 
         it("kills a shot that hangs at its time limit, and still takes the others, leaving no container", function()
-            local started = os.time()
-            local code, output, calls = source("take_shots; report",
-                { options = "hang", button = "crash", ["copy-window"] = "hang" })
-            assert.is_true(os.time() - started < 30, "the shots took too long")
+            local started, total = os.time(), #expectedShots()
+            local code, output, calls = source("prepare_output; take_shots; report",
+                { ["options-guild-login"] = "hang", button = "crash", ["copy-window"] = "hang" })
+            assert.is_true(os.time() - started < 40, "the shots took too long")
             assert.are_not.equal(0, code)
-            assert.are.equal(9, #startedShots(calls), "a failed shot stopped the others")
-            assert.is_truthy(output:find("options: timed out after 2 s", 1, true), output)
+            assert.are.equal(total, #startedShots(calls), "a failed shot stopped the others")
+            assert.is_truthy(output:find("options-guild-login: timed out after 2 s", 1, true), output)
             assert.is_truthy(output:find("copy-window: timed out after 2 s", 1, true), output)
             assert.is_truthy(output:find("button: exited with 139", 1, true), output)
             assert.is_truthy(output:find("game: exited with 0", 1, true), output)
             -- The hung ones were killed, and every container removed.
-            assert.is_truthy(calls:find("\nkill c2\n", 1, true), calls)
-            assert.is_truthy(calls:find("\nkill c9\n", 1, true), calls)
-            for n = 1, 9 do assert.is_truthy(calls:find("\nrm %-f c" .. n .. "\n"), "c" .. n .. " wasn't removed") end
+            assert.is_truthy(calls:find("\nkill " .. cidOf("options-guild-login") .. "\n", 1, true), calls)
+            assert.is_truthy(calls:find("\nkill " .. cidOf("copy-window") .. "\n", 1, true), calls)
+            for n = 1, total do assert.is_truthy(calls:find("\nrm %-f c" .. n .. "\n"), "c" .. n .. " wasn't removed") end
             assert.are.equal("", leftovers())
-            assert.is_truthy(output:find("6 of 9 shots written to", 1, true), output)
-            assert.is_truthy(output:find("Missing: options button copy-window", 1, true), output)
+            assert.is_truthy(output:find((total - 3) .. " of " .. total .. " shots written to", 1, true), output)
+            assert.is_truthy(output:find("Missing: options-guild-login button copy-window", 1, true), output)
         end)
 
         it("carries on when docker refuses to start a shot", function()
-            local code, output, calls = source("take_shots; report", { general = "nostart" })
+            local code, output, calls = source("prepare_output; take_shots; report", { general = "nostart" })
             assert.are_not.equal(0, code)
             assert.is_truthy(output:find("general: couldn't start its container", 1, true), output)
-            assert.are.equal(9, #startedShots(calls), "a shot wasn't tried")
-            for _, name in ipairs({ "game", "options", "button", "copy-window" }) do
-                assert.is_true(exists(dir .. "/out/sim-" .. name .. ".png"), name)
+            assert.are.equal(#expectedShots(), #startedShots(calls), "a shot wasn't tried")
+            for _, name in ipairs({ "game", "options-buff", "button", "copy-window" }) do
+                assert.is_true(exists(dir .. "/out/shots/sim-" .. name .. ".png"), name)
             end
             assert.is_truthy(output:find("Missing: general", 1, true), output)
         end)
 
+        it("never writes through links a shot plants, and never counts an earlier run's PNG", function()
+            local target = dir .. "/target"
+            write(target, "the owner's file\n")
+            write(bin .. "/bin/plant-target", target)
+            -- An earlier run's shot that this run fails to take.
+            assert(shell("mkdir -p " .. quote(dir .. "/out/shots")))
+            write(dir .. "/out/shots/sim-general.png", "old")
+            local code, output = source("prepare_output; take_shots; report", { game = "plant", general = "crash" })
+            assert.are_not.equal(0, code)
+            assert.are.equal("the owner's file\n", read(target), "the host wrote through a planted link")
+            -- The host's own files are real files, outside what shots can write.
+            assert.is_true(shell("test -f " .. quote(dir .. "/out/README-simulated.txt") .. " && test ! -L "
+                .. quote(dir .. "/out/README-simulated.txt")))
+            assert.is_true(shell("test -f " .. quote(dir .. "/out/logs/sim-copy-window.log") .. " && test ! -L "
+                .. quote(dir .. "/out/logs")))
+            -- game planted links instead of its PNG; general's old one isn't counted.
+            assert.is_truthy(output:find("Missing: game general\n", 1, true), output)
+        end)
+
         it("leaves no container running when stopped partway", function()
             -- Stopped (as by Ctrl-C) while a shot hangs.
-            local code, _, calls = source("install_traps; (sleep 1; kill -TERM $$) & take_shots",
+            local code, _, calls = source("install_traps; prepare_output; (sleep 1; kill -TERM $$) & take_shots",
                 { game = "hang" }, "60")
             assert.are.equal(130, code)
             assert.is_truthy(calls:find("\nkill c1\n", 1, true), calls)

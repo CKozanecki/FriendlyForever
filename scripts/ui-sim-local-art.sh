@@ -22,7 +22,8 @@
 # - a shot sees, read-only, only the install's Data/, .build.info and
 #   .product.db: never WTF/ (it holds the account name), Interface/AddOns or
 #   the whole install. Its root file system is read-only; only a tmpfs and
-#   the output folder are writable;
+#   the output's shots/ folder are writable. The host writes its logs and
+#   README beside shots/, where no container can plant a link;
 # - Forever's UI code comes from Gethe's wow-ui-source at the commit the
 #   simulator pins, so the simulator never syncs it from the install or
 #   Blizzard's CDN. Nothing downloads game files;
@@ -150,9 +151,9 @@ check_product() {
         "If Forever is one of those under another code, run again with --product CODE."
 }
 
-# The output folder: new, or holding only what an earlier run wrote, since
-# every shot can write to all of it. Never inside a git repository (this one
-# or any other), the install or the script's working folder.
+# The output folder: new, or holding only what an earlier run made (shots/,
+# logs/ and the README). Never inside a git repository (this one or any
+# other), the install or the script's working folder.
 resolve_output() {
     local given="$1" parent base entry
     [ -n "$given" ] || { usage >&2; die "No output folder given."; }
@@ -183,11 +184,14 @@ resolve_output() {
     [ -d "$OUT" ] || return 0
     for entry in "$OUT"/* "$OUT"/.[!.]* "$OUT"/..?*; do
         [ -e "$entry" ] || [ -L "$entry" ] || continue
-        case "${entry##*/}" in
-            sim-*.png | logs | README-simulated.txt) [ ! -L "$entry" ] && continue ;;
-        esac
+        if [ ! -L "$entry" ]; then
+            case "${entry##*/}" in
+                shots | logs) [ -d "$entry" ] && continue ;;
+                README-simulated.txt) [ -f "$entry" ] && continue ;;
+            esac
+        fi
         die "The output folder holds other files, such as ${entry##*/}: $OUT" \
-            "Every shot can write to all of it, so give a new folder, or one an earlier run made."
+            "Give a new folder, or one an earlier run of this script made."
     done
 }
 
@@ -256,6 +260,19 @@ stage_addon() {
     chmod -R a-w "$WORK/addons"
 }
 
+# The options panel's tabs, one shot each: ui-sim.yml's OPTIONS_TABS, so the
+# two can't drift apart. Plain tab names only.
+options_tabs() {
+    local tabs
+    tabs="$(sed -n 's/^ *OPTIONS_TABS: *//p' "$REPO_ROOT/.github/workflows/ui-sim.yml" | head -n 1)"
+    [ -n "$tabs" ] || die "ui-sim.yml has no OPTIONS_TABS list."
+    # Checked as a whole before it's ever split, so it can't hold a pattern.
+    case "$tabs" in
+        *[!a-z0-9\ -]*) die "ui-sim.yml's OPTIONS_TABS has a name that isn't plain: $tabs" ;;
+    esac
+    echo "$tabs"
+}
+
 # One script per state of the buff-back button and per filled options page,
 # as ui-sim.yml stages them: the scenarios' own setup, then what to show.
 stage_shot_scripts() {
@@ -270,6 +287,10 @@ stage_shot_scripts() {
     for page in general ledger; do
         { cat "$REPO_ROOT/uitests/pages.lua"; printf '\nFriendlyForeverUIPages.Show("%s")\n' "$page"; } \
             > "$states/page-$page.lua"
+    done
+    for tab in $OPTIONS_TABS; do
+        { cat "$REPO_ROOT/uitests/pages.lua"; printf '\nFriendlyForeverUIPages.ShowTab("%s")\n' "$tab"; } \
+            > "$states/tab-$tab.lua"
     done
     chmod -R a-w "$states"
 }
@@ -370,10 +391,11 @@ build_simulator() {
 }
 
 # One screenshot, in its own container: no network, a read-only root, and
-# only a tmpfs and the output folder writable. Killed at its time limit, and
+# only a tmpfs and the output's shots/ writable. Killed at its time limit, and
 # never left behind.
 shoot() {
     local name="$1"; shift
+    SHOTS="$SHOTS $name"
     local cid waited=0 poll=5 result
     [ "$SHOT_SECONDS" -ge 10 ] || poll=1
     result="timed out after $SHOT_SECONDS s"
@@ -390,7 +412,7 @@ shoot() {
         -v "$INSTALL/.product.db:/wow/.product.db:ro" \
         -v "$WORK/addons:/test-addons:ro" \
         -v "$WORK/shot-lua:/shot-lua:ro" \
-        -v "$OUT:/shots" \
+        -v "$OUT/shots:/shots" \
         "$RENDER_IMAGE" sh -c "$LINK_UI" sh --addons-path /test-addons "$@" \
         screenshot --png --width 1024 --height 768 -o "/shots/sim-$name.png")"; then
         echo "$name: couldn't start its container"
@@ -413,18 +435,43 @@ shoot() {
     echo "$name: $result"
 }
 
-# The same shots as ui-sim.yml's screenshot job, in the same order.
+# The same shots as ui-sim.yml's screenshot job, in the same order (a repo
+# test checks this block is the same as CI's).
 take_shots() {
-    mkdir -p "$OUT/logs"
+    local tab
     shoot game
-    shoot options --exec-lua "SlashCmdList.FRIENDLYFOREVER('')"
+    # Each tab of the options panel (#112), named after the tab:
+    # options-guild-login (the tab the panel opens on), options-buff-thanks...
+    for tab in $OPTIONS_TABS; do
+        shoot "options-$tab" --exec-lua "@/shot-lua/tab-$tab.lua"
+    done
+    # The Buff Thanks tab (#101), with the longest "Thank them with" choice.
+    shoot options-buff --exec-lua "FriendlyForeverDB.buff.thankStyle = 'both'; SlashCmdList.FRIENDLYFOREVER(''); for _, f in ipairs({ FriendlyForeverOptionsPanel:GetChildren() }) do local c = f.GetScrollChild and f:GetScrollChild(); for _, b in ipairs(c and { c:GetChildren() } or {}) do if b.GetText and b:GetText() == 'Buff Thanks' then b:GetScript('OnClick')(b) end end end"
+    # The General page (#35): it doesn't scroll, so everything must fit.
     shoot general --exec-lua "SlashCmdList.FRIENDLYFOREVER(''); Settings.OpenToCategory(FriendlyForeverOptionsPanel.generalPage.category:GetID())"
+    # /friendly move shows the buff back button, unlocked, with nobody owed.
     shoot button --exec-lua "SlashCmdList.FRIENDLYFOREVER('move')"
+    # A favour owed: someone outside your group buffed you.
     shoot button-favour --exec-lua @/shot-lua/favour.lua
+    # Buff mode, with a party member missing your buff.
     shoot button-buffmode --exec-lua @/shot-lua/buffmode.lua
+    # The General and Favour Ledger pages, filled with long names and
+    # many entries, and the copy window as /friendly export opens it (#52).
     shoot options-general --exec-lua @/shot-lua/page-general.lua
     shoot options-ledger --exec-lua @/shot-lua/page-ledger.lua
     shoot copy-window --exec-lua "SlashCmdList.FRIENDLYFOREVER('export')"
+}
+
+# The output folder's layout. Shots write only to shots/, the one folder any
+# container mounts; the host writes logs/ and the README, which no container
+# sees, so a shot can never make the host write through a link it planted.
+# shots/ starts empty, so an earlier run's PNG can't pass for a new one (rm
+# -rf removes links without following them).
+prepare_output() {
+    mkdir -p "$OUT"
+    rm -rf "$OUT/shots"
+    mkdir -p "$OUT/shots" "$OUT/logs"
+    write_readme
 }
 
 write_readme() {
@@ -441,22 +488,24 @@ README
 
 # Every shot's PNG, or the names of the missing ones.
 report() {
-    local name missing="" count=0
-    for name in game options general button button-favour button-buffmode options-general options-ledger copy-window; do
-        if [ -s "$OUT/sim-$name.png" ]; then count=$((count + 1)); else missing="$missing $name"; fi
+    local name missing="" count=0 total=0
+    for name in $SHOTS; do
+        total=$((total + 1))
+        if [ -s "$OUT/shots/sim-$name.png" ]; then count=$((count + 1)); else missing="$missing $name"; fi
     done
     echo
     if [ -z "$missing" ]; then
-        say "Done: all $count shots are in $OUT (logs in $OUT/logs)"
+        say "Done: all $count shots are in $OUT/shots (logs in $OUT/logs)"
         return 0
     fi
-    say "$count of 9 shots written to $OUT. Missing:$missing"
+    say "$count of $total shots written to $OUT/shots. Missing:$missing"
     echo "    Each one's log is in $OUT/logs/sim-<name>.log."
     return 1
 }
 
 main() {
     PRODUCT="$DEFAULT_PRODUCT"
+    SHOTS=""
     local output="" install="${WOW_INSTALL_PATH:-}" positional=0
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -480,6 +529,7 @@ main() {
     WORK="${XDG_CACHE_HOME:-$HOME/.cache}/friendlyforever/ui-sim-local-art"
     check_mountable "The working folder's path" "$WORK"
     check_seconds
+    OPTIONS_TABS="$(options_tabs)"
     resolve_install "$install"
     check_product
     mkdir -p "$WORK"
@@ -500,8 +550,7 @@ main() {
     build_images
     probe_mounts
     build_simulator
-    mkdir -p "$OUT"
-    write_readme
+    prepare_output
     say "Taking the screenshots (each one stops after $SHOT_SECONDS s)"
     take_shots
     report
