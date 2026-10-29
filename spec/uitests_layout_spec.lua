@@ -228,11 +228,11 @@ describe("UI simulator layout check (TextInside)", function()
         end)
 
         it("still fails text that runs past the frame's right edge", function()
-            local wide = region({
+            local long = region({
                 left = 46, right = 196, top = 38, bottom = 26,
                 points = { "TOPLEFT" }, width = 200, height = 12,
             })
-            local err = fails(function() checks.TextInside(region(BUTTON), wide, "wide") end)
+            local err = fails(function() checks.TextInside(region(BUTTON), long, "long") end)
             assert.truthy(err:find("text 46..246, frame 0..220", 1, true), err)
         end)
     end)
