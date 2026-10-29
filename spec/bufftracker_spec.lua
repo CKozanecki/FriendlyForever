@@ -867,6 +867,13 @@ describe("Buff thanks", function()
             end)
         end
 
+        it("two buffs with no usable name or spell ID from one stranger in one wave are thanked as buffs", function()
+            stranger()
+            wow.gainBuffs({ { sourceUnit = "target", spellId = wow.secret(1) }, { sourceUnit = "target", spellId = wow.secret(2) } })
+            settle()
+            assert.are.same({ "Thank you for the buffs, Bob!" }, wow.sentTo("SAY"))
+        end)
+
         it("ignores secret cast events", function()
             ns.db.buff.fallbackToSay = false
             buffer("mouseover", "Carol")
