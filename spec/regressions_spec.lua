@@ -205,7 +205,7 @@ describe("Regressions", function()
         ns.Options.FillGeneral()
         local text = ns.Options.widgets.general.ignoreList:GetText()
         assert.is_true(#text < 400)
-        assert.is_truthy(text:find("and 188 more", 1, true))
+        assert.is_truthy(text:find(" and 188 more (/friendly ignore list shows them all).", 1, true))
     end)
 
     it("the ignore list holds at most MAX_IGNORED names", function()

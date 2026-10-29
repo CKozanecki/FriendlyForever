@@ -79,6 +79,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 
 **Tests that can fail**
 - Mutation-check every new or changed line. Each survivor gets a test, or a stated reason it can't be caught (an equivalent mutant; a guard the simulated client can't reach, such as `Util.IsSecret`, since Lua 5.1 compares a table without error). A survivor that shows code can't be reached means delete the code (#21, #54, #61, #62, #88).
+- Code moved or extracted into a new function counts as changed: mutate its lines too (#116: `Config.ValidIgnore`'s cap, moved in #113, had no test with more names than the cap).
 - A guard test asserts that its input really holds the case it covers (the input has `\r\n`; the file really is commented), so a no-op mutation fails it (#79, #81).
 - Each test reaches its path for real: it presses or acts rather than setting state, and fails when the hook it relies on is removed (#20, #21).
 - Every new UI control is clicked in a test, and the test then checks what it changed downstream, such as the armed macro and the marks shown (#61). Check the change before any time passes, so a periodic re-check can't do the control's work for it (#102: the new checkbox's `Refresh()` was untested, since the button's 5-second re-check covered for it).
@@ -104,4 +105,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 **Screenshots**
 - View every image and read the `LAYOUT` lines; compare with a before set where one exists (step 3 says where), and say when none did; say what isn't shown (an options tab that isn't in the shot is judged from its anchor specs, and its look goes to #50). Layout checks put state back even when they fail (#53, #85, #88).
 - The simulator never wraps a line pinned to two different frames, so a passing layout check there isn't proof (#91).
+- `TextInside` checks that text stays inside its frame, not that it clears a neighbour. Text that wraps above a box can run into it with every LAYOUT line passing, so compare the drawn edges with the next region's. And a line that wraps in game pushes down everything anchored below it, which the simulator never moves: check the page's lowest region with that growth added (#116: the import hint ran into the paste box; 25 ledger rows that wrap would have pushed the page's end off it).
+- A new layout check in `uitests/` gets stand-in tests in `spec/uitests_layout_spec.lua`, a passing and a failing case each, since in the simulator it is only ever seen to pass (#91; #116: `PushedDownInside` first missed its own region's wrapping).
+- Pixel sizes a layout spec assumes come from measurements, such as two lines' height in a LAYOUT line, not from a single line's reading; the larger value is the pessimistic one (#116: a 12 px guess hid a 1 px overlap at 16.5 px a line).
 - Tests mustn't print workflow command syntax (`::error::`) to stdout, which makes false CI annotations (#89, #92).
