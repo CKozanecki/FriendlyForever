@@ -4,7 +4,7 @@ CONTRIBUTING.md's [UI simulator](../CONTRIBUTING.md#ui-simulator) section says w
 
 The simulator is [wow-ui-sim](https://github.com/Osso/wow-ui-sim), adopted in #49 and #53. Unless a line says otherwise, the quirks below are at v0.1.36 (`3b369ee`), the pinned version, and come from **#100**, which collects them to raise upstream. When the pin moves (#53's rules), check each one again and update this file and #100.
 
-Some workarounds live in `uitests/button_states.lua`, which arrives with #96 (#83). Until #96 merges, that file is only on its branch.
+Several workarounds live in `uitests/button_states.lua`, which sets up the buff-back button's real states (#83, #96). Its header lists them.
 
 ## The simulated game
 
@@ -24,7 +24,7 @@ Some workarounds live in `uitests/button_states.lua`, which arrives with #96 (#8
 
 ## Blizzard's own errors
 
-These come from Blizzard's UI code in the simulator, not from the addon. They're reported, not failed; #96's `States.Watch` sorts errors by whether the addon's own error count went up.
+These come from Blizzard's UI code in the simulator, not from the addon. They're reported, not failed; `States.Watch` (`uitests/button_states.lua`) sorts errors by whether the addon's own error count went up (#96).
 
 - `TargetFrame.lua:169`: `IsReplacingUnit` is nil, on `PLAYER_TARGET_CHANGED` (#100, 9).
 - `C_VoiceChat.CanAccessSettings`: "settings access has not been supplied", during `AdvanceTime` (#100, 10).
@@ -39,9 +39,9 @@ These come from Blizzard's UI code in the simulator, not from the addon. They're
 | Once Blizzard's UI loads, `print` goes to the chat frame, not the log. | Report lines use `A_Print` (CONTRIBUTING says so). | #53 |
 | Each `A_Print` line is logged twice. | The workflow drops repeats with `awk '!seen[$0]++'`. | `ui-sim.yml` |
 | `assertTrue` drops its message. | `uitests/scenarios.lua` uses its own `check()`, which calls `error(message, 3)`. | `uitests/scenarios.lua` |
-| The game clock only moves when told to. `A_Admin.SetManualClock` and `A_Admin.AdvanceTime` exist, but are documented only in the simulator's `docs/specs/manual-simulation-clock.md`. `SetManualClock` can be switched on only once; a second call fails harmlessly. The comment in `uitests/scenarios.lua` saying there's no way to move the clock is out of date (#96 rewrites it). | Use the manual clock to get past the login grace. Anything that waits in game time still belongs in `spec/` (CONTRIBUTING). | #100 (15), #96 |
+| The game clock only moves when told to. `A_Admin.SetManualClock` and `A_Admin.AdvanceTime` exist, but are documented only in the simulator's `docs/specs/manual-simulation-clock.md`. `SetManualClock` can be switched on only once; a second call fails harmlessly. | `uitests/button_states.lua` uses the manual clock to get past the login grace. Anything that waits in game time still belongs in `spec/` (CONTRIBUTING). | #100 (15), #96 |
 | The per-frame instruction budget (the game's script time limit) runs across synchronous tests, since the runner starts no new frame between them. Code that runs too long in one frame is stopped. | Call `A_Admin.AdvanceTime` so a new frame starts. | #100 (14), #96 |
-| Test files load in name order. | `button_states.lua` loads before `scenarios.lua`, and relies on it. | #96 |
+| Test files load in name order. | `button_states.lua` loads before `scenarios.lua`, which uses the `FriendlyForeverUIStates` it defines. | #96 |
 | A test file's return value is ignored. | `uitests/scenarios.lua` returns its layout check for `spec/uitests_layout_spec.lua`. | #91 |
 
 ## Screenshots
