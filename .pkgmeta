@@ -9,6 +9,8 @@ ignore:
   - art
   - dist
   - .github
+  - .claude
+  - docs
   - .vscode
   - .busted
   - .luacheckrc
