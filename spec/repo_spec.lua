@@ -394,36 +394,58 @@ describe("UI screenshots clean-up workflow", function()
     end
 
     -- A stand-in for curl that answers like GitHub's API from files in its
-    -- folder, and logs each call ("METHOD URL") and what it read on stdin.
+    -- folder, and logs each call ("METHOD URL") and the config it read. Like
+    -- curl, it reads its config from stdin only with -K -, writes the body
+    -- unless -o /dev/null (and, with -f, not for a status of 400 or more),
+    -- writes the status only with -w '%{http_code}', and with -f exits 22 on
+    -- a status of 400 or more. A request without the token gets 401.
     local fakeCurl = [=[#!/bin/bash
 dir=$(dirname "$0")
-method=GET url=
+method=GET url= config= out= format= fail=
 while [ $# -gt 0 ]; do
   case "$1" in
     -X) method=$2; shift ;;
-    -K|-o|-w|-H) shift ;;
+    -K) [ "$2" = - ] && config=$(cat); shift ;;
+    -o) out=$2; shift ;;
+    -w) format=$2; shift ;;
+    -H) shift ;;
+    --*) ;;
+    -*f*) fail=1 ;;
     -*) ;;
     *) url=$1 ;;
   esac
   shift
 done
 echo "$method $url" >> "$dir/calls"
-cat >> "$dir/stdin"
-case "$method $url" in
-  "DELETE "*/git/refs/heads/ui-screenshots/pr-*)
-    n=${url##*/pr-}
-    if [ ! -f "$dir/delete-$n" ]; then printf 204
-    elif [ "$(cat "$dir/delete-$n")" = unreachable ]; then printf 000; exit 7
-    else cat "$dir/delete-$n"; fi ;;
-  "GET "*/git/matching-refs/heads/ui-screenshots/)
-    [ -f "$dir/refs.json" ] || exit 22
-    cat "$dir/refs.json" ;;
-  "GET "*/pulls/*)
-    n=${url##*/pulls/}
-    [ -f "$dir/pr-$n" ] || exit 22
-    printf '{"number":%s,"state":"%s"}' "$n" "$(cat "$dir/pr-$n")" ;;
-  *) exit 22 ;;
-esac
+[ -n "$config" ] && printf '%s\n' "$config" >> "$dir/stdin"
+body= status=404
+if [ "$config" != 'header = "Authorization: Bearer secret-token-123"' ]; then
+  status=401 body='{"message":"Requires authentication"}'
+else
+  case "$method $url" in
+    "DELETE "*/git/refs/heads/ui-screenshots/pr-*)
+      n=${url##*/pr-}
+      status=204
+      if [ -f "$dir/delete-$n" ]; then status=$(cat "$dir/delete-$n"); fi
+      if [ "$status" = unreachable ]; then
+        [ "$format" = '%{http_code}' ] && printf 000
+        exit 7
+      fi
+      [ "$status" = 204 ] || body='{"message":"Reference does not exist"}' ;;
+    "GET "*/git/matching-refs/heads/ui-screenshots/)
+      if [ -f "$dir/refs.json" ]; then status=200 body=$(cat "$dir/refs.json"); fi ;;
+    "GET "*/pulls/*)
+      n=${url##*/pulls/}
+      if [ -f "$dir/pr-$n" ]; then
+        status=200 body=$(printf '{"number":%s,"state":"%s"}' "$n" "$(cat "$dir/pr-$n")")
+      fi ;;
+  esac
+fi
+[ "$status" -ge 400 ] && [ -z "$body" ] && body='{"message":"Not Found"}'
+if [ "$out" != /dev/null ] && ! { [ -n "$fail" ] && [ "$status" -ge 400 ]; }; then printf '%s' "$body"; fi
+[ "$format" = '%{http_code}' ] && printf '%s' "$status"
+if [ -n "$fail" ] && [ "$status" -ge 400 ]; then exit 22; fi
+exit 0
 ]=]
 
     -- Runs a script as GitHub Actions runs a step (bash -eo pipefail), with
