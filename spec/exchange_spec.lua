@@ -83,6 +83,12 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
         return out
     end
 
+    -- When this client's first buff landed.
+    local function firstLanded(client)
+        wow.use(client)
+        return wow.landed[1].at
+    end
+
     -- When this client's last buff landed.
     local function lastLanded(client)
         wow.use(client)
@@ -135,8 +141,9 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             assert.are.equal("Thanks Ann: Power Word: Fortitude, Divine Spirit and Shadow Protection", fromB[1].text)
             local last = math.max(lastLanded(a), lastLanded(b))
             assert.is_true(fromA[1].time > last and fromB[1].time > last, "both after the last buff either way")
-            assert.is_true(fromA[1].time <= last + E.SETTLE + E.TICK, "and soon after it")
-            assert.is_true(fromB[1].time <= last + E.SETTLE + E.TICK, "and soon after it")
+            assert.are.equal(last + E.SETTLE, fromB[1].time, "Bo's: the settle after the last buff")
+            assert.are.equal(firstLanded(b) + a.ns.db.buff.delay, fromA[1].time,
+                "Ann's: her delay after Bo's first buff, which ends later")
         end)
 
         it("each copy announces what its button holds for the other, and when that's done", function()
@@ -168,8 +175,59 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             assert.are.same({}, thanks(b))
             advance(4)
             assert.are.equal(1, #thanks(b))
-            assert.is_true(thanks(b)[1].time >= firstAt + E.MAX_DELAY)
-            assert.is_true(thanks(b)[1].time <= firstAt + E.MAX_DELAY + E.TICK)
+            assert.are.equal(firstAt + E.MAX_DELAY, thanks(b)[1].time)
+        end)
+
+        it("the longest wait, the cap and the gap are exact even with the checks out of step", function()
+            -- Bo also buffs Cid by hand every 3 seconds, half a second out of
+            -- step with Ann's buffs, so the checks keep to Cid's beat.
+            local function cid()
+                wow.use(b)
+                wow.addUnit("target", { name = "Cid", surname = "Rock", class = "WARRIOR", id = "Cid-Rock" })
+                wow.runMacro("/cast Thorns")
+            end
+            -- Half a second after each of Ann's moves, then every 3 seconds.
+            local function wait(seconds)
+                local left = seconds
+                local step = 0.5
+                while left > 0 do
+                    step = math.min(left, step)
+                    advance(step)
+                    left = left - step
+                    cid()
+                    step = 3
+                end
+            end
+            local function toAnn()
+                local out = {}
+                for _, t in ipairs(thanks(b)) do if t.target == "Ann-Vale" then out[#out + 1] = t end end
+                return out
+            end
+            -- With her copy there: the longest wait.
+            pair({ db = { repeatCooldown = 0 } })
+            cid()
+            advance(0.25)
+            handCast(a, "Power Word: Fortitude")
+            local firstAt = wow.now
+            wait(E.MAX_DELAY + 1)
+            assert.are.equal(1, #toAnn())
+            assert.are.equal(firstAt + E.MAX_DELAY, toAnn()[1].time)
+            -- Without her copy: the cap.
+            pair({ noComm = true, db = { repeatCooldown = 0 } })
+            cid()
+            advance(0.25)
+            handCast(a, "Power Word: Fortitude")
+            local at = wow.now
+            wait(E.HOLD_CAP + 1)
+            assert.are.equal(1, #toAnn())
+            assert.are.equal(at + E.HOLD_CAP, toAnn()[1].time)
+            -- The gap: her buff exactly GAP after her last starts a new exchange.
+            wait(at + E.GAP - wow.now)
+            wow.use(b)
+            assert.are.equal(at + E.GAP, wow.now)
+            handCast(a, "Divine Spirit")
+            wait(E.HOLD_CAP + 1)
+            assert.are.equal(2, #toAnn(), "a new exchange, thanked")
         end)
 
         it("letting the favour go ends the hold", function()
@@ -261,7 +319,7 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             assert.are.equal("Thanks Ann: Power Word: Fortitude, Divine Spirit and Shadow Protection", fromB[1].text)
             local last = math.max(lastLanded(a), lastLanded(b))
             for _, t in ipairs({ fromA[1], fromB[1] }) do
-                assert.is_true(t.time > last and t.time <= last + E.HOLD_CAP + E.TICK, "within the cap")
+                assert.is_true(t.time > last and t.time <= last + E.HOLD_CAP, "within the cap")
             end
         end)
 
@@ -273,7 +331,7 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             assert.are.same({}, thanks(b), "held while armed")
             advance(2 * E.TICK)
             assert.are.equal(1, #thanks(b))
-            assert.is_true(thanks(b)[1].time >= at + E.HOLD_CAP and thanks(b)[1].time <= at + E.HOLD_CAP + E.TICK)
+            assert.are.equal(at + E.HOLD_CAP, thanks(b)[1].time)
             press(b)
             advance(E.MAX_DELAY)
             assert.are.equal(1, #thanks(b), "his late buff back doesn't make another")
@@ -320,12 +378,12 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             wow.use(b)
             b.ns.db.buffBack.enabled = false
             handCast(a, "Power Word: Fortitude")
-            advance(E.GAP - 1)
+            advance(E.GAP - 0.25)
             assert.are.equal(1, #thanks(b))
-            handCast(a, "Divine Spirit")
-            advance(E.GAP + E.TICK)
-            assert.are.equal(1, #thanks(b), "still the same exchange, its last buff now later")
-            handCast(a, "Shadow Protection")
+            handCast(a, "Divine Spirit") -- a moment before GAP: the same exchange
+            advance(E.GAP)
+            assert.are.equal(1, #thanks(b), "not thanked again")
+            handCast(a, "Shadow Protection") -- exactly GAP after the last buff: a new one
             advance(E.MAX_DELAY)
             assert.are.equal(2, #thanks(b), "a new exchange")
         end)
@@ -394,7 +452,7 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             assert.are.same({}, thanks(a), "held for the plan")
             advance(4)
             assert.are.equal(1, #thanks(a))
-            assert.is_true(thanks(a)[1].time <= firstAt + E.MAX_DELAY + E.TICK)
+            assert.is_true(thanks(a)[1].time <= firstAt + E.MAX_DELAY)
             advance(E.MAX_DELAY)
             assert.are.equal(1, #thanks(a), "once")
         end)
@@ -407,7 +465,7 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             wow.press(a.ns.BuffButton.Frame(), "RightButton")
             local before = count(a.ns, "commSpoofed") + count(a.ns, "commMalformed") + count(a.ns, "commWrongRoute")
             receive("1;PLAN;Cid-Rock;motw") -- about someone else
-            receive("1;PLAN;Bo-Lake;a,b,c,d,e,f,g,h,i") -- too many keys
+            receive("1;PLAN;Bo-Lake;a,b,c,d,e,f,g,h,i") -- too many keys (8 is the most)
             receive("1;PLAN;Bo-Lake;motw,,thorns") -- an empty key
             receive("1;PLAN;Bo-Lake;mo-tw") -- not a key
             receive("1;PLAN;Bo-Lake;") -- no keys at all
@@ -422,6 +480,20 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             advance(a.ns.db.buff.delay + E.TICK)
             assert.are.equal(1, #thanks(a), "nothing held it")
             assert.are.same({}, wow.errors)
+        end)
+
+        it("a plan of exactly 8 keys is accepted, and holds", function()
+            pair()
+            handCast(b, "Thorns")
+            wow.use(a)
+            wow.press(a.ns.BuffButton.Frame(), "RightButton")
+            advance(E.TICK + 0.5)
+            wow.use(a)
+            local before = count(a.ns, "commMalformed")
+            receive("1;PLAN;Bo-Lake;motw,thorns,kings,a,b,c,d,e")
+            assert.are.equal(before, count(a.ns, "commMalformed"))
+            advance(a.ns.db.buff.delay + 2)
+            assert.are.same({}, thanks(a), "held for its Mark, Thorns and Kings")
         end)
 
         it("a plan from someone you aren't exchanging with is forgotten, not kept for their buff", function()
@@ -510,6 +582,49 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             assert.is_true(wow.now - firstAt < b.ns.db.buff.delay + b.ns.BuffTracker.SAY_MAX_AGE)
         end)
 
+        it("nobody on your ignore list is sent a plan, either way round", function()
+            pair()
+            wow.use(b)
+            b.ns.Ignore.Add("Ann-Vale")
+            wow.use(a)
+            a.ns.Ignore.Add("Bo-Lake")
+            handCast(a, "Power Word: Fortitude")
+            handCast(b, "Thorns")
+            advance(E.MAX_DELAY)
+            assert.are.same({}, plansSent(a))
+            assert.are.same({}, plansSent(b))
+            assert.are.equal(0, a.ns.Exchange.Count())
+            assert.are.equal(0, b.ns.Exchange.Count())
+        end)
+
+        it("a caster nobody can name opens no exchange and gets no plan", function()
+            pair()
+            wow.use(b)
+            wow.gainBuff({ name = "Arcane Intellect", spellId = 10157 })
+            wow.gainBuff({ name = "Mark of the Wild", spellId = MOTW })
+            assert.are.equal(0, b.ns.Exchange.Count())
+            advance(b.ns.db.buff.delay + E.SETTLE)
+            wow.use(b)
+            wow.keyDown()
+            assert.are.equal(1, #wow.sentTo("SAY"), "the friend fallback, as before")
+            assert.are.same({}, plansSent(b))
+        end)
+
+        it("buffs coming fast schedule one check, not one each", function()
+            pair({ noComm = true })
+            wow.use(b)
+            b.ns.db.buffBack.enabled = false
+            local before = #wow.timers
+            for i = 1, 10 do
+                local token = "nameplate" .. (i + 1)
+                wow.addUnit(token, { name = "Zed", surname = "Far" .. string.char(96 + i), class = "MAGE",
+                    id = "Zed-Far" .. string.char(96 + i) })
+                wow.gainBuff({ sourceUnit = token, name = "Arcane Intellect", spellId = 10157 })
+            end
+            -- One delay timer per thank-you, and one check for all ten.
+            assert.are.equal(before + 10 + 1, #wow.timers)
+        end)
+
         it("a player who walks off mid-exchange is thanked once, without waiting for a buff back", function()
             pair()
             handCast(a, "Power Word: Fortitude")
@@ -529,7 +644,7 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             net.clients = { b } -- Ann is gone: nothing more from her copy
             advance(E.MAX_DELAY + E.TICK)
             assert.are.equal(1, #thanks(b))
-            assert.is_true(thanks(b)[1].time <= firstAt + E.MAX_DELAY + E.TICK)
+            assert.is_true(thanks(b)[1].time <= firstAt + E.MAX_DELAY)
         end)
 
         it("too many exchanges at once: the oldest goes, and the thank-you it held goes out", function()
@@ -601,7 +716,7 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
     end)
 
     -- Red: a storm of hand casts, presses, favours let go, players walking
-    -- off and back, and time passing, between two clients whose addon
+    -- off and back, stale plans, and time passing, between two clients whose addon
     -- messages are lost at random and arrive late. The invariant comes from
     -- the simulated clients alone (wow.landed and wow.sent): between two
     -- thank-yous from one side, an exchange must have ended (a gap of GAP
@@ -617,7 +732,7 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
         lag = function() return random.random(0, 3) end
         net.lose = function() return random.random() < 0.3 end
         local other = { [a] = b, [b] = a }
-        local reach = { thanks = 0, maxDelay = 0, newExchanges = 0, lost = 0 }
+        local reach = { thanks = 0, maxDelay = 0, newExchanges = 0, lost = 0, afterThanks = 0 }
         local lose = net.lose
         net.lose = function(...)
             local lost = lose(...)
@@ -662,19 +777,26 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
                         assert.is_true(ok, where .. ": " .. c.full .. " thanked twice in one exchange")
                         reach.newExchanges = reach.newExchanges + 1
                     end
-                    -- The longest wait: some buff from them landed within it.
-                    local recent = false
+                    -- The longest wait, from the first buff from them since
+                    -- the last gap of GAP (the exchange's first, or a later
+                    -- one if the exchange was held across a gap).
+                    -- Held across a gap with none from them after it, the
+                    -- latest from them is no earlier than the exchange's first.
+                    local first, latest, last = nil, nil, nil
                     for _, buff in ipairs(buffs()) do
-                        if buff.from == other[c] and buff.at <= t.time
-                            and t.time - buff.at <= c.ns.Exchange.MAX_DELAY + c.ns.Exchange.TICK then
-                            recent = true
+                        if buff.at > t.time then break end
+                        if last and buff.at - last >= c.ns.Exchange.GAP then first = nil end
+                        if buff.from == other[c] then
+                            first, latest = first or buff.at, buff.at
                         end
-                        if buff.from == other[c] and t.time - buff.at >= c.ns.Exchange.MAX_DELAY - 1
-                            and t.time - buff.at <= c.ns.Exchange.MAX_DELAY + c.ns.Exchange.TICK then
-                            reach.maxDelay = reach.maxDelay + 1
-                        end
+                        last = buff.at
                     end
-                    assert.is_true(recent, where .. ": a thank-you long after any buff")
+                    first = first or latest
+                    assert.is_not_nil(first, where .. ": a thank-you with no buff from them")
+                    local waited = t.time - first
+                    assert.is_true(waited <= c.ns.Exchange.MAX_DELAY + 1e-9,
+                        where .. ": a thank-you " .. waited .. "s after their first buff")
+                    if waited >= c.ns.Exchange.MAX_DELAY - 1e-9 then reach.maxDelay = reach.maxDelay + 1 end
                     lastThanks[c] = t.time
                 end
                 seen[c] = #sent
@@ -702,6 +824,13 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
                     wow.addUnit("nameplate1", { name = other[x].name, surname = other[x].surname,
                         class = x == a and "DRUID" or "PRIEST", id = other[x].full })
                 end
+            elseif roll < 0.65 then
+                -- A stale plan from their copy: a buff that never comes (they
+                -- walked off before casting it, and the "-" after was lost).
+                wow.use(x)
+                wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;PLAN;" .. other[x].full .. ";kings", "WHISPER",
+                    other[x].full, "", 0, 0, "", 0)
+                advance(JUMPS[random.random(#JUMPS)])
             else
                 advance(JUMPS[random.random(#JUMPS)])
             end
@@ -713,11 +842,27 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
                 assert.are.equal(0, count(c.ns, "luaErrors"), where)
             end
         end
+        -- A buff from the other side after a thank-you, inside the same
+        -- exchange (no gap of GAP since the buff before the thank-you): where
+        -- a second thank-you would come from.
+        for _, c in ipairs({ a, b }) do
+            local times = {}
+            for _, t in ipairs(thanks(c)) do times[#times + 1] = t.time end
+            local all, k, thankedAt, last = buffs(), 1, nil, nil
+            for _, buff in ipairs(all) do
+                while times[k] and times[k] < buff.at do
+                    thankedAt, k = times[k], k + 1
+                end
+                if last and buff.at - last >= c.ns.Exchange.GAP then thankedAt = nil end
+                if thankedAt and buff.from == other[c] then reach.afterThanks = reach.afterThanks + 1 end
+                last = buff.at
+            end
+        end
         return reach
     end
 
     it("a chaos storm of exchanges with random message loss never gives two thank-yous from one side in one exchange (red)", function()
-        local total = { thanks = 0, maxDelay = 0, newExchanges = 0, lost = 0 }
+        local total = { thanks = 0, maxDelay = 0, newExchanges = 0, lost = 0, afterThanks = 0 }
         for _, seed in ipairs({ 1, 2, 3, 4, 5, 6, 7, 8 }) do
             for k, v in pairs(storm(seed)) do total[k] = total[k] + v end
         end
@@ -726,5 +871,28 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
         assert.is_true(total.newExchanges > 10, "new exchanges after a gap: " .. total.newExchanges)
         assert.is_true(total.maxDelay > 0, "some thank-yous waited the longest wait")
         assert.is_true(total.lost > 10, "messages were lost: " .. total.lost)
+        assert.is_true(total.afterThanks > 10, "their buffs came after a thank-you, inside its exchange: "
+            .. total.afterThanks)
+    end)
+end)
+
+describe("After an update that adds Exchange.lua and a /reload (no restart) (black)", function()
+    it("asks for a restart instead of erroring, and thanks nobody", function()
+        wow.reset()
+        local loaded = {}
+        local _, files = wow.parseToc()
+        for _, file in ipairs(files) do
+            if file ~= "Exchange.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+        end
+        wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+        wow.fire("PLAYER_ENTERING_WORLD", true, false)
+        wow.advance(60)
+        wow.addUnit("nameplate1", { name = "Bo", surname = "Lake", class = "DRUID", id = "Bo-Lake" })
+        wow.gainBuff({ sourceUnit = "nameplate1", name = "Mark of the Wild", spellId = MOTW })
+        wow.advance(60)
+        wow.keyDown()
+        assert.are.same({}, wow.errors)
+        assert.are.same({}, wow.sent)
+        assert.is_truthy(table.concat(wow.printed, "\n"):find("Restart the game", 1, true))
     end)
 end)

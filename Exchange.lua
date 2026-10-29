@@ -77,14 +77,18 @@ end
 
 local Tick
 
--- A tick is kept due within TICK. One due later than that was scheduled
--- before the clock went backwards: another is scheduled now (the late one
--- is a harmless extra tick).
-local function ScheduleTick()
+-- Wake (run Tick) at `at`, at most TICK from now. A wake already due within
+-- TICK stands (the next Tick works out the deadlines). One due further off
+-- was asked for before the clock went backwards: it is replaced, and only
+-- the newest wake runs (the old one is an extra timer that does nothing).
+local function WakeAt(at)
     local now = GetTime()
+    at = math.min(at, now + Exchange.TICK)
     if tickAt and tickAt - now <= Exchange.TICK then return end
-    tickAt = now + Exchange.TICK
-    C_Timer.After(Exchange.TICK, ns.Diag.Wrap(Tick))
+    tickAt = at
+    C_Timer.After(at - now, ns.Diag.Wrap(function()
+        if tickAt == at then Tick() end
+    end))
 end
 
 -- The exchange with this player, started now if there is none open.
@@ -97,7 +101,7 @@ local function Touch(name)
         exchanges[name] = ex
     end
     ex.lastBuff = now
-    ScheduleTick()
+    WakeAt(now + Exchange.TICK)
     return ex
 end
 
@@ -122,7 +126,24 @@ local function SendPlan(name, ex)
     ns.Comm.SendPlan(name, plan)
 end
 
--- Every TICK while any exchange is open: send changed plans, let thank-yous
+-- The next moment a rule could change its mind: a buff's SETTLE, HOLD_CAP
+-- or GAP running out, or a held thank-you's MAX_DELAY.
+local function NextDeadline(now)
+    local due
+    local function Consider(at)
+        if at > now and (not due or at < due) then due = at end
+    end
+    for _, ex in pairs(exchanges) do
+        Consider(ex.lastBuff + Exchange.SETTLE)
+        Consider(ex.lastBuff + Exchange.HOLD_CAP)
+        Consider(ex.lastBuff + Exchange.GAP)
+        if ex.held then Consider(ex.held.firstAt + Exchange.MAX_DELAY) end
+    end
+    return due
+end
+
+-- While any exchange is open, every TICK (to see the button and plans
+-- change) and at each deadline exactly: send changed plans, let thank-yous
 -- go, and end exchanges that are over.
 function Tick()
     tickAt = nil
@@ -143,7 +164,7 @@ function Tick()
             SendPlan(name, ex)
         end
     end
-    if next(exchanges) then ScheduleTick() end
+    if next(exchanges) then WakeAt(NextDeadline(now) or now + Exchange.TICK) end
 end
 
 -- A buff of yours reached them (Offers.MarkReturned: the button or by hand).
@@ -152,6 +173,7 @@ end
 -- to a raid you buff.
 function Exchange.NoteGiven(name)
     if name == ns.Util.UnitFullName("player") or ns.Greeter.IsInMyGroup(name) ~= false then return end
+    if ns.Ignore.Has(name) then return end -- nothing, plans included, goes to them
     Touch(name)
 end
 
@@ -173,8 +195,8 @@ function Exchange.Hold(name, firstAt, go)
     if not ex then return go() end
     ex.held = ex.held or { firstAt = firstAt, goes = {} }
     table.insert(ex.held.goes, go)
-    if Busy(ex, name, GetTime()) then return ScheduleTick() end
-    Release(name, ex, "nothing holds it")
+    -- Otherwise the ticks, which run while any exchange is open, let it go.
+    if not Busy(ex, name, GetTime()) then Release(name, ex, "nothing holds it") end
 end
 
 -- PLAN from their copy (Comm.lua): the buff keys it will still give you,

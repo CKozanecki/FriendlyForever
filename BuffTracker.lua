@@ -208,7 +208,8 @@ BuffTracker.HOW = HOW
 function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId)
     local unknown = caster == BuffTracker.UNKNOWN_KEY
     -- Part of an exchange with them (Exchange.lua), which has one thank-you.
-    local thankedAlready = not unknown and ns.Exchange.NoteReceived(caster, spellId)
+    -- Nobody on your ignore list gets one (nor a plan).
+    local thankedAlready = not unknown and not ns.Ignore.Has(caster) and ns.Exchange.NoteReceived(caster, spellId)
     local existing = batches[caster]
     if existing then
         AddToBatch(existing, buffKey, spellName)
