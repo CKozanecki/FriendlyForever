@@ -1,7 +1,7 @@
 -- Options panel: Esc > Options > AddOns > Friendly Forever.
 -- One tab per message type: on/off, delay, repeat cooldown, the 30 messages.
--- Two pages under it: General (snooze, ignore list, profiles, export/import,
--- bug report) and Favour Ledger.
+-- Two pages under it: General (snooze, chat limit, ignore list, profiles,
+-- export/import, bug report) and Favour Ledger.
 local _, ns = ...
 local Config = ns.Config
 
@@ -69,14 +69,16 @@ local function TextBox(parent, width, maxLetters)
     return box
 end
 
--- Label, [-] [number] [+], bound to ns.db[currentType][field] within limits.
--- Does nothing on a type without that field (its stepper is hidden there).
-local function Stepper(parent, text, field)
+-- Label, [-] [number] [+], bound to settings()[field] within limits;
+-- settings defaults to ns.db[currentType]. Does nothing on a type without
+-- that field (its stepper is hidden there).
+local function Stepper(parent, text, field, settings)
     local limits = Config.LIMITS[field]
     local s = {}
+    settings = settings or function() return ns.db[currentType] end
 
     local function Set(value)
-        local cfg = ns.db[currentType]
+        local cfg = settings()
         if cfg[field] == nil then
             SetBoxText(s.box, "")
             return
@@ -87,7 +89,7 @@ local function Stepper(parent, text, field)
     s.Set = Set
 
     local function Step(by)
-        local current = ns.db[currentType][field]
+        local current = settings()[field]
         if current ~= nil then Set(current + by) end
     end
 
@@ -906,8 +908,16 @@ function Options.CreateGeneralPage()
     w.wake = Button(page, "Wake up", 90, function() ns.SnoozeFor(nil) end)
     w.wake:SetPoint("LEFT", w.snooze60, "RIGHT", 8, 0)
 
+    -- Chat limit (#35)
+    local cap = Section(page, w.snooze15, "Chat limit")
+    w.linesPerMinute = Stepper(page, "Lines per minute in each chat:", "linesPerMinute", function() return ns.db end)
+    w.linesPerMinute.label:SetPoint("TOPLEFT", cap, "BOTTOMLEFT", 0, -10)
+    local capHelp = Note(page, w.linesPerMinute.label, "The most lines sent to /say, whispers, emotes, guild "
+        .. "or group chat in any minute. Thank-yous over the limit are dropped; greetings wait for room.")
+    capHelp:SetPoint("TOPLEFT", w.linesPerMinute.label, "BOTTOMLEFT", 0, -10)
+
     -- Ignore list
-    local ignore = Section(page, w.snooze15, "Never greet or thank")
+    local ignore = Section(page, capHelp, "Never greet or thank")
     w.ignoreList = Note(page, ignore, "")
     w.ignoreBox = TextBox(page, 220, 60)
     w.ignoreBox:SetPoint("TOPLEFT", w.ignoreList, "BOTTOMLEFT", 6, -8)
@@ -980,6 +990,7 @@ FillGeneral = function()
     w.snoozeState:SetText(left and string.format("Snoozed: nothing is sent for %d more min.", math.ceil(left / 60))
         or "Awake: messages are sent as usual.")
     w.wake:SetEnabled(left ~= nil)
+    FillBox(w.linesPerMinute.box, tostring(ns.db.linesPerMinute))
     -- A few names and a count, so a long list can't push the page's other
     -- controls out of sight (the page doesn't scroll).
     local names = ns.Ignore.List()

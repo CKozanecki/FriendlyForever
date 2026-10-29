@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76
+-- Spec: #27, #57, #64, #76, #35
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -695,6 +695,28 @@ describe("Buff back", function()
             table.sort(said)
             assert.are.same({ "One Bob", "Two Bob" }, said)
             assert.are.same({}, wow.errors)
+        end)
+
+        it("drops the line when /say is at its lines-per-minute cap (#35), as it does a thank-you", function()
+            ns.db.buff.enabled = false -- only the buff-back line
+            ns.db.buffBack.sayLine = true
+            ns.db.buffBack.messages = { "For you, {name}!" }
+            local Q = ns.ChatQueue
+            for _ = 1, Q.LinesPerMinute() do
+                Q.Push({ channel = "SAY", getText = function() return "filler" end })
+                nextKey()
+                wow.advance(Q.MIN_INTERVAL)
+            end
+            assert.are.equal(Q.LinesPerMinute(), #wow.sentTo("SAY"))
+            stranger()
+            buffedBy()
+            wow.press(button)
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned)
+            nextKey()
+            wow.advance(Q.CAP_WINDOW)
+            nextKey()
+            assert.are.equal(Q.LinesPerMinute(), #wow.sentTo("SAY"), "not said, not even a minute later")
+            assert.are.equal(1, ns.Diag.Counters().capDropped)
         end)
 
         it("says nothing when the line is off (the default)", function()

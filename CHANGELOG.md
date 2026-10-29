@@ -2,6 +2,7 @@
 
 ### Unreleased
 
+- **Chat limit:** at most 4 lines a minute in each chat (/say, whispers, emotes, guild, group) by default, set from 1 to 10 on the **General** page. Thank-yous over the limit are dropped and the ledger says why; greetings wait for room. `/friendly status` counts both. (#35)
 - The buff-back button keeps its text inside it: a name or favour too long for the button is cut off with "…", and the hint while you move it is shorter. On the options tabs, the message lines no longer sit below an empty gap. (#64)
 
 ## 0.8.0

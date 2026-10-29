@@ -140,6 +140,7 @@ local NOTES = {
     { "waited too long", "no key press in time" },
     { "blank", "no message lines" },
     { "queue full", "too many messages waiting" },
+    { "rate limit", "chat rate limit reached" },
     { "ignore list", "on your ignore list" },
 }
 function BuffTracker.NoteFor(reason)
@@ -256,6 +257,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
             target = whisper and caster or nil,
             cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
             maxAge = (not whisper) and BuffTracker.SAY_MAX_AGE or nil,
+            dropOverCap = true,
             isValid = NotIgnored,
             vars = function()
                 if unknown then return FallbackVars(batch) end
@@ -280,6 +282,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit)
             emoteTarget = EmoteTarget(caster, unit),
             cooldown = unknown and BuffTracker.UNKNOWN_COOLDOWN or nil,
             maxAge = BuffTracker.SAY_MAX_AGE,
+            dropOverCap = true,
             isValid = NotIgnored,
             onDone = Done,
         })
@@ -307,6 +310,7 @@ function BuffTracker.OnWhisperFailed(name)
         channel = "SAY",
         cooldown = 0, -- the caster's own cooldown already stops repeats
         maxAge = BuffTracker.SAY_MAX_AGE,
+        dropOverCap = true,
         vars = function() return FallbackVars(w.batch) end,
     })
 end

@@ -59,7 +59,7 @@ To find the game folder, open the Battle.net app, choose WoW Forever, then the g
 
 ## Use
 
-- **Options:** Esc → Options → AddOns → Friendly Forever, or type `/friendly`. A tab per message type (including **Buff Back**), plus the **General** page (snooze, ignore list, profiles, export and import, bug report) and the **Favour Ledger** page.
+- **Options:** Esc → Options → AddOns → Friendly Forever, or type `/friendly`. A tab per message type (including **Buff Back**), plus the **General** page (snooze, chat limit, ignore list, profiles, export and import, bug report) and the **Favour Ledger** page.
 - **Minimap button:** left-click opens options, right-click turns the addon on or off, drag to move it. Friendly Forever is also in the addon compartment (the addon drop-down by the minimap) where the game has one.
 - **Key binding:** Key Bindings → AddOns → "Friendly Forever: buff back" presses the buff back button.
 - `/friendly on | off | toggle`: turn everything on or off. `/friendly help` lists every command (`/ffr` also works).
@@ -69,10 +69,11 @@ To find the game folder, open the Battle.net app, choose WoW Forever, then the g
 - `/friendly ledger [count] | clear`: the favour ledger (see below).
 - `/friendly profile [new | use | delete] <name>`: profiles. Each character switches to the profile it used last when it logs in.
 - `/friendly export` and `/friendly import [undo]`: your settings as one line of text, to keep or share. Importing never turns the addon on or off and only adds to your ignore list; `import undo` puts your settings back.
-- The **General** page has buttons for snooze, the ignore list, profiles, export and import, and the bug report; the **Favour Ledger** page shows the ledger.
+- The **General** page has buttons for snooze, the chat limit, the ignore list, profiles, export and import, and the bug report; the **Favour Ledger** page shows the ledger.
 - Buff back: `/friendly buffback` (what the button holds), `/friendly move` (drag it), `/friendly buffmode` (lend it a key) and `/friendly blessings` (paladins: the Blessings you give in this raid). See [Buff back](#buff-back).
 - Checking what the addon does: `/friendly status`, `/friendly selftest`, `/friendly names`, `/friendly nameplates`, `/friendly debug` and `/friendly report`. See [Troubleshooting](#troubleshooting).
 - **Don't send messages while I'm AFK** (on by default, at the top of the options): a greeting or thank-you that comes due while you're AFK is dropped, not saved for later. `/friendly test` and `/friendly selftest` still work.
+- **Lines per minute in each chat** (General page, 4 by default, 1 to 10): the most lines the addon sends to /say, whispers, emotes, guild chat or group chat in any minute. A thank-you over the limit is dropped, and the ledger says so ("chat rate limit reached"); greetings and welcomes wait for room, up to their usual 2 minutes. `/friendly status` counts what the limit held back and dropped.
 
 ## Troubleshooting
 
@@ -156,6 +157,7 @@ Every buff from someone outside your group, while Buff Thanks or Buff Back is on
 
 - Everything sent is cleaned first. `|` escape codes and control characters are removed, and each message is cut to 255 bytes without splitting characters.
 - Output is rate-limited (one message per 1.5 s). At most 25 messages can wait, and none waits longer than 2 minutes, so a wave of guild logins can't flood chat.
+- On top of that, each chat type gets at most a set number of lines in any minute (4 by default; see [Use](#use)). Everything the addon says goes through one queue that checks the limit, and nothing can get round it. The count survives a reload, and a clock that jumps (the date or time changed, or the computer restarted) can't let a burst through or block sending for more than a minute.
 - Nothing is sent during the game's chat lockdown. Messages wait until it ends.
 - The 10 seconds after login or reload are ignored, and buffs you already had (re-sent by the game when you log in, reconnect or zone) are never thanked.
 - Saved settings are type-checked and clamped on load, so a corrupted or hand-edited file can't break the addon. If they're damaged while you play (by another addon or a bad `/run`), they're repaired as soon as they cause an error in the addon, rather than at the next reload.

@@ -104,7 +104,10 @@ function handlers.ADDON_LOADED(name)
     ns.RefreshEvents()
     Register("CVAR_UPDATE", function() ns.Options.Refresh() end)
     -- Edits made since the last switch go into the active profile.
-    Register("PLAYER_LOGOUT", function() ns.Profiles.SaveActive() end)
+    Register("PLAYER_LOGOUT", function()
+        ns.Profiles.SaveActive()
+        ns.ChatQueue.SaveCap()
+    end)
     Register("ADDON_ACTION_BLOCKED", function(addon, func) ns.OnActionBlocked("blocked", addon, func) end)
     Register("ADDON_ACTION_FORBIDDEN", function(addon, func) ns.OnActionBlocked("forbidden", addon, func) end)
 
@@ -193,13 +196,15 @@ local function StatusLines()
         c("systemMessages"), c("systemMatched"), c("buffsSeen"), c("restrictedAuraUpdates")))
     add(string.format("sending: %d queued, %d sent, %d dropped, %d send errors, %d blocked by the game",
         c("queued"), c("sent"), c("dropped"), c("sendErrors"), c("actionsBlocked")))
+    add(string.format("chat cap: %d lines a minute in each chat; %d held back by it, %d dropped by it",
+        Q.LinesPerMinute(), c("capHeld"), c("capDropped")))
     add(string.format("Lua errors in this addon: %d%s", c("luaErrors"),
         ns.Diag.lastError and (" (last: " .. ns.Diag.lastError .. ")") or ""))
     add(string.format("APIs: SendChatMessage %s, chat lockdown check %s, aura query %s, secret check %s, emote %s",
-        OnOff(C_ChatInfo and C_ChatInfo.SendChatMessage or SendChatMessage),
+        OnOff(Q.CanSend()),
         OnOff(C_ChatInfo and C_ChatInfo.InChatMessagingLockdown),
         OnOff(C_UnitAuras and C_UnitAuras.GetAuraDataByAuraInstanceID),
-        OnOff(issecretvalue), OnOff(C_ChatInfo and C_ChatInfo.PerformEmote or DoEmote)))
+        OnOff(issecretvalue), OnOff(Q.CanEmote())))
     return out
 end
 
