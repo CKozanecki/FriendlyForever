@@ -911,6 +911,28 @@ describe("Hidden channel edge cases, continued", function()
         assert.are.equal(2, count(ns, "commSent") + count(ns, "commNotSent"))
     end)
 
+    it("drops a message on a route its type doesn't accept, without running its handler (black)", function()
+        local calls = 0
+        ns.Comm.RegisterType("GONLY", { fields = {}, routes = { GUILD = true },
+            handler = function() calls = calls + 1 end })
+        receive("1;GONLY;Ann-Vale", "WHISPER")
+        receive("1;GONLY;Bo-Lake", "PARTY", "Bo-Lake")
+        assert.are.equal(2, count(ns, "commWrongRoute"))
+        assert.are.equal(0, calls)
+        receive("1;GONLY;Cid-Rock", "GUILD", "Cid-Rock")
+        assert.are.equal(1, calls)
+    end)
+
+    it("reads a version of at most three digits: longer ones are malformed (black)", function()
+        receive(hello("Ann-Vale", nil, nil, "0001"), "GUILD")
+        receive(hello("Bo-Lake", nil, nil, "1000"), "GUILD", "Bo-Lake")
+        assert.are.equal(2, count(ns, "commMalformed"))
+        assert.are.equal(0, count(ns, "commWrongVersion"))
+        assert.are.equal(0, ns.Comm.PeerCount())
+        receive(hello("Cid-Rock", nil, nil, "001"), "GUILD", "Cid-Rock")
+        assert.is_true(ns.Comm.IsPeer("Cid-Rock"), "three digits, leading zeros allowed: still protocol 1")
+    end)
+
     it("sends no target on group and guild routes (white)", function()
         ns.Comm.SayHello("GUILD", "Bo-Lake")
         assert.is_nil(wow.addonSent[1].target)
