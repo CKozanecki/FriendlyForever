@@ -4,7 +4,13 @@
 -- DEV_SETUP_TEST lets that file use file:// URLs. Nothing here downloads.
 local wow = require("spec.support.wow")
 
-local SCRIPT = wow.ROOT .. "scripts/dev-setup.sh"
+-- Absolute, so a test can run it from another folder.
+local SCRIPT = (function()
+    local p = io.popen("cd '" .. wow.ROOT .. "' && pwd")
+    local root = p:read("*l")
+    p:close()
+    return root .. "/scripts/dev-setup.sh"
+end)()
 local LOCK = wow.ROOT .. "scripts/dev-setup.lock"
 
 local function quote(text) return "'" .. text:gsub("'", "'\\''") .. "'" end
@@ -108,6 +114,8 @@ describe("Toolchain setup script", function()
     -- fails, as the real one would reach the network for dependencies.
     -- Like real LuaRocks, a call without --tree also reaches the user's own
     -- rocks in ~/.luarocks, which then show up in its list.
+    -- It also fails when LUA_INIT or LUAROCKS_CONFIG reach it, and when make
+    -- doesn't run in an unpacked source folder.
     -- FAKE_LUAROCKS_FAIL names a rock to fail on, FAKE_LUAROCKS_SKIP one to
     -- build without installing, and FAKE_BUSTED_VERSION what busted reports.
     local FAKE_HEREROCKS = [[
@@ -128,6 +136,10 @@ log="$tree/built.txt"
 case " $* " in *" --tree $tree "*) ;; *) echo "user-rock-1.0-1" >> "$log" ;; esac
 # Without --deps-mode=none, real LuaRocks would fetch dependencies itself.
 case "$1" in build|make) case " $* " in *" --deps-mode=none "*) ;; *) exit 1 ;; esac ;; esac
+# A user's LUA_INIT or LUAROCKS_CONFIG would change what real LuaRocks does.
+[ -z "$LUA_INIT$LUAROCKS_CONFIG" ] || exit 1
+# make builds from the current folder, which must be the unpacked source.
+[ "$1" != make ] || [ -f .fake-source ] || exit 1
 if [ "$1" = list ]; then
     while read -r rock; do
         rest="${rock%-*}"
@@ -143,7 +155,8 @@ done
 """)
 ]]
 
-    local function fakeDownloads()
+    -- splitSource names a source archive to unpack into two folders.
+    local function fakeDownloads(splitSource)
         local entries = {}
         for _, name in ipairs(lockedNames()) do
             local path = files .. "/" .. name
@@ -152,8 +165,13 @@ done
                 assert(shell("cd " .. quote(files) .. " && python3 -I -c 'import zipfile, sys; "
                     .. "zipfile.ZipFile(sys.argv[1], \"w\").write(\"hererocks.py\")' " .. quote(name)))
             elseif name:match("%.tar%.gz$") then
-                assert(shell("mkdir -p " .. quote(files .. "/src/" .. name .. "-dir") .. " && tar -czf " .. quote(path)
-                    .. " -C " .. quote(files .. "/src") .. " " .. quote(name .. "-dir")))
+                local src = files .. "/src/" .. name
+                local folders = name == splitSource and { "one", "two" } or { "source" }
+                for _, folder in ipairs(folders) do
+                    assert(shell("mkdir -p " .. quote(src .. "/" .. folder)))
+                    write(src .. "/" .. folder .. "/.fake-source", "")
+                end
+                assert(shell("tar -czf " .. quote(path) .. " -C " .. quote(src) .. " " .. table.concat(folders, " ")))
             else
                 write(path, "stand-in for " .. name .. "\n")
             end
@@ -206,6 +224,32 @@ done
             assert.is_falsy(output:find("already installed", 1, true), output)
         end)
 
+        it("builds a rockspec-only rock inside its unpacked source, and refuses an archive of two folders", function()
+            -- The from-scratch test covers the first half: the fake make
+            -- fails outside the source. Here the archive is ambiguous.
+            local ok, output = run(fakeDownloads("lua-term-0.08.tar.gz"))
+            assert.is_false(ok)
+            assert.is_truthy(output:find("lua-term-0.08.tar.gz didn't unpack into one folder", 1, true), output)
+            assert.is_false(exists(tools .. "/lua51"))
+        end)
+
+        it("installs with absolute paths when given a relative tools folder", function()
+            local lock = fakeDownloads()
+            assert(shell("mkdir -p " .. quote(dir .. "/work")))
+            local ok = shell("cd " .. quote(dir .. "/work") .. " && DEV_SETUP_TEST=1 DEV_SETUP_LOCK=" .. quote(lock)
+                .. " bash " .. quote(SCRIPT) .. " ../tools > " .. quote(dir .. "/out.txt") .. " 2>&1")
+            assert.is_true(ok, readAll(dir .. "/out.txt"))
+            local args = readAll(tools .. "/lua51/hererocks-args.txt")
+            assert.is_truthy(args:match("^/%S+/lua51 .* %-%-downloads /%S+/downloads "), args)
+            assert.are.equal(12, #built())
+        end)
+
+        it("isn't changed by the user's LUA_INIT or LUAROCKS_CONFIG", function()
+            local ok, output = run(fakeDownloads(), "LUA_INIT='error()' LUAROCKS_CONFIG=/nonexistent LUA_PATH=/x LUA_CPATH=/x")
+            assert.is_true(ok, output)
+            assert.are.equal(12, #built())
+        end)
+
         it("refuses an install whose busted isn't the pinned version", function()
             local ok, output = run(fakeDownloads(), "FAKE_BUSTED_VERSION=2.1.0")
             assert.is_false(ok)
@@ -235,12 +279,16 @@ done
         end)
 
         it("installs again from scratch when a pin or checksum changes", function()
-            local lock = writeLock()
+            local lock = fakeDownloads()
             fakeInstall(lock, string.rep("0", 64))
+            write(tools .. "/lua51/left-over", "from the old install\n")
+            assert(shell("mkdir -p " .. quote(tools .. "/venv")))
             local ok, output = run(lock)
-            assert.is_false(ok)
+            assert.is_true(ok, output)
             assert.is_falsy(output:find("already installed", 1, true), output)
-            assert.is_truthy(output:find("downloading hererocks", 1, true), output)
+            assert.is_false(exists(tools .. "/lua51/left-over"))
+            assert.is_false(exists(tools .. "/venv"), "the old make setup's hererocks is left behind")
+            assert.are.equal(12, #built())
         end)
 
         it("doesn't trust an install whose tools are missing or the wrong version", function()
@@ -325,6 +373,32 @@ done
         assert.is_false(exists(dir .. "/my tools"))
     end)
 
+    it("names a missing prerequisite before doing anything", function()
+        local function which(name)
+            local p = io.popen("command -v " .. name .. " 2>/dev/null")
+            local path = p:read("*l")
+            p:close()
+            return path
+        end
+        local needed = { "python3", "curl", "tar", "make", "cc" }
+        for _, missing in ipairs(needed) do
+            local bin = dir .. "/bin-" .. missing
+            assert(shell("mkdir -p " .. quote(bin)))
+            for _, name in ipairs({ "dirname", "basename", "python3", "curl", "tar", "make", "cc", "gcc" }) do
+                local path = which(name)
+                local skip = name == missing or (missing == "cc" and name == "gcc")
+                if path and not skip then assert(shell("ln -s " .. quote(path) .. " " .. quote(bin .. "/" .. name))) end
+            end
+            local ok = shell("PATH=" .. quote(bin) .. " DEV_SETUP_TEST=1 " .. quote(which("bash")) .. " " .. quote(SCRIPT)
+                .. " " .. quote(tools) .. " > " .. quote(dir .. "/out.txt") .. " 2>&1")
+            local output = readAll(dir .. "/out.txt")
+            assert.is_false(ok, missing)
+            local want = missing == "cc" and "a C compiler (cc or gcc) is needed" or (missing .. " is needed")
+            assert.is_truthy(output:find(want, 1, true), output)
+            assert.is_false(exists(tools .. "/downloads"))
+        end
+    end)
+
     it("downloads over https only, redirects included", function()
         local script = readAll(SCRIPT)
         assert.is_truthy(script:find('\nPROTOCOLS="=https"\n', 1, true))
@@ -347,6 +421,13 @@ done
             local ok, output = run(lock)
             assert.is_false(ok)
             assert.is_truthy(output:find("listed twice", 1, true), output)
+            -- A name is a plain file name, so nothing is written outside downloads/.
+            lock = writeLock()
+            write(lock, readAll(lock) .. "../lua51/bin/busted " .. string.rep("0", 64) .. " file://" .. files .. "/x\n")
+            ok, output = run(lock)
+            assert.is_false(ok)
+            assert.is_truthy(output:find("bad file name", 1, true), output)
+            assert.is_falsy(output:find("downloading", 1, true), output)
         end)
 
         it("lists every file the script installs, each with an https URL", function()
