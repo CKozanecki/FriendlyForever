@@ -237,3 +237,20 @@ describe("Config", function()
         assert.are_not.equal("changed", Config.DEFAULTS.guildJoin.messages[1])
     end)
 end)
+
+describe("The saved ignore list", function()
+    it("loads cut to MAX_IGNORED names when the file holds more (black)", function()
+        local L = "abcdefghijklmnopqrstuvwxyz"
+        local max = wow.boot().Config.MAX_IGNORED
+        local saved = {}
+        for i = 1, max + 5 do
+            local a, b = math.floor(i / 26) % 26 + 1, i % 26 + 1
+            local full = "Na" .. L:sub(a, a) .. L:sub(b, b) .. "-Stone"
+            saved[full:lower()] = full
+        end
+        local ns = wow.boot({ db = { ignore = saved } })
+        local n = 0
+        for _ in pairs(ns.db.ignore) do n = n + 1 end
+        assert.are.equal(ns.Config.MAX_IGNORED, n)
+    end)
+end)

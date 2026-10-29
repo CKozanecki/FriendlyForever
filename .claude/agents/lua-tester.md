@@ -79,6 +79,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 
 **Tests that can fail**
 - Mutation-check every new or changed line. Each survivor gets a test, or a stated reason it can't be caught (an equivalent mutant; a guard the simulated client can't reach, such as `Util.IsSecret`, since Lua 5.1 compares a table without error). A survivor that shows code can't be reached means delete the code (#21, #54, #61, #62, #88).
+- Code moved or extracted into a new function counts as changed: mutate its lines too (#116: `Config.ValidIgnore`'s cap, moved in #113, had no test with more names than the cap).
 - A guard test asserts that its input really holds the case it covers (the input has `\r\n`; the file really is commented), so a no-op mutation fails it (#79, #81).
 - Each test reaches its path for real: it presses or acts rather than setting state, and fails when the hook it relies on is removed (#20, #21).
 - Every new UI control is clicked in a test, and the test then checks what it changed downstream, such as the armed macro and the marks shown (#61).
