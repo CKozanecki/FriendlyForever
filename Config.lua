@@ -152,6 +152,9 @@ Config.DEFAULTS = {
         autoOffPull = true,
         autoOffDone = true,
         autoOffMinutes = 5,
+        -- Battlegrounds (Battleground.lua): buff before the gates open. Off,
+        -- the preparation phase is as quiet as the battle.
+        bgPrepBuff = true,
         -- buffOrder: buff keys, offered first in this order (empty: each
         -- class's own order). neverOffer: [buff key] = true. They hold keys
         -- of any class, so one profile serves all your characters.
@@ -226,6 +229,7 @@ Config.FIELD_VALIDATORS = {
     autoOffPull = Bool,
     autoOffDone = Bool,
     autoOffMinutes = Limited("autoOffMinutes"),
+    bgPrepBuff = Bool,
     unlocked = Bool,
     listBuffNames = Bool,
     useWhisper = Bool,

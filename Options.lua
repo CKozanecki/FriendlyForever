@@ -439,6 +439,9 @@ local function FillAuto(shown)
     end
     ShowStepper(widgets.steppers.autoOffMinutes, shown)
     if shown then FillBox(widgets.steppers.autoOffMinutes.box, tostring(ns.db.buffBack.autoOffMinutes)) end
+    widgets.bgHeader:SetShown(shown)
+    widgets.bgPrepBuff:SetShown(shown)
+    if shown then widgets.bgPrepBuff:SetChecked(ns.db.buffBack.bgPrepBuff == true) end
 end
 
 local function Fill()
@@ -494,7 +497,7 @@ local function Fill()
     -- takes its space, so following one would leave an empty gap.
     local above, x, y = widgets.steppers.repeatCooldown.label, 0, -18
     if isBuffBack then
-        above = widgets.steppers.autoOffMinutes.label
+        above, x, y = widgets.bgPrepBuff, 4, -14
     elseif warn then
         above = widgets.nameplateWarning
     elseif isBuff then
@@ -778,6 +781,17 @@ function Options.Create()
     local offMinutes = Stepper(content, "or after (minutes, 0 = never):", "autoOffMinutes")
     offMinutes.label:SetPoint("TOPLEFT", offPull, "BOTTOMLEFT", 4, -8)
     widgets.steppers.autoOffMinutes = offMinutes
+
+    -- Battlegrounds (Battleground.lua): after the gates open the addon is
+    -- quiet whatever this says; this is about the preparation phase.
+    widgets.bgHeader = Label(content, "Battlegrounds (quiet once the battle starts):", "GameFontNormalSmall")
+    widgets.bgHeader:SetPoint("TOPLEFT", offMinutes.label, "BOTTOMLEFT", 0, -14)
+    widgets.bgPrepBuff = Checkbox(content, "Buff in the preparation phase", function(on)
+        ns.db.buffBack.bgPrepBuff = on
+        ns.Battleground.Update()
+        ns.BuffButton.Refresh()
+    end)
+    widgets.bgPrepBuff:SetPoint("TOPLEFT", widgets.bgHeader, "BOTTOMLEFT", -4, -2)
 
     local anchor = msgHeader
     for i = 1, Config.NUM_MESSAGES do

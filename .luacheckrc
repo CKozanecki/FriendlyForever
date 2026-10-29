@@ -38,7 +38,7 @@ read_globals = {
     "SetOverrideBindingClick", "ClearOverrideBindings", "GetBindingText", "GetBindingAction",
     "IsShiftKeyDown", "IsControlKeyDown", "IsAltKeyDown",
     "UnitInRange", "UnitIsConnected", "UnitIsVisible", "IsSpellInRange",
-    "UnitGroupRolesAssigned", "GetPartyAssignment",
+    "UnitGroupRolesAssigned", "GetPartyAssignment", "GetBattlefieldWinner",
 }
 
 -- Tests run in plain Lua with busted and install the mock WoW API globally.

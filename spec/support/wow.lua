@@ -421,6 +421,22 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --   A secret value used as a table key reads as missing (byAuraId[secret]
 --                         is nil); the real client may raise an error instead,
 --                         which the addon's callers also survive.
+--   Battlegrounds (#71; enterBattleground and the helpers after it):
+--                         IsInInstance() says "pvp". Before the gates open you
+--                         wear the Preparation aura (M.PREPARATION_ID, Classic's
+--                         44521) and START_TIMER counts down with TIMER_TYPE_PVP
+--                         (1); useStartTimerEnum() switches to the newer
+--                         Enum.StartTimerType.PvPBeginTimer (0). Forever may
+--                         give either signal, both or neither (#50). The aura
+--                         goes as the gates open. Pessimistically, a
+--                         resurrection gives a Preparation aura again (older
+--                         clients' spirit healer buff), so it mustn't read as
+--                         the gates closing. GetBattlefieldWinner() is nil
+--                         until the battleground ends (state.bgWinner). The
+--                         battleground's group may arrive (GROUP_ROSTER_UPDATE)
+--                         before PLAYER_ENTERING_WORLD, and the aura may
+--                         already be on you then, with no UNIT_AURA for it
+--                         (the defaults; the other orders are options).
 ------------------------------------------------------------------------
 
 local function targetableName(u)
@@ -963,6 +979,11 @@ function M.reset()
     -- state.instanceType: "pvp" for a battleground (default "party").
     _G.IsInInstance = function() return M.state.inInstance, M.state.inInstance and (M.state.instanceType or "party") or "none" end
     _G.InCombatLockdown = function() return M.state.inCombat end
+    -- state.bgWinner: who won, once the battleground has ended (nil before).
+    _G.GetBattlefieldWinner = function() return M.state.bgWinner end
+    -- The older START_TIMER type; Enum (set above) has no StartTimerType
+    -- until useStartTimerEnum.
+    _G.TIMER_TYPE_PVP = 1
     -- Override bindings are protected: changing them in combat is blocked,
     -- here an error (the game blocks the call and blames the addon).
     _G.SetOverrideBindingClick = function(owner, isPriority, key, buttonName, mouseButton)
@@ -1356,6 +1377,104 @@ function M.gainBuffs(auras)
         M.state.playerAuras[#M.state.playerAuras + 1] = full
     end
     M.fire("UNIT_AURA", "player", { addedAuras = list })
+end
+
+------------------------------------------------------------------------
+-- Battlegrounds (see ASSUMPTIONS)
+------------------------------------------------------------------------
+
+M.PREPARATION_ID = 44521
+
+-- The newer client's START_TIMER types instead of TIMER_TYPE_PVP.
+function M.useStartTimerEnum()
+    _G.TIMER_TYPE_PVP = nil
+    _G.Enum.StartTimerType = { PvPBeginTimer = 0, ChallengeModeCountdown = 1, PlayerCountdown = 2 }
+end
+
+local function PvPTimerType()
+    if _G.Enum and _G.Enum.StartTimerType then return _G.Enum.StartTimerType.PvPBeginTimer end
+    return _G.TIMER_TYPE_PVP
+end
+
+-- START_TIMER: timerType (default the battle's), seconds left, total.
+function M.startTimer(seconds, timerType)
+    M.fire("START_TIMER", timerType or PvPTimerType(), seconds, 120)
+end
+
+function M.loseBuff(spellId)
+    for i = #M.state.playerAuras, 1, -1 do
+        local aura = M.state.playerAuras[i]
+        if aura.spellId == spellId then
+            table.remove(M.state.playerAuras, i)
+            M.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = { aura.auraInstanceID } })
+        end
+    end
+end
+
+-- Zone into a battleground before its gates open, in a raid-sized instance
+-- group with names. opts.preparation (default true): you wear the Preparation
+-- aura. opts.timer: START_TIMER says this many seconds to the gates. The
+-- group arrives first, while the loading screen is up (the phase can't be
+-- read yet); opts.rosterLast sends it last. The aura is already on you at
+-- PLAYER_ENTERING_WORLD, with no UNIT_AURA for it; opts.auraLate adds it
+-- after, with one.
+function M.enterBattleground(names, opts)
+    opts = opts or {}
+    M.state.inInstance, M.state.instanceType = true, "pvp"
+    M.state.bgWinner = nil
+    M.setGroup("instance", names or {}, true)
+    if not opts.rosterLast then M.fire("GROUP_ROSTER_UPDATE") end
+    local aura = opts.preparation ~= false
+    if aura and not opts.auraLate then
+        M.state.playerAuras[#M.state.playerAuras + 1] = { isHelpful = true, spellId = M.PREPARATION_ID,
+            name = "Preparation", auraInstanceID = 990000 + #M.state.playerAuras, duration = 120,
+            expirationTime = M.now + 120 }
+    end
+    M.fire("PLAYER_ENTERING_WORLD", false, false)
+    M.fire("ZONE_CHANGED_NEW_AREA")
+    if aura and opts.auraLate then M.gainBuff({ spellId = M.PREPARATION_ID, name = "Preparation" }) end
+    if opts.timer then M.startTimer(opts.timer) end
+    if opts.rosterLast then M.fire("GROUP_ROSTER_UPDATE") end
+end
+
+-- A /reload (or, with login, a relog) where you are, as PLAYER_ENTERING_WORLD
+-- says it: the game's state (auras, group, instance) stays. The battleground
+-- phase is read afresh on every PLAYER_ENTERING_WORLD, as after a real reload.
+function M.reloadInPlace(login)
+    M.fire("PLAYER_ENTERING_WORLD", login == true, login ~= true)
+end
+
+-- The gates open: the Preparation aura goes (the timer has run out).
+function M.openGates()
+    M.loseBuff(M.PREPARATION_ID)
+end
+
+function M.die()
+    M.state.units.player.dead = true
+    M.fire("PLAYER_DEAD")
+end
+
+-- Back to life: at the spirit healer (PLAYER_UNGHOST after release) or where
+-- you fell (PLAYER_ALIVE), with a Preparation aura either way (pessimistic).
+function M.resurrect(atSpiritHealer)
+    M.state.units.player.dead = false
+    M.fire(atSpiritHealer and "PLAYER_UNGHOST" or "PLAYER_ALIVE")
+    M.gainBuff({ spellId = M.PREPARATION_ID, name = "Preparation" })
+end
+
+function M.endBattleground(winner)
+    M.state.bgWinner = winner or 0
+    M.fire("UPDATE_BATTLEFIELD_STATUS", 1)
+end
+
+function M.leaveBattleground()
+    M.state.inInstance, M.state.instanceType, M.state.bgWinner = false, nil, nil
+    M.state.units.player.dead = false
+    M.loseBuff(M.PREPARATION_ID)
+    M.setGroup(nil, {})
+    M.fire("PLAYER_ENTERING_WORLD", false, false)
+    M.fire("ZONE_CHANGED_NEW_AREA")
+    M.fire("GROUP_ROSTER_UPDATE")
 end
 
 function M.sentTo(channel)

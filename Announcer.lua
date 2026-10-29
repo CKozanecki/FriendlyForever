@@ -73,6 +73,7 @@ end
 -- Re-checked just before a scheduled message is sent.
 local function StillWanted(msgType)
     if not TypeEnabled(msgType) then return false, "switched off" end
+    if not ns.Battleground.AllowsLine(msgType) then return false, ns.Battleground.QuietReason() end
     if Announcer.SnoozeLeft() then return false, "snoozed" end
     return true
 end
@@ -104,6 +105,9 @@ end
 function Announcer.Schedule(msgType, key, opts)
     if not Announcer.IsActive() then return Skip(msgType, key, Announcer.ActiveState()) end
     if not TypeEnabled(msgType) then return Skip(msgType, key, "this message type is switched off") end
+    if not ns.Battleground.AllowsLine(msgType) then
+        return Skip(msgType, key, "in a battleground: " .. ns.Battleground.QuietReason())
+    end
     local cfg = ns.db[msgType]
 
     local cooldown = opts.cooldown or cfg.repeatCooldown
