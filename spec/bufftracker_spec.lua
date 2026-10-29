@@ -1,3 +1,4 @@
+-- Spec: #99
 local wow = require("spec.support.wow")
 
 describe("Buff thanks", function()
@@ -389,6 +390,29 @@ describe("Buff thanks", function()
             wow.gainBuff({ name = "Arcane Intellect", spellId = 1459 })
             settle()
             assert.are.equal(0, #wow.sent)
+        end)
+    end)
+
+    describe("a caster whose name hasn't loaded ('Unknown')", function()
+        it("owes no favour and isn't thanked by that name", function()
+            ns.db.buffBack.enabled = true
+            wow.addUnit("target", { name = "Bob", nameLoading = true })
+            wow.gainBuff({ sourceUnit = "target", name = "Arcane Intellect", spellId = 1459 })
+            settle()
+            assert.are.equal(0, ns.Offers.Count())
+            assert.are.same({}, wow.sentTo("SAY"))
+            assert.are.same({}, wow.sentTo("WHISPER"))
+        end)
+
+        it("owes no favour when found from a recent cast either: thanked as 'friend'", function()
+            ns.db.buffBack.enabled = true
+            wow.addUnit("nameplate7", { name = "Alice", target = "player", nameLoading = true })
+            wow.fire("UNIT_SPELLCAST_SUCCEEDED", "nameplate7", "cast-1", 1459)
+            wow.gainBuff({ name = "Arcane Intellect", spellId = 1459 })
+            settle()
+            assert.are.equal(0, ns.Offers.Count())
+            assert.are.same({ "Thank you for the Arcane Intellect, friend!" }, wow.sentTo("SAY"),
+                "an unidentified player, not 'Unknown'")
         end)
     end)
 
