@@ -915,6 +915,7 @@ describe("Claude sessions' agents, knowledge and skills", function()
                 { "%- Check this %(#72%)%.", "" },
                 { "%- Check this %(#72%)%.", "- Check this (#72).\n  - And this." },
                 { "^%-%-%-\n", "" },
+                { "^", "# Title\n\n" },
             }) do
                 local broken = good:gsub(cut[1], cut[2])
                 assert.are_not.equal(good, broken, cut[1])
@@ -943,7 +944,7 @@ describe("Claude sessions' agents, knowledge and skills", function()
             local skill = "---\nname: merge-x\ndescription: Does it.\n---\n\n# Merge x\n"
             assert.are.same({}, skillProblems(skill, "merge-x"))
             for _, cut in ipairs({ { "name: merge%-x", "name: other" }, { "description: Does it%.", "description:" },
-                { "^%-%-%-\n", "" } }) do
+                { "^%-%-%-\n", "" }, { "^", "# Title\n\n" } }) do
                 local broken = skill:gsub(cut[1], cut[2])
                 assert.are_not.equal(skill, broken, cut[1])
                 assert.are_not.same({}, skillProblems(broken, "merge-x"), cut[1])
