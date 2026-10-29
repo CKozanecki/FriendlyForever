@@ -20,6 +20,12 @@ describe("Options", function()
         assert.are.same({ "General", "Favour Ledger" }, names)
     end)
 
+    it("names the pages' frames, so the UI simulator's scenarios can find them", function()
+        local general, ledger = ns.Options.Pages()
+        assert.are.equal(general, _G.FriendlyForeverGeneralPage)
+        assert.are.equal(ledger, _G.FriendlyForeverLedgerPage)
+    end)
+
     describe("message tabs", function()
         it("cycles how buff thanks are given, shown on the buff tab only", function()
             wow.run(w.tabs.guildLogin, "OnClick")
@@ -74,6 +80,7 @@ describe("Options", function()
         end)
 
         it("adds and removes ignored players from the box, or your target", function()
+            assert.are.equal("Nobody.", g.ignoreList:GetText())
             g.ignoreBox:SetText("Bob Stone")
             wow.run(g.ignoreAdd, "OnClick")
             assert.is_true(ns.Ignore.Has("Bob-Stone"))
@@ -85,6 +92,75 @@ describe("Options", function()
             g.ignoreBox:SetText("Bob Stone")
             wow.run(g.ignoreRemove, "OnClick")
             assert.are.equal("Ann Vale", g.ignoreList:GetText())
+        end)
+
+        -- White box: in the game wrapped text grows its line and pushes the
+        -- rest down, so every line sits on the scrolling content, and only
+        -- the heading stays on the page (#52).
+        it("puts its lines in a scrolling area below the heading", function()
+            local page = ns.Options.Pages()
+            assert.are.equal("UIPanelScrollFrameTemplate", page.scroll.template)
+            assert.are.equal(page, page.scroll.parent)
+            assert.are.equal(page.scroll, page.content.parent)
+            assert.are.equal(ns.Options.GENERAL_HEIGHT, page.content.height)
+            assert.are.equal(page, page.heading.parent)
+            local point, relativeTo, relativePoint = page.scroll:GetPoint(1)
+            assert.are.same({ "TOPLEFT", page.heading, "BOTTOMLEFT" }, { point, relativeTo, relativePoint },
+                "the scrolling area starts below the heading")
+            local sections = 0
+            for _, f in ipairs(wow.frames) do
+                if f.kind == "FontString" and f.font == "GameFontNormal" and f.parent == page.content then
+                    sections = sections + 1
+                end
+                if f.kind == "FontString" and f.text == "Snooze" then
+                    assert.are.equal(page.content, f.parent, "the Snooze heading")
+                end
+            end
+            assert.is_true(sections >= 5, "section headings on the content")
+            for _, key in ipairs({ "snoozeState", "capHelp", "ignoreList", "ignoreHelp", "profileState",
+                "profileHelp", "shareHelp", "reportHelp", "snooze15", "ignoreBox", "profileNew", "report" }) do
+                assert.are.equal(page.content, g[key].parent, key)
+            end
+        end)
+
+        -- The content takes the scroll frame's width each time the page is
+        -- shown, and again a frame later, not only when a size change
+        -- reaches the scroll frame (#52).
+        it("fits its scrolling content to the page's width when shown", function()
+            local page = ns.Options.Pages()
+            page.scroll.width = 640
+            wow.run(page.scroll, "OnShow")
+            assert.are.equal(640, page.content:GetWidth())
+            page.scroll.width = 655
+            wow.advance(0)
+            assert.are.equal(655, page.content:GetWidth())
+            page.scroll.width = 0
+            wow.run(page.scroll, "OnShow")
+            wow.advance(0)
+            assert.are.equal(655, page.content:GetWidth(), "a scroll frame not laid out yet changes nothing")
+            -- Resized while open (UI scale, resolution): no show, just a size change.
+            wow.run(page.scroll, "OnSizeChanged", 700, 400)
+            assert.are.equal(700, page.content:GetWidth())
+        end)
+
+        -- Black box: a long profile list is cut the way the ignore list is,
+        -- and says where to see the rest (#52).
+        it("lists six profiles, then counts the rest", function()
+            for i = 1, 5 do ns.Profiles.New("Team " .. i) end
+            ns.Options.FillGeneral()
+            local text = g.profileState:GetText()
+            assert.are.equal(6, #ns.Profiles.List())
+            assert.is_nil(text:find("more", 1, true))
+            for _, name in ipairs(ns.Profiles.List()) do assert.is_truthy(text:find(name, 1, true), name) end
+            ns.Profiles.New("Team 6")
+            ns.Profiles.New("Team 7")
+            ns.Options.FillGeneral()
+            text = g.profileState:GetText()
+            assert.is_truthy(text:find("Using Team 7.", 1, true))
+            assert.is_truthy(text:find(" and 2 more (/friendly profile shows them all).", 1, true))
+            local list = ns.Profiles.List()
+            assert.is_truthy(text:find(list[6] .. " and 2 more", 1, true))
+            assert.is_nil(text:find(list[7] .. ",", 1, true))
         end)
 
         it("makes, uses and deletes profiles", function()

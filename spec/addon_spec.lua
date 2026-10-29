@@ -1,4 +1,4 @@
--- Spec: #65, #101
+-- Spec: #52, #65, #101
 -- End-to-end: the addon as the game loads it, plus its UI and commands.
 local wow = require("spec.support.wow")
 
@@ -72,6 +72,7 @@ describe("Addon", function()
             local allowed = {
                 FriendlyForeverDB = true, SLASH_FRIENDLYFOREVER1 = true, SLASH_FRIENDLYFOREVER2 = true,
                 FriendlyForeverMinimapButton = true, FriendlyForeverOptionsPanel = true,
+                FriendlyForeverGeneralPage = true, FriendlyForeverLedgerPage = true,
                 FriendlyForeverBuffButton = true, ["BINDING_NAME_CLICK FriendlyForeverBuffButton:LeftButton"] = true,
                 BINDING_NAME_FRIENDLYFOREVER_BUFFMODE = true, FriendlyForever_ToggleBuffMode = true,
             }

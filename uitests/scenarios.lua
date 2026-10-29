@@ -259,8 +259,9 @@ test("the options panel is on the screen once open", function()
     OnScreen(panel, "options panel")
 end)
 
--- Opens the options at the General page (#35). It doesn't scroll, so each
--- section added to it pushes the rest down towards its bottom.
+-- Opens the options at the General page (#35). Its lines are on
+-- page.content, which scrolls (#52); each section added to it pushes the
+-- rest down towards the content's bottom (Options.GENERAL_HEIGHT).
 local function OpenGeneralPage()
     SlashCmdList.FRIENDLYFOREVER("")
     local page = _G.FriendlyForeverOptionsPanel.generalPage
@@ -274,45 +275,9 @@ end
 test("the General page's chat limit row stays inside it (#35)", function()
     local page = OpenGeneralPage()
     local w = page.widgets
-    TextInside(page, w.linesPerMinute.label, "chat limit label", 1)
-    TextInside(page, w.linesPerMinute.plus, "chat limit + button")
-    TextInside(page, w.capHelp, "chat limit help")
-end)
-
--- How much lower a line sits in the game than here because of the notes
--- above it: the client doesn't wrap, so it places what follows a note as if
--- the note were one line, while the game draws each of its wrapped lines.
-local function WrapDrop(notes)
-    local drop = 0
-    for _, note in ipairs(notes) do
-        local left, right = Edges(note, "GetLeft", "GetRight")
-        local lines = left and WrappedLines(note, left, right)
-        local height = Measure(note, "GetStringHeight")
-        if lines and height then drop = drop + height * (lines - 1) end
-    end
-    return drop
-end
-
--- The page doesn't scroll, so its last line must still be on it once every
--- note above it has wrapped as it does in the game.
-test("the General page's last line is still on the page (#35)", function()
-    local page = OpenGeneralPage()
-    local w = page.widgets
-    TextInside(page, w.reportHelp, "bug report help")
-    local left, right = Edges(w.reportHelp, "GetLeft", "GetRight")
-    local top, bottom = Edges(w.reportHelp, "GetTop", "GetBottom")
-    local pageBottom = select(2, Edges(page, "GetTop", "GetBottom"))
-    if not (left and top and pageBottom) then
-        report("LAYOUT General page bottom: edges can't be read here")
-        return
-    end
-    local _, drawnBottom = DrawnUpDown(w.reportHelp, top, bottom, WrappedLines(w.reportHelp, left, right) or 1)
-    local drop = WrapDrop({ w.snoozeState, w.capHelp, w.ignoreList, w.ignoreHelp, w.profileState, w.profileHelp,
-        w.shareHelp })
-    local line = ("LAYOUT General page bottom: last line ends at %.0f here, %.0f once the notes above it wrap "
-        .. "(%.0f lower); page bottom %.0f"):format(drawnBottom, drawnBottom - drop, drop, pageBottom)
-    report(line)
-    check(drawnBottom - drop >= pageBottom - 1, line .. ": below the bottom of the page")
+    TextInside(page.content, w.linesPerMinute.label, "chat limit label", 1)
+    TextInside(page.content, w.linesPerMinute.plus, "chat limit + button")
+    TextInside(page.content, w.capHelp, "chat limit help")
 end)
 
 -- The Buff Thanks tab (#101): "Thank them with" and "If that can't reach
@@ -619,8 +584,189 @@ end)
 -- rest of the run: a later test whose timers must fire calls
 -- A_Admin.AdvanceTime itself.
 
+-- The phase 1 pages (#52): the options' General and Favour Ledger pages,
+-- filled by pages.lua with the longest names and most entries a player
+-- could have, and the copy window. Text on a page may wrap on purpose, so
+-- its lines aren't counted; a button's text stays on one line. Every line is
+-- checked and printed before any failure is raised.
+
+local function Short(text)
+    text = tostring(text):gsub("\n", " ")
+    return #text > 40 and text:sub(1, 37) .. "..." or text
+end
+
+-- Runs each check, collecting failures instead of stopping at the first.
+local function CheckAll(checks)
+    local failures = {}
+    for _, fn in ipairs(checks) do
+        local ok, err = pcall(fn)
+        if not ok then failures[#failures + 1] = tostring(err) end
+    end
+    check(#failures == 0, table.concat(failures, "\n"))
+end
+
+-- Every shown text line on frame, on at most maxLines lines when given,
+-- and every shown button's label on it, on one line.
+local function FrameTextInside(frame, label, maxLines)
+    local checks = {}
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if region:GetObjectType() == "FontString" and region:IsShown() and (region:GetText() or "") ~= "" then
+            checks[#checks + 1] = function()
+                TextInside(frame, region, label .. " \"" .. Short(region:GetText()) .. "\"", maxLines)
+            end
+        end
+    end
+    for _, child in ipairs({ frame:GetChildren() }) do
+        local text = child:IsShown() and child:GetObjectType() == "Button" and child.GetFontString
+            and child:GetFontString()
+        if text and (text:GetText() or "") ~= "" then
+            checks[#checks + 1] = function()
+                TextInside(child, text, label .. " button \"" .. Short(text:GetText()) .. "\"", 1)
+            end
+        end
+    end
+    check(#checks > 0, label .. ": no text to check")
+    CheckAll(checks)
+end
+
+-- In the game a text line with no height set grows with its wrapped text,
+-- and pushes down whatever is anchored below it. The simulator doesn't wrap
+-- a line pinned to two frames (WrappedLines), so nothing moves there. This
+-- works out where each region would end in the game: pushed down by the
+-- extra lines of every text line above it, and lower still by its own extra
+-- lines, at the pessimistic 17 px a line (docs/ui-simulator.md). Prints a
+-- LAYOUT line for the lowest region, fails if it would leave frame, and
+-- returns the line. Pages here are one column, so everything above a region
+-- pushes it.
+local PUSH_LINE = 17
+local function PushedDownInside(frame, label)
+    local _, fb = Edges(frame, "GetTop", "GetBottom")
+    if not fb then
+        local line = "LAYOUT " .. label .. " pushed down: edges can't be read here"
+        report(line)
+        return line
+    end
+    local items, extra = {}, {}
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if region:GetObjectType() == "FontString" and region:IsShown() and (region:GetText() or "") ~= "" then
+            items[#items + 1] = region
+            local tl, tr = Edges(region, "GetLeft", "GetRight")
+            local wrapped = tl and WrappedLines(region, tl, tr)
+            local count = Measure(region, "GetNumLines") or 1
+            if wrapped and wrapped > count then extra[region] = (wrapped - count) * PUSH_LINE end
+        end
+    end
+    for _, child in ipairs({ frame:GetChildren() }) do
+        if child:IsShown() then items[#items + 1] = child end
+    end
+    local lowest, lowestName
+    for _, item in ipairs(items) do
+        local top, bottom = Edges(item, "GetTop", "GetBottom")
+        if top then
+            local push = extra[item] or 0
+            for _, other in ipairs(items) do
+                local otherTop = extra[other] and Edges(other, "GetTop", "GetBottom")
+                if otherTop and otherTop > top + 1 then push = push + extra[other] end
+            end
+            local drawn = bottom - push
+            if not lowest or drawn < lowest then
+                lowest = drawn
+                lowestName = item.GetText and item:GetText() or (item.GetName and item:GetName()) or "a frame"
+            end
+        end
+    end
+    if not lowest then return end
+    local line = ("LAYOUT %s pushed down by wrapped text: lowest \"%s\" ends at %.0f, frame bottom %.0f"):format(
+        label, Short(lowestName), lowest, fb)
+    report(line)
+    check(lowest >= fb - 1, line .. ": would leave its frame in the game")
+    return line
+end
+
+-- Whether any shown text line on frame contains fragment (plain text).
+local function ShowsText(frame, fragment)
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if region:GetObjectType() == "FontString" and region:IsShown()
+            and (region:GetText() or ""):find(fragment, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+-- Runs fn with the pages filled, and puts the saved settings back after,
+-- even when fn fails.
+local function WithPagesFilled(fn)
+    local undo = FriendlyForeverUIPages.Fill()
+    local ok, err = pcall(fn)
+    undo()
+    if not ok then error(err, 0) end
+end
+
+test("the General page, with a long ignore list and several profiles, keeps its text inside it", function()
+    WithPagesFilled(function()
+        local page = FriendlyForeverUIPages.Open("general")
+        check(page:IsVisible(), "the General page didn't open")
+        -- The page's lines are on its scrolling content (#52). The checks
+        -- below mean nothing on a page still showing the default lists, so
+        -- first make sure it shows the fill.
+        local content = page.content
+        check(ShowsText(content, "Aerendhiliel Stormwhisper")
+            and ShowsText(content, "Using Raid nights in Naxxramas, team 1."),
+            "the General page doesn't show the filled ignore list and profiles")
+        OnScreen(page, "General page")
+        CheckAll({
+            function() FrameTextInside(content, "General page") end,
+            function() PushedDownInside(content, "General page") end,
+        })
+    end)
+end)
+
+test("the Favour Ledger page, with a full page of long entries, keeps its text inside it", function()
+    WithPagesFilled(function()
+        local page = FriendlyForeverUIPages.Open("ledger")
+        check(page:IsVisible(), "the Favour Ledger page didn't open")
+        check(not ShowsText(page, "Nobody outside your group has buffed you yet."),
+            "the Favour Ledger page doesn't show the filled ledger")
+        OnScreen(page, "Favour Ledger page")
+        CheckAll({
+            function() FrameTextInside(page, "Favour Ledger page") end,
+            function() PushedDownInside(page, "Favour Ledger page") end,
+        })
+    end)
+end)
+
+-- With the lists as a new player has them, the page's last line must still
+-- be inside its scrolling content once every note has wrapped as it does in
+-- the game (#35). The filled page above is the worst case (#52).
+test("the General page's last line is still on the page (#35)", function()
+    local page = OpenGeneralPage()
+    check(page:IsVisible(), "the General page didn't open")
+    PushedDownInside(page.content, "General page (as a new player has it)")
+end)
+
+-- The copy window as each command opens it: export (a line to copy), import
+-- (a box to paste into, and an Import button) and the bug report. The
+-- window's own text (its title and hint) keeps to two lines: the text box
+-- starts below the hint's second line.
+test("the copy window keeps its text inside it, for export, import and the bug report", function()
+    for _, command in ipairs({ "export", "import", "report" }) do
+        SlashCmdList.FRIENDLYFOREVER(command)
+        local window = _G[FriendlyForeverUIPages.WINDOW]
+        local ok, err = pcall(function()
+            check(window and window:IsShown(), "/friendly " .. command .. " didn't open the copy window")
+            local label = "copy window (" .. command .. ")"
+            OnScreen(window, label)
+            FrameTextInside(window, label, 2)
+        end)
+        if window then window:Hide() end
+        if not ok then error(err, 0) end
+    end
+end)
+
 -- The layout checks, for spec/uitests_layout_spec.lua, which runs them
 -- against regions whose edges it sets itself, and the Buff Thanks tab's
 -- choices, which spec/thankwith_spec.lua checks against the options. The
 -- simulator ignores what a test file returns.
-return { TextInside = TextInside, WrapDrop = WrapDrop, THANK_WITH = THANK_WITH, CANT_REACH = CANT_REACH }
+return { TextInside = TextInside, PushedDownInside = PushedDownInside, THANK_WITH = THANK_WITH,
+    CANT_REACH = CANT_REACH }
