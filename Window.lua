@@ -30,10 +30,14 @@ local function Create()
     frame.hint:SetPoint("TOPLEFT", 14, -32)
     frame.hint:SetPoint("RIGHT", -14, 0)
     frame.hint:SetJustifyH("LEFT")
+    -- Up to two lines; the text box starts below the second, so a hint that
+    -- wraps never runs into it (#52).
+    frame.hint:SetMaxLines(2)
 
     local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 14, -52)
+    scroll:SetPoint("TOPLEFT", 14, -72)
     scroll:SetPoint("BOTTOMRIGHT", -34, 44)
+    frame.scroll = scroll
     local box = CreateFrame("EditBox", nil, scroll)
     box:SetMultiLine(true)
     box:SetAutoFocus(false)
