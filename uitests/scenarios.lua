@@ -286,29 +286,17 @@ local function OpenGeneralPage()
     return page
 end
 
--- Layout: a region doesn't reach below its frame's bottom edge.
-local function AboveBottom(frame, region, label)
-    local ok, frameBottom, bottom = pcall(function() return frame:GetBottom(), region:GetBottom() end)
-    if not (ok and type(frameBottom) == "number" and type(bottom) == "number") then
-        report("LAYOUT " .. label .. ": edges can't be read here")
-        return
-    end
-    local line = ("LAYOUT %s: bottom %.0f, frame bottom %.0f"):format(label, bottom, frameBottom)
-    report(line)
-    check(bottom >= frameBottom - 1, line .. ": below the bottom of its frame")
-end
-
 test("the General page's chat limit row stays inside it (#35)", function()
     local page = OpenGeneralPage()
     local w = page.widgets
-    TextInside(page, w.linesPerMinute.label, "chat limit label")
+    TextInside(page, w.linesPerMinute.label, "chat limit label", 1)
     TextInside(page, w.linesPerMinute.plus, "chat limit + button")
-    AboveBottom(page, w.capHelp, "chat limit help")
+    TextInside(page, w.capHelp, "chat limit help")
 end)
 
 test("the General page's last line is still on the page (#35)", function()
     local page = OpenGeneralPage()
-    AboveBottom(page, page.widgets.reportHelp, "bug report help")
+    TextInside(page, page.widgets.reportHelp, "bug report help")
 end)
 
 -- Facts about the simulated client, printed in the report: they are
