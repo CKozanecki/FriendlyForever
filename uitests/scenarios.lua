@@ -303,8 +303,12 @@ test("entering combat empties the button, leaving fills it again; storms never e
             function() States.BuffedBy(sources[roll(#sources)]) end,
             function() States.Target(stranger) end,
             function() States.Target(nil) end,
-            function() States.Party(States.GROUPMATE) end,
-            function() States.Party(nil) end,
+            -- Party changes only out of a fight: in one, the simulator's
+            -- Blizzard party and raid frames take 20-90 seconds over each
+            -- (their own errors, not the addon's). spec/buffmodeauto_spec.lua
+            -- covers the roster changing in a fight.
+            function() if not fighting then States.Party(States.GROUPMATE) end end,
+            function() if not fighting then States.Party(nil) end end,
             function() States.Advance(roll(4) - 1) end,
         }
         local allowed = { [stranger] = true, [States.GROUPMATE] = true }
