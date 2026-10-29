@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82
+-- Spec: #49, #65, #77, #80, #82, #89
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -488,9 +488,22 @@ describe("Release version check", function()
         local script = assert(io.open(dir .. "/check.sh", "w"))
         script:write("GITHUB_REF_NAME='" .. tag .. "'\n" .. readToc .. "\n" .. compare .. "\n")
         script:close()
-        local ok = os.execute('cd "' .. dir .. '" && bash check.sh')
+        -- The job's ::error:: line goes to a file, not the terminal: on CI,
+        -- GitHub Actions would read it as a real error annotation (#89).
+        local ok = os.execute('cd "' .. dir .. '" && bash check.sh > out.txt 2>&1')
+        local out = assert(io.open(dir .. "/out.txt", "r"))
+        local output = out:read("*a")
+        out:close()
         os.execute('rm -rf "' .. dir .. '"')
-        return ok == true or ok == 0
+        return ok == true or ok == 0, output
+    end
+
+    -- A rejected tag stops the job and says why, in the error line that
+    -- GitHub Actions shows on the run.
+    local function rejects(toc, tag, version)
+        local ok, output = accepts(toc, tag)
+        assert.is_false(ok)
+        assert.are.equal("::error::Tag " .. tag .. " does not match TOC version " .. version .. "\n", output)
     end
 
     it("keeps the tag check from being skipped or allowed to fail", function()
@@ -515,21 +528,27 @@ describe("Release version check", function()
         assert.is_truthy(compare, "release.yml no longer compares the tag with the TOC")
     end)
 
-    it("accepts the tag for the TOC's own version", function()
+    it("accepts the tag for the TOC's own version, and prints nothing", function()
         local toc = wow.readFile("FriendlyForever.toc")
-        assert.is_true(accepts(toc, "v" .. wow.parseToc().Version))
-        assert.is_true(accepts("## Version: 0.8.0\n", "v0.8.0"))
+        local ok, output = accepts(toc, "v" .. wow.parseToc().Version)
+        assert.is_true(ok)
+        assert.are.equal("", output)
+        ok, output = accepts("## Version: 0.8.0\n", "v0.8.0")
+        assert.is_true(ok)
+        assert.are.equal("", output)
     end)
 
-    it("rejects a tag that is not the TOC's version, or a TOC with no version", function()
-        assert.is_false(accepts("## Version: 0.8.0\n", "v1.6.0"))
-        assert.is_false(accepts("## Version: 0.8.0\n", "v0.8.0-beta"))
-        assert.is_false(accepts("## Version: 0.8.0\n", "0.8.0"))
-        assert.is_false(accepts("## Title: Friendly Forever\n", "v0.8.0"))
+    it("rejects a tag that is not the TOC's version, or a TOC with no version, naming the tag and the version", function()
+        rejects("## Version: 0.8.0\n", "v1.6.0", "0.8.0")
+        rejects("## Version: 0.8.0\n", "v0.8.0-beta", "0.8.0")
+        rejects("## Version: 0.8.0\n", "0.8.0", "0.8.0")
+        rejects("## Title: Friendly Forever\n", "v0.8.0", "")
     end)
 
     it("still accepts the right tag when the TOC has Windows line endings", function()
-        assert.is_true(accepts("## Version: 0.8.0\r\n## Title: x\r\n", "v0.8.0"))
+        local ok, output = accepts("## Version: 0.8.0\r\n## Title: x\r\n", "v0.8.0")
+        assert.is_true(ok)
+        assert.are.equal("", output)
     end)
 end)
 
