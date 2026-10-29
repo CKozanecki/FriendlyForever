@@ -1,4 +1,4 @@
--- Spec: #52, #80
+-- Spec: #52, #80, #101
 local wow = require("spec.support.wow")
 
 describe("Config", function()
@@ -62,7 +62,8 @@ describe("Config", function()
 
     it("defaults buff thanks to /say with a 'friend' fallback", function()
         local db = Config.Load(nil)
-        assert.is_false(db.buff.useWhisper)
+        assert.are.equal("message", db.buff.thankStyle)
+        assert.are.equal("say", db.buff.fallback)
         assert.are.equal("friend", db.buff.unknownName)
         assert.is_true(db.buff.listBuffNames)
     end)
@@ -191,7 +192,7 @@ describe("Config", function()
             enabled = "yes",
             minimap = { angle = "north", hide = 1 },
             buff = { enabled = 1, delay = -50, repeatCooldown = 1e9, listBuffNames = "no",
-                     useWhisper = "sure", unknownName = "|cffff0000pal\n", messages = { 42, true, "ok" } },
+                     thankStyle = "sure", fallback = 3, unknownName = "|cffff0000pal\n", messages = { 42, true, "ok" } },
             partyJoin = "garbage",
         })
         assert.is_true(db.enabled)
@@ -201,7 +202,8 @@ describe("Config", function()
         assert.are.equal(0, db.buff.delay)
         assert.are.equal(3600, db.buff.repeatCooldown)
         assert.is_true(db.buff.listBuffNames)
-        assert.is_false(db.buff.useWhisper)
+        assert.are.equal("message", db.buff.thankStyle)
+        assert.are.equal("say", db.buff.fallback)
         assert.are.equal("cffff0000pal", db.buff.unknownName)
         local expected = { "", "", "ok", "", "", "", "", "", "", "" }
         for i = 11, Config.NUM_MESSAGES do expected[i] = Config.DEFAULTS.buff.messages[i] end

@@ -18,6 +18,7 @@
 - Buff thanks no longer raises a Lua error on a buff whose caster the game reports as something other than a unit name. Such a buff isn't thanked or owed. (#98)
 - Fix: buff thanks no longer raises a Lua error when the game sends a damaged aura ID (not a number, or NaN). The buff is still thanked as usual. (#108)
 - Buff data: the shaman's Water Breathing is listed as doing the same job as a warlock's Unending Breath, not as a group version of it. A player wearing either still counts as having Unending Breath. (#135)
+- **Thank them with** and **If that can't reach them** on the Buff Thanks tab replace the whisper and /say fallback checkboxes. Thank with a line in /say (the default), a whisper, a `/thank` emote, or a line and an emote. When that can't reach them (the game can't name the caster, or the whisper fails), say it in /say as "friend" (the default), `/thank` instead, or do nothing. The line once your buff lands goes the same way, as a `/thank` for the emote. The favour ledger notes how each favour was thanked. Your settings carry over: if you thanked with only an emote, a caster the game can't name still gets a plain `/thank`, and a whispered line with an emote becomes just the whisper. (#101)
 
 ## 0.8.0
 

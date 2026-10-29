@@ -1,4 +1,4 @@
--- Spec: #52, #58, #80, #112
+-- Spec: #52, #58, #80, #101, #112
 -- The options added with 0.8.0: thank style, loading a line set, and the
 -- General and Favour Ledger pages.
 local wow = require("spec.support.wow")
@@ -33,6 +33,8 @@ describe("Options", function()
             wow.run(w.tabs.buff, "OnClick")
             assert.is_true(w.thankStyle:IsShown())
             assert.are.equal(ns.Options.THANK_STYLE_TEXT.message, w.thankStyle:GetText())
+            wow.run(w.thankStyle, "OnClick")
+            assert.are.equal("whisper", ns.db.buff.thankStyle)
             wow.run(w.thankStyle, "OnClick")
             assert.are.equal("emote", ns.db.buff.thankStyle)
             assert.are.equal(ns.Options.THANK_STYLE_TEXT.emote, w.thankStyle:GetText())

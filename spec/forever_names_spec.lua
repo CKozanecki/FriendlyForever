@@ -1,3 +1,4 @@
+-- Spec: #101
 -- WoW Forever names are a first name plus a mandatory surname, and the pair
 -- is the player's identity. These tests use names in both shapes the client
 -- may report them: "First-Surname" in one string, or the first name with the
@@ -49,7 +50,7 @@ describe("Forever first name + surname", function()
         end)
 
         it("whispers the caster's full name", function()
-            ns.db.buff.useWhisper = true
+            ns.db.buff.thankStyle = "whisper"
             wow.addUnit("target", { name = "Bob", surname = "Brightwood" })
             wow.gainBuff({ sourceUnit = "target", name = "Fort" })
             wow.advance(ns.db.buff.delay + 0.01)
