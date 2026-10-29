@@ -216,6 +216,8 @@ local function ExpectEmpty(States, when)
     Expect(not States.Button():IsShown(), when .. ": the button is up")
 end
 
+-- The last argument to TextInside, 1, is the most lines a button line may
+-- take: #91 (issue #90) adds that check; until it merges, TextInside ignores it.
 test("with a favour owed, the button names the player and the buff, and its text stays inside it", function()
     InState("favour", FriendlyForeverUIStates.Favour, function(button, States)
         Expect(select(2, UnitClass("player")) == "PRIEST", "the player isn't a Priest")
@@ -371,3 +373,6 @@ end)
 -- (A_Admin.SetManualClock and AdvanceTime), which button_states.lua uses
 -- to get past the login grace, but those flows stay in spec/, whose
 -- simulated client controls time too (wow.advance) and models Forever.
+-- Once the button-state scenarios have run, game time stays frozen for the
+-- rest of the run: a later test whose timers must fire calls
+-- A_Admin.AdvanceTime itself.
