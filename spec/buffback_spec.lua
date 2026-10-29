@@ -1377,7 +1377,10 @@ describe("Buff back", function()
             end
             -- How often the storm reached the outcomes that must stay silent.
             local handCasts, nothingWaiting = 0, 0
-            local handLanded = {} -- who your hand casts reached, by the simulated client's own account
+            -- The simulated client's own account of casts that landed, as they happen:
+            -- the hand casts of this step, and how many of wow.landed were seen.
+            local handNew, landedSeen, returnedSeen = {}, 0, {}
+            local waitingPressAt, overlaps = nil, 0 -- a press with no cast yet; hand casts made then, for someone else
             local log = ns.Diag.Log
             ns.Diag.Log = function(category, fmt, ...)
                 if category == "buffBack" and fmt == "%s" then
@@ -1427,9 +1430,13 @@ describe("Buff back", function()
                     local name = names[random.random(#names)]
                     handCasts = handCasts + 1
                     local guid = "Hand-" .. handCasts
+                    local armed = macro()
+                    if waitingPressAt == #wow.casts and armed and not armed:find(name, 1, true) then
+                        overlaps = overlaps + 1
+                    end
                     wow.fire("UNIT_SPELLCAST_SENT", "player", name, guid, MOTW)
                     if random.random() < 0.8 then
-                        handLanded[name .. "-Stone"] = true
+                        handNew[name .. "-Stone"] = true
                         wow.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, MOTW)
                     end
                 end,
@@ -1447,6 +1454,7 @@ describe("Buff back", function()
                 frame:UnregisterEvent("UI_ERROR_MESSAGE")
                 if (mouseButton or "LeftButton") == "LeftButton" and #wow.casts == casts and errors == 0 then
                     unanswered = unanswered + 1
+                    waitingPressAt = #wow.casts
                 end
             end
             actions[3] = function()
@@ -1455,12 +1463,26 @@ describe("Buff back", function()
             end
             for n = 1, 1500 do
                 step = n
+                handNew = {}
                 local which = random.random(#actions)
                 actions[which]()
                 if wow.state.inCombat then
                     assert.is_nil(macro(), "seed " .. seed .. ", step " .. step .. ": armed in a fight")
                 end
                 assert.is_true(ns.Offers.Count() <= ns.Offers.MAX, "seed " .. seed)
+                -- A favour returned in this step needs a cast that landed, in this
+                -- step, on that very player: a hand cast to someone else is never
+                -- a press's cast (#133).
+                local landedNow = {}
+                for i = landedSeen + 1, #wow.landed do landedNow[wow.landed[i].target] = true end
+                landedSeen = #wow.landed
+                for _, entry in ipairs(ns.db.ledger.entries) do
+                    if entry.returned and not returnedSeen[entry] then
+                        returnedSeen[entry] = true
+                        assert.is_true(landedNow[entry.who] or handNew[entry.who] or false,
+                            ("seed %d, step %d: %s's favour returned with no cast landing on them"):format(seed, step, entry.who))
+                    end
+                end
                 -- The feature's safety rules: a buff never flags you for PvP,
                 -- never lands on you, a dead or a hostile unit.
                 assert.are.same({}, wow.flaggedBy, "seed " .. seed .. ", step " .. step .. ": flagged for PvP")
@@ -1471,16 +1493,6 @@ describe("Buff back", function()
                 end
             end
             assert.are.same({}, wow.errors, "seed " .. seed)
-            -- A favour is only ever returned to a player a cast really landed
-            -- on: a hand cast to someone else is never a press's cast (#133).
-            local landedOn = {}
-            for _, landed in ipairs(wow.landed) do landedOn[landed.target] = true end
-            for _, entry in ipairs(ns.db.ledger.entries) do
-                if entry.returned then
-                    assert.is_true(landedOn[entry.who] or handLanded[entry.who] or false,
-                        ("seed %d: %s's favour returned, but no cast landed on them"):format(seed, entry.who))
-                end
-            end
             local s = ns.Ledger.Summary()
             assert.is_true(s.returned <= s.received, "seed " .. seed .. ": more returned than received")
             local noAnswers = 0
@@ -1499,7 +1511,7 @@ describe("Buff back", function()
                         ("seed %d: %d lines said to %s, %d queued"):format(seed, saidTo[first], first, queued[first] or 0))
                 end
             end
-            return s, said, handCasts, nothingWaiting
+            return s, said, overlaps, nothingWaiting
         end
 
         it("survives random storms of events, presses, fights and settings changes", function()
@@ -1515,7 +1527,7 @@ describe("Buff back", function()
             assert.is_true(casts > 20, "casts: " .. casts)
             assert.is_true(returned > 0, "favours returned: " .. returned)
             assert.is_true(said > 0, "buff back lines said: " .. said)
-            assert.is_true(elsewhere > 0, "casts made by hand: " .. elsewhere)
+            assert.is_true(elsewhere > 0, "hand casts for someone else while a press waited: " .. elsewhere)
             assert.is_true(gone > 0, "casts that found no favour waiting: " .. gone)
         end)
 
