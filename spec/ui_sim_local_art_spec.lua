@@ -594,9 +594,10 @@ describe("Local art screenshots script", function()
         end)
 
         it("stops when its working folder would be inside this repository", function()
+            -- Removed even if the check fails, so nothing is left in the repository.
+            finally(function() os.execute("rm -rf " .. quote(ROOT .. "/.cache-test")) end)
             refused("The working folder is inside this repository", { dir .. "/out", fakeInstall(dir) },
                 { XDG_CACHE_HOME = ROOT .. "/.cache-test" })
-            os.execute("rm -rf " .. quote(ROOT .. "/.cache-test"))
         end)
 
         it("gives each shot at most 3 CPUs, and no more than Docker has", function()
