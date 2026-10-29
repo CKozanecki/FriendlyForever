@@ -80,7 +80,10 @@ describe("Addon icon", function()
 
         it("leaves no reference to the old icon", function()
             local old = "Achievement_" .. "Reputation_01" -- split, so this file doesn't match
-            local files = sh('cd "' .. wow.ROOT .. '" && git ls-files')
+            -- Outside a git checkout, every file but builds and other checkouts.
+            local files = sh('cd "' .. wow.ROOT .. '" && (git ls-files 2>/dev/null || find . -type f'
+                .. " ! -path './.git/*' ! -path './dist/*' ! -path './.release/*'"
+                .. " ! -path './.tools/*' ! -path './.claude/*')")
             local count = 0
             for path in files:gmatch("[^\n]+") do
                 count = count + 1
@@ -91,7 +94,7 @@ describe("Addon icon", function()
                     assert.is_nil(text:find(old, 1, true), path .. " still names the old icon")
                 end
             end
-            assert.is_true(count > 0, "no tracked files listed")
+            assert.is_true(count > 0, "no files listed")
         end)
     end)
 
