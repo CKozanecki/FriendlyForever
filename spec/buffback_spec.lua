@@ -489,6 +489,62 @@ describe("Buff back", function()
             assert.are.equal(0, ns.Offers.Count(), "both favours returned")
         end)
 
+        it("a button cast the game sends to someone else says so, and counts as a hand cast to them (#133)", function()
+            stranger()
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2")
+            buffedBy() -- Bob's is the newest, so the press is for him
+            button.scripts.PreClick(button, "LeftButton", true)
+            button.scripts.PreClick(button, "LeftButton", false)
+            -- The game sends the cast to Ann, not Bob.
+            ns.BuffButton.OnSpellcastSent("player", "Ann Vale", "Cast-1", MOTW)
+            ns.BuffButton.OnSpellcastSucceeded("player", "Cast-1", MOTW)
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+            assert.is_true(printedHas("Mark of the Wild went to Ann Vale, not Bob Stone."))
+            assert.are.equal("Mark of the Wild", ns.db.ledger.entries[1].returned, "Ann's favour is returned")
+            assert.is_nil(ns.db.ledger.entries[2].returned, "Bob's stays owed")
+            assert.are.equal(1, ns.Offers.Count())
+        end)
+
+        it("the second half of a press after a cast that went elsewhere still says where it went (#133)", function()
+            stranger()
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2")
+            buffedBy()
+            button.scripts.PreClick(button, "LeftButton", true)
+            ns.BuffButton.OnSpellcastSent("player", "Ann Vale", "Cast-1", MOTW)
+            ns.BuffButton.OnSpellcastSucceeded("player", "Cast-1", MOTW)
+            button.scripts.PreClick(button, "LeftButton", false) -- the other half of the press replaces it
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+            assert.is_true(printedHas("Mark of the Wild went to Ann Vale, not Bob Stone."))
+        end)
+
+        it("a button cast sent to someone else that never lands isn't reported as having gone there (#133)", function()
+            stranger()
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2")
+            buffedBy()
+            button.scripts.PreClick(button, "LeftButton", true)
+            button.scripts.PreClick(button, "LeftButton", false)
+            ns.BuffButton.OnSpellcastSent("player", "Ann Vale", "Cast-1", MOTW)
+            ns.BuffButton.OnSpellcastFailed("player", "Cast-1", MOTW)
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+            assert.is_false(printedHas("went to"))
+            assert.is_true(printedHas("No answer"))
+        end)
+
+        it("a real redirected press in the simulated client says where the buff went (#133)", function()
+            stranger()
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2")
+            buffedBy()
+            wow.state.castLandsOn = "nameplate2"
+            wow.press(button)
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+            assert.is_true(printedHas("Mark of the Wild went to Ann, not Bob Stone."))
+            assert.is_nil(ns.db.ledger.entries[2].returned, "Bob's favour stays")
+        end)
+
         it("a cast whose target name can't be read is still the waiting press's (#133)", function()
             stranger()
             buffedBy()
@@ -1376,10 +1432,10 @@ describe("Buff back", function()
                 return schedule(msgType, key, opts)
             end
             -- How often the storm reached the outcomes that must stay silent.
-            local handCasts, nothingWaiting = 0, 0
+            local handCasts, wentElsewhere, nothingWaiting = 0, 0, 0
             -- The simulated client's own account of casts that landed, as they happen:
             -- the hand casts of this step, and how many of wow.landed were seen.
-            local handNew, landedSeen, returnedSeen = {}, 0, {}
+            local handNew, landedSeen, returnedSeen, handEver = {}, 0, {}, {}
             local waitingPressAt, overlaps = nil, 0 -- a press with no cast yet; hand casts made then, for someone else
             local log = ns.Diag.Log
             ns.Diag.Log = function(category, fmt, ...)
@@ -1437,6 +1493,7 @@ describe("Buff back", function()
                     wow.fire("UNIT_SPELLCAST_SENT", "player", name, guid, MOTW)
                     if random.random() < 0.8 then
                         handNew[name .. "-Stone"] = true
+                        handEver[name] = true
                         wow.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, MOTW)
                     end
                 end,
@@ -1493,6 +1550,18 @@ describe("Buff back", function()
                 end
             end
             assert.are.same({}, wow.errors, "seed " .. seed)
+            -- "X went to Y" only for a cast the server said landed on Y.
+            local landedFirst = {}
+            for first in pairs(handEver) do landedFirst[first] = true end
+            for _, landed in ipairs(wow.landed) do landedFirst[landed.target:match("^[^-]+")] = true end
+            for _, line in ipairs(wow.printed) do
+                local first = line:match(" went to (%a+)[ ,]")
+                if first then
+                    wentElsewhere = wentElsewhere + 1
+                    assert.is_true(landedFirst[first] or false,
+                        ("seed %d: told a buff went to %s, but none landed on them"):format(seed, first))
+                end
+            end
             local s = ns.Ledger.Summary()
             assert.is_true(s.returned <= s.received, "seed " .. seed .. ": more returned than received")
             local noAnswers = 0
@@ -1511,16 +1580,17 @@ describe("Buff back", function()
                         ("seed %d: %d lines said to %s, %d queued"):format(seed, saidTo[first], first, queued[first] or 0))
                 end
             end
-            return s, said, overlaps, nothingWaiting
+            return s, said, overlaps, nothingWaiting, wentElsewhere
         end
 
         it("survives random storms of events, presses, fights and settings changes", function()
-            local received, casts, returned, said, elsewhere, gone = 0, 0, 0, 0, 0, 0
+            local received, casts, returned, said, elsewhere, gone, redirected = 0, 0, 0, 0, 0, 0, 0
             -- Seeds 6 and 51 once sent a redirected cast to a dead unit (#84).
             for _, seed in ipairs({ 1, 6, 7, 21, 35, 42, 51, 99, 404, 2026, 4242, 31337 }) do
-                local s, lines, hand, nothingWaiting = storm(seed)
+                local s, lines, hand, nothingWaiting, wentTo = storm(seed)
                 received, casts, returned = received + s.received, casts + #wow.casts, returned + s.returned
                 said, elsewhere, gone = said + lines, elsewhere + hand, gone + nothingWaiting
+                redirected = redirected + wentTo
             end
             -- The storms really exercised the button, not just the edges.
             assert.is_true(received > 100, "favours received: " .. received)
@@ -1528,6 +1598,7 @@ describe("Buff back", function()
             assert.is_true(returned > 0, "favours returned: " .. returned)
             assert.is_true(said > 0, "buff back lines said: " .. said)
             assert.is_true(elsewhere > 0, "hand casts for someone else while a press waited: " .. elsewhere)
+            assert.is_true(redirected > 0, "button casts told they went to someone else: " .. redirected)
             assert.is_true(gone > 0, "casts that found no favour waiting: " .. gone)
         end)
 
