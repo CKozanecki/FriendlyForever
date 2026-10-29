@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="65 45 400 400" width="64" height="64">
+  <!-- The in-game icon (#65): the logo's heart and large sparkle, cropped to
+       fill a navy disc, with no outer ring. Same shapes and colours as
+       friendly-forever-logo.svg; the heart's outline is thicker so it still
+       reads at minimap size. Render with scripts/render-icon.js. -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="62%">
+      <stop offset="0" stop-color="#2b3f7a"/>
+      <stop offset="0.65" stop-color="#162349"/>
+      <stop offset="1" stop-color="#0b1229"/>
+    </radialGradient>
+    <linearGradient id="heart" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd27a"/>
+      <stop offset="0.5" stop-color="#f5a623"/>
+      <stop offset="1" stop-color="#d4721b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ffe9a0" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ffe9a0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- navy disc filling the icon; transparent outside it -->
+  <circle cx="265" cy="245" r="200" fill="url(#bg)"/>
+  <!-- warm glow behind the heart -->
+  <circle cx="256" cy="262" r="170" fill="url(#glow)"/>
+  <!-- heart -->
+  <path d="M256 392 C 170 330 112 282 112 214 C 112 166 148 132 192 132 C 222 132 244 148 256 172 C 268 148 290 132 320 132 C 364 132 400 166 400 214 C 400 282 342 330 256 392 Z"
+        fill="url(#heart)" stroke="#fff1b0" stroke-width="14" stroke-linejoin="round"/>
+  <!-- shine on the heart -->
+  <path d="M160 200 C 160 172 180 156 204 156" fill="none" stroke="#fff8dc" stroke-width="14" stroke-linecap="round" opacity="0.75"/>
+  <!-- the buff: the large four-point sparkle -->
+  <path fill="#fffbe6" d="M372 92 L382 128 L418 138 L382 148 L372 184 L362 148 L326 138 L362 128 Z"/>
+</svg>

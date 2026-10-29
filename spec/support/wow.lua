@@ -135,6 +135,7 @@ function methods:GetCenter() return self.centerX or 0, self.centerY or 0 end
 function methods:GetEffectiveScale() return self.scale or 1 end
 function methods:SetDesaturated(on) self.desaturated = on and true or false end
 function methods:SetTexture(path) self.texture = path end
+function methods:SetTexCoord(...) self.texCoord = { ... } end
 -- Anchors as the game keeps them: one per point (setting a point again
 -- moves it), until ClearAllPoints. SetPoint(point, x, y) and a missing
 -- relative frame or point mean the parent and the same point.
