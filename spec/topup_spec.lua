@@ -43,10 +43,11 @@ describe("Top-up timing in buff mode (#42)", function()
         return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
     end
 
-    -- Ann wears spell, cast by you, with secondsLeft of duration (default
-    -- half an hour) to go.
+    -- Ann wears spell, cast by source (default you; false: nobody the game
+    -- names), with secondsLeft of duration (default half an hour) to go.
     local function annWears(spell, secondsLeft, duration, source)
-        wow.wearBuff("party1", spell, { duration = duration or HALF_HOUR, source = source or "player" })
+        if source == nil then source = "player" end
+        wow.wearBuff("party1", spell, { duration = duration or HALF_HOUR, source = source or nil })
         for i, id in ipairs(wow.state.units.party1.auras) do
             if id == spell then wow.state.units.party1.auraExpires[i] = wow.now + secondsLeft end
         end
@@ -139,7 +140,8 @@ describe("Top-up timing in buff mode (#42)", function()
 
         it("tops up another caster's rank you can replace, and a rank your own cast matches", function()
             annWears(THORNS_1, 600, 600)
-            annWears(MOTW_1, 60, HALF_HOUR, nil)
+            annWears(MOTW_1, 60, HALF_HOUR, false)
+            assert.is_nil(wow.state.units.party1.auraSources[2], "nobody the game names")
             assert.are.equal("Ann Vale: Mark of the Wild", armed(), "rank 1, by nobody the game names")
             boot({ known = { [MOTW_1] = true, [THORNS_1] = true } })
             annWears(THORNS_1, 600, 600)
@@ -227,7 +229,7 @@ describe("Top-up timing in buff mode (#42)", function()
             for _, case in ipairs({
                 { nil, wow.now + 30 }, { HALF_HOUR, nil }, { "1800", wow.now + 30 }, { HALF_HOUR, "soon" },
                 { HALF_HOUR, {} }, { 0 / 0, wow.now + 30 }, { HALF_HOUR, 0 / 0 }, { HALF_HOUR, math.huge },
-                { -1, wow.now + 30 }, { HALF_HOUR, -5 }, { true, wow.now + 30 },
+                { -1, wow.now + 30 }, { HALF_HOUR, -5 }, { true, wow.now + 30 }, { HALF_HOUR, 0 },
             }) do
                 u.auraDurations[1], u.auraExpires[1] = case[1], case[2]
                 assert.is_nil(armed(), tostring(case[1]) .. ", " .. tostring(case[2]))

@@ -218,12 +218,15 @@ describe("The simulated client", function()
         end)
 
         it("takes a buff away once its time has come, with the others moving up", function()
-            wow.wearBuff("party1", MOTW, { duration = 60 })
-            wow.wearBuff("party1", MOTW_1, { duration = 120 })
+            local start = wow.now
+            wow.wearBuff("party1", MOTW, { duration = 60, source = "party1" })
+            wow.wearBuff("party1", MOTW_1, { duration = 120, source = "player" })
             wow.advance(59)
             assert.are.equal(MOTW, aura(1).spellId)
             wow.advance(1)
-            assert.are.equal(MOTW_1, aura(1).spellId)
+            -- The second moves up whole: its spell, times and caster together.
+            assert.are.same({ spellId = MOTW_1, isHelpful = true, sourceUnit = "player", duration = 120,
+                expirationTime = start + 120 }, aura(1))
             assert.is_nil(aura(2))
             assert.is_true(wow.auraExpired(wow.state.units.party1, 1))
             wow.advance(60)
