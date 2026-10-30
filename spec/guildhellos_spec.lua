@@ -360,6 +360,25 @@ describe("Guild hellos (#38)", function()
             end
         end)
 
+        it("copies that announce at the same moment are still cut to K", function()
+            local clients, net = Guild(4, 2)
+            for _, c in ipairs(clients) do
+                c.ns.Messages.random = function() return 1 end
+                c.ns.GuildHellos.random = function() return 0 end
+            end
+            LogIn(clients, LOGIN)
+            wow.advanceAll(net, 40, 0.5)
+            local hellos = Hellos(clients)
+            assert.are.equal(2, #hellos)
+            assert.are_not.equal(hellos[1].text, hellos[2].text)
+            local announced = 0
+            for _, c in ipairs(clients) do
+                wow.use(c)
+                announced = announced + #wow.addonSent
+            end
+            assert.are.equal(4, announced, "all four announced before hearing the others")
+        end)
+
         it("picks a line no one announced, even when the rest of this round's lines are taken", function()
             local ns = wow.boot()
             ns.Messages.random = function(n) return n end
@@ -681,13 +700,38 @@ describe("Guild hellos (#38)", function()
         local NAMES = { "Thrall", "Jaina", "Rexxar", "Garona", "Medivh", "Khadgar", "Varian", "Tyrande",
             "Cairne", "Sylvanas", "Uther", "Arthas", "Vol", "Rokhan", "Tirion", "Magni" }
 
+        -- Across all seeds: copies cut to K when their GREET came back
+        -- (those that announced together), before announcing, and after a
+        -- lost GREET.
+        local reached = { capAtEcho = 0, capBefore = 0, lost = 0 }
+
         local function storm(seed)
             random.seed(seed)
-            local n = random.random(2, 8)
-            local cap = random.random(1, 5)
+            -- MINSTD's first draws after a small seed are near 0: skip them,
+            -- or every storm would be 2 copies with a cap that can't bind.
+            for _ = 1, 5 do random.random() end
+            local n = random.random(3, 8)
+            local cap = random.random(1, math.min(5, n - 1)) -- fewer than the copies, so it binds
             local clients, net = Guild(n, cap, NAMES)
             -- Echoes are known to work: until then, a lost one still greets.
             Prove(clients)
+            -- What the storm reached, from the copies' own diagnostics.
+            for _, c in ipairs(clients) do
+                local log = c.ns.Diag.Log
+                c.ns.Diag.Log = function(category, fmt, ...)
+                    local ok, line = pcall(string.format, fmt, ...)
+                    if ok and category == "guildLogin" then
+                        if line:find("other copies announced first", 1, true) then
+                            reached.capAtEcho = reached.capAtEcho + 1
+                        elseif line:find("other copies already greet them", 1, true) then
+                            reached.capBefore = reached.capBefore + 1
+                        elseif line:find("never came back", 1, true) then
+                            reached.lost = reached.lost + 1
+                        end
+                    end
+                    return log(category, fmt, ...)
+                end
+            end
             for _, c in ipairs(clients) do
                 wow.use(c)
                 c.ns.db.guildLogin.repeatCooldown = random.random(0, 1) * 30
@@ -755,6 +799,12 @@ describe("Guild hellos (#38)", function()
                 end
             end)
         end
+
+        it("reached every outcome it guards, across the seeds", function()
+            assert.is_true(reached.capAtEcho > 0, "copies that announced together, cut to K")
+            assert.is_true(reached.capBefore > 0, "copies that heard K and stayed quiet")
+            assert.is_true(reached.lost > 0, "lost GREETs")
+        end)
     end)
 end)
 
