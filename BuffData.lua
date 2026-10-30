@@ -17,6 +17,8 @@
 --             Blessings): casting another replaces it
 --   defaultRule  who gets it in buff mode until you choose (BuffRules.lua);
 --             everyone when not set
+--   water     only helps underwater: offered only near water, when the
+--             setting says so (Water.lua, #136)
 local _, ns = ...
 local Util = ns.Util
 
@@ -50,10 +52,15 @@ BuffData.CLASSES = {
         -- tanks by default, who don't want less threat.
         { key = "salvation", ranks = { 1038 }, group = { 25895 }, groupOnly = true, defaultRule = "notTanks" },
     },
+    SHAMAN = {
+        -- Does the same job as a warlock's Unending Breath, and the other way
+        -- round (#136).
+        { key = "waterbreathing", ranks = { 131 }, blockers = { 5697 }, water = true },
+    },
     WARLOCK = {
         -- 131 is the shaman's Water Breathing: no group version of Unending
         -- Breath, but it does the same job, so it's a blocker (#135).
-        { key = "breath", ranks = { 5697 }, blockers = { 131 } },
+        { key = "breath", ranks = { 5697 }, blockers = { 131 }, water = true },
     },
     WARRIOR = {
         { key = "battleshout", ranks = { 25289, 11551, 11550, 11549, 6192, 5242, 6673 }, selfCast = true },
@@ -88,22 +95,46 @@ end
 -- On a client in another language it isn't found, and isn't offered.
 BuffData.REVOKE = { key = "revoke", name = "Revoke", ranks = {}, removes = "salvation" }
 
--- [spell ID] = buff, for every rank, group version and blocker.
+-- [spell ID] = buff, for every rank, group version and blocker. A spell
+-- that is one buff's rank and another's blocker (Water Breathing, Unending
+-- Breath) belongs to the buff it's a rank of: ranks are filled in last.
 local byAuraId = {}
 -- [spell ID] = buff, for the ranks only (what our own casts can be).
 local byRankId = {}
+-- [buff] = { [spell ID] = true }: every spell that counts as having it.
+local covers = {}
 for _, list in pairs(BuffData.CLASSES) do
     for _, buff in ipairs(list) do
+        covers[buff] = {}
         for _, field in ipairs({ "ranks", "group", "blockers" }) do
+            for _, id in ipairs(buff[field] or {}) do covers[buff][id] = true end
+        end
+        for _, field in ipairs({ "group", "blockers" }) do
             for _, id in ipairs(buff[field] or {}) do byAuraId[id] = buff end
         end
-        for _, id in ipairs(buff.ranks) do byRankId[id] = buff end
+    end
+end
+for _, list in pairs(BuffData.CLASSES) do
+    for _, buff in ipairs(list) do
+        for _, id in ipairs(buff.ranks) do
+            byAuraId[id] = buff
+            byRankId[id] = buff
+        end
     end
 end
 
 -- The buff a spell ID belongs to (any rank, group version or blocker), or nil.
 function BuffData.ForAura(spellId)
     return byAuraId[spellId]
+end
+
+-- Whether wearing spell spellId counts as having buff (any of its ranks,
+-- group versions or blockers).
+function BuffData.Covers(buff, spellId)
+    local ids = covers[buff]
+    -- A secret mustn't be used as a table key (the game raises an error).
+    if ids == nil or Util.IsSecret(spellId) then return false end
+    return ids[spellId] == true
 end
 
 local Read = Util.ReadGameValues

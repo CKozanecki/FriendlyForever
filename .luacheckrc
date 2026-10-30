@@ -35,6 +35,7 @@ read_globals = {
     "C_CVar", "GetCVar", "SetCVar",
     "time", "DoEmote", "UnitClass", "UnitRace", "UnitFactionGroup", "GetRealZoneText", "GetZoneText",
     "GetGameTime", "IsResting", "AddonCompartmentFrame", "UISpecialFrames",
+    "IsSwimming", "IsSubmerged", "GetMirrorTimerInfo", "GetInstanceInfo",
     "C_Spell", "C_SpellBook", "Enum", "GetCVarBool", "GetSpellInfo", "GetSpellTexture", "IsSpellKnown", "IsPlayerSpell",
     "UnitIsDeadOrGhost", "UnitIsPVP",
     "SetOverrideBindingClick", "ClearOverrideBindings", "GetBindingText", "GetBindingAction",
