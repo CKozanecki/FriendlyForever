@@ -610,17 +610,19 @@ describe("UI simulator workflow", function()
     -- the job log, where the runner reads a line starting "::" (after any
     -- spaces), or holding "##[" anywhere, as a workflow command.
     describe("shot and simulator output in the job log (black)", function()
-        local SOURCES = { "%$report", "%$RUNNER_TEMP/report", "%$RUNNER_TEMP/shots", "%$RUNNER_TEMP/shot%-logs",
+        local SOURCES = { "%$report%f[^%w]", "%$RUNNER_TEMP/report", "%$RUNNER_TEMP/shots", "%$RUNNER_TEMP/shot%-logs",
             '"%$file"', '"%$log"' }
         local READERS = { "%f[%w]tail%s", "%f[%w]head%s", "%f[%w]ls%s", "%f[%w]grep%s", "%f[%w]cat%s" }
 
-        -- Whether a command line prints shot or simulator output.
+        -- Whether a command line prints shot or simulator output. Paths are
+        -- read however they're quoted: "$RUNNER_TEMP"/shots, ${RUNNER_TEMP}/shots.
         local function printsOutput(line)
             if line:find("docker logs", 1, true) or line:find("docker top", 1, true) then return true end
+            local plain = line:gsub("%${([%w_]+)}", "$%1"):gsub('"(%$[%w_]+)"/', "%1/")
             for _, reader in ipairs(READERS) do
-                if line:find(reader) then
+                if plain:find(reader) then
                     for _, source in ipairs(SOURCES) do
-                        if line:find(source) then return true end
+                        if plain:find(source) then return true end
                     end
                 end
             end
@@ -657,31 +659,34 @@ describe("UI simulator workflow", function()
             local seen = 0
             for _, job in ipairs(order) do
                 for _, step in ipairs(job.steps) do
-                    -- The summary goes to a page the runner doesn't read for commands.
-                    if not step.text:find('} >> "$GITHUB_STEP_SUMMARY"', 1, true) then
-                        -- Lines in a { ... } block count as filtered only if
-                        -- the block ends "} 2>&1 | shown".
-                        local block
-                        local function check(line, filtered)
-                            seen = seen + 1
-                            local toFile = line:find('%s>%s*"%$RUNNER_TEMP/')
-                            local captured = line:find("%$%(head %-c 8")
-                            assert.is_truthy(filtered or toFile or captured or line:find("| shown", 1, true),
-                                job.name .. " prints unfiltered output: " .. line)
+                    -- Lines in a { ... } block count as filtered only if the
+                    -- block ends "} 2>&1 | shown", or goes to the step
+                    -- summary, a page the runner doesn't read for commands.
+                    local block
+                    local function check(line, filtered)
+                        seen = seen + 1
+                        local toFile = line:find('%s>%s*"%$RUNNER_TEMP/')
+                        assert.is_truthy(filtered or toFile or line:find("| shown", 1, true),
+                            job.name .. " prints unfiltered output: " .. line)
+                        -- docker logs replays the container's stderr on its own.
+                        if not filtered and not toFile and line:find("docker %l+ ") then
+                            assert.is_truthy(line:find("2>&1 |", 1, true),
+                                job.name .. " filters only stdout: " .. line)
                         end
-                        for _, line in ipairs(splitLines((step.text:gsub("\\\n%s*", " ")))) do
-                            if line:match("^%s*{%s*$") then
-                                block = {}
-                            elseif block and line:match("^%s*}") then
-                                local filtered = line:match("^%s*} 2>&1 | shown%s*$") ~= nil
-                                for _, held in ipairs(block) do check(held, filtered) end
-                                block = nil
-                            elseif printsOutput(line) then
-                                if block then block[#block + 1] = line else check(line, false) end
-                            end
-                        end
-                        assert.is_nil(block, job.name .. " has a { block that never ends")
                     end
+                    for _, line in ipairs(splitLines((step.text:gsub("\\\n%s*", " ")))) do
+                        if line:match("^%s*{%s*$") then
+                            block = {}
+                        elseif block and line:match("^%s*}") then
+                            local filtered = line:match("^%s*} 2>&1 | shown%s*$")
+                                or line:match('^%s*} >> "%$GITHUB_STEP_SUMMARY"%s*$')
+                            for _, held in ipairs(block) do check(held, filtered ~= nil) end
+                            block = nil
+                        elseif printsOutput(line) then
+                            if block then block[#block + 1] = line else check(line, false) end
+                        end
+                    end
+                    assert.is_nil(block, job.name .. " has a { block that never ends")
                 end
             end
             assert.is_true(seen >= 10, "expected the report, digest, shot log and docker logs prints, found " .. seen)
@@ -712,9 +717,11 @@ describe("UI simulator workflow", function()
                     assert.is_truthy(out:find(word, 1, true), "a line was lost: " .. word)
                 end
                 local split = runnerLines(out)
-                for _, line in ipairs(split) do
-                    assert.is_falsy(line:match("^%s*::"), "read as a command: " .. line)
-                    assert.is_falsy(line:find("##[", 1, true), "read as an old-style command: " .. line)
+                -- Failures name the line by number: printing it would make a
+                -- false CI annotation.
+                for i, line in ipairs(split) do
+                    assert.is_falsy(line:match("^%s*::"), "output line " .. i .. " is read as a command")
+                    assert.is_falsy(line:find("##[", 1, true), "output line " .. i .. " is read as an old-style command")
                 end
             end
         end)
