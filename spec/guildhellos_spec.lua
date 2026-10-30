@@ -366,7 +366,7 @@ describe("Guild hellos (#38)", function()
             local msgs = { "a", "b", "c" }
             ns.db.messageBags.t = { left = { 1 }, last = 3 }
             local text, index = ns.Messages.Pick("t", msgs, { [1] = true })
-            assert.are_not.equal(1, index)
+            assert.are.equal(3, index, "random among lines 2 and 3")
             assert.are.equal(msgs[index], text)
             assert.are.same({ 1 }, ns.db.messageBags.t.left, "the round still has line 1 to use")
             text, index = ns.Messages.Pick("t", msgs, { [1] = true, [2] = true, [3] = true })
@@ -505,9 +505,32 @@ describe("Guild hellos (#38)", function()
             net.lose = function() return true end
             Greet(me, "1;GREET;" .. me .. ";Nobody-Here;99")
             Greet(me, "1;GREET;" .. me .. ";Nobody Here;1")
+            Greet(me, nil)
+            Greet(me, 42)
             LogIn(clients, LOGIN)
             wow.advanceAll(net, 40, 0.1)
             assert.are.equal(1, #Hellos(clients), "still unproven: greets anyway")
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("unproven and never back, it still says a line no copy before it took", function()
+            local clients, net = Guild(1, 20)
+            local ns = clients[1].ns
+            ns.db.guildLogin.messages[1] = "  " -- the lowest free line is blank here
+            net.lose = function() return true end
+            LogIn(clients, LOGIN)
+            for _ = 1, 400 do
+                wow.advance(0.05)
+                if #wow.addonSent > 0 then break end
+            end
+            local mine = tonumber(wow.addonSent[1].text:match(";(%d+)$"))
+            Greet("Liar", "1;GREET;Liar;" .. LOGIN_FULL .. ";" .. mine) -- took ours first
+            wow.advanceAll(net, 40, 0.1)
+            local hellos = Hellos(clients)
+            assert.are.equal(1, #hellos)
+            local said = tonumber(hellos[1].text:match("#(%d+)$"))
+            assert.are_not.equal(mine, said)
+            assert.are_not.equal(1, said)
         end)
 
         it("greets with the random wait only when this client has no addon messages", function()
