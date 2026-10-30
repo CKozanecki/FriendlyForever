@@ -108,6 +108,8 @@ While you're in a group, an unidentified caster isn't thanked at all, because pa
 
 Buffs from one person that arrive before the thank-you goes out are combined: *"Thank you for the Power Word: Fortitude and Divine Spirit, Bob!"*. The repeat cooldown then stops any second thank-you.
 
+**Buff exchanges.** When you trade buffs with someone, your thank-you waits until the exchange is done, so it comes after your buff back and lists everything they gave you. It waits at least 2 seconds after the last buff either way, and while the buff back button holds them: up to 5 seconds, or, if they run the addon too, until you cast it or let it go. Their copy and yours tell each other what your buttons hold, so each also waits for the other's buff. A thank-you always goes within 30 seconds of the first buff it thanks for, and their later buffs in the same exchange aren't thanked again. An exchange ends 10 seconds after its last buff.
+
 **Quiet in capital cities** (on by default). In Stormwind, Ironforge, Darnassus, Orgrimmar, Thunder Bluff and Undercity (and, once their map numbers are known at launch, Valanaar and Dalaran), buffs come in waves from people running past, so no thank-yous go out there. The favour ledger still counts every buff. The buff back button stays hidden there too, unless you tick **"Show the button in capital cities"** on the Buff Back tab. Favours are still collected, and show once you leave if they haven't run out. Turn buff mode on in a city and thanks and the button work as usual. A stranger's buff doesn't turn buff mode on by itself in a city, since that would end the quiet. Inns, small towns and other rested areas aren't capitals. Greetings aren't affected. `/friendly status` shows which city the addon thinks you're in. The cities' map numbers are checked at launch.
 
 ## Buff back
@@ -122,7 +124,7 @@ When someone outside your group buffs you, a small button appears with their nam
 - **Feedback:** what each press did, under the button (and in chat where it needs your attention):
   - returned: "Returned Mark of the Wild to Bob Stone.";
   - the game doesn't say who it reached: "Cast Mark of the Wild, but the game didn't say it reached Bob Stone." The favour isn't counted as returned;
-  - it went to someone else: "Mark of the Wild went to Ann Vale, not Bob Stone." in chat, and the favour stays;
+  - it went to someone else: "Mark of the Wild went to Ann Vale, not Bob Stone." in chat, a few seconds after the press, and the favour stays. The buff counts as a buff to Ann, as a cast by hand does. A cast by hand on someone else while the button waits is treated the same way, but if the button's own cast follows, the button reports that instead;
   - the game refuses it: its reason in chat ("Couldn't buff Bob Stone: Out of range."), or "Couldn't buff Bob Stone (the game gave no reason).", and the favour stays;
   - nothing was cast: "No answer: couldn't find Bob Stone (out of sight?)." in chat;
   - the server never answers (a lag spike): "No word back on Mark of the Wild for Bob Stone. If it didn't land, press again.";

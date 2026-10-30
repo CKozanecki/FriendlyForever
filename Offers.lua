@@ -262,6 +262,7 @@ function Offers.MarkReturned(name, spell)
     local now = GetTime()
     MakeRoom(buffedAt, name, Offers.MAX_REMEMBERED)
     buffedAt[name] = now
+    ns.Exchange.NoteGiven(name)
     local i = IndexOf(name)
     if not i then return false end
     local favour = table.remove(favours, i)
