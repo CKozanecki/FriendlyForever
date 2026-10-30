@@ -159,6 +159,17 @@ describe("Finding a setting (#48)", function()
                 string.format("and %d more", #found - ns.OptionsIndex.MAX_RESULTS), 1, true))
         end)
 
+        it("prints no count when exactly the most it prints match", function()
+            local cap = ns.OptionsIndex.MAX_RESULTS
+            ns.OptionsIndex.MAX_RESULTS = #ns.OptionsIndex.Find("buff")
+            Find("buff")
+            local printed = #wow.printed
+            local last = wow.printed[printed]
+            ns.OptionsIndex.MAX_RESULTS = cap
+            assert.are.equal(#ns.OptionsIndex.Find("buff") + 1, printed)
+            assert.is_nil(last:find("more", 1, true))
+        end)
+
         it("matches every word, in any case", function()
             assert.are.same({ "Buff mode key" }, Names(ns.OptionsIndex.Find("BUFF   Key")))
         end)
@@ -226,6 +237,21 @@ describe("Finding a setting (#48)", function()
         end)
     end)
 
+    -- A new file: after an update, /reload runs without it until a restart.
+    it("asks for a restart when only OptionsIndex.lua is new", function()
+        wow.reset()
+        local loaded = {}
+        local _, files = wow.parseToc()
+        for _, file in ipairs(files) do
+            if file ~= "OptionsIndex.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+        end
+        wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+        wow.fire("PLAYER_ENTERING_WORLD", true, false)
+        _G.SlashCmdList.FRIENDLYFOREVER("find snooze")
+        assert.are.same({}, wow.errors)
+        assert.is_truthy(table.concat(wow.printed, "\n"):find("Restart the game", 1, true))
+    end)
+
     describe("random searches (red)", function()
         it("never errors, prints at most a heading, the cap and a count, and never changes a setting", function()
             local before = ns.Serialize.Encode(ns.db)
@@ -268,6 +294,11 @@ describe("Finding a setting (#48)", function()
             assert.is_true(Has(buff, "Name the buffs in the message (on the Buff Thanks tab)"))
             -- the same table as /friendly find
             assert.are.equal(#ns.OptionsIndex.Find("buff"), #buff)
+            -- each setting is found by its own name, as its page shows it
+            for _, entry in ipairs(ns.OptionsIndex.SETTINGS) do
+                assert.is_true(Has(wow.searchSettings(entry.name), entry.name .. " (on " .. entry.page .. ")"),
+                    entry.name)
+            end
         end)
 
         it("still lists the settings when headings can't be tagged", function()
@@ -294,6 +325,13 @@ describe("Finding a setting (#48)", function()
             assert.is_false(ns.OptionsIndex.RegisterSearch({}))
             _G.Settings.RegisterVerticalLayoutSubcategory = function() return {}, { AddInitializer = 1 } end
             assert.is_false(ns.OptionsIndex.RegisterSearch({}))
+            -- a heading the client won't make is left out; the page is still made
+            local layout = { added = 0 }
+            function layout.AddInitializer() layout.added = layout.added + 1 end
+            _G.Settings.RegisterVerticalLayoutSubcategory = function() return {}, layout end
+            _G.CreateSettingsListSectionHeaderInitializer = function() return nil end
+            assert.is_true(ns.OptionsIndex.RegisterSearch({}))
+            assert.are.equal(0, layout.added)
             _G.CreateSettingsListSectionHeaderInitializer = function() error("changed API") end
             _G.Settings.RegisterVerticalLayoutSubcategory = function() return {}, { AddInitializer = function() end } end
             assert.is_false(ns.OptionsIndex.RegisterSearch({}))
