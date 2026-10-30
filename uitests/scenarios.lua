@@ -948,6 +948,48 @@ test("each options tab opens by its button, and keeps its checkboxes and labels 
     check(#failures == 0, table.concat(failures, "\n"))
 end)
 
+-- The Buff Back tab's top-up row (#42): its label and stepper on one line
+-- inside the options, between buff mode's minutes and the battlegrounds
+-- heading, overlapping neither.
+local TOP_UP_LABEL = "Top up my buffs with under (minutes left, 0 = never):"
+
+test("the Buff Back tab's top-up row stays inside the options, between its neighbours (#42)", function()
+    local panel, content = OpenTab("Buff Back")
+    local ok, err = pcall(function()
+        Settle(content)
+        local above = WithText(content, "or after (minutes, 0 = never):")
+        local label = WithText(content, TOP_UP_LABEL)
+        local below = WithText(content, "Battlegrounds (quiet once the battle starts):")
+        check(above and label and below, "the top-up row or its neighbours aren't on the Buff Back tab")
+        -- Inside the scrolling content, which runs below the panel's view
+        -- (the per-tab check measures the same way).
+        TextInside(content, label, "top-up label", 1)
+        -- Its "+": the one on the label's line, right of it.
+        local labelTop, labelBottom = Edges(label, "GetTop", "GetBottom")
+        local _, labelRight = Edges(label, "GetLeft", "GetRight")
+        local plus
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child:IsVisible() and child.GetText and child:GetText() == "+" then
+                local top, bottom = Edges(child, "GetTop", "GetBottom")
+                local left = Edges(child, "GetLeft", "GetRight")
+                if top and labelTop and left and labelRight and left > labelRight
+                    and math.abs((top + bottom) / 2 - (labelTop + labelBottom) / 2) < 12 then plus = child end
+            end
+        end
+        check(plus ~= nil, "the top-up row's + button isn't beside its label")
+        EndsInside(panel, plus, "top-up + button")
+        local aboveBottom = select(2, Edges(above, "GetTop", "GetBottom"))
+        local belowTop = Edges(below, "GetTop", "GetBottom")
+        check(aboveBottom and labelTop and labelBottom and belowTop, "the rows' edges can't be read here")
+        local line = ("LAYOUT top-up row: %.0f..%.0f, below buff mode's minutes (bottom %.0f), above battlegrounds"
+            .. " (top %.0f)"):format(labelBottom, labelTop, aboveBottom, belowTop)
+        report(line)
+        check(labelTop <= aboveBottom + 1 and belowTop <= labelBottom + 1, line .. ": out of order or overlapping")
+    end)
+    OpenTab("Guild Login")
+    if not ok then error(err, 0) end
+end)
+
 -- Names the panel doesn't have, of every type the screenshot job or a
 -- typo could give: each is answered with a message, and the tab stays put.
 local BAD_TABS = { "", "Buff Back", "buffBack", "buff", "general", "nope", 42, true, { "buff-back" } }

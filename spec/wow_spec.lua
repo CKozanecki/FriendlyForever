@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136
+-- Spec: #76, #84, #136, #42
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -182,6 +182,68 @@ describe("The simulated client", function()
             assert.is_false(_G.IsInInstance())
             name, kind = _G.GetInstanceInfo()
             assert.are.same({ "Eastern Kingdoms", "none" }, { name, kind })
+        end)
+    end)
+
+    describe("a group member's buff times (#42, white)", function()
+        local function aura(i) return _G.C_UnitAuras.GetAuraDataByIndex("party1", i, "HELPFUL") end
+
+        before_each(function()
+            wow.setGroup("party", { "Ann-Vale" })
+        end)
+
+        it("gives no times unless a spec sets them", function()
+            wow.state.units.party1.auras = { MOTW }
+            local a = aura(1)
+            assert.are.equal(MOTW, a.spellId)
+            assert.is_nil(a.duration)
+            assert.is_nil(a.expirationTime)
+        end)
+
+        it("puts a buff on with wearBuff, on the game clock, replacing one of the same spell", function()
+            wow.wearBuff("party1", MOTW, { duration = 1800, source = "player" })
+            wow.wearBuff("party1", MOTW_1)
+            assert.are.same({ spellId = MOTW, isHelpful = true, sourceUnit = "player", duration = 1800,
+                expirationTime = wow.now + 1800 }, aura(1))
+            assert.are.equal(3600, aura(2).duration, "an hour by default")
+            assert.is_nil(aura(2).sourceUnit)
+            wow.advance(100)
+            wow.wearBuff("party1", MOTW, { duration = 1800 })
+            assert.are.equal(wow.now + 1800, aura(1).expirationTime, "refreshed in its place")
+            assert.is_nil(aura(3))
+            wow.wearBuff("party1", MOTW_1, { duration = 0 })
+            assert.are.equal(0, aura(2).expirationTime, "0: never runs out")
+            wow.advance(100000)
+            assert.are.equal(MOTW_1, aura(1).spellId, "still there; the Mark ran out")
+        end)
+
+        it("takes a buff away once its time has come, with the others moving up", function()
+            local start = wow.now
+            wow.wearBuff("party1", MOTW, { duration = 60, source = "party1" })
+            wow.wearBuff("party1", MOTW_1, { duration = 120, source = "player" })
+            wow.advance(59)
+            assert.are.equal(MOTW, aura(1).spellId)
+            wow.advance(1)
+            -- The second moves up whole: its spell, times and caster together.
+            assert.are.same({ spellId = MOTW_1, isHelpful = true, sourceUnit = "player", duration = 120,
+                expirationTime = start + 120 }, aura(1))
+            assert.is_nil(aura(2))
+            assert.is_true(wow.auraExpired(wow.state.units.party1, 1))
+            wow.advance(60)
+            assert.is_nil(aura(1))
+        end)
+
+        it("makes only the times secret with secrets.auraTimes", function()
+            wow.wearBuff("party1", MOTW, { duration = 1800, source = "player" })
+            wow.state.units.party1.secrets = { auraTimes = true }
+            local a = aura(1)
+            assert.are.equal(MOTW, a.spellId)
+            assert.are.equal("player", a.sourceUnit)
+            assert.is_true(_G.issecretvalue(a.duration))
+            assert.is_true(_G.issecretvalue(a.expirationTime))
+            assert.has.errors(function() return a.expirationTime - 1 end)
+            wow.state.units.party1.auraDurations[1] = nil
+            assert.is_nil(aura(1).duration, "unset stays nil")
         end)
     end)
 end)
