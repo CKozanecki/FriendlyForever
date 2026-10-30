@@ -14,6 +14,7 @@ A small simulation of the WoW client API, enough to load the addon as the game d
   - `opts.before(state)`: change the client's state before the addon loads;
   - `opts.noGrace`: stop right after login;
   - `opts.autoBuffMode`: keep buff mode's turn-on triggers at their defaults (on, #72). Without it, boot turns them off unless `opts.db` sets them, so specs that join groups or get buffed don't lend a key by accident;
+  - `opts.randomStagger`: keep a guild hello's random extra wait random (#38). Without it, it is always the shortest (`GuildHellos.STAGGER_MIN`), so specs know when a hello goes;
   - `opts.shippedLines`: keep the shipped message lines. Without it, types still on the shipped defaults use the fixed casual lines, since most specs check behaviour rather than wording.
 - **State:** `wow.reset()` builds `wow.state` (guild, group, instance, lockdown, combat, units, auras, spells, CVars, clock) and the record tables tests check against:
   - `wow.sent`: chat lines the game accepted; `wow.blocked`: lines it refused;
@@ -65,9 +66,9 @@ For behaviour between two copies of the addon (#32), `wow.newClient({ name, surn
 - `wow.network({ a, b })` and `wow.deliver(net)` carry each client's addon messages to the others as `CHAT_MSG_ADDON`, answers included, until none are left:
   - a whisper goes only to the player it names;
   - a group or guild message goes to clients in that group (with the sender in it) or a guild;
-  - a group or guild message also comes back to its sender, as in the game;
+  - a group or guild message also comes back to its sender, as in the game. A client in no network hears its own after `wow.ADDON_ECHO_DELAY` (0.2 s), as a timer marked `echo` (#38);
   - a client gets only the prefixes it registered.
-- `net.lose = function(msg, sender, receiver)` drops each copy of a message it returns true for, so a chaos test can lose messages at random, as the game may (#36).
+- `net.lose = function(msg, sender, receiver)` drops each copy of a message it returns true for, so a chaos test can lose messages at random, as the game may (#36). To lose a message for everyone, sender included (the server dropped it), answer once per `msg` (#38).
 - `wow.advanceAll(net, seconds, step)` moves every client's clock on together, delivering after each step.
 - `wow.deliverBuffs(net)` carries each buff that landed (`wow.landed`) on another client in the network to that client as a new aura, named by the first unit token (sorted) that shows the caster there, or by none (#37). Pessimistically, a buff that only refreshes one arrives as new (`addedAuras`), so it looks like a new favour; that's in the ASSUMPTIONS block and a launch check ([#50](https://github.com/CKozanecki/FriendlyForever/issues/50#issuecomment-6504872140)).
 - `state.addonSenderForm` (`"hyphen"` or `"space"`) sets how a receiving client spells the sender: a launch check (#50).
