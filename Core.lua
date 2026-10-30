@@ -66,7 +66,7 @@ function handlers.ADDON_LOADED(name)
     -- say so, rather than erroring on every event.
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
         "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
-        "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "Walkthrough" }) do
+        "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "OptionsIndex", "Walkthrough" }) do
         if ns[module] == nil then
             ns.Print("|cffff4040this update added files. Restart the game (not /reload) to finish updating.|r")
             return
@@ -535,6 +535,7 @@ local commands = {
     debug = function() ns.Diag.SetEnabled(not ns.db.debug) end,
     help = function()
         ns.Print("/friendly - open options")
+        ns.Print("/friendly find <word> - which settings match, and the page each is on")
         ns.Print("/friendly status - what the addon has seen and sent this session")
         ns.Print("/friendly selftest - whisper yourself to check sending works")
         ns.Print("/friendly names - show how the game reports names")
@@ -568,6 +569,7 @@ local commands = {
     ignore = IgnoreCommand,
     unignore = UnignoreCommand,
     ledger = LedgerCommand,
+    find = function(args) ns.OptionsIndex.Command(args) end,
 }
 
 -- The command names, sorted (the README test checks each is documented).
