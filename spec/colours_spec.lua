@@ -62,9 +62,9 @@ local function strayColours(source)
     for name, args in code:gmatch("([%w_]*Color[%w_]*)%s*(%b())") do
         if not args:find("Colours%.RGBA?%(") then found[#found + 1] = "colour call: " .. name .. args end
     end
-    -- A tooltip line's or text's colour, given as numbers: any number after
-    -- the text (AddLine, AddDoubleLine, SetText).
-    for _, call in ipairs({ "Add%a*Line", "SetText" }) do
+    -- A tooltip line's, text's or chat line's colour, given as numbers: any
+    -- number after the text (AddLine, AddDoubleLine, SetText, AddMessage).
+    for _, call in ipairs({ "Add%a*Line", "SetText", "AddMessage" }) do
         for name, args in code:gmatch("(" .. call .. ")%s*(%b())") do
             if args:find(",%s*%-?%.?%d") then found[#found + 1] = "text colour: " .. name .. args end
         end
@@ -194,6 +194,7 @@ describe("Colours", function()
             ["AddLine colour"] = 'GameTooltip:AddLine("x", 0.8, 0.8, 0.8)',
             ["AddDoubleLine colour"] = 'GameTooltip:AddDoubleLine("a", "b", 1, 1, 1, 1, 1, 1)',
             ["tooltip SetText colour"] = "GameTooltip:SetText(self.tooltip, 1, 1, 1, 1, true)",
+            ["chat AddMessage colour"] = 'DEFAULT_CHAT_FRAME:AddMessage("[FF debug] " .. line, 0.6, 0.6, 0.6)',
             ["game colour table"] = "local c = NORMAL_FONT_COLOR",
             ["game colour code"] = 'ns.Print(RED_FONT_COLOR_CODE .. "off")',
             ["class colours"] = "local c = RAID_CLASS_COLORS.PRIEST",
