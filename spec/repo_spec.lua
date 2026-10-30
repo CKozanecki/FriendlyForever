@@ -474,6 +474,79 @@ describe("UI simulator workflow", function()
         assert.is_truthy(job.text:find('echo "$1: exit $status after', 1, true), "the log doesn't say how each run ended")
     end)
 
+    -- The run step's own shell, as the job runs it: sandbox() and the sized
+    -- passes, with a stand-in docker that finishes, fails or hangs, and the
+    -- limits cut to 2 s. A hang must show as 124 in the step's log, naming
+    -- the run, and the report files must keep only the simulator's output
+    -- (#154's testing review).
+    describe("the scenario job's run step, run for real (black)", function()
+        local function runStep(mode)
+            local workflow = wow.readFile(path)
+            local sandbox = workflow:match("\n(%s*exec 3>&1\n.-\n%s*}\n)")
+            local sized = workflow:match("\n(%s*for size in %$LAYOUT_SIZES; do\n%s*# Stopped after.-\n%s*done)\n")
+            assert.is_truthy(sandbox, "no sandbox() in the run step")
+            assert.is_truthy(sized, "no sized passes in the run step")
+            local function short(block) return (block:gsub("timeout %-s TERM %-k 10 %d+", "timeout -s TERM -k 1 2")) end
+            local dir = os.tmpname()
+            os.remove(dir)
+            assert.is_true(os.execute("mkdir -p '" .. dir .. "/bin' '" .. dir .. "/report'") == 0)
+            local fake = assert(io.open(dir .. "/bin/docker", "w"))
+            fake:write("#!/bin/sh\ncase \"$FAKE\" in\n  hang) exec sleep 30 ;;\n  fail) echo body; exit 3 ;;\n  *) echo body ;;\nesac\n")
+            fake:close()
+            local script = assert(io.open(dir .. "/run.sh", "w"))
+            script:write("set -e\nRUNNER_TEMP='" .. dir .. "'\nPATH='" .. dir .. "/bin':\"$PATH\"\nLAYOUT_SIZES=1024x768\n",
+                short(sandbox),
+                'sandbox lua-errors > "$RUNNER_TEMP/report/lua-errors.json" 2> "$RUNNER_TEMP/report/lua-errors.log" || true\n',
+                'sandbox run-tests FriendlyForever > "$RUNNER_TEMP/report/run-tests.log" 2>&1 || true\n',
+                short(sized), "\necho finished\n")
+            script:close()
+            os.execute("chmod +x '" .. dir .. "/bin/docker'")
+            local status = os.execute("FAKE=" .. mode .. " bash '" .. dir .. "/run.sh' > '" .. dir .. "/step.log' 2>&1")
+            local function read(name)
+                local f = io.open(dir .. "/" .. name)
+                local content = f and f:read("*a") or ""
+                if f then f:close() end
+                return content
+            end
+            local result = { status = status, step = read("step.log"), report = read("report/run-tests.log"),
+                layout = read("report/layout-1024x768.log") }
+            os.execute("rm -rf '" .. dir .. "'")
+            return result
+        end
+
+        it("says each run finished, in the step's log, and keeps the report to the simulator's output", function()
+            local r = runStep("ok")
+            assert.are.equal(0, r.status)
+            assert.is_truthy(r.step:find("\nrun%-tests: exit 0 after %d+ s"), r.step)
+            assert.is_truthy(r.step:find("^lua%-errors: exit 0 after %d+ s"), r.step)
+            assert.is_falsy(r.step:find("layout pass", 1, true), "a sized pass that finished is reported as failing")
+            assert.are.equal("body\n", r.report)
+            assert.are.equal("body\n", r.layout)
+            assert.is_truthy(r.step:find("finished", 1, true))
+        end)
+
+        it("reports a failing run's own exit code, and carries on", function()
+            local r = runStep("fail")
+            assert.are.equal(0, r.status)
+            assert.is_truthy(r.step:find("run%-tests: exit 3 after"), r.step)
+            assert.is_truthy(r.step:find("layout pass 1024x768: exit 3", 1, true), r.step)
+            assert.are.equal("body\n", r.report)
+            assert.is_truthy(r.step:find("finished", 1, true))
+        end)
+
+        it("stops a hung run at its limit, says 124 with the time it ran, and carries on", function()
+            local r = runStep("hang")
+            assert.are.equal(0, r.status)
+            local seconds = tonumber(r.step:match("run%-tests: exit 124 after (%d+) s"))
+            assert.is_truthy(seconds, r.step)
+            assert.is_true(seconds >= 2 and seconds <= 3, "run-tests' time counts from before it started: " .. seconds)
+            assert.is_truthy(r.step:find("lua%-errors: exit 124 after"), r.step)
+            assert.is_truthy(r.step:find("layout pass 1024x768: exit 124", 1, true), r.step)
+            assert.are.equal("", r.report, "the exit line went into the report")
+            assert.is_truthy(r.step:find("finished", 1, true))
+        end)
+    end)
+
     it("lets only the publish job write, and it runs nothing from the simulator or the pull request", function()
         for _, job in ipairs(order) do
             if job.name ~= "publish-screenshots" then

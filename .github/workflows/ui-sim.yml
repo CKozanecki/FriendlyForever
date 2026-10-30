@@ -195,8 +195,8 @@ jobs:
     needs: simulator
     runs-on: ubuntu-24.04
     # Its simulator runs stop themselves (three at 2 minutes, two at 5, each
-    # with 10 s to exit), well inside this.
-    timeout-minutes: 20
+    # with 10 s to exit: about 17 minutes if all five hung), well inside this.
+    timeout-minutes: 25
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
