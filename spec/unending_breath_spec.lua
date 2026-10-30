@@ -1,7 +1,8 @@
--- Spec: #135
+-- Spec: #135, #136
 -- The warlock's Unending Breath through buff thanks, buff back and buff mode,
 -- and its data: Water Breathing (131) is the shaman's, a blocker, not a
--- group version.
+-- group version. The tests here swim, since it's offered only near water
+-- (#136, spec/near_water_spec.lua).
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
@@ -13,12 +14,14 @@ local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
 describe("Unending Breath", function()
     local ns, button
 
-    -- A warlock who knows Unending Breath (opts.known replaces that).
+    -- A warlock who knows Unending Breath (opts.known replaces that),
+    -- swimming: near water, where it's offered (#136).
     local function boot(opts)
         opts = opts or {}
         ns = wow.boot({ db = opts.db, before = function(state)
             state.class = "WARLOCK"
             state.knownSpells = opts.known or { [BREATH] = true }
+            state.swimming = true
         end })
         ns.db.buff.messages = { "Thank you for the {buff}, {name}!" }
         button = ns.BuffButton.Frame()
@@ -80,17 +83,23 @@ describe("Unending Breath", function()
             local list = ns.BuffData.CLASSES.WARLOCK
             assert.are.equal(1, #list)
             local breath = list[1]
-            assert.are.same({ key = "breath", ranks = { BREATH }, blockers = { WATER_BREATHING } }, breath)
+            assert.are.same({ key = "breath", ranks = { BREATH }, blockers = { WATER_BREATHING }, water = true },
+                breath)
             assert.are.equal(breath, ns.BuffData.ByKey("breath"))
             assert.is_true(ns.BuffData.KEYS.breath)
             assert.are.equal("Unending Breath", ns.BuffData.SpellName(breath))
         end)
 
         it("counts Water Breathing as having it, but never as one of our casts", function()
+            local breath = ns.BuffData.ByKey("breath")
             assert.are.equal("breath", ns.BuffData.ForCast(BREATH).key)
             assert.are.equal("breath", ns.BuffData.ForAura(BREATH).key)
-            assert.are.equal("breath", ns.BuffData.ForAura(WATER_BREATHING).key)
-            assert.is_nil(ns.BuffData.ForCast(WATER_BREATHING), "the shaman's spell is no cast of ours")
+            assert.is_true(ns.BuffData.Covers(breath, BREATH))
+            assert.is_true(ns.BuffData.Covers(breath, WATER_BREATHING))
+            -- Since #136, 131 is the shaman's own buff, so it belongs to that.
+            assert.are.equal("waterbreathing", ns.BuffData.ForAura(WATER_BREATHING).key)
+            assert.are.equal("waterbreathing", ns.BuffData.ForCast(WATER_BREATHING).key,
+                "the shaman's spell is no warlock cast")
             assert.is_nil(ns.BuffData.CLASSES.WARLOCK[1].group, "it has no group version to cast (#41)")
         end)
 

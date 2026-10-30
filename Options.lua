@@ -66,6 +66,20 @@ local function Button(parent, text, width, onClick)
     return b
 end
 
+-- Words shown when the mouse is over frame (kept on it as frame.tooltip).
+local function Tooltip(frame, text)
+    frame.tooltip = text
+    frame:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(self.tooltip, 1, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
+Options.BREATH_TOOLTIP = "Offer Unending Breath and Water Breathing only while you're swimming or underwater, "
+    .. "for 2 minutes after, or in an underwater dungeon."
+
 local function Checkbox(parent, text, onClick)
     local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
     cb:SetScript("OnClick", function(self) onClick(self:GetChecked() and true or false) end)
@@ -469,6 +483,9 @@ local function FillAuto(shown)
     widgets.bgHeader:SetShown(shown)
     widgets.bgPrepBuff:SetShown(shown)
     if shown then widgets.bgPrepBuff:SetChecked(ns.db.buffBack.bgPrepBuff == true) end
+    widgets.waterHeader:SetShown(shown)
+    widgets.breathNearWater:SetShown(shown)
+    if shown then widgets.breathNearWater:SetChecked(ns.db.buffBack.breathNearWater == true) end
 end
 
 local function Fill()
@@ -529,7 +546,7 @@ local function Fill()
     -- takes its space, so following one would leave an empty gap.
     local above, x, y = widgets.steppers.repeatCooldown.label, 0, -18
     if isBuffBack then
-        above, x, y = widgets.bgPrepBuff, 4, -14
+        above, x, y = widgets.breathNearWater, 4, -14
     elseif warn then
         above = widgets.nameplateWarning
     elseif isBuff then
@@ -853,6 +870,17 @@ function Options.Create()
         ns.BuffButton.Refresh()
     end)
     widgets.bgPrepBuff:SetPoint("TOPLEFT", widgets.bgHeader, "BOTTOMLEFT", -4, -2)
+
+    -- Unending Breath and Water Breathing wait for water (Water.lua, #136).
+    -- Its own heading, so it doesn't read as a battleground setting.
+    widgets.waterHeader = Label(content, "Unending Breath and Water Breathing:", "GameFontNormalSmall")
+    widgets.waterHeader:SetPoint("TOPLEFT", widgets.bgPrepBuff, "BOTTOMLEFT", 4, -10)
+    widgets.breathNearWater = Checkbox(content, "Water breathing: only near water", function(on)
+        ns.db.buffBack.breathNearWater = on
+        ns.BuffButton.Refresh()
+    end)
+    widgets.breathNearWater:SetPoint("TOPLEFT", widgets.waterHeader, "BOTTOMLEFT", -4, -2)
+    Tooltip(widgets.breathNearWater, Options.BREATH_TOOLTIP)
 
     local anchor = msgHeader
     for i = 1, Config.NUM_MESSAGES do

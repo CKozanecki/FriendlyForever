@@ -173,13 +173,19 @@ end
 -- (a paladin) Salvation to take off: { ..., revoke = true, why }; or
 -- nil, why not, and whether that's settled: nothing left that a buff of
 -- yours could fix now or soon (not in a group, or everyone you could buff
--- has them; nobody dead, out of reach or unreadable). Your first buff
+-- has them; nobody dead, out of reach or unreadable); when that's because
+-- your water buff waits for water, that buff too. Your first buff
 -- goes to everyone missing it before your second buff goes to anyone.
 function GroupBuffs.Next()
     local units = GroupUnits()
     if #units == 0 then return nil, "you're not in a group", true end
-    local myBuffs = ns.BuffData.Offerable()
-    if #myBuffs == 0 then return nil, "you have no buffs to offer", true end
+    -- Water breathing waits for water (Water.lua): nothing to do now, and
+    -- the buff held back is named (4th value) for buff mode's message.
+    local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
+    if #myBuffs == 0 then
+        if held then return nil, ns.Water.HeldReason(held), true, held end
+        return nil, "you have no buffs to offer", true
+    end
     local members, firstReason, open = Candidates(units)
     local unreadable, outOfRange = {}, {}
     local family = {} -- [name .. family] = whether they wear one of yours (read once)
