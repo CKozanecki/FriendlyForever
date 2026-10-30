@@ -2,6 +2,7 @@
 -- Finding a setting: /friendly find <word>, the game's Settings search where
 -- the client has one, and the one table both read (OptionsIndex.lua).
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 
 local CONTROL_KINDS = { Button = true, CheckButton = true, EditBox = true }
 -- Not settings: the tabs move between pages, and the key capture only waits
@@ -230,10 +231,10 @@ describe("Finding a setting (#48)", function()
             local before = ns.Serialize.Encode(ns.db)
             local bytes = { "%", "[", "]", "(", ")", ".", "*", "+", "-", "?", "^", "$", "|", "\\", " ", "a", "b",
                 "u", "f", "\0", "\255", "\195", "e" }
-            math.randomseed(48)
+            random.seed(48)
             for _ = 1, 500 do
                 local parts = {}
-                for i = 1, math.random(0, 60) do parts[i] = bytes[math.random(#bytes)] end
+                for i = 1, random.random(0, 60) do parts[i] = bytes[random.random(#bytes)] end
                 local input = table.concat(parts)
                 wow.printed = {}
                 local ok, err = pcall(_G.SlashCmdList.FRIENDLYFOREVER, "find " .. input)
