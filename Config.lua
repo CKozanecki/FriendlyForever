@@ -113,6 +113,9 @@ Config.DEFAULTS = {
         unknownName = "friend",
         -- No thank-yous in capital cities (Cities.lua), unless buff mode is on.
         quietInCities = true,
+        -- Tell players outside your group you buff that it was you (#138):
+        -- a hidden addon whisper only their copy of the addon hears.
+        receipts = true,
         messages = DefaultMessages.buff,
     },
     guildJoin = {
@@ -245,6 +248,7 @@ Config.FIELD_VALIDATORS = {
     unlocked = Bool,
     listBuffNames = Bool,
     quietInCities = Bool,
+    receipts = Bool,
     showInCities = Bool,
     delay = Limited("delay"),
     repeatCooldown = Limited("repeatCooldown"),

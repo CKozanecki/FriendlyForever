@@ -508,3 +508,22 @@ Comm.RegisterType("PLAN", {
     routes = { WHISPER = true },
     handler = function(sender, fields) ns.Exchange.OnPlan(sender, fields[1]) end,
 })
+
+
+------------------------------------------------------------------------
+-- RECEIPT: "the buff of this key that just reached you was mine" (#138)
+------------------------------------------------------------------------
+
+-- Whispered to a player outside your group your buff just landed on
+-- (Receipts.lua). Fields: the buff's key and our version, never free text.
+-- It can only name the sender as the caster of a matching buff whose
+-- caster the game wouldn't name.
+function Comm.SendReceipt(name, key)
+    return Comm.Send("RECEIPT", { key, MyVersion() }, "WHISPER", name)
+end
+
+Comm.RegisterType("RECEIPT", {
+    fields = { Comm.Field.Key, Comm.Field.Version },
+    routes = { WHISPER = true },
+    handler = function(sender, fields) ns.Receipts.OnReceipt(sender, fields[1]) end,
+})
