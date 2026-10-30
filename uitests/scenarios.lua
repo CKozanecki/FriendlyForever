@@ -960,7 +960,9 @@ test("the Buff Back tab's top-up row stays inside the options, between its neigh
         local label = WithText(content, TOP_UP_LABEL)
         local below = WithText(content, "Battlegrounds (quiet once the battle starts):")
         check(above and label and below, "the top-up row or its neighbours aren't on the Buff Back tab")
-        TextInside(panel, label, "top-up label", 1)
+        -- Inside the scrolling content, which runs below the panel's view
+        -- (the per-tab check measures the same way).
+        TextInside(content, label, "top-up label", 1)
         -- Its "+": the one on the label's line, right of it.
         local labelTop, labelBottom = Edges(label, "GetTop", "GetBottom")
         local _, labelRight = Edges(label, "GetLeft", "GetRight")
