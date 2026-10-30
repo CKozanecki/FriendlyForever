@@ -46,16 +46,22 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
 
 ## After the owner merges a PR
 
-The owner says so; sessions aren't told, so don't poll.
+**Spotting a merge.** The owner may say so, or may just merge on GitHub. So at every check-in, read each tracked PR's state (`gh api repos/CKozanecki/FriendlyForever/pulls/<n>`, read only). Sessions themselves aren't told and don't poll (CLAUDE.md's "After each merge"); the coordinator tells them.
+
 1. Tell the driver of each other ready PR to merge `main` in (the `after-merge` skill). Name the conflicts the trial merges predicted.
-2. **Let the merged PR's session finish.** It finishes on its own (CLAUDE.md's "Finishing"): an issue comment if one is owed, a `done: #<issue>, PR #<n> merged` line to you, then a closing summary. If it hasn't, send it a "your work is done" message. Relay any owner step or stale branch it names; don't list the merged PR's own branch.
-3. **Archive that session only after its closing summary,** once it's idle. Read its transcript first, not just its status. Don't archive a session that is working or waiting on the owner.
+2. **Tell the merged PR's session at once, politely, that its work is done** (the owner's standing rule, #172). Don't wait for it to notice: "Your PR #<n> merged. Your work is done: finish per CLAUDE.md's "Finishing" (a closing comment only if one is owed, the done line to me, remove your worktree, cancel check-ins, closing summary)." Relay any owner step or stale branch it names; don't list the merged PR's own branch.
+3. **Archive that session only after its closing summary,** once it's idle. Read its transcript first, not just its status. Never archive a session that is working or waiting on the owner.
+   - **Not finished by the next check-in:** send one reminder. If it's still stuck at the one after, tell the owner instead of archiving.
 4. Update the recommended order for what's left.
+
+**The same close-out** applies when a session's PR is closed without merging, or when the owner says a session is done. **Every session you start** is told this in its opening prompt: when the coordinator says its work is done, it finishes and stops.
 
 ## The 30-minute check-in
 
 Schedule a check-in every 30 minutes (`send_later`, re-armed each time). At each one:
 - list the sessions and read the transcripts of any that changed;
+- read each tracked PR's state on GitHub, and run "After the owner merges a PR" for any that merged or closed;
+- archive every finished session whose closing summary is in;
 - act on anything new: a notice, a PR newly ready, a session stuck or failed;
 - **stay quiet when nothing changed:** no message to the owner, no comment anywhere. Just re-arm.
 
