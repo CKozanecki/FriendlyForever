@@ -336,6 +336,57 @@ describe("UI simulator workflow", function()
         end
     end)
 
+    -- A shot's container can write /shots, so it can plant a link there. A
+    -- redirect or copy by the runner into that folder would follow the link
+    -- and overwrite a file of the shot's choosing (#147).
+    it("never has the runner write into a folder a container mounts writable", function()
+        local joined = text:gsub("\\\n%s*", " ")
+        local writable = {}
+        for _, job in ipairs(order) do
+            for _, command in ipairs(dockerRuns(job)) do
+                for mount in command:gmatch("%-v%s+(%S+)") do
+                    if not mount:find(":ro\"?$") then
+                        writable[#writable + 1] = mount:match('^"?([^:]+):')
+                    end
+                end
+            end
+        end
+        assert.is_true(#writable >= 3, "expected writable mounts to check")
+        local function inMounted(target)
+            for _, dir in ipairs(writable) do
+                if target:find(dir, 1, true) then return dir end
+            end
+        end
+        local checked = 0
+        for line in (joined .. "\n"):gmatch("[^\n]+") do
+            if not line:find("docker run", 1, true) then
+                local targets = {}
+                -- Redirects (not 2>&1 or >&2), appends, tee, and the last argument of cp, mv, ln, install.
+                for target in line:gmatch("[^>&%d]>>?%s*(%S+)") do targets[#targets + 1] = target end
+                for target in line:gmatch("tee%s+%-?a?%s*(%S+)") do targets[#targets + 1] = target end
+                for _, tool in ipairs({ "cp", "mv", "ln", "install", "rsync", "unzip", "tar", "dd" }) do
+                    if line:find("%f[%w]" .. tool .. "%f[%W]") then targets[#targets + 1] = line end
+                end
+                for _, target in ipairs(targets) do
+                    checked = checked + 1
+                    local dir = inMounted(target)
+                    assert.is_falsy(dir, "the runner writes into " .. tostring(dir) .. ": " .. line)
+                end
+            end
+        end
+        assert.is_true(checked >= 5, "expected redirects and copies to check")
+    end)
+
+    it("keeps the shots' logs in the artifacts and the job's log groups", function()
+        local job = jobs.screenshots
+        assert.is_truthy(job.text:find('docker logs "$cid" > "$RUNNER_TEMP/shot-logs/$name.log"', 1, true),
+            "a shot's log isn't saved in shot-logs")
+        assert.is_truthy(job.text:find('for log in "$RUNNER_TEMP"/shot-logs/*.log', 1, true), "the logs aren't shown in groups")
+        assert.is_truthy(job.text:find("echo \"::group::", 1, true), "the logs aren't in log groups")
+        assert.is_truthy(job.text:find("path: ${{ runner.temp }}/shot-logs", 1, true), "shot-logs isn't uploaded")
+        assert.is_truthy(job.text:find("path: ${{ runner.temp }}/shots\n", 1, true), "the PNG artifact moved")
+    end)
+
     it("lets only the publish job write, and it runs nothing from the simulator or the pull request", function()
         for _, job in ipairs(order) do
             if job.name ~= "publish-screenshots" then
