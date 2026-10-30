@@ -14,6 +14,13 @@
 -- read is skipped too, and the button says why. Your rules for who gets
 -- each buff (tanks only, chosen classes, named players: BuffRules.lua) apply
 -- here, and only here. Group buffs never say a line and are never thanked.
+--
+-- Top-up timing (#42): a buff you give (whoever cast it) with less than the
+-- set time left (buffBack.topUpMinutes) counts as missing, so you can renew
+-- it before it runs out. Only a rank you can replace (BuffData.CanReplace),
+-- and only when the game shows how long it has left: a time that can't be
+-- read (secret, missing) means it isn't missing. Strangers (buff back) are
+-- never topped up.
 local _, ns = ...
 local Util = ns.Util
 local Read = Util.ReadGameValues
@@ -67,11 +74,36 @@ local function InSpellRange(spell, unit)
     if inRange == true or inRange == 1 then return true end
 end
 
+-- Your top-up time in seconds (0: never), read defensively: settings
+-- damaged mid-session mustn't stop the button.
+local function TopUpSeconds()
+    local limits = ns.Config.LIMITS.topUpMinutes
+    return Util.ClampNumber(ns.db.buffBack.topUpMinutes, limits.min, limits.max,
+        ns.Config.DEFAULTS.buffBack.topUpMinutes) * 60
+end
+
+-- Whether aura (readable, wearing buff) is yours to top up now: a rank you
+-- can replace with less than the top-up time left. Its duration must be
+-- longer than that time, or a fresh one would be offered again at once.
+-- No, whenever its times are secret or not numbers: they're never compared.
+local function RunningLow(aura, buff)
+    -- 0 needs no test of its own: only a buff whose time has passed would count.
+    local threshold = TopUpSeconds()
+    local duration, expires = aura.duration, aura.expirationTime
+    if Util.IsSecret(duration) or Util.IsSecret(expires) then return false end
+    if type(duration) ~= "number" or type(expires) ~= "number" then return false end
+    -- Each test says yes only for a real number, so NaN is a no. An expiry
+    -- of 0 is an aura that never runs out.
+    if not (duration > threshold and expires > 0 and expires - GetTime() < threshold) then return false end
+    return ns.BuffData.CanReplace(buff, aura.spellId)
+end
+
 -- Whether they wear a buff of this family that you cast: true, false, or nil
 -- when the game won't say (their buffs, or who cast one, can't be read).
 -- A Blessing of yours that you've since left to others in this raid doesn't
--- count, so the one you switched to replaces it.
-local function WearsMyFamily(unit, family)
+-- count, so the one you switched to replaces it; nor does offered running
+-- low, which a cast of offered renews.
+local function WearsMyFamily(unit, family, offered)
     local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
     if not api then return nil end
     for i = 1, ns.Offers.MAX_AURAS do
@@ -81,7 +113,8 @@ local function WearsMyFamily(unit, family)
         local id = aura.spellId
         if Util.IsSecret(id) then return nil end
         local buff = ns.BuffData.ForAura(id)
-        if buff and buff.family == family and ns.BuffRules.CoversInRaid(buff) then
+        if buff and buff.family == family and ns.BuffRules.CoversInRaid(buff)
+            and not RunningLow(aura, offered) then
             local source = aura.sourceUnit
             if source == nil or Util.IsSecret(source) then return nil end
             local mine = Read(UnitIsUnit, source, "player")
@@ -188,7 +221,7 @@ function GroupBuffs.Next()
     end
     local members, firstReason, open = Candidates(units)
     local unreadable, outOfRange = {}, {}
-    local family = {} -- [name .. family] = whether they wear one of yours (read once)
+    local family = {} -- [name .. buff key] = whether they wear another of yours (read once)
     -- Every reason a member is passed over here leaves a buff to give.
     local function Why(member, why)
         firstReason = firstReason or (Util.DisplayName(member.name) .. ": " .. why)
@@ -234,7 +267,7 @@ function GroupBuffs.Next()
                 allowed, ruleWhy = ns.BuffRules.Allows(buff, member)
             end
             if allowed ~= false then
-                local wears = ns.Offers.Wears(member.unit, buff)
+                local wears = ns.Offers.Wears(member.unit, buff, RunningLow)
                 local key = member.name .. "\1" .. buff.key
                 if wears == nil then
                     unreadable[member.name] = true
@@ -248,9 +281,9 @@ function GroupBuffs.Next()
                 elseif not Recently(justGiven[key], GroupBuffs.JUST_GIVEN_SECONDS) then
                     local covered = false
                     if buff.family then
-                        local fkey = member.name .. "\1" .. buff.family
+                        local fkey = member.name .. "\1" .. buff.key
                         if family[fkey] == nil then
-                            local mine = WearsMyFamily(member.unit, buff.family)
+                            local mine = WearsMyFamily(member.unit, buff.family, buff)
                             if mine == nil then Why(member, "can't tell whose Blessing they have") end
                             family[fkey] = mine ~= false
                         end
