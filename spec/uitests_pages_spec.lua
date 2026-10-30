@@ -1,4 +1,4 @@
--- Spec: #52, #112
+-- Spec: #52, #112, #158
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -143,5 +143,112 @@ describe("the UI simulator's options tabs", function()
         -- ShowTab, as the screenshot job calls it, answers the same way.
         assert.is_true(pcall(Pages.ShowTab, "nope"))
         assert.is_truthy(printed[#printed]:find("no options tab called nope", 1, true))
+    end)
+end)
+
+-- The Buff Back tab's buffs by their Forever names (#158): the simulator's
+-- spell data has none of Forever's buffs, so the fixture answers their
+-- names, and the tab's LAYOUT lines measure what a player reads.
+describe("the UI simulator's Buff Back names", function()
+    local ns, Pages, original
+
+    before_each(function()
+        ns = wow.boot({ before = function(state) state.class = "PALADIN" end })
+        _G.A_Print = function() end -- OpenTab's message: the simulated panel has no tab buttons
+        dofile("uitests/pages.lua")
+        Pages = _G.FriendlyForeverUIPages
+        original = _G.C_Spell.GetSpellName
+    end)
+
+    after_each(function()
+        _G.C_Spell.GetSpellName = original
+        _G.FriendlyForeverUIPages = nil
+        _G.A_Print = nil
+    end)
+
+    -- The row texts the Buff Back tab shows now.
+    local function rows()
+        ns.Options.SelectType("buffBack")
+        local texts = {}
+        for _, row in ipairs(ns.Options.widgets.buffRows) do
+            if row.name:IsShown() then texts[#texts + 1] = row.name:GetText() end
+        end
+        return texts
+    end
+
+    it("names every paladin buff BuffData lists, at every one of its ranks (white)", function()
+        local paladin = ns.BuffData.CLASSES.PALADIN
+        assert.are.equal(#paladin, #Pages.BUFF_NAMES)
+        for i, buff in ipairs(paladin) do
+            assert.are.equal(buff.key, Pages.BUFF_NAMES[i].key)
+            assert.are.same(buff.ranks, Pages.BUFF_NAMES[i].ranks, buff.key)
+        end
+    end)
+
+    it("shows each row of the tab with its Forever name, the longest Blessing of Salvation (white)", function()
+        local seen
+        Pages.WithBuffNames(function() seen = rows() end)
+        assert.are.equal(5, #seen)
+        for i, buff in ipairs(Pages.BUFF_NAMES) do
+            assert.are.equal(i .. ". " .. buff.name, seen[i]:match("^(.-) |c") or seen[i])
+        end
+        assert.are.equal("5. Blessing of Salvation", seen[5]:match("^(.-) |c") or seen[5])
+    end)
+
+    it("leaves the tab on the buff keys without it, which is what it fixes (white)", function()
+        local seen = rows()
+        assert.is_truthy(seen[5]:find("^5%. salvation"), seen[5])
+    end)
+
+    it("passes every other spell, and anything that isn't a spell ID, to the client's own (black)", function()
+        local asked = {}
+        _G.C_Spell.GetSpellName = function(...)
+            asked[#asked + 1] = { ... }
+            return "client's " .. tostring((...))
+        end
+        local undo = Pages.NameBuffs()
+        assert.are.equal("Blessing of Light", _G.C_Spell.GetSpellName(19977))
+        assert.are.equal(0, #asked)
+        for _, spell in ipairs({ 10938, 999999, "Blessing of Salvation", 0, -1, 1038.5, true, {} }) do
+            assert.are.equal("client's " .. tostring(spell), _G.C_Spell.GetSpellName(spell, "extra"))
+            assert.are.same({ spell, "extra" }, asked[#asked])
+        end
+        assert.are.equal("client's nil", _G.C_Spell.GetSpellName(nil))
+        undo()
+    end)
+
+    it("answers nothing for other spells when the client has no GetSpellName (black)", function()
+        _G.C_Spell.GetSpellName = nil
+        local undo = Pages.NameBuffs()
+        assert.are.equal("Blessing of Kings", _G.C_Spell.GetSpellName(20217))
+        assert.is_nil(_G.C_Spell.GetSpellName(10938))
+        undo()
+        assert.is_nil(_G.C_Spell.GetSpellName)
+    end)
+
+    it("puts the client's GetSpellName back afterwards (white)", function()
+        Pages.WithBuffNames(function()
+            assert.are_not.equal(original, _G.C_Spell.GetSpellName)
+        end)
+        assert.are.equal(original, _G.C_Spell.GetSpellName)
+        assert.is_nil(_G.C_Spell.GetSpellName(1038))
+        assert.is_truthy(rows()[5]:find("^5%. salvation"))
+    end)
+
+    it("puts the client's GetSpellName back even when the scenario fails, and raises its error (white)", function()
+        for _, failure in ipairs({ "a layout check failed", { reason = "a table" } }) do
+            local ok, err = pcall(Pages.WithBuffNames, function()
+                assert.are.equal("Blessing of Salvation", _G.C_Spell.GetSpellName(1038))
+                error(failure, 0)
+            end)
+            assert.is_false(ok)
+            assert.are.equal(failure, err)
+            assert.are.equal(original, _G.C_Spell.GetSpellName)
+        end
+    end)
+
+    it("leaves the names in place for the screenshot taken after ShowTab (white)", function()
+        Pages.ShowTab("buff-back")
+        assert.are.equal("Blessing of Salvation", _G.C_Spell.GetSpellName(1038))
     end)
 end)
