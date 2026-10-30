@@ -46,15 +46,19 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
 
 ## After the owner merges a PR
 
-**Spotting a merge.** The owner may say so, or may just merge on GitHub. So at every check-in, read each tracked PR's state (`gh api repos/CKozanecki/FriendlyForever/pulls/<n>`, read only). Sessions themselves aren't told and don't poll (CLAUDE.md's "After each merge"); the coordinator tells them.
+**Spotting a merge.** The owner may say so, or may just merge on GitHub. So at every check-in, read each tracked PR's state (`gh api repos/CKozanecki/FriendlyForever/pulls/<n>`, read only). GitHub doesn't notify sessions of merges, and they don't poll (CLAUDE.md's "After each merge"); the coordinator tells them.
 
 1. Tell the driver of each other ready PR to merge `main` in (the `after-merge` skill). Name the conflicts the trial merges predicted.
-2. **Tell the merged PR's session at once, politely, that its work is done** (the owner's standing rule, #172). Don't wait for it to notice: "Your PR #<n> merged. Your work is done: finish per CLAUDE.md's "Finishing" (a closing comment only if one is owed, the done line to me, remove your worktree, cancel check-ins, closing summary)." Relay any owner step or stale branch it names; don't list the merged PR's own branch.
+2. **Tell the merged PR's session at once, politely** (the owner's standing rule, #172). Don't wait for it to notice. First check whether anything is left for it: the PR says `Refs #<issue>` rather than `Closes`, or its transcript shows more parts of the spec still to come.
+   - **Nothing left:** "Your PR #<n> merged. Your work is done: finish per CLAUDE.md's "Finishing" (a closing comment only if one is owed, the done line to me, remove your worktree, cancel check-ins, closing summary)."
+   - **Work left:** "Your PR #<n> merged. Carry on with what's left on #<issue>." It keeps working, so don't archive it.
+
+   Relay any owner step or stale branch it names; don't list the merged PR's own branch.
 3. **Archive that session only after its closing summary,** once it's idle. Read its transcript first, not just its status. Never archive a session that is working or waiting on the owner.
    - **Not finished by the next check-in:** send one reminder. If it's still stuck at the one after, tell the owner instead of archiving.
 4. Update the recommended order for what's left.
 
-**The same close-out** applies when a session's PR is closed without merging, or when the owner says a session is done. **Every session you start** is told this in its opening prompt: when the coordinator says its work is done, it finishes and stops.
+**A PR closed without merging:** read the session's transcript first. If it replaced the PR (a rebased branch under a new name, or a new PR), track the new one and say nothing. If the owner closed it and nothing replaces it, tell the session: "Your PR #<n> was closed without merging. If nothing is left, finish per CLAUDE.md's "Finishing"; otherwise tell me what's left." **When the owner says a session is done,** send the close-out above. **Every session you start** is told this in its opening prompt: when the coordinator says its work is done, it finishes and stops.
 
 ## The 30-minute check-in
 
