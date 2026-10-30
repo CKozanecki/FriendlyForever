@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #154
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -604,6 +604,143 @@ describe("UI simulator workflow", function()
         assert.is_truthy(shots.text:find('if [ -n "$SUFFIX" ] && [ "$SECONDS" -gt 3000 ]; then', 1, true))
         local timeout = tonumber(shots.text:match("timeout%-minutes: (%d+)\n%s*run: |"))
         assert.is_truthy(timeout and timeout * 60 > 3000 + 200, "a shot started at the limit can't finish in the step")
+    end)
+
+    -- #153: text a shot or the simulator chooses (file names, logs) reaches
+    -- the job log, where the runner reads a line starting "::" (after any
+    -- spaces), or holding "##[" anywhere, as a workflow command.
+    describe("shot and simulator output in the job log (black)", function()
+        local SOURCES = { "%$report%f[^%w]", "%$RUNNER_TEMP/report", "%$RUNNER_TEMP/shots", "%$RUNNER_TEMP/shot%-logs",
+            '"%$file"', '"%$log"' }
+        local READERS = { "%f[%w]tail%s", "%f[%w]head%s", "%f[%w]ls%s", "%f[%w]grep%s", "%f[%w]cat%s" }
+
+        -- Whether a command line prints shot or simulator output. Paths are
+        -- read however they're quoted: "$RUNNER_TEMP"/shots, ${RUNNER_TEMP}/shots.
+        local function printsOutput(line)
+            if line:find("docker logs", 1, true) or line:find("docker top", 1, true) then return true end
+            local plain = line:gsub("%${([%w_]+)}", "$%1"):gsub('"(%$[%w_]+)"/', "%1/")
+            for _, reader in ipairs(READERS) do
+                if plain:find(reader) then
+                    for _, source in ipairs(SOURCES) do
+                        if plain:find(source) then return true end
+                    end
+                end
+            end
+            return false
+        end
+
+        -- shown(), as the workflow defines it, run by bash on the given input.
+        local function shown(input, label)
+            local definition = wow.readFile(path):match("\n%s*(shown%(%) {[^\n]*})\n")
+            assert.is_truthy(definition, "no shown() in " .. path)
+            local dir = os.tmpname()
+            local f = assert(io.open(dir, "wb"))
+            f:write(input)
+            f:close()
+            local script = assert(io.open(dir .. ".sh", "w"))
+            script:write(definition, '\nshown "$1" < "$2"\n')
+            script:close()
+            local p = io.popen("bash '" .. dir .. ".sh' '" .. (label or "") .. "' '" .. dir .. "' 2>&1")
+            local out = p:read("*a")
+            p:close()
+            os.remove(dir)
+            os.remove(dir .. ".sh")
+            return out
+        end
+
+        -- Lines as the runner splits them: at \n, \r or \r\n.
+        local function runnerLines(out)
+            local list = {}
+            for line in (out:gsub("\r\n?", "\n") .. "\n"):gmatch("([^\n]*)\n") do list[#list + 1] = line end
+            return list
+        end
+
+        it("filters every tail, head, grep, ls or docker logs of shot or simulator output before the log", function()
+            local seen = 0
+            for _, job in ipairs(order) do
+                for _, step in ipairs(job.steps) do
+                    -- Lines in a { ... } block count as filtered only if the
+                    -- block ends "} 2>&1 | shown", or goes to the step
+                    -- summary, a page the runner doesn't read for commands.
+                    local block
+                    local function check(line, filtered)
+                        seen = seen + 1
+                        local toFile = line:find('%s>%s*"%$RUNNER_TEMP/')
+                        assert.is_truthy(filtered or toFile or line:find("| shown", 1, true),
+                            job.name .. " prints unfiltered output: " .. line)
+                        -- docker logs replays the container's stderr on its own.
+                        if not filtered and not toFile and line:find("docker %l+ ") then
+                            assert.is_truthy(line:find("2>&1 |", 1, true),
+                                job.name .. " filters only stdout: " .. line)
+                        end
+                    end
+                    for _, line in ipairs(splitLines((step.text:gsub("\\\n%s*", " ")))) do
+                        if line:match("^%s*{%s*$") then
+                            block = {}
+                        elseif block and line:match("^%s*}") then
+                            local filtered = line:match("^%s*} 2>&1 | shown%s*$")
+                                or line:match('^%s*} >> "%$GITHUB_STEP_SUMMARY"%s*$')
+                            for _, held in ipairs(block) do check(held, filtered ~= nil) end
+                            block = nil
+                        elseif printsOutput(line) then
+                            if block then block[#block + 1] = line else check(line, false) end
+                        end
+                    end
+                    assert.is_nil(block, job.name .. " has a { block that never ends")
+                end
+            end
+            assert.is_true(seen >= 10, "expected the report, digest, shot log and docker logs prints, found " .. seen)
+        end)
+
+        it("defines shown() the same way in every step that uses it", function()
+            local definition = wow.readFile(path):match("\n%s*(shown%(%) {[^\n]*})\n")
+            for _, job in ipairs(order) do
+                for _, step in ipairs(job.steps) do
+                    if step.text:find("| shown", 1, true) then
+                        assert.is_truthy(step.text:find("\n%s*" .. definition:gsub("%p", "%%%0") .. "\n"),
+                            job.name .. " uses shown() without the same definition")
+                    end
+                end
+            end
+            -- Every mark it's given shows something before the text.
+            for label in text:gmatch('| shown "([^"]*)"') do
+                assert.is_truthy(label:find("%S"), "shown() is given a mark of only spaces")
+            end
+        end)
+
+        it("never lets a line reach the runner as a command", function()
+            local hostile = "::error::one\n   ::warning::two\n\t::stop-commands::t\nok\r::error::three\n"
+                .. "x ##[set-env name=A;]b\nend\r\n::add-mask::four"
+            for _, label in ipairs({ false, "  game> " }) do
+                local out = shown(hostile, label or nil)
+                for _, word in ipairs({ "one", "two", "three", "four", "set-env" }) do
+                    assert.is_truthy(out:find(word, 1, true), "a line was lost: " .. word)
+                end
+                local split = runnerLines(out)
+                -- Failures name the line by number: printing it would make a
+                -- false CI annotation.
+                for i, line in ipairs(split) do
+                    assert.is_falsy(line:match("^%s*::"), "output line " .. i .. " is read as a command")
+                    assert.is_falsy(line:find("##[", 1, true), "output line " .. i .. " is read as an old-style command")
+                end
+            end
+        end)
+
+        it("keeps ordinary lines readable, after a mark (white)", function()
+            assert.are.equal("| LAYOUT ok 1024x768 FriendlyForeverOptionsPanel\n| second\n",
+                shown("LAYOUT ok 1024x768 FriendlyForeverOptionsPanel\nsecond\n"))
+            assert.are.equal("  button> loaded in 3 s\n", shown("loaded in 3 s\n", "  button> "))
+        end)
+
+        it("never prints a published file's name before checking it's plain", function()
+            local publish = jobs["publish-screenshots"]
+            local check = publish.text:find('case "$name" in *[!A-Za-z0-9._-]*)', 1, true)
+            assert.is_truthy(check, "no plain-name check in the publish job")
+            local checkLine = publish.text:match('[^\n]*case "%$name" in [^\n]*')
+            assert.is_falsy(checkLine:find("echo[^;]*%$name"), "an unsafe name is printed: " .. checkLine)
+            local first = publish.text:find("echo[^\n]*%$name")
+            assert.is_true(first == nil or first > check, "a name is printed before it's checked")
+        end)
     end)
 end)
 
