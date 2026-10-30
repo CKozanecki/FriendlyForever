@@ -89,6 +89,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 
 **CI, packaging and external code**
 - Anything that runs third-party code, its build included, is pinned by digest or commit and runs with no network, no capabilities, read-only mounts and no secrets; publishing runs nothing from the PR; never the tool's own Action; and `spec/repo_spec.lua` enforces each rule (#49, #53: the first trial ran `cargo build` on the runner with network).
+- Sandboxed output printed to a job log (file names, logs, `docker logs`) goes through a filter, since the runner reads it for workflow commands. Indenting or escaping a leading `::` isn't enough: the runner skips leading spaces, ends lines at `\r` too, and finds the old `##[` anywhere in a line (#153).
 - A sandboxed build's output is as untrusted as the code that built it: the runner never parses or runs it (no `strip`, `file`, `ldd` or `objdump` on the host); anything that must read it does so in another sandboxed container, or the build does it itself (#154: a host `strip` would have parsed an ELF the build scripts controlled).
 - `if: always()` jobs cope with cancelled or superseded runs and missing artifacts (#53).
 - A toolchain install uses only its pinned, checksummed files and its own folder: every `luarocks` call names its `--tree` and builds with `--deps-mode=none`, and hererocks gets the checked `--downloads`. Anything else can reach the network or the user's own `~/.luarocks` (#103: one rock in `~/.luarocks` failed every `make setup`).
