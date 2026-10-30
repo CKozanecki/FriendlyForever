@@ -355,6 +355,42 @@ describe("UI simulator workflow", function()
         end
         assert.is_truthy(publish.text:find("89504e470d0a1a0a", 1, true), "the publish job doesn't check for PNGs")
     end)
+
+    -- #148: the layout checks and the screenshots run at the narrowest layout
+    -- and at what most players use.
+    it("lists both screen sizes, and the scenario and screenshot jobs run at each (white)", function()
+        assert.is_truthy(text:find("\n%s*LAYOUT_SIZES: 1024x768 1920x1080\n"), "the sizes aren't listed, narrowest first")
+        local scenarios = jobWith(order, "ui%-sim")
+        local layoutRun = scenarios.text:gsub("\\\n%s*", " "):match("[^\n]*%-%-exec%-lua @/layout%-lua/layout%.lua[^\n]*")
+        assert.is_truthy(layoutRun, "the scenarios aren't run with the sized script")
+        assert.is_truthy(layoutRun:find("dump%-tree"), "the sized pass doesn't use dump-tree, which takes a size")
+        assert.is_truthy(layoutRun:find('%-%-width "${size%%x%*}" %-%-height "${size#%*x}"'), "the size isn't passed")
+        assert.is_truthy(scenarios.text:find("for size in $LAYOUT_SIZES; do", 1, true), "no pass per size")
+        local shots = jobWith(order, "shoot")
+        assert.is_truthy(shots.text:find("for size in $LAYOUT_SIZES; do\n%s*WIDTH=", 1), "the screenshots aren't taken per size")
+        assert.is_truthy(shots.text:find('screenshot --png --width "$WIDTH" --height "$HEIGHT" -o "/shots/$name$SUFFIX.png"', 1, true))
+    end)
+
+    it("saves the narrow shots under today's names and the others as <name>-<size>.png (black)", function()
+        local shots = jobWith(order, "shoot")
+        local pass = shots.text:match("\n(%s*case \"$size\" in[^\n]*)\n")
+        assert.is_truthy(pass, "no suffix rule")
+        local function suffix(size)
+            local f = io.popen("size=" .. size .. "; " .. pass:gsub("^%s+", "") .. "; echo \"[$SUFFIX]\"")
+            local out = f:read("*a")
+            f:close()
+            return out
+        end
+        assert.are.equal("[]\n", suffix("1024x768"))
+        assert.are.equal("[-1920x1080]\n", suffix("1920x1080"))
+    end)
+
+    it("never starts a late shot of the extra sizes, so the step's backstop holds (black)", function()
+        local shots = jobWith(order, "shoot")
+        assert.is_truthy(shots.text:find('if [ -n "$SUFFIX" ] && [ "$SECONDS" -gt 3000 ]; then', 1, true))
+        local timeout = tonumber(shots.text:match("timeout%-minutes: (%d+)\n%s*run: |"))
+        assert.is_truthy(timeout and timeout * 60 > 3000 + 200, "a shot started at the limit can't finish in the step")
+    end)
 end)
 
 describe("UI screenshots clean-up workflow", function()
