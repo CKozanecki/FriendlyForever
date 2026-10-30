@@ -91,7 +91,8 @@ No combat log is used. New buffs come from `UNIT_AURA`, and the caster is identi
 
 1. The aura's caster unit (target, mouseover, focus, nameplate, and so on).
 2. A matching spell cast seen from one of those units just before the buff landed.
-3. Otherwise the caster is **unidentified**.
+3. A **buff receipt** from the caster's own copy of Friendly Forever (see below).
+4. Otherwise the caster is **unidentified**.
 
 **Turn on friendly player nameplates.** The game can only name a caster it has a unit for. Without friendly player nameplates, most strangers who buff you can't be named. The buff tab warns you when they're off, and its **"Show friendly player names"** button (or `/friendly nameplates`) turns them on as names only. The addon never changes this setting by itself.
 
@@ -105,6 +106,8 @@ No combat log is used. New buffs come from `UNIT_AURA`, and the caster is identi
 A fallback is a thank-you too: it goes under the chat limit, and is dropped over it.
 
 While you're in a group, an unidentified caster isn't thanked at all, because party-wide buffs such as a groupmate's totems, auras or shouts can arrive with no caster, and must never be mistaken for a stranger's. Strangers the game can name are still thanked while you're grouped.
+
+**Buff receipts.** When your buff lands on a player outside your group, your copy of the addon tells theirs with one hidden addon whisper, which players never see: "that Power Word: Fortitude was mine". Their copy uses it only when their game can't say who cast a buff on them, so it can thank you by name instead of "friend" and offer your buff back. A buff whose caster the game can't name waits 2 seconds for a receipt before it's thanked as "friend". A receipt only names the caster of a buff that really arrived, of the same kind, within a few seconds; on its own it never causes a cast, a thank-you or an offer. Receipts from someone on your ignore list or in your group are ignored, and two players claiming one buff name nobody. None are sent to your group, inside instances, during chat lockdown, or while Buff Thanks or **Tell players I buff that it was me** (on by default, on the Buff Thanks tab) is off.
 
 Buffs from one person that arrive before the thank-you goes out are combined: *"Thank you for the Power Word: Fortitude and Divine Spirit, Bob!"*. The repeat cooldown then stops any second thank-you.
 
@@ -174,7 +177,7 @@ Every buff from someone outside your group, while Buff Thanks or Buff Back is on
 - The addon never runs text as code and doesn't read whispers, so other players have no way to control it.
 - **Other copies of Friendly Forever:** copies talk to each other with hidden addon messages, which players never see. **No chat channel is ever joined.** Messages go only over the game's own whisper, party, raid, instance and guild routes, so General, Trade and LocalDefense keep their numbers.
   - Every message from another player is treated as untrusted. It's dropped, and counted in `/friendly status`, if it's unreadable, too long, malformed, from another protocol version, about someone other than its sender, or part of a flood.
-  - A message can only tell this copy something, such as "this player runs Friendly Forever". It can never make the addon cast, say anything in chat or change your settings.
+  - A message can only tell this copy something, such as "this player runs Friendly Forever". It can never make the addon cast, say anything in chat or change your settings. A buff receipt only puts the sender's name, as the server gives it, on a buff that really arrived and whose caster the game wouldn't name.
   - The addon sends at most a few messages at once and then one every two seconds, well below the game's limit, and drops what it can't send soon.
   - While the addon is switched off, it sends nothing and ignores what it receives. Everything works without other copies, or when the game blocks addon messages (as it may in instances).
 - The buff-back button's macro is built only from a checked player name and the game's own spell name, and each part is refused if it could end its line or start another command (a line break, a `|` escape code, or a leading `/`).

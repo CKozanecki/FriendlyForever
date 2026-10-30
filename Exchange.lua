@@ -159,7 +159,10 @@ function Tick()
                 Release(name, ex, "the exchange is done")
             end
         end
-        if not ex.held and now - ex.lastBuff >= Exchange.GAP then
+        -- A buff that came while it was open, waiting for a receipt to
+        -- name its caster (Receipts.lua), may be theirs: it keeps the
+        -- exchange (and its one thank-you) until it is named.
+        if not ex.held and now - ex.lastBuff >= Exchange.GAP and not ns.Receipts.Waiting() then
             exchanges[name] = nil
         else
             SendPlan(name, ex)

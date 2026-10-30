@@ -526,11 +526,15 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
         -- A group buff: no favour, no line, no thanks.
         ns.GroupBuffs.NoteGiven(press.name, press.buff)
         ShowResult("Gave " .. press.spell .. " to " .. who .. ".")
-    elseif ns.Offers.MarkReturned(press.name, press.spell) then
-        ShowResult("Returned " .. press.spell .. " to " .. who .. ".")
-        SayLineFor(press)
     else
-        ShowResult("Cast " .. press.spell .. " on " .. who .. " (no favour was waiting).")
+        -- Their copy hears it was you, in case their game can't say (#138).
+        ns.Receipts.Send(press.name, press.buff)
+        if ns.Offers.MarkReturned(press.name, press.spell) then
+            ShowResult("Returned " .. press.spell .. " to " .. who .. ".")
+            SayLineFor(press)
+        else
+            ShowResult("Cast " .. press.spell .. " on " .. who .. " (no favour was waiting).")
+        end
     end
     BuffButton.Refresh()
 end

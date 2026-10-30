@@ -522,6 +522,7 @@ local function Fill()
     FillAuto(isBuffBack)
 
     widgets.listNames:SetShown(isBuff)
+    widgets.receipts:SetShown(isBuff)
     widgets.thankStyleLabel:SetShown(isBuff)
     widgets.thankStyle:SetShown(isBuff)
     widgets.fallbackLabel:SetShown(isBuff)
@@ -531,6 +532,7 @@ local function Fill()
     widgets.unknownName:SetShown(isBuff and cfg.fallback == "say")
     if isBuff then
         widgets.listNames:SetChecked(cfg.listBuffNames)
+        widgets.receipts:SetChecked(cfg.receipts)
         widgets.thankStyle:SetText(Options.THANK_STYLE_TEXT[cfg.thankStyle])
         widgets.fallback:SetText(Options.FALLBACK_TEXT[cfg.fallback])
         widgets.quiet:SetChecked(cfg.quietInCities)
@@ -675,6 +677,11 @@ function Options.Create()
         ns.db.buff.listBuffNames = on
     end)
     widgets.listNames:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
+    -- Beside it: tell players I buff that it was me (Receipts.lua).
+    widgets.receipts = Checkbox(content, "Tell players I buff that it was me", function(on)
+        ns.db.buff.receipts = on
+    end)
+    widgets.receipts:SetPoint("LEFT", widgets.listNames.label, "RIGHT", 40, 0)
 
     -- Buff Back tab only, right under Enabled (the tab has no timing rows):
     -- the line, and how long favours last.

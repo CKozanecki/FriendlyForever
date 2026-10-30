@@ -53,6 +53,14 @@ files["spec/**"] = {
     ignore = { "122", "142", "143" }, -- tests set fields on global tables
 }
 
+-- The stand-in test runner the workflow uses to run the scenarios at other
+-- screen sizes (#148): it defines what the simulator's runner provides.
+files["scripts/ui-sim-harness.lua"] = {
+    globals = { "test", "assertTrue", "assertEquals", "assertNotNil", "assertType",
+        "FriendlyForeverHarnessFinish" },
+    read_globals = { "A_Print", "print" },
+}
+
 -- UI scenarios run inside the wow-ui-sim simulator (issue #49), which
 -- provides the test functions and A_Print.
 files["uitests/**"] = {
@@ -69,6 +77,6 @@ files["uitests/**"] = {
         "GetTime", "UnitClass", "UnitInRange", "UnitExists", "UnitName", "UnitLevel", "InCombatLockdown",
         "C_UnitAuras",
         "geterrorhandler", "seterrorhandler", "debugprofilestop",
-        "Settings", "time", "date",
+        "Settings", "time", "date", "GetPhysicalScreenSize",
     },
 }

@@ -8,7 +8,25 @@
 
 -- Report lines go to the simulator's log through A_Print: once Blizzard's UI
 -- loads, print writes to the chat frame instead.
-local report = type(A_Print) == "function" and A_Print or print
+local printLine = type(A_Print) == "function" and A_Print or print
+
+-- The screen the scenarios run at, as "1920x1080" (#148); nil where the
+-- client can't say (the spec/ stand-in).
+local function Resolution()
+    local ok, width, height = pcall(GetPhysicalScreenSize)
+    if ok and type(width) == "number" and type(height) == "number" then
+        return ("%.0fx%.0f"):format(width, height)
+    end
+end
+
+-- Each LAYOUT line names the resolution it was measured at, since the same
+-- check runs at more than one (#148).
+local function report(line)
+    local size = Resolution()
+    line = tostring(line)
+    if size then line = line:gsub("^LAYOUT ", "LAYOUT [" .. size .. "] ", 1) end
+    printLine(line)
+end
 
 -- Fails the test with message, unlike assertTrue, which drops its message.
 local function check(ok, message)
@@ -958,4 +976,4 @@ end)
 -- choices, which spec/thankwith_spec.lua checks against the options. The
 -- simulator ignores what a test file returns.
 return { TextInside = TextInside, PushedDownInside = PushedDownInside, TabTextInside = TabTextInside,
-    Settle = Settle, RowsInOrder = RowsInOrder, THANK_WITH = THANK_WITH, CANT_REACH = CANT_REACH }
+    OnScreen = OnScreen, Settle = Settle, RowsInOrder = RowsInOrder, THANK_WITH = THANK_WITH, CANT_REACH = CANT_REACH }

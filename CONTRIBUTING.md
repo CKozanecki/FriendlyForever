@@ -114,8 +114,8 @@ The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://g
 
 - **What it runs:**
   - **Lua errors** from loading, and the addon's frame tree.
-  - **UI scenarios** in `uitests/scenarios.lua`, including the layout checks: text stays inside its frame, and frames stay on screen. Each layout check prints a `LAYOUT` line.
-  - **Screenshots** of the game screen, each options tab and page, the copy window and the buff-back button. Each options tab's shot is named after it, such as `options-buff-back.png` (#112).
+  - **UI scenarios** in `uitests/scenarios.lua`, including the layout checks: text stays inside its frame, and frames stay on screen. Each layout check prints a `LAYOUT` line. The scenarios run in `run-tests`, then again at 1024 × 768 (the narrowest layout) and 1920 × 1080 (what most players use) through `dump-tree`, since `run-tests` has no size option (#148). Each `LAYOUT` line names its resolution.
+  - **Screenshots** of the game screen, each options tab and page, the copy window and the buff-back button. Each options tab's shot is named after it, such as `options-buff-back.png` (#112). Every shot is taken at 1024 × 768 and again at 1920 × 1080, saved beside it as `<name>-1920x1080.png` (#148).
 - **Where to look:** the run's summary has the errors, the scenarios and the layout lines. For a pull request from this repository, the screenshots are committed to the branch `ui-screenshots/pr-<number>`, replaced on every run. The branch is deleted when the pull request closes, merged or not, so look at the screenshots before then; the testing review already does, before the pull request is ready. To view them: `git fetch origin ui-screenshots/pr-<number>`, then open the PNGs, or browse the branch on GitHub.
 - **Clean-up** (#106): the **UI screenshots clean-up** workflow deletes the branches.
   - **When a pull request closes,** it deletes that pull request's branch, if there is one. It never fails the pull request's checks.

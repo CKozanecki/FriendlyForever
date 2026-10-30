@@ -385,11 +385,13 @@ function BuffTracker.OnWhisperFailed(name)
     if not ok then ns.Ledger.Settle(entry, false, "the whisper didn't reach them; " .. BuffTracker.NoteFor(why)) end
 end
 
--- Returns caster (name or UNKNOWN_KEY) or nil, the reason in words, and the
--- unit token the caster was seen under (if any).
+-- Returns caster (name or UNKNOWN_KEY) or nil, the reason in words, the
+-- unit token the caster was seen under (if any), and true when the caster
+-- may be a player the game wouldn't name (a buff receipt may name them:
+-- Receipts.lua).
 local function FindCaster(aura, spellId, now)
     local src = aura.sourceUnit
-    if Util.IsSecret(src) then return nil, "caster unit is secret (restricted)" end
+    if Util.IsSecret(src) then return nil, "caster unit is secret (restricted)", nil, true end
     -- The game sends a unit token or nothing; anything else is a damaged
     -- event, so it names nobody. Its type, not its value, goes in the log.
     if src ~= nil and (type(src) ~= "string" or src == "") then
@@ -399,7 +401,7 @@ local function FindCaster(aura, spellId, now)
         local caster = BuffTracker.Classify(src)
         if caster then return caster, "caster unit " .. src, src end
         if caster == false then return nil, "caster " .. src .. " is you, your pet, your group, an NPC or hostile" end
-        return nil, "caster " .. src .. " can't be identified"
+        return nil, "caster " .. src .. " can't be identified", nil, true
     end
 
     local cast = spellId and recentCasts[spellId]
@@ -411,11 +413,14 @@ local function FindCaster(aura, spellId, now)
     -- Party-wide buffs (totems, auras, shouts) can arrive with no caster unit
     -- at all, so in a group an unnamed buff may well be from a groupmate.
     -- Those buffs can't reach us when ungrouped, so only fall back then.
-    if IsInGroup() then return nil, "no caster unit, and you're in a group (could be a groupmate's totem)" end
+    if IsInGroup() then
+        return nil, "no caster unit, and you're in a group (could be a groupmate's totem)", nil, true
+    end
 
     local fromPlayer = aura.isFromPlayerOrPlayerPet
-    if not Util.IsSecret(fromPlayer) and fromPlayer == true then
-        return BuffTracker.UNKNOWN_KEY, "no caster unit; from a player outside your group"
+    if Util.IsSecret(fromPlayer) then return nil, "no caster unit, and can't tell whether from a player", nil, true end
+    if fromPlayer == true then
+        return BuffTracker.UNKNOWN_KEY, "no caster unit; from a player outside your group", nil, true
     end
     return nil, "no caster unit, and not from a player"
 end
@@ -459,6 +464,11 @@ function BuffTracker.AuraAge(aura, now)
     return math.floor(now - (expires - duration))
 end
 
+-- Whether new buffs are thanked or owed now.
+local function Active()
+    return BuffTracker.Watching() and ns.Announcer.IsWatching() and not ns.Battleground.Quiet()
+end
+
 local function HandleAddedAura(aura, now)
     if not IsReadable(aura) then
         local id = ReadAuraId(aura)
@@ -480,12 +490,30 @@ local function HandleAddedAura(aura, now)
         ns.Diag.Log("buff", "%s (spell %s): cast %ds ago, so I already had it -> skip", spellName or "?", spellId, age)
         return
     end
-    local caster, reason, unit = FindCaster(aura, spellId, now)
+    local caster, reason, unit, unnamed = FindCaster(aura, spellId, now)
+    local buffKey = spellName or spellId or ReadAuraId(aura) or "?"
+    -- One of our buffs from someone the game won't name: their copy may
+    -- send a receipt naming them (#138). Until then, or without one, it is
+    -- what it would have been.
+    local known = unnamed and spellId and ns.BuffData.ForAura(spellId)
+    if known then
+        ns.Diag.Log("buff", "%s (spell %s): %s -> waiting for a receipt", spellName or "?", spellId, reason)
+        ns.Receipts.Await(known.key, function(sender)
+            if not Active() then return end
+            if sender then caster, unit, reason = sender, nil, "named by their copy's receipt" end
+            ns.Diag.Log("buff", "%s (spell %s): %s -> %s", spellName or "?", spellId, reason,
+                caster and ("thank " .. caster) or "skip")
+            if caster then BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId) end
+        end)
+        return
+    end
+    -- Named by the game: their receipt for it names nothing else. (An
+    -- unknown caster of one of our buffs waited above.)
+    local buff = caster and spellId and ns.BuffData.ForAura(spellId)
+    if buff then ns.Receipts.NoteNamed(caster, buff.key) end
     ns.Diag.Log("buff", "%s (spell %s): %s -> %s", spellName or "?", spellId, reason,
         caster and ("thank " .. caster) or "skip")
-    if caster then
-        BuffTracker.AddBuff(caster, spellName or spellId or ReadAuraId(aura) or "?", spellName, unit, spellId)
-    end
+    if caster then BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId) end
 end
 
 -- Instance IDs of the player's current buffs; calls onNew(aura) for each one
@@ -526,7 +554,7 @@ function BuffTracker.OnPlayerAura(updateInfo)
 
     -- A battle under way: buffs you get aren't thanked or owed (Battleground.lua),
     -- but are still noted as known, so they aren't new once you leave.
-    local active = BuffTracker.Watching() and ns.Announcer.IsWatching() and not ns.Battleground.Quiet()
+    local active = Active()
     local now = GetTime()
 
     -- A full update gives no list of what is new, so compare against the
