@@ -487,6 +487,10 @@ function Config.ValidIgnore(list)
     return ignore
 end
 
+-- What db.walkthrough can be: not yet skipped or finished (a first
+-- install), skipped, or finished.
+Config.WALKTHROUGH_STATES = { new = true, skipped = true, done = true }
+
 -- Everything in the saved file but the ledger (which checks itself as it's
 -- used, and whose live entries a full check would change: see Ledger.Data).
 local function ValidateSettings(db)
@@ -502,6 +506,10 @@ local function ValidateSettings(db)
 
     -- Diagnostics: a debug flag and the most recent log lines (strings only).
     if type(db.debug) ~= "boolean" then db.debug = false end
+    -- The walkthrough (#47): "new" until it's skipped or finished. Anything
+    -- else (a file from before it, or a damaged one) counts as seen, so it
+    -- never starts by itself for someone who already uses the addon.
+    if not Config.WALKTHROUGH_STATES[db.walkthrough] then db.walkthrough = "done" end
     local log = {}
     if type(db.diagLog) == "table" then
         for _, line in ipairs(db.diagLog) do
@@ -553,8 +561,9 @@ local function ValidateSettings(db)
 end
 
 -- The saved file as loaded: migrated, every value checked. Returns it.
+-- No saved file at all is a first install, which starts the walkthrough.
 function Config.Load(saved)
-    local db = type(saved) == "table" and saved or {}
+    local db = type(saved) == "table" and saved or { walkthrough = "new" }
     Config.Migrate(db)
     ValidateSettings(db)
     db.ledger = ns.Ledger.Validate(db.ledger)

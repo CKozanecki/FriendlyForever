@@ -971,6 +971,101 @@ test("a tab name the panel doesn't know is answered with a message, not a Lua er
     if not ok then error(err, 0) end
 end)
 
+-- Start here and the walkthrough (#47). The page's lines are on its
+-- scrolling content, as the General page's are. The walkthrough is taken
+-- again from the page's button, as a player would, up to each step the
+-- screenshots show: its own text stays inside it, and the row a step
+-- scrolls the panel to is in view, above the walkthrough's window.
+
+test("the Start here page keeps its text inside it, its checkbox and buttons too (#47)", function()
+    local page = FriendlyForeverUIPages.Open("start")
+    check(page:IsVisible(), "the Start here page didn't open")
+    check(ShowsText(page.content, "What it does"), "the Start here page shows nothing")
+    OnScreen(page, "Start here page")
+    CheckAll({
+        function() TabTextInside(page.content, "Start here page") end,
+        function() PushedDownInside(page.content, "Start here page") end,
+    })
+end)
+
+-- Whether a frame lies across inside another, left to right (a scrolling
+-- area's content is meant to run past its bottom). Prints a LAYOUT line,
+-- fails if it doesn't, and returns the line.
+local function AcrossInside(outer, inner, label)
+    local ol, orr = Edges(outer, "GetLeft", "GetRight")
+    local il, ir = Edges(inner, "GetLeft", "GetRight")
+    if not (ol and il) then
+        local line = "LAYOUT " .. label .. ": edges can't be read here"
+        report(line)
+        return line
+    end
+    local line = ("LAYOUT %s: %.0f..%.0f across, inside %.0f..%.0f"):format(label, il, ir, ol, orr)
+    report(line)
+    check(il >= ol - 1 and ir <= orr + 1, line .. ": runs out of its frame")
+    return line
+end
+
+-- Whether row (a region on the main panel's scrolling content) is drawn
+-- inside the panel's scroll frame, and above the walkthrough's window.
+-- Prints a LAYOUT line, fails if it isn't, and returns the line.
+local function RowInView(row, walkthrough, label)
+    local scroll = row:GetParent():GetParent()
+    local rt, rb = Edges(row, "GetTop", "GetBottom")
+    local st, sb = Edges(scroll, "GetTop", "GetBottom")
+    local wt = Edges(walkthrough, "GetTop", "GetBottom")
+    if not (rt and st and wt) then
+        local line = "LAYOUT " .. label .. ": edges can't be read here"
+        report(line)
+        return line
+    end
+    local line = ("LAYOUT %s: row %.0f..%.0f, panel's view %.0f..%.0f, walkthrough's top %.0f"):format(
+        label, rb, rt, sb, st, wt)
+    report(line)
+    check(rt <= st + 1 and rb >= sb - 1, line .. ": the row is scrolled out of view")
+    check(rb >= wt - 1, line .. ": the row is under the walkthrough")
+    return line
+end
+
+-- The row each step scrolls to, by the start of its text, for the steps
+-- that scroll.
+local STEP_ROWS = { ["buff-mode-triggers"] = "Buff mode turns on by itself" }
+
+test("each walkthrough step shown keeps its text inside it, on the screen, its row in view (#47)", function()
+    local Pages = FriendlyForeverUIPages
+    local failures = {}
+    for _, step in ipairs(Pages.WALKTHROUGH_STEPS) do
+        local ok, err = pcall(function()
+            local label = "walkthrough (" .. step.name .. ")"
+            local walkthrough = Pages.OpenWalkthrough(step.name)
+            check(walkthrough ~= nil, label .. ": didn't get there")
+            OnScreen(walkthrough, label)
+            CheckAll({
+                function() FrameTextInside(walkthrough, label, 1) end,
+                function() TextInside(walkthrough.body, walkthrough.text, label .. " text") end,
+                function() AcrossInside(walkthrough.scroll, walkthrough.body, label .. " text area") end,
+            })
+            local row = STEP_ROWS[step.name]
+            if row then
+                -- The panel scrolls again a frame later, once laid out.
+                if type(A_Admin) == "table" and A_Admin.AdvanceTime then pcall(A_Admin.AdvanceTime, 0.1) end
+                local content, found
+                for _, child in ipairs({ _G[Pages.PANEL]:GetChildren() }) do
+                    content = content or (child.GetScrollChild and child:GetScrollChild())
+                end
+                check(content ~= nil, label .. ": the options panel has no scrolling content")
+                for _, region in ipairs({ content:GetRegions() }) do
+                    if region:IsVisible() and (region:GetText() or ""):find(row, 1, true) == 1 then found = region end
+                end
+                check(found ~= nil, label .. ": no row \"" .. row .. "\"")
+                RowInView(found, walkthrough, label .. " row \"" .. row .. "\"")
+            end
+        end)
+        if not ok then failures[#failures + 1] = tostring(err) end
+    end
+    Pages.HideWalkthrough()
+    check(#failures == 0, table.concat(failures, "\n"))
+end)
+
 -- The layout checks, for spec/uitests_layout_spec.lua, which runs them
 -- against regions whose edges it sets itself, and the Buff Thanks tab's
 -- choices, which spec/thankwith_spec.lua checks against the options. The

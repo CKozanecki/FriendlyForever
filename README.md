@@ -59,7 +59,8 @@ To find the game folder, open the Battle.net app, choose WoW Forever, then the g
 
 ## Use
 
-- **Options:** Esc → Options → AddOns → Friendly Forever, or type `/friendly`. A tab per message type (including **Buff Back**), plus the **General** page (snooze, chat limit, ignore list, profiles, export and import, bug report) and the **Favour Ledger** page.
+- **Start here:** Esc → Options → AddOns → Friendly Forever → **Start here** has the settings most people change, your keys, a link to every other page and the walkthrough. On a first install the walkthrough opens by itself; it shows and explains the main settings a step at a time and never changes one.
+- **Options:** Esc → Options → AddOns → Friendly Forever, or type `/friendly`. A tab per message type (including **Buff Back**), plus the **Start here** page, the **General** page (snooze, chat limit, ignore list, profiles, export and import, bug report) and the **Favour Ledger** page.
 - **Minimap button:** left-click opens options, right-click turns the addon on or off, drag to move it. Friendly Forever is also in the addon compartment (the addon drop-down by the minimap) where the game has one.
 - **Key binding:** Key Bindings → AddOns → "Friendly Forever: buff back" presses the buff back button.
 - `/friendly on | off | toggle`: turn everything on or off. `/friendly help` lists every command (`/ffr` also works).

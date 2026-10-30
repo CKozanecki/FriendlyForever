@@ -127,11 +127,20 @@ function methods:GetText() return self.text end
 function methods:SetChecked(on) self.checked = on and true or false end
 function methods:GetChecked() return self.checked end
 function methods:SetEnabled(on) self.enabled = on and true or false end
+-- A click from code, as the game's Button:Click: runs OnClick, unless the
+-- button is disabled.
+function methods:Click(mouseButton)
+    if self.enabled and self.scripts.OnClick then self.scripts.OnClick(self, mouseButton or "LeftButton") end
+end
 function methods:IsEnabled() return self.enabled end
 function methods:SetSize(w, h) self.width, self.height = w, h end
 function methods:SetWidth(w) self.width = w end
 function methods:GetWidth() return self.width or 0 end
 function methods:GetCenter() return self.centerX or 0, self.centerY or 0 end
+function methods:GetTop() return self.top end
+function methods:SetVerticalScroll(offset) self.verticalScroll = offset end
+function methods:GetVerticalScroll() return self.verticalScroll or 0 end
+function methods:GetVerticalScrollRange() return self.scrollRange or 0 end
 function methods:GetEffectiveScale() return self.scale or 1 end
 function methods:SetDesaturated(on) self.desaturated = on and true or false end
 function methods:SetTexture(path) self.texture = path end
@@ -379,6 +388,14 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         on your target, and nothing is cast unless both hold
 --                         (#84): in the game they apply to the unit the cast
 --                         goes to, and requiring both is the pessimistic choice.
+--   GetBindingKey(action) answers the first key, in sorted order, whose
+--                         state.bindings entry is that action, or nil. The
+--                         game answers every key bound to it; the first is
+--                         the one Key Bindings shows first (checked on #50).
+--   Region edges: GetTop answers region.top, set by a spec, or nil (not laid
+--                         out yet, the pessimistic case). A scroll frame keeps
+--                         SetVerticalScroll's offset, and its range is
+--                         frame.scrollRange (0 when unset).
 --   Override bindings (SetOverrideBindingClick, ClearOverrideBindings) are
 --                         blocked in combat, and allowed in PLAYER_REGEN_DISABLED's
 --                         handlers (as secure frames are). state.unbindable[key]:
@@ -1059,6 +1076,14 @@ function M.reset()
         end
     end
     _G.GetBindingAction = function(key) return M.state.bindings[key] or "" end
+    _G.GetBindingKey = function(action)
+        local keys = {}
+        for key, bound in pairs(M.state.bindings) do
+            if bound == action then keys[#keys + 1] = key end
+        end
+        table.sort(keys)
+        return keys[1]
+    end
     _G.GetBindingText = function(key) return M.state.bindingText and M.state.bindingText[key] or key end
     _G.IsShiftKeyDown = function() return M.state.mods.shift == true end
     _G.IsControlKeyDown = function() return M.state.mods.ctrl == true end
@@ -1375,6 +1400,7 @@ M.TURN_ON_TRIGGERS = { "autoOnJoin", "autoOnDeath", "autoOnBuffed" }
 -- Fresh client, addon loaded, logged in and past the login grace period.
 -- opts.db: saved variables to start with. opts.noGrace: stop after login.
 -- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
+-- opts.walkthrough: keep a first install's walkthrough (see below).
 function M.boot(opts)
     opts = opts or {}
     M.reset()
@@ -1417,6 +1443,10 @@ function M.boot(opts)
             end
         end
     end
+    -- A first install (no saved settings) starts the walkthrough at login
+    -- (#47), which most specs don't want: unless opts.walkthrough, it starts
+    -- as one already finished. spec/walkthrough_spec.lua covers it.
+    if not opts.walkthrough and opts.db == nil then ns.db.walkthrough = "done" end
     M.fire("PLAYER_ENTERING_WORLD", true, false)
     if not opts.noGrace then M.advance(ns.Announcer.LOGIN_GRACE) end
     return ns

@@ -1,5 +1,11 @@
 # Changelog
 
+### Unreleased
+
+- **Start here:** a first options page under Friendly Forever with what the addon does, the settings most people change (the addon's switch, how to thank, friendly nameplates), the buff-back button's key and buff mode's key, and a link to every other page. Each control changes the same setting as its full page. (#47)
+- **The walkthrough:** on a first install, the chat points to Start here and a short walkthrough opens. It goes a step at a time through the Buff Back tab (buff order and "Never offer"), buff mode's key and each of the triggers that turn it on and off, with its switch, and the thanks and welcome lines, opening each page. It only shows and explains; it never changes a setting. Skip it or finish it and it doesn't open again by itself; take it again from Start here. It closes when a fight starts, and one asked for in a fight starts when the fight is over. (#47)
+- This version adds a file (Walkthrough.lua). After updating, restart the game; /reload isn't enough. (#47)
+
 ## 0.9.0
 
 - **Buff receipts:** when your buff lands on a player outside your group, your copy of the addon tells theirs with one hidden addon whisper. When their game can't say who buffed them, their copy can then thank you by name and offer your buff back, rather than thanking "friend". A receipt only names the caster of a matching buff that really arrived a moment before; on its own it never causes a cast, a thank-you or an offer. A buff whose caster can't be named now waits 2 seconds for a receipt before it's thanked as "friend". None are sent to your group, inside instances or during chat lockdown. Switch it off with **Tell players I buff that it was me** on the Buff Thanks tab. (#138)

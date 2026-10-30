@@ -1,4 +1,4 @@
--- Spec: #52, #112
+-- Spec: #52, #112, #47
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -143,5 +143,96 @@ describe("the UI simulator's options tabs", function()
         -- ShowTab, as the screenshot job calls it, answers the same way.
         assert.is_true(pcall(Pages.ShowTab, "nope"))
         assert.is_truthy(printed[#printed]:find("no options tab called nope", 1, true))
+    end)
+end)
+
+-- The walkthrough's steps the screenshots show (#47), taken again from the
+-- Start here page as a player would.
+describe("the UI simulator's walkthrough steps", function()
+    local ns, Pages, printed
+
+    before_each(function()
+        ns = wow.boot({ walkthrough = true })
+        printed = {}
+        _G.A_Print = function(text) printed[#printed + 1] = text end
+        dofile("uitests/pages.lua")
+        Pages = _G.FriendlyForeverUIPages
+    end)
+
+    after_each(function()
+        _G.FriendlyForeverUIPages = nil
+        _G.A_Print = nil
+    end)
+
+    it("reaches each step by its title, from the Start here page's button (white)", function()
+        for _, step in ipairs(Pages.WALKTHROUGH_STEPS) do
+            local walkthrough = Pages.OpenWalkthrough(step.name)
+            assert.are.equal(ns.Walkthrough.Frame(), walkthrough, step.name)
+            assert.is_true(walkthrough:IsShown())
+            assert.is_truthy(walkthrough.title:GetText():find(step.title, 1, true), step.name)
+            assert.is_truthy(step.name:find("^[a-z][a-z-]*$"), step.name)
+        end
+        assert.are.equal("buffBack", ns.Options.CurrentType(), "the last step shot is on the Buff Back tab")
+    end)
+
+    it("hides the walkthrough a first install opened before showing a page or tab", function()
+        assert.is_true(ns.Walkthrough.Frame():IsShown())
+        Pages.Open("general")
+        assert.is_false(ns.Walkthrough.Frame():IsShown())
+        ns.Walkthrough.Start()
+        Pages.OpenTab("buff-back")
+        assert.is_false(ns.Walkthrough.Frame():IsShown())
+        assert.are.equal("new", ns.db.walkthrough, "hiding it isn't skipping it")
+        assert.are.equal(ns.Options.StartPage(), Pages.Open("start"))
+    end)
+
+    it("answers a step name it doesn't know with a message, not a Lua error (black)", function()
+        for _, name in ipairs({ "", "Welcome", "welcome ", 3, true, { "welcome" } }) do
+            local ok, opened, why = pcall(Pages.OpenWalkthrough, name)
+            assert.is_true(ok, tostring(opened))
+            assert.is_nil(opened)
+            assert.are.equal("no walkthrough step called " .. tostring(name), why)
+            assert.are.equal(why, printed[#printed])
+        end
+        assert.is_true(pcall(Pages.ShowWalkthrough, nil))
+        assert.are.equal("no walkthrough step called nil", printed[#printed])
+    end)
+
+    it("has the screenshot job shoot every step, each named after it, from its own script (white)", function()
+        local workflow = wow.readFile(".github/workflows/ui-sim.yml")
+        local names = {}
+        for i, step in ipairs(Pages.WALKTHROUGH_STEPS) do names[i] = step.name end
+        local steps = workflow:match("\n%s*WALKTHROUGH_STEPS: ([^\n]-)%s*\n")
+        assert.are.equal(table.concat(names, " "), steps)
+        assert.is_truthy(workflow:find('for step in $WALKTHROUGH_STEPS; do\n%s*shoot "walkthrough%-$step" '
+            .. '%-%-exec%-lua "@/shot%-lua/walkthrough%-$step%.lua"\n'))
+        assert.is_truthy(workflow:find("\n%s*for page in general ledger start; do\n"), "Start here's script")
+        assert.is_truthy(workflow:find("\n%s*shoot options%-start %-%-exec%-lua @/shot%-lua/page%-start%.lua\n"))
+        -- The loop writing each step's script, run as the workflow runs it.
+        local loop = workflow:match("\n(%s*for step in %$WALKTHROUGH_STEPS; do\n.-\n%s*done)\n")
+        assert.is_falsy(loop:find("shoot", 1, true), "found the shoot loop, not the one writing the scripts")
+        local dir = os.tmpname()
+        os.remove(dir)
+        assert.is_true(os.execute("mkdir -p '" .. dir .. "'") == 0)
+        local script = dir .. "/run.sh"
+        local f = assert(io.open(script, "w"))
+        f:write("set -eu\nstates='" .. dir .. "/out'\nmkdir -p \"$states\"\nWALKTHROUGH_STEPS='" .. steps .. "'\n"
+            .. loop .. "\n")
+        f:close()
+        local ok = os.execute("bash '" .. script .. "'")
+        local pages = wow.readFile("uitests/pages.lua")
+        local written = {}
+        for _, name in ipairs(names) do
+            local file = io.open(dir .. "/out/walkthrough-" .. name .. ".lua")
+            written[name] = file and file:read("*a")
+            if file then file:close() end
+        end
+        local listed = io.popen("ls '" .. dir .. "/out'"):read("*a")
+        os.execute("rm -rf '" .. dir .. "'")
+        assert.are.equal(0, ok)
+        assert.are.equal(#names, select(2, listed:gsub("\n", "")), "scripts written: " .. listed)
+        for _, name in ipairs(names) do
+            assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowWalkthrough("' .. name .. '")\n', written[name])
+        end
     end)
 end)

@@ -65,7 +65,7 @@ function handlers.ADDON_LOADED(name)
     -- say so, rather than erroring on every event.
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
         "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
-        "Comm", "RateLimit", "Exchange", "Receipts" }) do
+        "Comm", "RateLimit", "Exchange", "Receipts", "Walkthrough" }) do
         if ns[module] == nil then
             ns.Print("|cffff4040this update added files. Restart the game (not /reload) to finish updating.|r")
             return
@@ -78,6 +78,7 @@ function handlers.ADDON_LOADED(name)
     ns.ChatQueue.Init()
     ns.Comm.Init()
     ns.Options.Create()
+    ns.Walkthrough.Create()
     ns.Minimap.Create()
     ns.BuffMode.Create()
     ns.BuffButton.Create()
@@ -91,6 +92,7 @@ function handlers.ADDON_LOADED(name)
             ns.Announcer.OnEnteringWorld()
             ns.Greeter.OnEnteringWorld()
             ns.Greeter.RequestRoster()
+            ns.Walkthrough.OnLogin()
         end
     end)
     Register("CHAT_MSG_SYSTEM", ns.Greeter.OnSystemMessage)

@@ -362,13 +362,17 @@ jobs:
   screenshots:
     needs: simulator
     runs-on: ubuntu-24.04
-    timeout-minutes: 70
+    timeout-minutes: 82
     continue-on-error: true
     env:
       # The options panel's tabs, one shot each (#112): uitests/pages.lua's
       # Pages.TABS names, in the panel's order (spec/uitests_pages_spec.lua
       # checks they match).
       OPTIONS_TABS: guild-login buff-thanks guild-join party-join party-hello hello-again buff-back
+      # The walkthrough's steps shot (#47): uitests/pages.lua's
+      # Pages.WALKTHROUGH_STEPS names (spec/uitests_pages_spec.lua checks
+      # they match).
+      WALKTHROUGH_STEPS: welcome buff-mode-key buff-mode-triggers
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -395,8 +399,9 @@ jobs:
             { cat uitests/button_states.lua; printf '\nFriendlyForeverUIStates.Show("%s")\n' "$state"; } \
               > "$states/$state.lua"
           done
-          # The phase 1 options pages (#52), filled by uitests/pages.lua.
-          for page in general ledger; do
+          # The phase 1 options pages (#52), filled by uitests/pages.lua, and
+          # Start here (#47).
+          for page in general ledger start; do
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.Show("%s")\n' "$page"; } \
               > "$states/page-$page.lua"
           done
@@ -404,6 +409,11 @@ jobs:
           for tab in $OPTIONS_TABS; do
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowTab("%s")\n' "$tab"; } \
               > "$states/tab-$tab.lua"
+          done
+          # The walkthrough at each step shot, taken again from Start here (#47).
+          for step in $WALKTHROUGH_STEPS; do
+            { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowWalkthrough("%s")\n' "$step"; } \
+              > "$states/walkthrough-$step.lua"
           done
           chmod -R a-w "$states"
 
@@ -427,10 +437,10 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Each one
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so 16 shots and the probe take at most about 54 minutes.
+        # clean-up, so 20 shots and the probe take at most about 67 minutes.
         # (Each usually takes about 8 s.) The second pass, at 1920 x 1080
         # (#148), starts no shot after 50 minutes, so this still holds.
-        timeout-minutes: 58
+        timeout-minutes: 70
         run: |
           # WOW_SIM_CASC=0: never look for game files (no WoW install here).
           # Each shot runs as a detached container capped at 6 GB and 3 CPUs,
@@ -498,6 +508,11 @@ jobs:
           docker rm -f "$probe" >/dev/null 2>&1 || true
           # Every shot, at the size and suffix the pass set (#148).
           shoot_all() {
+            # The game screen as a first install shows it: the simulator has
+            # no saved settings, so the walkthrough opens at login (#47). The
+            # other shots hide it first (FriendlyForeverWalkthrough:Hide()),
+            # as a player who skipped it would see them; hiding it changes
+            # no setting.
             shoot game
             # Each tab of the options panel (#112), named after the tab:
             # options-guild-login (the tab the panel opens on), options-buff-thanks...
@@ -505,11 +520,11 @@ jobs:
               shoot "options-$tab" --exec-lua "@/shot-lua/tab-$tab.lua"
             done
             # The Buff Thanks tab (#101), with the longest "Thank them with" choice.
-            shoot options-buff --exec-lua "FriendlyForeverDB.buff.thankStyle = 'both'; SlashCmdList.FRIENDLYFOREVER(''); for _, f in ipairs({ FriendlyForeverOptionsPanel:GetChildren() }) do local c = f.GetScrollChild and f:GetScrollChild(); for _, b in ipairs(c and { c:GetChildren() } or {}) do if b.GetText and b:GetText() == 'Buff Thanks' then b:GetScript('OnClick')(b) end end end"
+            shoot options-buff --exec-lua "if FriendlyForeverWalkthrough then FriendlyForeverWalkthrough:Hide() end; FriendlyForeverDB.buff.thankStyle = 'both'; SlashCmdList.FRIENDLYFOREVER(''); for _, f in ipairs({ FriendlyForeverOptionsPanel:GetChildren() }) do local c = f.GetScrollChild and f:GetScrollChild(); for _, b in ipairs(c and { c:GetChildren() } or {}) do if b.GetText and b:GetText() == 'Buff Thanks' then b:GetScript('OnClick')(b) end end end"
             # The General page (#35): it doesn't scroll, so everything must fit.
-            shoot general --exec-lua "SlashCmdList.FRIENDLYFOREVER(''); Settings.OpenToCategory(FriendlyForeverOptionsPanel.generalPage.category:GetID())"
+            shoot general --exec-lua "if FriendlyForeverWalkthrough then FriendlyForeverWalkthrough:Hide() end; SlashCmdList.FRIENDLYFOREVER(''); Settings.OpenToCategory(FriendlyForeverOptionsPanel.generalPage.category:GetID())"
             # /friendly move shows the buff back button, unlocked, with nobody owed.
-            shoot button --exec-lua "SlashCmdList.FRIENDLYFOREVER('move')"
+            shoot button --exec-lua "if FriendlyForeverWalkthrough then FriendlyForeverWalkthrough:Hide() end; SlashCmdList.FRIENDLYFOREVER('move')"
             # A favour owed: someone outside your group buffed you.
             shoot button-favour --exec-lua @/shot-lua/favour.lua
             # Buff mode, with a party member missing your buff.
@@ -518,7 +533,12 @@ jobs:
             # many entries, and the copy window as /friendly export opens it (#52).
             shoot options-general --exec-lua @/shot-lua/page-general.lua
             shoot options-ledger --exec-lua @/shot-lua/page-ledger.lua
-            shoot copy-window --exec-lua "SlashCmdList.FRIENDLYFOREVER('export')"
+            # Start here, and the walkthrough at each step in WALKTHROUGH_STEPS (#47).
+            shoot options-start --exec-lua @/shot-lua/page-start.lua
+            for step in $WALKTHROUGH_STEPS; do
+              shoot "walkthrough-$step" --exec-lua "@/shot-lua/walkthrough-$step.lua"
+            done
+            shoot copy-window --exec-lua "if FriendlyForeverWalkthrough then FriendlyForeverWalkthrough:Hide() end; SlashCmdList.FRIENDLYFOREVER('export')"
           }
           for size in $LAYOUT_SIZES; do
             WIDTH="${size%x*}"; HEIGHT="${size#*x}"
