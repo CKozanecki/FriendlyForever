@@ -1022,6 +1022,10 @@ local function RowInView(row, scroll, walkthrough, label)
     end
     local line = ("LAYOUT %s: row %.0f..%.0f, panel's view %.0f..%.0f, walkthrough's top %.0f"):format(
         label, rb, rt, sb, st, wt)
+    -- How far the panel is scrolled, of how far it can be, where the client
+    -- says: a failure then shows whether the scroll or its range was missing.
+    local offset, range = Measure(scroll, "GetVerticalScroll"), Measure(scroll, "GetVerticalScrollRange")
+    if offset and range then line = line .. (", scrolled %.0f of %.0f"):format(offset, range) end
     report(line)
     check(rt <= st + 1 and rb >= sb - 1, line .. ": the row is scrolled out of view")
     check(rt >= st - NEAR_TOP, line .. ": the row isn't scrolled to the top of the view")
@@ -1049,8 +1053,14 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
             })
             local row = STEP_ROWS[step.name]
             if row then
-                -- The panel scrolls again a frame later, once laid out.
+                -- The panel scrolls again a frame later, once laid out. A
+                -- frame may not pass here (the simulator's clock can be
+                -- stopped), so once it has had the chance, the step is taken
+                -- again, as a player clicking Back and Next would: its
+                -- scroll then runs against a panel already laid out.
                 if type(A_Admin) == "table" and A_Admin.AdvanceTime then pcall(A_Admin.AdvanceTime, 0.1) end
+                walkthrough.back:Click()
+                walkthrough.next:Click()
                 local scroll, content, found
                 for _, child in ipairs({ _G[Pages.PANEL]:GetChildren() }) do
                     if not content and child.GetScrollChild and child:GetScrollChild() then

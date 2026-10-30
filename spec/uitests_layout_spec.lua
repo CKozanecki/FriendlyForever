@@ -849,6 +849,15 @@ describe("UI simulator layout checks for the walkthrough (AcrossInside, RowInVie
         assert.is_truthy(err:find("under the walkthrough", 1, true), err)
     end)
 
+    it("says how far the panel is scrolled, of how far it can be, where the client says (white)", function()
+        local scrolled = region({ top = 700, bottom = 40 }, {
+            GetVerticalScroll = function() return 512 end, GetVerticalScrollRange = function() return 1300 end,
+        })
+        checks.RowInView(region({ top = 690, bottom = 676 }), scrolled, walkthrough, "row")
+        assert.are.equal("LAYOUT row: row 676..690, panel's view 40..700, walkthrough's top 350, scrolled 512 of 1300",
+            printed[1])
+    end)
+
     it("fails a row in view but not scrolled to the top, as an unscrolled panel leaves it (black)", function()
         checks.RowInView(region({ top = 660, bottom = 646 }), scroll, walkthrough, "row")
         local err = fails(function() checks.RowInView(region({ top = 659, bottom = 645 }), scroll, walkthrough, "row") end)
