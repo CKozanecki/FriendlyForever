@@ -429,6 +429,20 @@ describe("Guild hellos (#38)", function()
             assert.are.equal(3, ns.GuildHellos.Heard(LOGIN))
         end)
 
+        it("greets with the random wait only when this client has no addon messages", function()
+            local ns = wow.boot({ before = function(state)
+                state.guildRoster = { LOGIN }
+                state.noAddonMessages = true
+            end })
+            wow.fire("GUILD_ROSTER_UPDATE")
+            assert.is_false(ns.Comm.Ready())
+            online(LOGIN)
+            wow.advance(ns.db.guildLogin.delay + ns.GuildHellos.STAGGER_MIN - 0.1)
+            assert.are.equal(0, #wow.sentTo("GUILD"), "not before the random wait")
+            wow.advance(0.2)
+            assert.are.equal(1, #wow.sentTo("GUILD"))
+        end)
+
         it("greets with the random wait only when it can't read its own name", function()
             local clients, net = Guild(1, 1)
             LogIn(clients, LOGIN)
