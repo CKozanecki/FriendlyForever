@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76, #84, #35, #133
+-- Spec: #27, #57, #64, #76, #84, #35, #133, #154
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -745,6 +745,24 @@ describe("Buff back", function()
             wow.leaveCombat()
             assert.is_truthy(macro():find("/targetexact Ann Vale", 1, true))
             assert.are.same({}, wow.errors)
+        end)
+
+        -- The UI simulator (wow-ui-sim ac893c6) fires its own copy after the
+        -- lockdown starts, on top of the game's before it (#154).
+        it("leaves the button alone when the fight's start is announced again in the lockdown (black)", function()
+            stranger("nameplate1")
+            buffedBy("nameplate1")
+            wow.enterCombat()
+            assert.is_false(button:IsShown())
+            local errorsBefore = ns.Diag.Counters().luaErrors
+            wow.fire("PLAYER_REGEN_DISABLED")
+            assert.are.same({}, wow.errors)
+            assert.are.equal(errorsBefore, ns.Diag.Counters().luaErrors)
+            assert.is_nil(macro())
+            assert.is_false(button:IsShown())
+            wow.leaveCombat()
+            assert.is_truthy(macro():find("/targetexact", 1, true), "the favour didn't come back after the fight")
+            assert.is_true(button:IsShown())
         end)
 
         it("only rewrites the button when its macro changes", function()

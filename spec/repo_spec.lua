@@ -349,6 +349,22 @@ describe("UI simulator workflow", function()
         -- One build, in its own job, which the jobs that run it wait for.
         local build = jobs["simulator"]
         assert.is_truthy(build and build.text:find("cargo build", 1, true), "no simulator job builds it")
+        -- Its output is untrusted: stripped inside the sandboxed build, and
+        -- on the runner only copied, as a plain file (#154's review).
+        local buildRun = dockerRuns(build)
+        local stripped = false
+        for _, command in ipairs(buildRun) do
+            if command:find("cargo build", 1, true) then
+                stripped = command:find("-e CARGO_PROFILE_RELEASE_STRIP=symbols", 1, true) ~= nil
+            end
+        end
+        assert.is_true(stripped, "the build doesn't strip the binary in its sandbox")
+        local outside = build.text:gsub("\\\n%s*", " "):gsub("docker run[^\n]*", "")
+        for _, tool in ipairs({ "strip", "objcopy", "readelf", "objdump", "file", "ldd", "nm" }) do
+            assert.is_falsy(outside:find("%f[%w]" .. tool .. "%s"), "the runner reads the build's output with " .. tool)
+        end
+        assert.is_truthy(build.text:find('\n%s*test %-f "%$bin"\n%s*test ! %-L "%$bin"\n%s*cp %-P "%$bin" '),
+            "the binary is copied without checking it's a plain file")
         for _, name in ipairs({ "ui-sim", "screenshots" }) do
             local job = jobs[name]
             assert.is_truthy(job, "no " .. name .. " job")

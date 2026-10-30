@@ -129,7 +129,7 @@ jobs:
           path: |
             ${{ runner.temp }}/cargo-home
             ${{ runner.temp }}/sim-target
-          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui-sandboxed
+          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui-stripped
 
       # The only container with network: cargo fetch downloads the crates
       # Cargo.lock names, checks their checksums and unpacks them, and runs
@@ -146,6 +146,7 @@ jobs:
         run: |
           docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
             --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/cargo -e CARGO_TARGET_DIR=/target \
+            -e CARGO_PROFILE_RELEASE_STRIP=symbols \
             --memory 12g --memory-swap 12g --pids-limit 8192 \
             -v "$RUNNER_TEMP/sim:/build:ro" -v "$RUNNER_TEMP/cargo-home:/cargo:ro" \
             -v "$RUNNER_TEMP/sim-target:/target" -w /build \
@@ -159,16 +160,21 @@ jobs:
           path: |
             ${{ runner.temp }}/cargo-home
             ${{ runner.temp }}/sim-target
-          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui-sandboxed
+          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui-stripped
 
-      # What the simulator's image holds: the binary (stripped, as the image
-      # does; strip only reads it), with the test framework run-tests loads
-      # from Interface/AddOns beside it, and Blizzard's UI code.
+      # What the simulator's image holds: the binary (stripped by the build,
+      # as the image's is), with the test framework run-tests loads from
+      # Interface/AddOns beside it, and Blizzard's UI code. The build's output
+      # is untrusted, so the runner only copies the binary, and only a plain
+      # file, never a link: nothing here reads or runs it outside a sandbox.
       - name: Stage the simulator for the other jobs
         run: |
           out="$RUNNER_TEMP/ui-sim-build"
+          bin="$RUNNER_TEMP/sim-target/release/wow-sim"
           mkdir -p "$out/sim/Interface/AddOns" "$out/blizzard-ui"
-          strip -o "$out/sim/wow-sim" "$RUNNER_TEMP/sim-target/release/wow-sim"
+          test -f "$bin"
+          test ! -L "$bin"
+          cp -P "$bin" "$out/sim/wow-sim"
           cp -r "$RUNNER_TEMP/sim/Interface/AddOns/TestFramework" "$out/sim/Interface/AddOns/"
           cp -r "$RUNNER_TEMP/blizzard-ui/Interface/AddOns" "$out/blizzard-ui/"
 

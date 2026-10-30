@@ -178,7 +178,8 @@ end
 -- the end, too late for the start. So the start's event is fired here first,
 -- and the simulator's own copy then comes a second time, in the lockdown.
 -- That's kept rather than hidden: an extra event in a fight is the
--- pessimistic case, and the addon must take it in its stride.
+-- pessimistic case, and the addon must take it in its stride (BuffButton's
+-- Empty leaves the protected button's visibility alone in a lockdown).
 function States.Combat(on)
     if on then
         States.Fire("PLAYER_REGEN_DISABLED")
