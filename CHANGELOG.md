@@ -2,6 +2,7 @@
 
 ### Unreleased
 
+- Fix: if the saved settings for buffs or the buff back button are damaged while you play, **Stay quiet in capital cities** and **Show the button in capital cities** now read as their defaults (quiet, and hidden) instead of as off, until the settings are repaired. (#140)
 - Fix: a buff cast by hand on another player in the few seconds the buff back button waits for its own cast is no longer taken as the button's cast. It is remembered as a buff to that player, so their buff back isn't owed again and a favour you owe them is returned, and the button keeps waiting and reports its own answer. If the button's own cast went to someone else, it still says "went to Ann, not Bob" a few seconds later, and that buff counts for Ann too. (#133)
 - This version adds files (the new icon, Battleground.lua, Cities.lua, Comm.lua, Exchange.lua, RateLimit.lua and Water.lua). After updating, restart the game; /reload isn't enough. (#32, #34, #35, #36, #65, #71, #136)
 - **Quiet in capital cities** (on by default): no buff thank-yous in Stormwind, Ironforge, Darnassus, Orgrimmar, Thunder Bluff or Undercity, though the favour ledger still counts them. The buff back button stays hidden there unless you switch **Show the button in capital cities** on, and shows your favours once you leave. Buff mode turned on in a city works as usual; a stranger's buff doesn't turn it on there. (#34)

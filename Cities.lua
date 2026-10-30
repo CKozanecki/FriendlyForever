@@ -45,8 +45,7 @@ end
 -- default until Config.Repair or the next load puts it back.
 local function Switch(section, field)
     local cfg = ns.db and ns.db[section]
-    local value = type(cfg) == "table" and cfg[field]
-    if type(value) == "boolean" then return value end
+    if type(cfg) == "table" and type(cfg[field]) == "boolean" then return cfg[field] end
     return ns.Config.DEFAULTS[section][field]
 end
 
