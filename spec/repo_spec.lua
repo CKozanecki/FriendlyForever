@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #172
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -2011,5 +2011,21 @@ describe("Claude sessions' agents, knowledge and skills", function()
             .. " or a comment.", 1, true), "the coordinator's never-delete rule")
         assert.is_truthy(wow.readFile(".claude/skills/after-merge/SKILL.md"):find("Never force-push.", 1, true),
             "after-merge's never-force-push rule")
+    end)
+
+    -- The owner's standing rule (#172): the coordinator spots merges itself and
+    -- closes out finished sessions politely, archiving only after their summary.
+    it("the coordinator skill keeps the close-out rule for finished sessions", function()
+        local coordinator = wow.readFile(".claude/skills/coordinator/SKILL.md")
+        for _, rule in ipairs({
+            "\n- read each tracked PR's state on GitHub, and run \"After the owner merges a PR\" for any that merged"
+                .. " or closed;\n",
+            "\n- archive every finished session whose closing summary is in;\n",
+            "\n2. **Tell the merged PR's session at once, politely** (the owner's standing rule, #172).",
+            "\n3. **Archive that session only after its closing summary,** once it's idle. Read its transcript"
+                .. " first, not just its status. Never archive a session that is working or waiting on the owner.\n",
+        }) do
+            assert.is_truthy(coordinator:find(rule, 1, true), rule)
+        end
     end)
 end)

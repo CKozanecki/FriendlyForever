@@ -11,7 +11,7 @@ Only the driver of a PR does this to it. If it isn't your PR, message its driver
 
 ## When
 
-When the owner (or the coordinator, relaying the owner) says a PR has merged. Sessions aren't told about merges, so don't poll for them.
+When the owner or the coordinator says a PR has merged. GitHub doesn't notify sessions of merges, and the coordinator watches for them (#172), so don't poll for them yourself.
 
 ## Steps
 
