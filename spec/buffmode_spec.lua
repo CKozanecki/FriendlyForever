@@ -1,4 +1,4 @@
--- Spec: #28, #76
+-- Spec: #28, #76, #46
 -- Buff mode: a key of your choice lent to the buff-back button while it's
 -- on, handed back when it ends and during fights.
 local wow = require("spec.support.wow")
@@ -95,7 +95,7 @@ describe("Buff mode", function()
             wow.state.bindingText = { MOUSEWHEELUP = "Mouse Wheel Up" }
             slash("buffmode on")
             assert.is_true(printedHas("buff mode on: Mouse Wheel Up presses the buff-back button."))
-            assert.are.equal("|cff40ff40Buff mode:|r Mouse Wheel Up", button.mode:GetText())
+            assert.are.equal(ns.Colours.Text("title", "Buff mode:") .. " Mouse Wheel Up", button.mode:GetText())
         end)
 
         it("lends the key once, not again on every re-check", function()
@@ -122,7 +122,7 @@ describe("Buff mode", function()
             assert.is_false(button:IsShown())
             slash("buffmode on")
             assert.is_true(button:IsShown())
-            assert.are.equal("|cff40ff40Buff mode:|r MOUSEWHEELUP", button.mode:GetText())
+            assert.are.equal(ns.Colours.Text("title", "Buff mode:") .. " MOUSEWHEELUP", button.mode:GetText())
             assert.are.equal("Buff mode", button.title:GetText())
             assert.are.equal("you're not in a group", button.subtitle:GetText())
             owed()

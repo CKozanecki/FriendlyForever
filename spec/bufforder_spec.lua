@@ -1,4 +1,4 @@
--- Spec: #31, #71, #76, #136
+-- Spec: #31, #71, #76, #136, #46
 -- Buff order and the never-offer list: which of your buffs the button offers
 -- first, and which it never offers.
 local wow = require("spec.support.wow")
@@ -167,7 +167,7 @@ describe("Buff order and never offer", function()
             ns.BuffData.SpellsChanged()
             local w = ns.Options.widgets
             wow.run(w.tabs.buffBack, "OnClick")
-            assert.are.same({ "1. Mark of the Wild", "2. Thorns |cff999999(not known yet)|r" }, rows())
+            assert.are.same({ "1. Mark of the Wild", "2. Thorns " .. ns.Colours.Text("muted", "(not known yet)") }, rows())
         end)
 
         it("says so for a class without buffs", function()

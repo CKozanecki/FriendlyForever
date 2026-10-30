@@ -50,22 +50,23 @@ local function FillTooltip(tooltip)
     tooltip:AddLine(ns.TITLE)
     local snoozed = ns.Announcer.SnoozeLeft()
     if not ns.db.enabled then
-        tooltip:AddLine("|cffff4040Disabled|r")
+        tooltip:AddLine(ns.Colours.Text("bad", "Disabled"))
     elseif snoozed then
-        tooltip:AddLine(string.format("|cffffd040Snoozed|r (%d min left)", math.ceil(snoozed / 60)))
+        tooltip:AddLine(string.format("%s (%d min left)", ns.Colours.Text("warn", "Snoozed"), math.ceil(snoozed / 60)))
     else
-        tooltip:AddLine("|cff00ff00Enabled|r")
+        tooltip:AddLine(ns.Colours.Text("good", "Enabled"))
     end
-    tooltip:AddLine(ns.LedgerSummaryText(), 0.8, 0.8, 0.8, true)
+    local r, g, b = ns.Colours.RGB("text")
+    tooltip:AddLine(ns.LedgerSummaryText(), r, g, b, true)
 end
 
 local function OnEnter(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
     FillTooltip(GameTooltip)
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("|cffffffffLeft-click:|r open options", 0.8, 0.8, 0.8)
-    GameTooltip:AddLine("|cffffffffRight-click:|r turn on/off", 0.8, 0.8, 0.8)
-    GameTooltip:AddLine("|cffffffffDrag:|r move button", 0.8, 0.8, 0.8)
+    GameTooltip:AddLine(ns.Colours.Text("bright", "Left-click:") .. " open options", ns.Colours.RGB("text"))
+    GameTooltip:AddLine(ns.Colours.Text("bright", "Right-click:") .. " turn on/off", ns.Colours.RGB("text"))
+    GameTooltip:AddLine(ns.Colours.Text("bright", "Drag:") .. " move button", ns.Colours.RGB("text"))
     GameTooltip:Show()
 end
 
@@ -134,7 +135,8 @@ function MinimapButton.RegisterCompartment()
         funcOnEnter = ns.Diag.Wrap(function(owner)
             GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
             FillTooltip(GameTooltip)
-            GameTooltip:AddLine("|cffffffffClick:|r options  |cffffffffRight-click:|r on/off", 0.8, 0.8, 0.8)
+            GameTooltip:AddLine(ns.Colours.Text("bright", "Click:") .. " options  "
+                .. ns.Colours.Text("bright", "Right-click:") .. " on/off", ns.Colours.RGB("text"))
             GameTooltip:Show()
         end),
         funcOnLeave = function() GameTooltip:Hide() end,

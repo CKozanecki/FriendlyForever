@@ -31,7 +31,8 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 
 - [`docs/forever-facts.md`](docs/forever-facts.md): WoW Forever API and game facts the code depends on, and which are launch checks;
 - [`docs/simulated-client.md`](docs/simulated-client.md): how `spec/support/wow.lua` models the game, and how to extend it;
-- [`docs/ui-simulator.md`](docs/ui-simulator.md): the UI simulator's known quirks and workarounds (#100).
+- [`docs/ui-simulator.md`](docs/ui-simulator.md): the UI simulator's known quirks and workarounds (#100);
+- [`docs/visual-style.md`](docs/visual-style.md): the colour palette, its contrast and colour-blindness numbers, and the scrolling rule (#46).
 
 Procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `merge-order` and `coordinator` (running several sessions for the owner). They carry out the rules in "Several sessions at once" below; where they differ, these rules win.
 
