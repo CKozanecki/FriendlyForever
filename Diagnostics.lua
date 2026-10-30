@@ -45,7 +45,7 @@ function Diag.Log(category, fmt, ...)
     log[#log + 1] = line
     while #log > Diag.MAX_LOG do table.remove(log, 1) end
 
-    DEFAULT_CHAT_FRAME:AddMessage(ns.Colours.Text("muted", "[FF debug]") .. " " .. line)
+    DEFAULT_CHAT_FRAME:AddMessage("[FF debug] " .. line, 0.6, 0.6, 0.6)
 end
 
 -- Run fn(...) and, if it raises a Lua error, count and log it, then hand it
