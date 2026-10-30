@@ -157,7 +157,7 @@ describe("The walkthrough", function()
         end)
 
         it("sizes its scrolling text area to each step's text, shown from the top", function()
-            tour.text.GetStringHeight = function() return 90 end
+            tour.stepText.GetStringHeight = function() return 90 end
             tour.scroll.verticalScroll = 50
             wow.run(tour.next, "OnClick")
             assert.are.equal(98, tour.body.height)
@@ -171,13 +171,13 @@ describe("The walkthrough", function()
             assert.are.equal(4242, wow.settings.opened)
             assert.are.equal("buffBack", ns.Options.CurrentType())
             assert.is_true(ns.Options.widgets.buffModeKey:IsShown())
-            assert.is_truthy(tour.text:GetText():find("MOUSEWHEELUP", 1, true))
+            assert.is_truthy(tour.stepText:GetText():find("MOUSEWHEELUP", 1, true))
 
             ns.db.buffBack.autoOnDeath = false
             goTo(stepTitled("turns on and off"))
             assert.are.equal("buffBack", ns.Options.CurrentType())
             assert.is_true(ns.Options.widgets.autoHeader:IsShown())
-            local text = tour.text:GetText()
+            local text = tour.stepText:GetText()
             for _, field in ipairs(ns.Options.AUTO_SWITCHES) do
                 assert.are.equal(ns.Options.AUTO_TEXT[field], ns.Options.widgets.auto[field].label:GetText(),
                     "the walkthrough names each switch as its checkbox does")
@@ -282,9 +282,9 @@ describe("The walkthrough", function()
             boot()
             assert.is_false(ns.db.enabled)
             assert.is_true(printedHas("Friendly Forever is off until you finish or skip its walkthrough"))
-            assert.is_truthy(tour.text:GetText():find("either turns it on", 1, true))
+            assert.is_truthy(tour.stepText:GetText():find("either turns it on", 1, true))
             goTo(#ns.Walkthrough.STEPS)
-            assert.is_truthy(tour.text:GetText():find("Finish turns Friendly Forever on.", 1, true))
+            assert.is_truthy(tour.stepText:GetText():find("Finish turns Friendly Forever on.", 1, true))
             assert.is_false(ns.db.enabled, "still off at the last step")
             wow.run(tour.next, "OnClick")
             assert.is_true(ns.db.enabled)
@@ -322,7 +322,7 @@ describe("The walkthrough", function()
                 assert.is_true(tour:IsShown())
                 assert.is_true(ns.db.enabled)
                 assert.is_true(printedHas("new: a short walkthrough of the main settings."))
-                assert.is_falsy(tour.text:GetText():find("is off until", 1, true))
+                assert.is_falsy(tour.stepText:GetText():find("is off until", 1, true))
                 local before = ns.Util.DeepCopy(settingsBut(ns.db))
                 if finish == "next" then goTo(#ns.Walkthrough.STEPS) end
                 wow.run(tour[finish], "OnClick")
@@ -500,19 +500,19 @@ describe("The walkthrough", function()
             assert.is_truthy(w.thanks:GetText():find("Buff Thanks is off", 1, true), "a damaged section reads as empty")
             ns.db.buff = ns.Config.DefaultsFor("buff")
             goTo(stepTitled("turns on and off"))
-            assert.is_truthy(tour.text:GetText():find(ns.Options.AUTO_TEXT.autoOnJoin .. ": |cffff4040off", 1, true),
+            assert.is_truthy(tour.stepText:GetText():find(ns.Options.AUTO_TEXT.autoOnJoin .. ": |cffff4040off", 1, true),
                 "a switch that isn't true reads as off")
-            assert.is_falsy(tour.text:GetText():find("or after", 1, true), "a damaged number gives no line")
+            assert.is_falsy(tour.stepText:GetText():find("or after", 1, true), "a damaged number gives no line")
             ns.db.buffBack.autoOffMinutes = 0
             wow.run(tour.back, "OnClick")
             wow.run(tour.next, "OnClick")
-            assert.is_falsy(tour.text:GetText():find("or after", 1, true), "0 is never: no line")
+            assert.is_falsy(tour.stepText:GetText():find("or after", 1, true), "0 is never: no line")
             ns.db.buffBack.autoOffMinutes = 5
             wow.run(tour.back, "OnClick")
             wow.run(tour.next, "OnClick")
-            assert.is_truthy(tour.text:GetText():find("  or after 5 minutes", 1, true))
+            assert.is_truthy(tour.stepText:GetText():find("  or after 5 minutes", 1, true))
             goTo(stepTitled("Thanks"))
-            assert.is_truthy(tour.text:GetText():find(ns.Options.THANK_STYLE_TEXT.message, 1, true))
+            assert.is_truthy(tour.stepText:GetText():find(ns.Options.THANK_STYLE_TEXT.message, 1, true))
             ns.db.walkthrough = { "damaged" }
             goTo(#ns.Walkthrough.STEPS)
             wow.run(tour.next, "OnClick")

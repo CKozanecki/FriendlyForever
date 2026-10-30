@@ -18,6 +18,7 @@ local BUFF = "the Buff Thanks tab"
 local BUFF_BACK = "the Buff Back tab"
 local GENERAL = "the General page"
 local LEDGER = "the Favour Ledger page"
+local START = "the Start here page"
 
 -- name: as the page shows it. page: where it is. keywords: more words to find
 -- it by. controls: the Options.widgets paths of its controls ("*" for any
@@ -108,6 +109,14 @@ OptionsIndex.SETTINGS = {
 
     { name = "Clear the ledger", page = LEDGER, keywords = "favour ledger history clear",
         controls = { "ledger.clear" } },
+
+    -- Start here (#47) changes no setting: it shows them, links to each page
+    -- and replays the walkthrough.
+    { name = "Take the walkthrough", page = START,
+        keywords = "walkthrough tour guide help start new first setup replay settings keys overview",
+        controls = { "start.tour" } },
+    { name = "Every other page", page = START, keywords = "start pages links messages buff back general ledger",
+        controls = { "start.openMessages", "start.openGeneral", "start.openLedger" } },
 }
 
 -- Everything a setting can be found by, in lower case.

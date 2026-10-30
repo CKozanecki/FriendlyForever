@@ -61,7 +61,7 @@ test("a new install is off, with its walkthrough open, until it's skipped (#47)"
     local ok, err = pcall(function()
         check(type(walkthrough) == "table" and walkthrough:IsShown(), "the walkthrough didn't open at login")
         check(FriendlyForeverDB.enabled == false, "the addon is on before first run is over")
-        check((walkthrough.text:GetText() or ""):find("either turns it on", 1, true) ~= nil,
+        check((walkthrough.stepText:GetText() or ""):find("either turns it on", 1, true) ~= nil,
             "the first step doesn't say finishing or skipping turns the addon on")
     end)
     if type(walkthrough) == "table" and walkthrough:IsShown() then walkthrough.skip:Click() end
@@ -1117,7 +1117,7 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
             OnScreen(walkthrough, label)
             CheckAll({
                 function() FrameTextInside(walkthrough, label, 1) end,
-                function() TextInside(walkthrough.body, walkthrough.text, label .. " text") end,
+                function() TextInside(walkthrough.body, walkthrough.stepText, label .. " text") end,
                 function() AcrossInside(walkthrough.scroll, walkthrough.body, label .. " text area") end,
             })
             local row = STEP_ROWS[step.name]
