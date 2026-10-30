@@ -42,6 +42,7 @@ read_globals = {
     "IsShiftKeyDown", "IsControlKeyDown", "IsAltKeyDown",
     "UnitInRange", "UnitIsConnected", "UnitIsVisible", "IsSpellInRange",
     "UnitGroupRolesAssigned", "GetPartyAssignment", "GetBattlefieldWinner",
+    "CreateSettingsListSectionHeaderInitializer",
 }
 
 -- Tests run in plain Lua with busted and install the mock WoW API globally.
