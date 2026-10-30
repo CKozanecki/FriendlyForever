@@ -132,7 +132,12 @@ local function Empty(reason, keepShown)
         SetLabels("Buff mode", reason)
         button.icon:SetTexture(BuffButton.PLACEHOLDER_ICON)
     end
-    button:SetShown((keepShown or lent) and true or false)
+    -- The button is protected, so in a fight the game blocks showing or
+    -- hiding it. The fight's PLAYER_REGEN_DISABLED comes just before the
+    -- lockdown, so this already ran then; a late copy leaves it be (#154).
+    if not InCombatLockdown() then
+        button:SetShown((keepShown or lent) and true or false)
+    end
 end
 
 -- "Buff mode: <key>" above the button while a key is lent to it.

@@ -65,6 +65,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - Read the target's PvP flag each time the button is armed, the press included, from every unit token that shows them. Never trust an earlier reading, and offer nothing when the flag can't be read (#21 got it wrong twice before this).
 - Count an outcome only from the game's confirmation: `UNIT_SPELLCAST_SENT` naming the player, matched by cast GUID. Handle unknown event orders both ways (`UI_ERROR_MESSAGE` before or after `UNIT_SPELLCAST_FAILED`, `_FAILED_QUIET`, latency), and never report a misleading result for a press that may have done nothing (#21).
 - Tell refusals about the target (hold that member back) from refusals about you (global cooldown, mana: hold no one back). One unreachable member must not block the rest, and re-arming must not happen at the wrong moment, such as on the pull (#63, #67).
+- Showing or hiding a protected frame in a fight is blocked even when nothing would change, so a handler that can run in the lockdown (a repeated `PLAYER_REGEN_DISABLED`, a late event) guards each `Show`/`Hide`/`SetShown` with `InCombatLockdown()` (#154: the UI simulator's own late copy of the event made every simulated fight block `SetShown`).
 - Keys the addon lends or binds are checked against the game's real key names: never the main mouse buttons, `/`, Esc, Enter, a lone modifier or buff mode's own key; punctuation and `-` are accepted (#62).
 
 **Unreadable and secret values**
@@ -88,6 +89,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 
 **CI, packaging and external code**
 - Anything that runs third-party code, its build included, is pinned by digest or commit and runs with no network, no capabilities, read-only mounts and no secrets; publishing runs nothing from the PR; never the tool's own Action; and `spec/repo_spec.lua` enforces each rule (#49, #53: the first trial ran `cargo build` on the runner with network).
+- A sandboxed build's output is as untrusted as the code that built it: the runner never parses or runs it (no `strip`, `file`, `ldd` or `objdump` on the host); anything that must read it does so in another sandboxed container, or the build does it itself (#154: a host `strip` would have parsed an ELF the build scripts controlled).
 - `if: always()` jobs cope with cancelled or superseded runs and missing artifacts (#53).
 - A toolchain install uses only its pinned, checksummed files and its own folder: every `luarocks` call names its `--tree` and builds with `--deps-mode=none`, and hererocks gets the checked `--downloads`. Anything else can reach the network or the user's own `~/.luarocks` (#103: one rock in `~/.luarocks` failed every `make setup`).
 - Every new top-level path is shipped (TOC or `scripts/package.sh`) or on `.pkgmeta`'s ignore list. A local `make check` only sees tracked files, so check it ran after `git add` (#66: `art/` passed locally and broke CI; #53, #78).
