@@ -46,7 +46,7 @@ Something you find that isn't this PR's job is not a finding against it: list it
 
 For a PR that changes what players see, wait for its UI simulator run, then:
 1. `git fetch origin ui-screenshots/pr-<number>` and view every PNG (read them as images).
-2. Read the `LAYOUT` lines in the run's summary or the scenario output.
+2. Read the `LAYOUT` lines in the run's summary or the scenario output. Then check the `ui-sim` job's annotations, which a cloud session can read when it can't read the summary or the logs: `gh api repos/CKozanecki/FriendlyForever/check-runs/<job id>/annotations` (the job id is in `gh api repos/CKozanecki/FriendlyForever/actions/runs/<run id>/jobs`). A warning there means a run timed out twice and its results are incomplete (#173): say so in your review, and judge only from the results that did come.
 3. Decide whether what you see is right: text inside its frame, frames on screen, nothing overlapping, the states the PR claims. Where it helps, compare with a before set: the `ui-screenshots/pr-<n>` branch of another open PR that shows the same screen, or PNGs saved from this PR's earlier run before it was replaced. `main` has no screenshots branch, and a closed PR's branch is deleted (#115). When no before set is available, say so.
 4. Say in your review what you saw, image by image, and what the screenshots can't show.
 

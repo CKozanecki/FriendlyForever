@@ -195,8 +195,9 @@ jobs:
     needs: simulator
     runs-on: ubuntu-24.04
     # Its simulator runs stop themselves (three at 2 minutes, two at 5, each
-    # with 10 s to exit: about 17 minutes if all five hung), well inside this.
-    timeout-minutes: 25
+    # with 10 s to exit), and each one stopped runs once more (#173): about
+    # 34 minutes if all five hung twice, inside this.
+    timeout-minutes: 40
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -261,6 +262,7 @@ jobs:
           # Each command is stopped after 2 minutes if it hasn't finished (they
           # take seconds), so one that never exits can't hold up the job; its
           # output so far is kept, and the log says how each one ended (#154).
+          # One that's stopped runs once more (#173).
           exec 3>&1
           sandbox() {
             local started=$SECONDS status=0
@@ -273,13 +275,11 @@ jobs:
             echo "$1: exit $status after $((SECONDS - started)) s (124: stopped at the time limit)" >&3
             return "$status"
           }
-          sandbox lua-errors > "$RUNNER_TEMP/report/lua-errors.json" 2> "$RUNNER_TEMP/report/lua-errors.log" || true
-          sandbox run-tests FriendlyForever > "$RUNNER_TEMP/report/run-tests.log" 2>&1 || true
-          sandbox dump-tree --filter FriendlyForever > "$RUNNER_TEMP/report/frame-tree.txt" 2>&1 || true
-          # The scenarios again at each size (#148); the frame tree stays in each log.
-          for size in $LAYOUT_SIZES; do
-            # Stopped after 5 minutes if it hasn't finished, so a pass that
-            # never exits can't hold up the job; its output so far is kept.
+          # The scenarios again at one size (#148); the frame tree stays in its
+          # log. Stopped after 5 minutes if it hasn't finished, so a pass that
+          # never exits can't hold up the job; its output so far is kept.
+          sized() {
+            local status=0
             timeout -s TERM -k 10 300 docker run --rm --init --network none --cap-drop ALL --security-opt no-new-privileges \
               --user "$(id -u):$(id -g)" -e HOME=/tmp \
               -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 -e WOW_SIM_NO_SAVED_VARS=1 -e WOW_SIM_CASC=0 \
@@ -287,8 +287,33 @@ jobs:
               -v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
               -v "$RUNNER_TEMP/addons:/test-addons:ro" -v "$RUNNER_TEMP/layout-lua:/layout-lua:ro" \
               ff-render /sim/wow-sim --addons-path /test-addons --exec-lua @/layout-lua/layout.lua \
-              dump-tree --filter FriendlyForever --width "${size%x*}" --height "${size#*x}" \
-              > "$RUNNER_TEMP/report/layout-$size.log" 2>&1 || echo "layout pass $size: exit $?" >&3
+              dump-tree --filter FriendlyForever --width "${1%x*}" --height "${1#*x}" || status=$?
+            [ "$status" -eq 0 ] || echo "layout pass $1: exit $status" >&3
+            return "$status"
+          }
+          # Runs one of them into its report file (and stderr into a second
+          # file, if one is given). A run stopped at its time limit (124) keeps
+          # what it wrote as <file>.timed-out and runs once more (#173). Each
+          # attempt's end goes to runs.txt, which only this step writes, for
+          # the summary: the run's name, the attempt, its exit and its time.
+          attempt() {
+            local name="$1" out="$2" err="$3" try status started
+            shift 3
+            for try in 1 2; do
+              started=$SECONDS status=0
+              if [ -n "$err" ]; then "$@" > "$out" 2> "$err" || status=$?; else "$@" > "$out" 2>&1 || status=$?; fi
+              echo "$name $try $status $((SECONDS - started))" >> "$RUNNER_TEMP/runs.txt"
+              if [ "$status" -ne 124 ] || [ "$try" -eq 2 ]; then break; fi
+              mv "$out" "$out.timed-out"
+              if [ -n "$err" ]; then mv "$err" "$err.timed-out"; fi
+            done
+          }
+          report="$RUNNER_TEMP/report"
+          attempt lua-errors "$report/lua-errors.json" "$report/lua-errors.log" sandbox lua-errors
+          attempt run-tests "$report/run-tests.log" "" sandbox run-tests FriendlyForever
+          attempt dump-tree "$report/frame-tree.txt" "" sandbox dump-tree --filter FriendlyForever
+          for size in $LAYOUT_SIZES; do
+            attempt "layout-$size" "$report/layout-$size.log" "" sized "$size"
           done
 
       - name: Show the reports in the log
@@ -335,9 +360,63 @@ jobs:
       - name: Summary
         run: |
           report="$RUNNER_TEMP/report"
+          # Simulator output, shown as in the steps above (#153). In the
+          # summary its mark also stops a line from closing a code block.
+          shown() { tr '\r' '\n' | sed -e "s/^/${1:-| }/" -e 's/##\[/##(/g'; }
+          # What each run is, and the report file it writes (the run step's names).
+          what() {
+            case "$1" in
+              run-tests) echo "The main pass (run-tests, at 1600x1200)" ;;
+              layout-*) echo "The layout pass at ${1#layout-}" ;;
+              *) echo "The $1 run" ;;
+            esac
+          }
+          fileOf() {
+            case "$1" in
+              lua-errors) echo "$report/lua-errors.log" ;;
+              dump-tree) echo "$report/frame-tree.txt" ;;
+              *) echo "$report/$1.log" ;;
+            esac
+          }
+          # Runs stopped at their time limit (exit 124), from the run step's
+          # runs.txt (#173): each is named at the top of the summary, with the
+          # last scenario it started and the end of its log, and in an
+          # annotation, which a Claude session can read when it can't read
+          # the summary. Report only: nothing here fails the job. The
+          # annotation holds only the runner's own words and the scenario's
+          # number, digits only, never the simulator's text.
+          exec 3>&1
+          timeouts() {
+            local name try status seconds file last again
+            [ -f "$RUNNER_TEMP/runs.txt" ] || return 0
+            while read -r name try status seconds; do
+              [ "$status" = 124 ] || continue
+              file=$(fileOf "$name")
+              [ "$try" = 2 ] || file="$file.timed-out"
+              last=$(grep -o 'START [0-9]*' "$file" | tail -n 1 | tr -cd '0-9') || true
+              if [ "$try" = 2 ]; then
+                echo "### ⚠️ $(what "$name") timed out twice: its results are incomplete"
+                echo "::warning title=UI simulator: a run timed out twice::$(what "$name") was stopped at its time limit twice, so its results (LAYOUT lines included) are incomplete. Last scenario started: ${last:-none}. See the run's summary." >&3
+              else
+                again=$(grep "^$name 2 " "$RUNNER_TEMP/runs.txt" | cut -d' ' -f3 || true)
+                echo "### ⚠️ $(what "$name") timed out once, and ran again (exit ${again:-none})"
+                echo "::notice title=UI simulator: a run timed out once::$(what "$name") was stopped at its time limit and ran again (exit ${again:-none}). Last scenario started: ${last:-none}." >&3
+              fi
+              echo
+              echo "Stopped after $seconds s, on attempt $try of 2. The last scenario it started:"
+              echo '```'
+              grep 'START [0-9]' "$file" | tail -n 1 | shown || true
+              echo '```'
+              echo "The end of its log:"
+              echo '```'
+              tail -n 15 "$file" | shown || true
+              echo '```'
+            done < "$RUNNER_TEMP/runs.txt"
+          }
           {
             echo "## UI simulator (report only)"
             echo
+            timeouts
             echo "### Lua errors while loading (from FriendlyForever files)"
             echo '```'
             grep -i "FriendlyForever" "$report/lua-errors.json" | head -50 || echo "none"
