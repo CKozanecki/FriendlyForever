@@ -314,7 +314,7 @@ jobs:
       - name: Stage the packaged addon
         run: |
           addons="$RUNNER_TEMP/addons"
-          mkdir -p "$addons" "$RUNNER_TEMP/shots"
+          mkdir -p "$addons" "$RUNNER_TEMP/shots" "$RUNNER_TEMP/shot-logs"
           unzip -q dist/FriendlyForever-*.zip -d "$addons"
           chmod -R a-w "$addons"
 
@@ -373,6 +373,10 @@ jobs:
           # Docker), as the runner's own user so it can write the PNG into the
           # runner's folder (with every capability dropped, root can't), with
           # HOME in the container's /tmp and Blizzard's UI where it looks.
+          # Only the PNGs go in the one folder a container can write
+          # (/shots): the runner keeps each shot's log in shot-logs, which no
+          # container mounts, so a shot can't plant a link there for the
+          # runner's redirect to follow (#147).
           shoot() {
             local name="$1"; shift
             local cid
@@ -407,7 +411,7 @@ jobs:
               docker top "$cid" -eo pid,stat,etime,args 2>&1 | sed "s/^/  $name> /" || true
             fi
             docker kill "$cid" >/dev/null 2>&1 || true
-            docker logs "$cid" > "$RUNNER_TEMP/shots/$name.log" 2>&1 || true
+            docker logs "$cid" > "$RUNNER_TEMP/shot-logs/$name.log" 2>&1 || true
             docker rm -f "$cid" >/dev/null 2>&1 || true
             echo "$name: $result"
           }
@@ -438,16 +442,34 @@ jobs:
           shoot options-general --exec-lua @/shot-lua/page-general.lua
           shoot options-ledger --exec-lua @/shot-lua/page-ledger.lua
           shoot copy-window --exec-lua "SlashCmdList.FRIENDLYFOREVER('export')"
-          ls -la "$RUNNER_TEMP/shots"
-          for log in "$RUNNER_TEMP"/shots/*.log; do
+          ls -la "$RUNNER_TEMP/shots" "$RUNNER_TEMP/shot-logs"
+          for log in "$RUNNER_TEMP"/shot-logs/*.log; do
             echo "::group::$(basename "$log")"; tail -60 "$log"; echo "::endgroup::"
           done
+
+      # A shot could plant a link in its folder, and the upload would read
+      # through it into the artifact. So first remove every container (a
+      # cancelled or timed-out step leaves its detached shot running), then
+      # keep only plain .png files (find -P follows no link).
+      - name: Keep only plain PNG files in the shots folder
+        if: always()
+        run: |
+          docker ps -aq | xargs -r docker rm -f >/dev/null 2>&1 || true
+          find -P "$RUNNER_TEMP/shots" -mindepth 1 ! \( -type f -name '*.png' \) -delete
 
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ui-sim-screenshots
           path: ${{ runner.temp }}/shots
+
+      # Beside the PNGs, not in their folder: one artifact would put both
+      # folders under a common parent and move the PNGs the publish job reads.
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-sim-screenshot-logs
+          path: ${{ runner.temp }}/shot-logs
 
   # Publishes the screenshots where reviewers (people, and Claude sessions,
   # whose network reaches git but not artifact storage) can open them: an
