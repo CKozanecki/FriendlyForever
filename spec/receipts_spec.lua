@@ -317,6 +317,7 @@ describe("Buff receipts (#138)", function()
                 wow.advance(opts.before)
             end
             wow.gainBuff(aura or { name = "Power Word: Fortitude", spellId = FORT })
+            if opts.after then wow.advance(opts.after) end
             if not opts.before then
                 wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;RECEIPT;Ann-Vale;fortitude;?", "WHISPER", "Ann-Vale",
                     "", 0, 0, "", 0)
@@ -349,6 +350,10 @@ describe("Buff receipts (#138)", function()
                     wow.addUnit("nameplate3", { name = "Ann", surname = "Vale", id = "Ann-Vale" })
                     wow.state.units.nameplate3.secrets = { name = true }
                 end })
+            assert.are.same({ "Thanks Ann" }, whispered)
+        end)
+        it("a receipt that comes 1.9 s after its buff, late in the wait: named", function()
+            local whispered = receiptFor(nil, { after = 1.9 })
             assert.are.same({ "Thanks Ann" }, whispered)
         end)
         it("a receipt that came 4.5 s before its buff: named", function()
@@ -844,9 +849,17 @@ describe("Buff receipts (#138)", function()
                     wow.deliverBuffs(net)
                     -- Messages arrive now, or late: within the wait, or past it.
                     local lag = ({ 0, 0, 0.5, 1.25, 1.75, 3 })[random.random(6)]
-                    if lag > 1 and lag < x.ns.Receipts.WAIT then reach.late = reach.late + 1 end
                     if lag > 0 then wow.advanceAll(net, lag, lag) end
                     wow.deliver(net)
+                    -- Late in the wait: did that receipt name the caster?
+                    if lag > 1 and lag < x.ns.Receipts.WAIT then
+                        local target = clients[j]
+                        wow.use(target)
+                        local before = count(target.ns, "receiptsUsed")
+                        wow.advanceAll(net, x.ns.Receipts.WAIT - lag + 0.25, 0.25)
+                        wow.use(target)
+                        if count(target.ns, "receiptsUsed") > before then reach.late = reach.late + 1 end
+                    end
                 elseif roll < 0.55 then
                     wow.use(x)
                     if wow.state.units.nameplate1 then
@@ -896,7 +909,7 @@ describe("Buff receipts (#138)", function()
             assert.is_true(total.receipts > 30, "receipts were sent: " .. total.receipts)
             assert.is_true(total.named > 15, "casters were thanked: " .. total.named)
             assert.is_true(total.used > 10, "receipts named casters: " .. total.used)
-            assert.is_true(total.late > 5, "receipts came late in the wait: " .. total.late)
+            assert.is_true(total.late > 5, "receipts late in the wait named their casters: " .. total.late)
             assert.is_true(total.lost > 10, "messages were lost: " .. total.lost)
             assert.is_true(total.clashes > 0, "receipts from two players for one buff: " .. total.clashes)
             assert.is_true(total.liar > 0, "Cid named for a buff whose receipt was lost: " .. total.liar)
