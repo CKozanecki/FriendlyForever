@@ -1,6 +1,6 @@
 # Changelog
 
-### Unreleased
+## 0.9.0
 
 - **Buff receipts:** when your buff lands on a player outside your group, your copy of the addon tells theirs with one hidden addon whisper. When their game can't say who buffed them, their copy can then thank you by name and offer your buff back, rather than thanking "friend". A receipt only names the caster of a matching buff that really arrived a moment before; on its own it never causes a cast, a thank-you or an offer. A buff whose caster can't be named now waits 2 seconds for a receipt before it's thanked as "friend". None are sent to your group, inside instances or during chat lockdown. Switch it off with **Tell players I buff that it was me** on the Buff Thanks tab. (#138)
 - Fix: if the saved settings for buffs or the buff back button are damaged while you play, **Stay quiet in capital cities** and **Show the button in capital cities** now read as their defaults (quiet, and hidden) instead of as off, until the settings are repaired. (#140)
