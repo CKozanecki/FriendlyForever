@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #154
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -245,11 +245,10 @@ describe("UI simulator workflow", function()
         end
     end)
 
-    it("pins the image, the sources and the render base exactly", function()
+    it("pins the sources and the build and render bases exactly", function()
         local function pinned(prefix, digits)
             return text:find("\n%s*" .. prefix .. ("%x"):rep(digits) .. "%s") ~= nil
         end
-        assert.is_true(pinned("IMAGE: ghcr%.io/osso/wow%-ui%-sim@sha256:", 64), "the simulator image isn't pinned by digest")
         assert.is_true(pinned("SIM_COMMIT: ", 40), "the simulator source isn't pinned to a commit")
         assert.is_true(pinned("BLIZZARD_UI_COMMIT: ", 40), "Blizzard's UI isn't pinned to a commit")
         assert.is_true(pinned("BUILD_BASE: rust@sha256:", 64), "the build image's base isn't pinned by digest")
@@ -260,7 +259,7 @@ describe("UI simulator workflow", function()
         -- the fetched sources are checked against theirs.
         local bases = {}
         for base in text:gmatch("\n%s*FROM%s+(%S+)") do bases[#bases + 1] = base end
-        assert.are.same({ "$BUILD_BASE", "$RENDER_BASE" }, bases)
+        assert.are.same({ "$BUILD_BASE", "$RENDER_BASE", "$RENDER_BASE" }, bases)
         assert.is_truthy(text:find('rev-parse HEAD)" = "$SIM_COMMIT"', 1, true), "the simulator's commit isn't checked")
         assert.is_truthy(text:find('rev-parse HEAD)" = "$BLIZZARD_UI_COMMIT"', 1, true), "Blizzard's commit isn't checked")
     end)
@@ -312,7 +311,7 @@ describe("UI simulator workflow", function()
     -- from the pinned bases, and nothing builds the simulator's own Dockerfile
     -- (that would run its build scripts on the runner's Docker, with network).
     it("runs only the pinned image and the images it builds from the pinned bases", function()
-        local allowed = { run = true, build = true, pull = true, inspect = true, stats = true, logs = true,
+        local allowed = { run = true, build = true, inspect = true, stats = true, logs = true,
             kill = true, rm = true, top = true }
         for command in text:gmatch("docker (%l+)") do
             assert.is_true(allowed[command] == true, "the workflow runs docker " .. command)
@@ -323,15 +322,42 @@ describe("UI simulator workflow", function()
             assert.is_truthy(name, "docker build doesn't build the workflow's own Dockerfile: " .. line)
             built[#built + 1] = name
         end
-        assert.are.same({ "ff-build", "ff-render" }, built)
-        for pull in text:gmatch("docker pull[^\n]*") do
-            assert.are.equal('docker pull "$IMAGE"', pull)
-        end
+        -- ff-render is built in each job that runs the simulator.
+        assert.are.same({ "ff-build", "ff-render", "ff-render" }, built)
         for _, job in ipairs(order) do
             for _, command in ipairs(dockerRuns(job)) do
-                local image = command:find('%s"%$IMAGE"%s') or command:find("%sff%-build%s") or command:find("%sff%-render%s")
+                local image = command:find("%sff%-build%s") or command:find("%sff%-render%s")
                 assert.is_truthy(image, job.name .. ": docker run of an image that isn't pinned: " .. command)
                 assert.is_falsy(command:find("ghcr%.io") or command:find("@sha256"), job.name .. ": docker run names an image")
+            end
+        end
+    end)
+
+    -- #154: the maintainer's fixes, reviewed on #154 before the pin moved.
+    -- There's no published image at that commit, and release binaries are
+    -- never used, so the simulator job builds it and the others run that.
+    it("pins wow-ui-sim at the reviewed ac893c6 and runs only the build made from it (black)", function()
+        assert.is_truthy(text:find("\n%s*SIM_COMMIT: ac893c6659d5152965352bfeb725fad89b9bc0d5\n"),
+            "the simulator isn't pinned at the reviewed commit")
+        assert.is_truthy(text:find("\n%s*BUILD_BASE: rust@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2%s"),
+            "the build base isn't the reviewed digest")
+        assert.is_truthy(text:find("\n%s*RENDER_BASE: debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3%s"),
+            "the render base isn't the reviewed digest")
+        for _, banned in ipairs({ "ghcr%.io", "docker pull", "IMAGE:", "releases/download", "%.dmg", "%.tar%.gz" }) do
+            assert.is_falsy(text:find(banned), "a published image or release binary is used: " .. banned)
+        end
+        -- One build, in its own job, which the jobs that run it wait for.
+        local build = jobs["simulator"]
+        assert.is_truthy(build and build.text:find("cargo build", 1, true), "no simulator job builds it")
+        for _, name in ipairs({ "ui-sim", "screenshots" }) do
+            local job = jobs[name]
+            assert.is_truthy(job, "no " .. name .. " job")
+            assert.is_truthy(job.text:find("\n%s*needs: simulator\n"), name .. " doesn't wait for the build")
+            assert.is_falsy(job.text:find("cargo", 1, true), name .. " builds the simulator itself")
+            for _, command in ipairs(dockerRuns(job)) do
+                assert.is_truthy(command:find("%-v \"%$RUNNER_TEMP/ui%-sim%-build/sim:/sim:ro\""),
+                    name .. ": runs a simulator that isn't the build's, or mounts it writable: " .. command)
+                assert.is_truthy(command:find("ff%-render /sim/wow%-sim "), name .. ": runs something else: " .. command)
             end
         end
     end)
