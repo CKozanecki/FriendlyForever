@@ -33,6 +33,7 @@ ChatQueue.lua
 Comm.lua
 Exchange.lua
 Receipts.lua
+GuildHellos.lua
 Parser.lua
 Announcer.lua
 Greeter.lua

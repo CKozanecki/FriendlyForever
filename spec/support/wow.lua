@@ -420,7 +420,8 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         state.addonBlocked (an instance under Midnight's
 --                         rules) refuse with GeneralError: the real code is
 --                         unconfirmed. Group and guild messages come back to
---                         their sender. state.addonSenderForm: how
+--                         their sender (alone: after M.ADDON_ECHO_DELAY, a
+--                         guess at the round trip; #38). state.addonSenderForm: how
 --                         CHAT_MSG_ADDON spells the sender ("hyphen", default,
 --                         or "space"). An addon whisper reaches anyone by full
 --                         name; whether it reaches a stranger is checked at
@@ -763,6 +764,9 @@ local PREFIX_RESULT = { Success = 0, DuplicatePrefix = 1, InvalidPrefix = 2, Max
 -- The game's throttle per prefix: a burst of 10, then one a second.
 M.ADDON_BURST, M.ADDON_REFILL = 10, 1
 M.ADDON_MAX_BYTES = 255
+-- Seconds before a lone client hears its own group or guild message back:
+-- the round trip to the server (#38).
+M.ADDON_ECHO_DELAY = 0.2
 
 local function RegisterAddonMessagePrefix(prefix)
     if M.state.noAddonMessages then error("RegisterAddonMessagePrefix: not in this client") end
@@ -814,6 +818,18 @@ local function SendAddonMessage(prefix, text, chatType, target)
     if bucket.tokens < 1 then return refuse(SEND_RESULT.AddonMessageThrottle) end
     bucket.tokens = bucket.tokens - 1
     M.addonSent[#M.addonSent + 1] = record
+    -- The game sends group and guild messages back to their sender. In a
+    -- network, M.deliver does that; alone, the client hears its own after
+    -- M.ADDON_ECHO_DELAY (#38).
+    if chatType ~= "WHISPER" and not M.state.networked then
+        local name, surname = _G.UnitName("player")
+        local sender = surname and surname ~= "" and (name .. "-" .. surname) or name
+        M.timers[#M.timers + 1] = { at = M.now + M.ADDON_ECHO_DELAY, echo = true, fn = function()
+            if M.addonPrefixes[prefix] then
+                M.fire("CHAT_MSG_ADDON", prefix, text, chatType, sender, "", 0, 0, "", 0)
+            end
+        end }
+    end
     return SEND_RESULT.Success
 end
 
@@ -1390,6 +1406,9 @@ function M.boot(opts)
     local ns = M.load()
     ns.Messages.random = function() return 1 end
     ns.Flavour.random = function() return 1 end
+    -- A guild hello waits the shortest random extra (GuildHellos.STAGGER_MIN,
+    -- #38), so specs know when it goes; opts.randomStagger keeps it random.
+    if not opts.randomStagger then ns.GuildHellos.random = function() return 0 end end
     M.fire("ADDON_LOADED", M.ADDON_NAME)
     -- Buff mode's turn-on triggers are on by default (#29), and would lend
     -- a key whenever a spec joins a group or a stranger buffs you. Most specs
@@ -1749,7 +1768,14 @@ end
 -- message on its way (a chaos test's message loss, #36).
 function M.network(clients)
     local net = { clients = clients, seen = {} }
-    for _, c in ipairs(clients) do net.seen[c] = 0 end
+    local was = live
+    for _, c in ipairs(clients) do
+        net.seen[c] = 0
+        -- Its own messages now come back through M.deliver.
+        M.use(c)
+        M.state.networked = true
+    end
+    if was then M.use(was) end
     return net
 end
 

@@ -2,6 +2,7 @@
 
 ### Unreleased
 
+- **Guild hellos:** when a guildmate logs in, everyone with the addon still greets them, but a few seconds apart (each waits a random 1 to 8 seconds more), with different lines, and at most 5 of you, set from 1 to 20 with **Most players with Friendly Forever who greet one login** on the **Guild Login** tab. Copies agree on this with hidden guild addon messages; a copy that can't use them (inside an instance, say) still greets after its random wait. When in doubt, a copy stays quiet rather than go past the limit, and debug mode says why. This version adds a file (GuildHellos.lua): after updating, restart the game; /reload isn't enough. (#38)
 - **One colour palette:** chat lines, the options pages, the buff back button and the minimap tooltip share one set of colours, taken from the logo and chosen to read well on the game's dark backgrounds and with colour blindness. "On" and "enabled" are now sky blue and "off" and "disabled" rose, instead of green and red; the words are still there. (#46)
 - This version adds a file (Colours.lua). After updating, restart the game; /reload isn't enough. (#46)
 

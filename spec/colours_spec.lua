@@ -62,9 +62,12 @@ local function strayColours(source)
     for name, args in code:gmatch("([%w_]*Color[%w_]*)%s*(%b())") do
         if not args:find("Colours%.RGBA?%(") then found[#found + 1] = "colour call: " .. name .. args end
     end
-    -- A tooltip line's colour, given as numbers.
-    for name, args in code:gmatch("(Add%a*Line)%s*(%b())") do
-        if args:find("[%(,]%s*%-?%.?%d") then found[#found + 1] = "tooltip colour: " .. name .. args end
+    -- A tooltip line's or text's colour, given as numbers: any number after
+    -- the text (AddLine, AddDoubleLine, SetText).
+    for _, call in ipairs({ "Add%a*Line", "SetText" }) do
+        for name, args in code:gmatch("(" .. call .. ")%s*(%b())") do
+            if args:find(",%s*%-?%.?%d") then found[#found + 1] = "text colour: " .. name .. args end
+        end
     end
     -- The game's own colour tables and codes (NORMAL_FONT_COLOR,
     -- RAID_CLASS_COLORS, RED_FONT_COLOR_CODE and the like).
@@ -163,6 +166,8 @@ describe("Colours", function()
                 'local r, g, b = ns.Colours.RGB("text")',
                 'GameTooltip:AddLine("Hi", r, g, b, true)',
                 'GameTooltip:AddLine(ns.TITLE)',
+                'label:SetText(("%d left"):format(3))',
+                'GameTooltip:SetText(self.tooltip, r, g, b, a, true)',
                 'local plain = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")',
                 'local shown = "a||cffb"',
                 '-- a comment saying |cffff0000 or SetTextColor(1, 0, 0)',
@@ -188,6 +193,7 @@ describe("Colours", function()
             CreateColor = "local c = CreateColor(1, 1, 1)",
             ["AddLine colour"] = 'GameTooltip:AddLine("x", 0.8, 0.8, 0.8)',
             ["AddDoubleLine colour"] = 'GameTooltip:AddDoubleLine("a", "b", 1, 1, 1, 1, 1, 1)',
+            ["tooltip SetText colour"] = "GameTooltip:SetText(self.tooltip, 1, 1, 1, 1, true)",
             ["game colour table"] = "local c = NORMAL_FONT_COLOR",
             ["game colour code"] = 'ns.Print(RED_FONT_COLOR_CODE .. "off")',
             ["class colours"] = "local c = RAID_CLASS_COLORS.PRIEST",
