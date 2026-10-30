@@ -1,4 +1,4 @@
--- Spec: #98, #99, #101, #108
+-- Spec: #98, #99, #101, #108, #138
 local wow = require("spec.support.wow")
 
 describe("Buff thanks", function()
@@ -12,7 +12,8 @@ describe("Buff thanks", function()
 
     -- Advance past the delay and press a key so a waiting /say goes out.
     local function settle()
-        wow.advance(ns.db.buff.delay + 0.01)
+        -- An unnamed caster's buff first waits for a receipt (#138).
+        wow.advance(ns.Receipts.WAIT + ns.db.buff.delay + 0.01)
         wow.keyDown()
     end
 

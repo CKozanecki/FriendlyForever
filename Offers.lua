@@ -45,7 +45,7 @@ Offers.MAX_MARKS = 50           -- marks waiting for their buff at once; the old
 local favours = {}          -- newest last: { name, unit, class, owedAt, ledgerEntry }
 local buffedAt = {}         -- [full name] = GetTime() a buff of yours last reached them
 local marks = {}            -- [full name] = GetTime() their copy said their buff answers yours
-local castsWaiting = {}     -- newest last: { guid, name, spell, at }, hand-cast buffs sent
+local castsWaiting = {}     -- newest last: { guid, name, buff, spell, at }, hand-cast buffs sent
 local listeners = {}
 local oweListeners = {}
 
@@ -340,19 +340,22 @@ function Offers.OnCastSent(unit, castTargetName, castGUID, spellId)
         ns.Diag.Log("buffBack", "a buff cast by hand: can't tell which player it went to")
         return
     end
-    local cast = { guid = guid, name = name, spell = ns.BuffData.SpellName(buff), at = GetTime() }
+    local cast = { guid = guid, name = name, buff = buff, spell = ns.BuffData.SpellName(buff), at = GetTime() }
     castsWaiting[#castsWaiting + 1] = cast
     if #castsWaiting > Offers.MAX_CASTS_WAITING then table.remove(castsWaiting, 1) end
 end
 
 -- UNIT_SPELLCAST_SUCCEEDED for a cast no press of the button answers: a
 -- hand-cast buff sent to a player has reached them, if it landed in time.
+-- Their copy hears it was you (#138), once: the cast is then forgotten.
 function Offers.OnCastLanded(unit, castGUID)
     local guid = ReadableText(castGUID)
-    if unit ~= "player" or not guid or not ns.db or not ns.db.enabled or not ns.db.buffBack.enabled then return end
-    for _, cast in ipairs(castsWaiting) do
+    if unit ~= "player" or not guid or not ns.db or not ns.db.enabled then return end
+    for i, cast in ipairs(castsWaiting) do
         if cast.guid == guid and Within(cast.at, Offers.CAST_WAIT, GetTime()) then
-            if Offers.MarkReturned(cast.name, cast.spell) then
+            table.remove(castsWaiting, i)
+            ns.Receipts.Send(cast.name, cast.buff)
+            if ns.db.buffBack.enabled and Offers.MarkReturned(cast.name, cast.spell) then
                 ns.Diag.Log("buffBack", "returned %s's favour by hand", cast.name)
             end
             return

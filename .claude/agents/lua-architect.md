@@ -75,6 +75,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - Login or `/reload` while grouped isn't joining; a ghost, or someone who joins dead, isn't a new death; state can already be there at `PLAYER_ENTERING_WORLD` with no event for it; a reload loses session memory (#67, #88).
 - Turning a feature off, or what it depends on, cancels its queued and dependent state, so nothing stays "wanted" and quietly comes back (#62: buff mode stayed wanted when switched off; #20; #60).
 - A player named by first name alone (a cast's target, a message's sender) is matched against every unit it could be, including you (`player`) and your group (`party1-4`, `raid1-40`), not only the tokens it usually comes from; any second player of that first name makes it ambiguous. A self-cast while targeting a stranger who shared your first name returned that stranger's favour (#37).
+- A hint matched by key and time (a receipt, a mark) is used up by the event it belongs to, even when that event didn't need it. Otherwise the leftover hint attaches to someone else's event in the same window (#138: a receipt for a buff the game named named a stranger's buff a moment later).
 
 - A per-player addon message is sent only to players the feature can use it for. Group members are never thanked, so a plan whispered to each one you buff would fill Comm's 8-place send queue in a raid and push out a stranger's `ANSWER` (#36).
 - Holding a message before it is queued restarts the queue's age limit. A limit meant to count from the event (a /say thank-you's 30 s from when it was due) is passed on with its start time (`Announcer`'s `ageFrom`), or a held /say goes out a minute late (#36).
@@ -91,6 +92,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A toolchain install uses only its pinned, checksummed files and its own folder: every `luarocks` call names its `--tree` and builds with `--deps-mode=none`, and hererocks gets the checked `--downloads`. Anything else can reach the network or the user's own `~/.luarocks` (#103: one rock in `~/.luarocks` failed every `make setup`).
 - Every new top-level path is shipped (TOC or `scripts/package.sh`) or on `.pkgmeta`'s ignore list. A local `make check` only sees tracked files, so check it ran after `git add` (#66: `art/` passed locally and broke CI; #53, #78).
 - An update that adds files needs a restart, not just a `/reload`; the changelog says so (#20).
+- Each new module joins `Core.lua`'s restart-guard list in `ADDON_LOADED`, with a spec that loads the TOC without it (#142's Exchange, #138's Receipts: missing, a `/reload` after the update errored on every buff).
 
 **Words match the code**
 - Comments, docs, options text and messages describe what is built, not what is planned (#56, #58, #59, #72, #74, #81, #86).

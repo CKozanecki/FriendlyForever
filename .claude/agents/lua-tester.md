@@ -77,6 +77,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - Chaos tests use `spec/support/random.lua`, never `math.random`, which differs between platforms (#76, #87).
 - An invariant about pairs of events (each answer follows its own opener) is checked per event against state kept since the last one, not as running totals: openers left unanswered become slack that hides a violation. The storm also asserts it reached the boundary cases, such as an answer late in the window or past it. #37's first storm passed with its window cut from 10 minutes to 100 seconds.
 - A storm's per-step checks mustn't repair the damage it injects. Reads such as `Ignore.List`, `Profiles.List` or `Ledger.Summary` heal damaged data as they read, so damage checked in the same step never meets a later action. Leave a few steps unchecked after each damage, and keep the send checks every step. Judge a time-bound rule (snooze) by each send's own time, not by whether the step began and ended inside it (#113: a reverted on-use check and a send just before a snooze ended both passed the storm).
+- An invariant that a hint names the right player checks what it names against the sim's own records by key and time window (which buff, from whom, how long before), not just "they gave something once". A misbehaving player in the storm is a separate identity that never really acts, and what it may cause is bounded by the false messages it actually sent (#138: the first receipts storm passed with the key check, the window and the clash rule all removed).
 
 - A storm's reach counter counts the case itself, not something near it. #36's "waited the longest wait" counted any buff from 29 to 31 s before a thank-you, so unrelated buffs met it while no thank-you ever waited 30 s; a stale-plan action was needed to reach it.
 
@@ -96,6 +97,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - Checkers that parse text match their real consumer exactly (a differential test against the script, `LC_ALL=C`), run in linear time and are fuzzed (#54, #56).
 - A fake for an external tool checks the arguments that matter (pinned versions, offline and tree flags) and fails the way the real tool would without them. A fake that ignores its arguments lets a changed pin or a network fetch through (#103).
 - A check on docs reads the part the reader acts on, not the whole section: a host listed in a table elsewhere doesn't prove it's in the allowlist the owner copies (#103).
+- A helper that counts a /say or emote thank-you presses a key before `BuffTracker.SAY_MAX_AGE` runs out, and one test expects a non-zero count, so the count is shown to be live (#138: `story()` pressed after 40 s, so its "friend" count was always 0).
 
 **The simulated client**
 - New behaviour is realistic, pessimistic when unsure, in the ASSUMPTIONS block, with a launch check on #50 (#21, #60, #62, #88).

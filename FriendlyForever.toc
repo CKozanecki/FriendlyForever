@@ -31,6 +31,7 @@ RateLimit.lua
 ChatQueue.lua
 Comm.lua
 Exchange.lua
+Receipts.lua
 Parser.lua
 Announcer.lua
 Greeter.lua
