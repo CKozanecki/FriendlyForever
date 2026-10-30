@@ -1,5 +1,9 @@
 # Changelog
 
+### Unreleased
+
+- **Guild hellos:** when a guildmate logs in, everyone with the addon still greets them, but a few seconds apart (each waits a random 1 to 8 seconds more), with different lines, and at most 5 of you, set from 1 to 20 with **Most players with Friendly Forever who greet one login** on the **Guild Login** tab. Copies agree on this with hidden guild addon messages; a copy that can't use them (inside an instance, say) still greets after its random wait. When in doubt, a copy stays quiet rather than go past the limit, and debug mode says why. This version adds a file (GuildHellos.lua): after updating, restart the game; /reload isn't enough. (#38)
+
 ## 0.9.0
 
 - **Buff receipts:** when your buff lands on a player outside your group, your copy of the addon tells theirs with one hidden addon whisper. When their game can't say who buffed them, their copy can then thank you by name and offer your buff back, rather than thanking "friend". A receipt only names the caster of a matching buff that really arrived a moment before; on its own it never causes a cast, a thank-you or an offer. A buff whose caster can't be named now waits 2 seconds for a receipt before it's thanked as "friend". None are sent to your group, inside instances or during chat lockdown. Switch it off with **Tell players I buff that it was me** on the Buff Thanks tab. (#138)
