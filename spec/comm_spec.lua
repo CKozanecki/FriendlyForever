@@ -6,6 +6,8 @@ local random = require("spec.support.random")
 
 local PREFIX = "FriendlyFvr"
 local ME = "Me"
+-- What the addon sends as its own version: the TOC's, so a broken read of it fails.
+local TOC_VERSION = wow.parseToc().Version
 
 -- What the addon sees from one other player's message.
 local function receive(text, route, sender, prefix)
@@ -62,7 +64,7 @@ describe("Hidden channel", function()
         local function knows(client, other, version)
             wow.use(client)
             assert.is_true(client.ns.Comm.IsPeer(other.full), client.full .. " knows " .. other.full)
-            assert.are.equal(version or other.ns.VERSION, client.ns.Comm.PeerVersion(other.full))
+            assert.are.equal(version or TOC_VERSION, client.ns.Comm.PeerVersion(other.full))
         end
 
         it("registers one prefix of at most 16 characters", function()
@@ -84,8 +86,8 @@ describe("Hidden channel", function()
             assert.are.equal(1, #fromB)
             assert.are.same({ prefix = PREFIX, channel = "WHISPER", target = "Bo-Lake" },
                 { prefix = fromA[1].prefix, channel = fromA[1].channel, target = fromA[1].target })
-            assert.are.equal("1;HELLO;Ann-Vale;" .. a.ns.VERSION .. ";1", fromA[1].text)
-            assert.are.equal("1;HELLO;Bo-Lake;" .. b.ns.VERSION .. ";0", fromB[1].text)
+            assert.are.equal("1;HELLO;Ann-Vale;" .. TOC_VERSION .. ";1", fromA[1].text)
+            assert.are.equal("1;HELLO;Bo-Lake;" .. TOC_VERSION .. ";0", fromB[1].text)
             wow.use(a); noErrors(a.ns)
             wow.use(b); noErrors(b.ns)
         end)
@@ -105,7 +107,7 @@ describe("Hidden channel", function()
                 assert.are.equal(1, #sentBy(a))
                 assert.are.equal(0, #sentBy(b))
                 assert.are.equal(case.route, sentBy(a)[1].channel)
-                assert.are.equal("1;HELLO;Ann-Vale;" .. a.ns.VERSION .. ";0", sentBy(a)[1].text)
+                assert.are.equal("1;HELLO;Ann-Vale;" .. TOC_VERSION .. ";0", sentBy(a)[1].text)
                 -- B answers on the same route and A learns of it too.
                 sayHelloFrom(b, case.route)
                 knows(a, b)
