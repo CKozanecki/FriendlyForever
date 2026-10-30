@@ -50,7 +50,11 @@ function Messages.Preview(messages)
     return messages[index], index
 end
 
-function Messages.Pick(msgType, messages)
+-- avoid: an optional set of line numbers to pass over (lines other copies
+-- of the addon have said they'll use: #38). The bag's next line that isn't
+-- avoided; if the bag holds only avoided ones, a random line that isn't
+-- (the bag waits); if every line is avoided, the bag's next.
+function Messages.Pick(msgType, messages, avoid)
     local usable, candidates = Usable(messages)
     if #candidates == 0 then return nil end
 
@@ -72,7 +76,24 @@ function Messages.Pick(msgType, messages)
         end
     end
 
-    local index = table.remove(left)
+    local at = #left
+    if avoid then
+        while at > 0 and avoid[left[at]] do at = at - 1 end
+        if at == 0 then
+            local free = {}
+            for _, i in ipairs(candidates) do
+                if not avoid[i] then free[#free + 1] = i end
+            end
+            bag.left = left
+            bags[msgType] = bag
+            if #free > 0 then
+                local index = free[Messages.random(#free)]
+                return messages[index], index
+            end
+            at = #left
+        end
+    end
+    local index = table.remove(left, at)
     bag.left, bag.last = left, index
     bags[msgType] = bag
     return messages[index], index

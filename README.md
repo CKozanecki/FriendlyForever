@@ -166,6 +166,7 @@ Every buff from someone outside your group, while Buff Thanks or Buff Back is on
 ## Safety
 
 - Everything sent is cleaned first. `|` escape codes and control characters are removed, and each message is cut to 255 bytes without splitting characters.
+- **Guild hellos** (#38): everyone with the addon greets a guildmate who logs in, but each waits a random 1 to 8 seconds on top of the delay, and copies tell each other (with hidden guild addon messages) which line they'll use, so no two say the same one. At most 5 copies greet one login (**Most players with Friendly Forever who greet one login**, Guild Login tab, 1 to 20); the rest stay quiet, and debug mode says why. A copy that can't send addon messages (inside an instance, say) greets after its random wait anyway; one that can't tell how many others greeted (its message never came back, or a crowd of messages was dropped) stays quiet.
 - Output is rate-limited (one message per 1.5 s). At most 25 messages can wait, and none waits longer than 2 minutes, so a wave of guild logins can't flood chat.
 - On top of that, each chat type gets at most a set number of lines in any minute (4 by default; see [Use](#use)). Everything the addon says goes through one queue that checks the limit, and nothing can get round it. The count survives a reload, and a clock that jumps (the date or time changed, or the computer restarted) can't let a burst through or block sending for more than a minute.
 - Nothing is sent during the game's chat lockdown. Messages wait until it ends.

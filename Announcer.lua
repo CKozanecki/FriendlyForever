@@ -108,8 +108,11 @@ end
 --              and an emote for the same player don't block each other.
 --   emoteTarget = optional function() -> unit token to aim the emote at, or nil,
 --   dropOverCap = optional true for thanks: dropped, not held, over the chat cap,
---   hold     = optional function(go): after the delay, call go() once when the
---              message may be queued (a thank-you waits for its exchange: #36),
+--   hold     = optional function(go, line, drop): after the delay, call go()
+--              once when the message may be queued (a thank-you waits for
+--              its exchange: #36), or drop(reason) once to send nothing.
+--              line is the number of the line picked; go(n) says line n
+--              instead, if it isn't blank (a guild hello: #38),
 -- }
 -- Returns true if a message was scheduled, or false and the reason not.
 local function Skip(msgType, key, reason)
@@ -131,16 +134,18 @@ function Announcer.Schedule(msgType, key, opts)
         return Skip(msgType, key, "repeat cooldown (" .. cooldown .. "s) still running")
     end
 
-    local template
+    local template, line
     if not opts.emote then
-        template = ns.Messages.Pick(msgType, cfg.messages)
+        template, line = ns.Messages.Pick(msgType, cfg.messages)
         if not template then return Skip(msgType, key, "all message lines are blank") end
     end
 
     local delay = opts.delay or cfg.delay
     ns.Diag.Log(msgType, "scheduled for %s in %ss", key, delay)
 
-    local function Queue()
+    local function Queue(other)
+        local text = other and ns.db[msgType].messages[other]
+        if type(text) == "string" and text:find("%S") then template = text end
         ns.ChatQueue.Push({
             channel = opts.emote and "EMOTE" or opts.channel,
             target = opts.target,
@@ -164,8 +169,12 @@ function Announcer.Schedule(msgType, key, opts)
             dropOverCap = opts.dropOverCap,
         })
     end
+    local function Drop(reason)
+        ns.Diag.Log(msgType, "not sending for %s: %s", key, reason)
+        if opts.onDone then opts.onDone(false, reason) end
+    end
     C_Timer.After(delay, ns.Diag.Wrap(function()
-        if opts.hold then opts.hold(Queue) else Queue() end
+        if opts.hold then opts.hold(Queue, line, Drop) else Queue() end
     end))
     return true
 end
