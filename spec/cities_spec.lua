@@ -1,4 +1,4 @@
--- Spec: #34, #101, #36
+-- Spec: #34, #101, #36, #140
 -- Quiet mode in capital cities: no thank-yous and no buff-back button there,
 -- unless buff mode is on; the ledger and the favours still count.
 local wow = require("spec.support.wow")
@@ -534,6 +534,22 @@ describe("Quiet mode in capital cities", function()
             ns.Config.Repair()
             assert.is_true(ns.db.buff.quietInCities)
             assert.is_false(ns.db.buffBack.showInCities)
+        end)
+
+        it("reads a whole section damaged to a non-table as the defaults, without an error", function()
+            wow.setMap(wow.CAPITAL.stormwind)
+            stranger()
+            buffedBy()
+            for _, damaged in ipairs({ "x", 5, true, false }) do
+                ns.db.buff = damaged
+                ns.db.buffBack = damaged
+                assert.is_true(ns.Cities.ThanksQuiet(), "quiet as by default: " .. tostring(damaged))
+                assert.is_true(ns.Cities.ButtonHidden(), "hidden as by default: " .. tostring(damaged))
+            end
+            ns.db.buff, ns.db.buffBack = nil, nil
+            assert.is_true(ns.Cities.ThanksQuiet())
+            assert.is_true(ns.Cities.ButtonHidden())
+            assert.are.same({}, wow.errors)
         end)
 
         it("carries the options in profiles and settings lines", function()
