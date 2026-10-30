@@ -961,6 +961,7 @@ function Options.Create()
 
     Options.CreateGeneralPage()
     Options.CreateLedgerPage()
+    ns.OptionsIndex.RegisterSearch(category)
 
     -- Filled straight away too, so nothing can ever show empty boxes.
     Fill()
