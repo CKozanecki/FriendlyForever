@@ -64,7 +64,8 @@ function handlers.ADDON_LOADED(name)
     -- added files, /reload runs the new code without them. Stay inert and
     -- say so, rather than erroring on every event.
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
-        "BuffData", "Offers", "BuffButton", "Battleground", "Cities", "Comm", "RateLimit", "Exchange" }) do
+        "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
+        "Comm", "RateLimit", "Exchange", "Receipts" }) do
         if ns[module] == nil then
             ns.Print("|cffff4040this update added files. Restart the game (not /reload) to finish updating.|r")
             return
@@ -82,6 +83,7 @@ function handlers.ADDON_LOADED(name)
     ns.BuffButton.Create()
     ns.BuffModeAuto.Create()
     ns.Battleground.Create()
+    ns.Water.Create()
 
     Register("PLAYER_ENTERING_WORLD", function(isLogin, isReload)
         if isLogin or isReload then
@@ -197,6 +199,7 @@ local function StatusLines()
     add(string.format("buff thanks: %s; if that can't reach them: %s; profile %s; %d ignored",
         db.buff.thankStyle, db.buff.fallback, ns.Diag.Safe(ns.Profiles.Active()), #ns.Ignore.List()))
     add(ns.Cities.StatusLine())
+    add(ns.Water.StatusLine())
     add(string.format("guild: %s, %d members known, %d roster updates",
         IsInGuild() and "yes" or "no", ns.Greeter.MemberCount(), c("rosterUpdates")))
     local shown = ns.Nameplates.FriendlyShown()

@@ -10,11 +10,13 @@
 -- named: up to WINDOW seconds after the receipt, or WAIT before it (a
 -- message may beat the aura or follow it). Such a buff waits WAIT seconds
 -- for its receipt; with none, it goes on as it would have (thanked as
--- "friend", or not at all). Two different players' receipts for one buff name nobody. The name
--- used is the server's sender name, which Comm has already validated; a
--- receipt's own text is a buff key and a version, and never goes anywhere
--- else. A receipt from someone on your ignore list or in your group, or
--- with no matching unnamed buff, changes nothing.
+-- "friend", or not at all). Two different players' receipts for one buff
+-- name nobody, and a player's receipt for a buff the game named them for
+-- names nothing else. The name used is the server's sender name, which
+-- Comm has already validated; a receipt's own text is a buff key and a
+-- version, and never goes anywhere else. A receipt from someone on your
+-- ignore list or in your group, or with no matching unnamed buff, changes
+-- nothing.
 --
 -- Sending: one receipt per cast that the game says landed on them
 -- (UNIT_SPELLCAST_SUCCEEDED for the cast UNIT_SPELLCAST_SENT named them
@@ -36,6 +38,9 @@ Receipts.MAX_RECEIPTS = 20 -- receipts kept at once; the oldest goes first
 Receipts.MAX_WAITING = 20  -- unnamed buffs waiting at once; past that, a new one doesn't wait
 
 local receipts = {} -- oldest first: { sender, key, at, used }
+-- Buffs the game named the caster of, with no receipt from them yet: their
+-- receipt, when it comes, is for that buff (#138). Oldest first: { sender, key, at, used }.
+local named = {}
 local waiting = 0
 
 ------------------------------------------------------------------------
@@ -82,10 +87,23 @@ end
 
 -- Receipts older than WINDOW + WAIT are forgotten: at a buff's WAIT, that
 -- is any from more than WINDOW before it arrived.
-local function Prune(now)
-    for i = #receipts, 1, -1 do
-        local r = receipts[i]
-        if now < r.at or now - r.at > Receipts.WINDOW + Receipts.WAIT then table.remove(receipts, i) end
+local function Prune(list, now)
+    for i = #list, 1, -1 do
+        local r = list[i]
+        if now < r.at or now - r.at > Receipts.WINDOW + Receipts.WAIT then table.remove(list, i) end
+    end
+end
+
+-- Keep an entry in a list of at most MAX_RECEIPTS, the oldest going first.
+local function Keep(list, entry)
+    list[#list + 1] = entry
+    while #list > Receipts.MAX_RECEIPTS do table.remove(list, 1) end
+end
+
+-- The oldest unused entry from sender for key, or nil.
+local function Unused(list, sender, key)
+    for _, r in ipairs(list) do
+        if not r.used and r.sender == sender and r.key == key then return r end
     end
 end
 
@@ -99,9 +117,30 @@ function Receipts.OnReceipt(sender, key)
         return ns.Diag.Log("comm", "receipt from %s: ignored or in your group, dropped", sender)
     end
     local now = GetTime()
-    Prune(now)
-    receipts[#receipts + 1] = { sender = sender, key = key, at = now }
-    while #receipts > Receipts.MAX_RECEIPTS do table.remove(receipts, 1) end
+    Prune(named, now)
+    local buff = Unused(named, sender, key)
+    if buff then
+        -- For a buff the game already named them for: it names nothing else.
+        buff.used = true
+        return ns.Diag.Log("comm", "receipt from %s for a buff the game named them for", sender)
+    end
+    Prune(receipts, now)
+    Keep(receipts, { sender = sender, key = key, at = now })
+end
+
+-- The game named the caster of a buff of this key (a full name). Their
+-- receipt for it, before or after, is used up by it, so it can't name the
+-- caster of someone else's buff.
+function Receipts.NoteNamed(sender, key)
+    local now = GetTime()
+    Prune(receipts, now)
+    local r = Unused(receipts, sender, key)
+    if r then
+        r.used = true
+        return
+    end
+    Prune(named, now)
+    Keep(named, { sender = sender, key = key, at = now })
 end
 
 -- Whether receipts can arrive: the hidden channel is open.
@@ -112,7 +151,7 @@ end
 -- The one player whose receipt names a buff of this key that arrived WAIT
 -- seconds ago, or nil (none, or more than one). Their receipt is used up.
 local function Claim(key, now)
-    Prune(now)
+    Prune(receipts, now)
     local found, sender
     for _, r in ipairs(receipts) do
         if not r.used and r.key == key and not Unwanted(r.sender) then

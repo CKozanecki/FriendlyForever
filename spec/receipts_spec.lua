@@ -196,6 +196,91 @@ describe("Buff receipts (#138)", function()
                 ledger = b.ns.Ledger.Lines() }
         end
 
+        it("its receipt names no one else: a stranger's unnamed buff of that key just after is 'friend'", function()
+            pair({ before = function(_, who) if who == "b" then wow.addUnit("nameplate1", ANN) end end })
+            handCast(a, BO, "Power Word: Fortitude")
+            wow.advanceAll(net, 4, 0.25)
+            -- Cid, who has no addon and no unit on Bo's screen, buffs Bo too.
+            wow.use(b)
+            wow.gainBuff({ name = "Power Word: Fortitude", spellId = FORT })
+            wow.advanceAll(net, b.ns.Exchange.MAX_DELAY + 1, 0.25)
+            wow.use(b)
+            wow.keyDown()
+            assert.are.same({ { target = "Ann-Vale", text = "Thanks Ann: Power Word: Fortitude" } }, whispers(b))
+            wow.use(b)
+            assert.are.equal(1, #wow.sentTo("SAY"), "Cid's buff is thanked as 'friend'")
+            assert.are.equal(0, count(b.ns, "receiptsUsed"))
+        end)
+
+        it("its receipt names no one else when it comes before the buff, either", function()
+            local ns = wow.boot({ db = { buff = { thankStyle = "whisper", messages = { "Thanks {name}" } } } })
+            wow.addUnit("nameplate1", ANN)
+            wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;RECEIPT;Ann-Vale;fortitude;?", "WHISPER", "Ann-Vale",
+                "", 0, 0, "", 0)
+            wow.gainBuff({ sourceUnit = "nameplate1", name = "Power Word: Fortitude", spellId = FORT })
+            wow.advance(1)
+            wow.gainBuff({ name = "Power Word: Fortitude", spellId = FORT })
+            wow.advance(30)
+            wow.keyDown()
+            assert.are.same({ "Thanks Ann" }, wow.sentTo("WHISPER"))
+            assert.are.equal(1, #wow.sentTo("SAY"), "the second buff is thanked as 'friend'")
+            assert.are.equal(0, count(ns, "receiptsUsed"))
+        end)
+
+        -- Bo alone sees `steps` happen: { "named", who, spell }, a buff whose
+        -- caster the game names; { "unnamed", spell }, one it doesn't;
+        -- { "receipt", who, key }; or a number of seconds passing.
+        local function story(steps)
+            local ns = wow.boot({ db = { buff = { thankStyle = "whisper", repeatCooldown = 0,
+                messages = { "Thanks {name}" } } } })
+            local ids = { fortitude = FORT, spirit = SPIRIT }
+            for _, step in ipairs(steps) do
+                if type(step) == "number" then
+                    wow.advance(step)
+                elseif step[1] == "named" then
+                    wow.addUnit("nameplate1", { name = step[2]:match("^(%a+)"), surname = step[2]:match("-(%a+)$"),
+                        id = step[2] })
+                    wow.gainBuff({ sourceUnit = "nameplate1", name = step[3], spellId = ids[step[3]] })
+                    wow.state.units.nameplate1 = nil
+                elseif step[1] == "unnamed" then
+                    wow.gainBuff({ name = step[2], spellId = ids[step[2]] })
+                else
+                    wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;RECEIPT;" .. step[2] .. ";" .. step[3] .. ";?",
+                        "WHISPER", step[2], "", 0, 0, "", 0)
+                end
+            end
+            wow.advance(40)
+            wow.keyDown()
+            assert.are.same({}, wow.errors)
+            return count(ns, "receiptsUsed"), #wow.sentTo("SAY")
+        end
+
+        it("a player named for one buff can still be named by their receipt for their next", function()
+            local used, friends = story({ { "named", "Ann-Vale", "fortitude" }, 0.5,
+                { "receipt", "Ann-Vale", "fortitude" }, 3,
+                { "unnamed", "fortitude" }, 0.5, { "receipt", "Ann-Vale", "fortitude" } })
+            assert.are.equal(1, used)
+            assert.are.equal(0, friends)
+        end)
+        it("someone else's receipt isn't used up by a buff the game named", function()
+            local used, friends = story({ { "named", "Ann-Vale", "fortitude" }, 0.5,
+                { "unnamed", "fortitude" }, 0.5, { "receipt", "Cid-Rock", "fortitude" } })
+            assert.are.equal(1, used, "Cid is named")
+            assert.are.equal(0, friends)
+        end)
+        it("a receipt for another buff isn't used up by a buff the game named", function()
+            local used, friends = story({ { "named", "Ann-Vale", "fortitude" }, 0.5,
+                { "unnamed", "spirit" }, 0.5, { "receipt", "Ann-Vale", "spirit" } })
+            assert.are.equal(1, used, "Ann is named for Divine Spirit")
+            assert.are.equal(0, friends)
+        end)
+        it("a buff the game named long ago uses up no later receipt", function()
+            local used, friends = story({ { "named", "Ann-Vale", "fortitude" }, 10,
+                { "unnamed", "fortitude" }, 0.5, { "receipt", "Ann-Vale", "fortitude" } })
+            assert.are.equal(1, used)
+            assert.are.equal(0, friends)
+        end)
+
         it("ignores the receipt: the result is the same as without one", function()
             local with = run(false)
             local without = run(true)
@@ -679,5 +764,25 @@ describe("Buff receipts (#138)", function()
             assert.is_true(total.named > 10, "casters were thanked by name")
             assert.is_true(total.used > 5, "receipts named casters")
         end)
+    end)
+end)
+
+describe("After an update that adds Receipts.lua and a /reload (no restart) (black)", function()
+    it("asks for a restart instead of erroring, and thanks nobody", function()
+        wow.reset()
+        local loaded = {}
+        local _, files = wow.parseToc()
+        for _, file in ipairs(files) do
+            if file ~= "Receipts.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+        end
+        wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+        wow.fire("PLAYER_ENTERING_WORLD", true, false)
+        wow.advance(60)
+        wow.gainBuff({ name = "Power Word: Fortitude", spellId = FORT })
+        wow.advance(60)
+        wow.keyDown()
+        assert.are.same({}, wow.errors)
+        assert.are.same({}, wow.sent)
+        assert.is_truthy(table.concat(wow.printed, "\n"):find("Restart the game", 1, true))
     end)
 end)

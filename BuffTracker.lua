@@ -507,6 +507,10 @@ local function HandleAddedAura(aura, now)
         end)
         return
     end
+    -- Named by the game: their receipt for it names nothing else. (An
+    -- unknown caster of one of our buffs waited above.)
+    local buff = caster and spellId and ns.BuffData.ForAura(spellId)
+    if buff then ns.Receipts.NoteNamed(caster, buff.key) end
     ns.Diag.Log("buff", "%s (spell %s): %s -> %s", spellName or "?", spellId, reason,
         caster and ("thank " .. caster) or "skip")
     if caster then BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId) end
