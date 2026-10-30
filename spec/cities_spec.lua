@@ -1,4 +1,4 @@
--- Spec: #34, #101, #36
+-- Spec: #34, #101, #36, #140
 -- Quiet mode in capital cities: no thank-yous and no buff-back button there,
 -- unless buff mode is on; the ledger and the favours still count.
 local wow = require("spec.support.wow")
