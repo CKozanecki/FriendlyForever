@@ -293,34 +293,44 @@ jobs:
 
       - name: Show the reports in the log
         run: |
+          # Simulator and shot output is untrusted (#153). shown puts a mark
+          # before each line, so the runner, which skips leading spaces, never
+          # reads one as a workflow command (::); turns carriage returns, which
+          # also end a line for the runner, into new lines; and breaks the old
+          # ##[ command, which the runner finds anywhere in a line.
+          shown() { tr '\r' '\n' | sed -e "s/^/${1:-| }/" -e 's/##\[/##(/g'; }
           for file in "$RUNNER_TEMP"/report/*; do
             echo "::group::$(basename "$file")"
-            head -c 60000 "$file"
+            head -c 60000 "$file" | shown
             echo
             echo "::endgroup::"
           done
 
       - name: Digest (client facts and Friendly Forever load errors)
         run: |
+          # The simulator's output, shown as in the step above (#153).
+          shown() { tr '\r' '\n' | sed -e "s/^/${1:-| }/" -e 's/##\[/##(/g'; }
           report="$RUNNER_TEMP/report"
-          # The simulator logs each A_Print line twice (as it runs, and in its
-          # console at the end), so repeats are dropped.
-          echo "--- client facts"
-          grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
-          echo "--- layout"
-          grep "LAYOUT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
-          echo "--- scenario results"
-          grep -E "✓|✗|tests," "$report/run-tests.log" || true
-          for size in $LAYOUT_SIZES; do
-            echo "--- layout at $size (#148)"
-            grep "LAYOUT " "$report/layout-$size.log" | awk '!seen[$0]++' | grep . || echo "none printed"
-            echo "--- scenario results at $size"
-            grep -E "✓|✗|tests," "$report/layout-$size.log" | awk '!seen[$0]++' || true
-          done
-          echo "--- load errors naming FriendlyForever"
-          grep -i -B2 -A8 "FriendlyForever" "$report/lua-errors.json" | head -80 || echo "none"
-          echo "--- frame tree lines naming FriendlyForever"
-          grep -i "FriendlyForever" "$report/frame-tree.txt" | head -40 || echo "none"
+          {
+            # The simulator logs each A_Print line twice (as it runs, and in its
+            # console at the end), so repeats are dropped.
+            echo "--- client facts"
+            grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
+            echo "--- layout"
+            grep "LAYOUT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
+            echo "--- scenario results"
+            grep -E "✓|✗|tests," "$report/run-tests.log" || true
+            for size in $LAYOUT_SIZES; do
+              echo "--- layout at $size (#148)"
+              grep "LAYOUT " "$report/layout-$size.log" | awk '!seen[$0]++' | grep . || echo "none printed"
+              echo "--- scenario results at $size"
+              grep -E "✓|✗|tests," "$report/layout-$size.log" | awk '!seen[$0]++' || true
+            done
+            echo "--- load errors naming FriendlyForever"
+            grep -i -B2 -A8 "FriendlyForever" "$report/lua-errors.json" | head -80 || echo "none"
+            echo "--- frame tree lines naming FriendlyForever"
+            grep -i "FriendlyForever" "$report/frame-tree.txt" | head -40 || echo "none"
+          } 2>&1 | shown
 
       - name: Summary
         run: |
@@ -458,6 +468,12 @@ jobs:
           # (/shots): the runner keeps each shot's log in shot-logs, which no
           # container mounts, so a shot can't plant a link there for the
           # runner's redirect to follow (#147).
+          # Simulator and shot output is untrusted (#153). shown puts a mark
+          # before each line, so the runner, which skips leading spaces, never
+          # reads one as a workflow command (::); turns carriage returns, which
+          # also end a line for the runner, into new lines; and breaks the old
+          # ##[ command, which the runner finds anywhere in a line.
+          shown() { tr '\r' '\n' | sed -e "s/^/${1:-| }/" -e 's/##\[/##(/g'; }
           shoot() {
             local name="$1"; shift
             local cid
@@ -486,14 +502,14 @@ jobs:
               fi
               if [ $((waited % 30)) -eq 0 ]; then
                 echo "$name: ${waited} s, $(docker stats --no-stream --format '{{.MemUsage}} cpu {{.CPUPerc}}' "$cid")"
-                docker logs --tail 2 "$cid" 2>&1 | sed "s/^/  $name> /"
+                docker logs --tail 2 "$cid" 2>&1 | shown "  $name> "
               fi
               sleep 5
               waited=$((waited + 5))
             done
             if [ "$(docker inspect -f '{{.State.Running}}' "$cid")" = "true" ]; then
               echo "$name: still running at the limit; its processes:"
-              docker top "$cid" -eo pid,stat,etime,args 2>&1 | sed "s/^/  $name> /" || true
+              docker top "$cid" -eo pid,stat,etime,args 2>&1 | shown "  $name> " || true
             fi
             docker kill "$cid" >/dev/null 2>&1 || true
             docker logs "$cid" > "$RUNNER_TEMP/shot-logs/$name$SUFFIX.log" 2>&1 || true
@@ -504,7 +520,7 @@ jobs:
           probe=$(docker run -d --init --network none --cap-drop ALL --security-opt no-new-privileges \
             -v "$RUNNER_TEMP/ui-sim-build/sim:/sim:ro" ff-render /sim/wow-sim --help)
           sleep 10
-          docker logs "$probe" 2>&1 | head -40 | sed 's/^/  probe> /'
+          docker logs "$probe" 2>&1 | head -40 | shown "  probe> "
           docker rm -f "$probe" >/dev/null 2>&1 || true
           # Every shot, at the size and suffix the pass set (#148).
           shoot_all() {
@@ -545,9 +561,9 @@ jobs:
             case "$size" in 1024x768) SUFFIX="" ;; *) SUFFIX="-$size" ;; esac
             shoot_all
           done
-          ls -la "$RUNNER_TEMP/shots" "$RUNNER_TEMP/shot-logs"
+          ls -laq "$RUNNER_TEMP/shots" "$RUNNER_TEMP/shot-logs" 2>&1 | shown
           for log in "$RUNNER_TEMP"/shot-logs/*.log; do
-            echo "::group::$(basename "$log")"; tail -60 "$log"; echo "::endgroup::"
+            echo "::group::$(basename "$log")"; tail -60 "$log" | shown; echo "::endgroup::"
           done
 
       # A shot could plant a link in its folder, and the upload would read
@@ -614,7 +630,8 @@ jobs:
             [ -f "$f" ] || continue
             name=$(basename "$f")
             # Only plain names, real PNG files, at most 5 MB each.
-            case "$name" in *[!A-Za-z0-9._-]*) echo "skipping $name"; continue ;; esac
+            # A name outside that set isn't printed: it could carry a workflow command (#153).
+            case "$name" in *[!A-Za-z0-9._-]*) echo "skipping a file with an unsafe name"; continue ;; esac
             [ "$(head -c 8 "$f" | od -An -tx1 | tr -d ' \n')" = "89504e470d0a1a0a" ] || { echo "not a PNG: $name"; continue; }
             [ "$(stat -c %s "$f")" -le 5242880 ] || { echo "too big: $name"; continue; }
             cp "$f" "$out/$name"
