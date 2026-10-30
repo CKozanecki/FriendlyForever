@@ -192,7 +192,11 @@ describe("Hidden channel", function()
             assert.are.equal(100 - C.SEND_BURST - C.MAX_QUEUE, refused)
             assert.are.equal(refused, count(ns, "commNotSent"))
             assert.are.equal(C.MAX_QUEUE, C.QueueLength())
-            assert.are.equal(1, #wow.timers, "one timer drains the queue, however many wait")
+            local pumps = 0
+            for _, t in ipairs(wow.timers) do
+                if not t.echo then pumps = pumps + 1 end -- the game sending our own back (#38)
+            end
+            assert.are.equal(1, pumps, "one timer drains the queue, however many wait")
         end)
 
         it("only uses the routes the game offers, and only those it's in (black)", function()

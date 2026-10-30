@@ -155,7 +155,7 @@ end
 -- before a tab switch or reset gives the boxes new contents.
 local function ClearEditFocus()
     local boxes = { widgets.steppers.delay.box, widgets.steppers.repeatCooldown.box,
-        widgets.steppers.owedMinutes.box, widgets.unknownName }
+        widgets.steppers.owedMinutes.box, widgets.steppers.maxGreeters.box, widgets.unknownName }
     for _, edit in ipairs(widgets.edits) do boxes[#boxes + 1] = edit end
     if widgets.who then
         boxes[#boxes + 1] = widgets.who.always
@@ -507,6 +507,11 @@ local function Fill()
     FillBox(widgets.steppers.delay.box, cfg.delay and tostring(cfg.delay) or "")
     FillBox(widgets.steppers.repeatCooldown.box, cfg.repeatCooldown and tostring(cfg.repeatCooldown) or "")
 
+    local isGuildLogin = currentType == "guildLogin"
+    ShowStepper(widgets.steppers.maxGreeters, isGuildLogin)
+    widgets.greetersHelp:SetShown(isGuildLogin)
+    if isGuildLogin then FillBox(widgets.steppers.maxGreeters.box, tostring(cfg.maxGreeters)) end
+
     local isBuffBack = currentType == "buffBack"
     widgets.sayLine:SetShown(isBuffBack)
     widgets.showInCities:SetShown(isBuffBack)
@@ -549,6 +554,8 @@ local function Fill()
     local above, x, y = widgets.steppers.repeatCooldown.label, 0, -18
     if isBuffBack then
         above, x, y = widgets.breathNearWater, 4, -14
+    elseif isGuildLogin then
+        above = widgets.greetersHelp
     elseif warn then
         above = widgets.nameplateWarning
     elseif isBuff then
@@ -671,6 +678,17 @@ function Options.Create()
     local repeatCooldown = Stepper(content, "Don't repeat to the same player for (seconds):", "repeatCooldown")
     repeatCooldown.label:SetPoint("TOPLEFT", widgets.enabled, "BOTTOMLEFT", 4, -10)
     widgets.steppers.repeatCooldown = repeatCooldown
+
+    -- Guild Login tab only, row 3: the most copies that greet one login (#38).
+    local maxGreeters = Stepper(content, "Most players with Friendly Forever who greet one login:", "maxGreeters")
+    maxGreeters.label:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", 0, -16)
+    widgets.steppers.maxGreeters = maxGreeters
+    widgets.greetersHelp = Label(content, "Everyone with the addon greets a guildmate who logs in, a few "
+        .. "seconds apart and with different lines, up to this many. Copies that can't reach the others "
+        .. "(inside an instance, say) greet anyway.", "GameFontHighlightSmall")
+    widgets.greetersHelp:SetPoint("TOPLEFT", maxGreeters.label, "BOTTOMLEFT", 0, -10)
+    widgets.greetersHelp:SetPoint("RIGHT", content, "RIGHT", -24, 0)
+    widgets.greetersHelp:SetWordWrap(true)
 
     -- Buff tab only, row 3: list buff names
     widgets.listNames = Checkbox(content, "Name the buffs in the message", function(on)

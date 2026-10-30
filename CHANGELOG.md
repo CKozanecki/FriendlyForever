@@ -2,6 +2,7 @@
 
 ### Unreleased
 
+- **Guild hellos:** when a guildmate logs in, everyone with the addon still greets them, but a few seconds apart (each waits a random 1 to 8 seconds more), with different lines, and at most 5 of you, set from 1 to 20 with **Most players with Friendly Forever who greet one login** on the **Guild Login** tab. Copies agree on this with hidden guild addon messages; a copy that can't use them (inside an instance, say) still greets after its random wait. When in doubt, a copy stays quiet rather than go past the limit, and debug mode says why. This version adds a file (GuildHellos.lua): after updating, restart the game; /reload isn't enough. (#38)
 - **Finding a setting:** `/friendly find <word>` lists the settings that match, with the page or tab each one is on, such as `/friendly find snooze` or `/friendly find nameplate`. Where the game's Settings panel has a search box that can look into addons, a **Find a setting** page lists every setting for it to find. This version adds a file (OptionsIndex.lua): after updating, restart the game; /reload isn't enough. (#48)
 
 ## 0.9.0

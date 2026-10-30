@@ -344,7 +344,8 @@ describe("Quiet mode in capital cities", function()
             ns.db.guildLogin.messages = { "Hi {name}" }
             wow.setMap(wow.CAPITAL.stormwind)
             wow.systemMessage("|Hplayer:Thrall|h[Thrall]|h has come online.")
-            wow.advance(ns.db.guildLogin.delay + 0.01)
+            -- After the shortest random wait and our announcement's round trip (#38).
+            wow.advance(ns.db.guildLogin.delay + ns.GuildHellos.STAGGER_MIN + wow.ADDON_ECHO_DELAY + 0.01)
             assert.are.same({ "Hi Thrall" }, wow.sentTo("GUILD"))
         end)
 
