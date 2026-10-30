@@ -778,6 +778,18 @@ describe("UI simulator layout check at more than one resolution (OnScreen, #148)
         atResolution(1920, 1080).OnScreen(frame, "wide")
     end)
 
+    it("leaves the line as it was when the client gives a width and no height (black)", function()
+        local checks, printed = loadChecks({
+            GetPhysicalScreenSize = function() return 1920 end,
+            UIParent = {
+                GetWidth = function() return 1920 end, GetHeight = function() return 1080 end,
+                GetEffectiveScale = function() return 1 end,
+            },
+        })
+        checks.OnScreen(frameAt(0, 100, 0, 100), "panel")
+        assert.is_truthy(printed[1]:find("^LAYOUT panel: "), printed[1])
+    end)
+
     it("leaves the line as it was where the client can't give a size, as in these specs (white)", function()
         local checks, printed = loadChecks({
             UIParent = {
