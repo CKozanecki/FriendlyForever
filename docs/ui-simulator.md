@@ -32,6 +32,7 @@ These come from Blizzard's UI code in the simulator, not from the addon. They're
 - `CompactArenaFrame.lua:318`: "secret access requires an untainted caller", when the party changes (#100, 11).
 - `AddonList.lua:899`: "table index is nil", when `ADDON_ACTION_BLOCKED` arrives with no addon name (#100, 13).
 - "AuraButton cannot be created by addons", from Blizzard's aura pool during `AdvanceTime` after an aura change (#100).
+- `Audio.lua:179`: `GetAvailableOutputDevices` is nil, during `AdvanceTime` (new at `ac893c6`; seen in #154's first run).
 
 Fixed by `ac893c6`, which stubs the missing functions with chosen defaults: `IsReplacingUnit` (`TargetFrame.lua:169`), `C_VoiceChat.CanAccessSettings`, `FlashClientIcon` (`LowHealthFrame.lua:176`) and `UnitPowerDisplayMod` (`ShardBar.lua:45`) (#100, 9, 10, 12).
 
