@@ -1010,6 +1010,10 @@ end
 -- walkthrough scrolls a step's row to, so a panel left unscrolled can't
 -- pass), and above the walkthrough's window. Prints a LAYOUT line, fails if
 -- it isn't, and returns the line.
+-- The simulator reads a scroll child's regions where they'd be unscrolled
+-- (docs/ui-simulator.md): when the scroll child's top reads as less than the
+-- view's top plus the offset, as the game puts it, the difference is added
+-- back. In the game it is 0.
 local NEAR_TOP = 40
 local function RowInView(row, scroll, walkthrough, label)
     local rt, rb = Edges(row, "GetTop", "GetBottom")
@@ -1020,12 +1024,17 @@ local function RowInView(row, scroll, walkthrough, label)
         report(line)
         return line
     end
-    local line = ("LAYOUT %s: row %.0f..%.0f, panel's view %.0f..%.0f, walkthrough's top %.0f"):format(
-        label, rb, rt, sb, st, wt)
     -- How far the panel is scrolled, of how far it can be, where the client
     -- says: a failure then shows whether the scroll or its range was missing.
     local offset, range = Measure(scroll, "GetVerticalScroll"), Measure(scroll, "GetVerticalScrollRange")
+    local okChild, child = pcall(function() return scroll:GetScrollChild() end)
+    local ct = okChild and child and Edges(child, "GetTop", "GetBottom")
+    local left = (offset and ct) and math.max(0, st + offset - ct) or 0
+    rt, rb = rt + left, rb + left
+    local line = ("LAYOUT %s: row %.0f..%.0f, panel's view %.0f..%.0f, walkthrough's top %.0f"):format(
+        label, rb, rt, sb, st, wt)
     if offset and range then line = line .. (", scrolled %.0f of %.0f"):format(offset, range) end
+    if left > 1 then line = line .. (" (%.0f of it added back: the client read the row unscrolled)"):format(left) end
     report(line)
     check(rt <= st + 1 and rb >= sb - 1, line .. ": the row is scrolled out of view")
     check(rt >= st - NEAR_TOP, line .. ": the row isn't scrolled to the top of the view")

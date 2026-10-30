@@ -858,6 +858,38 @@ describe("UI simulator layout checks for the walkthrough (AcrossInside, RowInVie
             printed[1])
     end)
 
+    -- A scroll frame as the simulator reads one scrolled by 489: its scroll
+    -- child's top reads as the view's own, unscrolled, or (game) 489 above.
+    local function scrolledBy(childTop)
+        local child = region({ top = childTop, bottom = childTop - 1944 })
+        return region({ top = 678, bottom = 85 }, {
+            GetVerticalScroll = function() return 489 end, GetVerticalScrollRange = function() return 1944 end,
+            GetScrollChild = function() return child end,
+        })
+    end
+
+    it("adds back a scroll the client's reading leaves out, and only that (white)", function()
+        checks.RowInView(region({ top = 177, bottom = 165 }), scrolledBy(678), walkthrough, "row")
+        assert.are.equal("LAYOUT row: row 654..666, panel's view 85..678, walkthrough's top 350, scrolled 489 of 1944"
+            .. " (489 of it added back: the client read the row unscrolled)", printed[1])
+        -- In the game the child's top is already 489 above the view's, and the row reads where it's drawn.
+        checks.RowInView(region({ top = 666, bottom = 654 }), scrolledBy(678 + 489), walkthrough, "row")
+        assert.are.equal("LAYOUT row: row 654..666, panel's view 85..678, walkthrough's top 350, scrolled 489 of 1944",
+            printed[2])
+        -- A child reading higher still takes nothing away.
+        checks.RowInView(region({ top = 666, bottom = 654 }), scrolledBy(678 + 539), walkthrough, "row")
+        assert.are.equal("LAYOUT row: row 654..666, panel's view 85..678, walkthrough's top 350, scrolled 489 of 1944",
+            printed[3])
+        -- Read unscrolled with no scroll at all, the row stays where it reads, and fails.
+        local err = fails(function()
+            checks.RowInView(region({ top = 177, bottom = 165 }), region({ top = 678, bottom = 85 }, {
+                GetVerticalScroll = function() return 0 end, GetVerticalScrollRange = function() return 1944 end,
+                GetScrollChild = function() return region({ top = 678, bottom = -1266 }) end,
+            }), walkthrough, "row")
+        end)
+        assert.is_truthy(err:find("isn't scrolled to the top of the view", 1, true), err)
+    end)
+
     it("fails a row in view but not scrolled to the top, as an unscrolled panel leaves it (black)", function()
         checks.RowInView(region({ top = 660, bottom = 646 }), scroll, walkthrough, "row")
         local err = fails(function() checks.RowInView(region({ top = 659, bottom = 645 }), scroll, walkthrough, "row") end)
