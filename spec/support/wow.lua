@@ -501,6 +501,15 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         find the name on its own next check. What Forever's
 --                         UnitName returns for a member still loading is
 --                         checked at launch (#50).
+--   state.settingsSearch  the Settings panel's search (#48): nil (default,
+--                         the pessimistic choice) is a client without
+--                         Settings.RegisterVerticalLayoutSubcategory or
+--                         CreateSettingsListSectionHeaderInitializer; true
+--                         has both, as retail's does, and its search box
+--                         finds a heading by its search tags (M.searchSettings);
+--                         "noTags": headings without AddSearchTags. Whether
+--                         Forever's panel has a search box, and finds these,
+--                         is checked at launch (#50).
 ------------------------------------------------------------------------
 
 local function targetableName(u)
@@ -1370,6 +1379,7 @@ function M.reset()
         end,
         OpenToCategory = function(id) M.settings.opened = id end,
     }
+    _G.CreateSettingsListSectionHeaderInitializer = nil
     -- The addon drop-down under the minimap. state.noCompartment: this client has none.
     M.compartment = {}
     _G.AddonCompartmentFrame = {
@@ -1418,10 +1428,52 @@ M.TURN_ON_TRIGGERS = { "autoOnJoin", "autoOnDeath", "autoOnBuffed" }
 -- Fresh client, addon loaded, logged in and past the login grace period.
 -- opts.db: saved variables to start with. opts.noGrace: stop after login.
 -- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
+-- The Settings panel's search (state.settingsSearch, see ASSUMPTIONS): vertical
+-- pages, whose headings M.searchSettings finds by their search tags.
+function M.addSettingsSearch(withTags)
+    M.settings.vertical = {}
+    _G.Settings.RegisterVerticalLayoutSubcategory = function(parent, name)
+        local layout = { initializers = {} }
+        function layout:AddInitializer(init) self.initializers[#self.initializers + 1] = init end
+        local sub = { name = name, parent = parent, layout = layout, GetID = function() return name end }
+        M.settings.subcategories[#M.settings.subcategories + 1] = sub
+        M.settings.vertical[#M.settings.vertical + 1] = sub
+        return sub, layout
+    end
+    _G.CreateSettingsListSectionHeaderInitializer = function(text)
+        local init = { text = text, tags = {} }
+        if withTags then
+            function init:AddSearchTags(...)
+                for i = 1, select("#", ...) do self.tags[#self.tags + 1] = (select(i, ...)) end
+            end
+        end
+        return init
+    end
+end
+
+-- What the search box shows for text: the heading text of every heading
+-- with a search tag containing it (any case, plain text).
+function M.searchSettings(text)
+    local shown = {}
+    text = text:lower()
+    for _, sub in ipairs(M.settings.vertical or {}) do
+        for _, init in ipairs(sub.layout.initializers) do
+            for _, tag in ipairs(init.tags) do
+                if tag:lower():find(text, 1, true) then
+                    shown[#shown + 1] = init.text
+                    break
+                end
+            end
+        end
+    end
+    return shown
+end
+
 function M.boot(opts)
     opts = opts or {}
     M.reset()
     if opts.before then opts.before(M.state) end
+    if M.state.settingsSearch then M.addSettingsSearch(M.state.settingsSearch ~= "noTags") end
     -- Which turn-on triggers the given settings set, read before loading
     -- fills in every default (see below).
     local triggersGiven = {}
