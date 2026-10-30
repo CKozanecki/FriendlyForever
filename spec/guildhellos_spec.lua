@@ -721,7 +721,8 @@ describe("Guild hellos (#38)", function()
                 c.ns.Diag.Log = function(category, fmt, ...)
                     local ok, line = pcall(string.format, fmt, ...)
                     if ok and category == "guildLogin" then
-                        if line:find("other copies announced first", 1, true) then
+                        -- Not "greeting X: N other copies announced first".
+                        if line:find("other copies announced first (most:", 1, true) then
                             reached.capAtEcho = reached.capAtEcho + 1
                         elseif line:find("other copies already greet them", 1, true) then
                             reached.capBefore = reached.capBefore + 1
@@ -768,7 +769,8 @@ describe("Guild hellos (#38)", function()
             return clients, logins, cap, Hellos(clients)
         end
 
-        for _, seed in ipairs({ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 38, 138, 2026 }) do
+        local SEEDS = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 38, 138, 2026 }
+        for _, seed in ipairs(SEEDS) do
             it("never sends more than K hellos for one login (seed " .. seed .. ")", function()
                 local clients, logins, cap, hellos = storm(seed)
                 -- A hello greets a login of the name it says, at most `reach`
@@ -801,6 +803,9 @@ describe("Guild hellos (#38)", function()
         end
 
         it("reached every outcome it guards, across the seeds", function()
+            -- Its own storms: no test depends on another's order.
+            reached = { capAtEcho = 0, capBefore = 0, lost = 0 }
+            for _, seed in ipairs(SEEDS) do storm(seed) end
             assert.is_true(reached.capAtEcho > 0, "copies that announced together, cut to K")
             assert.is_true(reached.capBefore > 0, "copies that heard K and stayed quiet")
             assert.is_true(reached.lost > 0, "lost GREETs")
