@@ -1,4 +1,4 @@
--- Spec: #35, #52, #90, #112
+-- Spec: #35, #52, #90, #112, #148
 -- The UI simulator's layout check (uitests/scenarios.lua), run here against
 -- stand-in regions whose edges, anchors and text sizes each test sets
 -- itself, so the expected answer comes from those numbers and not from the
@@ -6,12 +6,13 @@
 
 -- Loads the scenario file the way the simulator does, with test() and
 -- A_Print stubbed, and returns its layout checks and what they printed.
-local function loadChecks()
+local function loadChecks(extra)
     local printed = {}
     local env = setmetatable({
         test = function() end,
         A_Print = function(text) printed[#printed + 1] = text end,
     }, { __index = _G })
+    for name, value in pairs(extra or {}) do env[name] = value end
     local chunk = assert(loadfile("uitests/scenarios.lua"))
     setfenv(chunk, env)
     return chunk(), printed
@@ -729,5 +730,74 @@ describe("UI simulator: the message rows' order and settling a tab's layout (#11
         local twice = {}
         for _ = 1, 2 do for _, step in ipairs(once) do twice[#twice + 1] = step end end
         assert.are.same(twice, log, "a region with no anchors is left alone")
+    end)
+end)
+
+describe("UI simulator layout check at more than one resolution (OnScreen, #148)", function()
+    -- A screen of the given pixel size, as the simulator's UIParent answers it
+    -- at scale 1: one canvas unit a pixel (src/bin/wow_sim/gui_commands.rs).
+    local function atResolution(width, height)
+        return loadChecks({
+            GetPhysicalScreenSize = function() return width, height end,
+            UIParent = {
+                GetWidth = function() return width end,
+                GetHeight = function() return height end,
+                GetEffectiveScale = function() return 1 end,
+            },
+        })
+    end
+
+    -- A frame at scale 1 with these edges.
+    local function frameAt(left, right, bottom, top)
+        local f = region({ left = left, right = right, bottom = bottom, top = top })
+        f.GetEffectiveScale = function() return 1 end
+        return f
+    end
+
+    it("names the resolution in each LAYOUT line (white)", function()
+        for _, size in ipairs({ { 1024, 768 }, { 1920, 1080 } }) do
+            local checks, printed = atResolution(size[1], size[2])
+            checks.OnScreen(frameAt(100, 300, 100, 200), "panel")
+            local expected = ("LAYOUT [%dx%d] panel: 100..300 x 100..200, screen %d x %d"):format(
+                size[1], size[2], size[1], size[2])
+            assert.are.same({ expected }, printed)
+        end
+    end)
+
+    it("fails a frame that is off screen at 1920 x 1080 and on screen at 2560 x 1440 (black)", function()
+        local frame = frameAt(1800, 1925, 100, 200)
+        local err = fails(function() atResolution(1920, 1080).OnScreen(frame, "right edge") end)
+        assert.truthy(err:find("screen 1920 x 1080", 1, true) and err:find("off the screen", 1, true), err)
+        atResolution(2560, 1440).OnScreen(frame, "right edge")
+    end)
+
+    it("passes at 1920 x 1080 a frame that is off screen at 1024 x 768, so each size is judged on its own (black)", function()
+        local frame = frameAt(1000, 1100, 700, 800)
+        local err = fails(function() atResolution(1024, 768).OnScreen(frame, "wide") end)
+        assert.truthy(err:find("off the screen", 1, true), err)
+        atResolution(1920, 1080).OnScreen(frame, "wide")
+    end)
+
+    it("leaves the line as it was when the client gives a width and no height (black)", function()
+        local checks, printed = loadChecks({
+            GetPhysicalScreenSize = function() return 1920 end,
+            UIParent = {
+                GetWidth = function() return 1920 end, GetHeight = function() return 1080 end,
+                GetEffectiveScale = function() return 1 end,
+            },
+        })
+        checks.OnScreen(frameAt(0, 100, 0, 100), "panel")
+        assert.is_truthy(printed[1]:find("^LAYOUT panel: "), printed[1])
+    end)
+
+    it("leaves the line as it was where the client can't give a size, as in these specs (white)", function()
+        local checks, printed = loadChecks({
+            UIParent = {
+                GetWidth = function() return 1024 end, GetHeight = function() return 768 end,
+                GetEffectiveScale = function() return 1 end,
+            },
+        })
+        checks.OnScreen(frameAt(0, 100, 0, 100), "panel")
+        assert.is_truthy(printed[1]:find("^LAYOUT panel: "), printed[1])
     end)
 end)
