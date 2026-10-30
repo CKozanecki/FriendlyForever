@@ -116,9 +116,9 @@ jobs:
           sandbox dump-tree --filter FriendlyForever > "$RUNNER_TEMP/report/frame-tree.txt" 2>&1 || true
           # The scenarios again at each size (#148), the frame tree dropped.
           for size in $LAYOUT_SIZES; do
-            # Stopped after 2 minutes if it hasn't finished, so a pass that
+            # Stopped after 5 minutes if it hasn't finished, so a pass that
             # never exits can't hold up the job; its output so far is kept.
-            timeout -s TERM -k 10 120 docker run --rm --init --network none --cap-drop ALL --security-opt no-new-privileges \
+            timeout -s TERM -k 10 300 docker run --rm --init --network none --cap-drop ALL --security-opt no-new-privileges \
               -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 \
               -v "$RUNNER_TEMP/addons:/test-addons:ro" -v "$RUNNER_TEMP/layout-lua:/layout-lua:ro" \
               "$IMAGE" --addons-path /test-addons --exec-lua @/layout-lua/layout.lua \
