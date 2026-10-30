@@ -6,7 +6,7 @@
 # shot used publicly as simulated. See "Screenshots with Forever's art" in
 # docs/ui-simulator.md.
 #
-#   scripts/ui-sim-local-art.sh [--product CODE] OUTPUT_FOLDER [FOREVER_INSTALL]
+#   scripts/ui-sim-local-art.sh [--size WxH] [--product CODE] OUTPUT_FOLDER [FOREVER_INSTALL]
 #
 # FOREVER_INSTALL is the folder holding the install's Data/ and .build.info
 # (or set WOW_INSTALL_PATH). It's never guessed. OUTPUT_FOLDER must be
@@ -47,6 +47,9 @@ readonly FOREVER_UI_VERSION=1.60.1.70532
 # The simulator's Forever profile reads this CASC product
 # (src/asset_resolver_config.rs). A launch check on #50; --product overrides.
 readonly DEFAULT_PRODUCT=wowf
+# The shots' size: what most players play at, the owner's choice (#139).
+# CI's shots stay at 1024x768; --size takes any other.
+readonly DEFAULT_SIZE=1920x1080
 
 readonly BUILD_IMAGE=ff-art-build
 readonly RENDER_IMAGE=ff-art-render
@@ -75,13 +78,14 @@ say() { printf '==> %s\n' "$1"; }
 
 usage() {
     cat <<'USAGE'
-Usage: scripts/ui-sim-local-art.sh [--product CODE] OUTPUT_FOLDER [FOREVER_INSTALL]
+Usage: scripts/ui-sim-local-art.sh [--size WxH] [--product CODE] OUTPUT_FOLDER [FOREVER_INSTALL]
 
 Takes the UI simulator's screenshots with Forever's own art, from your
 local install. OUTPUT_FOLDER must be outside any git repository.
 FOREVER_INSTALL is the folder holding Data/ and .build.info, usually
 "/Applications/World of Warcraft"; or set WOW_INSTALL_PATH instead.
---product CODE picks the install's CASC product (default: wowf).
+--size WxH sets the shots' size in pixels (default: 1920x1080; CI's is
+1024x768). --product CODE picks the install's CASC product (default: wowf).
 USAGE
 }
 
@@ -193,6 +197,22 @@ resolve_output() {
         die "The output folder holds other files, such as ${entry##*/}: $OUT" \
             "Give a new folder, or one an earlier run of this script made."
     done
+}
+
+# The shots' size, as WIDTHxHEIGHT in pixels: from 640x480 to 3840x2160.
+check_size() {
+    case "$SIZE" in
+        [1-9]*x[1-9]*) ;;
+        *) die "--size must be WIDTHxHEIGHT in pixels, such as 1920x1080: '$SIZE'" ;;
+    esac
+    WIDTH="${SIZE%%x*}"
+    HEIGHT="${SIZE#*x}"
+    case "$WIDTH$HEIGHT" in
+        *[!0-9]*) die "--size must be WIDTHxHEIGHT in pixels, such as 1920x1080: '$SIZE'" ;;
+    esac
+    [ "${#WIDTH}" -le 4 ] && [ "${#HEIGHT}" -le 4 ] && [ "$WIDTH" -ge 640 ] && [ "$WIDTH" -le 3840 ] \
+        && [ "$HEIGHT" -ge 480 ] && [ "$HEIGHT" -le 2160 ] \
+        || die "--size must be from 640x480 to 3840x2160: '$SIZE'"
 }
 
 check_seconds() {
@@ -414,7 +434,7 @@ shoot() {
         -v "$WORK/shot-lua:/shot-lua:ro" \
         -v "$OUT/shots:/shots" \
         "$RENDER_IMAGE" sh -c "$LINK_UI" sh --addons-path /test-addons "$@" \
-        screenshot --png --width 1024 --height 768 -o "/shots/sim-$name.png")"; then
+        screenshot --png --width "$WIDTH" --height "$HEIGHT" -o "/shots/sim-$name.png")"; then
         echo "$name: couldn't start its container"
         return 0
     fi
@@ -505,6 +525,7 @@ report() {
 
 main() {
     PRODUCT="$DEFAULT_PRODUCT"
+    SIZE="$DEFAULT_SIZE"
     SHOTS=""
     local output="" install="${WOW_INSTALL_PATH:-}" positional=0
     while [ $# -gt 0 ]; do
@@ -512,6 +533,8 @@ main() {
             -h | --help) usage; exit 0 ;;
             --product) [ $# -ge 2 ] || die "--product needs a code."; PRODUCT="$2"; shift ;;
             --product=*) PRODUCT="${1#--product=}" ;;
+            --size) [ $# -ge 2 ] || die "--size needs a size, such as 1024x768."; SIZE="$2"; shift ;;
+            --size=*) SIZE="${1#--size=}" ;;
             -*) usage >&2; die "Unknown option: $1" ;;
             *)
                 positional=$((positional + 1))
@@ -529,6 +552,7 @@ main() {
     WORK="${XDG_CACHE_HOME:-$HOME/.cache}/friendlyforever/ui-sim-local-art"
     check_mountable "The working folder's path" "$WORK"
     check_seconds
+    check_size
     OPTIONS_TABS="$(options_tabs)"
     resolve_install "$install"
     check_product
@@ -539,7 +563,7 @@ main() {
     check_docker
 
     echo "Install:  $INSTALL (product $PRODUCT; only Data/, .build.info and .product.db, read-only)"
-    echo "Output:   $OUT"
+    echo "Output:   $OUT (shots at ${WIDTH}x${HEIGHT})"
     echo "Working:  $WORK"
     install_traps
     cleanup_containers

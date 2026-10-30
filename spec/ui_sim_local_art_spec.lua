@@ -95,7 +95,8 @@ end
 -- isn't in the folder mounted at /shot-lua. Its state is a file per
 -- container: exists-<id>, label-<id>, running-<id> while it runs, start-<id>
 -- (when it started) and killed-<id> (seconds from start to a kill while it
--- ran). ps honours -a and --filter label=; without -a it lists only running
+-- ran); "sizes" lists each shot's --width x --height. ps honours -a and
+-- --filter label=; without -a it lists only running
 -- containers. "no-daemon" makes docker info fail, as when Docker Desktop is
 -- stopped; "arch" and "ncpu" set the architecture and CPUs it reports.
 local fakeDocker = [=[#!/bin/bash
@@ -116,10 +117,12 @@ case "$command" in
     esac ;;
   run)
     [ "$1" = -d ] || exit 0
-    name= shots= lua= addons= label= exec= previous=
+    name= shots= lua= addons= label= exec= width= height= previous=
     for arg in "$@"; do
       case "$previous" in
         -o) name=${arg#/shots/sim-}; name=${name%.png} ;;
+        --width) width=$arg ;;
+        --height) height=$arg ;;
         --label) label=$arg ;;
         --exec-lua) exec=$arg ;;
         -v)
@@ -138,6 +141,7 @@ case "$command" in
     cid=c$n
     touch "$dir/exists-$cid"
     printf '%s' "$label" > "$dir/label-$cid"
+    echo "$name ${width}x$height" >> "$dir/sizes"
     now > "$dir/start-$cid"
     png="$shots/sim-$name.png"
     if [ ! -f "$addons/FriendlyForever/FriendlyForever.toc" ]; then behaviour=fail; fi
@@ -291,7 +295,8 @@ describe("Local art screenshots script", function()
         return kept
     end
 
-    it("takes the same shots as ui-sim.yml, at 1024×768, each named as simulated", function()
+    it("takes the same shots as ui-sim.yml, at the size asked for (1920×1080 unless told), each named as simulated",
+        function()
         local workflow = workflowText()
         local shots = shotBlock(text)
         assert.is_true(#shots >= 9, "expected the screenshot job's shots")
@@ -301,7 +306,10 @@ describe("Local art screenshots script", function()
             assert.are.same(linesMatching(workflow, loop), linesMatching(text, loop))
         end
         assert.is_truthy(text:find("FriendlyForeverUIPages.ShowTab", 1, true), "the tabs' scripts aren't staged")
-        assert.is_truthy(text:find('screenshot --png --width 1024 --height 768 -o "/shots/sim-$name.png"', 1, true))
+        assert.is_truthy(text:find('screenshot --png --width "$WIDTH" --height "$HEIGHT" -o "/shots/sim-$name.png"', 1,
+            true))
+        -- The owner's default (#139): what most players play at.
+        assert.is_truthy(text:find("\nreadonly DEFAULT_SIZE=1920x1080\n", 1, true), "the default size isn't 1920x1080")
         -- The tab list is read from ui-sim.yml, not copied.
         assert.is_falsy(text:find("OPTIONS_TABS=[^\"]"), "the tab list is copied into the script")
         assert.is_truthy(text:find('OPTIONS_TABS="$(options_tabs)"', 1, true))
@@ -498,6 +506,38 @@ describe("Local art screenshots script", function()
             end
         end)
 
+        it("stops on a --size that isn't WIDTHxHEIGHT from 640x480 to 3840x2160", function()
+            local install = fakeInstall(dir)
+            for _, size in ipairs({ "", "1024", "1024x", "x768", "1024X768", "1024x768x2", "a x b", "01024x768",
+                "1024x0768", "-1x768", "1024 x768", "1024x768;id" }) do
+                refused("--size must be WIDTHxHEIGHT in pixels", { "--size", size, dir .. "/out", install })
+                refused("--size must be WIDTHxHEIGHT in pixels", { "--size=" .. size, dir .. "/out", install })
+            end
+            for _, size in ipairs({ "639x480", "640x479", "3841x2160", "3840x2161", "99999x1080", "1920x99999" }) do
+                refused("--size must be from 640x480 to 3840x2160", { "--size", size, dir .. "/out", install })
+            end
+            refused("--size needs a size", { dir .. "/out", install, "--size" })
+            -- Too long for the shell's numbers: refused by its length, before
+            -- any comparison could fail noisily or wrap around.
+            for _, size in ipairs({ ("9"):rep(20) .. "x1080", "1920x" .. ("1"):rep(20) }) do
+                local output = refused("--size must be from 640x480 to 3840x2160", { "--size", size, dir .. "/out",
+                    install })
+                assert.is_falsy(output:find("integer", 1, true), output)
+            end
+        end)
+
+        it("takes a --size at either end of its range, in either form", function()
+            local install = fakeInstall(dir)
+            write(bin .. "/bin/no-daemon", "")
+            for _, args in ipairs({ { "--size", "640x480" }, { "--size=3840x2160" }, { "--size", "1024x768" } }) do
+                args[#args + 1] = dir .. "/out"
+                args[#args + 1] = install
+                local code, output = run(args)
+                assert.are_not.equal(0, code)
+                assert.is_truthy(output:find("Docker isn't running", 1, true), output)
+            end
+        end)
+
         it("stops on an install path that would change its docker mounts", function()
             for _, name in ipairs({ "a:b", "a\nb" }) do
                 local parent = dir .. "/" .. name
@@ -636,6 +676,7 @@ describe("Local art screenshots script", function()
             local output = p:read("*a")
             p:close()
             assert.is_truthy(output:find("Done: all 0 shots", 1, true), output)
+            assert.is_truthy(output:find("(shots at 1920x1080)", 1, true), output)
             local log = {}
             for line in read(dir .. "/steps"):gmatch("[^\n]+") do log[#log + 1] = line end
             local expected = {}
@@ -820,7 +861,7 @@ describe("Local art screenshots script", function()
 
         -- Sources the script (which then runs nothing by itself) with the
         -- stand-in docker, and runs body with the settings main would make.
-        local function source(body, behaviours, seconds)
+        local function source(body, behaviours, seconds, size)
             for name, behaviour in pairs(behaviours or {}) do write(bin .. "/bin/behave-" .. name, behaviour) end
             write(dir .. "/run.sh", table.concat({
                 "export PATH=" .. quote(bin .. "/bin") .. ':"$PATH"',
@@ -828,7 +869,7 @@ describe("Local art screenshots script", function()
                 "source " .. quote(SCRIPT),
                 'OPTIONS_TABS="$(options_tabs)" SHOTS=""',
                 "OUT=" .. quote(dir .. "/out") .. " WORK=" .. quote(dir .. "/work") .. " INSTALL=" .. quote(dir .. "/wow")
-                    .. " PRODUCT=wowf SHOT_CPUS=1",
+                    .. " PRODUCT=wowf SHOT_CPUS=1 SIZE=" .. (size or "1920x1080") .. " && check_size",
                 -- The addon and the shots' scripts, as main stages them.
                 "mkdir -p " .. quote(dir .. "/work") .. " && stage_addon > /dev/null && stage_shot_scripts",
                 body,
@@ -954,6 +995,21 @@ describe("Local art screenshots script", function()
                 .. " -perm -u=w")
             assert.are.equal("", p:read("*a"), "staged files are left writable")
             p:close()
+        end)
+
+        it("takes every shot at 1920×1080, or at the size asked for", function()
+            for _, case in ipairs({ { nil, "1920x1080" }, { "1024x768", "1024x768" }, { "2560x1440", "2560x1440" } }) do
+                os.remove(bin .. "/bin/sizes")
+                os.execute("rm -f " .. quote(bin .. "/bin") .. "/count")
+                local code, output = source("prepare_output; take_shots; report", nil, nil, case[1])
+                assert.are.equal(0, code, output)
+                local sizes, count = read(bin .. "/bin/sizes"), 0
+                for name, size in sizes:gmatch("(%S+) (%S+)\n") do
+                    count = count + 1
+                    assert.are.equal(case[2], size, name)
+                end
+                assert.are.equal(#expectedShots(), count)
+            end
         end)
 
         it("carries on when docker refuses to start a shot", function()
