@@ -2,6 +2,7 @@
 
 ### Unreleased
 
+- **Guild hellos:** when a guildmate logs in, everyone with the addon still greets them, but a few seconds apart (each waits a random 1 to 8 seconds more), with different lines, and at most 5 of you, set from 1 to 20 with **Most players with Friendly Forever who greet one login** on the **Guild Login** tab. Copies agree on this with hidden guild addon messages; a copy that can't use them (inside an instance, say) still greets after its random wait. When in doubt, a copy stays quiet rather than go past the limit, and debug mode says why. This version adds a file (GuildHellos.lua): after updating, restart the game; /reload isn't enough. (#38)
 - **Top-up timing:** in buff mode, a buff you give (Mark of the Wild, say, whoever cast it) on a party or raid member with less than 5 minutes left counts as missing, so the button offers to renew it before it runs out. Set the minutes (0 to 15; 0 waits until it's gone) with **Top up my buffs with under** on the **Buff Back** tab; it goes with profiles and settings lines. It only renews a rank you can cast over (not a higher rank than yours, a group version such as Gift of the Wild, or a scroll), never a buff no longer than the setting, and never when the game won't say how long a buff has left. A paladin renews their own Blessing and never swaps it for another. Strangers (buff back) are unchanged. (#42)
 
 ## 0.9.0

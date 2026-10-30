@@ -37,6 +37,7 @@ Config.LIMITS = {
     autoOffMinutes = { min = 0, max = 30 },  -- buff mode a trigger turned on ends after this (0: never)
     topUpMinutes   = { min = 0, max = 15 },  -- a group member's buff with less left counts as missing (0: never)
     linesPerMinute = { min = 1, max = 10 },  -- the most lines each chat type gets a minute (ChatQueue)
+    maxGreeters    = { min = 1, max = 20 },  -- the most copies of the addon that greet one login (#38)
 }
 
 -- Order of message types (also the order of the options tabs).
@@ -100,6 +101,9 @@ Config.DEFAULTS = {
         enabled = true,
         delay = 3,
         repeatCooldown = 180,
+        -- The most copies of the addon in the guild that greet one login
+        -- (GuildHellos.lua): the owner's decision on #38.
+        maxGreeters = 5,
         messages = DefaultMessages.guildLogin,
     },
     buff = {
@@ -263,6 +267,7 @@ Config.FIELD_VALIDATORS = {
     delay = Limited("delay"),
     repeatCooldown = Limited("repeatCooldown"),
     owedMinutes = Limited("owedMinutes"),
+    maxGreeters = Limited("maxGreeters"),
     thankStyle = function(value, default) return Config.THANK_STYLES[value] and value or default end,
     fallback = function(value, default) return Config.FALLBACKS[value] and value or default end,
     unknownName = function(value, default)

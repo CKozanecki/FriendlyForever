@@ -88,6 +88,7 @@ end
 local sendBucket = NewBucket(Comm.SEND_BURST, 0)
 local allBucket = NewBucket(Comm.ALL_BURST, 0)
 local senders, senderCount = {}, 0
+local crowdDrops = 0 -- messages dropped by the limits on everyone together
 
 -- Make room for new senders: forget those whose bucket has refilled (they
 -- would start full anyway).
@@ -103,18 +104,32 @@ end
 
 -- Per sender first, so one flooding player can't use up everyone's share.
 -- When MAX_SENDERS are all busy, a new sender waits: forgetting a busy one
--- would hand a flooder a fresh allowance.
+-- would hand a flooder a fresh allowance. Drops by the limits on everyone
+-- together (a crowd, not one flooder) are counted: see CrowdDrops.
 local function AllowIncoming(name, now)
     local bucket = senders[name]
     if not bucket then
         if senderCount >= Comm.MAX_SENDERS then ForgetIdleSenders(now) end
-        if senderCount >= Comm.MAX_SENDERS then return false end
+        if senderCount >= Comm.MAX_SENDERS then
+            crowdDrops = crowdDrops + 1
+            return false
+        end
         bucket = NewBucket(Comm.PEER_BURST, now)
         senders[name] = bucket
         senderCount = senderCount + 1
     end
     if not Take(bucket, Comm.PEER_BURST, Comm.PEER_REFILL, now) then return false end
-    return Take(allBucket, Comm.ALL_BURST, Comm.ALL_REFILL, now)
+    if Take(allBucket, Comm.ALL_BURST, Comm.ALL_REFILL, now) then return true end
+    crowdDrops = crowdDrops + 1
+    return false
+end
+
+-- How many messages the limits on everyone together have dropped this
+-- session. Our own limiter keeps each copy within its own sender's limit,
+-- so only these can drop a well-behaved copy's message: a feature that
+-- counts other copies' messages can't trust its count once this changes.
+function Comm.CrowdDrops()
+    return crowdDrops
 end
 
 -- How many senders' limits are being kept (at most MAX_SENDERS).
@@ -157,10 +172,25 @@ function Comm.Field.KeyList(text)
     return true
 end
 
+-- A full name ("First-Surname"), as Util.FullName writes it.
+function Comm.Field.Name(text)
+    return #text <= 64 and Util.FullName(text) == text
+end
+
+-- A message line's number: 1 to Config.NUM_MESSAGES, no leading zero.
+function Comm.Field.Line(text)
+    local n = text:find("^[1-9]%d?$") and tonumber(text)
+    return n ~= nil and n <= ns.Config.NUM_MESSAGES
+end
+
 -- spec = {
 --   fields = { check, ... }: exactly this many fields, each passing its check;
 --   routes = { WHISPER = true, ... }: the routes it may arrive and be sent on;
---   handler = function(sender, fields, route): sender is the full name.
+--   handler = function(sender, fields, route): sender is the full name;
+--   echo = optional true: our own group and guild messages of this type,
+--          which the game sends back to us, reach the handler too (sender
+--          is then our own name). They skip the incoming limits: our own
+--          limiter already holds them.
 -- }
 -- Handlers only record what they're told. They must never cast, send chat
 -- or change saved settings.
@@ -234,6 +264,22 @@ local function Split(text)
     end
 end
 
+-- One of our own messages, back from the game. Only a type registered
+-- with echo hears it, and only exactly as we'd have sent it.
+local function OnEcho(text, route, me)
+    if type(text) ~= "string" then return end
+    local parts = Split(text)
+    local spec = types[parts[2]]
+    if not (spec and spec.echo and spec.routes[route]) then return end
+    if #parts ~= 3 + #spec.fields or parts[1] ~= tostring(Comm.VERSION) or parts[3] ~= me then return end
+    local fields = {}
+    for i, check in ipairs(spec.fields) do
+        fields[i] = parts[3 + i]
+        if not check(fields[i]) then return end
+    end
+    ns.Diag.Call(spec.handler, me, fields, route)
+end
+
 -- CHAT_MSG_ADDON: prefix, text, route, sender.
 function Comm.OnAddonMessage(prefix, text, route, sender)
     -- A secret prefix can't be compared, so we can't tell whose message it
@@ -245,8 +291,9 @@ function Comm.OnAddonMessage(prefix, text, route, sender)
     end
     local name = Util.FullName(sender)
     if not name then return Reject("commMalformed", "no readable sender") end
-    -- Our own group and guild messages come back to us.
-    if name == Util.UnitFullName("player") then return end
+    -- Our own group and guild messages come back to us: only a type that
+    -- asks for them (spec.echo) gets them, and nothing about them counts.
+    if name == Util.UnitFullName("player") then return OnEcho(text, route, name) end
     if type(text) ~= "string" then return Reject("commMalformed", "no text", name) end
     if #text > Comm.MAX_BYTES then return Reject("commOversized", #text .. " bytes", name) end
     if not ALL_ROUTES[route] then return Reject("commWrongRoute", "route " .. tostring(route), name) end
@@ -526,4 +573,24 @@ Comm.RegisterType("RECEIPT", {
     fields = { Comm.Field.Key, Comm.Field.Version },
     routes = { WHISPER = true },
     handler = function(sender, fields) ns.Receipts.OnReceipt(sender, fields[1]) end,
+})
+
+
+------------------------------------------------------------------------
+-- GREET: "I'm about to greet this guildmate, with this line" (#38)
+------------------------------------------------------------------------
+
+-- Sent to the guild by a copy about to greet a guildmate who logged in
+-- (GuildHellos.lua). Fields: their full name and our line's number, never
+-- free text. It can only make the receiver pick another line, or leave
+-- the hello to the copies that announced theirs first.
+function Comm.SendGreet(name, line)
+    return Comm.Send("GREET", { name, tostring(line) }, "GUILD")
+end
+
+Comm.RegisterType("GREET", {
+    fields = { Comm.Field.Name, Comm.Field.Line },
+    routes = { GUILD = true },
+    echo = true,
+    handler = function(sender, fields) ns.GuildHellos.OnGreet(sender, fields[1], tonumber(fields[2])) end,
 })

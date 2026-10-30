@@ -1,4 +1,4 @@
--- Spec: #80, #35
+-- Spec: #80, #35, #38
 local wow = require("spec.support.wow")
 
 describe("Greetings", function()
@@ -6,6 +6,12 @@ describe("Greetings", function()
 
     local function online(name)
         wow.systemMessage("|Hplayer:" .. name .. "|h[" .. name .. "]|h has come online.")
+    end
+
+    -- A guild hello waits its delay, the shortest random extra and its
+    -- announcement's round trip (#38).
+    local function helloWait()
+        return ns.db.guildLogin.delay + ns.GuildHellos.STAGGER_MIN + wow.ADDON_ECHO_DELAY
     end
 
     before_each(function()
@@ -19,7 +25,7 @@ describe("Greetings", function()
     describe("guild login", function()
         it("greets a guild member in guild chat after the delay", function()
             online("Thrall")
-            wow.advance(ns.db.guildLogin.delay - 0.5)
+            wow.advance(helloWait() - 0.5)
             assert.are.equal(0, #wow.sent)
             wow.advance(0.6)
             assert.are.same({ "Thrall has logged in. Quick, everyone look busy." }, wow.sentTo("GUILD"))
@@ -38,7 +44,7 @@ describe("Greetings", function()
             assert.are.equal(before + 1, wow.rosterRequests)
             wow.state.guildRoster[#wow.state.guildRoster + 1] = "Newbie"
             wow.fire("GUILD_ROSTER_UPDATE")
-            wow.advance(ns.db.guildLogin.delay + 0.1)
+            wow.advance(helloWait() + 0.1)
             assert.are.same({ "Newbie has logged in. Quick, everyone look busy." }, wow.sentTo("GUILD"))
         end)
 
@@ -58,7 +64,7 @@ describe("Greetings", function()
             wow.rosterUpdate({ "Thrall", "Jaina" })
             assert.are.equal(1, ns.Greeter.PendingCount())
             wow.rosterUpdate({ "Thrall", "Jaina", "Newbie" })
-            wow.advance(ns.db.guildLogin.delay + 0.1)
+            wow.advance(helloWait() + 0.1)
             assert.are.same({ "Newbie has logged in. Quick, everyone look busy." }, wow.sentTo("GUILD"))
             -- Exactly once, however many updates follow.
             wow.rosterUpdate({ "Thrall", "Jaina", "Newbie" })
@@ -79,7 +85,7 @@ describe("Greetings", function()
             wow.advance(1)
             assert.are.equal(1, ns.Greeter.PendingCount())
             wow.state.guildOffline = {}
-            wow.advance(1 + ns.db.guildLogin.delay + 0.1)
+            wow.advance(1 + helloWait() + 0.1)
             assert.are.same({ "Newbie has logged in. Quick, everyone look busy." }, wow.sentTo("GUILD"))
         end)
 
@@ -119,7 +125,7 @@ describe("Greetings", function()
             wow.advance(ns.Greeter.PENDING_TIMEOUT - 20 + 1) -- the first login's timer has run
             assert.are.equal(1, ns.Greeter.PendingCount())
             wow.rosterUpdate({ "Thrall", "Jaina", "Newbie" })
-            wow.advance(ns.db.guildLogin.delay + 0.1)
+            wow.advance(helloWait() + 0.1)
             assert.are.same({ "Newbie has logged in. Quick, everyone look busy." }, wow.sentTo("GUILD"))
         end)
 
