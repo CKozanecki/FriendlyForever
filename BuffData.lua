@@ -190,6 +190,20 @@ function BuffData.IsKnown(buff)
     return false
 end
 
+-- Whether your cast of buff can replace spellId on a player, to top it up
+-- (#42): spellId is one of buff's ranks, and you know that rank or a higher
+-- one. A group version, a blocker or a rank above yours is left to run out:
+-- the game may refuse a weaker cast over it.
+function BuffData.CanReplace(buff, spellId)
+    if Util.IsSecret(spellId) then return false end
+    local known = false
+    for _, id in ipairs(buff.ranks) do
+        known = known or Known(id)
+        if id == spellId then return known end
+    end
+    return false
+end
+
 -- Your class's buffs that you know, in order. Kept until your spells change
 -- (BuffData.SpellsChanged), since it takes a spellbook call per rank.
 local mine

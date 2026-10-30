@@ -1,5 +1,9 @@
 # Changelog
 
+### Unreleased
+
+- **Top-up timing:** in buff mode, a buff of yours on a party or raid member with less than 5 minutes left counts as missing, so the button offers to renew it before it runs out. Set the minutes (0 to 15; 0 waits until it's gone) with **Top up my buffs with under** on the **Buff Back** tab; it goes with profiles and settings lines. It only renews a rank you can cast over (not a higher rank than yours, a group version such as Gift of the Wild, or a scroll), never a buff no longer than the setting, and never when the game won't say how long a buff has left. A paladin renews their own Blessing and never swaps it for another. Strangers (buff back) are unchanged. (#42)
+
 ## 0.9.0
 
 - **Buff receipts:** when your buff lands on a player outside your group, your copy of the addon tells theirs with one hidden addon whisper. When their game can't say who buffed them, their copy can then thank you by name and offer your buff back, rather than thanking "friend". A receipt only names the caster of a matching buff that really arrived a moment before; on its own it never causes a cast, a thank-you or an offer. A buff whose caster can't be named now waits 2 seconds for a receipt before it's thanked as "friend". None are sent to your group, inside instances or during chat lockdown. Switch it off with **Tell players I buff that it was me** on the Buff Thanks tab. (#138)

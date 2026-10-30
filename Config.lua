@@ -35,6 +35,7 @@ Config.LIMITS = {
     unknownName    = { maxBytes = 24 },
     owedMinutes    = { min = 1, max = 60 },  -- how long a favour stays on the buff-back button
     autoOffMinutes = { min = 0, max = 30 },  -- buff mode a trigger turned on ends after this (0: never)
+    topUpMinutes   = { min = 0, max = 15 },  -- a group member's buff with less left counts as missing (0: never)
     linesPerMinute = { min = 1, max = 10 },  -- the most lines each chat type gets a minute (ChatQueue)
 }
 
@@ -167,6 +168,10 @@ Config.DEFAULTS = {
         autoOffPull = true,
         autoOffDone = true,
         autoOffMinutes = 5,
+        -- Top-up timing (GroupBuffs.lua, #42): in buff mode, a group
+        -- member's buff of yours with less than this many minutes left
+        -- counts as missing. 0: only once it's gone.
+        topUpMinutes = 5,
         -- Battlegrounds (Battleground.lua): buff before the gates open. Off,
         -- the preparation phase is as quiet as the battle.
         bgPrepBuff = true,
@@ -247,6 +252,7 @@ Config.FIELD_VALIDATORS = {
     autoOffPull = Bool,
     autoOffDone = Bool,
     autoOffMinutes = Limited("autoOffMinutes"),
+    topUpMinutes = Limited("topUpMinutes"),
     bgPrepBuff = Bool,
     breathNearWater = Bool,
     unlocked = Bool,
