@@ -128,6 +128,7 @@ The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://g
   - the simulator, and its build (which runs its build scripts and macros), in containers with no network, no capabilities and read-only sources. Only their output folders are writable. The one exception is the step that downloads its locked crates: `cargo fetch` has network, but runs none of their code;
   - no secrets, and read-only access for every job but the one that publishes screenshots;
   - that publishing job runs nothing from the simulator or the pull request. It only checks that each file is a PNG of a sane size, then commits it;
+  - anything the simulator or a shot chooses (file names, logs) reaches the job log only through the workflow's `shown` filter, so no line of it can be read as a workflow command (#153);
   - never the simulator project's own Action.
 
 ## Ground rules for addon code
