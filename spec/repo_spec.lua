@@ -313,7 +313,7 @@ describe("UI simulator workflow", function()
     -- (that would run its build scripts on the runner's Docker, with network).
     it("runs only the pinned image and the images it builds from the pinned bases", function()
         local allowed = { run = true, build = true, pull = true, inspect = true, stats = true, logs = true,
-            kill = true, rm = true, top = true }
+            kill = true, rm = true, top = true, ps = true }
         for command in text:gmatch("docker (%l+)") do
             assert.is_true(allowed[command] == true, "the workflow runs docker " .. command)
         end
@@ -395,6 +395,11 @@ describe("UI simulator workflow", function()
         local upload = indexOf(steps, "name: ui%-sim%-screenshots\n")
         assert.is_truthy(clean and upload and clean < upload, "the shots folder isn't cleaned before the upload")
         local stepText = steps[clean].text
+        local shots = indexOf(steps, "name: Take screenshots")
+        assert.is_truthy(shots and shots < clean, "the clean-up doesn't come after the shots")
+        local removal = stepText:find("docker ps -aq | xargs -r docker rm -f", 1, true)
+        local find = stepText:find("find %-P")
+        assert.is_truthy(removal and find and removal < find, "containers aren't removed before the clean-up")
         assert.is_truthy(stepText:find("if: always()", 1, true), "the clean-up is skipped when a step fails")
         assert.is_truthy(stepText:find([[! \( -type f -name '*.png' \) -delete]], 1, true), "the clean-up keeps more than plain PNGs")
         assert.is_truthy(stepText:find('find -P "$RUNNER_TEMP/shots" -mindepth 1', 1, true), "the clean-up follows links or misses the folder")
