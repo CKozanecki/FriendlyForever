@@ -1006,10 +1006,9 @@ local function AcrossInside(outer, inner, label)
 end
 
 -- Whether row (a region on the main panel's scrolling content) is drawn
--- inside the panel's scroll frame, and above the walkthrough's window.
--- Prints a LAYOUT line, fails if it isn't, and returns the line.
-local function RowInView(row, walkthrough, label)
-    local scroll = row:GetParent():GetParent()
+-- inside scroll, the panel's scroll frame, and above the walkthrough's
+-- window. Prints a LAYOUT line, fails if it isn't, and returns the line.
+local function RowInView(row, scroll, walkthrough, label)
     local rt, rb = Edges(row, "GetTop", "GetBottom")
     local st, sb = Edges(scroll, "GetTop", "GetBottom")
     local wt = Edges(walkthrough, "GetTop", "GetBottom")
@@ -1048,16 +1047,18 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
             if row then
                 -- The panel scrolls again a frame later, once laid out.
                 if type(A_Admin) == "table" and A_Admin.AdvanceTime then pcall(A_Admin.AdvanceTime, 0.1) end
-                local content, found
+                local scroll, content, found
                 for _, child in ipairs({ _G[Pages.PANEL]:GetChildren() }) do
-                    content = content or (child.GetScrollChild and child:GetScrollChild())
+                    if not content and child.GetScrollChild and child:GetScrollChild() then
+                        scroll, content = child, child:GetScrollChild()
+                    end
                 end
                 check(content ~= nil, label .. ": the options panel has no scrolling content")
                 for _, region in ipairs({ content:GetRegions() }) do
                     if region:IsVisible() and (region:GetText() or ""):find(row, 1, true) == 1 then found = region end
                 end
                 check(found ~= nil, label .. ": no row \"" .. row .. "\"")
-                RowInView(found, walkthrough, label .. " row \"" .. row .. "\"")
+                RowInView(found, scroll, walkthrough, label .. " row \"" .. row .. "\"")
             end
         end)
         if not ok then failures[#failures + 1] = tostring(err) end
@@ -1071,4 +1072,5 @@ end)
 -- choices, which spec/thankwith_spec.lua checks against the options. The
 -- simulator ignores what a test file returns.
 return { TextInside = TextInside, PushedDownInside = PushedDownInside, TabTextInside = TabTextInside,
-    OnScreen = OnScreen, Settle = Settle, RowsInOrder = RowsInOrder, THANK_WITH = THANK_WITH, CANT_REACH = CANT_REACH }
+    OnScreen = OnScreen, Settle = Settle, RowsInOrder = RowsInOrder, AcrossInside = AcrossInside,
+    RowInView = RowInView, THANK_WITH = THANK_WITH, CANT_REACH = CANT_REACH }

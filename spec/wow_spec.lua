@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136
+-- Spec: #76, #84, #136, #47
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -183,5 +183,24 @@ describe("The simulated client", function()
             name, kind = _G.GetInstanceInfo()
             assert.are.same({ "Eastern Kingdoms", "none" }, { name, kind })
         end)
+    end)
+end)
+
+-- #47: a first install opens the walkthrough at login, which boot turns
+-- off for most specs; given settings and opts.walkthrough keep it.
+describe("The simulated client's boot and the walkthrough (#47)", function()
+    it("starts a first install as one whose walkthrough is finished, unless asked", function()
+        local ns = wow.boot()
+        assert.are.equal("done", ns.db.walkthrough)
+        assert.is_false(ns.Walkthrough.Frame():IsShown())
+        ns = wow.boot({ walkthrough = true })
+        assert.are.equal("new", ns.db.walkthrough)
+        assert.is_true(ns.Walkthrough.Frame():IsShown())
+    end)
+
+    it("leaves given settings alone, so a walkthrough not yet seen still starts", function()
+        local ns = wow.boot({ db = { walkthrough = "new" } })
+        assert.are.equal("new", ns.db.walkthrough)
+        assert.is_true(ns.Walkthrough.Frame():IsShown())
     end)
 end)

@@ -393,6 +393,9 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         state.bindings entry is that action, or nil. The
 --                         game answers every key bound to it; the first is
 --                         the one Key Bindings shows first (checked on #50).
+--   CreateFrame with "BasicFrameTemplateWithInset" gives the frame a
+--                         CloseButton whose own click only hides the frame
+--                         (the game's template does the same; checked on #50).
 --   Region edges: GetTop answers region.top, set by a spec, or nil (not laid
 --                         out yet, the pessimistic case). A scroll frame keeps
 --                         SetVerticalScroll's offset, and its range is
@@ -975,6 +978,12 @@ function M.reset()
         local f = M.newFrame(kind, name, parent)
         f.template = template
         if type(template) == "string" and template:find("Secure") then f.protected = true end
+        -- The window templates' close button, whose own click only hides
+        -- the window (the pessimistic case: nothing else is told).
+        if template == "BasicFrameTemplateWithInset" then
+            f.CloseButton = M.newFrame("Button", nil, f)
+            f.CloseButton.scripts.OnClick = function() f:Hide() end
+        end
         return f
     end
     _G.SlashCmdList = {}

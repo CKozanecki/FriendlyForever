@@ -46,15 +46,31 @@ describe("Start here", function()
     end)
 
     describe("every control changes the same setting as its full page (white)", function()
-        it("the addon switch, as the main panel's", function()
-            w.master:SetChecked(false)
-            wow.run(w.master, "OnClick")
-            assert.is_false(ns.db.enabled)
-            local fromPage = ns.db.enabled
+        -- Whether the addon's own event frame (the one with chat's system
+        -- messages) watches every cast, which only buff watching needs
+        -- (Core.lua's RefreshEvents).
+        local function watchingCasts()
+            for _, frame in ipairs(wow.frames) do
+                if frame.events.CHAT_MSG_SYSTEM and frame.events.UNIT_SPELLCAST_SUCCEEDED then return true end
+            end
+            return false
+        end
+
+        -- What switching the addon off changes: the setting, the buff
+        -- watching events, and the message said.
+        local function switchedOff(box)
+            assert.is_true(watchingCasts(), "watching before")
+            box:SetChecked(false)
+            wow.run(box, "OnClick")
+            return { enabled = ns.db.enabled, watching = watchingCasts(), said = wow.printed[#wow.printed] }
+        end
+
+        it("the addon switch, as the main panel's: the setting, its events and its message", function()
+            local fromPage = switchedOff(w.master)
+            assert.are.same({ enabled = false, watching = false, said = fromPage.said }, fromPage)
+            assert.is_truthy(fromPage.said:find("disabled", 1, true))
             boot()
-            tabs.master:SetChecked(false)
-            wow.run(tabs.master, "OnClick")
-            assert.are.equal(ns.db.enabled, fromPage)
+            assert.are.same(fromPage, switchedOff(tabs.master))
             boot()
             w.master:SetChecked(false)
             wow.run(w.master, "OnClick")
@@ -121,6 +137,12 @@ describe("Start here", function()
                 assert.is_true(order[chooser[2]] > order[chooser[1]])
                 assert.are.equal(chooser[1], chooser[2].button)
             end
+        end)
+
+        it("keeps asking for a key while it waits, whatever refreshes the page", function()
+            wow.run(w.buffModeKey, "OnClick")
+            ns.Options.Refresh()
+            assert.are.equal(ns.Options.KEY_PROMPT, w.buffModeKey:GetText())
         end)
 
         it("waits for a key on one chooser at a time", function()
@@ -267,6 +289,17 @@ describe("The walkthrough", function()
             assert.is_false(printedHas("Start here"))
         end)
 
+        it("its window's close button skips it, remembered like the Skip button", function()
+            goTo(2)
+            wow.run(tour.CloseButton, "OnClick")
+            assert.is_false(tour:IsShown())
+            assert.are.equal("skipped", ns.db.walkthrough)
+            assert.is_false(ns.Walkthrough.IsPending())
+            local db = ns.db
+            boot({ db = db })
+            assert.is_false(tour:IsShown())
+        end)
+
         it("skipping it is remembered, and it doesn't start at the next login", function()
             goTo(3)
             wow.run(tour.skip, "OnClick")
@@ -329,7 +362,15 @@ describe("The walkthrough", function()
             goTo(stepTitled("turns on and off"))
             assert.is_truthy(tour.text:GetText():find(ns.Options.AUTO_TEXT.autoOnJoin .. ": |cffff4040off", 1, true),
                 "a switch that isn't true reads as off")
-            assert.is_falsy(tour.text:GetText():find("or after", 1, true))
+            assert.is_falsy(tour.text:GetText():find("or after", 1, true), "a damaged number gives no line")
+            ns.db.buffBack.autoOffMinutes = 0
+            wow.run(tour.back, "OnClick")
+            wow.run(tour.next, "OnClick")
+            assert.is_falsy(tour.text:GetText():find("or after", 1, true), "0 is never: no line")
+            ns.db.buffBack.autoOffMinutes = 5
+            wow.run(tour.back, "OnClick")
+            wow.run(tour.next, "OnClick")
+            assert.is_truthy(tour.text:GetText():find("  or after 5 minutes", 1, true))
             goTo(stepTitled("Thanks"))
             assert.is_truthy(tour.text:GetText():find(ns.Options.THANK_STYLE_TEXT.message, 1, true))
             ns.db.walkthrough = { "damaged" }
@@ -351,6 +392,12 @@ describe("The walkthrough", function()
             assert.is_false(tour:IsShown(), "it doesn't come back by itself")
             wow.run(tour.next, "OnClick") -- a stray click on the closed window does nothing
             assert.is_nil(ns.Walkthrough.Step())
+            -- Closed (here, skipped), a fight says nothing about it.
+            wow.run(tour.skip, "OnClick")
+            local said = #wow.printed
+            wow.enterCombat()
+            wow.leaveCombat()
+            assert.are.equal(said, #wow.printed)
             assert.are.same({}, wow.errors)
         end)
 

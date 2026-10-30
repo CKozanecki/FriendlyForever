@@ -1,4 +1,4 @@
--- Spec: #35, #52, #90, #112, #148
+-- Spec: #35, #52, #90, #112, #148, #47
 -- The UI simulator's layout check (uitests/scenarios.lua), run here against
 -- stand-in regions whose edges, anchors and text sizes each test sets
 -- itself, so the expected answer comes from those numbers and not from the
@@ -799,5 +799,52 @@ describe("UI simulator layout check at more than one resolution (OnScreen, #148)
         })
         checks.OnScreen(frameAt(0, 100, 0, 100), "panel")
         assert.is_truthy(printed[1]:find("^LAYOUT panel: "), printed[1])
+    end)
+end)
+
+-- The walkthrough's checks (#47): its text area lies across inside its
+-- scroll frame, and the row a step scrolls to is in the panel's view, above
+-- the walkthrough's window.
+describe("UI simulator layout checks for the walkthrough (AcrossInside, RowInView, #47)", function()
+    local checks, printed
+
+    before_each(function() checks, printed = loadChecks() end)
+
+    it("passes a text area inside its scroll frame across, however far it runs down (white)", function()
+        checks.AcrossInside(region({ left = 14, right = 426, top = 200, bottom = 40 }),
+            region({ left = 14, right = 414, top = 200, bottom = -300 }), "area")
+        assert.are.equal("LAYOUT area: 14..414 across, inside 14..426", printed[1])
+    end)
+
+    it("fails a text area wider than its scroll frame, on either side (black)", function()
+        local outer = region({ left = 14, right = 426, top = 200, bottom = 40 })
+        local err = fails(function() checks.AcrossInside(outer, region({ left = 14, right = 440 }), "area") end)
+        assert.is_truthy(err:find("runs out of its frame", 1, true), err)
+        err = fails(function() checks.AcrossInside(outer, region({ left = 2, right = 400 }), "area") end)
+        assert.is_truthy(err:find("runs out of its frame", 1, true), err)
+    end)
+
+    it("says when the edges can't be read, and fails nothing (black)", function()
+        checks.AcrossInside(region({}), region({ left = 0, right = 1 }), "area")
+        assert.are.equal("LAYOUT area: edges can't be read here", printed[1])
+        checks.RowInView(region({}), region({ top = 700, bottom = 40 }), region({ top = 350 }), "row")
+        assert.are.equal("LAYOUT row: edges can't be read here", printed[2])
+    end)
+
+    local scroll = region({ top = 700, bottom = 40 })
+    local walkthrough = region({ top = 350, bottom = 110 })
+
+    it("passes a row in the panel's view, above the walkthrough (white)", function()
+        checks.RowInView(region({ top = 690, bottom = 676 }), scroll, walkthrough, "row")
+        assert.are.equal("LAYOUT row: row 676..690, panel's view 40..700, walkthrough's top 350", printed[1])
+    end)
+
+    it("fails a row scrolled out of view, or under the walkthrough (black)", function()
+        local err = fails(function() checks.RowInView(region({ top = 760, bottom = 746 }), scroll, walkthrough, "row") end)
+        assert.is_truthy(err:find("scrolled out of view", 1, true), err)
+        err = fails(function() checks.RowInView(region({ top = 30, bottom = 16 }), scroll, walkthrough, "row") end)
+        assert.is_truthy(err:find("scrolled out of view", 1, true), err)
+        err = fails(function() checks.RowInView(region({ top = 340, bottom = 326 }), scroll, walkthrough, "row") end)
+        assert.is_truthy(err:find("under the walkthrough", 1, true), err)
     end)
 end)

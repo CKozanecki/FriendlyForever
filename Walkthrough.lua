@@ -151,9 +151,10 @@ end
 local function Create()
     frame = CreateFrame("Frame", Walkthrough.NAME, UIParent, "BasicFrameTemplateWithInset")
     frame:SetSize(460, 240)
-    -- Low on the screen, over the bottom of the options, whose rows it
-    -- scrolls to the top. Above the options window.
-    frame:SetPoint("BOTTOM", 0, 16)
+    -- Low on the screen but clear of the action bars, over the bottom of
+    -- the options, whose rows it scrolls to the top. Above the options
+    -- window.
+    frame:SetPoint("BOTTOM", 0, 110)
     frame:SetFrameStrata("DIALOG")
     frame:SetMovable(true)
     frame:EnableMouse(true)
@@ -185,8 +186,9 @@ local function Create()
     scroll:SetScrollChild(body)
     frame.body = body
     frame.text = body:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    -- Pinned on both sides of the area, so it wraps at its width.
     frame.text:SetPoint("TOPLEFT", 0, 0)
-    frame.text:SetWidth(400)
+    frame.text:SetPoint("TOPRIGHT", 0, 0)
     frame.text:SetJustifyH("LEFT")
     frame.text:SetWordWrap(true)
 
