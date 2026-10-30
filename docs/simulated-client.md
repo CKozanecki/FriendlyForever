@@ -18,7 +18,7 @@ A small simulation of the WoW client API, enough to load the addon as the game d
 - **State:** `wow.reset()` builds `wow.state` (guild, group, instance, lockdown, combat, units, auras, spells, CVars, clock) and the record tables tests check against:
   - `wow.sent`: chat lines the game accepted; `wow.blocked`: lines it refused;
   - `wow.casts`, `wow.keyActions`, `wow.printed`, `wow.timers`;
-  - `wow.landed`: casts the server said landed, `{ spell, id, target }` (#37);
+  - `wow.landed`: casts the server said landed, `{ spell, id, target, at }`, `at` being when (#37, #36);
   - `wow.flaggedBy` and `wow.flaggedElsewhere`: players whose PvP flag a cast of yours caught (#76);
   - `wow.addonSent`: addon messages the game accepted; `wow.addonRefused`: those it refused, each with its result code; `wow.addonPrefixes`: the prefixes registered (#32).
 
@@ -66,6 +66,7 @@ For behaviour between two copies of the addon (#32), `wow.newClient({ name, surn
   - a group or guild message goes to clients in that group (with the sender in it) or a guild;
   - a group or guild message also comes back to its sender, as in the game;
   - a client gets only the prefixes it registered.
+- `net.lose = function(msg, sender, receiver)` drops each copy of a message it returns true for, so a chaos test can lose messages at random, as the game may (#36).
 - `wow.advanceAll(net, seconds, step)` moves every client's clock on together, delivering after each step.
 - `wow.deliverBuffs(net)` carries each buff that landed (`wow.landed`) on another client in the network to that client as a new aura, named by the first unit token (sorted) that shows the caster there, or by none (#37). Pessimistically, a buff that only refreshes one arrives as new (`addedAuras`), so it looks like a new favour; that's in the ASSUMPTIONS block and a launch check ([#50](https://github.com/CKozanecki/FriendlyForever/issues/50#issuecomment-6504872140)).
 - `state.addonSenderForm` (`"hyphen"` or `"space"`) sets how a receiving client spells the sender: a launch check (#50).
