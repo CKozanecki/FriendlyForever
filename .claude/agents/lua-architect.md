@@ -98,6 +98,8 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A frame that catches the mouse over another (a key chooser's capture over its button) is made after it, or given a higher frame level: siblings on one level are hit in creation order, and the one under never sees the click (#47's review).
 - Each new module joins `Core.lua`'s restart-guard list in `ADDON_LOADED`, with a spec that loads the TOC without it (#142's Exchange, #138's Receipts: missing, a `/reload` after the update errored on every buff).
 
+- A feature that newly depends on an unconfirmed game fact (a launch check on #50) must still work when that fact turns out false: falling back as it would without the channel, never going silent. #38's guild hellos waited for their own addon message to come back and dropped the hello if it didn't; on a client that doesn't send it back (or spells the sender differently), nobody would have greeted.
+
 **Words match the code**
 - Comments, docs, options text and messages describe what is built, not what is planned (#56, #58, #59, #72, #74, #81, #86).
 - Game facts follow WoW Forever: Salvation isn't a Blessing, Revoke is found by name until its ID is known, Main Tank doesn't count outside a raid. Anything unconfirmed is a launch check on #50 (#73, #74).

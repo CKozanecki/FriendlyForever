@@ -107,10 +107,14 @@ local function MemberVars(name)
     return vars
 end
 
+-- Every copy in the guild greets, a random while apart and with different
+-- lines, and at most a few of them (GuildHellos.lua, #38).
 local function Greet(name)
     if Ignored("guildLogin", name) then return end
     ns.Announcer.Schedule("guildLogin", name, {
         channel = GuildChannel, vars = function() return MemberVars(name) end, isValid = NotIgnored(name),
+        delay = ns.db.guildLogin.delay + ns.GuildHellos.Stagger(),
+        hold = function(go, line, drop) ns.GuildHellos.Hold(name, line, go, drop) end,
     })
 end
 
@@ -490,6 +494,7 @@ function Greeter.OnSystemMessage(msg)
             ns.Diag.Log("guildLogin", "ignored %s: you are not in a guild", name)
             return
         end
+        ns.GuildHellos.OnLogin(name)
         if members[name] then
             Greet(name)
         else

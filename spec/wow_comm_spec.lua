@@ -1,4 +1,4 @@
--- Spec: #32, #37, #36
+-- Spec: #32, #37, #36, #38
 -- The simulated client's addon messages and its several-clients network,
 -- which the hidden channel's tests rely on: if these were wrong, those
 -- tests could pass while the addon breaks the game's rules.
@@ -36,6 +36,34 @@ describe("The simulated client's addon messages", function()
         assert.are.equal(P.InvalidPrefix, reg(string.rep("p", 17)))
         assert.are.equal(P.InvalidPrefix, reg(""))
         assert.are.equal(P.InvalidPrefix, reg(5))
+    end)
+
+    it("brings a lone client's own group and guild messages back after the round trip, not whispers (white)",
+        function()
+            local got = listen()
+            wow.state.groupMembers = {}
+            assert.are.equal(R.Success, send("T", "g", "GUILD"))
+            assert.are.equal(R.Success, send("T", "w", "WHISPER", "Bo-Lake"))
+            wow.advance(wow.ADDON_ECHO_DELAY - 0.01)
+            assert.are.same({}, got)
+            wow.advance(0.02)
+            local name, surname = _G.UnitName("player")
+            local me = surname and surname ~= "" and (name .. "-" .. surname) or name
+            assert.are.same({ { prefix = "T", text = "g", channel = "GUILD", sender = me } }, got)
+            wow.advance(10)
+            assert.are.equal(1, #got, "once, and never the whisper")
+        end)
+
+    it("brings back nothing it refused, and nothing for an unregistered prefix (black)", function()
+        local got = listen()
+        wow.state.lockdown = true
+        send("T", "refused", "GUILD")
+        wow.state.lockdown = false
+        _G.C_ChatInfo.RegisterAddonMessagePrefix("U")
+        wow.addonPrefixes.U = nil -- as if never registered
+        send("U", "other", "GUILD")
+        wow.advance(1)
+        assert.are.same({}, got)
     end)
 
     it("sends a good message and records it (white)", function()
@@ -196,6 +224,12 @@ describe("The simulated network of clients", function()
         assert.are.equal(1, #heard.a)
         assert.are.equal(1, #heard.b)
         assert.are.same({}, heard.c)
+    end)
+
+    it("brings a networked client's own message back once, through the network only (white)", function()
+        from(a, "g", "GUILD")
+        wow.advanceAll(net, 5, 0.1)
+        assert.are.equal(1, #heard.a)
     end)
 
     it("doesn't deliver a group message to someone not in that kind of group (black)", function()
