@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -313,7 +313,7 @@ describe("UI simulator workflow", function()
     -- (that would run its build scripts on the runner's Docker, with network).
     it("runs only the pinned image and the images it builds from the pinned bases", function()
         local allowed = { run = true, build = true, pull = true, inspect = true, stats = true, logs = true,
-            kill = true, rm = true, top = true }
+            kill = true, rm = true, top = true, ps = true }
         for command in text:gmatch("docker (%l+)") do
             assert.is_true(allowed[command] == true, "the workflow runs docker " .. command)
         end
@@ -334,6 +334,75 @@ describe("UI simulator workflow", function()
                 assert.is_falsy(command:find("ghcr%.io") or command:find("@sha256"), job.name .. ": docker run names an image")
             end
         end
+    end)
+
+    -- A shot's container can write /shots, so it can plant a link there. A
+    -- redirect or copy by the runner into that folder would follow the link
+    -- and overwrite a file of the shot's choosing (#147).
+    it("never has the runner write into a folder a container mounts writable", function()
+        local joined = text:gsub("\\\n%s*", " ")
+        local writable = {}
+        for _, job in ipairs(order) do
+            for _, command in ipairs(dockerRuns(job)) do
+                for mount in command:gmatch("%-v%s+(%S+)") do
+                    if not mount:find(":ro\"?$") then
+                        writable[#writable + 1] = mount:match('^"?([^:]+):')
+                    end
+                end
+            end
+        end
+        assert.is_true(#writable >= 3, "expected writable mounts to check")
+        -- Quotes and braces don't change which folder a path names.
+        local function plain(value) return (value:gsub('["{}]', "")) end
+        local function inMounted(target)
+            for _, dir in ipairs(writable) do
+                if plain(target):find(plain(dir), 1, true) then return dir end
+            end
+        end
+        local checked = 0
+        for line in (joined .. "\n"):gmatch("[^\n]+") do
+            if not line:find("docker run", 1, true) then
+                local targets = {}
+                -- Redirects (not 2>&1 or >&2), appends, tee, and the last argument of cp, mv, ln, install.
+                for target in line:gmatch("[^>&%d]>>?%s*(%S+)") do targets[#targets + 1] = target end
+                for target in line:gmatch("tee%s+%-?a?%s*(%S+)") do targets[#targets + 1] = target end
+                for _, tool in ipairs({ "cp", "mv", "ln", "install", "rsync", "unzip", "tar", "dd" }) do
+                    if line:find("%f[%w]" .. tool .. "%f[%W]") then targets[#targets + 1] = line end
+                end
+                for _, target in ipairs(targets) do
+                    checked = checked + 1
+                    local dir = inMounted(target)
+                    assert.is_falsy(dir, "the runner writes into " .. tostring(dir) .. ": " .. line)
+                end
+            end
+        end
+        assert.is_true(checked >= 5, "expected redirects and copies to check")
+    end)
+
+    it("keeps the shots' logs in the artifacts and the job's log groups", function()
+        local job = jobs.screenshots
+        assert.is_truthy(job.text:find('docker logs "$cid" > "$RUNNER_TEMP/shot-logs/$name$SUFFIX.log"', 1, true),
+            "a shot's log isn't saved in shot-logs")
+        assert.is_truthy(job.text:find('for log in "$RUNNER_TEMP"/shot-logs/*.log', 1, true), "the logs aren't shown in groups")
+        assert.is_truthy(job.text:find("echo \"::group::", 1, true), "the logs aren't in log groups")
+        assert.is_truthy(job.text:find("path: ${{ runner.temp }}/shot-logs", 1, true), "shot-logs isn't uploaded")
+        assert.is_truthy(job.text:find("path: ${{ runner.temp }}/shots\n", 1, true), "the PNG artifact moved")
+    end)
+
+    it("uploads only plain PNG files from the folder shots write", function()
+        local steps = jobs.screenshots.steps
+        local clean = indexOf(steps, "find %-P")
+        local upload = indexOf(steps, "name: ui%-sim%-screenshots\n")
+        assert.is_truthy(clean and upload and clean < upload, "the shots folder isn't cleaned before the upload")
+        local stepText = steps[clean].text
+        local shots = indexOf(steps, "name: Take screenshots")
+        assert.is_truthy(shots and shots < clean, "the clean-up doesn't come after the shots")
+        local removal = stepText:find("docker ps -aq | xargs -r docker rm -f", 1, true)
+        local find = stepText:find("find %-P")
+        assert.is_truthy(removal and find and removal < find, "containers aren't removed before the clean-up")
+        assert.is_truthy(stepText:find("if: always()", 1, true), "the clean-up is skipped when a step fails")
+        assert.is_truthy(stepText:find([[! \( -type f -name '*.png' \) -delete]], 1, true), "the clean-up keeps more than plain PNGs")
+        assert.is_truthy(stepText:find('find -P "$RUNNER_TEMP/shots" -mindepth 1', 1, true), "the clean-up follows links or misses the folder")
     end)
 
     it("lets only the publish job write, and it runs nothing from the simulator or the pull request", function()
