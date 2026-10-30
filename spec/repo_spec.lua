@@ -352,9 +352,11 @@ describe("UI simulator workflow", function()
             end
         end
         assert.is_true(#writable >= 3, "expected writable mounts to check")
+        -- Quotes and braces don't change which folder a path names.
+        local function plain(value) return (value:gsub('["{}]', "")) end
         local function inMounted(target)
             for _, dir in ipairs(writable) do
-                if target:find(dir, 1, true) then return dir end
+                if plain(target):find(plain(dir), 1, true) then return dir end
             end
         end
         local checked = 0
@@ -385,6 +387,17 @@ describe("UI simulator workflow", function()
         assert.is_truthy(job.text:find("echo \"::group::", 1, true), "the logs aren't in log groups")
         assert.is_truthy(job.text:find("path: ${{ runner.temp }}/shot-logs", 1, true), "shot-logs isn't uploaded")
         assert.is_truthy(job.text:find("path: ${{ runner.temp }}/shots\n", 1, true), "the PNG artifact moved")
+    end)
+
+    it("uploads only plain PNG files from the folder shots write", function()
+        local steps = jobs.screenshots.steps
+        local clean = indexOf(steps, "find %-P")
+        local upload = indexOf(steps, "name: ui%-sim%-screenshots\n")
+        assert.is_truthy(clean and upload and clean < upload, "the shots folder isn't cleaned before the upload")
+        local stepText = steps[clean].text
+        assert.is_truthy(stepText:find("if: always()", 1, true), "the clean-up is skipped when a step fails")
+        assert.is_truthy(stepText:find([[! \( -type f -name '*.png' \) -delete]], 1, true), "the clean-up keeps more than plain PNGs")
+        assert.is_truthy(stepText:find('find -P "$RUNNER_TEMP/shots" -mindepth 1', 1, true), "the clean-up follows links or misses the folder")
     end)
 
     it("lets only the publish job write, and it runs nothing from the simulator or the pull request", function()

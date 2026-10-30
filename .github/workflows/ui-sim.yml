@@ -381,6 +381,13 @@ jobs:
             echo "::group::$(basename "$log")"; tail -60 "$log"; echo "::endgroup::"
           done
 
+      # Every container is gone by now. A shot could have planted a link in
+      # its folder, and the upload would read through it into the artifact, so
+      # only plain .png files are kept (find -P follows no link).
+      - name: Keep only plain PNG files in the shots folder
+        if: always()
+        run: find -P "$RUNNER_TEMP/shots" -mindepth 1 ! \( -type f -name '*.png' \) -delete
+
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
