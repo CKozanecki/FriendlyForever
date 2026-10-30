@@ -1006,8 +1006,11 @@ local function AcrossInside(outer, inner, label)
 end
 
 -- Whether row (a region on the main panel's scrolling content) is drawn
--- inside scroll, the panel's scroll frame, and above the walkthrough's
--- window. Prints a LAYOUT line, fails if it isn't, and returns the line.
+-- inside scroll, the panel's scroll frame, near its top (where the
+-- walkthrough scrolls a step's row to, so a panel left unscrolled can't
+-- pass), and above the walkthrough's window. Prints a LAYOUT line, fails if
+-- it isn't, and returns the line.
+local NEAR_TOP = 40
 local function RowInView(row, scroll, walkthrough, label)
     local rt, rb = Edges(row, "GetTop", "GetBottom")
     local st, sb = Edges(scroll, "GetTop", "GetBottom")
@@ -1021,6 +1024,7 @@ local function RowInView(row, scroll, walkthrough, label)
         label, rb, rt, sb, st, wt)
     report(line)
     check(rt <= st + 1 and rb >= sb - 1, line .. ": the row is scrolled out of view")
+    check(rt >= st - NEAR_TOP, line .. ": the row isn't scrolled to the top of the view")
     check(rb >= wt - 1, line .. ": the row is under the walkthrough")
     return line
 end
@@ -1054,6 +1058,10 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
                     end
                 end
                 check(content ~= nil, label .. ": the options panel has no scrolling content")
+                -- The row hangs deep below the buff rows: lay the chain out
+                -- again, or its place is the one from before the scroll
+                -- (docs/ui-simulator.md).
+                Settle(content)
                 for _, region in ipairs({ content:GetRegions() }) do
                     if region:IsVisible() and (region:GetText() or ""):find(row, 1, true) == 1 then found = region end
                 end
