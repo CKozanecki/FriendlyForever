@@ -114,6 +114,15 @@ describe("Start here", function()
             assert.are.equal("F", ns.db.buffBack.buffModeKey)
         end)
 
+        it("makes each chooser's capture after its button, so it lies on top and gets side mouse buttons", function()
+            local order = {}
+            for i, frame in ipairs(wow.frames) do order[frame] = i end
+            for _, chooser in ipairs({ { w.buffModeKey, w.keyCapture }, { tabs.buffModeKey, tabs.keyCapture } }) do
+                assert.is_true(order[chooser[2]] > order[chooser[1]])
+                assert.are.equal(chooser[1], chooser[2].button)
+            end
+        end)
+
         it("waits for a key on one chooser at a time", function()
             wow.run(tabs.buffModeKey, "OnClick")
             wow.run(w.buffModeKey, "OnClick")
@@ -406,5 +415,21 @@ describe("The walkthrough", function()
             wow.run(w.keyCapture, "OnKeyDown", "2")
             assert.are.equal("MOUSEWHEELUP", ns.db.buffBack.buffModeKey)
         end)
+    end)
+end)
+
+describe("After an update that adds Walkthrough.lua and a /reload (no restart) (black)", function()
+    it("asks for a restart instead of erroring, and opens nothing", function()
+        wow.reset()
+        local loaded = {}
+        local _, files = wow.parseToc()
+        for _, file in ipairs(files) do
+            if file ~= "Walkthrough.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+        end
+        wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+        wow.fire("PLAYER_ENTERING_WORLD", true, false)
+        wow.advance(60)
+        assert.are.same({}, wow.errors)
+        assert.is_truthy(table.concat(wow.printed, "\n"):find("Restart the game", 1, true))
     end)
 end)

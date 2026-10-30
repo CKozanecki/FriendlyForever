@@ -94,6 +94,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A toolchain install uses only its pinned, checksummed files and its own folder: every `luarocks` call names its `--tree` and builds with `--deps-mode=none`, and hererocks gets the checked `--downloads`. Anything else can reach the network or the user's own `~/.luarocks` (#103: one rock in `~/.luarocks` failed every `make setup`).
 - Every new top-level path is shipped (TOC or `scripts/package.sh`) or on `.pkgmeta`'s ignore list. A local `make check` only sees tracked files, so check it ran after `git add` (#66: `art/` passed locally and broke CI; #53, #78).
 - An update that adds files needs a restart, not just a `/reload`; the changelog says so (#20).
+- A frame that catches the mouse over another (a key chooser's capture over its button) is made after it, or given a higher frame level: siblings on one level are hit in creation order, and the one under never sees the click (#47's review).
 - Each new module joins `Core.lua`'s restart-guard list in `ADDON_LOADED`, with a spec that loads the TOC without it (#142's Exchange, #138's Receipts: missing, a `/reload` after the update errored on every buff).
 
 **Words match the code**

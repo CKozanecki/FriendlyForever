@@ -247,10 +247,13 @@ function Options.StartKeyCapture(capture)
 end
 
 -- A button that chooses buff mode's key, and its capture frame over parent.
--- Returns both.
+-- Returns both. The capture is made after the button, so it lies on top of
+-- it: a side mouse button pressed with the pointer still on the button
+-- reaches the capture, not the button.
 local function KeyChooser(parent)
-    local capture = CreateFrame("Frame", nil, parent)
+    local capture
     local button = Button(parent, "", 290, function() Options.StartKeyCapture(capture) end)
+    capture = CreateFrame("Frame", nil, parent)
     capture.button = button
     capture:SetAllPoints(parent)
     capture:Hide()

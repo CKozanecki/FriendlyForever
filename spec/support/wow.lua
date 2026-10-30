@@ -135,6 +135,7 @@ end
 function methods:IsEnabled() return self.enabled end
 function methods:SetSize(w, h) self.width, self.height = w, h end
 function methods:SetWidth(w) self.width = w end
+function methods:SetHeight(h) self.height = h end
 function methods:GetWidth() return self.width or 0 end
 function methods:GetCenter() return self.centerX or 0, self.centerY or 0 end
 function methods:GetTop() return self.top end
@@ -395,7 +396,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --   Region edges: GetTop answers region.top, set by a spec, or nil (not laid
 --                         out yet, the pessimistic case). A scroll frame keeps
 --                         SetVerticalScroll's offset, and its range is
---                         frame.scrollRange (0 when unset).
+--                         frame.scrollRange (0 when unset). SetHeight keeps the height given.
 --   Override bindings (SetOverrideBindingClick, ClearOverrideBindings) are
 --                         blocked in combat, and allowed in PLAYER_REGEN_DISABLED's
 --                         handlers (as secure frames are). state.unbindable[key]:

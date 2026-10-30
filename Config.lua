@@ -158,8 +158,8 @@ Config.DEFAULTS = {
         buffModeKey = "MOUSEWHEELUP",
         -- When buff mode turns on and off by itself (BuffModeAuto.lua). All
         -- on by default: each turn-on says why in chat, and the first one a
-        -- session says where to switch them (BuffMode.Set). The "Start here"
-        -- walkthrough (#47, planned) will show them too. The ones that turn
+        -- session says where to switch them (BuffMode.Set). The walkthrough
+        -- (Walkthrough.lua, #47) shows them too. The ones that turn
         -- it off end only buff mode a trigger turned on.
         autoOnJoin = true,
         autoOnDeath = true,
