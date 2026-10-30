@@ -9,9 +9,10 @@
 -- in the order it sends them to everyone, so a copy greets only once its
 -- own GREET is back with fewer than K other copies' GREETs for that login
 -- before it. It then says its line or, if a copy before it took that, the
--- lowest line none before it announced (see Taken). A copy that already heard K GREETs announces nothing and stays quiet.
--- Every guild member sees the same order (a launch check, #50), so even
--- copies that announce at the same moment can't go past K.
+-- lowest line none before it announced (see Taken). A copy that already
+-- heard K GREETs announces nothing and stays quiet. Every guild member
+-- sees the same order (a launch check, #50), so even copies that announce
+-- at the same moment can't go past K.
 --
 -- When in doubt, it doesn't greet, so the cap holds (fail closed): its
 -- GREET doesn't come back within ECHO_WAIT (lost, or never sent), it lost
@@ -19,8 +20,14 @@
 -- messages since the login (some may have been GREETs it never counted).
 -- A line the chat cap holds back (#35) still goes, late.
 --
--- Without the channel (it's closed, you aren't in a guild as the game
--- sees it, chat lockdown, or inside an instance, where addons may not
+-- Until one of its own GREETs has come back this session, though, a copy
+-- doesn't know the game sends them back (or names us as we name
+-- ourselves: both launch checks, #50). Until then a GREET that never comes
+-- back greets anyway, as without the channel, so a game that doesn't send
+-- them back can't silence every hello.
+--
+-- Without the channel (it's closed, your own name is unreadable, chat
+-- lockdown, or inside an instance, where addons may not
 -- message other players: #32) the random stagger is all there is: the copy
 -- greets after it, with a line no GREET it heard has taken.
 --
@@ -50,6 +57,7 @@ GuildHellos.random = math.random
 -- [full name] = { at, greets = { [sender] = line }, order = { { line } } as they came, count,
 --   lines = { [line] = true }, crowd = Comm.CrowdDrops() at the login, mine = { line, go, drop } }
 local logins, loginCount = {}, 0
+local echoed = false -- one of our own GREETs has come back this session
 
 local function Forget(name)
     if logins[name] then
@@ -124,8 +132,6 @@ local function ChannelOpen()
     if not ns.Comm.Ready() then return false, "the hidden channel is closed" end
     -- Without our own name, a GREET can't be sent, nor told apart when it's back.
     if not Util.UnitFullName("player") then return false, "can't read your name" end
-    local inGuild, secret = Util.Readable(IsInGuild())
-    if secret or not inGuild then return false, "the game doesn't say you're in a guild" end
     if ns.ChatQueue.InChatLockdown() then return false, "chat lockdown" end
     if Util.ReadGameValues(IsInInstance) ~= false then return false, "inside an instance" end
     return true
@@ -136,36 +142,6 @@ local function FreeLine(login, line)
     if line and not login.lines[line] then return line end
     local _, other = ns.Messages.Pick("guildLogin", ns.db.guildLogin.messages, login.lines)
     return other or line
-end
-
--- After the delay and stagger, with the line Announcer picked: claim a
--- place, or greet at once without the channel, or drop it.
-function GuildHellos.Hold(name, line, go, drop)
-    local login = Live(name)
-    if not login then return drop("lost track of this login") end
-    if login.mine then return drop("already greeting this login") end
-    if login.count >= Cap() then
-        return drop(string.format("%d other copies already greet them (most: %d)", login.count, Cap()))
-    end
-    local open, why = ChannelOpen()
-    if not open then
-        Log("greeting %s with the random wait only: %s", name, why)
-        return go(FreeLine(login, line))
-    end
-    if ns.Comm.CrowdDrops() ~= login.crowd then
-        return drop("addon messages were dropped in a crowd; can't count the other copies")
-    end
-    line = FreeLine(login, line)
-    local sent, sendWhy = ns.Comm.SendGreet(name, line)
-    if not sent then return drop("couldn't announce it: " .. tostring(sendWhy)) end
-    local mine = { line = line, go = go, drop = drop }
-    login.mine = mine
-    Log("announced greeting %s with line %d", name, line)
-    C_Timer.After(GuildHellos.ECHO_WAIT, ns.Diag.Wrap(function()
-        if mine.done then return end
-        mine.done = true
-        drop("my announcement never came back")
-    end))
 end
 
 -- The lowest line number in neither set, or nil.
@@ -195,7 +171,6 @@ end
 local function OurLine(login, line)
     local taken, announced = Taken(login)
     if not taken[line] then return line end
-    announced[line] = true
     local lowest = Lowest(taken, announced)
     local text = lowest and ns.db.guildLogin.messages[lowest]
     if type(text) == "string" and text:find("%S") then return lowest end
@@ -217,12 +192,46 @@ local function Decide(name, login)
     mine.go(OurLine(login, mine.line))
 end
 
+-- After the delay and stagger, with the line Announcer picked: claim a
+-- place, or greet at once without the channel, or drop it.
+function GuildHellos.Hold(name, line, go, drop)
+    local login = Live(name)
+    if not login then return drop("lost track of this login") end
+    if login.mine then return drop("already greeting this login") end
+    if login.count >= Cap() then
+        return drop(string.format("%d other copies already greet them (most: %d)", login.count, Cap()))
+    end
+    local open, why = ChannelOpen()
+    if not open then
+        Log("greeting %s with the random wait only: %s", name, why)
+        return go(FreeLine(login, line))
+    end
+    if ns.Comm.CrowdDrops() ~= login.crowd then
+        return drop("addon messages were dropped in a crowd; can't count the other copies")
+    end
+    line = FreeLine(login, line)
+    local sent, sendWhy = ns.Comm.SendGreet(name, line)
+    if not sent then return drop("couldn't announce it: " .. tostring(sendWhy)) end
+    local mine = { line = line, go = go, drop = drop }
+    login.mine = mine
+    Log("announced greeting %s with line %d", name, line)
+    C_Timer.After(GuildHellos.ECHO_WAIT, ns.Diag.Wrap(function()
+        if mine.done then return end
+        mine.done = true
+        if echoed then return drop("my announcement never came back") end
+        Log("greeting %s with the random wait only: no announcement of mine has come back yet", name)
+        go(OurLine(login, line))
+    end))
+end
+
 -- Comm's GREET handler. sender: a full name Comm checked (ours for our own
--- GREET back); name: the login, a full name; line: 1 to NUM_MESSAGES.
+-- GREET back, which also proves the game sends them back); name: the login, a full name; line: 1 to NUM_MESSAGES.
 function GuildHellos.OnGreet(sender, name, line)
+    local me = sender == Util.UnitFullName("player")
+    if me then echoed = true end
     local login = Live(name)
     if not login then return Log("ignored %s's greeting of %s: not a login I'm tracking", sender, name) end
-    if sender == Util.UnitFullName("player") then
+    if me then
         local mine = login.mine
         if mine and not mine.done and mine.line == line then Decide(name, login) end
         return

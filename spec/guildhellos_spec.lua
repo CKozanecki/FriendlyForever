@@ -66,6 +66,17 @@ local function Greet(sender, text)
     wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", text, "GUILD", sender, "", 0, 0, "", 0)
 end
 
+-- One of each client's own GREETs has come back this session (about a
+-- login it isn't tracking): from now on, one that doesn't come back means
+-- it was lost.
+local function Prove(clients)
+    for _, c in ipairs(clients) do
+        wow.use(c)
+        wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;GREET;" .. c.full .. ";Nobody-Here;1", "GUILD", c.full,
+            "", 0, 0, "", 0)
+    end
+end
+
 describe("Guild hellos (#38)", function()
     before_each(function() random.seed(38) end)
 
@@ -288,7 +299,8 @@ describe("Guild hellos (#38)", function()
                 "1;GREET;Liar;" .. LOGIN_FULL .. ";0", "1;GREET;Liar;" .. LOGIN_FULL .. ";31",
                 "1;GREET;Liar;" .. LOGIN_FULL .. ";01", "1;GREET;Liar;" .. LOGIN_FULL .. ";x",
                 "1;GREET;Liar;bad name;1", "1;GREET;Liar;" .. LOGIN_FULL, "1;GREET;Liar;" .. LOGIN_FULL .. ";1;2",
-                "1;GREET;Liar;" .. string.rep("a", 70) .. ";1", "1;GREET;Liar;;1",
+                "1;GREET;Liar;" .. string.rep("a", 33) .. "-" .. string.rep("b", 33) .. ";1", -- 67 bytes
+                "1;GREET;Liar;;1",
             }
             -- Each from its own sender, so none is dropped as flooding first.
             for i, text in ipairs(bad) do
@@ -429,6 +441,75 @@ describe("Guild hellos (#38)", function()
             assert.are.equal(3, ns.GuildHellos.Heard(LOGIN))
         end)
 
+        -- Lines 1 to 19 announced by 19 other copies (K is 20 here).
+        local function Taken19()
+            for n = 1, 19 do
+                local sender = "Liar" .. string.char(96 + n)
+                Greet(sender, "1;GREET;" .. sender .. ";" .. LOGIN_FULL .. ";" .. n)
+            end
+        end
+
+        local function Said(hellos)
+            return tonumber(hellos[1].text:match("#(%d+)$"))
+        end
+
+        it("announces and says a line no other copy announced", function()
+            local clients, net = Guild(1, 20)
+            LogIn(clients, LOGIN)
+            Taken19()
+            wow.advanceAll(net, 40, 0.1)
+            assert.is_true(tonumber(wow.addonSent[1].text:match(";(%d+)$")) >= 20, wow.addonSent[1].text)
+            local hellos = Hellos(clients)
+            assert.are.equal(1, #hellos)
+            assert.is_true(Said(hellos) >= 20, hellos[1].text)
+        end)
+
+        it("says a line no other copy announced without the channel too", function()
+            local clients, net = Guild(1, 20)
+            wow.state.inInstance = true
+            LogIn(clients, LOGIN)
+            Taken19()
+            wow.advanceAll(net, 40, 0.1)
+            local hellos = Hellos(clients)
+            assert.are.equal(1, #hellos)
+            assert.is_true(Said(hellos) >= 20, hellos[1].text)
+        end)
+
+        it("greets with the random wait only during chat lockdown, once it lifts", function()
+            local clients, net = Guild(1, 1)
+            Prove(clients)
+            LogIn(clients, LOGIN)
+            wow.state.lockdown = true
+            wow.advanceAll(net, 15, 0.1)
+            assert.are.equal(0, #Hellos(clients), "nothing during lockdown")
+            wow.state.lockdown = false
+            wow.advanceAll(net, 40, 0.1)
+            assert.are.equal(1, #Hellos(clients))
+            assert.are.equal(0, #wow.addonSent, "no announcement it couldn't send")
+        end)
+
+        it("doesn't greet a login it has stopped tracking", function()
+            local clients, net = Guild(1, 5, { LOGIN, "Jaina" })
+            clients[1].ns.GuildHellos.MAX_LOGINS = 1
+            LogIn(clients, LOGIN)
+            LogIn(clients, "Jaina") -- pushes Thrall out
+            wow.advanceAll(net, 40, 0.1)
+            local hellos = Hellos(clients)
+            assert.are.equal(1, #hellos)
+            assert.truthy(hellos[1].text:find("^Hi Jaina"))
+        end)
+
+        it("a malformed message of its own back doesn't count as one of its GREETs back", function()
+            local clients, net = Guild(1, 1)
+            local me = clients[1].full
+            net.lose = function() return true end
+            Greet(me, "1;GREET;" .. me .. ";Nobody-Here;99")
+            Greet(me, "1;GREET;" .. me .. ";Nobody Here;1")
+            LogIn(clients, LOGIN)
+            wow.advanceAll(net, 40, 0.1)
+            assert.are.equal(1, #Hellos(clients), "still unproven: greets anyway")
+        end)
+
         it("greets with the random wait only when this client has no addon messages", function()
             local ns = wow.boot({ before = function(state)
                 state.guildRoster = { LOGIN }
@@ -455,6 +536,7 @@ describe("Guild hellos (#38)", function()
         it("only its own GREET, exactly as sent and on the guild route, counts as back", function()
             local clients, net = Guild(1, 1)
             local ns = clients[1].ns
+            Prove(clients)
             net.lose = function() return true end -- the real one never comes back
             LogIn(clients, LOGIN)
             for _ = 1, 400 do
@@ -502,6 +584,7 @@ describe("Guild hellos (#38)", function()
     describe("fail closed", function()
         it("doesn't greet when its announcement never comes back", function()
             local clients, net = Guild(2, 5)
+            Prove(clients)
             net.lose = function() return true end
             LogIn(clients, LOGIN)
             wow.advanceAll(net, 40, 0.1)
@@ -512,6 +595,30 @@ describe("Guild hellos (#38)", function()
                 if line:find("never came back", 1, true) then found = true end
             end
             assert.is_true(found)
+        end)
+
+        it("still greets, with the random wait, while none of its announcements has come back yet", function()
+            -- The game may not send them back, or may name us otherwise
+            -- (launch checks, #50): that mustn't silence every hello.
+            local clients, net = Guild(2, 5)
+            net.lose = function() return true end
+            LogIn(clients, LOGIN)
+            wow.advanceAll(net, 40, 0.1)
+            local hellos = Hellos(clients)
+            assert.are.equal(2, #hellos)
+            assert.are_not.equal(hellos[1].text, hellos[2].text)
+            -- Once one has come back, a lost one means lost.
+            Prove({ clients[1] })
+            for _, c in ipairs(clients) do
+                wow.use(c)
+                c.ns.db.guildLogin.repeatCooldown = 0
+            end
+            LogIn(clients, LOGIN)
+            wow.advanceAll(net, 40, 0.1)
+            local by = {}
+            for _, h in ipairs(Hellos(clients)) do by[h.client] = (by[h.client] or 0) + 1 end
+            assert.are.equal(1, by[clients[1]], "the proven copy stays quiet")
+            assert.are.equal(2, by[clients[2]], "the other still greets")
         end)
 
         it("doesn't greet when the limits on everyone together dropped messages since the login", function()
@@ -556,6 +663,8 @@ describe("Guild hellos (#38)", function()
             local n = random.random(2, 8)
             local cap = random.random(1, 5)
             local clients, net = Guild(n, cap, NAMES)
+            -- Echoes are known to work: until then, a lost one still greets.
+            Prove(clients)
             for _, c in ipairs(clients) do
                 wow.use(c)
                 c.ns.db.guildLogin.repeatCooldown = random.random(0, 1) * 30

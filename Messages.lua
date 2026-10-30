@@ -53,7 +53,7 @@ end
 -- avoid: an optional set of line numbers to pass over (lines other copies
 -- of the addon have said they'll use: #38). The bag's next line that isn't
 -- avoided; if the bag holds only avoided ones, a random line that isn't
--- (the bag waits); if every line is avoided, the bag's next.
+-- (the bag is left as it was); if every line is avoided, the bag's next.
 function Messages.Pick(msgType, messages, avoid)
     local usable, candidates = Usable(messages)
     if #candidates == 0 then return nil end
@@ -84,8 +84,6 @@ function Messages.Pick(msgType, messages, avoid)
             for _, i in ipairs(candidates) do
                 if not avoid[i] then free[#free + 1] = i end
             end
-            bag.left = left
-            bags[msgType] = bag
             if #free > 0 then
                 local index = free[Messages.random(#free)]
                 return messages[index], index

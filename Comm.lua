@@ -267,7 +267,7 @@ end
 -- One of our own messages, back from the game. Only a type registered
 -- with echo hears it, and only exactly as we'd have sent it.
 local function OnEcho(text, route, me)
-    if type(text) ~= "string" or #text > Comm.MAX_BYTES or not ALL_ROUTES[route] then return end
+    if type(text) ~= "string" then return end
     local parts = Split(text)
     local spec = types[parts[2]]
     if not (spec and spec.echo and spec.routes[route]) then return end
