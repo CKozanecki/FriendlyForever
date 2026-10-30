@@ -114,7 +114,7 @@ jobs:
           sandbox lua-errors > "$RUNNER_TEMP/report/lua-errors.json" 2> "$RUNNER_TEMP/report/lua-errors.log" || true
           sandbox run-tests FriendlyForever > "$RUNNER_TEMP/report/run-tests.log" 2>&1 || true
           sandbox dump-tree --filter FriendlyForever > "$RUNNER_TEMP/report/frame-tree.txt" 2>&1 || true
-          # The scenarios again at each size (#148), the frame tree dropped.
+          # The scenarios again at each size (#148); the frame tree stays in each log.
           for size in $LAYOUT_SIZES; do
             # Stopped after 5 minutes if it hasn't finished, so a pass that
             # never exits can't hold up the job; its output so far is kept.
