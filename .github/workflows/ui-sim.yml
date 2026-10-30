@@ -194,7 +194,9 @@ jobs:
   ui-sim:
     needs: simulator
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # Its simulator runs stop themselves (three at 2 minutes, two at 5, each
+    # with 10 s to exit), well inside this.
+    timeout-minutes: 20
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -256,13 +258,20 @@ jobs:
           # the game's "Load out of date AddOns" box would. As the
           # simulator's image did: no saved variables, and Blizzard's UI
           # where it looks (WOW_SIM_CASC=0: never look for game files).
+          # Each command is stopped after 2 minutes if it hasn't finished (they
+          # take seconds), so one that never exits can't hold up the job; its
+          # output so far is kept, and the log says how each one ended (#154).
+          exec 3>&1
           sandbox() {
-            docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
+            local started=$SECONDS status=0
+            timeout -s TERM -k 10 120 docker run --rm --init --network none --cap-drop ALL --security-opt no-new-privileges \
               --user "$(id -u):$(id -g)" -e HOME=/tmp \
               -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 -e WOW_SIM_NO_SAVED_VARS=1 -e WOW_SIM_CASC=0 \
               -v "$RUNNER_TEMP/ui-sim-build/sim:/sim:ro" \
               -v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
-              -v "$RUNNER_TEMP/addons:/test-addons:ro" ff-render /sim/wow-sim --addons-path /test-addons "$@"
+              -v "$RUNNER_TEMP/addons:/test-addons:ro" ff-render /sim/wow-sim --addons-path /test-addons "$@" || status=$?
+            echo "$1: exit $status after $((SECONDS - started)) s (124: stopped at the time limit)" >&3
+            return "$status"
           }
           sandbox lua-errors > "$RUNNER_TEMP/report/lua-errors.json" 2> "$RUNNER_TEMP/report/lua-errors.log" || true
           sandbox run-tests FriendlyForever > "$RUNNER_TEMP/report/run-tests.log" 2>&1 || true
@@ -279,7 +288,7 @@ jobs:
               -v "$RUNNER_TEMP/addons:/test-addons:ro" -v "$RUNNER_TEMP/layout-lua:/layout-lua:ro" \
               ff-render /sim/wow-sim --addons-path /test-addons --exec-lua @/layout-lua/layout.lua \
               dump-tree --filter FriendlyForever --width "${size%x*}" --height "${size#*x}" \
-              > "$RUNNER_TEMP/report/layout-$size.log" 2>&1 || true
+              > "$RUNNER_TEMP/report/layout-$size.log" 2>&1 || echo "layout pass $size: exit $?" >&3
           done
 
       - name: Show the reports in the log

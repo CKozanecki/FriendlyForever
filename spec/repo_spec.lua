@@ -447,6 +447,33 @@ describe("UI simulator workflow", function()
         assert.is_truthy(stepText:find('find -P "$RUNNER_TEMP/shots" -mindepth 1', 1, true), "the clean-up follows links or misses the folder")
     end)
 
+    -- #154: a hung simulator command held the scenario job until its limit
+    -- and showed nothing. Each run now stops itself and says how it ended.
+    it("stops every scenario-job simulator run at its own time limit, inside the job's (black)", function()
+        local job = jobs["ui-sim"]
+        local runs, total = 0, 0
+        for _, command in ipairs(dockerRuns(job)) do
+            runs = runs + 1
+            assert.is_truthy(command:find("%-%-init", 1), "a simulator run without --init ignores the stop: " .. command)
+        end
+        local joined = job.text:gsub("\\\n%s*", " ")
+        for _ in joined:gmatch("timeout %-s TERM %-k 10 %d+ docker run[^\n]*") do
+            total = total + 1
+        end
+        assert.are.equal(2, runs, "expected the sandbox function's run and the sized pass's run")
+        assert.are.equal(runs, total, "a simulator run has no time limit")
+        local sandboxLimit = tonumber(joined:match("timeout %-s TERM %-k 10 (%d+) docker run[^\n]*\"%$@\""))
+        local sizedLimit = tonumber(joined:match("timeout %-s TERM %-k 10 (%d+) docker run[^\n]*layout%.lua"))
+        assert.is_truthy(sandboxLimit and sizedLimit, "the limits can't be read")
+        local calls = select(2, joined:gsub("\n%s*sandbox %l", ""))
+        local sizes = select(2, (text:match("LAYOUT_SIZES: ([^\n]+)") or ""):gsub("%S+", ""))
+        local jobLimit = tonumber(job.text:match("\n%s*timeout%-minutes: (%d+)"))
+        local worst = calls * (sandboxLimit + 10) + sizes * (sizedLimit + 10)
+        assert.are.equal(3, calls, "expected lua-errors, run-tests and dump-tree")
+        assert.is_true(worst + 180 <= jobLimit * 60, "the runs' limits don't fit in the job's")
+        assert.is_truthy(job.text:find('echo "$1: exit $status after', 1, true), "the log doesn't say how each run ended")
+    end)
+
     it("lets only the publish job write, and it runs nothing from the simulator or the pull request", function()
         for _, job in ipairs(order) do
             if job.name ~= "publish-screenshots" then
