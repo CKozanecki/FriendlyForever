@@ -74,7 +74,7 @@ Procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `m
   2. Send the coordinator one line: `done: #<issue>, PR #<n> merged`, plus any step the owner still has to take (such as applying environment settings or running a workflow) and any stale branch.
   3. Remove your worktree, cancel any check-ins you scheduled, and end your turn with a short summary saying the work is complete and the session can be archived. Ask no questions.
 - **Merge order:** when several PRs are ready, trial-merge every pair locally. Recommend an order to the owner, with the reasons and which pairs conflict. Note what you ran in the descriptions of your own PRs, and send it to the drivers of the others.
-- **After each merge:** a session isn't told when the owner merges, so wait for the owner to say so; don't poll. Then the driver of each ready PR merges `main` into it and resolves any conflicts. Next comes `make check`, and both review loops confirm the merge (see Reviews). Then CI, an updated description, and the PR announced ready again.
+- **After each merge:** GitHub doesn't notify sessions of merges, so wait for the owner or the coordinator to say so; don't poll. The coordinator watches GitHub for merges and tells each PR's session (#172). Then the driver of each ready PR merges `main` into it and resolves any conflicts. Next comes `make check`, and both review loops confirm the merge (see Reviews). Then CI, an updated description, and the PR announced ready again.
 
 ## Reviews
 
