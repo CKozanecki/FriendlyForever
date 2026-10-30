@@ -407,7 +407,18 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --   unit.secrets = { name = true, pvp = true, auras = true }: that one unit's
 --                         name, PvP flag or buffs read as secrets (as for a
 --                         stranger in a restricted moment); role and mainTank
---                         likewise for its group role and Main Tank assignment.
+--                         likewise for its group role and Main Tank assignment;
+--                         auraTimes for its buffs' duration and expirationTime
+--                         alone (the buffs themselves readable).
+--   A group member's buff times (#42): unit.auraDurations[i] and
+--                         unit.auraExpires[i] (GetTime() clock; 0: never runs
+--                         out) give aura i's duration and expirationTime. Unset,
+--                         they're nil: whether Forever shows group members'
+--                         buff times, or makes them secret (Midnight hides
+--                         some aura durations from addons), is checked at
+--                         launch (#50). A buff whose expiry has come is gone
+--                         from GetAuraDataByIndex, with no UNIT_AURA, so the
+--                         addon must look again. M.wearBuff puts one on.
 --   C_Spell.GetSpellInfo(name) and GetSpellTexture(name) answer only for a
 --                         spell you know (likewise GetSpellInfo(name)), as the
 --                         game's name lookup goes through your spellbook; by
@@ -1341,11 +1352,27 @@ function M.reset()
             if unit ~= "player" then
                 -- Other players: spec.auras = { spellId, ... } (secret while units are restricted).
                 local u = M.state.units[unit]
-                local id = u and u.auras and u.auras[index]
-                if id == nil then return nil end
+                if not (u and u.auras) then return nil end
+                -- An aura whose time has run out is gone (unit.auraExpires, #42).
+                local i, seen = 0, 0
+                repeat
+                    i = i + 1
+                    if u.auras[i] == nil then return nil end
+                    if not M.auraExpired(u, i) then seen = seen + 1 end
+                until seen == index
+                local id = u.auras[i]
                 if M.state.unitsRestricted or (u.secrets and u.secrets.auras) then return M.secret({ spellId = id }) end
-                -- spec.auraSources[index]: the unit token of who cast it, if the game says.
-                return { spellId = id, isHelpful = true, sourceUnit = u.auraSources and u.auraSources[index] }
+                -- spec.auraSources[i]: the unit token of who cast it, if the game says.
+                local aura = { spellId = id, isHelpful = true, sourceUnit = u.auraSources and u.auraSources[i] }
+                -- Its times (#42): unset stays nil; secret per unit.
+                local duration = u.auraDurations and u.auraDurations[i]
+                local expires = u.auraExpires and u.auraExpires[i]
+                if u.secrets and u.secrets.auraTimes then
+                    if duration ~= nil then duration = M.secret(duration) end
+                    if expires ~= nil then expires = M.secret(expires) end
+                end
+                aura.duration, aura.expirationTime = duration, expires
+                return aura
             end
             local helpful = {}
             for _, a in ipairs(M.state.playerAuras) do
@@ -1527,6 +1554,33 @@ end
 
 function M.systemMessage(text)
     M.fire("CHAT_MSG_SYSTEM", text)
+end
+
+-- Whether a group member's aura i has run out (#42): its expiry time,
+-- on the GetTime() clock, has come. 0 or unset never runs out.
+function M.auraExpired(u, i)
+    local expires = u.auraExpires and u.auraExpires[i]
+    return type(expires) == "number" and expires > 0 and M.now >= expires
+end
+
+-- Put a buff on a group member (#42): spellId, cast by sourceUnit (or
+-- nobody the game names), lasting duration seconds from now (default 3600,
+-- a Forever Blessing), so expiring at M.now + duration. A buff of the same
+-- spell is replaced, as a recast refreshes it.
+function M.wearBuff(token, spellId, opts)
+    opts = opts or {}
+    local u = assert(M.state.units[token], "no unit " .. tostring(token))
+    u.auras, u.auraSources = u.auras or {}, u.auraSources or {}
+    u.auraDurations, u.auraExpires = u.auraDurations or {}, u.auraExpires or {}
+    local i = #u.auras + 1
+    for j, id in ipairs(u.auras) do
+        if id == spellId then i = j break end
+    end
+    local duration = opts.duration or 3600
+    u.auras[i] = spellId
+    u.auraSources[i] = opts.source
+    u.auraDurations[i] = duration
+    u.auraExpires[i] = duration > 0 and M.now + duration or 0
 end
 
 local nextAuraId = 1

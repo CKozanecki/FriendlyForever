@@ -159,7 +159,8 @@ end
 -- before a tab switch or reset gives the boxes new contents.
 local function ClearEditFocus()
     local boxes = { widgets.steppers.delay.box, widgets.steppers.repeatCooldown.box,
-        widgets.steppers.owedMinutes.box, widgets.steppers.maxGreeters.box, widgets.unknownName }
+        widgets.steppers.owedMinutes.box, widgets.steppers.topUpMinutes.box, widgets.steppers.maxGreeters.box,
+        widgets.unknownName }
     for _, edit in ipairs(widgets.edits) do boxes[#boxes + 1] = edit end
     if widgets.who then
         boxes[#boxes + 1] = widgets.who.always
@@ -492,6 +493,8 @@ local function FillAuto(shown)
     end
     ShowStepper(widgets.steppers.autoOffMinutes, shown)
     if shown then FillBox(widgets.steppers.autoOffMinutes.box, tostring(ns.db.buffBack.autoOffMinutes)) end
+    ShowStepper(widgets.steppers.topUpMinutes, shown)
+    if shown then FillBox(widgets.steppers.topUpMinutes.box, tostring(ns.db.buffBack.topUpMinutes)) end
     widgets.bgHeader:SetShown(shown)
     widgets.bgPrepBuff:SetShown(shown)
     if shown then widgets.bgPrepBuff:SetChecked(ns.db.buffBack.bgPrepBuff == true) end
@@ -897,11 +900,15 @@ function Options.Create()
     local offMinutes = Stepper(content, "or after (minutes, 0 = never):", "autoOffMinutes")
     offMinutes.label:SetPoint("TOPLEFT", offPull, "BOTTOMLEFT", 4, -8)
     widgets.steppers.autoOffMinutes = offMinutes
+    -- Top-up timing (GroupBuffs.lua, #42): renew a buff before it runs out.
+    local topUp = Stepper(content, "Top up my buffs with under (minutes left, 0 = never):", "topUpMinutes")
+    topUp.label:SetPoint("TOPLEFT", offMinutes.label, "BOTTOMLEFT", 0, -14)
+    widgets.steppers.topUpMinutes = topUp
 
     -- Battlegrounds (Battleground.lua): after the gates open the addon is
     -- quiet whatever this says; this is about the preparation phase.
     widgets.bgHeader = Label(content, "Battlegrounds (quiet once the battle starts):", "GameFontNormalSmall")
-    widgets.bgHeader:SetPoint("TOPLEFT", offMinutes.label, "BOTTOMLEFT", 0, -14)
+    widgets.bgHeader:SetPoint("TOPLEFT", topUp.label, "BOTTOMLEFT", 0, -14)
     widgets.bgPrepBuff = Checkbox(content, "Buff in the preparation phase", function(on)
         ns.db.buffBack.bgPrepBuff = on
         ns.Battleground.Update()

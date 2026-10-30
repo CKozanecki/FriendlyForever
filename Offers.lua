@@ -128,7 +128,9 @@ end
 
 -- true / false whether the unit wears this buff (any rank, group version or
 -- blocker), or nil when the game won't say (no unit, or hidden in a fight).
-function Offers.Wears(unit, buff)
+-- runningLow (optional, buff mode's top-up timing, #42): function(aura,
+-- buff) saying a readable aura of it doesn't count, as it's running out.
+function Offers.Wears(unit, buff, runningLow)
     local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
     if not unit or not api then return nil end
     for i = 1, Offers.MAX_AURAS do
@@ -137,7 +139,7 @@ function Offers.Wears(unit, buff)
         if aura == nil then return false end
         local id = aura.spellId
         if Util.IsSecret(id) then return nil end
-        if ns.BuffData.Covers(buff, id) then return true end
+        if ns.BuffData.Covers(buff, id) and not (runningLow and runningLow(aura, buff)) then return true end
     end
     return false
 end
