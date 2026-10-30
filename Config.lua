@@ -169,8 +169,8 @@ Config.DEFAULTS = {
         autoOffDone = true,
         autoOffMinutes = 5,
         -- Top-up timing (GroupBuffs.lua, #42): in buff mode, a group
-        -- member's buff of yours with less than this many minutes left
-        -- counts as missing. 0: only once it's gone.
+        -- member's buff of a kind you give, with less than this many minutes
+        -- left, counts as missing. 0: only once it's gone.
         topUpMinutes = 5,
         -- Battlegrounds (Battleground.lua): buff before the gates open. Off,
         -- the preparation phase is as quiet as the battle.

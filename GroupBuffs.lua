@@ -15,11 +15,12 @@
 -- each buff (tanks only, chosen classes, named players: BuffRules.lua) apply
 -- here, and only here. Group buffs never say a line and are never thanked.
 --
--- Top-up timing (#42): a buff of yours with less than the set time left
--- (buffBack.topUpMinutes) counts as missing, so you can renew it before it
--- runs out. Only a rank you can replace (BuffData.CanReplace), and only when
--- the game shows how long it has left: a time that can't be read (secret,
--- missing) means it isn't missing. Strangers (buff back) are never topped up.
+-- Top-up timing (#42): a buff you give (whoever cast it) with less than the
+-- set time left (buffBack.topUpMinutes) counts as missing, so you can renew
+-- it before it runs out. Only a rank you can replace (BuffData.CanReplace),
+-- and only when the game shows how long it has left: a time that can't be
+-- read (secret, missing) means it isn't missing. Strangers (buff back) are
+-- never topped up.
 local _, ns = ...
 local Util = ns.Util
 local Read = Util.ReadGameValues

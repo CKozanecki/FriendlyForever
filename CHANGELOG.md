@@ -2,7 +2,7 @@
 
 ### Unreleased
 
-- **Top-up timing:** in buff mode, a buff of yours on a party or raid member with less than 5 minutes left counts as missing, so the button offers to renew it before it runs out. Set the minutes (0 to 15; 0 waits until it's gone) with **Top up my buffs with under** on the **Buff Back** tab; it goes with profiles and settings lines. It only renews a rank you can cast over (not a higher rank than yours, a group version such as Gift of the Wild, or a scroll), never a buff no longer than the setting, and never when the game won't say how long a buff has left. A paladin renews their own Blessing and never swaps it for another. Strangers (buff back) are unchanged. (#42)
+- **Top-up timing:** in buff mode, a buff you give (Mark of the Wild, say, whoever cast it) on a party or raid member with less than 5 minutes left counts as missing, so the button offers to renew it before it runs out. Set the minutes (0 to 15; 0 waits until it's gone) with **Top up my buffs with under** on the **Buff Back** tab; it goes with profiles and settings lines. It only renews a rank you can cast over (not a higher rank than yours, a group version such as Gift of the Wild, or a scroll), never a buff no longer than the setting, and never when the game won't say how long a buff has left. A paladin renews their own Blessing and never swaps it for another. Strangers (buff back) are unchanged. (#42)
 
 ## 0.9.0
 
