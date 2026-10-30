@@ -79,6 +79,7 @@ Procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `m
 ## Reviews
 
 - **Fix everything a review finds,** optional nits included.
+- **Reviewers share your worktree:** while a review agent is running, it temporarily changes files to check the tests catch it. Don't stage or commit then: `git add -A` on #46 picked up a reviewer's edit into a merge commit (807bc8e). Wait until it reports and `git status` is clean, or stage only the files you changed.
 - **Changes after an approval:** any change a review loop hasn't seen goes back to it for confirmation before the PR is called ready. That includes test-only and test-helper changes, merges that resolved conflicts, and rebases. On #72, a test-helper change made after the architecture approval hid a real bug, and the re-check caught it.
 - **UI changes:** before the testing review, wait for the [UI simulator](CONTRIBUTING.md#ui-simulator) run, then tell the testing reviewer to fetch `ui-screenshots/pr-<number>`, view the screenshots, read the `LAYOUT` lines, and decide. Their verdict is the only look the screenshots get: the owner won't review them. Say in the PR what the reviewer saw.
 - **Reviewer agents:** run the architecture review with the `lua-architect` agent and the testing review with the `lua-tester` agent ([`.claude/agents/`](.claude/agents/)). Their files hold the scope, the output format and the lessons of past reviews. Tell each one:

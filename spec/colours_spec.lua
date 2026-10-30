@@ -72,7 +72,25 @@ local function strayColours(source)
     -- The game's own colour tables and codes (NORMAL_FONT_COLOR,
     -- RAID_CLASS_COLORS, RED_FONT_COLOR_CODE and the like).
     for name in code:gmatch("[%w_]*COLOR[%w_]*") do found[#found + 1] = "game colour: " .. name end
+    -- Not caught: a colour written as numbers into locals first
+    -- (local r, g, b = 1, 0.82, 0). Telling those from other numbers would
+    -- flag far more than colours; review catches them.
     return found
+end
+
+-- The palette names a source file asks for (Colours.Text, RGB, RGBA), in
+-- order. The lexer swaps each string for "", so the n-th "" in the code is
+-- the n-th string: a "" right after "Colours.<Call>(" is a name.
+local function namesUsed(source)
+    local code, strings = lex(source)
+    local names, n, at = {}, 0, 1
+    while true do
+        local s, e = code:find('""', at, true)
+        if not s then return names end
+        n = n + 1
+        if code:sub(math.max(1, s - 40), s - 1):find("Colours%.%a+%(%s*$") then names[#names + 1] = strings[n] end
+        at = e + 1
+    end
 end
 
 -- Every file at the top of the addon that could ship code: Lua and XML.
@@ -156,6 +174,28 @@ describe("Colours", function()
                     assert.are.same({}, strayColours(wow.readFile(file)), file)
                 end
             end
+        end)
+
+        it("every name the addon asks the palette for is in it", function()
+            local count = 0
+            for _, file in ipairs(addonFiles()) do
+                for _, name in ipairs(namesUsed(wow.readFile(file))) do
+                    count = count + 1
+                    assert.is_truthy(ns.Colours.HEX[name], file .. " asks for an unknown colour: " .. name)
+                end
+            end
+            -- The addon uses the palette about 40 times; a scan that finds
+            -- none would prove nothing.
+            assert.is_true(count >= 30, "found " .. count .. " uses of the palette")
+        end)
+
+        it("a misspelled name is found", function()
+            assert.are.same({ "txet", "shadow", "warning" }, namesUsed(table.concat({
+                'local r, g, b = ns.Colours.RGB("txet")',
+                'background:SetColorTexture(ns.Colours.RGBA( "shadow" ))',
+                'ns.Print(ns.Colours.Text("warning", "Note:") .. " text")',
+                'ns.Print("Colours.Text(" .. "x")',
+            }, "\n")))
         end)
 
         it("the check passes colours taken from the palette by name", function()
