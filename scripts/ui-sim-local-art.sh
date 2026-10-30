@@ -548,13 +548,20 @@ shoot() {
     fi
 }
 
-# Whether a shot's log shows Blizzard's art came from the install: its
-# textures (asset-resolver prints "CASC resolver initialized from" once CASC
-# opens) and its fonts, FRIZQT among them (the simulator's font loader prints
-# "font CASC reader init complete"). Without them the simulator falls back to
-# grey boxes and a system font.
+# Whether a shot's log shows Blizzard's art came from the install, from the
+# simulator's own lines on stderr (its tracing lines about fonts come before
+# its logging starts, so they're lost):
+# - textures: asset-resolver prints "CASC resolver initialized from" once CASC
+#   opens;
+# - fonts: the font loader times each WoW font ("font FRIZQT__.TTF loaded")
+#   and, only when none came from CASC, falls back to a system font ("font
+#   system fallback loaded"). Its own "font CASC reader init complete" never
+#   shows in a shot, whose cache starts empty, so it can't be used.
 textures_loaded() { grep -q "CASC resolver initialized from" "$OUT/logs/sim-$1.log" 2>/dev/null; }
-fonts_loaded() { grep -q "font CASC reader init complete" "$OUT/logs/sim-$1.log" 2>/dev/null; }
+fonts_loaded() {
+    grep -q "font FRIZQT__.TTF loaded" "$OUT/logs/sim-$1.log" 2>/dev/null \
+        && ! grep -q "font system fallback loaded" "$OUT/logs/sim-$1.log" 2>/dev/null
+}
 
 # The log's first line about CASC failing, as plain printable text: the log
 # is the simulator's, so nothing else from it reaches the terminal.

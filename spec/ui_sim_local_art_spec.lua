@@ -199,7 +199,7 @@ case "$command" in
   logs)
     name=$(cat "$dir/name-$1" 2>/dev/null)
     if [ -f "$dir/log-$name" ]; then cat "$dir/log-$name"
-    else printf '[Startup] font CASC reader init complete in 1s\nCASC resolver initialized from /wow/Data using wowf cache /tmp/x\n'
+    else printf '[Startup] font FRIZQT__.TTF loaded in 1ms\nCASC resolver initialized from /wow/Data using wowf cache /tmp/x\n'
     fi ;;
   stats) echo "1MiB cpu 1%" ;;
 esac
@@ -1183,9 +1183,16 @@ describe("Local art screenshots script", function()
             p:close()
         end)
 
+        -- The owner's first run, as its logs read (#139): CASC never opened,
+        -- and the fonts fell back to a system one.
         local NO_CASC = "[Startup] font CASC reader init begin\n"
             .. "CASC init failed: read installed WoW product: product wowf in /wow/.product.db: invalid protobuf\n"
+            .. "[Startup] font FRIZQT__.TTF loaded in 2ms\n"
+            .. "[Startup] font system fallback loaded in 40ms\n"
             .. "asset-cache extraction failed: fdid 1: CASC not available\n"
+        -- Textures from the install, and fonts that fell back.
+        local NO_FONTS = "[Startup] font FRIZQT__.TTF loaded in 2ms\n[Startup] font system fallback loaded in 40ms\n"
+            .. "CASC resolver initialized from /wow/Data using wowf\n"
 
         it("reports where every shot's textures and fonts came from", function()
             local code, output = source("prepare_output; take_shots; report")
@@ -1208,7 +1215,7 @@ describe("Local art screenshots script", function()
         end)
 
         it("checks the first shot that's written, and stops when only its fonts are missing", function()
-            write(bin .. "/bin/log-options-guild-login", "CASC resolver initialized from /wow/Data using wowf\n")
+            write(bin .. "/bin/log-options-guild-login", NO_FONTS)
             local code, output, calls = source("prepare_output; take_shots; report", { game = "crash" })
             assert.are_not.equal(0, code)
             assert.are.same({ "game", "options-guild-login" }, startedShots(calls))
@@ -1216,7 +1223,7 @@ describe("Local art screenshots script", function()
         end)
 
         it("stops when the first shot has its fonts but no textures", function()
-            write(bin .. "/bin/log-game", "[Startup] font CASC reader init complete in 1s\n")
+            write(bin .. "/bin/log-game", "[Startup] font FRIZQT__.TTF loaded in 1ms\n")
             local code, output, calls = source("prepare_output; take_shots; report")
             assert.are_not.equal(0, code)
             assert.are.same({ "game" }, startedShots(calls))
@@ -1224,13 +1231,30 @@ describe("Local art screenshots script", function()
         end)
 
         it("fails the run when a later shot has its textures but not its fonts", function()
-            write(bin .. "/bin/log-button", "CASC resolver initialized from /wow/Data using wowf\n")
+            write(bin .. "/bin/log-button", NO_FONTS)
             local code, output = source("prepare_output; take_shots; report")
             assert.are_not.equal(0, code)
             local total = #expectedShots()
             assert.is_truthy(output:find("textures in " .. total .. " of " .. total .. " shots, fonts (FRIZQT) in "
                 .. (total - 1) .. " of " .. total, 1, true), output)
             assert.is_truthy(output:find("Some shots have no Blizzard art.", 1, true), output)
+        end)
+
+        it("counts fonts from the font loader's own lines, as a working run's cold cache prints them", function()
+            -- A working first shot (#139 review): the font reader can't open in
+            -- a cold cache, so its "init complete" line never comes, but the
+            -- fonts load through CASC, with no fallback.
+            write(bin .. "/bin/log-game", "[Startup] font CASC reader init begin\n"
+                .. "[Startup] font FRIZQT__.TTF loaded in 900ms\n[Startup] font FRIZQT___CYR.TTF loaded in 3ms\n"
+                .. "CASC resolver initialized from /wow/Data using wowf cache /tmp/.cache/x\n")
+            local code, output = source("prepare_output; take_shots; report")
+            assert.are.equal(0, code, output)
+            -- No sign the fonts were loaded at all counts as no fonts.
+            write(bin .. "/bin/log-game", "CASC resolver initialized from /wow/Data using wowf\n"
+                .. "[Startup] font FRIZQT___CYR.TTF loaded in 3ms\n")
+            code, output = source("prepare_output; take_shots; report")
+            assert.are_not.equal(0, code)
+            assert.is_truthy(output:find("(textures: yes, fonts: no)", 1, true), output)
         end)
 
         it("prints only plain text from a shot's log", function()
