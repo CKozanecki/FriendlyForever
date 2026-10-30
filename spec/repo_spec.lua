@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #154
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -245,11 +245,10 @@ describe("UI simulator workflow", function()
         end
     end)
 
-    it("pins the image, the sources and the render base exactly", function()
+    it("pins the sources and the build and render bases exactly", function()
         local function pinned(prefix, digits)
             return text:find("\n%s*" .. prefix .. ("%x"):rep(digits) .. "%s") ~= nil
         end
-        assert.is_true(pinned("IMAGE: ghcr%.io/osso/wow%-ui%-sim@sha256:", 64), "the simulator image isn't pinned by digest")
         assert.is_true(pinned("SIM_COMMIT: ", 40), "the simulator source isn't pinned to a commit")
         assert.is_true(pinned("BLIZZARD_UI_COMMIT: ", 40), "Blizzard's UI isn't pinned to a commit")
         assert.is_true(pinned("BUILD_BASE: rust@sha256:", 64), "the build image's base isn't pinned by digest")
@@ -260,7 +259,7 @@ describe("UI simulator workflow", function()
         -- the fetched sources are checked against theirs.
         local bases = {}
         for base in text:gmatch("\n%s*FROM%s+(%S+)") do bases[#bases + 1] = base end
-        assert.are.same({ "$BUILD_BASE", "$RENDER_BASE" }, bases)
+        assert.are.same({ "$BUILD_BASE", "$RENDER_BASE", "$RENDER_BASE" }, bases)
         assert.is_truthy(text:find('rev-parse HEAD)" = "$SIM_COMMIT"', 1, true), "the simulator's commit isn't checked")
         assert.is_truthy(text:find('rev-parse HEAD)" = "$BLIZZARD_UI_COMMIT"', 1, true), "Blizzard's commit isn't checked")
     end)
@@ -312,7 +311,7 @@ describe("UI simulator workflow", function()
     -- from the pinned bases, and nothing builds the simulator's own Dockerfile
     -- (that would run its build scripts on the runner's Docker, with network).
     it("runs only the pinned image and the images it builds from the pinned bases", function()
-        local allowed = { run = true, build = true, pull = true, inspect = true, stats = true, logs = true,
+        local allowed = { run = true, build = true, inspect = true, stats = true, logs = true,
             kill = true, rm = true, top = true, ps = true }
         for command in text:gmatch("docker (%l+)") do
             assert.is_true(allowed[command] == true, "the workflow runs docker " .. command)
@@ -323,15 +322,58 @@ describe("UI simulator workflow", function()
             assert.is_truthy(name, "docker build doesn't build the workflow's own Dockerfile: " .. line)
             built[#built + 1] = name
         end
-        assert.are.same({ "ff-build", "ff-render" }, built)
-        for pull in text:gmatch("docker pull[^\n]*") do
-            assert.are.equal('docker pull "$IMAGE"', pull)
-        end
+        -- ff-render is built in each job that runs the simulator.
+        assert.are.same({ "ff-build", "ff-render", "ff-render" }, built)
         for _, job in ipairs(order) do
             for _, command in ipairs(dockerRuns(job)) do
-                local image = command:find('%s"%$IMAGE"%s') or command:find("%sff%-build%s") or command:find("%sff%-render%s")
+                local image = command:find("%sff%-build%s") or command:find("%sff%-render%s")
                 assert.is_truthy(image, job.name .. ": docker run of an image that isn't pinned: " .. command)
                 assert.is_falsy(command:find("ghcr%.io") or command:find("@sha256"), job.name .. ": docker run names an image")
+            end
+        end
+    end)
+
+    -- #154: the maintainer's fixes, reviewed on #154 before the pin moved.
+    -- There's no published image at that commit, and release binaries are
+    -- never used, so the simulator job builds it and the others run that.
+    it("pins wow-ui-sim at the reviewed ac893c6 and runs only the build made from it (black)", function()
+        assert.is_truthy(text:find("\n%s*SIM_COMMIT: ac893c6659d5152965352bfeb725fad89b9bc0d5\n"),
+            "the simulator isn't pinned at the reviewed commit")
+        assert.is_truthy(text:find("\n%s*BUILD_BASE: rust@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2%s"),
+            "the build base isn't the reviewed digest")
+        assert.is_truthy(text:find("\n%s*RENDER_BASE: debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3%s"),
+            "the render base isn't the reviewed digest")
+        for _, banned in ipairs({ "ghcr%.io", "docker pull", "IMAGE:", "releases/download", "%.dmg", "%.tar%.gz" }) do
+            assert.is_falsy(text:find(banned), "a published image or release binary is used: " .. banned)
+        end
+        -- One build, in its own job, which the jobs that run it wait for.
+        local build = jobs["simulator"]
+        assert.is_truthy(build and build.text:find("cargo build", 1, true), "no simulator job builds it")
+        -- Its output is untrusted: stripped inside the sandboxed build, and
+        -- on the runner only copied, as a plain file (#154's review).
+        local buildRun = dockerRuns(build)
+        local stripped = false
+        for _, command in ipairs(buildRun) do
+            if command:find("cargo build", 1, true) then
+                stripped = command:find("-e CARGO_PROFILE_RELEASE_STRIP=symbols", 1, true) ~= nil
+            end
+        end
+        assert.is_true(stripped, "the build doesn't strip the binary in its sandbox")
+        local outside = build.text:gsub("\\\n%s*", " "):gsub("docker run[^\n]*", "")
+        for _, tool in ipairs({ "strip", "objcopy", "readelf", "objdump", "file", "ldd", "nm" }) do
+            assert.is_falsy(outside:find("%f[%w]" .. tool .. "%s"), "the runner reads the build's output with " .. tool)
+        end
+        assert.is_truthy(build.text:find('\n%s*test %-f "%$bin"\n%s*test ! %-L "%$bin"\n%s*cp %-P "%$bin" '),
+            "the binary is copied without checking it's a plain file")
+        for _, name in ipairs({ "ui-sim", "screenshots" }) do
+            local job = jobs[name]
+            assert.is_truthy(job, "no " .. name .. " job")
+            assert.is_truthy(job.text:find("\n%s*needs: simulator\n"), name .. " doesn't wait for the build")
+            assert.is_falsy(job.text:find("cargo", 1, true), name .. " builds the simulator itself")
+            for _, command in ipairs(dockerRuns(job)) do
+                assert.is_truthy(command:find("%-v \"%$RUNNER_TEMP/ui%-sim%-build/sim:/sim:ro\""),
+                    name .. ": runs a simulator that isn't the build's, or mounts it writable: " .. command)
+                assert.is_truthy(command:find("ff%-render /sim/wow%-sim "), name .. ": runs something else: " .. command)
             end
         end
     end)
@@ -381,7 +423,7 @@ describe("UI simulator workflow", function()
 
     it("keeps the shots' logs in the artifacts and the job's log groups", function()
         local job = jobs.screenshots
-        assert.is_truthy(job.text:find('docker logs "$cid" > "$RUNNER_TEMP/shot-logs/$name.log"', 1, true),
+        assert.is_truthy(job.text:find('docker logs "$cid" > "$RUNNER_TEMP/shot-logs/$name$SUFFIX.log"', 1, true),
             "a shot's log isn't saved in shot-logs")
         assert.is_truthy(job.text:find('for log in "$RUNNER_TEMP"/shot-logs/*.log', 1, true), "the logs aren't shown in groups")
         assert.is_truthy(job.text:find("echo \"::group::", 1, true), "the logs aren't in log groups")
@@ -405,6 +447,106 @@ describe("UI simulator workflow", function()
         assert.is_truthy(stepText:find('find -P "$RUNNER_TEMP/shots" -mindepth 1', 1, true), "the clean-up follows links or misses the folder")
     end)
 
+    -- #154: a hung simulator command held the scenario job until its limit
+    -- and showed nothing. Each run now stops itself and says how it ended.
+    it("stops every scenario-job simulator run at its own time limit, inside the job's (black)", function()
+        local job = jobs["ui-sim"]
+        local runs, total = 0, 0
+        for _, command in ipairs(dockerRuns(job)) do
+            runs = runs + 1
+            assert.is_truthy(command:find("%-%-init", 1), "a simulator run without --init ignores the stop: " .. command)
+        end
+        local joined = job.text:gsub("\\\n%s*", " ")
+        for _ in joined:gmatch("timeout %-s TERM %-k 10 %d+ docker run[^\n]*") do
+            total = total + 1
+        end
+        assert.are.equal(2, runs, "expected the sandbox function's run and the sized pass's run")
+        assert.are.equal(runs, total, "a simulator run has no time limit")
+        local sandboxLimit = tonumber(joined:match("timeout %-s TERM %-k 10 (%d+) docker run[^\n]*\"%$@\""))
+        local sizedLimit = tonumber(joined:match("timeout %-s TERM %-k 10 (%d+) docker run[^\n]*layout%.lua"))
+        assert.is_truthy(sandboxLimit and sizedLimit, "the limits can't be read")
+        local calls = select(2, joined:gsub("\n%s*sandbox %l", ""))
+        local sizes = select(2, (text:match("LAYOUT_SIZES: ([^\n]+)") or ""):gsub("%S+", ""))
+        local jobLimit = tonumber(job.text:match("\n%s*timeout%-minutes: (%d+)"))
+        local worst = calls * (sandboxLimit + 10) + sizes * (sizedLimit + 10)
+        assert.are.equal(3, calls, "expected lua-errors, run-tests and dump-tree")
+        assert.is_true(worst + 180 <= jobLimit * 60, "the runs' limits don't fit in the job's")
+        assert.is_truthy(job.text:find('echo "$1: exit $status after', 1, true), "the log doesn't say how each run ended")
+    end)
+
+    -- The run step's own shell, as the job runs it: sandbox() and the sized
+    -- passes, with a stand-in docker that finishes, fails or hangs, and the
+    -- limits cut to 2 s. A hang must show as 124 in the step's log, naming
+    -- the run, and the report files must keep only the simulator's output
+    -- (#154's testing review).
+    describe("the scenario job's run step, run for real (black)", function()
+        local function runStep(mode)
+            local workflow = wow.readFile(path)
+            local sandbox = workflow:match("\n(%s*exec 3>&1\n.-\n%s*}\n)")
+            local sized = workflow:match("\n(%s*for size in %$LAYOUT_SIZES; do\n%s*# Stopped after.-\n%s*done)\n")
+            assert.is_truthy(sandbox, "no sandbox() in the run step")
+            assert.is_truthy(sized, "no sized passes in the run step")
+            local function short(block) return (block:gsub("timeout %-s TERM %-k 10 %d+", "timeout -s TERM -k 1 2")) end
+            local dir = os.tmpname()
+            os.remove(dir)
+            assert.is_true(os.execute("mkdir -p '" .. dir .. "/bin' '" .. dir .. "/report'") == 0)
+            local fake = assert(io.open(dir .. "/bin/docker", "w"))
+            fake:write("#!/bin/sh\ncase \"$FAKE\" in\n  hang) exec sleep 30 ;;\n  fail) echo body; exit 3 ;;\n  *) echo body ;;\nesac\n")
+            fake:close()
+            local script = assert(io.open(dir .. "/run.sh", "w"))
+            script:write("set -e\nRUNNER_TEMP='" .. dir .. "'\nPATH='" .. dir .. "/bin':\"$PATH\"\nLAYOUT_SIZES=1024x768\n",
+                short(sandbox),
+                'sandbox lua-errors > "$RUNNER_TEMP/report/lua-errors.json" 2> "$RUNNER_TEMP/report/lua-errors.log" || true\n',
+                'sandbox run-tests FriendlyForever > "$RUNNER_TEMP/report/run-tests.log" 2>&1 || true\n',
+                short(sized), "\necho finished\n")
+            script:close()
+            os.execute("chmod +x '" .. dir .. "/bin/docker'")
+            local status = os.execute("FAKE=" .. mode .. " bash '" .. dir .. "/run.sh' > '" .. dir .. "/step.log' 2>&1")
+            local function read(name)
+                local f = io.open(dir .. "/" .. name)
+                local content = f and f:read("*a") or ""
+                if f then f:close() end
+                return content
+            end
+            local result = { status = status, step = read("step.log"), report = read("report/run-tests.log"),
+                layout = read("report/layout-1024x768.log") }
+            os.execute("rm -rf '" .. dir .. "'")
+            return result
+        end
+
+        it("says each run finished, in the step's log, and keeps the report to the simulator's output", function()
+            local r = runStep("ok")
+            assert.are.equal(0, r.status)
+            assert.is_truthy(r.step:find("\nrun%-tests: exit 0 after %d+ s"), r.step)
+            assert.is_truthy(r.step:find("^lua%-errors: exit 0 after %d+ s"), r.step)
+            assert.is_falsy(r.step:find("layout pass", 1, true), "a sized pass that finished is reported as failing")
+            assert.are.equal("body\n", r.report)
+            assert.are.equal("body\n", r.layout)
+            assert.is_truthy(r.step:find("finished", 1, true))
+        end)
+
+        it("reports a failing run's own exit code, and carries on", function()
+            local r = runStep("fail")
+            assert.are.equal(0, r.status)
+            assert.is_truthy(r.step:find("run%-tests: exit 3 after"), r.step)
+            assert.is_truthy(r.step:find("layout pass 1024x768: exit 3", 1, true), r.step)
+            assert.are.equal("body\n", r.report)
+            assert.is_truthy(r.step:find("finished", 1, true))
+        end)
+
+        it("stops a hung run at its limit, says 124 with the time it ran, and carries on", function()
+            local r = runStep("hang")
+            assert.are.equal(0, r.status)
+            local seconds = tonumber(r.step:match("run%-tests: exit 124 after (%d+) s"))
+            assert.is_truthy(seconds, r.step)
+            assert.is_true(seconds >= 2 and seconds <= 3, "run-tests' time counts from before it started: " .. seconds)
+            assert.is_truthy(r.step:find("lua%-errors: exit 124 after"), r.step)
+            assert.is_truthy(r.step:find("layout pass 1024x768: exit 124", 1, true), r.step)
+            assert.are.equal("", r.report, "the exit line went into the report")
+            assert.is_truthy(r.step:find("finished", 1, true))
+        end)
+    end)
+
     it("lets only the publish job write, and it runs nothing from the simulator or the pull request", function()
         for _, job in ipairs(order) do
             if job.name ~= "publish-screenshots" then
@@ -423,6 +565,45 @@ describe("UI simulator workflow", function()
             assert.is_falsy(publish.text:find(banned), "the publish job runs " .. banned)
         end
         assert.is_truthy(publish.text:find("89504e470d0a1a0a", 1, true), "the publish job doesn't check for PNGs")
+    end)
+
+    -- #148: the layout checks and the screenshots run at the narrowest layout
+    -- and at what most players use.
+    it("lists both screen sizes, and the scenario and screenshot jobs run at each (white)", function()
+        assert.is_truthy(text:find("\n%s*LAYOUT_SIZES: 1024x768 1920x1080\n"), "the sizes aren't listed, narrowest first")
+        -- By name: the simulator job's text names ui-sim-build too (#154).
+        local scenarios = jobs["ui-sim"]
+        local layoutRun = scenarios.text:gsub("\\\n%s*", " "):match("[^\n]*%-%-exec%-lua @/layout%-lua/layout%.lua[^\n]*")
+        assert.is_truthy(layoutRun, "the scenarios aren't run with the sized script")
+        assert.is_truthy(layoutRun:find("dump%-tree"), "the sized pass doesn't use dump-tree, which takes a size")
+        local limit = tonumber(layoutRun:match("timeout %-s TERM %-k 10 (%d+) docker run"))
+        assert.is_truthy(limit and limit >= 60 and limit <= 600, "a sized pass that never exits isn't stopped in time")
+        assert.is_truthy(layoutRun:find('%-%-width "${size%%x%*}" %-%-height "${size#%*x}"'), "the size isn't passed")
+        assert.is_truthy(scenarios.text:find("for size in $LAYOUT_SIZES; do", 1, true), "no pass per size")
+        local shots = jobWith(order, "shoot")
+        assert.is_truthy(shots.text:find("for size in $LAYOUT_SIZES; do\n%s*WIDTH=", 1), "the screenshots aren't taken per size")
+        assert.is_truthy(shots.text:find('screenshot --png --width "$WIDTH" --height "$HEIGHT" -o "/shots/$name$SUFFIX.png"', 1, true))
+    end)
+
+    it("saves the narrow shots under today's names and the others as <name>-<size>.png (black)", function()
+        local shots = jobWith(order, "shoot")
+        local pass = shots.text:match("\n(%s*case \"$size\" in[^\n]*)\n")
+        assert.is_truthy(pass, "no suffix rule")
+        local function suffix(size)
+            local f = io.popen("size=" .. size .. "; " .. pass:gsub("^%s+", "") .. "; echo \"[$SUFFIX]\"")
+            local out = f:read("*a")
+            f:close()
+            return out
+        end
+        assert.are.equal("[]\n", suffix("1024x768"))
+        assert.are.equal("[-1920x1080]\n", suffix("1920x1080"))
+    end)
+
+    it("never starts a late shot of the extra sizes, so the step's backstop holds (black)", function()
+        local shots = jobWith(order, "shoot")
+        assert.is_truthy(shots.text:find('if [ -n "$SUFFIX" ] && [ "$SECONDS" -gt 3000 ]; then', 1, true))
+        local timeout = tonumber(shots.text:match("timeout%-minutes: (%d+)\n%s*run: |"))
+        assert.is_truthy(timeout and timeout * 60 > 3000 + 200, "a shot started at the limit can't finish in the step")
     end)
 end)
 

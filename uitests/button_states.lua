@@ -8,17 +8,22 @@
 -- The simulator loads the test files in name order, so this one comes before
 -- scenarios.lua and FriendlyForeverUIStates is there when they run.
 --
--- What the simulator can't model, and how this file gets around it:
---   - Its player has a fixed retail Paladin's spellbook, its spell data has
---     none of Forever's buffs, and it has no C_Spell.IsSpellInRange. While a
---     state is set up, the spellbook fixture (Learn) makes the client know
---     one buff, Power Word: Fortitude, by its spell ID and name, in range of
---     whoever the simulator says is in range. Any other spell is answered by
---     the simulator itself.
---   - A_Admin.AddBuff always names the player as the caster. The buff is
+-- What the simulator (wow-ui-sim ac893c6, #154) can't model, and how this
+-- file gets around it:
+--   - Its spell data is retail's, with none of Forever's buffs: it has no
+--     name for Power Word: Fortitude (10938), and its C_Spell.IsSpellInRange
+--     answers nil for a spell it has no data for. While a state is set up,
+--     the spellbook fixture (Learn) teaches the player that one buff with
+--     A_Admin.LearnSpell, which the spellbook queries read, and answers its
+--     name and range (in range of whoever the simulator says is in range).
+--     Any other spell is answered by the simulator itself.
+--   - A_Admin.AddBuff takes a caster, but the player's aura data still names
+--     the player as its source (its docs/admin-api/buffs.md). The buff is
 --     added with it, so the aura is real for Blizzard's frames too. Then
 --     UNIT_AURA is fired again with that aura in addedAuras, naming the
---     caster's unit token as the game would.
+--     caster's unit token as the game would, or a bad value (#98).
+--   - A_Admin.SetInCombat fires PLAYER_REGEN_DISABLED after the lockdown
+--     starts; the game fires it just before. See Combat.
 --   - Time runs on the simulator's manual clock (A_Admin.SetManualClock),
 --     moved on only by Advance, so the login grace and the result line under
 --     the button pass whatever the runner's speed.
@@ -77,7 +82,7 @@ end
 -- The spellbook fixture
 ------------------------------------------------------------------------
 
-local learned -- what Learn replaced: { class, functions = { [table] = { [key] = original } } }
+local learned -- what Learn changed: { class, functions = { [table] = { [key] = original } } }
 
 local function IsOurSpell(spell)
     return spell == States.SPELL.id or spell == States.SPELL.name
@@ -95,13 +100,16 @@ local function Answer(namespace, key, forOurSpell)
     end
 end
 
--- Make the player a Priest who knows Power Word: Fortitude. SPELLS_CHANGED
--- is what the game fires when your spells change.
+-- Make the player a Priest who knows Power Word: Fortitude. LearnSpell
+-- (#100 item 2, fixed in wow-ui-sim d907b88) puts it in the spellbook the
+-- simulator's C_SpellBook.IsSpellInSpellBook and IsSpellKnown read, and
+-- fires nothing, so SPELLS_CHANGED is fired here, as the game does when your
+-- spells change.
 function States.Learn()
     if learned then return end
     local _, _, classId = UnitClass("player")
     learned = { class = classId, functions = {} }
-    Answer(C_SpellBook, "IsSpellInSpellBook", function() return true end)
+    Admin("LearnSpell", States.SPELL.id)
     Answer(C_Spell, "GetSpellName", function() return States.SPELL.name end)
     Answer(C_Spell, "IsSpellInRange", function(_, unit) return UnitInRange(unit) and true or false end)
     Admin("SetPlayerClass", States.PRIEST)
@@ -113,6 +121,7 @@ function States.Unlearn()
     for namespace, keys in pairs(learned.functions) do
         for key, saved in pairs(keys) do namespace[key] = saved.original end
     end
+    Admin("UnlearnSpell", States.SPELL.id)
     if learned.class then Admin("SetPlayerClass", learned.class) end
     learned = nil
     States.Fire("SPELLS_CHANGED")
@@ -152,31 +161,36 @@ function States.Unbuff()
 end
 
 -- Target a player outside your group (classIndex: a Warrior by default), or
--- no one.
+-- no one. SetTarget and ClearTarget fire PLAYER_TARGET_CHANGED themselves
+-- (#100 item 4, fixed in wow-ui-sim d907b88).
 function States.Target(name, classIndex)
     if name then
         Admin("SetTarget", name, 60, classIndex or States.WARRIOR, false)
     else
         Admin("ClearTarget")
     end
-    States.Fire("PLAYER_TARGET_CHANGED")
 end
 
--- A fight starts or ends, in the order the game does it: the event comes
--- just before the lockdown at the start, and just after it at the end.
+-- A fight starts or ends. The game fires PLAYER_REGEN_DISABLED just before
+-- the lockdown starts, the addon's last chance to change its secure button,
+-- and PLAYER_REGEN_ENABLED just after it ends. SetInCombat fires each after
+-- it changes the state (#100 item 3, fixed in wow-ui-sim d907b88): right for
+-- the end, too late for the start. So the start's event is fired here first,
+-- and the simulator's own copy then comes a second time, in the lockdown.
+-- That's kept rather than hidden: an extra event in a fight is the
+-- pessimistic case, and the addon must take it in its stride (BuffButton's
+-- Empty leaves the protected button's visibility alone in a lockdown).
 function States.Combat(on)
     if on then
         States.Fire("PLAYER_REGEN_DISABLED")
-        Admin("SetInCombat", true)
-    else
-        Admin("SetInCombat", false)
-        States.Fire("PLAYER_REGEN_ENABLED")
     end
+    Admin("SetInCombat", on)
 end
 
 -- The party as it was before the first change here, to put back: nil
 -- until then. The screenshot build starts in a party of four whose members
--- wear buffs; the scenario run starts in none.
+-- wear buffs; the scenario run starts in none (#100 item 6, still so at
+-- wow-ui-sim ac893c6).
 local savedParty
 
 local function SaveParty()
@@ -203,7 +217,8 @@ function States.Party(name, classIndex)
 end
 
 -- Put the party back as it was (its members' names, classes and levels;
--- not their buffs), if anything here changed it.
+-- not their buffs: SetPartyMember now clears a member's auras, #100 item 5,
+-- fixed in wow-ui-sim d907b88), if anything here changed it.
 function States.RestoreParty()
     if not savedParty then return end
     Admin("SetPartySize", 0)

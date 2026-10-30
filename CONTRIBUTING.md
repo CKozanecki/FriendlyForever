@@ -114,8 +114,8 @@ The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://g
 
 - **What it runs:**
   - **Lua errors** from loading, and the addon's frame tree.
-  - **UI scenarios** in `uitests/scenarios.lua`, including the layout checks: text stays inside its frame, and frames stay on screen. Each layout check prints a `LAYOUT` line.
-  - **Screenshots** of the game screen, each options tab and page, the copy window and the buff-back button. Each options tab's shot is named after it, such as `options-buff-back.png` (#112).
+  - **UI scenarios** in `uitests/scenarios.lua`, including the layout checks: text stays inside its frame, and frames stay on screen. Each layout check prints a `LAYOUT` line. The scenarios run in `run-tests`, then again at 1024 × 768 (the narrowest layout) and 1920 × 1080 (what most players use) through `dump-tree`, since `run-tests` has no size option (#148). Each `LAYOUT` line names its resolution.
+  - **Screenshots** of the game screen, each options tab and page, the copy window and the buff-back button. Each options tab's shot is named after it, such as `options-buff-back.png` (#112). Every shot is taken at 1024 × 768 and again at 1920 × 1080, saved beside it as `<name>-1920x1080.png` (#148).
 - **Where to look:** the run's summary has the errors, the scenarios and the layout lines. For a pull request from this repository, the screenshots are committed to the branch `ui-screenshots/pr-<number>`, replaced on every run. The branch is deleted when the pull request closes, merged or not, so look at the screenshots before then; the testing review already does, before the pull request is ready. To view them: `git fetch origin ui-screenshots/pr-<number>`, then open the PNGs, or browse the branch on GitHub.
 - **Clean-up** (#106): the **UI screenshots clean-up** workflow deletes the branches.
   - **When a pull request closes,** it deletes that pull request's branch, if there is one. It never fails the pull request's checks.
@@ -124,7 +124,7 @@ The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://g
 - **What the screenshots show:** our text, layout and colours. Blizzard's art and WoW's fonts aren't there, so sizes are approximate. Layout checks catch the problem whatever the font. The final look is checked in game, on launch day (#50). Fetching Blizzard's art (level C) is the maintainer's call.
 - **Adding a scenario:** write it in `uitests/scenarios.lua` with the simulator's `test()` and `assert*` functions, and add any new global it reads to `uitests/**` in `.luacheckrc`. Report lines go through `A_Print`, since Blizzard's UI sends `print` to chat. Put back anything a scenario changes, even when it fails. `uitests/` never ships. Anything that waits in game time belongs in `spec/`, whose client controls the clock.
 - **Safety:** the simulator is unvetted code. Changes to the workflow keep every one of these, and `spec/repo_spec.lua` checks them:
-  - the image pinned by digest, and the sources it builds from pinned by commit, with the build and render images' bases pinned by digest. Read the source at a new release before moving a pin;
+  - the simulator built here from its source, pinned by commit, with the build and render images' bases pinned by digest. Never a published image or release binary. Read the source at a new commit before moving the pin, and post the review on the issue first (#154);
   - the simulator, and its build (which runs its build scripts and macros), in containers with no network, no capabilities and read-only sources. Only their output folders are writable. The one exception is the step that downloads its locked crates: `cargo fetch` has network, but runs none of their code;
   - no secrets, and read-only access for every job but the one that publishes screenshots;
   - that publishing job runs nothing from the simulator or the pull request. It only checks that each file is a PNG of a sane size, then commits it;

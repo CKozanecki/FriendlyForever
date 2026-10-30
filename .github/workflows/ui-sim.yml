@@ -6,12 +6,16 @@ name: UI simulator
 # "UI simulator" in CONTRIBUTING.md.
 #
 # Safety:
-# - The image is pinned by digest (release 0.1.36), so it can't change
-#   under us; read the source at that release before moving the pin.
+# - The simulator is built here from one reviewed commit of its source
+#   (ac893c6, #154), with every base image pinned by digest, so it can't
+#   change under us; read the source at a new commit before moving the pin.
+#   There's no published image at that commit, and we never use the
+#   project's release binaries.
 # - No job has secrets, and every job but publish-screenshots has read-only
 #   access to the repository.
-# - The container runs with no network, no capabilities and no privilege
-#   escalation, and sees the packaged addon read-only. We don't use the
+# - Every container runs with no network (but the one that downloads the
+#   locked crates, and runs none of their code), no capabilities and no
+#   privilege escalation, and sees its inputs read-only. We don't use the
 #   project's own Action: it pulls a moving tag, mounts the repository
 #   read-write and puts an input into a shell command unquoted.
 # - Only the publish-screenshots job may write, and it runs nothing from the
@@ -51,12 +55,148 @@ permissions:
   contents: read
 
 env:
-  IMAGE: ghcr.io/osso/wow-ui-sim@sha256:7e663dfd59e364d9df212afa1cde40e7051c1fc65b1b3652ac84769a5ac9b292
+  # The screen sizes the layout checks and screenshots run at (#148):
+  # 1024 x 768 is the narrowest layout WoW lays out; 1920 x 1080 is what
+  # most players use. spec/repo_spec.lua checks both are listed.
+  LAYOUT_SIZES: 1024x768 1920x1080
+  SIM_REPO: https://github.com/Osso/wow-ui-sim.git
+  # The maintainer's fixes for our findings (#100, Osso/wow-ui-sim#13), on
+  # their master after v0.1.37; reviewed on #154.
+  SIM_COMMIT: ac893c6659d5152965352bfeb725fad89b9bc0d5
+  BLIZZARD_UI_COMMIT: b9be9379719047977fca4dba1bb1d9988e8840b3 # pinned by that commit's Dockerfile
+  # That commit's Dockerfile builds on rust:1.92-bookworm; running uses the
+  # same Debian, so the binary finds the ICU it was linked with.
+  BUILD_BASE: rust@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2 # 1.92-bookworm
+  RENDER_BASE: debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 # bookworm-slim
 
 jobs:
-  ui-sim:
+  # Builds the simulator once, with its renderer, for both jobs below: the
+  # way SIM_COMMIT's Dockerfile does, and renders on the CPU with Mesa's
+  # software driver. It also fetches Blizzard's UI code at its pinned commit.
+  # No Blizzard art is fetched, so Blizzard's textures are missing: text,
+  # layout and our own colors show.
+  #
+  # The build runs the simulator's build scripts and macros, so it is
+  # sandboxed like the simulator itself: cargo first downloads the locked,
+  # checksummed crates (it runs none of their code), then compiles with no
+  # network, no capabilities and the sources read-only. Its output goes to
+  # the other jobs as an artifact: the stripped binary, the test framework
+  # run-tests loads from beside it, and Blizzard's UI code.
+  simulator:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 75
+    continue-on-error: true
+    steps:
+      - name: Fetch the simulator and Blizzard's UI code at their pinned commits
+        run: |
+          git init -q "$RUNNER_TEMP/sim"
+          git -C "$RUNNER_TEMP/sim" fetch -q --depth 1 "$SIM_REPO" "$SIM_COMMIT"
+          git -C "$RUNNER_TEMP/sim" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/sim" rev-parse HEAD)" = "$SIM_COMMIT"
+
+          ui="$RUNNER_TEMP/blizzard-ui"
+          git init -q "$ui"
+          git -C "$ui" fetch -q --depth 1 https://github.com/Gethe/wow-ui-source.git "$BLIZZARD_UI_COMMIT"
+          git -C "$ui" sparse-checkout set Interface/AddOns
+          git -C "$ui" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$ui" rev-parse HEAD)" = "$BLIZZARD_UI_COMMIT"
+          # As SIM_COMMIT's Dockerfile does: the tree must be exactly the
+          # file list the simulator was built for.
+          manifest="$RUNNER_TEMP/sim/data/blizzard-ui-files/retail.txt"
+          diff -u <(LC_ALL=C sort "$manifest") \
+            <(git -C "$ui" ls-tree -r --name-only HEAD Interface/AddOns/ | cut -d/ -f3- | LC_ALL=C sort)
+          # The markers the simulator's own image writes, so it uses this
+          # cache and never tries to fetch game files itself.
+          cd "$ui/Interface/AddOns"
+          printf 'profile=retail\nversion=12.1.5.70448\nsource=gethe-image-build\ngethe_revision=%s\nmanifest_sha256=%s\nfallback=none\n' \
+            "$BLIZZARD_UI_COMMIT" "$(sha256sum "$manifest" | cut -d' ' -f1)" > .wow-ui-sim-blizzard-ui-provenance
+          touch .wow-ui-sim-blizzard-ui-complete
+
+      - name: Build a build image (the Dockerfile's build tools)
+        run: |
+          docker build -t ff-build - <<DOCKERFILE
+          FROM $BUILD_BASE
+          RUN apt-get update -q && apt-get install -yq --no-install-recommends \
+                clang mold git pkg-config cmake libicu-dev libudev-dev \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          # Published binaries use the commit's portable CI config.
+          cp "$RUNNER_TEMP/sim/.cargo/config.ci.toml" "$RUNNER_TEMP/sim/.cargo/config.toml"
+          mkdir -p "$RUNNER_TEMP/cargo-home" "$RUNNER_TEMP/sim-target"
+
+      # Restored and saved separately, so the build is cached as soon as it
+      # finishes, even if a later step fails or the run is cancelled.
+      - name: Restore the simulator build
+        id: sim-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/cargo-home
+            ${{ runner.temp }}/sim-target
+          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui-stripped
+
+      # The only container with network: cargo fetch downloads the crates
+      # Cargo.lock names, checks their checksums and unpacks them, and runs
+      # none of their code. The sources stay read-only.
+      - name: Download the simulator's locked dependencies
+        if: steps.sim-cache.outputs.cache-hit != 'true'
+        run: |
+          docker run --rm --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/cargo \
+            -v "$RUNNER_TEMP/sim:/build:ro" -v "$RUNNER_TEMP/cargo-home:/cargo" -w /build \
+            ff-build cargo fetch --locked
+
+      - name: Build the simulator with its renderer (no network, sources read-only)
+        run: |
+          docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/cargo -e CARGO_TARGET_DIR=/target \
+            -e CARGO_PROFILE_RELEASE_STRIP=symbols \
+            --memory 12g --memory-swap 12g --pids-limit 8192 \
+            -v "$RUNNER_TEMP/sim:/build:ro" -v "$RUNNER_TEMP/cargo-home:/cargo:ro" \
+            -v "$RUNNER_TEMP/sim-target:/target" -w /build \
+            ff-build cargo build --release --locked --offline --bin wow-sim \
+              --no-default-features --features "gui client-retail"
+
+      - name: Save the simulator build
+        if: steps.sim-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/cargo-home
+            ${{ runner.temp }}/sim-target
+          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui-stripped
+
+      # What the simulator's image holds: the binary (stripped by the build,
+      # as the image's is), with the test framework run-tests loads from
+      # Interface/AddOns beside it, and Blizzard's UI code. The build's output
+      # is untrusted, so the runner only copies the binary, and only a plain
+      # file, never a link: nothing here reads or runs it outside a sandbox.
+      - name: Stage the simulator for the other jobs
+        run: |
+          out="$RUNNER_TEMP/ui-sim-build"
+          bin="$RUNNER_TEMP/sim-target/release/wow-sim"
+          mkdir -p "$out/sim/Interface/AddOns" "$out/blizzard-ui"
+          test -f "$bin"
+          test ! -L "$bin"
+          cp -P "$bin" "$out/sim/wow-sim"
+          cp -r "$RUNNER_TEMP/sim/Interface/AddOns/TestFramework" "$out/sim/Interface/AddOns/"
+          cp -r "$RUNNER_TEMP/blizzard-ui/Interface/AddOns" "$out/blizzard-ui/"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-sim-build
+          path: ${{ runner.temp }}/ui-sim-build
+          # Blizzard's UI cache markers are dot files.
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
+
+  ui-sim:
+    needs: simulator
+    runs-on: ubuntu-24.04
+    # Its simulator runs stop themselves (three at 2 minutes, two at 5, each
+    # with 10 s to exit: about 17 minutes if all five hung), well inside this.
+    timeout-minutes: 25
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,22 +214,82 @@ jobs:
           cp -r uitests "$addons/FriendlyForever/tests"
           chmod -R a-w "$addons"
 
-      - name: Pull the simulator, pinned by digest
-        run: docker pull "$IMAGE"
+      # run-tests has no screen size option (it uses 1600 x 1200), but
+      # dump-tree does, so the same scenarios and layout checks also run
+      # there, at 1024 x 768 (the narrowest layout) and 1920 x 1080 (what
+      # most players use) (#148). One script: the stand-in test runner, then
+      # each scenario file wrapped so its locals stay its own.
+      - name: Stage the scenarios for the sized layout passes
+        run: |
+          layout="$RUNNER_TEMP/layout-lua"
+          mkdir -p "$layout"
+          {
+            cat scripts/ui-sim-harness.lua
+            for file in button_states pages scenarios; do
+              printf '\ndo\nlocal function scenarios(...)\n'
+              cat "uitests/$file.lua"
+              printf '\nend\nscenarios()\nend\n'
+            done
+            printf '\nFriendlyForeverHarnessFinish()\n'
+          } > "$layout/layout.lua"
+          chmod -R a-w "$layout"
+
+      - name: Get the simulator built by the simulator job
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ui-sim-build
+          path: ${{ runner.temp }}/ui-sim-build
+
+      - name: Build a run image (Mesa software drivers)
+        run: |
+          chmod -R a-w "$RUNNER_TEMP/ui-sim-build"
+          chmod a+x "$RUNNER_TEMP/ui-sim-build/sim/wow-sim"
+          docker build -t ff-render - <<DOCKERFILE
+          FROM $RENDER_BASE
+          RUN apt-get update -q && apt-get install -yq --no-install-recommends \
+                libicu72 libegl1 libgl1-mesa-dri libglx-mesa0 mesa-vulkan-drivers fonts-dejavu-core \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
 
       - name: Run the simulator (no network, addon read-only)
         run: |
           # Our TOC is for Forever (interface 16001); the simulator runs the
           # retail 12.1.5 UI that Forever's is built on, so load it the way
-          # the game's "Load out of date AddOns" box would.
+          # the game's "Load out of date AddOns" box would. As the
+          # simulator's image did: no saved variables, and Blizzard's UI
+          # where it looks (WOW_SIM_CASC=0: never look for game files).
+          # Each command is stopped after 2 minutes if it hasn't finished (they
+          # take seconds), so one that never exits can't hold up the job; its
+          # output so far is kept, and the log says how each one ended (#154).
+          exec 3>&1
           sandbox() {
-            docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
-              -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 \
-              -v "$RUNNER_TEMP/addons:/test-addons:ro" "$IMAGE" --addons-path /test-addons "$@"
+            local started=$SECONDS status=0
+            timeout -s TERM -k 10 120 docker run --rm --init --network none --cap-drop ALL --security-opt no-new-privileges \
+              --user "$(id -u):$(id -g)" -e HOME=/tmp \
+              -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 -e WOW_SIM_NO_SAVED_VARS=1 -e WOW_SIM_CASC=0 \
+              -v "$RUNNER_TEMP/ui-sim-build/sim:/sim:ro" \
+              -v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
+              -v "$RUNNER_TEMP/addons:/test-addons:ro" ff-render /sim/wow-sim --addons-path /test-addons "$@" || status=$?
+            echo "$1: exit $status after $((SECONDS - started)) s (124: stopped at the time limit)" >&3
+            return "$status"
           }
           sandbox lua-errors > "$RUNNER_TEMP/report/lua-errors.json" 2> "$RUNNER_TEMP/report/lua-errors.log" || true
           sandbox run-tests FriendlyForever > "$RUNNER_TEMP/report/run-tests.log" 2>&1 || true
           sandbox dump-tree --filter FriendlyForever > "$RUNNER_TEMP/report/frame-tree.txt" 2>&1 || true
+          # The scenarios again at each size (#148); the frame tree stays in each log.
+          for size in $LAYOUT_SIZES; do
+            # Stopped after 5 minutes if it hasn't finished, so a pass that
+            # never exits can't hold up the job; its output so far is kept.
+            timeout -s TERM -k 10 300 docker run --rm --init --network none --cap-drop ALL --security-opt no-new-privileges \
+              --user "$(id -u):$(id -g)" -e HOME=/tmp \
+              -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 -e WOW_SIM_NO_SAVED_VARS=1 -e WOW_SIM_CASC=0 \
+              -v "$RUNNER_TEMP/ui-sim-build/sim:/sim:ro" \
+              -v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
+              -v "$RUNNER_TEMP/addons:/test-addons:ro" -v "$RUNNER_TEMP/layout-lua:/layout-lua:ro" \
+              ff-render /sim/wow-sim --addons-path /test-addons --exec-lua @/layout-lua/layout.lua \
+              dump-tree --filter FriendlyForever --width "${size%x*}" --height "${size#*x}" \
+              > "$RUNNER_TEMP/report/layout-$size.log" 2>&1 || echo "layout pass $size: exit $?" >&3
+          done
 
       - name: Show the reports in the log
         run: |
@@ -111,6 +311,12 @@ jobs:
           grep "LAYOUT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
           echo "--- scenario results"
           grep -E "✓|✗|tests," "$report/run-tests.log" || true
+          for size in $LAYOUT_SIZES; do
+            echo "--- layout at $size (#148)"
+            grep "LAYOUT " "$report/layout-$size.log" | awk '!seen[$0]++' | grep . || echo "none printed"
+            echo "--- scenario results at $size"
+            grep -E "✓|✗|tests," "$report/layout-$size.log" | awk '!seen[$0]++' || true
+          done
           echo "--- load errors naming FriendlyForever"
           grep -i -B2 -A8 "FriendlyForever" "$report/lua-errors.json" | head -80 || echo "none"
           echo "--- frame tree lines naming FriendlyForever"
@@ -130,6 +336,13 @@ jobs:
             echo '```'
             grep "LAYOUT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
             echo '```'
+            for size in $LAYOUT_SIZES; do
+              echo "### Layout checks at $size"
+              echo '```'
+              grep "LAYOUT " "$report/layout-$size.log" | awk '!seen[$0]++' | grep . || echo "none printed"
+              grep -E "✗|tests," "$report/layout-$size.log" | awk '!seen[$0]++' || true
+              echo '```'
+            done
             echo "### UI scenarios"
             echo '```'
             tail -60 "$report/run-tests.log"
@@ -145,29 +358,13 @@ jobs:
           name: ui-sim-report
           path: ${{ runner.temp }}/report
 
-  # Level B: screenshots of our own frames. The published image is built
-  # without the simulator's renderer, so this job builds it from the same
-  # reviewed release (v0.1.36, the commit behind the image above), the way
-  # that release's Dockerfile does, and renders on the CPU with Mesa's
-  # software driver. No Blizzard art is fetched, so Blizzard's textures are
-  # missing: text, layout and our own colors show.
-  #
-  # The build runs the simulator's build scripts and macros, so it is
-  # sandboxed like the simulator itself: cargo first downloads the locked,
-  # checksummed crates (it runs none of their code), then compiles with no
-  # network, no capabilities and the sources read-only.
+  # Level B: screenshots of our own frames, from the simulator job's build.
   screenshots:
+    needs: simulator
     runs-on: ubuntu-24.04
-    timeout-minutes: 78
+    timeout-minutes: 70
     continue-on-error: true
     env:
-      SIM_REPO: https://github.com/Osso/wow-ui-sim.git
-      SIM_COMMIT: 3b369ee1aafeb85089b7c63e8a0a99e56f8c2dd0 # v0.1.36
-      BLIZZARD_UI_COMMIT: b9be9379719047977fca4dba1bb1d9988e8840b3 # pinned by that release's Dockerfile
-      # The release's Dockerfile builds on rust:1.92-bookworm; rendering uses
-      # the same Debian, so the binary finds the ICU it was linked with.
-      BUILD_BASE: rust@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2 # 1.92-bookworm
-      RENDER_BASE: debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 # bookworm-slim
       # The options panel's tabs, one shot each (#112): uitests/pages.lua's
       # Pages.TABS names, in the panel's order (spec/uitests_pages_spec.lua
       # checks they match).
@@ -210,81 +407,16 @@ jobs:
           done
           chmod -R a-w "$states"
 
-      - name: Fetch the simulator and Blizzard's UI code at their pinned commits
-        run: |
-          git init -q "$RUNNER_TEMP/sim"
-          git -C "$RUNNER_TEMP/sim" fetch -q --depth 1 "$SIM_REPO" "$SIM_COMMIT"
-          git -C "$RUNNER_TEMP/sim" checkout -q --detach FETCH_HEAD
-          test "$(git -C "$RUNNER_TEMP/sim" rev-parse HEAD)" = "$SIM_COMMIT"
-
-          ui="$RUNNER_TEMP/blizzard-ui"
-          git init -q "$ui"
-          git -C "$ui" fetch -q --depth 1 https://github.com/Gethe/wow-ui-source.git "$BLIZZARD_UI_COMMIT"
-          git -C "$ui" sparse-checkout set Interface/AddOns
-          git -C "$ui" checkout -q --detach FETCH_HEAD
-          test "$(git -C "$ui" rev-parse HEAD)" = "$BLIZZARD_UI_COMMIT"
-          # The markers the simulator's own image writes, so it uses this
-          # cache and never tries to fetch game files itself.
-          cd "$ui/Interface/AddOns"
-          printf 'profile=retail\nversion=12.1.5.70448\nsource=gethe-image-build\ngethe_revision=%s\nfallback=none\n' \
-            "$BLIZZARD_UI_COMMIT" > .wow-ui-sim-blizzard-ui-provenance
-          touch .wow-ui-sim-blizzard-ui-complete
-
-      - name: Build a build image (the release Dockerfile's build tools)
-        run: |
-          docker build -t ff-build - <<DOCKERFILE
-          FROM $BUILD_BASE
-          RUN apt-get update -q && apt-get install -yq --no-install-recommends \
-                clang mold git pkg-config cmake libicu-dev \
-              && rm -rf /var/lib/apt/lists/*
-          DOCKERFILE
-          # Published binaries use the release's portable CI config.
-          cp "$RUNNER_TEMP/sim/.cargo/config.ci.toml" "$RUNNER_TEMP/sim/.cargo/config.toml"
-          mkdir -p "$RUNNER_TEMP/cargo-home" "$RUNNER_TEMP/sim-target"
-
-      # Restored and saved separately, so the build is cached as soon as it
-      # finishes, even if a later step fails or the run is cancelled.
-      - name: Restore the simulator build
-        id: sim-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Get the simulator built by the simulator job
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: |
-            ${{ runner.temp }}/cargo-home
-            ${{ runner.temp }}/sim-target
-          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui-sandboxed
-
-      # The only container with network: cargo fetch downloads the crates
-      # Cargo.lock names, checks their checksums and unpacks them, and runs
-      # none of their code. The sources stay read-only.
-      - name: Download the simulator's locked dependencies
-        if: steps.sim-cache.outputs.cache-hit != 'true'
-        run: |
-          docker run --rm --cap-drop ALL --security-opt no-new-privileges \
-            --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/cargo \
-            -v "$RUNNER_TEMP/sim:/build:ro" -v "$RUNNER_TEMP/cargo-home:/cargo" -w /build \
-            ff-build cargo fetch --locked
-
-      - name: Build the simulator with its renderer (no network, sources read-only)
-        run: |
-          docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
-            --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/cargo -e CARGO_TARGET_DIR=/target \
-            --memory 12g --memory-swap 12g --pids-limit 8192 \
-            -v "$RUNNER_TEMP/sim:/build:ro" -v "$RUNNER_TEMP/cargo-home:/cargo:ro" \
-            -v "$RUNNER_TEMP/sim-target:/target" -w /build \
-            ff-build cargo build --release --locked --offline --bin wow-sim \
-              --no-default-features --features "gui client-retail"
-
-      - name: Save the simulator build
-        if: steps.sim-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ${{ runner.temp }}/cargo-home
-            ${{ runner.temp }}/sim-target
-          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui-sandboxed
+          name: ui-sim-build
+          path: ${{ runner.temp }}/ui-sim-build
 
       - name: Build a render image (Mesa software drivers)
         run: |
+          chmod -R a-w "$RUNNER_TEMP/ui-sim-build"
+          chmod a+x "$RUNNER_TEMP/ui-sim-build/sim/wow-sim"
           docker build -t ff-render - <<DOCKERFILE
           FROM $RENDER_BASE
           RUN apt-get update -q && apt-get install -yq --no-install-recommends \
@@ -296,7 +428,8 @@ jobs:
         # A backstop: the shots below stop themselves inside this. Each one
         # that hits its own 180 s limit takes about 200 s with its checks and
         # clean-up, so 16 shots and the probe take at most about 54 minutes.
-        # (Each usually takes about 8 s.)
+        # (Each usually takes about 8 s.) The second pass, at 1920 x 1080
+        # (#148), starts no shot after 50 minutes, so this still holds.
         timeout-minutes: 58
         run: |
           # WOW_SIM_CASC=0: never look for game files (no WoW install here).
@@ -307,6 +440,10 @@ jobs:
           # Docker), as the runner's own user so it can write the PNG into the
           # runner's folder (with every capability dropped, root can't), with
           # HOME in the container's /tmp and Blizzard's UI where it looks.
+          # Each shot is saved as <name><SUFFIX>.png at WIDTH x HEIGHT. The
+          # first pass is 1024 x 768 (no suffix), the second 1920 x 1080
+          # (-1920x1080) (#148); the second starts no shot after 50 minutes,
+          # so the backstop below still holds.
           # Only the PNGs go in the one folder a container can write
           # (/shots): the runner keeps each shot's log in shot-logs, which no
           # container mounts, so a shot can't plant a link there for the
@@ -314,19 +451,23 @@ jobs:
           shoot() {
             local name="$1"; shift
             local cid
+            if [ -n "$SUFFIX" ] && [ "$SECONDS" -gt 3000 ]; then
+              echo "$name$SUFFIX: skipped, out of time"
+              return
+            fi
             cid=$(docker run -d --init --network none --cap-drop ALL --security-opt no-new-privileges \
               --user "$(id -u):$(id -g)" -e HOME=/tmp -e XDG_RUNTIME_DIR=/tmp \
               --memory 6g --memory-swap 6g --cpus 3 --pids-limit 4096 \
               -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 -e WOW_SIM_NO_SAVED_VARS=1 \
               -e WOW_SIM_CASC=0 -e WOW_SIM_VERBOSE=1 \
               -e LIBGL_ALWAYS_SOFTWARE=1 -e WOW_SIM_SOFTWARE_RENDER=1 -e WGPU_BACKEND=gl \
-              -v "$RUNNER_TEMP/sim-target/release:/sim:ro" \
-              -v "$RUNNER_TEMP/blizzard-ui/Interface/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
+              -v "$RUNNER_TEMP/ui-sim-build/sim:/sim:ro" \
+              -v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
               -v "$RUNNER_TEMP/addons:/test-addons:ro" \
               -v "$RUNNER_TEMP/shot-lua:/shot-lua:ro" \
               -v "$RUNNER_TEMP/shots:/shots" \
               ff-render /sim/wow-sim --addons-path /test-addons "$@" \
-              screenshot --png --width 1024 --height 768 -o "/shots/$name.png")
+              screenshot --png --width "$WIDTH" --height "$HEIGHT" -o "/shots/$name$SUFFIX.png")
             local waited=0 result="timed out after 180 s"
             while [ "$waited" -lt 180 ]; do
               if [ "$(docker inspect -f '{{.State.Running}}' "$cid")" != "true" ]; then
@@ -345,37 +486,45 @@ jobs:
               docker top "$cid" -eo pid,stat,etime,args 2>&1 | sed "s/^/  $name> /" || true
             fi
             docker kill "$cid" >/dev/null 2>&1 || true
-            docker logs "$cid" > "$RUNNER_TEMP/shot-logs/$name.log" 2>&1 || true
+            docker logs "$cid" > "$RUNNER_TEMP/shot-logs/$name$SUFFIX.log" 2>&1 || true
             docker rm -f "$cid" >/dev/null 2>&1 || true
-            echo "$name: $result"
+            echo "$name$SUFFIX: $result"
           }
           # First, that the simulator starts at all in this image.
           probe=$(docker run -d --init --network none --cap-drop ALL --security-opt no-new-privileges \
-            -v "$RUNNER_TEMP/sim-target/release:/sim:ro" ff-render /sim/wow-sim --help)
+            -v "$RUNNER_TEMP/ui-sim-build/sim:/sim:ro" ff-render /sim/wow-sim --help)
           sleep 10
           docker logs "$probe" 2>&1 | head -40 | sed 's/^/  probe> /'
           docker rm -f "$probe" >/dev/null 2>&1 || true
-          shoot game
-          # Each tab of the options panel (#112), named after the tab:
-          # options-guild-login (the tab the panel opens on), options-buff-thanks...
-          for tab in $OPTIONS_TABS; do
-            shoot "options-$tab" --exec-lua "@/shot-lua/tab-$tab.lua"
+          # Every shot, at the size and suffix the pass set (#148).
+          shoot_all() {
+            shoot game
+            # Each tab of the options panel (#112), named after the tab:
+            # options-guild-login (the tab the panel opens on), options-buff-thanks...
+            for tab in $OPTIONS_TABS; do
+              shoot "options-$tab" --exec-lua "@/shot-lua/tab-$tab.lua"
+            done
+            # The Buff Thanks tab (#101), with the longest "Thank them with" choice.
+            shoot options-buff --exec-lua "FriendlyForeverDB.buff.thankStyle = 'both'; SlashCmdList.FRIENDLYFOREVER(''); for _, f in ipairs({ FriendlyForeverOptionsPanel:GetChildren() }) do local c = f.GetScrollChild and f:GetScrollChild(); for _, b in ipairs(c and { c:GetChildren() } or {}) do if b.GetText and b:GetText() == 'Buff Thanks' then b:GetScript('OnClick')(b) end end end"
+            # The General page (#35): it doesn't scroll, so everything must fit.
+            shoot general --exec-lua "SlashCmdList.FRIENDLYFOREVER(''); Settings.OpenToCategory(FriendlyForeverOptionsPanel.generalPage.category:GetID())"
+            # /friendly move shows the buff back button, unlocked, with nobody owed.
+            shoot button --exec-lua "SlashCmdList.FRIENDLYFOREVER('move')"
+            # A favour owed: someone outside your group buffed you.
+            shoot button-favour --exec-lua @/shot-lua/favour.lua
+            # Buff mode, with a party member missing your buff.
+            shoot button-buffmode --exec-lua @/shot-lua/buffmode.lua
+            # The General and Favour Ledger pages, filled with long names and
+            # many entries, and the copy window as /friendly export opens it (#52).
+            shoot options-general --exec-lua @/shot-lua/page-general.lua
+            shoot options-ledger --exec-lua @/shot-lua/page-ledger.lua
+            shoot copy-window --exec-lua "SlashCmdList.FRIENDLYFOREVER('export')"
+          }
+          for size in $LAYOUT_SIZES; do
+            WIDTH="${size%x*}"; HEIGHT="${size#*x}"
+            case "$size" in 1024x768) SUFFIX="" ;; *) SUFFIX="-$size" ;; esac
+            shoot_all
           done
-          # The Buff Thanks tab (#101), with the longest "Thank them with" choice.
-          shoot options-buff --exec-lua "FriendlyForeverDB.buff.thankStyle = 'both'; SlashCmdList.FRIENDLYFOREVER(''); for _, f in ipairs({ FriendlyForeverOptionsPanel:GetChildren() }) do local c = f.GetScrollChild and f:GetScrollChild(); for _, b in ipairs(c and { c:GetChildren() } or {}) do if b.GetText and b:GetText() == 'Buff Thanks' then b:GetScript('OnClick')(b) end end end"
-          # The General page (#35): it doesn't scroll, so everything must fit.
-          shoot general --exec-lua "SlashCmdList.FRIENDLYFOREVER(''); Settings.OpenToCategory(FriendlyForeverOptionsPanel.generalPage.category:GetID())"
-          # /friendly move shows the buff back button, unlocked, with nobody owed.
-          shoot button --exec-lua "SlashCmdList.FRIENDLYFOREVER('move')"
-          # A favour owed: someone outside your group buffed you.
-          shoot button-favour --exec-lua @/shot-lua/favour.lua
-          # Buff mode, with a party member missing your buff.
-          shoot button-buffmode --exec-lua @/shot-lua/buffmode.lua
-          # The General and Favour Ledger pages, filled with long names and
-          # many entries, and the copy window as /friendly export opens it (#52).
-          shoot options-general --exec-lua @/shot-lua/page-general.lua
-          shoot options-ledger --exec-lua @/shot-lua/page-ledger.lua
-          shoot copy-window --exec-lua "SlashCmdList.FRIENDLYFOREVER('export')"
           ls -la "$RUNNER_TEMP/shots" "$RUNNER_TEMP/shot-logs"
           for log in "$RUNNER_TEMP"/shot-logs/*.log; do
             echo "::group::$(basename "$log")"; tail -60 "$log"; echo "::endgroup::"
