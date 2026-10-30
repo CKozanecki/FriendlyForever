@@ -1,4 +1,4 @@
--- Spec: #52, #80, #101
+-- Spec: #52, #80, #101, #47
 local wow = require("spec.support.wow")
 
 describe("Config", function()
@@ -89,7 +89,9 @@ describe("Config", function()
     it("builds a complete database from nothing", function()
         local db = Config.Load(nil)
         assert.are.equal(Config.SCHEMA_VERSION, db.schemaVersion)
-        assert.is_true(db.enabled)
+        -- A new install is off until its walkthrough is finished or skipped (#47).
+        assert.is_false(db.enabled)
+        assert.are.same({ seen = 0, firstRun = true }, db.walkthrough)
         assert.are.same({ angle = 220, hide = false }, db.minimap)
         for _, msgType in ipairs(Config.TYPES) do
             assert.are.same(Config.DEFAULTS[msgType].messages, db[msgType].messages)

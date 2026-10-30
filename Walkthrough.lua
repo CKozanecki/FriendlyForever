@@ -1,12 +1,16 @@
 -- The walkthrough (#47): a short tour of the main settings, a step at a
--- time, opening each page. It starts by itself on a first install, can be
--- skipped, and is replayed from the Start here page.
+-- time, opening each page. It starts by itself at login until it has been
+-- finished or skipped (db.walkthrough, Config.lua), and is replayed from the
+-- Start here page.
 --
--- It only shows and explains settings; it never changes one. Skipping or
--- finishing it is remembered (db.walkthrough, Config.lua), in Close only. A
--- fight closes it, and it reopens at the same step when the fight is over;
--- one asked for in a fight waits for the fight to end (the owner's decision
--- on #47).
+-- On a new install it's first-run setup: the addon is off until the
+-- walkthrough is finished or skipped, and either turns it on. Switching the
+-- addon on or off by hand ends first run (ns.SetEnabled calls EndFirstRun).
+-- For someone already using the addon it shows once and changes nothing.
+-- Otherwise it only shows and explains settings. Finishing and skipping are
+-- handled in Close only. A fight closes it, and it reopens at the same step
+-- when the fight is over; one asked for in a fight waits for the fight to
+-- end (the owner's decisions on #47).
 local _, ns = ...
 
 local Walkthrough = {}
@@ -31,15 +35,25 @@ local function KeyText()
     return ns.BuffMode.KeyText((ns.BuffMode.Key()))
 end
 
+-- The saved state as Config.lua checks it, whatever damage it has had.
+local function State()
+    return ns.Config.ValidWalkthrough(ns.db.walkthrough, ns.db.enabled)
+end
+
+-- Whether this is a new install's first run, which ends by turning the addon on.
+function Walkthrough.FirstRun() return State().firstRun end
+
 -- Each step: its title, its text (worked out when shown, from the settings
 -- as they are), and the page it opens, if any.
 Walkthrough.STEPS = {
     {
         title = "Welcome to Friendly Forever",
         text = function()
+            local first = Walkthrough.FirstRun() and ("Friendly Forever is off until you finish or skip this "
+                .. "walkthrough; either turns it on.\n\n") or ""
             return "It greets guildmates, welcomes new guild and party members, and thanks people who buff you. "
-                .. "This short walkthrough shows the main settings, a page at a time.\n\n"
-                .. "It only shows and explains: it never changes a setting. Skip it if you like; it's on the "
+                .. "This short walkthrough shows the main settings, a page at a time.\n\n" .. first
+                .. "It only shows and explains: it changes no setting. Skip it if you like; it's on the "
                 .. "Start here page whenever you want it (Esc > Options > AddOns > Friendly Forever)."
         end,
     },
@@ -114,8 +128,9 @@ Walkthrough.STEPS = {
         title = "That's it",
         open = function() ns.Options.OpenStart() end,
         text = function()
-            return "Start here shows the settings that apply and your keys, with a link to every other page. "
-                .. "Take the walkthrough again from there any time."
+            local first = Walkthrough.FirstRun() and "Finish turns Friendly Forever on.\n\n" or ""
+            return first .. "Start here shows the settings that apply and your keys, with a link to every other "
+                .. "page. Take the walkthrough again from there any time."
         end,
     },
 }
@@ -143,11 +158,15 @@ local function Show(index)
     if open then open() end
 end
 
--- Closes it, remembering result ("skipped" or "done") when given.
-local function Close(result)
+-- Closes it. done: it was finished or skipped, so it's seen, and a first
+-- run ends by turning the addon on.
+local function Close(done)
     step = nil
-    if result then ns.db.walkthrough = result end
     frame:Hide()
+    if not done then return end
+    local first = State().firstRun
+    ns.db.walkthrough = { seen = ns.Config.WALKTHROUGH_VERSION, firstRun = false }
+    if first then ns.SetEnabled(true) end
 end
 
 local function Create()
@@ -242,7 +261,7 @@ end
 
 function Walkthrough.Next()
     if not step then return end
-    if step == #Walkthrough.STEPS then return Close("done") end
+    if step == #Walkthrough.STEPS then return Close(true) end
     Show(step + 1)
 end
 
@@ -252,16 +271,26 @@ end
 
 function Walkthrough.Skip()
     pending = nil
-    Close("skipped")
+    Close(true)
 end
 
--- At login: on a first install, say where Start here is and start the
--- walkthrough. Once it's been skipped or finished, nothing.
+-- At login, until it has been finished or skipped: say where Start here
+-- is, and start the walkthrough.
 function Walkthrough.OnLogin()
-    if ns.db.walkthrough ~= "new" then return end
-    ns.Print("welcome! The Start here page has the settings most people change: Esc > Options > AddOns > "
-        .. ns.TITLE .. " > Start here.")
+    local state = State()
+    if state.seen >= ns.Config.WALKTHROUGH_VERSION then return end
+    ns.Print((state.firstRun and "welcome! Friendly Forever is off until you finish or skip its walkthrough. "
+        or "new: a short walkthrough of the main settings. ")
+        .. "The Start here page shows your settings: Esc > Options > AddOns > " .. ns.TITLE .. " > Start here.")
     Walkthrough.Start()
+end
+
+-- The addon was switched on or off by hand: that's the player's choice, so
+-- finishing the walkthrough no longer switches it.
+function Walkthrough.EndFirstRun()
+    local state = State()
+    state.firstRun = false
+    ns.db.walkthrough = state
 end
 
 function Walkthrough.Step() return step end

@@ -27,13 +27,12 @@ Pages.START = "FriendlyForeverStartPage"
 Pages.WINDOW = "FriendlyForeverTextWindow"
 Pages.WALKTHROUGH = "FriendlyForeverWalkthrough"
 
--- The simulator starts with no saved settings, a first install, so the
--- walkthrough opens at login (#47). Every page and tab shown here hides it
--- first, as a player who skipped it would see them. Hiding it changes no
--- setting.
-function Pages.HideWalkthrough()
+-- The simulator starts with no saved settings, a new install: the addon is
+-- off and its walkthrough open (#47). Every page and tab shown here skips it
+-- first, by its Skip button, as a player would, which turns the addon on.
+function Pages.SkipWalkthrough()
     local walkthrough = _G[Pages.WALKTHROUGH]
-    if type(walkthrough) == "table" and walkthrough:IsShown() then walkthrough:Hide() end
+    if type(walkthrough) == "table" and walkthrough:IsShown() then walkthrough.skip:Click() end
 end
 
 -- Twelve-letter first names and surnames, as long as Forever names get.
@@ -119,7 +118,7 @@ local PAGE_FRAMES = { general = Pages.GENERAL, ledger = Pages.LEDGER, start = Pa
 function Pages.Open(which)
     local page = _G[PAGE_FRAMES[which] or Pages.GENERAL]
     if type(page) ~= "table" then error("no options page called " .. tostring(which), 2) end
-    Pages.HideWalkthrough()
+    Pages.SkipWalkthrough()
     -- A page fills itself when shown. One an earlier scenario left open is
     -- hidden first, so it shows, and fills, afresh from what Fill set.
     if page:IsShown() then page:Hide() end
@@ -184,7 +183,7 @@ function Pages.OpenTab(name)
         report(why)
         return nil, why
     end
-    Pages.HideWalkthrough()
+    Pages.SkipWalkthrough()
     SlashCmdList.FRIENDLYFOREVER("")
     local panel = _G[Pages.PANEL]
     local button = type(panel) == "table" and FindButton(panel, tab.label, 3)

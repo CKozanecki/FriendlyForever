@@ -14,6 +14,7 @@ function ns.Print(msg)
 end
 
 function ns.SetEnabled(on)
+    ns.Walkthrough.EndFirstRun()
     ns.db.enabled = on and true or false
     ns.RefreshEvents()
     ns.BuffButton.Refresh()

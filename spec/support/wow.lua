@@ -1438,6 +1438,7 @@ function M.boot(opts)
     if givenBuffBack then
         for _, field in ipairs(M.TURN_ON_TRIGGERS) do triggersGiven[field] = givenBuffBack[field] end
     end
+    local walkthroughGiven = type(opts.db) == "table" and opts.db.walkthrough or nil
     _G.FriendlyForeverDB = opts.db
     local ns = M.load()
     ns.Messages.random = function() return 1 end
@@ -1472,10 +1473,20 @@ function M.boot(opts)
             end
         end
     end
-    -- A first install (no saved settings) starts the walkthrough at login
-    -- (#47), which most specs don't want: unless opts.walkthrough, it starts
-    -- as one already finished. spec/walkthrough_spec.lua covers it.
-    if not opts.walkthrough and opts.db == nil then ns.db.walkthrough = "done" end
+    -- The walkthrough (#47) opens at login until it's finished or skipped,
+    -- and a first install (no saved settings) is off until then, which most
+    -- specs don't want. Unless opts.walkthrough, or the given settings set
+    -- them, it starts as finished, and a first install as switched on.
+    -- spec/walkthrough_spec.lua covers the walkthrough.
+    if not opts.walkthrough then
+        if walkthroughGiven == nil then
+            ns.db.walkthrough = { seen = ns.Config.WALKTHROUGH_VERSION, firstRun = false }
+        end
+        if opts.db == nil then
+            ns.db.enabled = true
+            ns.RefreshEvents() -- as switching it on does
+        end
+    end
     M.fire("PLAYER_ENTERING_WORLD", true, false)
     if not opts.noGrace then M.advance(ns.Announcer.LOGIN_GRACE) end
     return ns

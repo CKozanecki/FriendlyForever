@@ -186,21 +186,33 @@ describe("The simulated client", function()
     end)
 end)
 
--- #47: a first install opens the walkthrough at login, which boot turns
--- off for most specs; given settings and opts.walkthrough keep it.
+-- #47: the walkthrough opens at login until it's finished or skipped, and a
+-- first install is off until then. boot turns both off for most specs;
+-- opts.walkthrough, and given settings that set them, keep them.
 describe("The simulated client's boot and the walkthrough (#47)", function()
-    it("starts a first install as one whose walkthrough is finished, unless asked", function()
+    local SEEN = { seen = 1, firstRun = false }
+
+    it("starts a first install switched on, its walkthrough finished, unless asked", function()
         local ns = wow.boot()
-        assert.are.equal("done", ns.db.walkthrough)
+        assert.are.same(SEEN, ns.db.walkthrough)
+        assert.is_true(ns.db.enabled)
         assert.is_false(ns.Walkthrough.Frame():IsShown())
         ns = wow.boot({ walkthrough = true })
-        assert.are.equal("new", ns.db.walkthrough)
+        assert.are.same({ seen = 0, firstRun = true }, ns.db.walkthrough)
+        assert.is_false(ns.db.enabled)
         assert.is_true(ns.Walkthrough.Frame():IsShown())
     end)
 
-    it("leaves given settings alone, so a walkthrough not yet seen still starts", function()
-        local ns = wow.boot({ db = { walkthrough = "new" } })
-        assert.are.equal("new", ns.db.walkthrough)
+    it("starts given settings without a walkthrough state as finished, and leaves their switch", function()
+        local ns = wow.boot({ db = { enabled = false } })
+        assert.are.same(SEEN, ns.db.walkthrough)
+        assert.is_false(ns.db.enabled)
+        assert.is_false(ns.Walkthrough.Frame():IsShown())
+    end)
+
+    it("leaves a given walkthrough state alone, so one not yet seen still starts", function()
+        local ns = wow.boot({ db = { walkthrough = { seen = 0, firstRun = false } } })
+        assert.are.same({ seen = 0, firstRun = false }, ns.db.walkthrough)
         assert.is_true(ns.Walkthrough.Frame():IsShown())
     end)
 end)

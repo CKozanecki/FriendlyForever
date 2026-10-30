@@ -52,6 +52,24 @@ local function AnyContains(lines, fragment)
     return false
 end
 
+-- The simulator starts with no saved settings, a new install (#47): the
+-- addon is off and its walkthrough open at its first step, and skipping it
+-- turns the addon on. It is skipped even when a check fails, so the rest of
+-- the run has the addon on, as a player has it after first run.
+test("a new install is off, with its walkthrough open, until it's skipped (#47)", function()
+    local walkthrough = _G.FriendlyForeverWalkthrough
+    local ok, err = pcall(function()
+        check(type(walkthrough) == "table" and walkthrough:IsShown(), "the walkthrough didn't open at login")
+        check(FriendlyForeverDB.enabled == false, "the addon is on before first run is over")
+        check((walkthrough.text:GetText() or ""):find("either turns it on", 1, true) ~= nil,
+            "the first step doesn't say finishing or skipping turns the addon on")
+    end)
+    if type(walkthrough) == "table" and walkthrough:IsShown() then walkthrough.skip:Click() end
+    if not ok then error(err, 0) end
+    check(FriendlyForeverDB.enabled == true, "skipping didn't turn the addon on")
+    check(not walkthrough:IsShown(), "skipping didn't close the walkthrough")
+end)
+
 test("loads and creates its saved settings", function()
     assertType("table", FriendlyForeverDB)
     assertTrue(FriendlyForeverDB.enabled)
@@ -1090,7 +1108,7 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
         end)
         if not ok then failures[#failures + 1] = tostring(err) end
     end
-    Pages.HideWalkthrough()
+    Pages.SkipWalkthrough()
     check(#failures == 0, table.concat(failures, "\n"))
 end)
 

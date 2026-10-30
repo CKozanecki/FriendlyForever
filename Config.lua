@@ -492,9 +492,30 @@ function Config.ValidIgnore(list)
     return ignore
 end
 
--- What db.walkthrough can be: not yet skipped or finished (a first
--- install), skipped, or finished.
-Config.WALKTHROUGH_STATES = { new = true, skipped = true, done = true }
+-- The walkthrough (#47): db.walkthrough = { seen = the version of the
+-- walkthrough last finished or skipped (0: none), firstRun = true while a
+-- new install waits for it (the addon is off until it's finished or
+-- skipped) }. Raise the version when the walkthrough gets new steps (#169).
+Config.WALKTHROUGH_VERSION = 1
+
+-- A checked copy of the saved walkthrough state; enabled is the addon's
+-- switch, checked already. None at all (settings from before it): seen 0,
+-- so it shows once, and not a first run, so the switch is left alone.
+-- Damaged: with the addon on, seen, so nothing changes; with it off, a
+-- first run, so it shows and finishing or skipping turns the addon on. So
+-- damage never leaves the addon off for a player who finished or skipped
+-- it and didn't switch it off, and never switches it off.
+function Config.ValidWalkthrough(saved, enabled)
+    local latest = Config.WALKTHROUGH_VERSION
+    if saved == nil then return { seen = 0, firstRun = false } end
+    local seen = type(saved) == "table" and saved.seen
+    if type(seen) ~= "number" or seen ~= math.floor(seen) or seen < 0 or seen > latest then
+        if enabled == false then return { seen = 0, firstRun = true } end
+        return { seen = latest, firstRun = false }
+    end
+    return { seen = seen, firstRun = saved.firstRun == true and seen < latest }
+end
+
 
 -- Everything in the saved file but the ledger (which checks itself as it's
 -- used, and whose live entries a full check would change: see Ledger.Data).
@@ -511,10 +532,7 @@ local function ValidateSettings(db)
 
     -- Diagnostics: a debug flag and the most recent log lines (strings only).
     if type(db.debug) ~= "boolean" then db.debug = false end
-    -- The walkthrough (#47): "new" until it's skipped or finished. Anything
-    -- else (a file from before it, or a damaged one) counts as seen, so it
-    -- never starts by itself for someone who already uses the addon.
-    if not Config.WALKTHROUGH_STATES[db.walkthrough] then db.walkthrough = "done" end
+    db.walkthrough = Config.ValidWalkthrough(db.walkthrough, db.enabled)
     local log = {}
     if type(db.diagLog) == "table" then
         for _, line in ipairs(db.diagLog) do
@@ -566,9 +584,10 @@ local function ValidateSettings(db)
 end
 
 -- The saved file as loaded: migrated, every value checked. Returns it.
--- No saved file at all is a first install, which starts the walkthrough.
+-- No saved file at all is a first install: the addon starts off, and the
+-- walkthrough turns it on (#47).
 function Config.Load(saved)
-    local db = type(saved) == "table" and saved or { walkthrough = "new" }
+    local db = type(saved) == "table" and saved or { enabled = false, walkthrough = { seen = 0, firstRun = true } }
     Config.Migrate(db)
     ValidateSettings(db)
     db.ledger = ns.Ledger.Validate(db.ledger)
