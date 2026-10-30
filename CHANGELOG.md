@@ -2,8 +2,8 @@
 
 ### Unreleased
 
-- **Start here:** a first options page under Friendly Forever with what the addon does, the settings most people change (the addon's switch, how to thank, friendly nameplates), the buff-back button's key and buff mode's key, and a link to every other page. Each control changes the same setting as its full page. (#47)
-- **The walkthrough:** on a first install, the chat points to Start here and a short walkthrough opens. It goes a step at a time through the Buff Back tab (buff order and "Never offer"), buff mode's key and each of the triggers that turn it on and off, with its switch, and the thanks and welcome lines, opening each page. It only shows and explains; it never changes a setting. Skip it or finish it and it doesn't open again by itself; take it again from Start here. It closes when a fight starts, and one asked for in a fight starts when the fight is over. (#47)
+- **Start here:** a first options page under Friendly Forever with what the addon does, your settings as they are (whether the addon is on, how you thank people, friendly nameplates), the buff-back button's key and buff mode's key, and a link to every other page. It changes nothing itself: each setting is changed on its own page. (#47)
+- **The walkthrough:** on a first install, the chat points to Start here and a short walkthrough opens. It goes a step at a time through the Buff Back tab (buff order and "Never offer"), buff mode's key and each of the triggers that turn it on and off, with its switch, and the thanks and welcome lines, opening each page. It only shows and explains; it never changes a setting. Skip it or finish it and it doesn't open again by itself; take it again from Start here. A fight closes it, and it comes back at the same step when the fight is over; one asked for in a fight starts when the fight is over. (#47)
 - This version adds a file (Walkthrough.lua). After updating, restart the game; /reload isn't enough. (#47)
 
 ## 0.9.0

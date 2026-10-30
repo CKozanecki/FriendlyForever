@@ -25,15 +25,22 @@ local function settingsBut(db)
 end
 
 describe("Start here", function()
-    local ns, w, tabs
+    local ns, w
 
     local function boot(opts)
         ns = wow.boot(opts)
         w = ns.Options.widgets.start
-        tabs = ns.Options.widgets
     end
 
     before_each(function() boot() end)
+
+    local function shown(fragment)
+        ns.Options.FillStart()
+        for _, key in ipairs({ "enabled", "thanks", "nameplates", "buttonKey", "buffModeKey" }) do
+            if w[key]:GetText():find(fragment, 1, true) then return true end
+        end
+        return false
+    end
 
     it("is the first page listed under Friendly Forever, and fills when shown", function()
         local names = {}
@@ -42,125 +49,43 @@ describe("Start here", function()
         assert.are.equal(ns.Options.StartPage(), _G.FriendlyForeverStartPage)
         ns.db.enabled = false
         wow.run(ns.Options.StartPage(), "OnShow")
-        assert.is_false(w.master:GetChecked())
+        assert.is_truthy(w.enabled:GetText():find("Friendly Forever is off", 1, true))
     end)
 
-    describe("every control changes the same setting as its full page (white)", function()
-        -- Whether the addon's own event frame (the one with chat's system
-        -- messages) watches every cast, which only buff watching needs
-        -- (Core.lua's RefreshEvents).
-        local function watchingCasts()
-            for _, frame in ipairs(wow.frames) do
-                if frame.events.CHAT_MSG_SYSTEM and frame.events.UNIT_SPELLCAST_SUCCEEDED then return true end
-            end
-            return false
-        end
-
-        -- What switching the addon off changes: the setting, the buff
-        -- watching events, and the message said.
-        local function switchedOff(box)
-            assert.is_true(watchingCasts(), "watching before")
-            box:SetChecked(false)
-            wow.run(box, "OnClick")
-            return { enabled = ns.db.enabled, watching = watchingCasts(), said = wow.printed[#wow.printed] }
-        end
-
-        it("the addon switch, as the main panel's: the setting, its events and its message", function()
-            local fromPage = switchedOff(w.master)
-            assert.are.same({ enabled = false, watching = false, said = fromPage.said }, fromPage)
-            assert.is_truthy(fromPage.said:find("disabled", 1, true))
-            boot()
-            assert.are.same(fromPage, switchedOff(tabs.master))
-            boot()
-            w.master:SetChecked(false)
-            wow.run(w.master, "OnClick")
-            w.master:SetChecked(true)
-            wow.run(w.master, "OnClick")
-            assert.is_true(ns.db.enabled)
+    describe("shows the settings that apply, as they're saved (white)", function()
+        it("the addon's switch, and follows it when it changes elsewhere", function()
+            assert.is_true(shown("Friendly Forever is on."))
+            _G.SlashCmdList.FRIENDLYFOREVER("off")
+            assert.is_truthy(w.enabled:GetText():find("Friendly Forever is off", 1, true), "refreshed by the change")
         end)
 
-        it("how to thank, stepping through the same choices as the Buff Thanks tab's button", function()
-            local function steps(button)
-                local seen = {}
-                for i = 1, #ns.Options.THANK_STYLES do
-                    wow.run(button, "OnClick")
-                    seen[i] = ns.db.buff.thankStyle
-                end
-                return seen
+        it("how you thank, and that Buff Thanks is off when it is", function()
+            for _, style in ipairs(ns.Options.THANK_STYLES) do
+                ns.db.buff.thankStyle = style
+                assert.is_true(shown("you thank people who buff you with " .. ns.Options.THANK_STYLE_TEXT[style] .. "."),
+                    style)
             end
-            local fromPage = steps(w.thankStyle)
-            boot()
-            assert.are.same(steps(tabs.thankStyle), fromPage)
-            assert.are.same({ "whisper", "emote", "both", "message" }, fromPage)
-            wow.run(w.thankStyle, "OnClick")
-            assert.are.equal(ns.Options.THANK_STYLE_TEXT.whisper, w.thankStyle:GetText(), "the page shows it")
+            ns.db.buff.enabled = false
+            assert.is_true(shown("Buff Thanks is off"))
         end)
 
-        it("friendly nameplates, as the Buff Thanks tab's button turns them on", function()
+        it("friendly nameplates, on or off", function()
+            assert.is_true(shown("Friendly player nameplates are on"))
             wow.state.cvars.nameplateShowFriendlyPlayers = "0"
-            ns.Options.FillStart()
-            assert.is_true(w.nameplateButton:IsEnabled())
-            assert.is_truthy(w.nameplates:GetText():find("off", 1, true))
-            wow.run(w.nameplateButton, "OnClick")
-            local fromPage = {}
-            for k, v in pairs(wow.state.cvars) do fromPage[k] = v end
-            assert.are.equal("1", fromPage.nameplateShowFriendlyPlayers)
-            ns.Options.FillStart()
-            assert.is_false(w.nameplateButton:IsEnabled())
-            boot()
-            wow.state.cvars.nameplateShowFriendlyPlayers = "0"
-            wow.run(tabs.tabs.buff, "OnClick")
-            wow.run(tabs.nameplateButton, "OnClick")
-            assert.are.same(fromPage, wow.state.cvars)
+            assert.is_true(shown("Friendly player nameplates are off"))
         end)
 
-        it("buff mode's key, as the Buff Back tab's chooser sets it", function()
-            wow.run(w.buffModeKey, "OnClick")
-            assert.are.equal(ns.Options.KEY_PROMPT, w.buffModeKey:GetText())
-            wow.keyDown("F")
-            assert.are.equal("F", ns.db.buffBack.buffModeKey)
-            assert.are.equal("Buff mode key: F", w.buffModeKey:GetText())
-            assert.are.equal("Buff mode key: F", tabs.buffModeKey:GetText(), "the tab shows the new key too")
-            wow.run(w.buffModeKey, "OnClick")
-            wow.run(w.keyCapture, "OnMouseWheel", -1)
-            assert.are.equal("MOUSEWHEELDOWN", ns.db.buffBack.buffModeKey)
-            boot()
-            wow.run(tabs.buffModeKey, "OnClick")
-            wow.keyDown("F")
-            assert.are.equal("F", ns.db.buffBack.buffModeKey)
-        end)
-
-        it("makes each chooser's capture after its button, so it lies on top and gets side mouse buttons", function()
-            local order = {}
-            for i, frame in ipairs(wow.frames) do order[frame] = i end
-            for _, chooser in ipairs({ { w.buffModeKey, w.keyCapture }, { tabs.buffModeKey, tabs.keyCapture } }) do
-                assert.is_true(order[chooser[2]] > order[chooser[1]])
-                assert.are.equal(chooser[1], chooser[2].button)
-            end
-        end)
-
-        it("keeps asking for a key while it waits, whatever refreshes the page", function()
-            wow.run(w.buffModeKey, "OnClick")
-            ns.Options.Refresh()
-            assert.are.equal(ns.Options.KEY_PROMPT, w.buffModeKey:GetText())
-        end)
-
-        it("waits for a key on one chooser at a time", function()
-            wow.run(tabs.buffModeKey, "OnClick")
-            wow.run(w.buffModeKey, "OnClick")
-            assert.is_false(tabs.keyCapture.keyboard, "starting one stops the other")
-            assert.are.equal("Buff mode key: MOUSEWHEELUP", tabs.buffModeKey:GetText())
-            wow.keyDown("G")
-            assert.are.equal("G", ns.db.buffBack.buffModeKey)
-        end)
-
-        it("shows the buff-back button's key from Key Bindings, or that it has none", function()
-            ns.Options.FillStart()
-            assert.is_truthy(w.buttonKey:GetText():find("none yet", 1, true))
+        it("the buff-back button's key from Key Bindings, or that it has none, and buff mode's key", function()
+            assert.is_true(shown("Buff-back button key: none yet"))
+            wow.state.bindings[""] = BUTTON_BINDING
+            assert.is_true(shown("Buff-back button key: none yet"), "an empty key is none")
+            wow.state.bindings[""] = nil
             wow.state.bindings.F7 = BUTTON_BINDING
             wow.state.bindings.F2 = "TOGGLEBACKPACK"
-            ns.Options.FillStart()
-            assert.are.equal("Buff-back button key: F7 (in Key Bindings > AddOns).", w.buttonKey:GetText())
+            assert.is_true(shown("Buff-back button key: F7 (Key Bindings > AddOns)."))
+            assert.is_true(shown("Buff mode key: MOUSEWHEELUP."))
+            _G.SlashCmdList.FRIENDLYFOREVER("buffmode key mousewheeldown")
+            assert.is_true(shown("Buff mode key: MOUSEWHEELDOWN."))
         end)
 
         it("links to every other page", function()
@@ -170,6 +95,25 @@ describe("Start here", function()
             assert.are.equal("Favour Ledger", wow.settings.opened)
             wow.run(w.openMessages, "OnClick")
             assert.are.equal(4242, wow.settings.opened)
+        end)
+
+        it("has no control that changes a setting: only its links and the walkthrough's button", function()
+            local page = ns.Options.StartPage()
+            local area = page.content
+            local buttons = {}
+            for _, frame in ipairs(wow.frames) do
+                local parent = frame.parent
+                if (parent == page or parent == area) and frame.kind ~= "FontString" and frame.kind ~= "ScrollFrame"
+                    and frame ~= area then
+                    assert.are.equal("Button", frame.kind, "a " .. frame.kind .. " on Start here")
+                    buttons[#buttons + 1] = frame
+                end
+            end
+            assert.are.equal(4, #buttons)
+            local before = ns.Util.DeepCopy(settingsBut(ns.db))
+            for _, button in ipairs(buttons) do wow.run(button, "OnClick") end
+            ns.Walkthrough.Skip()
+            assert.are.same(before, settingsBut(ns.db))
         end)
     end)
 end)
@@ -232,6 +176,8 @@ describe("The walkthrough", function()
             assert.is_true(ns.Options.widgets.autoHeader:IsShown())
             local text = tour.text:GetText()
             for _, field in ipairs(ns.Options.AUTO_SWITCHES) do
+                assert.are.equal(ns.Options.AUTO_TEXT[field], ns.Options.widgets.auto[field].label:GetText(),
+                    "the walkthrough names each switch as its checkbox does")
                 local state = ns.db.buffBack[field] and "on" or "off"
                 assert.is_truthy(text:find(ns.Options.AUTO_TEXT[field] .. ": |cff%x%x%x%x%x%x" .. state),
                     field .. " shown as " .. state)
@@ -357,8 +303,14 @@ describe("The walkthrough", function()
             ns.db.enabled = 1
             wow.run(ns.Options.StartPage(), "OnShow")
             local w = ns.Options.widgets.start
-            assert.are.equal(ns.Options.THANK_STYLE_TEXT.message, w.thankStyle:GetText())
-            assert.is_false(w.master:GetChecked())
+            assert.is_truthy(w.thanks:GetText():find(ns.Options.THANK_STYLE_TEXT.message, 1, true),
+                "an unknown way to thank reads as the default")
+            assert.is_truthy(w.enabled:GetText():find("Friendly Forever is off", 1, true), "a switch that isn't true")
+            assert.is_truthy(w.buffModeKey:GetText():find("MOUSEWHEELUP", 1, true), "a key it can't use")
+            ns.db.buff = 7
+            ns.Options.FillStart()
+            assert.is_truthy(w.thanks:GetText():find("Buff Thanks is off", 1, true), "a damaged section reads as empty")
+            ns.db.buff = ns.Config.DefaultsFor("buff")
             goTo(stepTitled("turns on and off"))
             assert.is_truthy(tour.text:GetText():find(ns.Options.AUTO_TEXT.autoOnJoin .. ": |cffff4040off", 1, true),
                 "a switch that isn't true reads as off")
@@ -380,18 +332,26 @@ describe("The walkthrough", function()
             assert.are.same({}, wow.errors)
         end)
 
-        it("closes as a fight starts, keeping its state, and says how to take it again", function()
+        it("closes as a fight starts, keeping its state, and reopens at the same step when it's over", function()
             boot()
             goTo(3)
             wow.enterCombat()
             assert.is_false(tour:IsShown())
             assert.is_nil(ns.Walkthrough.Step())
             assert.are.equal("new", ns.db.walkthrough)
-            assert.is_true(printedHas("walkthrough closed for the fight"))
-            wow.leaveCombat()
-            assert.is_false(tour:IsShown(), "it doesn't come back by itself")
+            assert.is_true(printedHas("walkthrough closed for the fight; it comes back when the fight is over."))
             wow.run(tour.next, "OnClick") -- a stray click on the closed window does nothing
             assert.is_nil(ns.Walkthrough.Step())
+            assert.is_true(ns.Walkthrough.IsPending(), "waiting to come back")
+            ns.Options.SelectType("guildLogin")
+            wow.leaveCombat()
+            assert.is_true(tour:IsShown())
+            assert.are.equal(3, ns.Walkthrough.Step())
+            assert.are.equal("buffBack", ns.Options.CurrentType(), "its page opened again")
+            assert.is_false(ns.Walkthrough.IsPending())
+            wow.enterCombat()
+            wow.leaveCombat()
+            assert.are.equal(3, ns.Walkthrough.Step(), "and again after the next fight")
             -- Closed (here, skipped), a fight says nothing about it.
             wow.run(tour.skip, "OnClick")
             local said = #wow.printed
@@ -428,6 +388,15 @@ describe("The walkthrough", function()
             assert.is_true(tour:IsShown())
         end)
 
+        it("replayed during a fight that closed it, it starts again from the first step", function()
+            boot()
+            goTo(4)
+            wow.enterCombat()
+            ns.Walkthrough.Start()
+            wow.leaveCombat()
+            assert.are.equal(1, ns.Walkthrough.Step())
+        end)
+
         it("skipping while one waits for a fight's end cancels it", function()
             boot()
             wow.enterCombat()
@@ -438,29 +407,16 @@ describe("The walkthrough", function()
             assert.are.equal("skipped", ns.db.walkthrough)
         end)
 
-        it("the page's controls are safe in a fight: buff mode's key waits, nothing errors", function()
+        it("the page is safe in a fight: it fills, its links open, its walkthrough button waits", function()
             boot()
+            wow.run(tour.skip, "OnClick")
             local w = ns.Options.widgets.start
             wow.enterCombat()
             wow.run(ns.Options.StartPage(), "OnShow")
-            wow.run(w.buffModeKey, "OnClick")
-            assert.are.equal("Buff mode key: MOUSEWHEELUP", w.buffModeKey:GetText())
-            assert.is_true(printedHas("keys can't be changed in a fight."))
-            wow.run(w.thankStyle, "OnClick")
             wow.run(w.openGeneral, "OnClick")
-            w.master:SetChecked(false)
-            wow.run(w.master, "OnClick")
+            wow.run(w.tour, "OnClick")
+            assert.is_false(tour:IsShown())
             assert.are.same({}, wow.errors)
-        end)
-
-        it("a key wait on the page stops as a fight starts", function()
-            boot()
-            local w = ns.Options.widgets.start
-            wow.run(w.buffModeKey, "OnClick")
-            wow.enterCombat()
-            assert.is_false(w.keyCapture.keyboard)
-            wow.run(w.keyCapture, "OnKeyDown", "2")
-            assert.are.equal("MOUSEWHEELUP", ns.db.buffBack.buffModeKey)
         end)
     end)
 end)

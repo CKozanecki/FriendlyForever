@@ -3,8 +3,10 @@
 -- skipped, and is replayed from the Start here page.
 --
 -- It only shows and explains settings; it never changes one. Skipping or
--- finishing it is remembered (db.walkthrough, Config.lua). It closes when a
--- fight starts, and one asked for in a fight waits for the fight to end.
+-- finishing it is remembered (db.walkthrough, Config.lua), in Close only. A
+-- fight closes it, and it reopens at the same step when the fight is over;
+-- one asked for in a fight waits for the fight to end (the owner's decision
+-- on #47).
 local _, ns = ...
 
 local Walkthrough = {}
@@ -14,7 +16,7 @@ Walkthrough.NAME = "FriendlyForeverWalkthrough"
 
 local frame
 local step          -- the step shown, or nil while closed
-local pending       -- asked for in a fight: starts when it ends
+local pending       -- the step to show when the fight is over, or nil
 
 -- What a setting reads as, from a settings section that may be damaged.
 local function Section(name)
@@ -112,7 +114,7 @@ Walkthrough.STEPS = {
         title = "That's it",
         open = function() ns.Options.OpenStart() end,
         text = function()
-            return "Start here has the settings most people change, your keys, and a link to every other page. "
+            return "Start here shows the settings that apply and your keys, with a link to every other page. "
                 .. "Take the walkthrough again from there any time."
         end,
     },
@@ -212,10 +214,13 @@ local function Create()
     frame:RegisterEvent("PLAYER_REGEN_ENABLED")
     frame:SetScript("OnEvent", ns.Diag.Wrap(function(_, event)
         if event == "PLAYER_REGEN_DISABLED" and step then
+            pending = step
             Close()
-            ns.Print("walkthrough closed for the fight. Take it again from the Start here page.")
+            ns.Print("walkthrough closed for the fight; it comes back when the fight is over.")
         elseif event == "PLAYER_REGEN_ENABLED" and pending then
-            Walkthrough.Start()
+            local resume = pending
+            pending = nil
+            Show(resume)
         end
     end))
 end
@@ -228,10 +233,10 @@ end
 function Walkthrough.Start()
     if InCombatLockdown() then
         if not pending then ns.Print("the walkthrough will start when this fight is over.") end
-        pending = true
+        pending = 1
         return
     end
-    pending = false
+    pending = nil
     Show(1)
 end
 
@@ -246,7 +251,7 @@ function Walkthrough.Back()
 end
 
 function Walkthrough.Skip()
-    pending = false
+    pending = nil
     Close("skipped")
 end
 
@@ -260,5 +265,5 @@ function Walkthrough.OnLogin()
 end
 
 function Walkthrough.Step() return step end
-function Walkthrough.IsPending() return pending == true end
+function Walkthrough.IsPending() return pending ~= nil end
 function Walkthrough.Frame() return frame end

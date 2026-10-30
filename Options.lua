@@ -27,7 +27,7 @@ Options.GENERAL_PAGE = "FriendlyForeverGeneralPage"
 Options.START_PAGE = "FriendlyForeverStartPage"
 -- The Start here page's scrolling content (#47), with room to spare for its
 -- notes wrapping more in the game than expected.
-Options.START_HEIGHT = 620
+Options.START_HEIGHT = 560
 Options.LEDGER_PAGE = "FriendlyForeverLedgerPage"
 
 -- How to thank someone who buffs you, and what to do when that can't reach
@@ -53,12 +53,6 @@ local function NextIn(list, current)
         if value == current then return list[i % #list + 1] end
     end
     return list[1]
-end
-
--- The Buff Thanks tab's and Start here's "Thank them with" button: the next way.
-local function CycleThankStyle()
-    ns.db.buff.thankStyle = NextIn(Options.THANK_STYLES, ns.db.buff.thankStyle)
-    Options.Refresh()
 end
 
 local function Label(parent, text, font)
@@ -200,81 +194,56 @@ local function KeyButtonText()
     return "Buff mode key: " .. ns.BuffMode.KeyText((ns.BuffMode.Key()))
 end
 
--- Each button that chooses buff mode's key (the Buff Back tab's, and Start
--- here's) has its own capture frame, over its own page: a capture on a
--- hidden page would get no wheel or mouse clicks. capture.button is its button.
-local captures = {}
-
--- Every key button not waiting for a key shows the key.
-local function ShowKey()
-    for _, capture in ipairs(captures) do
-        if not capture.active then capture.button:SetText(KeyButtonText()) end
-    end
-end
-
-local function StopKeyCapture(capture)
+local function StopKeyCapture()
+    local capture = widgets.keyCapture
     if not capture.active then return end
     capture.active = false
     capture:EnableKeyboard(false)
     capture:EnableMouseWheel(false)
     capture:EnableMouse(false)
     capture:Hide()
-    ShowKey()
+    widgets.buffModeKey:SetText(KeyButtonText())
 end
 
-local function TakeKey(capture, key)
-    if InCombatLockdown() then return StopKeyCapture(capture) end
-    StopKeyCapture(capture)
+local function TakeKey(key)
+    if InCombatLockdown() then return StopKeyCapture() end
+    StopKeyCapture()
     local ok, why = ns.BuffMode.SetKey(ModifierPrefix() .. key)
     if not ok then ns.Print("couldn't set the buff mode key: " .. why .. ".") end
-    ShowKey()
+    widgets.buffModeKey:SetText(KeyButtonText())
 end
 
--- Wait for a key on capture (the Buff Back tab's when not given).
-function Options.StartKeyCapture(capture)
+function Options.StartKeyCapture()
     if InCombatLockdown() then return ns.Print("keys can't be changed in a fight.") end
-    capture = capture or widgets.keyCapture
-    for _, other in ipairs(captures) do
-        if other ~= capture then StopKeyCapture(other) end
-    end
+    local capture = widgets.keyCapture
     capture.active = true
     capture:Show()
     capture:EnableKeyboard(true)
     capture:SetPropagateKeyboardInput(false)
     capture:EnableMouseWheel(true)
     capture:EnableMouse(true)
-    capture.button:SetText(Options.KEY_PROMPT)
+    widgets.buffModeKey:SetText(Options.KEY_PROMPT)
 end
 
--- A button that chooses buff mode's key, and its capture frame over parent.
--- Returns both. The capture is made after the button, so it lies on top of
--- it: a side mouse button pressed with the pointer still on the button
--- reaches the capture, not the button.
-local function KeyChooser(parent)
-    local capture
-    local button = Button(parent, "", 290, function() Options.StartKeyCapture(capture) end)
-    capture = CreateFrame("Frame", nil, parent)
-    capture.button = button
+local function CreateKeyCapture(parent)
+    local capture = CreateFrame("Frame", nil, parent)
     capture:SetAllPoints(parent)
     capture:Hide()
-    capture:SetScript("OnKeyDown", function(self, key)
+    capture:SetScript("OnKeyDown", function(_, key)
         if ns.BuffMode.MODIFIER_KEYS[key] then return end
-        if key == "ESCAPE" then return StopKeyCapture(self) end
-        TakeKey(self, key)
+        if key == "ESCAPE" then return StopKeyCapture() end
+        TakeKey(key)
     end)
-    capture:SetScript("OnMouseWheel", function(self, delta)
-        TakeKey(self, delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN")
-    end)
-    capture:SetScript("OnMouseDown", function(self, mouseButton)
-        if MOUSE_KEYS[mouseButton] then TakeKey(self, MOUSE_KEYS[mouseButton]) end
+    capture:SetScript("OnMouseWheel", function(_, delta) TakeKey(delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN") end)
+    capture:SetScript("OnMouseDown", function(_, mouseButton)
+        if MOUSE_KEYS[mouseButton] then TakeKey(MOUSE_KEYS[mouseButton]) end
     end)
     capture:SetScript("OnHide", StopKeyCapture)
     -- A fight starting ends the wait, while the game still allows it: in a
     -- fight your keys must reach your abilities, not choose buff mode's key.
     capture:RegisterEvent("PLAYER_REGEN_DISABLED")
     capture:SetScript("OnEvent", StopKeyCapture)
-    captures[#captures + 1] = capture
-    return button, capture
+    return capture
 end
 
 -- The Buff Back tab's buff list: your class's buffs in your order.
@@ -735,8 +704,9 @@ function Options.Create()
     end)
     widgets.sayLine:SetPoint("TOPLEFT", widgets.enabled, "BOTTOMLEFT", 0, -4)
     -- On the delay's place in row 1 (Buff Back has no delay).
-    widgets.buffModeKey, widgets.keyCapture = KeyChooser(content)
+    widgets.buffModeKey = Button(content, "", 290, function() Options.StartKeyCapture() end)
     widgets.buffModeKey:SetPoint("LEFT", widgets.enabled.label, "RIGHT", 40, 0)
+    widgets.keyCapture = CreateKeyCapture(content)
     local owedMinutes = Stepper(content, "Offer for (minutes):", "owedMinutes")
     owedMinutes.label:SetPoint("LEFT", widgets.sayLine.label, "RIGHT", 40, 0)
     widgets.steppers.owedMinutes = owedMinutes
@@ -751,7 +721,10 @@ function Options.Create()
     -- line and an emote (click to cycle).
     widgets.thankStyleLabel = Label(content, "Thank them with:")
     widgets.thankStyleLabel:SetPoint("TOPLEFT", widgets.listNames, "BOTTOMLEFT", 4, -10)
-    widgets.thankStyle = Button(content, Options.THANK_STYLE_TEXT.message, 220, CycleThankStyle)
+    widgets.thankStyle = Button(content, Options.THANK_STYLE_TEXT.message, 220, function()
+        ns.db.buff.thankStyle = NextIn(Options.THANK_STYLES, ns.db.buff.thankStyle)
+        Options.Refresh()
+    end)
     widgets.thankStyle:SetPoint("LEFT", widgets.thankStyleLabel, "RIGHT", 10, 0)
 
     -- Row 5: if that can't reach them (no name, or the whisper fails): a
@@ -1062,9 +1035,10 @@ end
 -- The binding in Key Bindings > AddOns that presses the buff-back button.
 Options.BUTTON_BINDING = "CLICK FriendlyForeverBuffButton:LeftButton"
 
--- Start here (#47): what the addon does, the settings most people change,
--- the keys, links to every other page and the walkthrough. Each control
--- changes the same setting as its full page, the same way.
+-- Start here (#47): an introduction. What the addon does, the settings that
+-- apply and the keys, shown as they're saved, a link to every other page
+-- and the walkthrough. It changes no setting: each is changed on its own
+-- page (the owner's decision on #47).
 function Options.CreateStartPage()
     local w = widgets.start
     startPage = SubPage("Start here", "Start here", Options.START_PAGE)
@@ -1079,32 +1053,15 @@ function Options.CreateStartPage()
         .. "people who buff you. When someone outside your group buffs you, a button offers to buff them back; "
         .. "it casts only when you press it.")
 
-    local main = Section(area, w.about, "The settings most people change")
-    w.master = Checkbox(area, "Addon enabled", function(on) ns.SetEnabled(on) end)
-    w.master:SetPoint("TOPLEFT", main, "BOTTOMLEFT", -4, -4)
-    w.thankStyleLabel = Label(area, "Thank people who buff me with:")
-    w.thankStyleLabel:SetPoint("TOPLEFT", w.master, "BOTTOMLEFT", 4, -10)
-    w.thankStyle = Button(area, Options.THANK_STYLE_TEXT.message, 220, CycleThankStyle)
-    w.thankStyle:SetPoint("LEFT", w.thankStyleLabel, "RIGHT", 10, 0)
-    w.nameplates = Label(area, "")
-    w.nameplates:SetPoint("TOPLEFT", w.thankStyleLabel, "BOTTOMLEFT", 0, -16)
-    w.nameplateButton = Button(area, "Show friendly player names", 200, function()
-        local ok, reason = ns.Nameplates.EnableFriendlyNames()
-        ns.Print(ok and "friendly player names are now shown (names only)." or ("couldn't turn them on: " .. reason))
-        Options.Refresh()
-    end)
-    w.nameplateButton:SetPoint("TOPLEFT", w.nameplates, "BOTTOMLEFT", 0, -6)
-    w.nameplateHelp = Note(area, w.nameplateButton, "Without friendly nameplates the game can rarely tell you "
-        .. "who buffed you, so there's nobody to thank.")
+    local now = Section(area, w.about, "Your settings")
+    w.enabled = Note(area, now, "")
+    w.thanks = Note(area, w.enabled, "")
+    w.nameplates = Note(area, w.thanks, "")
+    w.buttonKey = Note(area, w.nameplates, "")
+    w.buffModeKey = Note(area, w.buttonKey, "")
+    w.change = Note(area, w.buffModeKey, "|cff999999Each is changed on its own page, below.|r")
 
-    local keys = Section(area, w.nameplateHelp, "Keys")
-    w.buttonKey = Note(area, keys, "")
-    w.buffModeKey, w.keyCapture = KeyChooser(area)
-    w.buffModeKey:SetPoint("TOPLEFT", w.buttonKey, "BOTTOMLEFT", 0, -8)
-    w.keyHelp = Note(area, w.buffModeKey, "Buff mode lends this key to the buff-back button, to buff a group "
-        .. "quickly; the key does its usual job again when buff mode ends.")
-
-    local more = Section(area, w.keyHelp, "Every other page")
+    local more = Section(area, w.change, "Every other page")
     w.openMessages = Button(area, "Messages and Buff Back", 180, function() Options.Open() end)
     w.openMessages:SetPoint("TOPLEFT", more, "BOTTOMLEFT", 0, -8)
     w.openGeneral = Button(area, "General", 100, function() Options.OpenPage(generalPage) end)
@@ -1131,19 +1088,26 @@ local function ButtonKeyText()
     return ns.BuffMode.KeyText(key)
 end
 
+-- Fills Start here from the saved settings, read through damage: a section
+-- that isn't a table reads as empty.
 FillStart = function()
     local w = widgets.start
-    w.master:SetChecked(ns.db.enabled == true)
     local buff = type(ns.db.buff) == "table" and ns.db.buff or {}
-    w.thankStyle:SetText(Options.THANK_STYLE_TEXT[buff.thankStyle] or Options.THANK_STYLE_TEXT.message)
-    local shown = ns.Nameplates.FriendlyShown()
-    w.nameplates:SetText(shown == false and "|cffff8040Friendly player nameplates are off.|r"
-        or "Friendly player nameplates are on.")
-    w.nameplateButton:SetEnabled(shown == false)
+    w.enabled:SetText(ns.db.enabled == true and "Friendly Forever is on."
+        or "|cffff8040Friendly Forever is off.|r Its switch is at the top of Messages and Buff Back.")
+    w.thanks:SetText(buff.enabled == true
+        and ("Buff Thanks is on: you thank people who buff you with "
+            .. (Options.THANK_STYLE_TEXT[buff.thankStyle] or Options.THANK_STYLE_TEXT.message) .. ".")
+        or "Buff Thanks is off: people who buff you aren't thanked.")
+    w.nameplates:SetText(ns.Nameplates.FriendlyShown() == false
+        and "|cffff8040Friendly player nameplates are off,|r so the game can rarely tell you who buffed you. "
+            .. "The Buff Thanks tab can show them."
+        or "Friendly player nameplates are on, so the game can tell you who buffed you.")
     local buttonKey = ButtonKeyText()
-    w.buttonKey:SetText(buttonKey and ("Buff-back button key: " .. buttonKey .. " (in Key Bindings > AddOns).")
+    w.buttonKey:SetText(buttonKey and ("Buff-back button key: " .. buttonKey .. " (Key Bindings > AddOns).")
         or "Buff-back button key: none yet. Set one in Key Bindings > AddOns, or click the button.")
-    if not w.keyCapture.active then w.buffModeKey:SetText(KeyButtonText()) end
+    w.buffModeKey:SetText("Buff mode key: " .. ns.BuffMode.KeyText((ns.BuffMode.Key()))
+        .. ". Buff mode lends it to the buff-back button to buff a group quickly (the Buff Back tab).")
 end
 
 function Options.CreateGeneralPage()
