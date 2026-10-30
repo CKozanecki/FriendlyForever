@@ -19,9 +19,10 @@
 # - only cargo fetch has network, and it runs none of the crates' code. The
 #   build and every shot run with no network, no capabilities and no
 #   privilege escalation;
-# - a shot sees, read-only, only the install's Data/, .build.info and
-#   .product.db: never WTF/ (it holds the account name), Interface/AddOns or
-#   the whole install. Its root file system is read-only; only a tmpfs and
+# - a shot sees, read-only, only the install's Data/ and .build.info, and a
+#   minimal .product.db this script writes from .build.info (the launcher's
+#   own isn't read: the simulator can't decode the live one, #139). Never
+#   WTF/ (it holds the account name), Interface/AddOns or the whole install. Its root file system is read-only; only a tmpfs and
 #   the output's shots/ folder are writable. The host writes its logs and
 #   README beside shots/, where no container can plant a link;
 # - Forever's UI code comes from Gethe's wow-ui-source at the commit the
@@ -125,7 +126,6 @@ resolve_install() {
     [ -d "$INSTALL/Data/config" ] || missing="$missing Data/config/"
     [ -d "$INSTALL/Data/indices" ] || missing="$missing Data/indices/"
     [ -f "$INSTALL/.build.info" ] || missing="$missing .build.info"
-    [ -f "$INSTALL/.product.db" ] || missing="$missing .product.db"
     [ -z "$missing" ] || die "$INSTALL isn't a WoW install: it has no$missing." \
         "Pass the folder that holds Data/ and .build.info (the top of the install," \
         "not its _retail_ or Forever subfolder)."
@@ -153,6 +153,94 @@ check_product() {
     die "This install has no '$PRODUCT' product in its .build.info." \
         "Products it lists: ${found:-none}" \
         "If Forever is one of those under another code, run again with --product CODE."
+}
+
+# The product's active build from .build.info, as "build-key|install-key|
+# version", checked: exactly one active row, keys of 32 hex digits (the
+# install key may be absent), a plain version. Nothing else from the game's
+# file is used.
+active_build() {
+    local rows count line build install version
+    rows="$(awk -F'|' -v product="$PRODUCT" '
+        NR == 1 {
+            for (i = 1; i <= NF; i++) {
+                name = $i; sub(/!.*/, "", name)
+                col[name] = i
+            }
+            next
+        }
+        $col["Product"] == product && $col["Active"] == "1" {
+            print $col["Build Key"] "|" $col["Install Key"] "|" $col["Version"]
+        }
+    ' "$INSTALL/.build.info")"
+    count="$(printf '%s' "$rows" | grep -c . || true)"
+    [ "$count" -eq 1 ] || die "The install's .build.info has $count active '$PRODUCT' builds, not 1." \
+        "Open the game once from the Battle.net launcher so it settles on one, then try again."
+    line="$(printf '%s' "$rows" | tr -d '\r')"
+    build="${line%%|*}"
+    line="${line#*|}"
+    install="${line%%|*}"
+    version="${line#*|}"
+    [ "${#build}" -eq 32 ] && [ -n "${build##*[!0-9a-f]*}" ] \
+        || die "The install's active '$PRODUCT' build key isn't one this script can read."
+    if [ -n "$install" ]; then
+        [ "${#install}" -eq 32 ] && [ -n "${install##*[!0-9a-f]*}" ] \
+            || die "The install's active '$PRODUCT' install key isn't one this script can read."
+    fi
+    [ "${#version}" -le 64 ] && [ -n "${version##*[!0-9A-Za-z._-]*}" ] \
+        || die "The install's active '$PRODUCT' version isn't one this script can read."
+    [ -f "$INSTALL/Data/config/${build:0:2}/${build:2:2}/$build" ] \
+        || die "The install has no build config for its active '$PRODUCT' build ($build)." \
+            "Let the Battle.net launcher finish updating the game, then try again."
+    echo "$build|$install|$version"
+}
+
+# One byte, by its number.
+byte() { printf "\\$(printf '%03o' "$1")"; }
+
+# A protobuf varint, for the lengths below.
+varint() {
+    local n="$1"
+    while [ "$n" -ge 128 ]; do byte $(((n % 128) + 128)); n=$((n / 128)); done
+    byte "$n"
+}
+
+# How many bytes varint takes for $1.
+varint_size() { if [ "$1" -ge 128 ]; then echo 2; else echo 1; fi; }
+
+# The simulator finds the active build only through .product.db, and its
+# decoder (cascette-rs's product_db.rs, after TACTLib's ProtoDatabase.cs)
+# can't read the live launcher's (#139). So the shots get this one instead:
+# just the fields that decoder reads, for the product's active build in
+# .build.info. Database { product_install (1) { product_code (2),
+# cached_product_state (4) { base_product_state (1) { current_version_str (7),
+# active_build_key (14), active_install_key (16) } } } }.
+write_product_db() {
+    local info build install version base state entry file="$WORK/product-db/.product.db"
+    # Its own line, so a refusal from active_build stops the script.
+    info="$(active_build)"
+    build="${info%%|*}"
+    info="${info#*|}"
+    install="${info%%|*}"
+    version="${info#*|}"
+    base=$((2 + ${#version} + 2 + ${#build}))
+    [ -z "$install" ] || base=$((base + 3 + ${#install}))
+    state=$((1 + $(varint_size "$base") + base))
+    entry=$((2 + ${#PRODUCT} + 1 + $(varint_size "$state") + state))
+    chmod -R u+w "$WORK/product-db" 2>/dev/null || true
+    rm -rf "$WORK/product-db"
+    mkdir -p "$WORK/product-db"
+    {
+        byte 10; varint "$entry"
+        byte 18; varint "${#PRODUCT}"; printf '%s' "$PRODUCT"
+        byte 34; varint "$state"
+        byte 10; varint "$base"
+        byte 58; varint "${#version}"; printf '%s' "$version"
+        byte 114; varint "${#build}"; printf '%s' "$build"
+        if [ -n "$install" ]; then byte 130; byte 1; varint "${#install}"; printf '%s' "$install"; fi
+    } > "$file"
+    chmod -R a-w "$WORK/product-db"
+    echo "Build:    $PRODUCT $version, build config $build"
 }
 
 # The output folder: new, or holding only what an earlier run made (shots/,
@@ -380,7 +468,7 @@ probe_mounts() {
     local output
     if ! output="$(docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges --read-only \
         -v "$INSTALL/Data:/wow/Data:ro" -v "$INSTALL/.build.info:/wow/.build.info:ro" \
-        -v "$INSTALL/.product.db:/wow/.product.db:ro" \
+        -v "$WORK/product-db/.product.db:/wow/.product.db:ro" \
         "$RENDER_IMAGE" test -d /wow/Data/data -a -f /wow/.build.info -a -f /wow/.product.db 2>&1)"; then
         case "$output" in
             *"not shared"* | *"Mounts denied"* | *"mounts denied"*)
@@ -429,7 +517,7 @@ shoot() {
         -v "$TARGET_VOLUME:/target:ro" \
         -v "$WORK/forever-ui/Interface/AddOns:/forever-ui:ro" \
         -v "$INSTALL/Data:/wow/Data:ro" -v "$INSTALL/.build.info:/wow/.build.info:ro" \
-        -v "$INSTALL/.product.db:/wow/.product.db:ro" \
+        -v "$WORK/product-db/.product.db:/wow/.product.db:ro" \
         -v "$WORK/addons:/test-addons:ro" \
         -v "$WORK/shot-lua:/shot-lua:ro" \
         -v "$OUT/shots:/shots" \
@@ -453,7 +541,39 @@ shoot() {
     docker logs "$cid" > "$OUT/logs/sim-$name.log" 2>&1 || true
     docker rm -f "$cid" >/dev/null 2>&1 || true
     echo "$name: $result"
+    # The first shot that's written shows whether the art loads at all.
+    if [ -z "${ART_CHECKED:-}" ] && [ -s "$OUT/shots/sim-$name.png" ]; then
+        ART_CHECKED=1
+        check_first_art "$name"
+    fi
 }
+
+# Whether a shot's log shows Blizzard's art came from the install: its
+# textures (asset-resolver prints "CASC resolver initialized from" once CASC
+# opens) and its fonts, FRIZQT among them (the simulator's font loader prints
+# "font CASC reader init complete"). Without them the simulator falls back to
+# grey boxes and a system font.
+textures_loaded() { grep -q "CASC resolver initialized from" "$OUT/logs/sim-$1.log" 2>/dev/null; }
+fonts_loaded() { grep -q "font CASC reader init complete" "$OUT/logs/sim-$1.log" 2>/dev/null; }
+
+# The log's first line about CASC failing, as plain printable text: the log
+# is the simulator's, so nothing else from it reaches the terminal.
+casc_error() {
+    { grep -m 1 -E "CASC init failed|CASC open|CASC not available" "$OUT/logs/sim-$1.log" 2>/dev/null || true; } \
+        | tr -cd '[:print:]' | cut -c 1-300
+}
+
+# Stops the run when the first shot shows no art: the others would only be
+# grey boxes too.
+check_first_art() {
+    textures_loaded "$1" && fonts_loaded "$1" && return 0
+    local why
+    why="$(casc_error "$1")"
+    die "The first shot loaded no Blizzard art from the install (textures: $(yes_no textures_loaded "$1"), fonts: $(yes_no fonts_loaded "$1")), so the rest would be grey boxes. Stopping." \
+        "${why:-No CASC error in its log.}" "Its log: $OUT/logs/sim-$1.log"
+}
+
+yes_no() { if "$@"; then echo yes; else echo no; fi; }
 
 # The same shots as ui-sim.yml's screenshot job, in the same order (a repo
 # test checks this block is the same as CI's).
@@ -506,26 +626,36 @@ request or upload them. If you ever show one publicly, label it
 README
 }
 
-# Every shot's PNG, or the names of the missing ones.
+# Every shot's PNG and art, or what's missing.
 report() {
-    local name missing="" count=0 total=0
+    local name missing="" count=0 total=0 textures=0 fonts=0 status=0
     for name in $SHOTS; do
         total=$((total + 1))
         if [ -s "$OUT/shots/sim-$name.png" ]; then count=$((count + 1)); else missing="$missing $name"; fi
+        if textures_loaded "$name"; then textures=$((textures + 1)); fi
+        if fonts_loaded "$name"; then fonts=$((fonts + 1)); fi
     done
     echo
-    if [ -z "$missing" ]; then
-        say "Done: all $count shots are in $OUT/shots (logs in $OUT/logs)"
-        return 0
+    say "Blizzard art from the install: textures in $textures of $total shots, fonts (FRIZQT) in $fonts of $total"
+    if [ "$textures" -lt "$total" ] || [ "$fonts" -lt "$total" ]; then
+        say "Some shots have no Blizzard art."
+        status=1
     fi
-    say "$count of $total shots written to $OUT/shots. Missing:$missing"
-    echo "    Each one's log is in $OUT/logs/sim-<name>.log."
-    return 1
+    if [ -n "$missing" ]; then
+        say "$count of $total shots written to $OUT/shots. Missing:$missing"
+        status=1
+    fi
+    if [ "$status" -ne 0 ]; then
+        echo "    Each one's log is in $OUT/logs/sim-<name>.log."
+        return 1
+    fi
+    say "Done: all $count shots are in $OUT/shots (logs in $OUT/logs)"
 }
 
 main() {
     PRODUCT="$DEFAULT_PRODUCT"
     SIZE="$DEFAULT_SIZE"
+    ART_CHECKED=""
     SHOTS=""
     local output="" install="${WOW_INSTALL_PATH:-}" positional=0
     while [ $# -gt 0 ]; do
@@ -559,10 +689,11 @@ main() {
     mkdir -p "$WORK"
     WORK="$(real_dir "$WORK")"
     if inside "$WORK" "$REPO_ROOT"; then die "The working folder is inside this repository: $WORK"; fi
+    write_product_db
     resolve_output "$output"
     check_docker
 
-    echo "Install:  $INSTALL (product $PRODUCT; only Data/, .build.info and .product.db, read-only)"
+    echo "Install:  $INSTALL (product $PRODUCT; only Data/ and .build.info, read-only)"
     echo "Output:   $OUT (shots at ${WIDTH}x${HEIGHT})"
     echo "Working:  $WORK"
     install_traps

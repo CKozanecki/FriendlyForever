@@ -98,7 +98,9 @@ end
 -- ran); "sizes" lists each shot's --width x --height. ps honours -a and
 -- --filter label=; without -a it lists only running
 -- containers. "no-daemon" makes docker info fail, as when Docker Desktop is
--- stopped; "arch" and "ncpu" set the architecture and CPUs it reports.
+-- stopped; "arch" and "ncpu" set the architecture and CPUs it reports. A
+-- shot's log shows its art loaded from the install (the simulator's two
+-- lines for it), unless log-<shot> holds the log to give instead.
 local fakeDocker = [=[#!/bin/bash
 dir=$(dirname "$0")
 printf '%s\n' "$*" >> "$dir/calls"
@@ -141,6 +143,7 @@ case "$command" in
     cid=c$n
     touch "$dir/exists-$cid"
     printf '%s' "$label" > "$dir/label-$cid"
+    printf '%s' "$name" > "$dir/name-$cid"
     echo "$name ${width}x$height" >> "$dir/sizes"
     now > "$dir/start-$cid"
     png="$shots/sim-$name.png"
@@ -193,7 +196,11 @@ case "$command" in
       [ -z "$filter" ] || [ "$(cat "$dir/label-$cid" 2>/dev/null)" = "$filter" ] || continue
       echo "$cid"
     done ;;
-  logs) echo "log of $1" ;;
+  logs)
+    name=$(cat "$dir/name-$1" 2>/dev/null)
+    if [ -f "$dir/log-$name" ]; then cat "$dir/log-$name"
+    else printf '[Startup] font CASC reader init complete in 1s\nCASC resolver initialized from /wow/Data using wowf cache /tmp/x\n'
+    fi ;;
   stats) echo "1MiB cpu 1%" ;;
 esac
 exit 0
@@ -210,18 +217,40 @@ end
 
 -- A folder laid out like a WoW install, with a WTF/ that must never be
 -- mounted. parts leaves out any of its required parts, by name.
-local function fakeInstall(parent, products, without)
+local BUILD_KEY = "0123456789abcdef0123456789abcdef"
+local INSTALL_KEY = "fedcba9876543210fedcba9876543210"
+local BUILD_INFO_HEADER = "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16|CDN Key!HEX:16|Install Key!HEX:16|"
+    .. "Version!STRING:0|Product!STRING:0"
+
+-- A .build.info row, in BUILD_INFO_HEADER's columns.
+local function buildInfoRow(product, fields)
+    fields = fields or {}
+    return table.concat({ "us", fields.active or "1", fields.build or BUILD_KEY, "aaaa", fields.install or INSTALL_KEY,
+        fields.version or "1.60.1.70532", product }, "|")
+end
+
+-- A folder laid out like the owner's shared install: Data/ with the active
+-- build's config, .build.info, a WTF/ and a version folder that must never be
+-- mounted, and a launcher .product.db the simulator can't decode (as on the
+-- owner's Mac, #139), which must never be read. without leaves out any of the
+-- parts, by name; rows replaces .build.info's rows.
+local function fakeInstall(parent, products, without, rows)
     without = without or {}
     local root = parent .. "/World of Warcraft"
-    for _, sub in ipairs({ "Data/data", "Data/config", "Data/indices", "WTF/Account/SECRETNAME", "_classic_beta_" }) do
+    for _, sub in ipairs({ "Data/data", "Data/config", "Data/indices", "WTF/Account/SECRETNAME", "_forever_" }) do
         if not without[sub] then assert(shell("mkdir -p " .. quote(root .. "/" .. sub))) end
     end
-    local rows = { "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16|Version!STRING:0|Product!STRING:0" }
-    for _, product in ipairs(products or { "wow", "wowf" }) do
-        rows[#rows + 1] = "us|1|0123456789abcdef0123456789abcdef|1.60.1.70532|" .. product
+    if not without["Data/config"] and not without["build config"] then
+        assert(shell("mkdir -p " .. quote(root .. "/Data/config/01/23")))
+        write(root .. "/Data/config/01/23/" .. BUILD_KEY, "# Build Configuration\n")
     end
+    if not rows then
+        rows = {}
+        for _, product in ipairs(products or { "wow", "wowf" }) do rows[#rows + 1] = buildInfoRow(product) end
+    end
+    table.insert(rows, 1, BUILD_INFO_HEADER)
     if not without[".build.info"] then write(root .. "/.build.info", table.concat(rows, "\n") .. "\n") end
-    if not without[".product.db"] then write(root .. "/.product.db", "\10\4wowf") end
+    write(root .. "/.product.db", "\10\7\7\7junk")
     return root
 end
 
@@ -355,22 +384,29 @@ describe("Local art screenshots script", function()
             assert.is_falsy(text:find("CF_API_KEY", 1, true))
         end)
 
-        it("mounts only the install's Data/, .build.info and .product.db, read-only, and never WTF/", function()
+        it("mounts only the install's Data/ and .build.info, read-only, never WTF/ or the launcher's .product.db",
+            function()
             local allowed = { ['"$INSTALL/Data:/wow/Data:ro"'] = true,
-                ['"$INSTALL/.build.info:/wow/.build.info:ro"'] = true,
-                ['"$INSTALL/.product.db:/wow/.product.db:ro"'] = true }
-            local seen = 0
+                ['"$INSTALL/.build.info:/wow/.build.info:ro"'] = true }
+            local seen, written = 0, 0
             for _, command in ipairs(dockerRuns(text)) do
                 for mount in command:gmatch("%-v%s+(%S+)") do
                     if mount:find("INSTALL", 1, true) then
                         seen = seen + 1
                         assert.is_true(allowed[mount] == true, "mounts the install's " .. mount)
                     end
+                    -- The .product.db is the script's own, never the launcher's.
+                    if mount:find(":/wow/.product.db", 1, true) then
+                        written = written + 1
+                        assert.are.equal('"$WORK/product-db/.product.db:/wow/.product.db:ro"', mount)
+                    end
                     assert.is_falsy(mount:find("WTF") or mount:find("Interface/AddOns:/wow")
                         or mount:find("^\"?%$INSTALL:"), "mounts " .. mount)
                 end
             end
-            assert.is_true(seen >= 6, "expected the probe and the shots to mount the install")
+            assert.is_true(seen >= 4, "expected the probe and the shots to mount the install")
+            assert.is_true(written >= 2, "expected the probe and the shots to mount the written .product.db")
+            assert.is_falsy(text:find("$INSTALL/.product.db", 1, true), "the launcher's .product.db is used")
             assert.is_falsy(text:find("WOW_SIM_WTF_PATH", 1, true) or text:find("WOW_SIM_WOW_PATH", 1, true))
         end)
 
@@ -467,7 +503,7 @@ describe("Local art screenshots script", function()
 
         it("stops when the install folder is missing or isn't an install, naming what it lacks", function()
             refused("The Forever install folder doesn't exist", { dir .. "/out", dir .. "/nowhere" })
-            for _, part in ipairs({ "Data/data", "Data/config", "Data/indices", ".build.info", ".product.db" }) do
+            for _, part in ipairs({ "Data/data", "Data/config", "Data/indices", ".build.info" }) do
                 local parent = dir .. "/" .. part:gsub("[/.]", "_")
                 assert(shell("mkdir -p " .. quote(parent)))
                 local install = fakeInstall(parent, { "wowf" }, { [part] = true })
@@ -733,6 +769,156 @@ describe("Local art screenshots script", function()
         end)
     end)
 
+    describe("its own .product.db", function()
+        local dir
+
+        before_each(function() dir = tempDir() end)
+        after_each(function() os.execute("chmod -R u+w " .. quote(dir) .. "; rm -rf " .. quote(dir)) end)
+
+        -- Reads a protobuf message into its fields, in order, as { field,
+        -- value } (a number for a varint, a string for anything
+        -- length-delimited). Strict: any other wire type, or bytes left over,
+        -- is an error. Written here from the protobuf spec, not from the
+        -- script, so the script's encoding is checked independently.
+        local function decode(bytes)
+            local fields, at = {}, 1
+            local function varint()
+                local value, scale = 0, 1
+                while true do
+                    local b = assert(bytes:byte(at), "a varint runs past the end")
+                    at = at + 1
+                    value = value + (b % 128) * scale
+                    if b < 128 then return value end
+                    scale = scale * 128
+                end
+            end
+            while at <= #bytes do
+                local key = varint()
+                local field, wire = math.floor(key / 8), key % 8
+                if wire == 0 then
+                    fields[#fields + 1] = { field, varint() }
+                elseif wire == 2 then
+                    local length = varint()
+                    assert(at + length - 1 <= #bytes, "a field runs past the end")
+                    fields[#fields + 1] = { field, bytes:sub(at, at + length - 1) }
+                    at = at + length
+                else
+                    error("wire type " .. wire)
+                end
+            end
+            return fields
+        end
+
+        -- What the simulator's decoder (cascette-rs product_db.rs) would
+        -- read: each product's code, version, build key and install key.
+        local function products(bytes)
+            local list = {}
+            for _, install in ipairs(decode(bytes)) do
+                assert.are.equal(1, install[1], "Database holds something other than product_install")
+                local entry = {}
+                for _, f in ipairs(decode(install[2])) do
+                    if f[1] == 2 then entry.code = f[2] end
+                    if f[1] == 4 then
+                        for _, state in ipairs(decode(f[2])) do
+                            assert.are.equal(1, state[1])
+                            for _, base in ipairs(decode(state[2])) do
+                                local name = ({ [7] = "version", [14] = "build", [16] = "install" })[base[1]]
+                                assert.is_truthy(name, "unexpected field " .. base[1])
+                                entry[name] = base[2]
+                            end
+                        end
+                    end
+                end
+                list[#list + 1] = entry
+            end
+            return list
+        end
+
+        -- Runs write_product_db for the install at root.
+        local function writeDb(root, product)
+            write(dir .. "/db.sh", table.concat({
+                "source " .. quote(SCRIPT),
+                "INSTALL=" .. quote(root) .. " PRODUCT=" .. (product or "wowf") .. " WORK=" .. quote(dir .. "/work"),
+                "write_product_db",
+            }, "\n") .. "\n")
+            local p = io.popen("bash " .. quote(dir .. "/db.sh") .. " < /dev/null 2>&1; echo \"exit=$?\"")
+            local output = p:read("*a")
+            p:close()
+            return tonumber(output:match("exit=(%d+)\n$")), output, dir .. "/work/product-db/.product.db"
+        end
+
+        it("holds the product's active build from .build.info, as the simulator's decoder reads it", function()
+            local root = fakeInstall(dir, nil, nil, { buildInfoRow("wow", { build = ("b"):rep(32) }),
+                buildInfoRow("wowf", { active = "0", build = ("c"):rep(32) }), buildInfoRow("wowf") })
+            local code, output, file = writeDb(root)
+            assert.are.equal(0, code, output)
+            assert.is_truthy(output:find("Build:    wowf 1.60.1.70532, build config " .. BUILD_KEY, 1, true), output)
+            assert.are.same({ { code = "wowf", version = "1.60.1.70532", build = BUILD_KEY, install = INSTALL_KEY } },
+                products(read(file)))
+            -- Read-only, by mode.
+            local p = io.popen("find " .. quote(dir .. "/work/product-db") .. " -perm -u=w")
+            assert.are.equal("", p:read("*a"))
+            p:close()
+        end)
+
+        it("leaves out an install key the install doesn't have, and takes long versions and other products", function()
+            for _, case in ipairs({
+                { rows = { buildInfoRow("wowf", { install = "" }) }, want = {}, noInstall = true },
+                { rows = { buildInfoRow("wowf", { version = ("9."):rep(32) }) }, want = { version = ("9."):rep(32) } },
+                { rows = { buildInfoRow("wow_forever") }, product = "wow_forever", want = { code = "wow_forever" } },
+            }) do
+                local root = fakeInstall(dir, nil, nil, case.rows)
+                local code, output, file = writeDb(root, case.product)
+                assert.are.equal(0, code, output)
+                local entry = products(read(file))[1]
+                local expected = { code = case.product or "wowf", version = "1.60.1.70532", build = BUILD_KEY,
+                    install = INSTALL_KEY }
+                for key, value in pairs(case.want) do expected[key] = value end
+                if case.noInstall then expected.install = nil end
+                assert.are.same(expected, entry)
+                os.execute("chmod -R u+w " .. quote(dir) .. "; rm -rf " .. quote(dir) .. "/*")
+            end
+        end)
+
+        it("stops, writing nothing, unless the product has one readable active build with its config", function()
+            for _, case in ipairs({
+                { rows = { buildInfoRow("wowf", { active = "0" }) }, message = "has 0 active 'wowf' builds" },
+                { rows = { buildInfoRow("wowf"), buildInfoRow("wowf") }, message = "has 2 active 'wowf' builds" },
+                { rows = { buildInfoRow("wow") }, message = "has 0 active 'wowf' builds" },
+                { rows = { buildInfoRow("wowf", { build = ("a"):rep(31) }) }, message = "build key isn't one" },
+                { rows = { buildInfoRow("wowf", { build = ("A"):rep(32) }) }, message = "build key isn't one" },
+                { rows = { buildInfoRow("wowf", { build = ("g"):rep(32) }) }, message = "build key isn't one" },
+                { rows = { buildInfoRow("wowf", { install = "abc" }) }, message = "install key isn't one" },
+                { rows = { buildInfoRow("wowf", { version = "" }) }, message = "version isn't one" },
+                { rows = { buildInfoRow("wowf", { version = "1.60 $(id)" }) }, message = "version isn't one" },
+                { rows = { buildInfoRow("wowf", { version = ("1"):rep(65) }) }, message = "version isn't one" },
+                { rows = { buildInfoRow("wowf") }, without = { ["build config"] = true },
+                    message = "has no build config for its active 'wowf' build" },
+            }) do
+                local root = fakeInstall(dir, nil, case.without, case.rows)
+                local code, output, file = writeDb(root)
+                assert.are_not.equal(0, code, output)
+                assert.is_truthy(output:find(case.message, 1, true), output)
+                assert.is_false(exists(file), "a .product.db was written")
+                os.execute("chmod -R u+w " .. quote(dir) .. "; rm -rf " .. quote(dir) .. "/*")
+            end
+        end)
+
+        it("is written before Docker is used, and a bad build stops the script with no docker call", function()
+            local bin = fakeBin()
+            local root = fakeInstall(dir, nil, nil, { buildInfoRow("wowf", { active = "0" }) })
+            write(dir .. "/run.sh", "export PATH=" .. quote(bin .. "/bin") .. ':"$PATH" HOME=' .. quote(dir)
+                .. " XDG_CACHE_HOME=" .. quote(dir .. "/cache") .. "\nexec bash " .. quote(SCRIPT) .. " "
+                .. quote(dir .. "/out") .. " " .. quote(root) .. "\n")
+            local p = io.popen("bash " .. quote(dir .. "/run.sh") .. " < /dev/null 2>&1; echo \"exit=$?\"")
+            local output = p:read("*a")
+            p:close()
+            assert.is_truthy(output:find("has 0 active 'wowf' builds", 1, true), output)
+            assert.are.equal("", read(bin .. "/bin/calls"))
+            os.execute("rm -rf " .. quote(bin))
+        end)
+    end)
+
     describe("checkouts", function()
         local dir
 
@@ -867,7 +1053,7 @@ describe("Local art screenshots script", function()
                 "export PATH=" .. quote(bin .. "/bin") .. ':"$PATH"',
                 "export UI_SIM_SHOT_SECONDS=" .. (seconds or "2"),
                 "source " .. quote(SCRIPT),
-                'OPTIONS_TABS="$(options_tabs)" SHOTS=""',
+                'OPTIONS_TABS="$(options_tabs)" SHOTS="" ART_CHECKED=""',
                 "OUT=" .. quote(dir .. "/out") .. " WORK=" .. quote(dir .. "/work") .. " INSTALL=" .. quote(dir .. "/wow")
                     .. " PRODUCT=wowf SHOT_CPUS=1 SIZE=" .. (size or "1920x1080") .. " && check_size",
                 -- The addon and the shots' scripts, as main stages them.
@@ -995,6 +1181,78 @@ describe("Local art screenshots script", function()
                 .. " -perm -u=w")
             assert.are.equal("", p:read("*a"), "staged files are left writable")
             p:close()
+        end)
+
+        local NO_CASC = "[Startup] font CASC reader init begin\n"
+            .. "CASC init failed: read installed WoW product: product wowf in /wow/.product.db: invalid protobuf\n"
+            .. "asset-cache extraction failed: fdid 1: CASC not available\n"
+
+        it("reports where every shot's textures and fonts came from", function()
+            local code, output = source("prepare_output; take_shots; report")
+            assert.are.equal(0, code, output)
+            local total = #expectedShots()
+            assert.is_truthy(output:find("Blizzard art from the install: textures in " .. total .. " of " .. total
+                .. " shots, fonts (FRIZQT) in " .. total .. " of " .. total, 1, true), output)
+        end)
+
+        it("stops after the first shot written when it loaded no Blizzard art, saying why", function()
+            -- The owner's first run (#139): CASC never opened, so every shot was grey.
+            write(bin .. "/bin/log-game", NO_CASC)
+            local code, output, calls = source("install_traps; prepare_output; take_shots; report")
+            assert.are_not.equal(0, code)
+            assert.are.same({ "game" }, startedShots(calls), "it went on after the first shot")
+            assert.is_truthy(output:find("The first shot loaded no Blizzard art from the install (textures: no, "
+                .. "fonts: no)", 1, true), output)
+            assert.is_truthy(output:find("CASC init failed: read installed WoW product", 1, true), output)
+            assert.are.equal("", leftovers())
+        end)
+
+        it("checks the first shot that's written, and stops when only its fonts are missing", function()
+            write(bin .. "/bin/log-options-guild-login", "CASC resolver initialized from /wow/Data using wowf\n")
+            local code, output, calls = source("prepare_output; take_shots; report", { game = "crash" })
+            assert.are_not.equal(0, code)
+            assert.are.same({ "game", "options-guild-login" }, startedShots(calls))
+            assert.is_truthy(output:find("(textures: yes, fonts: no)", 1, true), output)
+        end)
+
+        it("stops when the first shot has its fonts but no textures", function()
+            write(bin .. "/bin/log-game", "[Startup] font CASC reader init complete in 1s\n")
+            local code, output, calls = source("prepare_output; take_shots; report")
+            assert.are_not.equal(0, code)
+            assert.are.same({ "game" }, startedShots(calls))
+            assert.is_truthy(output:find("(textures: no, fonts: yes)", 1, true), output)
+        end)
+
+        it("fails the run when a later shot has its textures but not its fonts", function()
+            write(bin .. "/bin/log-button", "CASC resolver initialized from /wow/Data using wowf\n")
+            local code, output = source("prepare_output; take_shots; report")
+            assert.are_not.equal(0, code)
+            local total = #expectedShots()
+            assert.is_truthy(output:find("textures in " .. total .. " of " .. total .. " shots, fonts (FRIZQT) in "
+                .. (total - 1) .. " of " .. total, 1, true), output)
+            assert.is_truthy(output:find("Some shots have no Blizzard art.", 1, true), output)
+        end)
+
+        it("prints only plain text from a shot's log", function()
+            write(bin .. "/bin/log-game", "\27]0;title\7\27[31mCASC init failed: \27[2Jbad\n")
+            local code, output = source("prepare_output; take_shots; report")
+            assert.are_not.equal(0, code)
+            assert.is_truthy(output:find("CASC init failed: bad", 1, true) or output:find("CASC init failed:", 1, true),
+                output)
+            assert.is_falsy(output:find("\27", 1, true), "an escape from the log reached the terminal")
+            assert.is_falsy(output:find("\7", 1, true), "a control character from the log reached the terminal")
+        end)
+
+        it("fails the run when a later shot has no Blizzard art", function()
+            write(bin .. "/bin/log-copy-window", NO_CASC)
+            local code, output, calls = source("prepare_output; take_shots; report")
+            assert.are_not.equal(0, code)
+            local total = #expectedShots()
+            assert.are.equal(total, #startedShots(calls))
+            assert.is_truthy(output:find("textures in " .. (total - 1) .. " of " .. total .. " shots, fonts (FRIZQT) in "
+                .. (total - 1) .. " of " .. total, 1, true), output)
+            assert.is_truthy(output:find("Some shots have no Blizzard art.", 1, true), output)
+            assert.is_falsy(output:find("Done:", 1, true), output)
         end)
 
         it("takes every shot at 1920×1080, or at the size asked for", function()
