@@ -145,6 +145,18 @@ function Comm.Field.Key(text)
     return #text >= 1 and #text <= 24 and text:find("^[%w_]+$") ~= nil
 end
 
+-- "-" (none), or one to MAX_KEYS keys joined by commas.
+Comm.MAX_KEYS = 8
+function Comm.Field.KeyList(text)
+    if text == "-" then return true end
+    local n = 0
+    for key in (text .. ","):gmatch("([^,]*),") do
+        n = n + 1
+        if n > Comm.MAX_KEYS or not Comm.Field.Key(key) then return false end
+    end
+    return true
+end
+
 -- spec = {
 --   fields = { check, ... }: exactly this many fields, each passing its check;
 --   routes = { WHISPER = true, ... }: the routes it may arrive and be sent on;
@@ -476,4 +488,23 @@ Comm.RegisterType("ANSWER", {
     fields = {},
     routes = { WHISPER = true },
     handler = function(sender) ns.Offers.OnAnswerMark(sender) end,
+})
+
+
+------------------------------------------------------------------------
+-- PLAN: "these are the buffs I'll still give you" (#36)
+------------------------------------------------------------------------
+
+-- Whispered to a player you're exchanging buffs with whenever what your
+-- buff-back button holds for them changes (Exchange.lua). One field: the
+-- buff keys, or "-" for none. It can only hold the receiver's thank-you to
+-- the sender, never past Exchange.MAX_DELAY.
+function Comm.SendPlan(name, keys)
+    return Comm.Send("PLAN", { keys }, "WHISPER", name)
+end
+
+Comm.RegisterType("PLAN", {
+    fields = { Comm.Field.KeyList },
+    routes = { WHISPER = true },
+    handler = function(sender, fields) ns.Exchange.OnPlan(sender, fields[1]) end,
 })

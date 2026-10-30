@@ -101,11 +101,15 @@ end
 --   delay    = optional seconds (default: the type's delay),
 --   onDone   = optional function(sent, reason), always called once if this returns true,
 --   maxAge   = optional seconds the queued message may wait (default: ChatQueue.MAX_AGE),
+--   ageFrom  = optional GetTime() its maxAge counts from, when not from the
+--              moment it is queued (a held thank-you: when it was due),
 --   emote    = optional emote token ("THANK"): perform that text emote instead
 --              of sending a line. Its repeat cooldown is its own, so a line
 --              and an emote for the same player don't block each other.
 --   emoteTarget = optional function() -> unit token to aim the emote at, or nil,
 --   dropOverCap = optional true for thanks: dropped, not held, over the chat cap,
+--   hold     = optional function(go): after the delay, call go() once when the
+--              message may be queued (a thank-you waits for its exchange: #36),
 -- }
 -- Returns true if a message was scheduled, or false and the reason not.
 local function Skip(msgType, key, reason)
@@ -136,7 +140,7 @@ function Announcer.Schedule(msgType, key, opts)
     local delay = opts.delay or cfg.delay
     ns.Diag.Log(msgType, "scheduled for %s in %ss", key, delay)
 
-    C_Timer.After(delay, ns.Diag.Wrap(function()
+    local function Queue()
         ns.ChatQueue.Push({
             channel = opts.emote and "EMOTE" or opts.channel,
             target = opts.target,
@@ -153,11 +157,15 @@ function Announcer.Schedule(msgType, key, opts)
                 return true
             end,
             onDone = opts.onDone,
-            maxAge = opts.maxAge,
+            maxAge = (opts.maxAge and opts.ageFrom)
+                and math.max(0, opts.maxAge - (GetTime() - opts.ageFrom)) or opts.maxAge,
             label = msgType .. (opts.emote and " emote" or "") .. " for " .. key,
             automatic = true,
             dropOverCap = opts.dropOverCap,
         })
+    end
+    C_Timer.After(delay, ns.Diag.Wrap(function()
+        if opts.hold then opts.hold(Queue) else Queue() end
     end))
     return true
 end

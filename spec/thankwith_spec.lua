@@ -1,4 +1,4 @@
--- Spec: #101
+-- Spec: #101, #36
 -- "Thank them with" and "If that can't reach them": every combination for a
 -- named caster, an unnamed one and a failed whisper; the buff-back line;
 -- old settings, profiles and settings lines; and a chaos storm.
@@ -437,12 +437,13 @@ describe("Thank them with, and if that can't reach them (#101)", function()
     end)
 
     describe("a failed whisper after things changed (black)", function()
-        -- A whisper to Bob-Stone has just gone out (no key press needed, no delay).
+        -- A whisper to Bob-Stone has just gone out (no key press needed, no
+        -- delay, only the wait after the last buff: #36).
         local function whispered()
             ns = boot()
             ns.db.buff.thankStyle, ns.db.buff.delay = "whisper", 0
             named()
-            wow.advance(0.01)
+            wow.advance(ns.Exchange.SETTLE + 0.01)
             assert.are.same({ WHISPER }, sent().whisper)
         end
 
@@ -469,8 +470,10 @@ describe("Thank them with, and if that can't reach them (#101)", function()
         local function annWhispered()
             wow.addUnit("mouseover", { name = "Ann", surname = "Vale" })
             wow.gainBuff({ sourceUnit = "mouseover", name = "Int" })
-            -- Sends are spaced (ChatQueue.MIN_INTERVAL), still inside Bob's failure window.
-            wow.advance(ns.ChatQueue.MIN_INTERVAL + 0.1)
+            -- Sends are spaced (ChatQueue.MIN_INTERVAL), and a thank-you waits
+            -- after the last buff until the next check (#36), still inside
+            -- Bob's failure window.
+            wow.advance(math.max(ns.ChatQueue.MIN_INTERVAL, ns.Exchange.SETTLE + ns.Exchange.TICK) + 0.1)
             assert.are.equal("Ann-Vale", wow.sent[#wow.sent].target)
         end
 
