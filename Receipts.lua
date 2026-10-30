@@ -156,6 +156,7 @@ local function Claim(key, now)
     for _, r in ipairs(receipts) do
         if not r.used and r.key == key and not Unwanted(r.sender) then
             if sender and r.sender ~= sender then
+                ns.Diag.Count("receiptsClashed")
                 ns.Diag.Log("buff", "receipts from %s and %s for one %s: naming nobody", sender, r.sender, key)
                 return nil
             end

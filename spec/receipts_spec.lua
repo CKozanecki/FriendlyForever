@@ -249,12 +249,27 @@ describe("Buff receipts (#138)", function()
                         "WHISPER", step[2], "", 0, 0, "", 0)
                 end
             end
+            -- A /say "friend" waits for a key press, and at most SAY_MAX_AGE.
+            wow.advance(ns.Receipts.WAIT + ns.db.buff.delay + 0.5)
+            wow.keyDown()
             wow.advance(40)
             wow.keyDown()
             assert.are.same({}, wow.errors)
             return count(ns, "receiptsUsed"), #wow.sentTo("SAY")
         end
 
+        it("with no receipt, an unnamed buff is thanked as 'friend' (the count is live)", function()
+            local used, friends = story({ { "named", "Ann-Vale", "fortitude" }, 3, { "unnamed", "spirit" } })
+            assert.are.equal(0, used)
+            assert.are.equal(1, friends)
+        end)
+        it("a stale receipt isn't what a named buff uses up: its own receipt still is", function()
+            local used, friends = story({ { "receipt", "Ann-Vale", "fortitude" }, 10,
+                { "named", "Ann-Vale", "fortitude" }, { "receipt", "Ann-Vale", "fortitude" }, 0.5,
+                { "unnamed", "fortitude" } })
+            assert.are.equal(0, used, "the stranger's buff isn't credited to Ann")
+            assert.are.equal(1, friends)
+        end)
         it("a player named for one buff can still be named by their receipt for their next", function()
             local used, friends = story({ { "named", "Ann-Vale", "fortitude" }, 0.5,
                 { "receipt", "Ann-Vale", "fortitude" }, 3,
@@ -296,9 +311,16 @@ describe("Buff receipts (#138)", function()
             local ns = wow.boot({ db = { buff = { thankStyle = "whisper", messages = { "Thanks {name}" } },
                 buffBack = { enabled = true } } })
             if opts.setup then opts.setup(ns) end
-            wow.gainBuff(aura)
-            wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;RECEIPT;Ann-Vale;fortitude;?", "WHISPER", "Ann-Vale",
-                "", 0, 0, "", 0)
+            if opts.before then
+                wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;RECEIPT;Ann-Vale;fortitude;?", "WHISPER", "Ann-Vale",
+                    "", 0, 0, "", 0)
+                wow.advance(opts.before)
+            end
+            wow.gainBuff(aura or { name = "Power Word: Fortitude", spellId = FORT })
+            if not opts.before then
+                wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;RECEIPT;Ann-Vale;fortitude;?", "WHISPER", "Ann-Vale",
+                    "", 0, 0, "", 0)
+            end
             if opts.during then opts.during(ns) end
             wow.advance(ns.Receipts.WAIT + ns.db.buff.delay + 0.5)
             wow.keyDown()
@@ -319,6 +341,18 @@ describe("Buff receipts (#138)", function()
         it("no caster unit while you're in a group: named by the receipt", function()
             local whispered = receiptFor({ name = "Power Word: Fortitude", spellId = FORT },
                 { setup = function() wow.setGroup("party", { "Cid-Rock" }) end })
+            assert.are.same({ "Thanks Ann" }, whispered)
+        end)
+        it("a caster unit whose name is secret: named by the receipt", function()
+            local whispered = receiptFor({ name = "Power Word: Fortitude", spellId = FORT, sourceUnit = "nameplate3" },
+                { setup = function()
+                    wow.addUnit("nameplate3", { name = "Ann", surname = "Vale", id = "Ann-Vale" })
+                    wow.state.units.nameplate3.secrets = { name = true }
+                end })
+            assert.are.same({ "Thanks Ann" }, whispered)
+        end)
+        it("a receipt that came 4.5 s before its buff: named", function()
+            local whispered = receiptFor(nil, { before = 4.5 })
             assert.are.same({ "Thanks Ann" }, whispered)
         end)
         it("a buff that isn't one of ours waits for no receipt, and isn't named by one", function()
@@ -384,6 +418,16 @@ describe("Buff receipts (#138)", function()
     end)
 
     describe("the setting (white)", function()
+        it("shows unticked when it was saved off", function()
+            local ns = wow.boot({ db = { buff = { receipts = false } } })
+            wow.run(ns.Options.widgets.tabs.buff, "OnClick")
+            assert.is_false(ns.Options.widgets.receipts:GetChecked())
+        end)
+        it("without the hidden channel, a buff waits for no receipt", function()
+            local ns = wow.boot({ before = function(state) state.noAddonMessages = true end })
+            wow.gainBuff({ name = "Power Word: Fortitude", spellId = FORT })
+            assert.is_false(ns.Receipts.Waiting())
+        end)
         it("shows on the Buff Thanks tab only, and switches receipts off and on", function()
             local ns = wow.boot()
             local w = ns.Options.widgets
@@ -411,7 +455,7 @@ describe("Buff receipts (#138)", function()
             local ns = wow.boot({ db = { buff = { thankStyle = "whisper", messages = { "Thanks {name}: {buff}" } },
                 buffBack = { enabled = true } } })
             if opts.setup then opts.setup(ns) end
-            if not opts.before then wow.gainBuff({ name = "Power Word: Fortitude", spellId = FORT }) end
+            if not opts.before and not opts.noBuff then wow.gainBuff({ name = "Power Word: Fortitude", spellId = FORT }) end
             if opts.wait then wow.advance(opts.wait) end
             if type(text) == "table" then
                 for _, t in ipairs(text) do
@@ -467,6 +511,23 @@ describe("Buff receipts (#138)", function()
                 setup = function(ns)
                     C_Timer.After(1, function() ns.Ignore.Add("Ann-Vale") end)
                 end }))
+        end)
+        it("for a buff the game names as a groupmate's", function()
+            local result = receipt("1;RECEIPT;Ann-Vale;fortitude;?", nil, { noBuff = true, setup = function()
+                wow.setGroup("party", { "Cid-Rock" })
+                wow.gainBuff({ sourceUnit = "party1", name = "Power Word: Fortitude", spellId = FORT })
+            end })
+            assert.are.same({}, result.whispers)
+            assert.are.same({}, result.say)
+            assert.are.equal(0, result.owed)
+        end)
+        it("from someone the game won't say isn't in your group", function()
+            local result = receipt("1;RECEIPT;Ann-Vale;fortitude;?", nil, { setup = function()
+                wow.setGroup("party", { "Cid-Rock" })
+                wow.state.units.party1.secrets = { name = true }
+            end })
+            assert.are.same({}, result.whispers)
+            assert.are.equal(0, result.owed)
         end)
         it("from a member of your group", function()
             local result = receipt("1;RECEIPT;Ann-Vale;fortitude;?", nil, {
@@ -643,73 +704,131 @@ describe("Buff receipts (#138)", function()
         end)
     end)
 
-    -- Several clients buff each other at random; some walk in and out of
-    -- view, messages are lost or late, and one, Cid, sends false receipts.
-    -- Per event, from the simulated clients alone: no client sends more
-    -- receipts to a player than its casts that landed on them; every
-    -- thank-you whisper goes to a player whose buff landed on the thanker
-    -- before it; and nothing errors.
+    -- Ann, Bo and Dee buff each other at random. Each walks in and out of
+    -- the others' view, messages are lost or arrive late, and Cid, who never
+    -- casts, sends false receipts. Per event, from the simulated clients
+    -- alone (wow.landed, wow.addonSent, wow.sent):
+    --   * no client sends a player more receipts than its casts that landed
+    --     on them;
+    --   * every buff a thank-you lists landed on the thanker, with that
+    --     spell, a bounded time before it; and, unless it names Cid, from the
+    --     player it names. Cid can be named only when a real caster's receipt
+    --     was lost and nobody else's clashed with his: the receipt is a hint;
+    --   * nothing errors.
     describe("a chaos storm of buffs (red)", function()
-        local SPELLS = { { "Power Word: Fortitude", "Divine Spirit" }, { "Mark of the Wild", "Thorns" },
-            { "Power Word: Fortitude", "Divine Spirit" } }
-        local KEYS = { "fortitude", "spirit", "motw", "thorns", "kings" }
+        local PRIEST = { [FORT] = true, [SPIRIT] = true }
+        local CASTERS = {
+            { name = "Ann", surname = "Vale", class = "PRIEST", id = "Ann-Vale", spells = PRIEST,
+                cast = { "Power Word: Fortitude", "Divine Spirit" } },
+            { name = "Bo", surname = "Lake", class = "DRUID", id = "Bo-Lake", spells = { [MOTW] = true, [THORNS] = true },
+                cast = { "Mark of the Wild", "Thorns" } },
+            { name = "Dee", surname = "Moss", class = "MAGE", id = "Dee-Moss", spells = { [10157] = true },
+                cast = { "Arcane Intellect" } },
+        }
+        local LIAR = "Cid-Rock"
+        local KEY_OF = { ["Power Word: Fortitude"] = "fortitude", ["Divine Spirit"] = "spirit",
+            ["Mark of the Wild"] = "motw", ["Thorns"] = "thorns", ["Arcane Intellect"] = "intellect" }
+        local KEYS = { "fortitude", "spirit", "motw", "thorns", "intellect" }
+
+        -- The buffs a thank-you lists: "Thanks Ann: A, B and C".
+        local function listed(text)
+            local list = text:match("^Thanks %a+: (.*)$")
+            local out = {}
+            if not list then return out end
+            list = list:gsub(" and ", ", ")
+            for name in (list .. ", "):gmatch("(.-), ") do out[#out + 1] = name end
+            return out
+        end
 
         local function storm(seed)
             random.seed(seed)
-            local people = { ANN, BO, { name = "Cid", surname = "Rock", class = "PRIEST", id = "Cid-Rock" } }
             local clients = {}
-            for i, p in ipairs(people) do
+            for i, p in ipairs(CASTERS) do
                 clients[i] = wow.newClient({ name = p.name, surname = p.surname,
-                    db = { buff = { thankStyle = "whisper", repeatCooldown = 0, messages = { "Thanks {name}" } },
-                        buffBack = { enabled = true } },
-                    before = function(state)
-                        state.class = p.class
-                        state.knownSpells = i == 2 and { [MOTW] = true, [THORNS] = true }
-                            or { [FORT] = true, [SPIRIT] = true }
-                    end })
+                    db = { buff = { thankStyle = "whisper", repeatCooldown = 0, listBuffNames = true,
+                        messages = { "Thanks {name}: {buff}" } }, buffBack = { enabled = true } },
+                    before = function(state) state.class, state.knownSpells = p.class, p.spells end })
+                -- Loading fills a short list from the shipped lines: one line only.
+                clients[i].ns.db.buff.messages = { "Thanks {name}: {buff}" }
             end
             net = wow.network(clients)
-            net.lose = function() return random.random() < 0.2 end
-            local reach = { receipts = 0, named = 0, used = 0 }
+            local reach = { receipts = 0, named = 0, used = 0, liar = 0, clashes = 0, lost = 0, late = 0 }
+            net.lose = function()
+                local lost = random.random() < 0.2
+                if lost then reach.lost = reach.lost + 1 end
+                return lost
+            end
+            wow.use(clients[1])
+            local R = clients[1].ns.Receipts
+            local bound = R.WAIT + clients[1].ns.Exchange.MAX_DELAY + 1
+            -- Cid's false receipts to each client: { key, at, used }.
+            local lies = {}
 
+            -- Every buff landed on this client: { from, spell, at }.
+            local function landedOn(c)
+                local out = {}
+                for _, other in ipairs(clients) do
+                    wow.use(other)
+                    for _, l in ipairs(wow.landed) do
+                        if l.target == c.full then out[#out + 1] = { from = other.full, spell = l.spell, at = l.at } end
+                    end
+                end
+                return out
+            end
+
+            local seen = {}
             local function check(where)
                 for _, c in ipairs(clients) do
                     wow.use(c)
-                    -- Receipts to each player, against casts landed on them.
-                    local landedOn, receiptsTo = {}, {}
-                    for _, l in ipairs(wow.landed) do landedOn[l.target] = (landedOn[l.target] or 0) + 1 end
+                    local landed, receiptsTo = {}, {}
+                    for _, l in ipairs(wow.landed) do landed[l.target] = (landed[l.target] or 0) + 1 end
                     for _, m in ipairs(receiptsIn(wow.addonSent)) do
                         receiptsTo[m.target] = (receiptsTo[m.target] or 0) + 1
                     end
                     for target, n in pairs(receiptsTo) do
-                        assert.is_true(n <= (landedOn[target] or 0), where .. ": more receipts than casts to " .. target)
+                        assert.is_true(n <= (landed[target] or 0), where .. ": more receipts than casts to " .. target)
                     end
                     assert.are.same({}, wow.errors, where)
                     assert.are.equal(0, count(c.ns, "luaErrors"), where)
                 end
-                -- Each thank-you whisper names someone whose buff landed on the thanker.
                 for _, c in ipairs(clients) do
                     wow.use(c)
-                    for _, m in ipairs(wow.sent) do
-                        if m.channel == "WHISPER" then
+                    local sent = {}
+                    for _, m in ipairs(wow.sent) do sent[#sent + 1] = m end
+                    local arrived = landedOn(c)
+                    for i = (seen[c] or 0) + 1, #sent do
+                        local m = sent[i]
+                        assert.are.equal("WHISPER", m.channel, where .. ": only whispered thank-yous")
+                        local buffs = listed(m.text)
+                        assert.is_true(#buffs > 0, where .. ": a thank-you listing its buffs: " .. m.text)
+                        for _, spell in ipairs(buffs) do
                             local ok = false
-                            for _, other in ipairs(clients) do
-                                if other.full == m.target then
-                                    wow.use(other)
-                                    for _, l in ipairs(wow.landed) do
-                                        if l.target == c.full and l.at <= m.time then ok = true end
+                            for _, l in ipairs(arrived) do
+                                if not ok and l.spell == spell and l.at <= m.time and m.time - l.at <= bound then
+                                    if m.target ~= LIAR then
+                                        ok = l.from == m.target
+                                    else
+                                        -- One of Cid's receipts, of this buff's key, from up to
+                                        -- WINDOW before it to WAIT after, used once.
+                                        for _, lie in ipairs(lies[c] or {}) do
+                                            if not ok and not lie.used and lie.key == KEY_OF[spell]
+                                                and lie.at >= l.at - R.WINDOW - 1e-6 and lie.at <= l.at + R.WAIT + 1e-6 then
+                                                lie.used, ok = true, true
+                                            end
+                                        end
                                     end
                                 end
                             end
                             assert.is_true(ok, where .. ": " .. c.full .. " thanked " .. tostring(m.target)
-                                .. ", whose buff never reached them")
-                            wow.use(c)
+                                .. " for " .. spell .. ", which they didn't give")
                         end
+                        if m.target == LIAR then reach.liar = reach.liar + 1 end
                     end
+                    seen[c] = #sent
                 end
             end
 
-            for step = 1, 80 do
+            for step = 1, 90 do
                 local i = random.random(#clients)
                 local x = clients[i]
                 local roll = random.random()
@@ -717,23 +836,34 @@ describe("Buff receipts (#138)", function()
                 if roll < 0.45 then
                     local j = random.random(#clients - 1)
                     if j >= i then j = j + 1 end
-                    local spells = SPELLS[i]
-                    handCast(x, people[j], spells[random.random(#spells)])
-                elseif roll < 0.6 then
-                    -- Someone walks into or out of x's view.
+                    local spells = CASTERS[i].cast
                     wow.use(x)
-                    local j = random.random(#people)
+                    wow.addUnit("target", CASTERS[j])
+                    wow.runMacro("/cast " .. spells[random.random(#spells)])
+                    wow.state.units.target = nil
+                    wow.deliverBuffs(net)
+                    -- Messages arrive now, or late: within the wait, or past it.
+                    local lag = ({ 0, 0, 0.5, 1.25, 1.75, 3 })[random.random(6)]
+                    if lag > 1 and lag < x.ns.Receipts.WAIT then reach.late = reach.late + 1 end
+                    if lag > 0 then wow.advanceAll(net, lag, lag) end
+                    wow.deliver(net)
+                elseif roll < 0.55 then
+                    wow.use(x)
                     if wow.state.units.nameplate1 then
                         wow.state.units.nameplate1 = nil
-                    elseif j ~= i then
-                        wow.addUnit("nameplate1", people[j])
+                    else
+                        local j = random.random(#CASTERS)
+                        if j ~= i then wow.addUnit("nameplate1", CASTERS[j]) end
                     end
-                elseif roll < 0.7 and i ~= 3 then
-                    -- Cid's false receipt to x: Cid's buff never came.
-                    wow.use(x)
-                    wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;RECEIPT;Cid-Rock;" .. KEYS[random.random(#KEYS)]
-                        .. ";?", "WHISPER", "Cid-Rock", "", 0, 0, "", 0)
                 elseif roll < 0.75 then
+                    -- Cid's false receipt: his buff never came.
+                    wow.use(x)
+                    local key = KEYS[random.random(#KEYS)]
+                    lies[x] = lies[x] or {}
+                    table.insert(lies[x], { key = key, at = wow.now })
+                    wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;RECEIPT;" .. LIAR .. ";" .. key
+                        .. ";?", "WHISPER", LIAR, "", 0, 0, "", 0)
+                elseif roll < 0.8 then
                     wow.use(x)
                     x.ns.BuffButton.Refresh()
                     wow.press(x.ns.BuffButton.Frame())
@@ -748,21 +878,28 @@ describe("Buff receipts (#138)", function()
             for _, c in ipairs(clients) do
                 wow.use(c)
                 reach.receipts = reach.receipts + #receiptsIn(wow.addonSent)
-                reach.named = reach.named + #wow.sentTo("WHISPER")
+                reach.named = reach.named + #wow.sent
                 reach.used = reach.used + count(c.ns, "receiptsUsed")
+                reach.clashes = reach.clashes + count(c.ns, "receiptsClashed")
             end
             return reach
         end
 
         it("never sends more than one receipt per successful cast, never names a non-caster, never errors", function()
-            local total = { receipts = 0, named = 0, used = 0 }
-            for _, seed in ipairs({ 1, 2, 3, 4, 5, 6 }) do
-                for k, v in pairs(storm(seed)) do total[k] = total[k] + v end
+            local total = { receipts = 0, named = 0, used = 0, liar = 0, clashes = 0, lost = 0, late = 0 }
+            for seed = 1, 16 do
+                local reach = storm(seed)
+                assert.is_true(reach.used > 0, "seed " .. seed .. ": receipts named casters")
+                for k, v in pairs(reach) do total[k] = total[k] + v end
             end
             -- The storm reached what it tests.
-            assert.is_true(total.receipts > 20, "receipts were sent")
-            assert.is_true(total.named > 10, "casters were thanked by name")
-            assert.is_true(total.used > 5, "receipts named casters")
+            assert.is_true(total.receipts > 30, "receipts were sent: " .. total.receipts)
+            assert.is_true(total.named > 15, "casters were thanked: " .. total.named)
+            assert.is_true(total.used > 10, "receipts named casters: " .. total.used)
+            assert.is_true(total.late > 5, "receipts came late in the wait: " .. total.late)
+            assert.is_true(total.lost > 10, "messages were lost: " .. total.lost)
+            assert.is_true(total.clashes > 0, "receipts from two players for one buff: " .. total.clashes)
+            assert.is_true(total.liar > 0, "Cid named for a buff whose receipt was lost: " .. total.liar)
         end)
     end)
 end)
