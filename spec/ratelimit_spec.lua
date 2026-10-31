@@ -1,4 +1,4 @@
--- Spec: #35, #101
+-- Spec: #35, #101, #46
 -- The lines-per-minute cap: a hard ceiling on what the addon says in each
 -- chat type, so a crowded launch can't make it spam.
 local wow = require("spec.support.wow")
@@ -304,12 +304,12 @@ describe("The chat rate limit (#35)", function()
                     if line:find("APIs:", 1, true) then return line end
                 end
             end
-            assert.is_truthy(apis():find("SendChatMessage |cff00ff00on|r", 1, true))
-            assert.is_truthy(apis():find("emote |cff00ff00on|r", 1, true))
+            assert.is_truthy(apis():find("SendChatMessage " .. ns.Colours.Text("good", "on"), 1, true))
+            assert.is_truthy(apis():find("emote " .. ns.Colours.Text("good", "on"), 1, true))
             _G.C_ChatInfo.SendChatMessage, _G.SendChatMessage = nil, nil
             _G.C_ChatInfo.PerformEmote, _G.DoEmote = nil, nil
-            assert.is_truthy(apis():find("SendChatMessage |cffff4040off|r", 1, true))
-            assert.is_truthy(apis():find("emote |cffff4040off|r", 1, true))
+            assert.is_truthy(apis():find("SendChatMessage " .. ns.Colours.Text("bad", "off"), 1, true))
+            assert.is_truthy(apis():find("emote " .. ns.Colours.Text("bad", "off"), 1, true))
         end)
     end)
 

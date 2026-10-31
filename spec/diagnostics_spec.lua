@@ -1,4 +1,4 @@
--- Spec: #101
+-- Spec: #101, #46
 local wow = require("spec.support.wow")
 
 describe("Diagnostics", function()
@@ -178,19 +178,19 @@ describe("Diagnostics", function()
             wow.gainBuff({ sourceUnit = "target", name = "Fort" })
             wow.advance(ns.db.buff.delay + 0.1)
             slash("status")
-            assert.is_true(printedHas("lockdown |cff00ff00on|r, 1 waiting"))
+            assert.is_true(printedHas("lockdown " .. ns.Colours.Text("good", "on") .. ", 1 waiting"))
         end)
 
         it("shows the AFK option, and says when it is dropping messages", function()
             slash("status")
-            assert.is_true(printedHas("skip while AFK: |cff00ff00on|r (you're not AFK)"))
+            assert.is_true(printedHas("skip while AFK: " .. ns.Colours.Text("good", "on") .. " (you're not AFK)"))
             wow.state.afk = true
             slash("status")
-            assert.is_true(printedHas("skip while AFK: |cff00ff00on|r (you're AFK: automatic messages are being dropped)"))
+            assert.is_true(printedHas("skip while AFK: " .. ns.Colours.Text("good", "on") .. " (you're AFK: automatic messages are being dropped)"))
             ns.db.skipWhileAFK = false
             wow.printed = {}
             slash("status")
-            assert.is_true(printedHas("skip while AFK: |cffff4040off|r (you're AFK)"))
+            assert.is_true(printedHas("skip while AFK: " .. ns.Colours.Text("bad", "off") .. " (you're AFK)"))
             assert.is_false(printedHas("being dropped"))
         end)
 
@@ -214,7 +214,7 @@ describe("Diagnostics", function()
             assert.are.equal(1, #wow.sent)
             assert.are.equal("WHISPER", wow.sent[1].channel)
             assert.are.equal("Me", wow.sent[1].target)
-            assert.is_true(printedHas("self-test: |cff00ff00sent|r"))
+            assert.is_true(printedHas("self-test: " .. ns.Colours.Text("good", "sent")))
         end)
 
         it("waits for the chat lockdown like any message", function()
@@ -229,7 +229,7 @@ describe("Diagnostics", function()
         it("reports a failed send", function()
             _G.C_ChatInfo.SendChatMessage = function() error("nope") end
             slash("selftest")
-            assert.is_true(printedHas("self-test: |cffff4040not sent|r"))
+            assert.is_true(printedHas("self-test: " .. ns.Colours.Text("bad", "not sent")))
         end)
     end)
 

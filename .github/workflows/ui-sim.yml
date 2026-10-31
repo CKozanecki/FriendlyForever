@@ -437,7 +437,7 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Each one
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so 16 shots and the probe take at most about 54 minutes.
+        # clean-up, so 17 shots and the probe take at most about 57 minutes.
         # (Each usually takes about 8 s.) The second pass, at 1920 x 1080
         # (#148), starts no shot after 50 minutes, so this still holds.
         timeout-minutes: 58
@@ -535,6 +535,8 @@ jobs:
             shoot options-general --exec-lua @/shot-lua/page-general.lua
             shoot options-ledger --exec-lua @/shot-lua/page-ledger.lua
             shoot copy-window --exec-lua "SlashCmdList.FRIENDLYFOREVER('export')"
+            # The palette (#46): chat lines in each colour, and the minimap tooltip.
+            shoot palette --exec-lua "for _, c in ipairs({ 'off', 'on', 'debug', 'debug', 'ignore Bob' }) do SlashCmdList.FRIENDLYFOREVER(c) end; FriendlyForeverMinimapButton:GetScript('OnEnter')(FriendlyForeverMinimapButton)"
           }
           for size in $LAYOUT_SIZES; do
             WIDTH="${size%x*}"; HEIGHT="${size#*x}"
