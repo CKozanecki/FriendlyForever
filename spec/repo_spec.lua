@@ -495,6 +495,7 @@ describe("UI simulator workflow", function()
             assert.is_true(os.execute("mkdir -p '" .. dir .. "/bin' '" .. dir .. "/report' '" .. dir .. "/seen'") == 0)
             local fake = assert(io.open(dir .. "/bin/docker", "w"))
             fake:write("#!/bin/sh\nseen='" .. dir .. "/seen/'$(echo \"$*\" | cksum | cut -d' ' -f1)\n",
+                "case \"$*\" in *lua-errors*) echo partial-err >&2 ;; esac\n",
                 "case \"$FAKE\" in\n  hang) echo partial; exec sleep 30 ;;\n",
                 "  once) if [ -e \"$seen\" ]; then echo body; else touch \"$seen\"; echo partial; exec sleep 30; fi ;;\n",
                 "  fail) echo body; exit 3 ;;\n  *) echo body ;;\nesac\n")
@@ -514,7 +515,8 @@ describe("UI simulator workflow", function()
             local result = { status = status, step = read("step.log"), report = read("report/run-tests.log"),
                 layout = read("report/layout-1024x768.log"), runs = read("runs.txt"),
                 stopped = read("report/run-tests.log.timed-out"), stoppedJson = read("report/lua-errors.json.timed-out"),
-                stoppedLayout = read("report/layout-1024x768.log.timed-out") }
+                stoppedLayout = read("report/layout-1024x768.log.timed-out"),
+                stoppedErrors = read("report/lua-errors.log.timed-out") }
             os.execute("rm -rf '" .. dir .. "'")
             return result
         end
@@ -569,6 +571,7 @@ describe("UI simulator workflow", function()
                 "dump-tree 1 124", "dump-tree 2 124", "layout-1024x768 1 124", "layout-1024x768 2 124" }, attempts(r.runs))
             assert.are.equal("partial\n", r.stopped)
             assert.are.equal("partial\n", r.stoppedJson)
+            assert.are.equal("partial-err\n", r.stoppedErrors, "the stopped run's stderr isn't kept")
             assert.are.equal("partial\n", r.stoppedLayout)
         end)
 
@@ -613,7 +616,7 @@ describe("UI simulator workflow", function()
                 write("report/" .. name, "body\n")
             end
             for name, content in pairs(logs or {}) do write("report/" .. name, content) end
-            write("runs.txt", runs)
+            if runs then write("runs.txt", runs) end
             write("run.sh", "set -eo pipefail\nRUNNER_TEMP='" .. dir .. "'\nLAYOUT_SIZES=1024x768\n"
                 .. "GITHUB_STEP_SUMMARY='" .. dir .. "/summary.md'\n" .. step .. "\n")
             local status = os.execute("bash '" .. dir .. "/run.sh' > '" .. dir .. "/step.log' 2>&1")
@@ -680,6 +683,22 @@ describe("UI simulator workflow", function()
                     .. "limit twice, so its results (LAYOUT lines included) are incomplete. Last scenario started: 12. "
                     .. "See the run's summary.",
                 "" }, log)
+        end)
+
+        it("reports as before when the run step wrote no runs.txt (black)", function()
+            local r = summarize(nil)
+            assert.are.equal(0, r.status)
+            assert.are.equal("## UI simulator (report only)\n\n", top(r.summary))
+            assert.are.equal("", r.log)
+        end)
+
+        it("shows the end of the frame tree's log when dump-tree timed out (black)", function()
+            local r = summarize("lua-errors 1 0 3\nrun-tests 1 0 20\ndump-tree 1 124 130\ndump-tree 2 124 130\n"
+                .. "layout-1024x768 1 0 25\n", { ["frame-tree.txt.timed-out"] = "first tree\n", ["frame-tree.txt"] = "the tree end\n" })
+            local head = top(r.summary)
+            assert.is_truthy(head:find("The dump-tree run timed out twice", 1, true), head)
+            assert.is_truthy(head:find("| first tree\n", 1, true), head)
+            assert.is_truthy(head:find("| the tree end\n", 1, true), head)
         end)
 
         it("says none when the stopped run started no scenario (black)", function()
