@@ -1,4 +1,4 @@
--- Spec: #101
+-- Spec: #101, #47
 local wow = require("spec.support.wow")
 
 describe("Diagnostics", function()
@@ -166,6 +166,9 @@ describe("Diagnostics", function()
 
         it("says when the login event never arrived", function()
             wow.reset()
+            -- Saved settings, as an install has after its first run: a new
+            -- one is switched off until its walkthrough is done (#47).
+            _G.FriendlyForeverDB = { walkthrough = { seen = 1, firstRun = false } }
             ns = wow.load()
             wow.fire("ADDON_LOADED", wow.ADDON_NAME)
             slash("status")

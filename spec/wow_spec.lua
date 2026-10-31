@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42
+-- Spec: #76, #84, #136, #42, #47
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -245,5 +245,36 @@ describe("The simulated client", function()
             wow.state.units.party1.auraDurations[1] = nil
             assert.is_nil(aura(1).duration, "unset stays nil")
         end)
+    end)
+end)
+
+-- #47: the walkthrough opens at login until it's finished or skipped, and a
+-- first install is off until then. boot turns both off for most specs;
+-- opts.walkthrough, and given settings that set them, keep them.
+describe("The simulated client's boot and the walkthrough (#47)", function()
+    local SEEN = { seen = 1, firstRun = false }
+
+    it("starts a first install switched on, its walkthrough finished, unless asked", function()
+        local ns = wow.boot()
+        assert.are.same(SEEN, ns.db.walkthrough)
+        assert.is_true(ns.db.enabled)
+        assert.is_false(ns.Walkthrough.Frame():IsShown())
+        ns = wow.boot({ walkthrough = true })
+        assert.are.same({ seen = 0, firstRun = true }, ns.db.walkthrough)
+        assert.is_false(ns.db.enabled)
+        assert.is_true(ns.Walkthrough.Frame():IsShown())
+    end)
+
+    it("starts given settings without a walkthrough state as finished, and leaves their switch", function()
+        local ns = wow.boot({ db = { enabled = false } })
+        assert.are.same(SEEN, ns.db.walkthrough)
+        assert.is_false(ns.db.enabled)
+        assert.is_false(ns.Walkthrough.Frame():IsShown())
+    end)
+
+    it("leaves a given walkthrough state alone, so one not yet seen still starts", function()
+        local ns = wow.boot({ db = { walkthrough = { seen = 0, firstRun = false } } })
+        assert.are.same({ seen = 0, firstRun = false }, ns.db.walkthrough)
+        assert.is_true(ns.Walkthrough.Frame():IsShown())
     end)
 end)

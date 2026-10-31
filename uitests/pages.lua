@@ -19,10 +19,21 @@
 local Pages = {}
 FriendlyForeverUIPages = Pages
 
--- The frames' names (Options.GENERAL_PAGE, Options.LEDGER_PAGE and Window.NAME).
+-- The frames' names (Options.GENERAL_PAGE, Options.LEDGER_PAGE,
+-- Options.START_PAGE, Window.NAME and Walkthrough.NAME).
 Pages.GENERAL = "FriendlyForeverGeneralPage"
 Pages.LEDGER = "FriendlyForeverLedgerPage"
+Pages.START = "FriendlyForeverStartPage"
 Pages.WINDOW = "FriendlyForeverTextWindow"
+Pages.WALKTHROUGH = "FriendlyForeverWalkthrough"
+
+-- The simulator starts with no saved settings, a new install: the addon is
+-- off and its walkthrough open (#47). Every page and tab shown here skips it
+-- first, by its Skip button, as a player would, which turns the addon on.
+function Pages.SkipWalkthrough()
+    local walkthrough = _G[Pages.WALKTHROUGH]
+    if type(walkthrough) == "table" and walkthrough:IsShown() then walkthrough.skip:Click() end
+end
 
 -- Twelve-letter first names and surnames, as long as Forever names get.
 local FIRSTS = { "Aerendhiliel", "Brannoctavus", "Caelithrandr", "Dorvanimbrel", "Elowyndraeth", "Faelandoriel",
@@ -101,11 +112,13 @@ function Pages.Fill()
     end
 end
 
--- Opens one of the options pages ("general" or "ledger") as clicking it in
--- the AddOns options would. Returns the page.
+-- Opens one of the options pages ("general", "ledger" or "start") as
+-- clicking it in the AddOns options would. Returns the page.
+local PAGE_FRAMES = { general = Pages.GENERAL, ledger = Pages.LEDGER, start = Pages.START }
 function Pages.Open(which)
-    local page = _G[which == "ledger" and Pages.LEDGER or Pages.GENERAL]
+    local page = _G[PAGE_FRAMES[which] or Pages.GENERAL]
     if type(page) ~= "table" then error("no options page called " .. tostring(which), 2) end
+    Pages.SkipWalkthrough()
     -- A page fills itself when shown. One an earlier scenario left open is
     -- hidden first, so it shows, and fills, afresh from what Fill set.
     if page:IsShown() then page:Hide() end
@@ -170,6 +183,7 @@ function Pages.OpenTab(name)
         report(why)
         return nil, why
     end
+    Pages.SkipWalkthrough()
     SlashCmdList.FRIENDLYFOREVER("")
     local panel = _G[Pages.PANEL]
     local button = type(panel) == "table" and FindButton(panel, tab.label, 3)
@@ -186,4 +200,45 @@ end
 -- For the screenshot job: show one tab.
 function Pages.ShowTab(name)
     Pages.OpenTab(name)
+end
+
+-- The walkthrough's steps the screenshots show (#47), each named by a
+-- word in its title: the first, and buff mode's key and triggers, which
+-- the walkthrough must reach.
+Pages.WALKTHROUGH_STEPS = {
+    { name = "welcome", title = "Welcome" },
+    { name = "buff-mode-key", title = "its key" },
+    { name = "buff-mode-triggers", title = "turns on and off" },
+}
+
+-- Takes the walkthrough again from the Start here page, as a player would,
+-- and clicks Next up to the step called name (a Pages.WALKTHROUGH_STEPS
+-- name). Returns the walkthrough's frame, or nothing and why not.
+function Pages.OpenWalkthrough(name)
+    local wanted
+    for _, step in ipairs(Pages.WALKTHROUGH_STEPS) do
+        if step.name == name then wanted = step end
+    end
+    if not wanted then
+        local why = "no walkthrough step called " .. tostring(name)
+        report(why)
+        return nil, why
+    end
+    local start = Pages.Open("start")
+    start.widgets.tour:Click()
+    local walkthrough = _G[Pages.WALKTHROUGH]
+    -- At most one click a step, so a title never found can't loop forever.
+    for _ = 1, 20 do
+        if not walkthrough:IsShown() then break end
+        if (walkthrough.title:GetText() or ""):find(wanted.title, 1, true) then return walkthrough end
+        walkthrough.next:Click()
+    end
+    local why = "the walkthrough never reached " .. name
+    report(why)
+    return nil, why
+end
+
+-- For the screenshot job: the walkthrough at one step.
+function Pages.ShowWalkthrough(name)
+    Pages.OpenWalkthrough(name)
 end

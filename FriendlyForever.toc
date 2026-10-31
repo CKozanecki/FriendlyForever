@@ -45,5 +45,6 @@ BuffModeAuto.lua
 Battleground.lua
 OptionsIndex.lua
 Options.lua
+Walkthrough.lua
 Minimap.lua
 Core.lua

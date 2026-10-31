@@ -11,9 +11,9 @@ ns.Options = Options
 -- Room for the Buff Back tab's buff list, who gets each, and buff mode rows above its lines.
 Options.CONTENT_HEIGHT = 1940
 
-local panel, category, generalPage, ledgerPage
+local panel, category, startPage, generalPage, ledgerPage
 local currentType = Config.TYPES[1]
-local widgets = { tabs = {}, edits = {}, steppers = {}, general = {}, ledger = {} }
+local widgets = { tabs = {}, edits = {}, steppers = {}, general = {}, ledger = {}, start = {} }
 Options.widgets = widgets -- exposed for tests
 
 Options.LEDGER_ROWS = 25
@@ -24,6 +24,10 @@ Options.PROFILES_SHOWN = 6 -- profiles listed there, the same way
 Options.GENERAL_HEIGHT = 720
 -- The pages' frame names, so the UI simulator's scenarios can find them (#52).
 Options.GENERAL_PAGE = "FriendlyForeverGeneralPage"
+Options.START_PAGE = "FriendlyForeverStartPage"
+-- The Start here page's scrolling content (#47), with room to spare for its
+-- notes wrapping more in the game than expected.
+Options.START_HEIGHT = 560
 Options.LEDGER_PAGE = "FriendlyForeverLedgerPage"
 
 -- How to thank someone who buffs you, and what to do when that can't reach
@@ -471,6 +475,14 @@ end
 
 -- The Buff Back tab's rows for when buff mode turns on and off by itself.
 Options.AUTO_SWITCHES = { "autoOnJoin", "autoOnDeath", "autoOnBuffed", "autoOffPull", "autoOffDone" }
+-- Their labels, which the walkthrough (Walkthrough.lua) repeats.
+Options.AUTO_TEXT = {
+    autoOnJoin = "when I join a group",
+    autoOnDeath = "after a death in my group",
+    autoOnBuffed = "when a stranger buffs me",
+    autoOffPull = "at the first pull",
+    autoOffDone = "when everyone has my buffs",
+}
 
 local function FillAuto(shown)
     widgets.autoHeader:SetShown(shown)
@@ -575,12 +587,13 @@ local function Fill()
         cfg.repeatCooldown, widgets.steppers.repeatCooldown.box:GetText())
 end
 
-local FillGeneral, FillLedger
+local FillStart, FillGeneral, FillLedger
 
 -- Settings changes (CVAR_UPDATE, slash commands, the minimap button) call
 -- this while the panel may be closed; OnShow fills it when it opens.
 function Options.Refresh()
     if panel and panel:IsVisible() then Fill() end
+    if startPage and startPage:IsVisible() then FillStart() end
     if generalPage and generalPage:IsVisible() then FillGeneral() end
     if ledgerPage and ledgerPage:IsVisible() then FillLedger() end
 end
@@ -863,8 +876,8 @@ function Options.Create()
     -- Buff Back tab only, below the buff list: when buff mode turns on and
     -- off by itself (BuffModeAuto.lua). Anchored in FillBuffRows.
     widgets.auto = {}
-    local function AutoBox(field, text)
-        local cb = Checkbox(content, text, function(on)
+    local function AutoBox(field)
+        local cb = Checkbox(content, Options.AUTO_TEXT[field], function(on)
             ns.db.buffBack[field] = on
             ns.BuffButton.Refresh()
         end)
@@ -872,17 +885,17 @@ function Options.Create()
         return cb
     end
     widgets.autoHeader = Label(content, "Buff mode turns on by itself:", "GameFontNormalSmall")
-    local onJoin = AutoBox("autoOnJoin", "when I join a group")
+    local onJoin = AutoBox("autoOnJoin")
     onJoin:SetPoint("TOPLEFT", widgets.autoHeader, "BOTTOMLEFT", -4, -2)
-    local onDeath = AutoBox("autoOnDeath", "after a death in my group")
+    local onDeath = AutoBox("autoOnDeath")
     onDeath:SetPoint("LEFT", onJoin.label, "RIGHT", 16, 0)
-    local onBuffed = AutoBox("autoOnBuffed", "when a stranger buffs me")
+    local onBuffed = AutoBox("autoOnBuffed")
     onBuffed:SetPoint("LEFT", onDeath.label, "RIGHT", 16, 0)
     widgets.autoOffHeader = Label(content, "...and off again (only when it turned itself on):", "GameFontNormalSmall")
     widgets.autoOffHeader:SetPoint("TOPLEFT", onJoin, "BOTTOMLEFT", 4, -6)
-    local offPull = AutoBox("autoOffPull", "at the first pull")
+    local offPull = AutoBox("autoOffPull")
     offPull:SetPoint("TOPLEFT", widgets.autoOffHeader, "BOTTOMLEFT", -4, -2)
-    local offDone = AutoBox("autoOffDone", "when everyone has my buffs")
+    local offDone = AutoBox("autoOffDone")
     offDone:SetPoint("LEFT", offPull.label, "RIGHT", 16, 0)
     local offMinutes = Stepper(content, "or after (minutes, 0 = never):", "autoOffMinutes")
     offMinutes.label:SetPoint("TOPLEFT", offPull, "BOTTOMLEFT", 4, -8)
@@ -984,6 +997,8 @@ function Options.Create()
         InterfaceOptions_AddCategory(panel)
     end
 
+    -- Start here first, so it's the first page listed under Friendly Forever.
+    Options.CreateStartPage()
     Options.CreateGeneralPage()
     Options.CreateLedgerPage()
     ns.OptionsIndex.RegisterSearch(category)
@@ -1041,6 +1056,84 @@ end
 local function Say(ok, why, success)
     ns.Print(ok and success or why)
     Options.Refresh()
+end
+
+-- The binding in Key Bindings > AddOns that presses the buff-back button.
+Options.BUTTON_BINDING = "CLICK FriendlyForeverBuffButton:LeftButton"
+
+-- Start here (#47): an introduction. What the addon does, the settings that
+-- apply and the keys, shown as they're saved, a link to every other page
+-- and the walkthrough. It changes no setting: each is changed on its own
+-- page (the owner's decision on #47).
+function Options.CreateStartPage()
+    local w = widgets.start
+    startPage = SubPage("Start here", "Start here", Options.START_PAGE)
+    local page = startPage
+    -- Everything below the heading scrolls (#46's rule: content that can
+    -- grow scrolls rather than overflowing).
+    local area = ScrollArea(page, Options.START_HEIGHT)
+
+    local about = Label(area, "What it does", "GameFontNormal")
+    about:SetPoint("TOPLEFT", 16, -12)
+    w.about = Note(area, about, "Greets guildmates who log in, welcomes new guild and party members, and thanks "
+        .. "people who buff you. When someone outside your group buffs you, a button offers to buff them back; "
+        .. "it casts only when you press it.")
+
+    local now = Section(area, w.about, "Your settings")
+    w.enabled = Note(area, now, "")
+    w.thanks = Note(area, w.enabled, "")
+    w.nameplates = Note(area, w.thanks, "")
+    w.buttonKey = Note(area, w.nameplates, "")
+    w.buffModeKey = Note(area, w.buttonKey, "")
+    w.change = Note(area, w.buffModeKey, "|cff999999Each is changed on its own page, below.|r")
+
+    local more = Section(area, w.change, "Every other page")
+    w.openMessages = Button(area, "Messages and Buff Back", 180, function() Options.Open() end)
+    w.openMessages:SetPoint("TOPLEFT", more, "BOTTOMLEFT", 0, -8)
+    w.openGeneral = Button(area, "General", 100, function() Options.OpenPage(generalPage) end)
+    w.openGeneral:SetPoint("LEFT", w.openMessages, "RIGHT", 8, 0)
+    w.openLedger = Button(area, "Favour Ledger", 120, function() Options.OpenPage(ledgerPage) end)
+    w.openLedger:SetPoint("LEFT", w.openGeneral, "RIGHT", 8, 0)
+
+    local tour = Section(area, w.openMessages, "The walkthrough")
+    w.tour = Button(area, "Take the walkthrough", 180, function() ns.Walkthrough.Start() end)
+    w.tour:SetPoint("TOPLEFT", tour, "BOTTOMLEFT", 0, -8)
+    w.tourHelp = Note(area, w.tour, "A step at a time through buff back, buff mode, and the thanks and welcome "
+        .. "lines, opening each page. It only shows and explains; it never changes a setting.")
+
+    page:SetScript("OnShow", function() FillStart() end)
+    page.widgets = w
+    panel.startPage = page
+end
+
+-- The buff-back button's key in Key Bindings > AddOns, as the game names
+-- it, or nil when it has none.
+local function ButtonKeyText()
+    local key = ns.Util.ReadGameValues(GetBindingKey, Options.BUTTON_BINDING)
+    if type(key) ~= "string" or key == "" then return nil end
+    return ns.BuffMode.KeyText(key)
+end
+
+-- Fills Start here from the saved settings, read through damage: a section
+-- that isn't a table reads as empty.
+FillStart = function()
+    local w = widgets.start
+    local buff = type(ns.db.buff) == "table" and ns.db.buff or {}
+    w.enabled:SetText(ns.db.enabled == true and "Friendly Forever is on."
+        or "|cffff8040Friendly Forever is off.|r Its switch is at the top of Messages and Buff Back.")
+    w.thanks:SetText(buff.enabled == true
+        and ("Buff Thanks is on: you thank people who buff you with "
+            .. (Options.THANK_STYLE_TEXT[buff.thankStyle] or Options.THANK_STYLE_TEXT.message) .. ".")
+        or "Buff Thanks is off: people who buff you aren't thanked.")
+    w.nameplates:SetText(ns.Nameplates.FriendlyShown() == false
+        and "|cffff8040Friendly player nameplates are off,|r so the game can rarely tell you who buffed you. "
+            .. "The Buff Thanks tab can show them."
+        or "Friendly player nameplates are on, so the game can tell you who buffed you.")
+    local buttonKey = ButtonKeyText()
+    w.buttonKey:SetText(buttonKey and ("Buff-back button key: " .. buttonKey .. " (Key Bindings > AddOns).")
+        or "Buff-back button key: none yet. Set one in Key Bindings > AddOns, or click the button.")
+    w.buffModeKey:SetText("Buff mode key: " .. ns.BuffMode.KeyText((ns.BuffMode.Key()))
+        .. ". Buff mode lends it to the buff-back button to buff a group quickly (the Buff Back tab).")
 end
 
 function Options.CreateGeneralPage()
@@ -1212,6 +1305,8 @@ end
 function Options.FillGeneral() FillGeneral() end
 function Options.FillLedger() FillLedger() end
 function Options.Pages() return generalPage, ledgerPage end
+function Options.StartPage() return startPage end
+function Options.FillStart() FillStart() end
 
 function Options.Open()
     if category and Settings and Settings.OpenToCategory then
@@ -1219,4 +1314,38 @@ function Options.Open()
     elseif InterfaceOptionsFrame_OpenToCategory then
         InterfaceOptionsFrame_OpenToCategory(panel)
     end
+end
+
+-- Opens one of the pages under Friendly Forever (Start here, General or
+-- Favour Ledger), as clicking it in the AddOns options would.
+function Options.OpenPage(page)
+    if page.category and Settings and Settings.OpenToCategory then
+        Settings.OpenToCategory(page.category:GetID())
+    elseif InterfaceOptionsFrame_OpenToCategory then
+        InterfaceOptionsFrame_OpenToCategory(page)
+    end
+end
+
+function Options.OpenStart() Options.OpenPage(startPage) end
+
+-- Scrolls the main panel so region (one of its rows) is near the top, or to
+-- the top without one. Edges the game can't give yet leave it at the top.
+local function ScrollTo(region)
+    local scroll = widgets.scroll
+    local top, at = widgets.content:GetTop(), region and region:GetTop()
+    local offset = 0
+    if type(top) == "number" and type(at) == "number" then offset = math.max(0, top - at - 12) end
+    local range = scroll:GetVerticalScrollRange()
+    offset = math.min(offset, type(range) == "number" and range or 0)
+    scroll:SetVerticalScroll(offset)
+end
+
+-- Opens the main panel at msgType's tab, scrolled to its row called row (a
+-- key of Options.widgets), for the walkthrough (Walkthrough.lua). Scrolled
+-- again on the next frame, once the panel has laid the tab's rows out.
+function Options.OpenTab(msgType, row)
+    Options.Open()
+    Options.SelectType(msgType)
+    ScrollTo(widgets[row])
+    C_Timer.After(0, ns.Diag.Wrap(function() ScrollTo(widgets[row]) end))
 end

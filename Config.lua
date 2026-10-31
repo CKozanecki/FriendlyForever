@@ -163,8 +163,8 @@ Config.DEFAULTS = {
         buffModeKey = "MOUSEWHEELUP",
         -- When buff mode turns on and off by itself (BuffModeAuto.lua). All
         -- on by default: each turn-on says why in chat, and the first one a
-        -- session says where to switch them (BuffMode.Set). The "Start here"
-        -- walkthrough (#47, planned) will show them too. The ones that turn
+        -- session says where to switch them (BuffMode.Set). The walkthrough
+        -- (Walkthrough.lua, #47) shows them too. The ones that turn
         -- it off end only buff mode a trigger turned on.
         autoOnJoin = true,
         autoOnDeath = true,
@@ -498,6 +498,29 @@ function Config.ValidIgnore(list)
     return ignore
 end
 
+-- The walkthrough (#47): db.walkthrough = { seen = the version of the
+-- walkthrough last finished or skipped (0: none), firstRun = true while a
+-- new install waits for it (the addon is off until it's finished or
+-- skipped) }. Raise the version when the walkthrough gets new steps (#169).
+Config.WALKTHROUGH_VERSION = 1
+
+-- A checked copy of the saved walkthrough state. None at all (settings from
+-- before it): seen 0, so it shows once, and not a first run, so the switch
+-- is left alone. Damaged: seen, and not a first run, so it never touches
+-- the addon's switch (the owner's spec on #47). So damage never leaves the
+-- addon off for a player who finished or skipped it, never switches anyone
+-- off, and never switches on an addon the player switched off.
+function Config.ValidWalkthrough(saved)
+    local latest = Config.WALKTHROUGH_VERSION
+    if saved == nil then return { seen = 0, firstRun = false } end
+    local seen = type(saved) == "table" and saved.seen
+    if type(seen) ~= "number" or seen ~= math.floor(seen) or seen < 0 or seen > latest then
+        return { seen = latest, firstRun = false }
+    end
+    return { seen = seen, firstRun = saved.firstRun == true and seen < latest }
+end
+
+
 -- Everything in the saved file but the ledger (which checks itself as it's
 -- used, and whose live entries a full check would change: see Ledger.Data).
 local function ValidateSettings(db)
@@ -513,6 +536,7 @@ local function ValidateSettings(db)
 
     -- Diagnostics: a debug flag and the most recent log lines (strings only).
     if type(db.debug) ~= "boolean" then db.debug = false end
+    db.walkthrough = Config.ValidWalkthrough(db.walkthrough)
     local log = {}
     if type(db.diagLog) == "table" then
         for _, line in ipairs(db.diagLog) do
@@ -564,8 +588,10 @@ local function ValidateSettings(db)
 end
 
 -- The saved file as loaded: migrated, every value checked. Returns it.
+-- No saved file at all is a first install: the addon starts off, and the
+-- walkthrough turns it on (#47).
 function Config.Load(saved)
-    local db = type(saved) == "table" and saved or {}
+    local db = type(saved) == "table" and saved or { enabled = false, walkthrough = { seen = 0, firstRun = true } }
     Config.Migrate(db)
     ValidateSettings(db)
     db.ledger = ns.Ledger.Validate(db.ledger)

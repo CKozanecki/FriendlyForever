@@ -52,6 +52,24 @@ local function AnyContains(lines, fragment)
     return false
 end
 
+-- The simulator starts with no saved settings, a new install (#47): the
+-- addon is off and its walkthrough open at its first step, and skipping it
+-- turns the addon on. It is skipped even when a check fails, so the rest of
+-- the run has the addon on, as a player has it after first run.
+test("a new install is off, with its walkthrough open, until it's skipped (#47)", function()
+    local walkthrough = _G.FriendlyForeverWalkthrough
+    local ok, err = pcall(function()
+        check(type(walkthrough) == "table" and walkthrough:IsShown(), "the walkthrough didn't open at login")
+        check(FriendlyForeverDB.enabled == false, "the addon is on before first run is over")
+        check((walkthrough.stepText:GetText() or ""):find("either turns it on", 1, true) ~= nil,
+            "the first step doesn't say finishing or skipping turns the addon on")
+    end)
+    if type(walkthrough) == "table" and walkthrough:IsShown() then walkthrough.skip:Click() end
+    if not ok then error(err, 0) end
+    check(FriendlyForeverDB.enabled == true, "skipping didn't turn the addon on")
+    check(not walkthrough:IsShown(), "skipping didn't close the walkthrough")
+end)
+
 test("loads and creates its saved settings", function()
     assertType("table", FriendlyForeverDB)
     assertTrue(FriendlyForeverDB.enabled)
@@ -1013,9 +1031,133 @@ test("a tab name the panel doesn't know is answered with a message, not a Lua er
     if not ok then error(err, 0) end
 end)
 
+-- Start here and the walkthrough (#47). The page's lines are on its
+-- scrolling content, as the General page's are. The walkthrough is taken
+-- again from the page's button, as a player would, up to each step the
+-- screenshots show: its own text stays inside it, and the row a step
+-- scrolls the panel to is in view, above the walkthrough's window.
+
+test("the Start here page keeps its text inside it, its checkbox and buttons too (#47)", function()
+    local page = FriendlyForeverUIPages.Open("start")
+    check(page:IsVisible(), "the Start here page didn't open")
+    check(ShowsText(page.content, "What it does"), "the Start here page shows nothing")
+    OnScreen(page, "Start here page")
+    CheckAll({
+        function() TabTextInside(page.content, "Start here page") end,
+        function() PushedDownInside(page.content, "Start here page") end,
+    })
+end)
+
+-- Whether a frame lies across inside another, left to right (a scrolling
+-- area's content is meant to run past its bottom). Prints a LAYOUT line,
+-- fails if it doesn't, and returns the line.
+local function AcrossInside(outer, inner, label)
+    local ol, orr = Edges(outer, "GetLeft", "GetRight")
+    local il, ir = Edges(inner, "GetLeft", "GetRight")
+    if not (ol and il) then
+        local line = "LAYOUT " .. label .. ": edges can't be read here"
+        report(line)
+        return line
+    end
+    local line = ("LAYOUT %s: %.0f..%.0f across, inside %.0f..%.0f"):format(label, il, ir, ol, orr)
+    report(line)
+    check(il >= ol - 1 and ir <= orr + 1, line .. ": runs out of its frame")
+    return line
+end
+
+-- Whether row (a region on the main panel's scrolling content) is drawn
+-- inside scroll, the panel's scroll frame, near its top (where the
+-- walkthrough scrolls a step's row to, so a panel left unscrolled can't
+-- pass), and above the walkthrough's window. Prints a LAYOUT line, fails if
+-- it isn't, and returns the line.
+-- The simulator reads a scroll child's regions where they'd be unscrolled
+-- (docs/ui-simulator.md): when the scroll child's top reads as less than the
+-- view's top plus the offset, as the game puts it, the difference is added
+-- back. In the game it is 0.
+local NEAR_TOP = 40
+local function RowInView(row, scroll, walkthrough, label)
+    local rt, rb = Edges(row, "GetTop", "GetBottom")
+    local st, sb = Edges(scroll, "GetTop", "GetBottom")
+    local wt = Edges(walkthrough, "GetTop", "GetBottom")
+    if not (rt and st and wt) then
+        local line = "LAYOUT " .. label .. ": edges can't be read here"
+        report(line)
+        return line
+    end
+    -- How far the panel is scrolled, of how far it can be, where the client
+    -- says: a failure then shows whether the scroll or its range was missing.
+    local offset, range = Measure(scroll, "GetVerticalScroll"), Measure(scroll, "GetVerticalScrollRange")
+    local okChild, child = pcall(function() return scroll:GetScrollChild() end)
+    local ct = okChild and child and Edges(child, "GetTop", "GetBottom")
+    local left = (offset and ct) and math.max(0, st + offset - ct) or 0
+    rt, rb = rt + left, rb + left
+    local line = ("LAYOUT %s: row %.0f..%.0f, panel's view %.0f..%.0f, walkthrough's top %.0f"):format(
+        label, rb, rt, sb, st, wt)
+    if offset and range then line = line .. (", scrolled %.0f of %.0f"):format(offset, range) end
+    if left > 1 then line = line .. (" (%.0f of it added back: the client read the row unscrolled)"):format(left) end
+    report(line)
+    check(rt <= st + 1 and rb >= sb - 1, line .. ": the row is scrolled out of view")
+    check(rt >= st - NEAR_TOP, line .. ": the row isn't scrolled to the top of the view")
+    check(rb >= wt - 1, line .. ": the row is under the walkthrough")
+    return line
+end
+
+-- The row each step scrolls to, by the start of its text, for the steps
+-- that scroll.
+local STEP_ROWS = { ["buff-mode-triggers"] = "Buff mode turns on by itself" }
+
+test("each walkthrough step shown keeps its text inside it, on the screen, its row in view (#47)", function()
+    local Pages = FriendlyForeverUIPages
+    local failures = {}
+    for _, step in ipairs(Pages.WALKTHROUGH_STEPS) do
+        local ok, err = pcall(function()
+            local label = "walkthrough (" .. step.name .. ")"
+            local walkthrough = Pages.OpenWalkthrough(step.name)
+            check(walkthrough ~= nil, label .. ": didn't get there")
+            OnScreen(walkthrough, label)
+            CheckAll({
+                function() FrameTextInside(walkthrough, label, 1) end,
+                function() TextInside(walkthrough.body, walkthrough.stepText, label .. " text") end,
+                function() AcrossInside(walkthrough.scroll, walkthrough.body, label .. " text area") end,
+            })
+            local row = STEP_ROWS[step.name]
+            if row then
+                -- The panel scrolls again a frame later, once laid out. A
+                -- frame may not pass here (the simulator's clock can be
+                -- stopped), so once it has had the chance, the step is taken
+                -- again, as a player clicking Back and Next would: its
+                -- scroll then runs against a panel already laid out.
+                if type(A_Admin) == "table" and A_Admin.AdvanceTime then pcall(A_Admin.AdvanceTime, 0.1) end
+                walkthrough.back:Click()
+                walkthrough.next:Click()
+                local scroll, content, found
+                for _, child in ipairs({ _G[Pages.PANEL]:GetChildren() }) do
+                    if not content and child.GetScrollChild and child:GetScrollChild() then
+                        scroll, content = child, child:GetScrollChild()
+                    end
+                end
+                check(content ~= nil, label .. ": the options panel has no scrolling content")
+                -- The row hangs deep below the buff rows: lay the chain out
+                -- again, or its place is the one from before the scroll
+                -- (docs/ui-simulator.md).
+                Settle(content)
+                for _, region in ipairs({ content:GetRegions() }) do
+                    if region:IsVisible() and (region:GetText() or ""):find(row, 1, true) == 1 then found = region end
+                end
+                check(found ~= nil, label .. ": no row \"" .. row .. "\"")
+                RowInView(found, scroll, walkthrough, label .. " row \"" .. row .. "\"")
+            end
+        end)
+        if not ok then failures[#failures + 1] = tostring(err) end
+    end
+    Pages.SkipWalkthrough()
+    check(#failures == 0, table.concat(failures, "\n"))
+end)
+
 -- The layout checks, for spec/uitests_layout_spec.lua, which runs them
 -- against regions whose edges it sets itself, and the Buff Thanks tab's
 -- choices, which spec/thankwith_spec.lua checks against the options. The
 -- simulator ignores what a test file returns.
 return { TextInside = TextInside, PushedDownInside = PushedDownInside, TabTextInside = TabTextInside,
-    OnScreen = OnScreen, Settle = Settle, RowsInOrder = RowsInOrder, THANK_WITH = THANK_WITH, CANT_REACH = CANT_REACH }
+    OnScreen = OnScreen, Settle = Settle, RowsInOrder = RowsInOrder, AcrossInside = AcrossInside,
+    RowInView = RowInView, THANK_WITH = THANK_WITH, CANT_REACH = CANT_REACH }
