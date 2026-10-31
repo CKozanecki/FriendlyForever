@@ -346,6 +346,8 @@ describe("The walkthrough", function()
     -- an editor could hold instead of { seen = <0..1>, firstRun = <bool> }.
     local DAMAGED = { 42, "new", "done", true, {}, { "seen" }, { seen = "1" }, { seen = -1 }, { seen = 1.5 },
         { seen = 2 }, { seen = 0 / 0 }, { seen = math.huge }, { seen = -math.huge } }
+    -- A damaged first-run mark: never a first run, so never a switch turned on.
+    local DAMAGED_MARK = { { seen = 0, firstRun = "yes" }, { seen = 0, firstRun = 1 }, { seen = 0, firstRun = {} } }
 
     describe("a damaged or missing walkthrough state (black)", function()
         it("never leaves the addon off for a player who finished or skipped it, and never shows it again", function()
@@ -373,13 +375,19 @@ describe("The walkthrough", function()
             assert.is_true(ns.db.enabled)
         end)
 
-        it("with the addon off, reads as a first run, which shows it and turns the addon on when done", function()
+        it("never switches on an addon the player switched off: damage isn't a first run", function()
             for _, damaged in ipairs(DAMAGED) do
                 boot({ db = { enabled = false, walkthrough = damaged } })
-                assert.is_true(tour:IsShown(), tostring(damaged))
-                assert.is_true(ns.Walkthrough.FirstRun())
+                assert.is_false(tour:IsShown(), tostring(damaged))
+                assert.is_false(ns.Walkthrough.FirstRun())
+                assert.is_false(ns.db.enabled, tostring(damaged))
+            end
+            for _, damaged in ipairs(DAMAGED_MARK) do
+                boot({ db = { enabled = false, walkthrough = damaged } })
+                assert.is_true(tour:IsShown(), "not yet seen: shown")
+                assert.is_false(ns.Walkthrough.FirstRun(), tostring(damaged.firstRun))
                 wow.run(tour.skip, "OnClick")
-                assert.is_true(ns.db.enabled, tostring(damaged))
+                assert.is_false(ns.db.enabled, "a damaged first-run mark doesn't switch it on")
             end
         end)
 
@@ -400,7 +408,7 @@ describe("The walkthrough", function()
             ns.db.walkthrough = "broken"
             ns.Walkthrough.Start()
             wow.run(tour.skip, "OnClick")
-            assert.is_true(ns.db.enabled, "off with a damaged state: a first run, which skipping ends")
+            assert.is_false(ns.db.enabled, "damaged mid-session: not a first run, so skipping leaves it off")
             assert.are.same(SEEN, ns.db.walkthrough)
             assert.are.same({}, wow.errors)
         end)
@@ -495,6 +503,9 @@ describe("The walkthrough", function()
                 "an unknown way to thank reads as the default")
             assert.is_truthy(w.enabled:GetText():find("Friendly Forever is off", 1, true), "a switch that isn't true")
             assert.is_truthy(w.buffModeKey:GetText():find("MOUSEWHEELUP", 1, true), "a key it can't use")
+            ns.db.buff.enabled = "yes"
+            ns.Options.FillStart()
+            assert.is_truthy(w.thanks:GetText():find("Buff Thanks is off", 1, true), "a switch that isn't true is off")
             ns.db.buff = 7
             ns.Options.FillStart()
             assert.is_truthy(w.thanks:GetText():find("Buff Thanks is off", 1, true), "a damaged section reads as empty")

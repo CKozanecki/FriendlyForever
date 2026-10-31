@@ -37,7 +37,7 @@ end
 
 -- The saved state as Config.lua checks it, whatever damage it has had.
 local function State()
-    return ns.Config.ValidWalkthrough(ns.db.walkthrough, ns.db.enabled)
+    return ns.Config.ValidWalkthrough(ns.db.walkthrough)
 end
 
 -- Whether this is a new install's first run, which ends by turning the addon on.

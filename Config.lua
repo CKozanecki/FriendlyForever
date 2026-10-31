@@ -504,19 +504,17 @@ end
 -- skipped) }. Raise the version when the walkthrough gets new steps (#169).
 Config.WALKTHROUGH_VERSION = 1
 
--- A checked copy of the saved walkthrough state; enabled is the addon's
--- switch, checked already. None at all (settings from before it): seen 0,
--- so it shows once, and not a first run, so the switch is left alone.
--- Damaged: with the addon on, seen, so nothing changes; with it off, a
--- first run, so it shows and finishing or skipping turns the addon on. So
--- damage never leaves the addon off for a player who finished or skipped
--- it and didn't switch it off, and never switches it off.
-function Config.ValidWalkthrough(saved, enabled)
+-- A checked copy of the saved walkthrough state. None at all (settings from
+-- before it): seen 0, so it shows once, and not a first run, so the switch
+-- is left alone. Damaged: seen, and not a first run, so it never touches
+-- the addon's switch (the owner's spec on #47). So damage never leaves the
+-- addon off for a player who finished or skipped it, never switches anyone
+-- off, and never switches on an addon the player switched off.
+function Config.ValidWalkthrough(saved)
     local latest = Config.WALKTHROUGH_VERSION
     if saved == nil then return { seen = 0, firstRun = false } end
     local seen = type(saved) == "table" and saved.seen
     if type(seen) ~= "number" or seen ~= math.floor(seen) or seen < 0 or seen > latest then
-        if enabled == false then return { seen = 0, firstRun = true } end
         return { seen = latest, firstRun = false }
     end
     return { seen = seen, firstRun = saved.firstRun == true and seen < latest }
@@ -538,7 +536,7 @@ local function ValidateSettings(db)
 
     -- Diagnostics: a debug flag and the most recent log lines (strings only).
     if type(db.debug) ~= "boolean" then db.debug = false end
-    db.walkthrough = Config.ValidWalkthrough(db.walkthrough, db.enabled)
+    db.walkthrough = Config.ValidWalkthrough(db.walkthrough)
     local log = {}
     if type(db.diagLog) == "table" then
         for _, line in ipairs(db.diagLog) do
