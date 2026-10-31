@@ -1,4 +1,4 @@
--- Spec: #35, #52, #90, #112, #148
+-- Spec: #35, #52, #90, #112, #148, #158
 -- The UI simulator's layout check (uitests/scenarios.lua), run here against
 -- stand-in regions whose edges, anchors and text sizes each test sets
 -- itself, so the expected answer comes from those numbers and not from the
@@ -587,6 +587,31 @@ describe("UI simulator layout check for an options tab (TabTextInside, #112)", f
         assert.is_nil(anyLine('LAYOUT Guild Join tab button'))
         assert.is_nil(anyLine('LAYOUT Guild Join tab "Hidden note"'))
         assert.is_nil(anyLine('LAYOUT Guild Join tab checkbox "Hidden box"'))
+    end)
+
+    -- #158: the simulator has no names for Forever's buffs, so the Buff
+    -- Back tab's rows showed the buff keys. A stand-in row, 7 pixels a
+    -- letter, 150 from the panel's edge: the key fits, the longest Forever
+    -- name the fixture (uitests/pages.lua) gives doesn't, and fails.
+    it("fails a buff row whose Forever name doesn't fit, though its buff key does (black)", function()
+        _G.A_Print = function() end
+        dofile("uitests/pages.lua")
+        local names = _G.FriendlyForeverUIPages.BUFF_NAMES
+        _G.FriendlyForeverUIPages, _G.A_Print = nil, nil
+        local longest = names[1]
+        for _, buff in ipairs(names) do
+            if #buff.name > #longest.name then longest = buff end
+        end
+        assert.are.equal("Blessing of Salvation", longest.name)
+        local function row(name)
+            local label = "5. " .. name
+            return text(label, 450, 7 * #label)
+        end
+        checks.TabTextInside(content({ row(longest.key) }), "Buff Back tab")
+        local err = fails(function() checks.TabTextInside(content({ row(longest.name) }), "Buff Back tab") end)
+        assert.truthy(err:find('LAYOUT Buff Back tab "5. Blessing of Salvation": text 450..618, frame 0..600', 1, true),
+            err)
+        assert.truthy(err:find("spills out of its frame", 1, true), err)
     end)
 
     it("fails a tab that shows no text at all, rather than passing it (black)", function()

@@ -66,7 +66,8 @@ files["scripts/ui-sim-harness.lua"] = {
 -- provides the test functions and A_Print.
 files["uitests/**"] = {
     -- C_SpellBook and C_Spell: the spellbook fixture in button_states.lua
-    -- answers for one spell while a scenario runs (#83).
+    -- answers for one spell while a scenario runs (#83), and pages.lua names
+    -- the Buff Back tab's buffs (#158).
     -- FriendlyForeverDB: pages.lua fills the saved settings the phase 1 pages
     -- show, and puts them back (#52).
     globals = { "_G", "DEFAULT_CHAT_FRAME", "C_SpellBook", "C_Spell", "FriendlyForeverUIStates",

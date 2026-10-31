@@ -896,11 +896,12 @@ local function RowsInOrder(content, label, follows)
     return line
 end
 
--- Runs fn(content, tab) with the options open at each tab in turn, then
--- goes back to the first tab, even when a check fails.
+-- Runs fn(content, tab) with the options open at each tab in turn, the
+-- Buff Back tab's buffs named as on Forever (pages.lua's WithBuffNames,
+-- #158), then goes back to the first tab, even when a check fails.
 local function OnEachTab(fn)
     local Pages = FriendlyForeverUIPages
-    local ok, err = pcall(function()
+    local ok, err = pcall(Pages.WithBuffNames, function()
         for _, tab in ipairs(Pages.TABS) do
             local content = Pages.OpenTab(tab.name)
             check(content ~= nil, "couldn't open the " .. tab.label .. " tab")
