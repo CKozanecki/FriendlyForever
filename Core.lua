@@ -9,15 +9,18 @@ if C_AddOns and C_AddOns.GetAddOnMetadata then
     if ok and type(version) == "string" then ns.VERSION = version end
 end
 
+-- Colours.lua is missing after an update that added it and a /reload, so
+-- the restart message below still prints, uncoloured.
 function ns.Print(msg)
-    DEFAULT_CHAT_FRAME:AddMessage("|cff7fd4ff" .. ns.TITLE .. ":|r " .. tostring(msg))
+    local title = ns.Colours and ns.Colours.Text("title", ns.TITLE .. ":") or ns.TITLE .. ":"
+    DEFAULT_CHAT_FRAME:AddMessage(title .. " " .. tostring(msg))
 end
 
 function ns.SetEnabled(on)
     ns.db.enabled = on and true or false
     ns.RefreshEvents()
     ns.BuffButton.Refresh()
-    ns.Print(ns.db.enabled and "|cff00ff00enabled|r" or "|cffff4040disabled|r")
+    ns.Print(ns.db.enabled and ns.Colours.Text("good", "enabled") or ns.Colours.Text("bad", "disabled"))
     ns.Minimap.Refresh()
     ns.Options.Refresh()
 end
@@ -65,9 +68,10 @@ function handlers.ADDON_LOADED(name)
     -- say so, rather than erroring on every event.
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
         "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
-        "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "OptionsIndex" }) do
+        "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "OptionsIndex", "Colours" }) do
         if ns[module] == nil then
-            ns.Print("|cffff4040this update added files. Restart the game (not /reload) to finish updating.|r")
+            local text = "this update added files. Restart the game (not /reload) to finish updating."
+            ns.Print(ns.Colours and ns.Colours.Text("bad", text) or text)
             return
         end
     end
@@ -133,7 +137,8 @@ function ns.OnActionBlocked(kind, addon, func)
     ns.Diag.Log("game", "the game %s our call to %s", kind, func)
     if blockedReports < 3 then
         blockedReports = blockedReports + 1
-        ns.Print("|cffff4040the game " .. kind .. " a call to " .. ns.Diag.Safe(func) .. "|r (see /friendly status)")
+        ns.Print(ns.Colours.Text("bad", "the game " .. kind .. " a call to " .. ns.Diag.Safe(func))
+            .. " (see /friendly status)")
     end
 end
 
@@ -163,7 +168,7 @@ end)
 
 local SAMPLE_VARS = { name = "Nikki", fullname = "Nikki Shifts", buff = "Power Word: Fortitude and Arcane Intellect" }
 
-local function OnOff(value) return value and "|cff00ff00on|r" or "|cffff4040off|r" end
+local function OnOff(value) return value and ns.Colours.Text("good", "on") or ns.Colours.Text("bad", "off") end
 
 -- What the addon has seen and done, one line each (for /friendly status
 -- and the bug report).
@@ -204,8 +209,8 @@ local function StatusLines()
         IsInGuild() and "yes" or "no", ns.Greeter.MemberCount(), c("rosterUpdates")))
     local shown = ns.Nameplates.FriendlyShown()
     add("friendly player nameplates: " .. (shown == nil and "not available"
-        or shown and "|cff00ff00on|r (casters can be named)"
-        or "|cffff4040off|r (most casters can't be named; /friendly nameplates turns them on)"))
+        or shown and ns.Colours.Text("good", "on") .. " (casters can be named)"
+        or ns.Colours.Text("bad", "off") .. " (most casters can't be named; /friendly nameplates turns them on)"))
     add("group chat channel: " .. (ns.Greeter.GroupChannel() or "none (not grouped)"))
     add(string.format("chat: lockdown %s, %d waiting, waiting for key press %s, key listener %s",
         OnOff(Q.InChatLockdown()), Q.Count(), OnOff(Q.IsWaitingForHardware()), OnOff(Q.IsKeyboardReady())))
@@ -215,8 +220,8 @@ local function StatusLines()
         c("queued"), c("sent"), c("dropped"), c("sendErrors"), c("actionsBlocked")))
     add(string.format("chat cap: %d lines a minute in each chat; %d held back by it, %d dropped by it",
         Q.LinesPerMinute(), c("capHeld"), c("capDropped")))
-    local commState = ns.Comm.Ready() and "|cff00ff00open|r"
-        or ns.Comm.Registered() and "closed (addon off)" or "|cffff4040closed|r"
+    local commState = ns.Comm.Ready() and ns.Colours.Text("good", "open")
+        or ns.Comm.Registered() and "closed (addon off)" or ns.Colours.Text("bad", "closed")
     add(string.format("addon messages: %s; %d sent, %d not sent, %d received; %d other copies seen", commState,
         c("commSent"), c("commNotSent"), c("commReceived"), ns.Comm.PeerCount()))
     add(string.format("addon messages dropped: %d unreadable, %d oversized, %d malformed, %d wrong version, "
@@ -327,8 +332,10 @@ local function SelfTest()
         label = "self-test",
         getText = function() return "Friendly Forever self-test: sending works." end,
         onDone = function(sent)
-            ns.Print(sent and "self-test: |cff00ff00sent|r. If no whisper arrived, the game blocked it."
-                or "self-test: |cffff4040not sent|r (see /friendly status, or /friendly debug for details)")
+            ns.Print(sent and "self-test: " .. ns.Colours.Text("good", "sent")
+                .. ". If no whisper arrived, the game blocked it."
+                or "self-test: " .. ns.Colours.Text("bad", "not sent")
+                .. " (see /friendly status, or /friendly debug for details)")
         end,
     })
 end
@@ -350,7 +357,7 @@ local function IgnoreCommand(args)
     ns.Print(ns.Util.DisplayName(name) .. " won't be greeted or thanked. /friendly unignore "
         .. ns.Util.DisplayName(name) .. " undoes it.")
     if ns.Ignore.LacksSurname(name) then
-        ns.Print("|cffff8040Note:|r WoW Forever names have a surname. Add it (\"" .. name
+        ns.Print(ns.Colours.Text("warn", "Note:") .. " WoW Forever names have a surname. Add it (\"" .. name
             .. " Surname\"), or nobody will match.")
     end
     ns.Options.Refresh()
