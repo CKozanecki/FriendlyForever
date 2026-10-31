@@ -465,53 +465,69 @@ describe("UI simulator workflow", function()
         local sandboxLimit = tonumber(joined:match("timeout %-s TERM %-k 10 (%d+) docker run[^\n]*\"%$@\""))
         local sizedLimit = tonumber(joined:match("timeout %-s TERM %-k 10 (%d+) docker run[^\n]*layout%.lua"))
         assert.is_truthy(sandboxLimit and sizedLimit, "the limits can't be read")
-        local calls = select(2, joined:gsub("\n%s*sandbox %l", ""))
+        local calls = select(2, joined:gsub("\n%s*attempt %S+ [^\n]* sandbox %l", ""))
         local sizes = select(2, (text:match("LAYOUT_SIZES: ([^\n]+)") or ""):gsub("%S+", ""))
         local jobLimit = tonumber(job.text:match("\n%s*timeout%-minutes: (%d+)"))
-        local worst = calls * (sandboxLimit + 10) + sizes * (sizedLimit + 10)
+        assert.is_truthy(joined:find('\n%s*attempt "layout%-%$size" [^\n]* sized "%$size"\n'), "the sized passes aren't retried")
+        -- Each run can run twice: once more when it's stopped (#173).
+        local worst = 2 * (calls * (sandboxLimit + 10) + sizes * (sizedLimit + 10))
         assert.are.equal(3, calls, "expected lua-errors, run-tests and dump-tree")
         assert.is_true(worst + 180 <= jobLimit * 60, "the runs' limits don't fit in the job's")
         assert.is_truthy(job.text:find('echo "$1: exit $status after', 1, true), "the log doesn't say how each run ended")
     end)
 
-    -- The run step's own shell, as the job runs it: sandbox() and the sized
-    -- passes, with a stand-in docker that finishes, fails or hangs, and the
-    -- limits cut to 2 s. A hang must show as 124 in the step's log, naming
-    -- the run, and the report files must keep only the simulator's output
-    -- (#154's testing review).
+    -- The run step's own shell, as the job runs it (bash -e -o pipefail), with
+    -- a stand-in docker that finishes, fails, hangs, or hangs only the first
+    -- time it's given each command, and the limits cut to 2 s. A hang must
+    -- show as 124 in the step's log, naming the run, and the report files
+    -- must keep only the simulator's output (#154's testing review). A run
+    -- that hangs runs once more, keeping what the stopped one wrote, and
+    -- runs.txt says how each attempt ended (#173).
     describe("the scenario job's run step, run for real (black)", function()
         local function runStep(mode)
             local workflow = wow.readFile(path)
-            local sandbox = workflow:match("\n(%s*exec 3>&1\n.-\n%s*}\n)")
-            local sized = workflow:match("\n(%s*for size in %$LAYOUT_SIZES; do\n%s*# Stopped after.-\n%s*done)\n")
-            assert.is_truthy(sandbox, "no sandbox() in the run step")
-            assert.is_truthy(sized, "no sized passes in the run step")
-            local function short(block) return (block:gsub("timeout %-s TERM %-k 10 %d+", "timeout -s TERM -k 1 2")) end
+            local step = workflow:match("name: Run the simulator[^\n]*\n%s*run: |\n(.-)\n\n%s*%- name:")
+            assert.is_truthy(step, "no run step")
+            assert.is_truthy(step:find("sized() {", 1, true), "no sized passes in the run step")
+            step = step:gsub("timeout %-s TERM %-k 10 %d+", "timeout -s TERM -k 1 2")
             local dir = os.tmpname()
             os.remove(dir)
-            assert.is_true(os.execute("mkdir -p '" .. dir .. "/bin' '" .. dir .. "/report'") == 0)
+            assert.is_true(os.execute("mkdir -p '" .. dir .. "/bin' '" .. dir .. "/report' '" .. dir .. "/seen'") == 0)
             local fake = assert(io.open(dir .. "/bin/docker", "w"))
-            fake:write("#!/bin/sh\ncase \"$FAKE\" in\n  hang) exec sleep 30 ;;\n  fail) echo body; exit 3 ;;\n  *) echo body ;;\nesac\n")
+            fake:write("#!/bin/sh\nseen='" .. dir .. "/seen/'$(echo \"$*\" | cksum | cut -d' ' -f1)\n",
+                "case \"$*\" in *lua-errors*) echo partial-err >&2 ;; esac\n",
+                "case \"$FAKE\" in\n  hang) echo partial; exec sleep 30 ;;\n",
+                "  once) if [ -e \"$seen\" ]; then echo body; else touch \"$seen\"; echo partial; exec sleep 30; fi ;;\n",
+                "  fail) echo body; exit 3 ;;\n  *) echo body ;;\nesac\n")
             fake:close()
             local script = assert(io.open(dir .. "/run.sh", "w"))
-            script:write("set -e\nRUNNER_TEMP='" .. dir .. "'\nPATH='" .. dir .. "/bin':\"$PATH\"\nLAYOUT_SIZES=1024x768\n",
-                short(sandbox),
-                'sandbox lua-errors > "$RUNNER_TEMP/report/lua-errors.json" 2> "$RUNNER_TEMP/report/lua-errors.log" || true\n',
-                'sandbox run-tests FriendlyForever > "$RUNNER_TEMP/report/run-tests.log" 2>&1 || true\n',
-                short(sized), "\necho finished\n")
+            script:write("set -eo pipefail\nRUNNER_TEMP='" .. dir .. "'\nPATH='" .. dir .. "/bin':\"$PATH\"\nLAYOUT_SIZES=1024x768\n",
+                step, "\necho finished\n")
             script:close()
             os.execute("chmod +x '" .. dir .. "/bin/docker'")
             local status = os.execute("FAKE=" .. mode .. " bash '" .. dir .. "/run.sh' > '" .. dir .. "/step.log' 2>&1")
             local function read(name)
                 local f = io.open(dir .. "/" .. name)
-                local content = f and f:read("*a") or ""
+                local content = f and f:read("*a")
                 if f then f:close() end
                 return content
             end
             local result = { status = status, step = read("step.log"), report = read("report/run-tests.log"),
-                layout = read("report/layout-1024x768.log") }
+                layout = read("report/layout-1024x768.log"), runs = read("runs.txt"),
+                stopped = read("report/run-tests.log.timed-out"), stoppedJson = read("report/lua-errors.json.timed-out"),
+                stoppedLayout = read("report/layout-1024x768.log.timed-out"),
+                stoppedErrors = read("report/lua-errors.log.timed-out") }
             os.execute("rm -rf '" .. dir .. "'")
             return result
+        end
+
+        -- runs.txt's lines, as { name, attempt, exit } strings.
+        local function attempts(runs)
+            local list = {}
+            for name, try, status in (runs or ""):gmatch("(%S+) (%d) (%d+) %d+\n") do
+                list[#list + 1] = name .. " " .. try .. " " .. status
+            end
+            return list
         end
 
         it("says each run finished, in the step's log, and keeps the report to the simulator's output", function()
@@ -523,18 +539,23 @@ describe("UI simulator workflow", function()
             assert.are.equal("body\n", r.report)
             assert.are.equal("body\n", r.layout)
             assert.is_truthy(r.step:find("finished", 1, true))
+            -- (white, #173) Each run once, and nothing kept as stopped.
+            assert.are.same({ "lua-errors 1 0", "run-tests 1 0", "dump-tree 1 0", "layout-1024x768 1 0" }, attempts(r.runs))
+            assert.is_nil(r.stopped)
+            assert.is_nil(r.stoppedLayout)
         end)
 
-        it("reports a failing run's own exit code, and carries on", function()
+        it("reports a failing run's own exit code, and carries on without running it again", function()
             local r = runStep("fail")
             assert.are.equal(0, r.status)
             assert.is_truthy(r.step:find("run%-tests: exit 3 after"), r.step)
             assert.is_truthy(r.step:find("layout pass 1024x768: exit 3", 1, true), r.step)
             assert.are.equal("body\n", r.report)
             assert.is_truthy(r.step:find("finished", 1, true))
+            assert.are.same({ "lua-errors 1 3", "run-tests 1 3", "dump-tree 1 3", "layout-1024x768 1 3" }, attempts(r.runs))
         end)
 
-        it("stops a hung run at its limit, says 124 with the time it ran, and carries on", function()
+        it("stops a hung run at its limit, says 124 with the time it ran, runs it once more, and carries on", function()
             local r = runStep("hang")
             assert.are.equal(0, r.status)
             local seconds = tonumber(r.step:match("run%-tests: exit 124 after (%d+) s"))
@@ -542,8 +563,175 @@ describe("UI simulator workflow", function()
             assert.is_true(seconds >= 2 and seconds <= 3, "run-tests' time counts from before it started: " .. seconds)
             assert.is_truthy(r.step:find("lua%-errors: exit 124 after"), r.step)
             assert.is_truthy(r.step:find("layout pass 1024x768: exit 124", 1, true), r.step)
-            assert.are.equal("", r.report, "the exit line went into the report")
+            assert.are.equal("partial\n", r.report, "the exit line went into the report")
             assert.is_truthy(r.step:find("finished", 1, true))
+            -- (black, #173) Twice each, never a third time, with the first
+            -- attempt's output kept beside the second's.
+            assert.are.same({ "lua-errors 1 124", "lua-errors 2 124", "run-tests 1 124", "run-tests 2 124",
+                "dump-tree 1 124", "dump-tree 2 124", "layout-1024x768 1 124", "layout-1024x768 2 124" }, attempts(r.runs))
+            assert.are.equal("partial\n", r.stopped)
+            assert.are.equal("partial\n", r.stoppedJson)
+            assert.are.equal("partial-err\n", r.stoppedErrors, "the stopped run's stderr isn't kept")
+            assert.are.equal("partial\n", r.stoppedLayout)
+        end)
+
+        it("keeps a run that hung once and then finished as the report, and the stopped one beside it (white)", function()
+            local r = runStep("once")
+            assert.are.equal(0, r.status)
+            assert.are.same({ "lua-errors 1 124", "lua-errors 2 0", "run-tests 1 124", "run-tests 2 0",
+                "dump-tree 1 124", "dump-tree 2 0", "layout-1024x768 1 124", "layout-1024x768 2 0" }, attempts(r.runs))
+            assert.are.equal("body\n", r.report)
+            assert.are.equal("body\n", r.layout)
+            assert.are.equal("partial\n", r.stopped)
+            assert.are.equal("partial\n", r.stoppedLayout)
+            assert.is_truthy(r.step:find("finished", 1, true))
+        end)
+    end)
+
+    -- The summary step's own shell, as the job runs it, on a report in which
+    -- runs were stopped at their time limit (#173). Each one stopped is named
+    -- at the top of the summary, with its last scenario and the end of its
+    -- log, and in an annotation, and the job never fails. The logs are
+    -- hostile: none of their text reaches the job log, where the runner reads
+    -- commands, and none can close the summary's code blocks.
+    describe("the scenario job's summary of runs stopped at their time limit, run for real", function()
+        local HOSTILE = "START 6 an unknown command is answered, not an error\nLAYOUT ok 1024x768 panel\n"
+            .. "START 7 ::error::seven\n```\n::warning::hostile\nx ##[set-env name=A;]b\r::error::carriage\n"
+            .. "START 12::error::bad\nthe last line\n"
+
+        local function summarize(runs, logs)
+            local workflow = wow.readFile(path)
+            local step = workflow:match("name: Summary\n%s*run: |\n(.-)\n\n")
+            assert.is_truthy(step, "no summary step")
+            local dir = os.tmpname()
+            os.remove(dir)
+            assert.is_true(os.execute("mkdir -p '" .. dir .. "/report'") == 0)
+            local function write(name, content)
+                local f = assert(io.open(dir .. "/" .. name, "wb"))
+                f:write(content)
+                f:close()
+            end
+            for _, name in ipairs({ "lua-errors.json", "lua-errors.log", "run-tests.log", "frame-tree.txt",
+                "layout-1024x768.log" }) do
+                write("report/" .. name, "body\n")
+            end
+            for name, content in pairs(logs or {}) do write("report/" .. name, content) end
+            if runs then write("runs.txt", runs) end
+            write("run.sh", "set -eo pipefail\nRUNNER_TEMP='" .. dir .. "'\nLAYOUT_SIZES=1024x768\n"
+                .. "GITHUB_STEP_SUMMARY='" .. dir .. "/summary.md'\n" .. step .. "\n")
+            local status = os.execute("bash '" .. dir .. "/run.sh' > '" .. dir .. "/step.log' 2>&1")
+            local function read(name)
+                local f = io.open(dir .. "/" .. name, "rb")
+                local content = f and f:read("*a") or ""
+                if f then f:close() end
+                return content
+            end
+            local result = { status = status, log = read("step.log"), summary = read("summary.md") }
+            os.execute("rm -rf '" .. dir .. "'")
+            return result
+        end
+
+        local ALL_FINISHED = "lua-errors 1 0 3\nrun-tests 1 0 20\ndump-tree 1 0 3\nlayout-1024x768 1 0 25\n"
+
+        -- The summary's text before its first section on the Lua errors.
+        local function top(summary) return summary:match("^(.-)### Lua errors") end
+
+        -- Lines as the runner splits them: at \n, \r or \r\n.
+        local function runnerLines(out)
+            local list = {}
+            for line in (out:gsub("\r\n?", "\n") .. "\n"):gmatch("([^\n]*)\n") do list[#list + 1] = line end
+            return list
+        end
+
+        it("reports a run that finished as before, with nothing at the top and no annotation (white)", function()
+            local r = summarize(ALL_FINISHED)
+            assert.are.equal(0, r.status)
+            assert.are.equal("## UI simulator (report only)\n\n", top(r.summary))
+            assert.are.equal("", r.log)
+        end)
+
+        it("notes a run that timed out, then finished on the retry, with its last scenario (white)", function()
+            local r = summarize("lua-errors 1 0 3\nrun-tests 1 124 130\nrun-tests 2 0 21\ndump-tree 1 0 3\nlayout-1024x768 1 0 25\n",
+                { ["run-tests.log.timed-out"] = HOSTILE })
+            assert.are.equal(0, r.status)
+            local head = top(r.summary)
+            assert.is_truthy(head:find("### ⚠️ The main pass (run-tests, at 1600x1200) timed out once, and ran again (exit 0)", 1, true), head)
+            assert.is_truthy(head:find("Stopped after 130 s, on attempt 1 of 2.", 1, true), head)
+            assert.is_truthy(head:find("```\n| START 12::error::bad\n```", 1, true), head)
+            assert.is_falsy(head:find("incomplete", 1, true), "a retry that finished is reported as lost")
+            assert.are.equal("::notice title=UI simulator: a run timed out once::The main pass (run-tests, at 1600x1200) was "
+                .. "stopped at its time limit and ran again (exit 0). Last scenario started: 12.\n", r.log)
+        end)
+
+        it("names a run that timed out twice at the top, with its size and last scenario, and never fails the job (black)", function()
+            local r = summarize("lua-errors 1 0 3\nrun-tests 1 0 20\ndump-tree 1 0 3\nlayout-1024x768 1 124 310\n"
+                .. "layout-1024x768 2 124 310\n",
+                { ["layout-1024x768.log.timed-out"] = "START 3 first try\n", ["layout-1024x768.log"] = HOSTILE })
+            assert.are.equal(0, r.status)
+            local head = top(r.summary)
+            local first = head:find("### ⚠️ The layout pass at 1024x768 timed out once, and ran again (exit 124)", 1, true)
+            local second = head:find("### ⚠️ The layout pass at 1024x768 timed out twice: its results are incomplete", 1, true)
+            assert.is_truthy(first and second and first < second, head)
+            assert.is_truthy(head:find("```\n| START 3 first try\n```", 1, true), head)
+            assert.is_truthy(head:find("```\n| START 12::error::bad\n```", 1, true), head)
+            assert.is_truthy(head:find("| the last line\n```", 1, true), "the end of the log isn't shown")
+            local log = runnerLines(r.log)
+            assert.are.same({
+                "::notice title=UI simulator: a run timed out once::The layout pass at 1024x768 was stopped at its time "
+                    .. "limit and ran again (exit 124). Last scenario started: 3.",
+                "::warning title=UI simulator: a run timed out twice::The layout pass at 1024x768 was stopped at its time "
+                    .. "limit twice, so its results (LAYOUT lines included) are incomplete. Last scenario started: 12. "
+                    .. "See the run's summary.",
+                "" }, log)
+        end)
+
+        it("reports as before when the run step wrote no runs.txt (black)", function()
+            local r = summarize(nil)
+            assert.are.equal(0, r.status)
+            assert.are.equal("## UI simulator (report only)\n\n", top(r.summary))
+            assert.are.equal("", r.log)
+        end)
+
+        it("shows the end of the frame tree's log when dump-tree timed out (black)", function()
+            local r = summarize("lua-errors 1 0 3\nrun-tests 1 0 20\ndump-tree 1 124 130\ndump-tree 2 124 130\n"
+                .. "layout-1024x768 1 0 25\n", { ["frame-tree.txt.timed-out"] = "first tree\n", ["frame-tree.txt"] = "the tree end\n" })
+            local head = top(r.summary)
+            assert.is_truthy(head:find("The dump-tree run timed out twice", 1, true), head)
+            assert.is_truthy(head:find("| first tree\n", 1, true), head)
+            assert.is_truthy(head:find("| the tree end\n", 1, true), head)
+        end)
+
+        it("says none when the stopped run started no scenario (black)", function()
+            local r = summarize("lua-errors 1 124 130\nlua-errors 2 124 130\nrun-tests 1 0 20\ndump-tree 1 0 3\n"
+                .. "layout-1024x768 1 0 25\n", { ["lua-errors.log"] = "::error::nothing\n" })
+            assert.are.equal(0, r.status)
+            assert.is_truthy(top(r.summary):find("The lua-errors run timed out twice", 1, true))
+            assert.is_truthy(r.log:find("Last scenario started: none.", 1, true), r.log)
+            assert.is_falsy(r.log:find("nothing", 1, true), "the log's text reached the annotation")
+        end)
+
+        it("keeps every line of a stopped run's log inside the summary's code blocks, and out of the job log (black)", function()
+            local r = summarize("lua-errors 1 0 3\nrun-tests 1 124 130\nrun-tests 2 124 130\ndump-tree 1 0 3\n"
+                .. "layout-1024x768 1 0 25\n", { ["run-tests.log.timed-out"] = HOSTILE, ["run-tests.log"] = HOSTILE })
+            assert.are.equal(0, r.status)
+            local inside = false
+            for _, line in ipairs(runnerLines(top(r.summary))) do
+                if line == "```" then
+                    inside = not inside
+                elseif inside then
+                    assert.is_truthy(line:find("^| "), "a log line isn't marked in the summary: " .. line)
+                end
+            end
+            assert.is_false(inside, "a code block is left open")
+            -- Failures name the words only: printing a line would make a false CI annotation.
+            for _, line in ipairs(runnerLines(r.log)) do
+                if line:match("^%s*::") then
+                    assert.is_truthy(line:find("^::%a+ title=UI simulator: a run timed out "), "a command that isn't ours")
+                end
+                for _, word in ipairs({ "seven", "hostile", "carriage", "bad", "set%-env", "##%[" }) do
+                    assert.is_falsy(line:find(word), "the log's text reached the job log: " .. word)
+                end
+            end
         end)
     end)
 
@@ -578,8 +766,9 @@ describe("UI simulator workflow", function()
         assert.is_truthy(layoutRun:find("dump%-tree"), "the sized pass doesn't use dump-tree, which takes a size")
         local limit = tonumber(layoutRun:match("timeout %-s TERM %-k 10 (%d+) docker run"))
         assert.is_truthy(limit and limit >= 60 and limit <= 600, "a sized pass that never exits isn't stopped in time")
-        assert.is_truthy(layoutRun:find('%-%-width "${size%%x%*}" %-%-height "${size#%*x}"'), "the size isn't passed")
-        assert.is_truthy(scenarios.text:find("for size in $LAYOUT_SIZES; do", 1, true), "no pass per size")
+        assert.is_truthy(layoutRun:find('%-%-width "${1%%x%*}" %-%-height "${1#%*x}"'), "the size isn't passed")
+        assert.is_truthy(scenarios.text:find('for size in $LAYOUT_SIZES; do\n%s*attempt "layout%-$size" [^\n]* sized "$size"\n'),
+            "no pass per size")
         local shots = jobWith(order, "shoot")
         assert.is_truthy(shots.text:find("for size in $LAYOUT_SIZES; do\n%s*WIDTH=", 1), "the screenshots aren't taken per size")
         assert.is_truthy(shots.text:find('screenshot --png --width "$WIDTH" --height "$HEIGHT" -o "/shots/$name$SUFFIX.png"', 1, true))
@@ -666,6 +855,9 @@ describe("UI simulator workflow", function()
                     local function check(line, filtered)
                         seen = seen + 1
                         local toFile = line:find('%s>%s*"%$RUNNER_TEMP/')
+                        -- Kept as digits only, in a variable (#173): no command can be made of those.
+                        filtered = filtered or line:find("^%s*[%w_]+=%$%([^);&]*| tr %-cd '0%-9'%)%s*|| true%s*$") ~= nil
+                            or line:find("^%s*[%w_]+=%$%([^);&]*| tr %-cd '0%-9'%)%s*$") ~= nil
                         assert.is_truthy(filtered or toFile or line:find("| shown", 1, true),
                             job.name .. " prints unfiltered output: " .. line)
                         -- docker logs replays the container's stderr on its own.

@@ -51,6 +51,8 @@ Fixed by `ac893c6`, which stubs the missing functions with chosen defaults: `IsR
 | The per-frame instruction budget (the game's script time limit) resets between tests (since `ac893c6`), but not inside one. Code that runs too long in one frame is stopped. | A long test calls `A_Admin.AdvanceTime` so a new frame starts, as the storm does after each step. | #100 (14), #96, #154 |
 | Test files load in name order. | `button_states.lua` loads before `scenarios.lua`, which uses the `FriendlyForeverUIStates` it defines. | #96 |
 | A test file's return value is ignored. | `uitests/scenarios.lua` returns its layout check for `spec/uitests_layout_spec.lua`. | #91 |
+| A run sometimes hangs until its time limit stops it (exit 124), on any pull request and on `main`, with the same input finishing in under a minute on another run. Which scenario or step hangs isn't known yet. A pass that's stopped loses the `LAYOUT` lines it hadn't printed. | The workflow runs a stopped run once more, and names each stopped run at the top of the summary, with the last `START` line it printed, and in an annotation that holds the scenario's number. To find the scenario that hangs, read the annotations of past runs. | #173 |
+| A cloud session can't read the job logs, the step summary or the artifacts: they're served from blob storage, which the proxy refuses (403). The check-run annotations API answers. | Read `gh api repos/CKozanecki/FriendlyForever/check-runs/<job id>/annotations`. | #173 |
 
 ## Screenshots
 

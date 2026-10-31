@@ -15,7 +15,10 @@ local function loadChecks(extra)
     for name, value in pairs(extra or {}) do env[name] = value end
     local chunk = assert(loadfile("uitests/scenarios.lua"))
     setfenv(chunk, env)
-    return chunk(), printed
+    local checks = chunk()
+    -- Only what the checks print: loading prints each scenario's start line (#173).
+    for i = #printed, 1, -1 do printed[i] = nil end
+    return checks, printed
 end
 
 -- The buff-back button as the simulator lays it out: 220 by 44, its lines
