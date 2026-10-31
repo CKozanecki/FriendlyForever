@@ -1,4 +1,4 @@
--- Spec: #101
+-- Spec: #101, #46
 local wow = require("spec.support.wow")
 
 describe("Friendly nameplates", function()
@@ -52,7 +52,7 @@ describe("Friendly nameplates", function()
 
         it("/friendly status says so", function()
             slash("status")
-            assert.is_true(printedHas("friendly player nameplates: |cffff4040off|r"))
+            assert.is_true(printedHas("friendly player nameplates: " .. ns.Colours.Text("bad", "off")))
         end)
 
         it("the button turns on friendly player names only, then hides the warning", function()
@@ -103,7 +103,7 @@ describe("Friendly nameplates", function()
 
         it("/friendly status says casters can be named", function()
             slash("status")
-            assert.is_true(printedHas("friendly player nameplates: |cff00ff00on|r"))
+            assert.is_true(printedHas("friendly player nameplates: " .. ns.Colours.Text("good", "on")))
         end)
     end)
 
