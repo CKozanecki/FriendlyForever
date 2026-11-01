@@ -9,6 +9,22 @@
 
 Use the PR template too. This file only adds what applies to Claude sessions. Where the two seem to differ, CONTRIBUTING.md wins: fix this file.
 
+## Start here
+
+An orientation for a new session (#182). It points to the detail rather than repeating it; CONTRIBUTING.md stays the source of truth.
+
+- **What it is:** Friendly Forever is a courtesy addon for World of Warcraft: Forever. It greets guildmates, thanks strangers who buff you, and offers a one-press button to buff them back ([README.md](README.md)).
+- **Everyday commands** ([Local setup](CONTRIBUTING.md#local-setup)):
+  - `make setup` installs the pinned toolchain;
+  - `make check` runs lint, tests and the release zip;
+  - `~/.cache/friendlyforever/lua51/bin/busted spec/<name>_spec.lua` runs one spec file;
+  - the [UI simulator](CONTRIBUTING.md#ui-simulator) runs on GitHub, not locally: its screenshots land on `ui-screenshots/pr-<number>` ([`docs/ui-simulator.md`](docs/ui-simulator.md)).
+- **The shape of the code:**
+  - one Lua module per job at the top level, listed in `FriendlyForever.toc`; `Core.lua` wires saved settings, game events and slash commands to them;
+  - rules decide, the button casts: modules such as `BuffRules.lua` and `Offers.lua` choose who and what, and only the secure button in `BuffButton.lua` casts, on the player's press, because the game lets an addon cast no other way (Standards and safety, below);
+  - all chat goes through `ChatQueue.lua`, so cooldowns, lockdown and rate limits apply ([Ground rules](CONTRIBUTING.md#ground-rules-for-addon-code));
+  - tests in `spec/` run against a simulated client, `spec/support/wow.lua` ([`docs/simulated-client.md`](docs/simulated-client.md)); `spec/repo_spec.lua` checks the workflows, the packaging and these instructions.
+
 ## Standards and safety
 
 - **Standards:** work to enterprise standards, safety and security above all. Don't copy shortcuts from addons the project takes ideas from, such as Manners.
@@ -76,6 +92,32 @@ Procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `m
 - **Merge order:** when several PRs are ready, trial-merge every pair locally. Recommend an order to the owner, with the reasons and which pairs conflict. Note what you ran in the descriptions of your own PRs, and send it to the drivers of the others.
 - **After each merge:** GitHub doesn't notify sessions of merges, so wait for the owner or the coordinator to say so; don't poll. The coordinator watches GitHub for merges and tells each PR's session (#172). Then the driver of each ready PR merges `main` into it and resolves any conflicts. Next comes `make check`, and both review loops confirm the merge (see Reviews). Then CI, an updated description, and the PR announced ready again.
 
+## Plan limits
+
+The owner's decisions are on #182 (2026-11-01).
+
+- **Check first:** before long work (a review loop, a fan-out of sessions, a simulator run), check how much of the weekly plan's usage is left, if you can see it. If you can't, say so in your session.
+- **The gate is 80%.** Past 80% of the weekly plan, long work needs the owner's explicit OK, recorded on the issue. The OK covers that piece of work only, and ends with the session or at a time the owner names.
+- **The coordinator's OK:** the coordinator may give that OK for the owner only when it expects all the remaining work to go over the gate by 2% of the plan at most. If it can't be sure of that, the owner decides.
+- **The reserve:** leave about 3% of the weekly plan for scheduled tasks; don't plan work into it.
+- **The only sure stop is the account's spending limit.** These rules hold only while a session is checking, and a session past the gate in mid-turn won't notice. The owner sets that limit; Claude never changes it.
+
+## Models and effort
+
+Name the model by its family alias: `haiku`, `sonnet`, `opus` or `fable`. An alias picks the latest model in that family, so it stays current but never crosses into another family: `opus` can't quietly become Sonnet or Fable. Words like "fastest" or "most capable" describe a family; they never replace its name. Never write a dated model ID. Set the alias with `model:` and the effort with `effort:` in agent and skill frontmatter, and with the `model` parameter of Agent and session calls.
+
+| Job | Family | Effort |
+| --- | --- | --- |
+| Lookups, searches and routine checks | `haiku` | `low` |
+| Building and fixing, coordinating, and the skills | trial in progress, see #182 | trial in progress, see #182 |
+| The architecture and testing reviews (`lua-architect`, `lua-tester`) | `opus` | `high` |
+| Specs and hard bugs | the owner's choice; `opus` if they haven't said | `high` |
+
+The reviewers' and lookups' rows are the owner's choices on #182 (2026-11-01); the testing reviewer's may change after the trials. The developer and coordinator families are being trialled: until the owner sets them, their row stays "trial in progress, see #182", the skills set no `model:` or `effort:`, and sessions keep the session default. Each reviewer agent names its family and effort in its frontmatter; the repo spec checks them against this table, and checks the skills set none while the trial runs.
+
+- **Record what served.** A session can be moved to another model mid-turn (overload or unavailability) even when its setting is right. `get_session` keeps the configured model (`configured_model`), the current setting (`session_context.model`) and the one that served the last turn (`external_metadata.last_served_model`), and `list_events` logs the fallbacks.
+- **A review served by the wrong family doesn't count.** Run it again on the family its agent names, or flag it to the owner.
+
 ## Reviews
 
 - **Fix everything a review finds,** optional nits included.
@@ -88,6 +130,7 @@ Procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `m
   - to report only real defects, each with file:line and a concrete failure scenario;
   - to restore every mutation and leave `git status` clean;
   - to end with APPROVED or CHANGES REQUESTED.
+- **Which model reviewed:** each verdict names the model that served it, its family and the effort, just above the verdict line. Check that against the family its agent names (Models and effort) before you count it, and list each review loop's model and effort in the PR description.
 - **Keep them current:** when a review finds a lesson rather than a one-off (a bug class that can recur, or a check that would have caught it), the same PR adds it, citing the PR or issue, to the right agent's Lessons, or a fact to the right file in `docs/`.
 
 ## Tests

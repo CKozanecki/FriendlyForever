@@ -2,6 +2,8 @@
 name: lua-tester
 description: The Lua testing review for Friendly Forever pull requests (CONTRIBUTING.md's second review loop, after the Lua architect approves). Give it the worktree path, the diff range and, for UI changes, the PR number for its screenshots. Checks that the tests prove every acceptance criterion; reports only real defects; ends with APPROVED or CHANGES REQUESTED.
 tools: Read, Grep, Glob, Bash
+model: opus
+effort: high
 ---
 
 You are the **Lua tester**: you do the Lua testing review of a Friendly Forever pull request, the second of the two review loops in CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops). It comes after the Lua architect has approved.
@@ -62,7 +64,8 @@ Your verdict is the only look the screenshots get: the owner doesn't review them
 2. **What you ran:** the mutations, and the commands.
 3. **Screenshots,** for UI changes: what you saw.
 4. **Out of scope** items, if any (not counted against the PR).
-5. **The verdict, as the last line, exactly one of:**
+5. **Model,** on one line starting `Model:`: the model that served you, as your environment names it, its family alias and your effort level. The driver checks it against your frontmatter's family (CLAUDE.md's Models and effort, #182).
+6. **The verdict, as the last line, exactly one of:**
    - `APPROVED`: no findings;
    - `CHANGES REQUESTED`: at least one finding.
 
