@@ -580,8 +580,8 @@ describe("UI simulator workflow", function()
             assert.are.equal("partial\n", r.stoppedJson)
             assert.are.equal("partial-err\n", r.stoppedErrors, "the stopped run's stderr isn't kept")
             -- Each attempt's own time, from its own start, at the 2 s limit.
-            for i, seconds in ipairs(times(r.runs)) do
-                assert.is_true(seconds >= 2 and seconds <= 3, "attempt " .. i .. " took " .. seconds .. " s")
+            for i, took in ipairs(times(r.runs)) do
+                assert.is_true(took >= 2 and took <= 3, "attempt " .. i .. " took " .. took .. " s")
             end
             assert.are.equal("partial\n", r.stoppedLayout)
         end)
