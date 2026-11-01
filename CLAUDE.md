@@ -109,14 +109,16 @@ Name the model by its family alias: `haiku`, `sonnet`, `opus` or `fable`. An ali
 | Job | Family | Effort |
 | --- | --- | --- |
 | Lookups, searches and routine checks | `haiku` | `low` |
-| Building and fixing, and most skills | `sonnet` | `medium` |
+| Building and fixing, coordinating, and the skills | `opus`, until the trials on #182 report | `medium` |
 | The architecture and testing reviews (`lua-architect`, `lua-tester`) | `opus` | `high` |
 | Specs and hard bugs | the owner's choice; `opus` if they haven't said | `high` |
 
-The reviewers' `opus` is the owner's choice on #182 and may change. Each agent and skill names its own family and effort in its frontmatter; the repo spec checks they're aliases from this table.
+These are the owner's choices on #182 (2026-11-01). The developer and coordinator stay on `opus`, the session default, until the `sonnet` trials posted there report; the owner then sets their family, and the testing reviewer's may change too. Each agent and skill names its own family and effort in its frontmatter; the repo spec checks they're aliases from this table.
 
 - **Record what served.** A session can be moved to another model mid-turn (overload or unavailability) even when its setting is right. `get_session` keeps the configured model (`configured_model`), the current setting (`session_context.model`) and the one that served the last turn (`external_metadata.last_served_model`), and `list_events` logs the fallbacks.
 - **A review served by the wrong family doesn't count.** Run it again on the family its agent names, or flag it to the owner.
+
+## Reviews
 
 - **Fix everything a review finds,** optional nits included.
 - **Reviewers share your worktree:** while a review agent is running, it temporarily changes files to check the tests catch it. Don't stage or commit then: `git add -A` on #46 picked up a reviewer's edit into a merge commit (807bc8e). Wait until it reports and `git status` is clean, or stage only the files you changed.

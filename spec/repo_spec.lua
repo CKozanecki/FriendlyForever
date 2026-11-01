@@ -2041,7 +2041,7 @@ describe("Claude sessions' agents, knowledge and skills", function()
         local body = text:match("\n## Models and effort\n(.-)\n## ") or ""
         for _, row in ipairs({
             "| Lookups, searches and routine checks | `haiku` | `low` |",
-            "| Building and fixing, and most skills | `sonnet` | `medium` |",
+            "| Building and fixing, coordinating, and the skills | `opus`, until the trials on #182 report | `medium` |",
             "| The architecture and testing reviews (`lua-architect`, `lua-tester`) | `opus` | `high` |",
         }) do
             assert.is_truthy(body:find(row, 1, true), row)
@@ -2094,6 +2094,13 @@ describe("Claude sessions' agents, knowledge and skills", function()
             "the low-usage report")
         assert.is_truthy(text:find("- **Starting a session:** pass the `model` parameter, a family alias", 1, true),
             "sessions start on an alias")
+    end)
+
+    -- CLAUDE.md and the after-merge skill send drivers to its Reviews section.
+    it("CLAUDE.md keeps its Reviews section, with the re-confirmation rule", function()
+        local body = wow.readFile("CLAUDE.md"):match("\n## Reviews\n(.-)\n## ") or ""
+        assert.is_truthy(body:find("- **Changes after an approval:**", 1, true), "Changes after an approval")
+        assert.is_truthy(body:find("- **Which model reviewed:**", 1, true), "Which model reviewed")
     end)
 
     it("CLAUDE.md starts with a Start here section that links to the detail", function()
