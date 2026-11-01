@@ -1521,6 +1521,29 @@ describe("Release scripts", function()
         assert.is_nil(wow.readFile("RELEASE_NOTES.md"):find("Unreleased", 1, true))
     end)
 
+    -- Spec #178: package.sh moves a finished zip into place, so the zip is
+    -- never missing while another run (or a test) uses it.
+    it("package.sh never removes the zip while other runs rebuild it", function()
+        local zip = run("./scripts/package.sh"):match("([^\n]*%.zip)")
+        assert.is_truthy(zip, "package script did not report a zip")
+        local script = [[
+            for i in 1 2 3; do ./scripts/package.sh >/dev/null & done
+            missing=0
+            while [ -n "$(jobs -r)" ]; do [ -f "$1" ] || missing=$((missing+1)); done
+            wait
+            echo "missing=$missing"
+            ls dist | grep -c '^\.' || true
+        ]]
+        local out = run("bash -c '" .. script:gsub("'", "'\\''") .. "' _ \"" .. zip .. "\"")
+        assert.is_truthy(out:find("missing=0", 1, true), out)
+        assert.is_truthy(out:find("missing=0\n0\n", 1, true), "temporary files left in dist: " .. out)
+    end)
+
+    it("two package.sh runs started together both succeed", function()
+        local out = run("./scripts/package.sh >/dev/null & ./scripts/package.sh >/dev/null; r=$?; wait $!; echo rc=$r")
+        assert.is_truthy(out:find("rc=0", 1, true), out)
+    end)
+
     it("package comparison passes on matching zips and fails on different ones", function()
         local zip = run("./scripts/package.sh"):match("([^\n]*%.zip)")
         assert.is_truthy(zip, "package script did not report a zip")
