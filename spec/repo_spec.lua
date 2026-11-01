@@ -1532,7 +1532,15 @@ describe("Release scripts", function()
             while [ -n "$(jobs -r)" ]; do unzip -tqq "$1" >/dev/null 2>&1 || missing=$((missing+1)); done
             wait
             echo "missing=$missing"
-            ls -A dist | grep -c '^\.' || true
+            # Another make check may be building in this dist/ too: its temporary
+            # file goes when it finishes, a leaked one never does.
+            left=1
+            for i in $(seq 1 100); do
+                left=$(ls -A dist | grep -c '^\.' || true)
+                [ "$left" = 0 ] && break
+                sleep 0.2
+            done
+            echo "$left"
         ]]
         local out = run("bash -c '" .. script:gsub("'", "'\\''") .. "' _ \"" .. zip .. "\"")
         assert.is_truthy(out:find("missing=0", 1, true), out)
@@ -1552,7 +1560,13 @@ describe("Release scripts", function()
             while [ -n "$(jobs -r)" ]; do [ -s RELEASE_NOTES.md ] || bad=$((bad+1)); done
             wait
             echo "bad=$bad"
-            ls -A | grep -c '^RELEASE_NOTES.md\.' || true
+            left=1
+            for i in $(seq 1 100); do
+                left=$(ls -A | grep -c '^RELEASE_NOTES.md\.' || true)
+                [ "$left" = 0 ] && break
+                sleep 0.2
+            done
+            echo "$left"
         ]]
         local out = run("bash -c '" .. script:gsub("'", "'\\''") .. "'")
         assert.is_truthy(out:find("bad=0\n0\n", 1, true), out)
