@@ -1,4 +1,4 @@
--- Spec: #35, #52, #90, #112, #148, #158
+-- Spec: #35, #52, #90, #112, #148, #158, #173
 -- The UI simulator's layout check (uitests/scenarios.lua), run here against
 -- stand-in regions whose edges, anchors and text sizes each test sets
 -- itself, so the expected answer comes from those numbers and not from the

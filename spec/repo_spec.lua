@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #172
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #172, #173
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -522,6 +522,13 @@ describe("UI simulator workflow", function()
         end
 
         -- runs.txt's lines, as { name, attempt, exit } strings.
+        -- Each attempt's seconds, in runs.txt's order.
+        local function times(runs)
+            local list = {}
+            for seconds in (runs or ""):gmatch("%S+ %d %d+ (%d+)\n") do list[#list + 1] = tonumber(seconds) end
+            return list
+        end
+
         local function attempts(runs)
             local list = {}
             for name, try, status in (runs or ""):gmatch("(%S+) (%d) (%d+) %d+\n") do
@@ -572,6 +579,10 @@ describe("UI simulator workflow", function()
             assert.are.equal("partial\n", r.stopped)
             assert.are.equal("partial\n", r.stoppedJson)
             assert.are.equal("partial-err\n", r.stoppedErrors, "the stopped run's stderr isn't kept")
+            -- Each attempt's own time, from its own start, at the 2 s limit.
+            for i, seconds in ipairs(times(r.runs)) do
+                assert.is_true(seconds >= 2 and seconds <= 3, "attempt " .. i .. " took " .. seconds .. " s")
+            end
             assert.are.equal("partial\n", r.stoppedLayout)
         end)
 
@@ -585,6 +596,13 @@ describe("UI simulator workflow", function()
             assert.are.equal("partial\n", r.stopped)
             assert.are.equal("partial\n", r.stoppedLayout)
             assert.is_truthy(r.step:find("finished", 1, true))
+            -- The stopped attempts ran to the 2 s limit; each retry is timed from its own start.
+            local seconds = times(r.runs)
+            assert.are.equal(8, #seconds)
+            for i = 1, 8, 2 do
+                assert.is_true(seconds[i] >= 2 and seconds[i] <= 3, "a stopped attempt took " .. seconds[i] .. " s")
+                assert.is_true(seconds[i + 1] < 2, "a retry's time counts the stopped attempt: " .. seconds[i + 1])
+            end
         end)
     end)
 
@@ -675,6 +693,9 @@ describe("UI simulator workflow", function()
             assert.is_truthy(head:find("```\n| START 3 first try\n```", 1, true), head)
             assert.is_truthy(head:find("```\n| START 12::error::bad\n```", 1, true), head)
             assert.is_truthy(head:find("| the last line\n```", 1, true), "the end of the log isn't shown")
+            assert.is_truthy(head:find("| x ##(set-env name=A;]b\n| ::error::carriage\n| START 12::error::bad\n| the last line\n```", 1, true),
+                "the end of the log isn't its last lines, marked")
+            assert.is_truthy(head:find("\n| ```\n", 1, true), "a fence line in the log isn't shown, marked")
             local log = runnerLines(r.log)
             assert.are.same({
                 "::notice title=UI simulator: a run timed out once::The layout pass at 1024x768 was stopped at its time "
@@ -706,6 +727,7 @@ describe("UI simulator workflow", function()
                 .. "layout-1024x768 1 0 25\n", { ["lua-errors.log"] = "::error::nothing\n" })
             assert.are.equal(0, r.status)
             assert.is_truthy(top(r.summary):find("The lua-errors run timed out twice", 1, true))
+            assert.is_truthy(top(r.summary):find("```\n| ::error::nothing\n```", 1, true), "the lua-errors log isn't shown")
             assert.is_truthy(r.log:find("Last scenario started: none.", 1, true), r.log)
             assert.is_falsy(r.log:find("nothing", 1, true), "the log's text reached the annotation")
         end)
