@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #172
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #172, #178
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -1521,7 +1521,7 @@ describe("Release scripts", function()
         assert.is_nil(wow.readFile("RELEASE_NOTES.md"):find("Unreleased", 1, true))
     end)
 
-    -- Spec #178: package.sh moves a finished zip into place, so the zip is
+    -- package.sh moves a finished zip into place, so the zip is
     -- never missing while another run (or a test) uses it.
     it("package.sh never removes the zip while other runs rebuild it", function()
         local zip = run("./scripts/package.sh"):match("([^\n]*%.zip)")
