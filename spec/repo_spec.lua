@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #172
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #172, #182
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -1762,6 +1762,30 @@ describe("Claude sessions' agents, knowledge and skills", function()
         return problems
     end
 
+    -- Model choice (#182): a family alias and an effort level in front matter,
+    -- and never a dated model ID anywhere sessions read.
+    local FAMILIES = { haiku = true, sonnet = true, opus = true, fable = true }
+    local EFFORTS = { low = true, medium = true, high = true, xhigh = true, max = true }
+
+    local function modelProblems(text)
+        local fields = frontMatter(text)
+        local problems = {}
+        if not FAMILIES[fields.model or ""] then
+            problems[#problems + 1] = "model isn't a family alias: " .. tostring(fields.model)
+        end
+        if not EFFORTS[fields.effort or ""] then
+            problems[#problems + 1] = "effort isn't a level: " .. tostring(fields.effort)
+        end
+        return problems
+    end
+
+    -- Dated or versioned model IDs, such as claude-sonnet-4-5 or claude-3-opus.
+    local function modelIds(text)
+        local found = {}
+        for id in text:lower():gmatch("claude%-[%w%-%.]*%d[%w%-%.]*") do found[#found + 1] = id end
+        return found
+    end
+
     local AGENTS = { "lua-architect", "lua-tester" }
     local SKILLS = { "after-merge", "merge-order", "coordinator" }
     local DOCS = { "docs/forever-facts.md", "docs/simulated-client.md", "docs/ui-simulator.md" }
@@ -1958,6 +1982,132 @@ describe("Claude sessions' agents, knowledge and skills", function()
             assert.are.same({}, skillProblems(wow.readFile(".claude/skills/" .. name .. "/SKILL.md"), name))
         end)
     end
+
+    describe("the model checks themselves", function()
+        local function file(parts) return table.concat(parts, "\n") end
+
+        it("pass a family alias with an effort level, for each family and level", function()
+            for family in pairs(FAMILIES) do
+                for effort in pairs(EFFORTS) do
+                    assert.are.same({}, modelProblems(file({ "---", "name: x", "model: " .. family,
+                        "effort: " .. effort, "---" })), family .. " " .. effort)
+                end
+            end
+        end)
+
+        it("catch a missing, inherited, vague or dated model, and a missing or unknown effort (black)", function()
+            for _, model in ipairs({ "inherit", "fastest", "Opus", "claude-opus-4-1", "" }) do
+                assert.are.equal(1, #modelProblems(file({ "---", "model: " .. model, "effort: high", "---" })),
+                    model)
+            end
+            assert.are.equal(1, #modelProblems(file({ "---", "effort: high", "---" })), "no model")
+            assert.are.equal(1, #modelProblems(file({ "---", "model: opus", "effort: huge", "---" })), "huge")
+            assert.are.equal(1, #modelProblems(file({ "---", "model: opus", "---" })), "no effort")
+            assert.are.equal(2, #modelProblems("model: opus\neffort: high\n"), "no front matter")
+        end)
+
+        it("find dated and versioned model IDs, and leave aliases and other words alone", function()
+            assert.are.same({ "claude-opus-4-1", "claude-3-5-sonnet-20241022", "claude-haiku-5-5" },
+                modelIds("Use claude-opus-4-1, Claude-3-5-Sonnet-20241022 or `claude-haiku-5-5`."))
+            assert.are.same({}, modelIds("opus, sonnet, claude.ai/code, claude-code-guide, claude/182-x"))
+        end)
+    end)
+
+    for _, path in ipairs({ ".claude/agents/lua-architect.md", ".claude/agents/lua-tester.md",
+        ".claude/skills/after-merge/SKILL.md", ".claude/skills/merge-order/SKILL.md",
+        ".claude/skills/coordinator/SKILL.md" }) do
+        it(path .. " names its model family alias and effort level", function()
+            assert.are.same({}, modelProblems(wow.readFile(path)))
+        end)
+    end
+
+    -- The owner's choice on #182: opus at high effort for both reviewers.
+    it("the reviewer agents run on opus at high effort", function()
+        for _, name in ipairs(AGENTS) do
+            local fields = frontMatter(wow.readFile(".claude/agents/" .. name .. ".md"))
+            assert.are.same({ "opus", "high" }, { fields.model, fields.effort }, name)
+        end
+    end)
+
+    it("CLAUDE.md, the PR template, the agents and the skills name no dated model ID", function()
+        local paths = { "CLAUDE.md", ".github/pull_request_template.md" }
+        for _, name in ipairs(AGENTS) do paths[#paths + 1] = ".claude/agents/" .. name .. ".md" end
+        for _, name in ipairs(SKILLS) do paths[#paths + 1] = ".claude/skills/" .. name .. "/SKILL.md" end
+        for _, path in ipairs(paths) do assert.are.same({}, modelIds(wow.readFile(path)), path) end
+    end)
+
+    it("CLAUDE.md maps each kind of job to a family alias and an effort level", function()
+        local text = wow.readFile("CLAUDE.md")
+        local body = text:match("\n## Models and effort\n(.-)\n## ") or ""
+        for _, row in ipairs({
+            "| Lookups, searches and routine checks | `haiku` | `low` |",
+            "| Building and fixing, and most skills | `sonnet` | `medium` |",
+            "| The architecture and testing reviews (`lua-architect`, `lua-tester`) | `opus` | `high` |",
+        }) do
+            assert.is_truthy(body:find(row, 1, true), row)
+        end
+        assert.is_truthy(body:find("**A review served by the wrong family doesn't count.** Run it again on the"
+            .. " family its agent names, or flag it to the owner.", 1, true), "the wrong-family rule")
+    end)
+
+    it("CLAUDE.md, the agents and the PR template record the model that served each review", function()
+        local claude = wow.readFile("CLAUDE.md")
+        assert.is_truthy(claude:find("- **Which model reviewed:** each verdict names the model that served it,",
+            1, true), "CLAUDE.md's review rule")
+        for _, name in ipairs(AGENTS) do
+            local output = section(wow.readFile(".claude/agents/" .. name .. ".md"), "Output")
+            local model = output:find("**Model,** on one line starting `Model:`", 1, true)
+            local verdict = output:find("**The verdict, as the last line", 1, true)
+            assert.is_truthy(model and verdict and model < verdict, name .. " names its model before the verdict")
+        end
+        local template = wow.readFile(".github/pull_request_template.md")
+        for _, line in ipairs({ "\n- Lua architecture review: model , effort\n",
+            "\n- Lua testing review: model , effort\n", "doesn't count: run it again, or flag it to the owner." }) do
+            assert.is_truthy(template:find(line, 1, true), line)
+        end
+    end)
+
+    it("CLAUDE.md's plan-limits rule names the account spending limit as the only sure stop", function()
+        local text = wow.readFile("CLAUDE.md")
+        local body = text:match("\n## Plan limits\n(.-)\n## ") or ""
+        for _, rule in ipairs({
+            "- **The gate is 80%.** Past 80% of the weekly plan, long work needs the owner's explicit OK, recorded"
+                .. " on the issue.",
+            "by 2% of the plan at most. If it can't be sure of that, the owner decides.",
+            "- **The reserve:** leave about 3% of the weekly plan for scheduled tasks",
+            "- **The only sure stop is the account's spending limit.**",
+            "The owner sets that limit; Claude never changes it.",
+        }) do
+            assert.is_truthy(body:find(rule, 1, true), rule)
+        end
+    end)
+
+    it("the coordinator reports low usage and model mismatches, and starts sessions on a family alias", function()
+        local text = wow.readFile(".claude/skills/coordinator/SKILL.md")
+        local checkIn = text:match("\n## The 30%-minute check%-in\n(.*)$") or ""
+        assert.is_truthy(checkIn:find("- **compare models** for each session you watch: `get_session`'s"
+            .. " `configured_model` against `session_context.model` and `external_metadata.last_served_model`",
+            1, true), "the model comparison")
+        assert.is_truthy(checkIn:find("Report any session served by another family to the owner", 1, true),
+            "the mismatch report")
+        assert.is_truthy(checkIn:find("put what's left in the check-in, even if nothing else changed", 1, true),
+            "the low-usage report")
+        assert.is_truthy(text:find("- **Starting a session:** pass the `model` parameter, a family alias", 1, true),
+            "sessions start on an alias")
+    end)
+
+    it("CLAUDE.md starts with a Start here section that links to the detail", function()
+        local text = wow.readFile("CLAUDE.md")
+        local first = text:match("\n## ([^\n]*)")
+        assert.are.equal("Start here", first)
+        local body = text:match("\n## Start here\n(.-)\n## ") or ""
+        for _, words in ipairs({ "`make setup`", "`make check`", "busted spec/<name>_spec.lua",
+            "[UI simulator](CONTRIBUTING.md#ui-simulator)", "(CONTRIBUTING.md#local-setup)",
+            "(docs/simulated-client.md)", "(docs/ui-simulator.md)", "CONTRIBUTING.md stays the source of truth",
+            "**The shape of the code:**" }) do
+            assert.is_truthy(body:find(words, 1, true), words)
+        end
+    end)
 
     -- Files of game and simulator facts: every bullet has its source.
     for _, path in ipairs({ "docs/forever-facts.md", "docs/ui-simulator.md" }) do
