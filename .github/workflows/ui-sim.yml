@@ -372,7 +372,7 @@ jobs:
   screenshots:
     needs: simulator
     runs-on: ubuntu-24.04
-    timeout-minutes: 82
+    timeout-minutes: 87
     continue-on-error: true
     env:
       # The options panel's tabs, one shot each (#112): uitests/pages.lua's
@@ -447,10 +447,10 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Each one
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so 20 shots and the probe take at most about 67 minutes.
+        # clean-up, so 21 shots and the probe take at most about 71 minutes.
         # (Each usually takes about 8 s.) The second pass, at 1920 x 1080
         # (#148), starts no shot after 50 minutes, so this still holds.
-        timeout-minutes: 70
+        timeout-minutes: 75
         run: |
           # WOW_SIM_CASC=0: never look for game files (no WoW install here).
           # Each shot runs as a detached container capped at 6 GB and 3 CPUs,
@@ -554,6 +554,8 @@ jobs:
               shoot "walkthrough-$step" --exec-lua "@/shot-lua/walkthrough-$step.lua"
             done
             shoot copy-window --exec-lua "if FriendlyForeverWalkthrough and FriendlyForeverWalkthrough:IsShown() then FriendlyForeverWalkthrough.skip:Click() end; SlashCmdList.FRIENDLYFOREVER('export')"
+            # The palette (#46): chat lines in each colour, and the minimap tooltip.
+            shoot palette --exec-lua "if FriendlyForeverWalkthrough and FriendlyForeverWalkthrough:IsShown() then FriendlyForeverWalkthrough.skip:Click() end; for _, c in ipairs({ 'off', 'on', 'debug', 'debug', 'ignore Bob' }) do SlashCmdList.FRIENDLYFOREVER(c) end; FriendlyForeverMinimapButton:GetScript('OnEnter')(FriendlyForeverMinimapButton)"
           }
           for size in $LAYOUT_SIZES; do
             WIDTH="${size%x*}"; HEIGHT="${size#*x}"

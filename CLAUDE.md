@@ -31,7 +31,8 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 
 - [`docs/forever-facts.md`](docs/forever-facts.md): WoW Forever API and game facts the code depends on, and which are launch checks;
 - [`docs/simulated-client.md`](docs/simulated-client.md): how `spec/support/wow.lua` models the game, and how to extend it;
-- [`docs/ui-simulator.md`](docs/ui-simulator.md): the UI simulator's known quirks and workarounds (#100).
+- [`docs/ui-simulator.md`](docs/ui-simulator.md): the UI simulator's known quirks and workarounds (#100);
+- [`docs/visual-style.md`](docs/visual-style.md): the colour palette, its contrast and colour-blindness numbers, and the scrolling rule (#46).
 
 Procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `merge-order` and `coordinator` (running several sessions for the owner). They carry out the rules in "Several sessions at once" below; where they differ, these rules win.
 
@@ -78,6 +79,7 @@ Procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `m
 ## Reviews
 
 - **Fix everything a review finds,** optional nits included.
+- **Reviewers share your worktree:** while a review agent is running, it temporarily changes files to check the tests catch it. Don't stage or commit then: `git add -A` on #46 picked up a reviewer's edit into a merge commit (807bc8e). Wait until it reports and `git status` is clean, or stage only the files you changed.
 - **Changes after an approval:** any change a review loop hasn't seen goes back to it for confirmation before the PR is called ready. That includes test-only and test-helper changes, merges that resolved conflicts, and rebases. On #72, a test-helper change made after the architecture approval hid a real bug, and the re-check caught it.
 - **UI changes:** before the testing review, wait for the [UI simulator](CONTRIBUTING.md#ui-simulator) run, then tell the testing reviewer to fetch `ui-screenshots/pr-<number>`, view the screenshots, read the `LAYOUT` lines, and decide. Their verdict is the only look the screenshots get: the owner won't review them. Say in the PR what the reviewer saw.
 - **Reviewer agents:** run the architecture review with the `lua-architect` agent and the testing review with the `lua-tester` agent ([`.claude/agents/`](.claude/agents/)). Their files hold the scope, the output format and the lessons of past reviews. Tell each one:

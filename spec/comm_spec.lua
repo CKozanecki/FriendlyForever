@@ -1,4 +1,4 @@
--- Spec: #32
+-- Spec: #32, #46
 -- The hidden channel between copies of the addon: addon messages over the
 -- game's own routes, with every incoming message treated as untrusted.
 local wow = require("spec.support.wow")
@@ -302,7 +302,7 @@ describe("Hidden channel", function()
             times(7, hello("Ann-Vale"), "GUILD")
             times(6 + 8, hello("Fay-Dune"), "GUILD", "Fay-Dune")
             local text = status()
-            assert.truthy(text:find("addon messages: |cff00ff00open|r; 1 sent, 2 not sent, 7 received; "
+            assert.truthy(text:find("addon messages: " .. ns.Colours.Text("good", "open") .. "; 1 sent, 2 not sent, 7 received; "
                 .. "2 other copies seen", 1, true), text)
             assert.truthy(text:find("addon messages dropped: 1 unreadable, 2 oversized, 3 malformed, 4 wrong version, "
                 .. "5 unknown type, 6 wrong route, 7 spoofed, 8 flooding", 1, true), text)
@@ -314,7 +314,7 @@ describe("Hidden channel", function()
             local ns = wow.boot({ before = function(s) s.noAddonMessages = true end })
             wow.printed = {}
             ns.Diag.Call(SlashCmdList.FRIENDLYFOREVER, "status")
-            assert.truthy(table.concat(wow.printed, "\n"):find("addon messages: |cffff4040closed|r;", 1, true))
+            assert.truthy(table.concat(wow.printed, "\n"):find("addon messages: " .. ns.Colours.Text("bad", "closed") .. ";", 1, true))
         end)
     end)
 

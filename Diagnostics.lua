@@ -45,7 +45,7 @@ function Diag.Log(category, fmt, ...)
     log[#log + 1] = line
     while #log > Diag.MAX_LOG do table.remove(log, 1) end
 
-    DEFAULT_CHAT_FRAME:AddMessage("|cff999999[FF debug]|r " .. line)
+    DEFAULT_CHAT_FRAME:AddMessage(ns.Colours.Text("muted", "[FF debug]") .. " " .. line)
 end
 
 -- Run fn(...) and, if it raises a Lua error, count and log it, then hand it
@@ -97,10 +97,10 @@ function Diag.SetEnabled(on)
     ns.db.debug = on and true or false
     if ns.db.debug then
         ns.db.diagLog = {}
-        ns.Print("debug |cff00ff00on|r: decisions are shown here and saved to the "
+        ns.Print("debug " .. ns.Colours.Text("good", "on") .. ": decisions are shown here and saved to the "
             .. "FriendlyForever saved-variables file (written on /reload or logout).")
         Diag.Log("debug", "started; version %s", ns.VERSION)
     else
-        ns.Print("debug |cffff4040off|r")
+        ns.Print("debug " .. ns.Colours.Text("bad", "off"))
     end
 end

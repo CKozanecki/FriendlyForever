@@ -28,7 +28,7 @@ local function Section(name)
 end
 
 local function OnOff(value)
-    return value == true and "|cff00ff00on|r" or "|cffff4040off|r"
+    return value == true and ns.Colours.Text("good", "on") or ns.Colours.Text("bad", "off")
 end
 
 local function KeyText()

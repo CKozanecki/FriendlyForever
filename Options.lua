@@ -75,7 +75,8 @@ local function Tooltip(frame, text)
     frame.tooltip = text
     frame:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(self.tooltip, 1, 1, 1, 1, true)
+        local r, g, b, a = ns.Colours.RGBA("bright")
+        GameTooltip:SetText(self.tooltip, r, g, b, a, true)
         GameTooltip:Show()
     end)
     frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -354,7 +355,7 @@ local function FillWho(shown, buffs, last)
     if not buff then return last end
     local name = ns.BuffData.SpellName(buff) or buff.key
     who.header:SetText("Who gets " .. name .. " in buff mode: " .. ns.BuffRules.RULE_TEXT[rule]
-        .. "  |cff999999(a buff's Who button changes it)|r")
+        .. "  " .. ns.Colours.Text("muted", "(a buff's Who button changes it)"))
     who.alwaysLabel:ClearAllPoints()
     who.alwaysLabel:SetPoint("TOPLEFT", showClasses and who.classRows[2] or who.header, "BOTTOMLEFT",
         showClasses and 4 or 0, -10)
@@ -405,8 +406,8 @@ local function FillRaidBlessings(shown, last)
     if #mine == 0 then return last end
     who.raidHeader:ClearAllPoints()
     who.raidHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -12)
-    who.raidHeader:SetText("Blessings I give in this raid:" .. (inRaid and "  |cff999999(until you leave it)|r"
-        or "  |cff999999(join a raid to choose)|r"))
+    who.raidHeader:SetText("Blessings I give in this raid:  "
+        .. ns.Colours.Text("muted", inRaid and "(until you leave it)" or "(join a raid to choose)"))
     return who.raidBlessings[1]
 end
 
@@ -446,7 +447,7 @@ local function FillBuffRows(shown)
         row.key = buff and buff.key
         if buff then
             local name = ns.BuffData.SpellName(buff) or buff.key
-            if not ns.BuffData.IsKnown(buff) then name = name .. " |cff999999(not known yet)|r" end
+            if not ns.BuffData.IsKnown(buff) then name = name .. " " .. ns.Colours.Text("muted", "(not known yet)") end
             row.name:SetText(i .. ". " .. name)
             row.up:SetEnabled(i > 1)
             row.down:SetEnabled(i < #buffs)
@@ -512,7 +513,7 @@ local function Fill()
 
     widgets.master:SetChecked(ns.db.enabled)
     widgets.skipAFK:SetChecked(ns.db.skipWhileAFK)
-    widgets.header:SetText(info.label .. "  |cff999999(sent to " .. info.channel .. ")|r")
+    widgets.header:SetText(info.label .. "  " .. ns.Colours.Text("muted", "(sent to " .. info.channel .. ")"))
     widgets.help:SetText(info.help)
     widgets.enabled:SetChecked(cfg.enabled)
     widgets.enabled.label:SetText(info.enabledLabel or "Enabled")
@@ -769,8 +770,8 @@ function Options.Create()
     widgets.quiet:SetPoint("TOPLEFT", widgets.fallbackLabel, "BOTTOMLEFT", -4, -8)
 
     -- Row 7: warning + one-click fix when friendly nameplates are off
-    widgets.nameplateWarning = Label(content, "|cffff8040Friendly player nameplates are off, so the game "
-        .. "can't tell you who buffed you.|r", "GameFontHighlightSmall")
+    widgets.nameplateWarning = Label(content, ns.Colours.Text("warn", "Friendly player nameplates are off, so the game "
+        .. "can't tell you who buffed you."), "GameFontHighlightSmall")
     widgets.nameplateWarning:SetPoint("TOPLEFT", widgets.quiet, "BOTTOMLEFT", 4, -8)
     widgets.nameplateButton = Button(content, "Show friendly player names", 200, function()
         local ok, reason = ns.Nameplates.EnableFriendlyNames()
@@ -1085,7 +1086,7 @@ function Options.CreateStartPage()
     w.nameplates = Note(area, w.thanks, "")
     w.buttonKey = Note(area, w.nameplates, "")
     w.buffModeKey = Note(area, w.buttonKey, "")
-    w.change = Note(area, w.buffModeKey, "|cff999999Each is changed on its own page, below.|r")
+    w.change = Note(area, w.buffModeKey, ns.Colours.Text("muted", "Each is changed on its own page, below."))
 
     local more = Section(area, w.change, "Every other page")
     w.openMessages = Button(area, "Messages and Buff Back", 180, function() Options.Open() end)
@@ -1120,14 +1121,15 @@ FillStart = function()
     local w = widgets.start
     local buff = type(ns.db.buff) == "table" and ns.db.buff or {}
     w.enabled:SetText(ns.db.enabled == true and "Friendly Forever is on."
-        or "|cffff8040Friendly Forever is off.|r Its switch is at the top of Messages and Buff Back.")
+        or ns.Colours.Text("warn", "Friendly Forever is off.")
+            .. " Its switch is at the top of Messages and Buff Back.")
     w.thanks:SetText(buff.enabled == true
         and ("Buff Thanks is on: you thank people who buff you with "
             .. (Options.THANK_STYLE_TEXT[buff.thankStyle] or Options.THANK_STYLE_TEXT.message) .. ".")
         or "Buff Thanks is off: people who buff you aren't thanked.")
     w.nameplates:SetText(ns.Nameplates.FriendlyShown() == false
-        and "|cffff8040Friendly player nameplates are off,|r so the game can rarely tell you who buffed you. "
-            .. "The Buff Thanks tab can show them."
+        and ns.Colours.Text("warn", "Friendly player nameplates are off,")
+            .. " so the game can rarely tell you who buffed you. The Buff Thanks tab can show them."
         or "Friendly player nameplates are on, so the game can tell you who buffed you.")
     local buttonKey = ButtonKeyText()
     w.buttonKey:SetText(buttonKey and ("Buff-back button key: " .. buttonKey .. " (Key Bindings > AddOns).")

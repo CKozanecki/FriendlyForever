@@ -143,7 +143,7 @@ end
 -- "Buff mode: <key>" above the button while a key is lent to it.
 local function ShowMode()
     local lent = ns.BuffMode.LentKey()
-    button.mode:SetText(lent and ("|cff40ff40Buff mode:|r " .. ns.BuffMode.KeyText(lent)) or "")
+    button.mode:SetText(lent and (ns.Colours.Text("title", "Buff mode:") .. " " .. ns.BuffMode.KeyText(lent)) or "")
 end
 
 -- Whether you have a target. When the game won't say, assume you do: then
@@ -635,12 +635,15 @@ local function ShowTooltip(self)
     -- The button cuts a long line short (a reason it's empty, why to Revoke):
     -- here it is in full.
     local subtitle = button.subtitle:GetText()
-    if subtitle and subtitle ~= "" then GameTooltip:AddLine(subtitle, 1, 0.82, 0, true) end
+    local r, g, b = ns.Colours.RGB("title")
+    if subtitle and subtitle ~= "" then GameTooltip:AddLine(subtitle, r, g, b, true) end
     if armedOffer then
+        r, g, b = ns.Colours.RGB("bright")
         GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on " .. Util.DisplayName(armedOffer.name)
-            .. ", then gives you your target back.", 1, 1, 1, true)
+            .. ", then gives you your target back.", r, g, b, true)
     end
-    GameTooltip:AddLine("Click or press its key to cast. Right-click to let them go.", 0.8, 0.8, 0.8, true)
+    r, g, b = ns.Colours.RGB("text")
+    GameTooltip:AddLine("Click or press its key to cast. Right-click to let them go.", r, g, b, true)
     GameTooltip:Show()
 end
 
@@ -734,7 +737,7 @@ function BuffButton.Create()
 
     local background = button:CreateTexture(nil, "BACKGROUND")
     background:SetAllPoints()
-    background:SetColorTexture(0, 0, 0, 0.6)
+    background:SetColorTexture(ns.Colours.RGBA("shade"))
     button.icon = button:CreateTexture(nil, "ARTWORK")
     button.icon:SetSize(36, 36)
     button.icon:SetPoint("LEFT", 4, 0)

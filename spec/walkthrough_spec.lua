@@ -182,7 +182,8 @@ describe("The walkthrough", function()
                 assert.are.equal(ns.Options.AUTO_TEXT[field], ns.Options.widgets.auto[field].label:GetText(),
                     "the walkthrough names each switch as its checkbox does")
                 local state = ns.db.buffBack[field] and "on" or "off"
-                assert.is_truthy(text:find(ns.Options.AUTO_TEXT[field] .. ": |cff%x%x%x%x%x%x" .. state),
+                local shown = ns.Colours.Text(state == "on" and "good" or "bad", state)
+                assert.is_truthy(text:find(ns.Options.AUTO_TEXT[field] .. ": " .. shown, 1, true),
                     field .. " shown as " .. state)
             end
         end)
@@ -511,7 +512,8 @@ describe("The walkthrough", function()
             assert.is_truthy(w.thanks:GetText():find("Buff Thanks is off", 1, true), "a damaged section reads as empty")
             ns.db.buff = ns.Config.DefaultsFor("buff")
             goTo(stepTitled("turns on and off"))
-            assert.is_truthy(tour.stepText:GetText():find(ns.Options.AUTO_TEXT.autoOnJoin .. ": |cffff4040off", 1, true),
+            local off = ns.Options.AUTO_TEXT.autoOnJoin .. ": " .. ns.Colours.Text("bad", "off")
+            assert.is_truthy(tour.stepText:GetText():find(off, 1, true),
                 "a switch that isn't true reads as off")
             assert.is_falsy(tour.stepText:GetText():find("or after", 1, true), "a damaged number gives no line")
             ns.db.buffBack.autoOffMinutes = 0
