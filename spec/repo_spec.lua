@@ -521,7 +521,6 @@ describe("UI simulator workflow", function()
             return result
         end
 
-        -- runs.txt's lines, as { name, attempt, exit } strings.
         -- Each attempt's seconds, in runs.txt's order.
         local function times(runs)
             local list = {}
@@ -529,6 +528,7 @@ describe("UI simulator workflow", function()
             return list
         end
 
+        -- runs.txt's lines, as { name, attempt, exit } strings.
         local function attempts(runs)
             local list = {}
             for name, try, status in (runs or ""):gmatch("(%S+) (%d) (%d+) %d+\n") do
