@@ -2013,13 +2013,22 @@ describe("Claude sessions' agents, knowledge and skills", function()
         end)
     end)
 
-    for _, path in ipairs({ ".claude/agents/lua-architect.md", ".claude/agents/lua-tester.md",
-        ".claude/skills/after-merge/SKILL.md", ".claude/skills/merge-order/SKILL.md",
-        ".claude/skills/coordinator/SKILL.md" }) do
-        it(path .. " names its model family alias and effort level", function()
-            assert.are.same({}, modelProblems(wow.readFile(path)))
+    for _, name in ipairs(AGENTS) do
+        it(".claude/agents/" .. name .. ".md names its model family alias and effort level", function()
+            assert.are.same({}, modelProblems(wow.readFile(".claude/agents/" .. name .. ".md")))
         end)
     end
+
+    -- The developer and coordinator families are being trialled (#182): until
+    -- the owner sets them, the skills keep the session default.
+    it("the skills set no model or effort while the trial runs", function()
+        for _, name in ipairs(SKILLS) do
+            local fields = frontMatter(wow.readFile(".claude/skills/" .. name .. "/SKILL.md"))
+            assert.are.same({}, { fields.model, fields.effort }, name)
+        end
+        assert.is_truthy(wow.readFile(".claude/skills/coordinator/SKILL.md"):find("For building that's a trial in progress, see #182:",
+            1, true), "the coordinator's placeholder")
+    end)
 
     -- The owner's choice on #182: opus at high effort for both reviewers.
     it("the reviewer agents run on opus at high effort", function()
@@ -2041,7 +2050,7 @@ describe("Claude sessions' agents, knowledge and skills", function()
         local body = text:match("\n## Models and effort\n(.-)\n## ") or ""
         for _, row in ipairs({
             "| Lookups, searches and routine checks | `haiku` | `low` |",
-            "| Building and fixing, coordinating, and the skills | `opus`, until the trials on #182 report | `medium` |",
+            "| Building and fixing, coordinating, and the skills | trial in progress, see #182 | trial in progress, see #182 |",
             "| The architecture and testing reviews (`lua-architect`, `lua-tester`) | `opus` | `high` |",
         }) do
             assert.is_truthy(body:find(row, 1, true), row)

@@ -109,11 +109,11 @@ Name the model by its family alias: `haiku`, `sonnet`, `opus` or `fable`. An ali
 | Job | Family | Effort |
 | --- | --- | --- |
 | Lookups, searches and routine checks | `haiku` | `low` |
-| Building and fixing, coordinating, and the skills | `opus`, until the trials on #182 report | `medium` |
+| Building and fixing, coordinating, and the skills | trial in progress, see #182 | trial in progress, see #182 |
 | The architecture and testing reviews (`lua-architect`, `lua-tester`) | `opus` | `high` |
 | Specs and hard bugs | the owner's choice; `opus` if they haven't said | `high` |
 
-These are the owner's choices on #182 (2026-11-01). The developer and coordinator stay on `opus`, the session default, until the `sonnet` trials posted there report; the owner then sets their family, and the testing reviewer's may change too. Each agent and skill names its own family and effort in its frontmatter; the repo spec checks they're aliases from this table.
+The reviewers' and lookups' rows are the owner's choices on #182 (2026-11-01); the testing reviewer's may change after the trials. The developer and coordinator families are being trialled: until the owner sets them, their row stays "trial in progress, see #182", the skills set no `model:` or `effort:`, and sessions keep the session default. Each reviewer agent names its family and effort in its frontmatter; the repo spec checks them against this table, and checks the skills set none while the trial runs.
 
 - **Record what served.** A session can be moved to another model mid-turn (overload or unavailability) even when its setting is right. `get_session` keeps the configured model (`configured_model`), the current setting (`session_context.model`) and the one that served the last turn (`external_metadata.last_served_model`), and `list_events` logs the fallbacks.
 - **A review served by the wrong family doesn't count.** Run it again on the family its agent names, or flag it to the owner.

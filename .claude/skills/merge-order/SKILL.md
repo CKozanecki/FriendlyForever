@@ -1,8 +1,6 @@
 ---
 name: merge-order
 description: Trial-merge every pair of ready Friendly Forever pull requests, then recommend a merge order to the owner with reasons and the conflicting pairs. Use when two or more PRs are ready (or about to be) and someone needs to know which to merge first.
-model: opus
-effort: medium
 ---
 
 # Merge order

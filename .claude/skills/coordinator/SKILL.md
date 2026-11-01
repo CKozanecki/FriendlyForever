@@ -1,8 +1,6 @@
 ---
 name: coordinator
 description: Run several Claude sessions working on Friendly Forever for the owner - one driver per PR, relaying owner-facing notices, verifying "ready" PRs contain main, trial-merging and recommending a merge order, the after-merge round, archiving finished sessions, and a quiet 30-minute check-in. Use when a session is asked to coordinate or watch other sessions.
-model: opus
-effort: medium
 ---
 
 # Coordinator
@@ -32,7 +30,7 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
   - something failed that it can't fix.
 
   A notice wakes the coordinator at once, so the owner hears without waiting for the check-in. When you start a session, give it your session ID and this rule.
-- **Starting a session:** pass the `model` parameter, a family alias from CLAUDE.md's Models and effort (`opus` for building until the owner sets it after the trials on #182, or the family the owner names for a trial), and say its effort in the opening prompt. Never a dated model ID. Check the plan's usage first (CLAUDE.md's Plan limits): a fan-out is long work.
+- **Starting a session:** pass the `model` parameter, a family alias from CLAUDE.md's Models and effort, and say its effort in the opening prompt. For building that's a trial in progress, see #182: pass the family the owner names for the trial, or leave it out to keep the session default. Never a dated model ID. Check the plan's usage first (CLAUDE.md's Plan limits): a fan-out is long work.
 - **Before telling the owner something is pending, read that session's transcript** (`list_events` with `kinds: ["user", "assistant", "result"]`), not just its status. A status says idle; only the transcript says whether it's waiting on the owner, finished, or stuck, and whether the owner already answered.
 - Relay to the owner in one short list: what's needed, from whom, with the link. Don't relay routine progress.
 
