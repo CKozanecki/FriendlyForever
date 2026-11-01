@@ -1532,7 +1532,7 @@ describe("Release scripts", function()
             while [ -n "$(jobs -r)" ]; do [ -f "$1" ] || missing=$((missing+1)); done
             wait
             echo "missing=$missing"
-            ls dist | grep -c '^\.' || true
+            ls -A dist | grep -c '^\.' || true
         ]]
         local out = run("bash -c '" .. script:gsub("'", "'\\''") .. "' _ \"" .. zip .. "\"")
         assert.is_truthy(out:find("missing=0", 1, true), out)
