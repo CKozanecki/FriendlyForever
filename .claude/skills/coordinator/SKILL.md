@@ -30,6 +30,7 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
   - something failed that it can't fix.
 
   A notice wakes the coordinator at once, so the owner hears without waiting for the check-in. When you start a session, give it your session ID and this rule.
+- **Starting a session:** pass the `model` parameter, a family alias from CLAUDE.md's Models and effort, and say its effort in the opening prompt. For building that's a trial in progress, see #182: pass the family the owner names for the trial, or leave it out to keep the session default. Never a dated model ID. Check the plan's usage first (CLAUDE.md's Plan limits): a fan-out is long work.
 - **Before telling the owner something is pending, read that session's transcript** (`list_events` with `kinds: ["user", "assistant", "result"]`), not just its status. A status says idle; only the transcript says whether it's waiting on the owner, finished, or stuck, and whether the owner already answered.
 - Relay to the owner in one short list: what's needed, from whom, with the link. Don't relay routine progress.
 
@@ -67,6 +68,8 @@ Schedule a check-in every 30 minutes (`send_later`, re-armed each time). At each
 - read each tracked PR's state on GitHub, and run "After the owner merges a PR" for any that merged or closed;
 - archive every finished session whose closing summary is in;
 - act on anything new: a notice, a PR newly ready, a session stuck or failed;
-- **stay quiet when nothing changed:** no message to the owner, no comment anywhere. Just re-arm.
+- **compare models** for each session you watch: `get_session`'s `configured_model` against `session_context.model` and `external_metadata.last_served_model` (normalize aliases and context-window suffixes first), and read `list_events` for fallback notices. Report any session served by another family to the owner, with what it was doing; a review it served doesn't count (CLAUDE.md's Models and effort);
+- **check the plan's usage,** if you can see it. When it's low (past CLAUDE.md's 80% gate, or near the 3% reserve), put what's left in the check-in, even if nothing else changed. Give an OK past the gate only as Plan limits allows; otherwise ask the owner;
+- **stay quiet when nothing changed** and usage isn't low: no message to the owner, no comment anywhere. Just re-arm.
 
 Stop the check-ins when the owner says so, or when no sessions are left running.
