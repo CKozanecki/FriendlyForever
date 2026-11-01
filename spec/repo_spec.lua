@@ -1523,13 +1523,13 @@ describe("Release scripts", function()
 
     -- package.sh moves a finished zip into place, so the zip is
     -- never missing while another run (or a test) uses it.
-    it("package.sh never removes the zip while other runs rebuild it", function()
+    it("package.sh never removes or damages the zip while other runs rebuild it", function()
         local zip = run("./scripts/package.sh"):match("([^\n]*%.zip)")
         assert.is_truthy(zip, "package script did not report a zip")
         local script = [[
             for i in 1 2 3; do ./scripts/package.sh >/dev/null & done
             missing=0
-            while [ -n "$(jobs -r)" ]; do [ -f "$1" ] || missing=$((missing+1)); done
+            while [ -n "$(jobs -r)" ]; do unzip -tqq "$1" >/dev/null 2>&1 || missing=$((missing+1)); done
             wait
             echo "missing=$missing"
             ls -A dist | grep -c '^\.' || true
@@ -1540,8 +1540,22 @@ describe("Release scripts", function()
     end)
 
     it("two package.sh runs started together both succeed", function()
-        local out = run("./scripts/package.sh >/dev/null & ./scripts/package.sh >/dev/null; r=$?; wait $!; echo rc=$r")
-        assert.is_truthy(out:find("rc=0", 1, true), out)
+        local out = run("./scripts/package.sh >/dev/null & p=$!; ./scripts/package.sh >/dev/null; a=$?; wait $p; b=$?; echo rc=$a$b")
+        assert.is_truthy(out:find("rc=00", 1, true), out)
+    end)
+
+    it("release-notes.sh never leaves the notes empty while other runs rewrite them", function()
+        local script = [[
+            ./scripts/release-notes.sh >/dev/null
+            for i in 1 2 3; do ./scripts/release-notes.sh >/dev/null & done
+            bad=0
+            while [ -n "$(jobs -r)" ]; do [ -s RELEASE_NOTES.md ] || bad=$((bad+1)); done
+            wait
+            echo "bad=$bad"
+            ls -A | grep -c '^RELEASE_NOTES.md\.' || true
+        ]]
+        local out = run("bash -c '" .. script:gsub("'", "'\\''") .. "'")
+        assert.is_truthy(out:find("bad=0\n0\n", 1, true), out)
     end)
 
     it("package comparison passes on matching zips and fails on different ones", function()
