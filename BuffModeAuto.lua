@@ -2,7 +2,7 @@
 -- the Buff Back tab. Triggers only switch buff mode: they never cast.
 --
 -- Turns on (on by default; the first time a session, BuffMode.Set says where
--- to switch these; the "Start here" walkthrough, #47, planned, will show them):
+-- to switch these; the walkthrough, Walkthrough.lua (#47), shows them):
 --   joining a group or raid;
 --   a group member dying, after the group's first pull (until the next one);
 --   someone outside your group buffing you (a group member's buff isn't a
