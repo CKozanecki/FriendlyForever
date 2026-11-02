@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #172, #173, #182, #178
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -367,6 +367,11 @@ describe("UI simulator workflow", function()
                 end
             end
             assert.is_truthy(keyStep.text:find("sha256sum", 1, true), "the key isn't a hash of its inputs")
+            -- The workflow file's own hash is in the key, so editing any
+            -- build step, even a literal flag, misses the cache.
+            assert.is_truthy(keyStep.text:find("hashFiles('.github/workflows/ui-sim.yml')", 1, true), "the key leaves out the workflow file's hash")
+            assert.is_truthy(keyStep.text:find('"workflow=$WORKFLOW_HASH"', 1, true), "the workflow hash isn't in the key's inputs")
+            assert.is_truthy(build.text:find("sparse-checkout: .github/workflows/ui-sim.yml", 1, true), "the workflow file isn't checked out for the hash")
             -- Both cache steps use the one computed key, and cache the staged folder.
             for _, step in ipairs({ restore, save }) do
                 assert.is_truthy(step.text:find("key: ${{ steps.key.outputs.key }}", 1, true), "a cache step doesn't use the computed key")

@@ -103,14 +103,26 @@ jobs:
     timeout-minutes: 75
     continue-on-error: true
     steps:
+      # The workflow file itself is in the key, so editing any build or
+      # staging step (a flag, a marker, a copied folder) misses the cache and
+      # is built and checked in the run that changes it, never hidden by a
+      # hit. Only this file is checked out.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/workflows/ui-sim.yml
+          sparse-checkout-cone-mode: false
+
       # One hash over every input of the build below. Change any of them and
       # the key, and so the cache, changes. spec/repo_spec.lua checks each
       # setting the build steps use is named here.
       - name: Work out the cache key from the build's inputs
         id: key
+        env:
+          WORKFLOW_HASH: ${{ hashFiles('.github/workflows/ui-sim.yml') }}
         run: |
           inputs="$(printf '%s\n' \
-            "layout=1" \
+            "workflow=$WORKFLOW_HASH" \
             "sim=$SIM_COMMIT" \
             "blizzard-ui=$BLIZZARD_UI_COMMIT" \
             "build-base=$BUILD_BASE" \
@@ -205,17 +217,9 @@ jobs:
           cp -r "$RUNNER_TEMP/sim/Interface/AddOns/TestFramework" "$out/sim/Interface/AddOns/"
           cp -r "$RUNNER_TEMP/blizzard-ui/Interface/AddOns" "$out/blizzard-ui/"
 
-      # Saved as soon as it is staged, so a later failure or a cancelled run
-      # still keeps it.
-      - name: Save the staged simulator build
-        if: steps.sim-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/ui-sim-build
-          key: ${{ steps.key.outputs.key }}
-
-      # Runs after a restore as well as after a build: a restored cache is
-      # as untrusted as anything the build made. The binary must be a plain
+      # Runs after a restore as well as after a build, and before the save,
+      # so nothing unchecked is ever cached: a restored cache is as
+      # untrusted as anything the build made. The binary must be a plain
       # file, and nothing in the tree may be a link or any other special
       # file; the upload below would follow or carry them on.
       - name: Check the staged files are plain files
@@ -226,6 +230,15 @@ jobs:
           test -d "$out/sim/Interface/AddOns/TestFramework"
           test -d "$out/blizzard-ui/AddOns"
           test -z "$(find "$out" -mindepth 1 ! -type f ! -type d -print -quit)"
+
+      # Saved as soon as it is staged and checked, so a later failure or a
+      # cancelled run still keeps it.
+      - name: Save the staged simulator build
+        if: steps.sim-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ui-sim-build
+          key: ${{ steps.key.outputs.key }}
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
