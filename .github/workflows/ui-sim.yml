@@ -67,6 +67,10 @@ env:
   # That commit's Dockerfile builds on rust:1.92-bookworm; running uses the
   # same Debian, so the binary finds the ICU it was linked with.
   BUILD_BASE: rust@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2 # 1.92-bookworm
+  # What the build uses; the cache key covers each (#170).
+  BUILD_PACKAGES: clang mold git pkg-config cmake libicu-dev libudev-dev
+  BUILD_FEATURES: gui client-retail
+  BUILD_STRIP: symbols
   RENDER_BASE: debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 # bookworm-slim
 
 jobs:
@@ -76,18 +80,54 @@ jobs:
   # No Blizzard art is fetched, so Blizzard's textures are missing: text,
   # layout and our own colors show.
   #
+  # The finished, staged build is cached (#170), keyed on everything that
+  # shapes it, so it is rebuilt only when a pin or a build setting moves. On
+  # a hit the job goes straight to the checks and the upload. The older cache
+  # of cargo's home and target directories is gone: each run checks the
+  # simulator out fresh, so the timestamps changed and cargo recompiled the
+  # simulator's own crates anyway (about 2.5 minutes), and it cost 25 s to
+  # restore. A pull request's cache is visible only to that pull request; it
+  # can read main's but can't write it.
+  #
   # The build runs the simulator's build scripts and macros, so it is
   # sandboxed like the simulator itself: cargo first downloads the locked,
   # checksummed crates (it runs none of their code), then compiles with no
   # network, no capabilities and the sources read-only. Its output goes to
   # the other jobs as an artifact: the stripped binary, the test framework
-  # run-tests loads from beside it, and Blizzard's UI code.
+  # run-tests loads from beside it, and Blizzard's UI code. Whatever comes
+  # out of the cache is as untrusted as a fresh build: the runner checks it
+  # holds only plain files and copies nothing else, and only a sandbox runs
+  # it.
   simulator:
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     continue-on-error: true
     steps:
+      # One hash over every input of the build below. Change any of them and
+      # the key, and so the cache, changes. spec/repo_spec.lua checks each
+      # setting the build steps use is named here.
+      - name: Work out the cache key from the build's inputs
+        id: key
+        run: |
+          inputs="$(printf '%s\n' \
+            "layout=1" \
+            "sim=$SIM_COMMIT" \
+            "blizzard-ui=$BLIZZARD_UI_COMMIT" \
+            "build-base=$BUILD_BASE" \
+            "packages=$BUILD_PACKAGES" \
+            "features=$BUILD_FEATURES" \
+            "strip=$BUILD_STRIP")"
+          echo "key=wow-ui-sim-build-$(printf '%s' "$inputs" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the staged simulator build
+        id: sim-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ui-sim-build
+          key: ${{ steps.key.outputs.key }}
+
       - name: Fetch the simulator and Blizzard's UI code at their pinned commits
+        if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
           git init -q "$RUNNER_TEMP/sim"
           git -C "$RUNNER_TEMP/sim" fetch -q --depth 1 "$SIM_REPO" "$SIM_COMMIT"
@@ -113,27 +153,17 @@ jobs:
           touch .wow-ui-sim-blizzard-ui-complete
 
       - name: Build a build image (the Dockerfile's build tools)
+        if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
           docker build -t ff-build - <<DOCKERFILE
           FROM $BUILD_BASE
           RUN apt-get update -q && apt-get install -yq --no-install-recommends \
-                clang mold git pkg-config cmake libicu-dev libudev-dev \
+                $BUILD_PACKAGES \
               && rm -rf /var/lib/apt/lists/*
           DOCKERFILE
           # Published binaries use the commit's portable CI config.
           cp "$RUNNER_TEMP/sim/.cargo/config.ci.toml" "$RUNNER_TEMP/sim/.cargo/config.toml"
           mkdir -p "$RUNNER_TEMP/cargo-home" "$RUNNER_TEMP/sim-target"
-
-      # Restored and saved separately, so the build is cached as soon as it
-      # finishes, even if a later step fails or the run is cancelled.
-      - name: Restore the simulator build
-        id: sim-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ${{ runner.temp }}/cargo-home
-            ${{ runner.temp }}/sim-target
-          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui-stripped
 
       # The only container with network: cargo fetch downloads the crates
       # Cargo.lock names, checks their checksums and unpacks them, and runs
@@ -147,24 +177,16 @@ jobs:
             ff-build cargo fetch --locked
 
       - name: Build the simulator with its renderer (no network, sources read-only)
+        if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
           docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
             --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/cargo -e CARGO_TARGET_DIR=/target \
-            -e CARGO_PROFILE_RELEASE_STRIP=symbols \
+            -e CARGO_PROFILE_RELEASE_STRIP="$BUILD_STRIP" \
             --memory 12g --memory-swap 12g --pids-limit 8192 \
             -v "$RUNNER_TEMP/sim:/build:ro" -v "$RUNNER_TEMP/cargo-home:/cargo:ro" \
             -v "$RUNNER_TEMP/sim-target:/target" -w /build \
             ff-build cargo build --release --locked --offline --bin wow-sim \
-              --no-default-features --features "gui client-retail"
-
-      - name: Save the simulator build
-        if: steps.sim-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ${{ runner.temp }}/cargo-home
-            ${{ runner.temp }}/sim-target
-          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui-stripped
+              --no-default-features --features "$BUILD_FEATURES"
 
       # What the simulator's image holds: the binary (stripped by the build,
       # as the image's is), with the test framework run-tests loads from
@@ -172,6 +194,7 @@ jobs:
       # is untrusted, so the runner only copies the binary, and only a plain
       # file, never a link: nothing here reads or runs it outside a sandbox.
       - name: Stage the simulator for the other jobs
+        if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
           out="$RUNNER_TEMP/ui-sim-build"
           bin="$RUNNER_TEMP/sim-target/release/wow-sim"
@@ -181,6 +204,28 @@ jobs:
           cp -P "$bin" "$out/sim/wow-sim"
           cp -r "$RUNNER_TEMP/sim/Interface/AddOns/TestFramework" "$out/sim/Interface/AddOns/"
           cp -r "$RUNNER_TEMP/blizzard-ui/Interface/AddOns" "$out/blizzard-ui/"
+
+      # Saved as soon as it is staged, so a later failure or a cancelled run
+      # still keeps it.
+      - name: Save the staged simulator build
+        if: steps.sim-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ui-sim-build
+          key: ${{ steps.key.outputs.key }}
+
+      # Runs after a restore as well as after a build: a restored cache is
+      # as untrusted as anything the build made. The binary must be a plain
+      # file, and nothing in the tree may be a link or any other special
+      # file; the upload below would follow or carry them on.
+      - name: Check the staged files are plain files
+        run: |
+          out="$RUNNER_TEMP/ui-sim-build"
+          test -f "$out/sim/wow-sim"
+          test ! -L "$out/sim/wow-sim"
+          test -d "$out/sim/Interface/AddOns/TestFramework"
+          test -d "$out/blizzard-ui/AddOns"
+          test -z "$(find "$out" -mindepth 1 ! -type f ! -type d -print -quit)"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

@@ -2,6 +2,7 @@
 
 ### Unreleased
 
+- **UI simulator workflow:** the finished simulator build is cached, keyed on its pins and build settings, so it is rebuilt only when one moves instead of every run. Nothing ships in the addon. (#170)
 - **Start here:** a first options page under Friendly Forever with what the addon does, your settings as they are (whether the addon is on, how you thank people, friendly nameplates), the buff-back button's key and buff mode's key, and a link to every other page. It changes nothing itself: each setting is changed on its own page. (#47)
 - **The walkthrough, and first-run setup:** a new install starts switched off, with a short walkthrough open and a chat line pointing to Start here. Finishing the walkthrough, or skipping it, turns Friendly Forever on; switching it on yourself (`/friendly on`, the options or the minimap button) works too, and is then your choice. If you already use the addon, the walkthrough shows once after this update and changes nothing. It goes a step at a time through the Buff Back tab (buff order and "Never offer"), buff mode's key and each of the triggers that turn it on and off, with its switch, and the thanks and welcome lines, opening each page; it only shows and explains. Take it again from Start here. A fight closes it, and it comes back at the same step when the fight is over. (#47)
 - This version adds a file (Walkthrough.lua). After updating, restart the game; /reload isn't enough. (#47)

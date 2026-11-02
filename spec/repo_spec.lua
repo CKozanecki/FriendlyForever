@@ -333,6 +333,85 @@ describe("UI simulator workflow", function()
         end
     end)
 
+    -- #170: the finished build is cached, keyed on everything that shapes it.
+    describe("simulator build cache (#170)", function()
+        local build, keyStep, restore, save
+
+        setup(function()
+            build = jobs["simulator"]
+            for _, step in ipairs(build.steps) do
+                if step.text:find("id: key", 1, true) then keyStep = step end
+                if step.text:find("actions/cache/restore@", 1, true) then restore = step end
+                if step.text:find("actions/cache/save@", 1, true) then save = step end
+            end
+        end)
+
+        it("keys the cache on every pin and build setting the build uses (black)", function()
+            assert.is_truthy(keyStep and restore and save, "the key, restore and save steps are missing")
+            -- Every variable the fetch, image and build steps read, besides
+            -- the repository URLs, must be in the key's hash.
+            local used = {}
+            for _, step in ipairs(build.steps) do
+                if step ~= keyStep then
+                    for var in step.text:gmatch("%$[{]?([A-Z][A-Z_]+)") do
+                        if var:find("^SIM_") or var:find("^BUILD_") or var:find("^BLIZZARD_") then used[var] = true end
+                    end
+                end
+            end
+            for _, var in ipairs({ "SIM_COMMIT", "BLIZZARD_UI_COMMIT", "BUILD_BASE", "BUILD_PACKAGES", "BUILD_FEATURES", "BUILD_STRIP" }) do
+                assert.is_true(used[var], var .. " is no longer used by the build; update this check")
+            end
+            for var in pairs(used) do
+                if var ~= "SIM_REPO" then
+                    assert.is_truthy(keyStep.text:find("$" .. var, 1, true), "the cache key leaves out " .. var)
+                end
+            end
+            assert.is_truthy(keyStep.text:find("sha256sum", 1, true), "the key isn't a hash of its inputs")
+            -- Both cache steps use the one computed key, and cache the staged folder.
+            for _, step in ipairs({ restore, save }) do
+                assert.is_truthy(step.text:find("key: ${{ steps.key.outputs.key }}", 1, true), "a cache step doesn't use the computed key")
+                assert.is_truthy(step.text:find("path: ${{ runner.temp }}/ui-sim-build", 1, true), "a cache step doesn't cache the staged build")
+            end
+        end)
+
+        it("skips the fetch and build on a hit, and saves only after a miss (white)", function()
+            local steps = {}
+            for i, step in ipairs(build.steps) do
+                local skipped = step.text:find("if: steps.sim-cache.outputs.cache-hit != 'true'", 1, true) ~= nil
+                steps[#steps + 1] = { name = step.text, skipped = skipped, index = i }
+            end
+            local function find(fragment)
+                for _, entry in ipairs(steps) do
+                    if entry.name:find(fragment, 1, true) then return entry end
+                end
+                error("no step " .. fragment)
+            end
+            for _, fragment in ipairs({ "Fetch the simulator", "Build a build image", "Download the simulator", "Build the simulator", "Stage the simulator", "Save the staged" }) do
+                assert.is_true(find(fragment).skipped, fragment .. " runs on a cache hit")
+            end
+            for _, fragment in ipairs({ "Work out the cache key", "Restore the staged", "Check the staged files", "actions/upload-artifact" }) do
+                assert.is_false(find(fragment).skipped, fragment .. " is skipped on a hit")
+            end
+            assert.is_true(find("Work out").index < find("Restore the staged").index, "the key comes after the restore")
+            assert.is_true(find("Restore the staged").index < find("Fetch the simulator").index, "the restore comes after the fetch")
+            assert.is_true(find("Save the staged").index < find("Check the staged files").index
+                and find("Check the staged files").index < find("actions/upload").index, "the check or upload is out of steps")
+        end)
+
+        it("checks a restored build holds only plain files before it is uploaded (black)", function()
+            local check
+            for _, step in ipairs(build.steps) do
+                if step.text:find("Check the staged files", 1, true) then check = step end
+            end
+            assert.is_truthy(check, "no check of the staged files")
+            assert.is_falsy(check.text:find("cache%-hit"), "the check is skipped on a hit")
+            assert.is_truthy(check.text:find('test -f "$out/sim/wow-sim"', 1, true), "the binary isn't checked as a file")
+            assert.is_truthy(check.text:find('test ! -L "$out/sim/wow-sim"', 1, true), "the binary isn't checked as not a link")
+            assert.is_truthy(check.text:find("! -type f ! -type d", 1, true), "links and special files in the tree aren't refused")
+            assert.is_falsy(text:find("cargo%-home\n%s+%${{ runner%.temp }}/sim%-target"), "the old cargo cache is still cached")
+        end)
+    end)
+
     -- #154: the maintainer's fixes, reviewed on #154 before the pin moved.
     -- There's no published image at that commit, and release binaries are
     -- never used, so the simulator job builds it and the others run that.
@@ -355,7 +434,8 @@ describe("UI simulator workflow", function()
         local stripped = false
         for _, command in ipairs(buildRun) do
             if command:find("cargo build", 1, true) then
-                stripped = command:find("-e CARGO_PROFILE_RELEASE_STRIP=symbols", 1, true) ~= nil
+                stripped = command:find('-e CARGO_PROFILE_RELEASE_STRIP="$BUILD_STRIP"', 1, true) ~= nil
+                    and text:find("\n%s*BUILD_STRIP: symbols\n") ~= nil
             end
         end
         assert.is_true(stripped, "the build doesn't strip the binary in its sandbox")
