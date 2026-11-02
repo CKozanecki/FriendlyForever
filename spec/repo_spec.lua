@@ -379,6 +379,97 @@ describe("UI simulator workflow", function()
             end
         end)
 
+        -- A step's run: block, as the shell gets it, run for real in a fresh
+        -- folder: env is a table of variables, and prepare(dir) builds the
+        -- fixture. Returns the exit status, the log and the folder's reader.
+        local function runBlock(step, env, prepare)
+            local block = step.text:match("run: |\n(.*)$")
+            assert.is_truthy(block, "the step has no run block")
+            local dir = os.tmpname()
+            os.remove(dir)
+            assert.is_true(os.execute("mkdir -p '" .. dir .. "'") == 0)
+            if prepare then prepare(dir) end
+            local f = assert(io.open(dir .. "/run.sh", "wb"))
+            -- Dedent the block evenly.
+            local indent = block:match("^( *)")
+            local body = {}
+            for line in (block .. "\n"):gmatch("([^\n]*)\n") do body[#body + 1] = (line:gsub("^" .. indent, "", 1)) end
+            f:write("set -eo pipefail\nRUNNER_TEMP='" .. dir .. "'\nGITHUB_OUTPUT='" .. dir .. "/out'\n")
+            for name, value in pairs(env or {}) do f:write(name .. "='" .. value .. "'\n") end
+            f:write(table.concat(body, "\n"), "\n")
+            f:close()
+            local status = os.execute("bash '" .. dir .. "/run.sh' > '" .. dir .. "/step.log' 2>&1")
+            local function read(name)
+                local file = io.open(dir .. "/" .. name, "rb")
+                local content = file and file:read("*a") or ""
+                if file then file:close() end
+                return content
+            end
+            local result = { status = status, log = read("step.log"), out = read("out") }
+            os.execute("rm -rf '" .. dir .. "'")
+            return result
+        end
+
+        it("really changes the key when any one input changes (black)", function()
+            local base = { SIM_COMMIT = "a", BLIZZARD_UI_COMMIT = "b", BUILD_BASE = "c", BUILD_PACKAGES = "d",
+                BUILD_FEATURES = "e", BUILD_STRIP = "f", WORKFLOW_HASH = "g" }
+            local function key(env)
+                local r = runBlock(keyStep, env)
+                assert.is_true(r.status == 0 or r.status == true, "the key step failed: " .. r.log)
+                local hash = r.out:match("^key=wow%-ui%-sim%-build%-(%x+)\n$")
+                assert.is_truthy(hash and #hash == 64, "the key isn't a 64-character hash: " .. r.out)
+                return hash
+            end
+            local first = key(base)
+            assert.are.equal(first, key(base), "the same inputs give another key")
+            -- WORKFLOW_HASH is named in the step's env: block, from the file's hash.
+            assert.is_truthy(keyStep.text:find("WORKFLOW_HASH: ${{ hashFiles('.github/workflows/ui-sim.yml') }}", 1, true),
+                "WORKFLOW_HASH isn't the workflow file's hash")
+            for name in pairs(base) do
+                local changed = {}
+                for k, v in pairs(base) do changed[k] = v end
+                changed[name] = base[name] .. "x"
+                assert.are_not.equal(first, key(changed), "changing " .. name .. " doesn't change the key")
+            end
+        end)
+
+        it("refuses a restored or built tree with a link, a special file or a missing part (black)", function()
+            local check
+            for _, step in ipairs(build.steps) do
+                if step.text:find("Check the staged files", 1, true) then check = step end
+            end
+            local function tree(dir)
+                local o = dir .. "/ui-sim-build"
+                assert.is_true(os.execute("mkdir -p '" .. o .. "/sim/Interface/AddOns/TestFramework' '" .. o
+                    .. "/blizzard-ui/AddOns/Blizzard_X' && touch '" .. o .. "/sim/wow-sim' '" .. o
+                    .. "/blizzard-ui/AddOns/Blizzard_X/a.lua' '" .. o .. "/blizzard-ui/AddOns/.marker'") == 0)
+            end
+            local function result(extra)
+                local r = runBlock(check, {}, function(dir)
+                    tree(dir)
+                    if extra then assert.is_true(os.execute(extra:gsub("OUT", dir .. "/ui-sim-build")) == 0, "fixture failed: " .. extra) end
+                end)
+                return r.status == 0 or r.status == true
+            end
+            assert.is_true(result(), "a complete tree of plain files is refused")
+            local bad = {
+                "rm OUT/sim/wow-sim && ln -s /bin/sh OUT/sim/wow-sim",
+                "rm OUT/sim/wow-sim",
+                "ln -s /etc OUT/blizzard-ui/AddOns/Blizzard_X/deep",
+                "mkfifo OUT/sim/Interface/AddOns/TestFramework/pipe",
+                "rmdir OUT/sim/Interface/AddOns/TestFramework",
+                "rm -r OUT/blizzard-ui/AddOns",
+            }
+            for _, extra in ipairs(bad) do
+                assert.is_false(result(extra), "the check passes for: " .. extra)
+            end
+            assert.is_falsy(check.text:find("||", 1, true), "the check can be made to pass with ||")
+        end)
+
+        it("restores only the exact key, never a prefix (black)", function()
+            assert.is_falsy(restore.text:find("restore-keys", 1, true), "a prefix restore could bring back an older build")
+        end)
+
         it("skips the fetch and build on a hit, and saves only after a miss (white)", function()
             local steps = {}
             for i, step in ipairs(build.steps) do
