@@ -9,7 +9,7 @@ Legend: **[S]** = a screenshot to take at that moment (the CurseForge list from 
 ## 0. Before you log in
 
 - [ ] Install the **0.9.1** build (the CurseForge file, tag `v0.9.1`; `main` has no addon changes since). **Fully restart the game**; a new file isn't seen after `/reload`.
-- [ ] **Do NOT touch `FriendlyForeverDB` yet.** The first-run walkthrough only fires on a fresh install, so check it first (section 1) before you configure anything. If the character already has saved settings, move that SavedVariables file aside for this one test.
+- [ ] **Do NOT touch `FriendlyForeverDB` yet.** The first-run walkthrough only fires when there are no saved settings, so check it first (section 1) before you configure anything. The settings are **account-wide**: `WTF/Account/<ACCOUNT>/SavedVariables/FriendlyForever.lua`, shared by every character, so a second character is not a fresh install. To test first run, move that file aside (with the game closed). A true first run says "welcome! Friendly Forever is off until you finish or skip its walkthrough" and starts off. With existing settings you get the "new: a short walkthrough…" line instead, the addon stays on, and the walkthrough shows once.
 - [ ] Turn on Lua errors: `/console scriptErrors 1` (or BugSack). Any error at any point is a finding.
 - [ ] Turn on `/friendly debug`, but only after section 1, since debug adds chat noise to the first-run shots.
 - [ ] Screenshot hygiene: native resolution, default UI scale, no other UI addons visible, nothing private in chat. Save originals uncropped.
@@ -31,7 +31,7 @@ Run `/friendly status` first and paste it into your scratch file.
 
 - [ ] **Skyborne race and race ID** appear in `/friendly status` (High Order 95, Windshaper 96). → #50
 - [ ] **Addon compartment exists**, and the icon shows in all three places: minimap button (round, no square corners), compartment, AddOns list at character select. Greys out when the addon is off. **[S]** minimap button + hover tooltip, compartment entry, optionally the AddOns list.
-- [ ] **Settings search** (#48): does Esc > Options have a search box? Is there a **Find a setting** page? Does searching `snooze`, `nameplate`, `buff` find headings? Fallback `/friendly find snooze` prints "Snooze: on the General page". If the page is missing: `/friendly debug`, `/reload`, look for `settings search page: not made: …`.
+- [ ] **Settings search** (#48): does Esc > Options have a search box? Is there a **Find a setting** page? Does searching `snooze`, `nameplate`, `buff` find headings? Fallback `/friendly find snooze` prints "Snooze: on the General page". If the page is missing: `/friendly debug`, `/reload`, look for `settings search page: not made: …` (the API exists but failed). **No such line at all** means the client doesn't have `Settings.RegisterVerticalLayoutSubcategory` or `CreateSettingsListSectionHeaderInitializer`, which is the likelier reason; note that.
 - [ ] **Combat event timing:** run this once, then pull a mob. → #50, #100
   `/run local f=CreateFrame("Frame") f:RegisterEvent("PLAYER_REGEN_DISABLED") f:SetScript("OnEvent",function() print("REGEN_DISABLED, lockdown:", InCombatLockdown()) end)`
   (`false` = what we assume; `true` = scenarios' assumption should change.)
@@ -64,7 +64,7 @@ Both with `/friendly debug` on. Do this on a quiet street outside a capital, out
 
 **Addon messages**
 - [ ] **A whisper reaches a stranger nearby.** One-off hello: `/run C_ChatInfo.SendAddonMessage("FriendlyFvr","1;HELLO;<Your-Name>;0.9.1;1","WHISPER","<Their-Name>")`. Other side's `/friendly status` should count 1 received and show 1 other copy seen on both sides. **This is the decision point for ANSWER, PLAN and RECEIPT**, so do it early.
-- [ ] **Sender name form** in `CHAT_MSG_ADDON`: `First-Surname` or `First Surname` (anything else is dropped as "malformed", which looks like messages never arriving).
+- [ ] **Sender name form** in `CHAT_MSG_ADDON`: `First-Surname` or `First Surname` (a form the addon can't parse is dropped as "malformed"; a **first name alone** is dropped as "says it is about First-Surname", which also looks like messages never arriving; check `/friendly status` for the dropped reason).
 - [ ] `C_ChatInfo.SendAddonMessage` returns `Enum.SendAddonMessageResult` (0 = success). If nothing is returned, every send shows "not sent" in status even though it went out.
 - [ ] Throttle still 10 per prefix, 1/s refill (addon stays at half).
 - [ ] `/chatlist` shows only General, Trade, LocalDefense. No new channel joined.
@@ -103,12 +103,12 @@ Both with `/friendly debug` on. Do this on a quiet street outside a capital, out
 - [ ] Group members' aura `sourceUnit` readable (needed for Blessings)?
 - [ ] **Unknown names:** form a group with someone far away or just logging in; `/run print(UnitName("party1"))` right away and again once they show. Is it `UNKNOWNOBJECT`? Surname with it? Secret? Does `UNIT_NAME_UPDATE` fire?
 - [ ] **Top-up** (#42): a member wearing your buff in its last 5 minutes is offered it again. If never: `/dump C_UnitAuras.GetAuraDataByIndex("party1",1,"HELPFUL")`; are `expirationTime` and `duration` present, numbers or secret? `expirationTime` on `GetTime()`'s clock, 0 for permanent. Recast refreshes with no "more powerful spell" error. Repeat after a pull and inside an instance (secret there is fine).
-- [ ] Turn-on triggers: joining a group, a death in the group, a stranger's buff (outside a city), each switch on/off. First pull ends it, everyone-buffed ends it, timeout ends it.
+- [ ] Turn-on triggers: joining a group, a death in the group **after the group's first pull** (not before), a stranger's buff (outside a city), each switch on/off. First pull ends it, everyone-buffed ends it, timeout ends it.
 
 ## 7. Guild (3+ guildmates running the addon)
 
 - [ ] Set **Most players… who greet one login** to 1 or 2 and `/friendly debug` on. Have someone log out and in.
-- [ ] Debug shows "announced greeting …", then "greeting …: N other copies announced first" or "not sending…". "my announcement never came back" means our own guild addon messages don't return to us (the cap then doesn't hold; nothing breaks).
+- [ ] Debug shows "announced greeting …", then "greeting …: N other copies announced first" or "not sending…". "greeting …: no announcement of mine has come back yet" (with none of your own back earlier) means the game doesn't send your guild addon messages back to you: the cap doesn't hold and each copy greets after its random wait; nothing breaks. "my announcement never came back" is the opposite case: echoes do work, but this one `GREET` was lost, and that copy stayed silent.
 - [ ] At most K hellos, each a different line, a few seconds apart. Inside an instance: greets after the random wait with "…random wait only: inside an instance".
 - [ ] Order and delivery: everyone sees the same order (can't be fully proven; note anything odd).
 
