@@ -122,9 +122,12 @@ describe("the agents' instruction files", function()
             local headings = safetyHeadings(agents)
             assert.is_true(#headings >= 10, "found " .. #headings .. " safety headings")
             for at, heading in ipairs(headings) do
-                local copy = at == 1 and "\n## " .. heading:upper() .. "\n" or "\n- **" .. heading .. "** copied.\n"
-                assert.are.same({ "CLAUDE.md repeats AGENTS.md's safety heading: " .. heading },
-                    driftProblems(claude .. copy, agents, overrides), heading)
+                local copies = at == 1 and { "\n## " .. heading:upper() .. "\n", "\n### " .. heading .. "\n",
+                    "\n# " .. heading .. "  \n" } or { "\n- **" .. heading .. "** copied.\n" }
+                for _, copy in ipairs(copies) do
+                    assert.are.same({ "CLAUDE.md repeats AGENTS.md's safety heading: " .. heading },
+                        driftProblems(claude .. copy, agents, overrides), copy)
+                end
             end
         end)
 
@@ -151,11 +154,17 @@ describe("the agents' instruction files", function()
                 driftProblems(claude, agents, found))
         end)
 
-        it("when AGENTS.md is over Codex's size cap", function()
-            local padded = agents .. ("x"):rep(CODEX_MAX_BYTES - #agents)
+        -- The cap is written out here, and read from docs/agent-facts.md, so
+        -- neither the constant nor the recorded source can move alone.
+        it("when AGENTS.md is over Codex's size cap of 32768 bytes, as docs/agent-facts.md records", function()
+            local facts = wow.readFile("docs/agent-facts.md")
+            assert.are.equal("32768", facts:match("32 KiB %((%d+) bytes%)"))
+            assert.is_truthy(facts:find("fails if `AGENTS.md` is over 32768 bytes", 1, true))
+            local padded = agents .. ("x"):rep(32768 - #agents)
+            assert.are.equal(32768, #padded)
             assert.are.same({}, driftProblems(claude, padded, overrides))
-            assert.are.same({ ("AGENTS.md is %d bytes, over Codex's cap of %d"):format(CODEX_MAX_BYTES + 1,
-                CODEX_MAX_BYTES) }, driftProblems(claude, padded .. "x", overrides))
+            assert.are.same({ "AGENTS.md is 32769 bytes, over Codex's cap of 32768" },
+                driftProblems(claude, padded .. "x", overrides))
         end)
     end)
 end)
