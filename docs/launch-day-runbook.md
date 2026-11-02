@@ -91,7 +91,7 @@ Both with `/friendly debug` on. Do this on a quiet street outside a capital, out
 - [ ] **Global cooldown / one thank-you:** buff them three times by hand; their single thank-you lists all three.
 - [ ] **Refreshed buff:** when someone recasts a buff you already wear from them, does `UNIT_AURA` list it in `addedAuras` or only `updatedAuraInstanceIDs`?
 - [ ] **RECEIPT:** with them off your nameplates and untargeted, their debug log says "named by their copy's receipt"; status counts it received. Is the caster really unreadable for strangers (secret `sourceUnit`)? If the game names them anyway, receipts change nothing.
-- [ ] **Thank-you goes to the right player:** after a receipt names the caster, the receiver whispers or says its thank-you to that player, The addon always writes the name as `First-Surname` (`Util.FullName`), whatever form `CHAT_MSG_ADDON` gave (see the sender-name check above), so if the server's own form is the only one it can whisper, that rewriting is the thing to report (#138).
+- [ ] **Thank-you goes to the right player:** after a receipt names the caster, the receiver whispers or says its thank-you to that player. The addon always writes the name as `First-Surname` (`Util.FullName`), whatever form `CHAT_MSG_ADDON` gave (see the sender-name check above), so if the server's own form is the only one it can whisper, that rewriting is the thing to report (#138).
 
 ## 5. Capital quiet-mode checks
 
