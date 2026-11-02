@@ -364,5 +364,10 @@ local SHOWN = { favour = States.Favour, buffmode = States.GroupMissing }
 function States.Show(name)
     local state = SHOWN[name]
     if not state then error("no button state called " .. tostring(name)) end
+    -- The simulator starts as a new install: the addon off and its
+    -- walkthrough open (#47). Skipped first, by its Skip button, as a player
+    -- would, which turns the addon on.
+    local walkthrough = _G.FriendlyForeverWalkthrough
+    if type(walkthrough) == "table" and walkthrough:IsShown() then walkthrough.skip:Click() end
     state.Set()
 end

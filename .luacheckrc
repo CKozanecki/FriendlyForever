@@ -38,7 +38,7 @@ read_globals = {
     "IsSwimming", "IsSubmerged", "GetMirrorTimerInfo", "GetInstanceInfo",
     "C_Spell", "C_SpellBook", "Enum", "GetCVarBool", "GetSpellInfo", "GetSpellTexture", "IsSpellKnown", "IsPlayerSpell",
     "UnitIsDeadOrGhost", "UnitIsPVP",
-    "SetOverrideBindingClick", "ClearOverrideBindings", "GetBindingText", "GetBindingAction",
+    "SetOverrideBindingClick", "ClearOverrideBindings", "GetBindingText", "GetBindingAction", "GetBindingKey",
     "IsShiftKeyDown", "IsControlKeyDown", "IsAltKeyDown",
     "UnitInRange", "UnitIsConnected", "UnitIsVisible", "IsSpellInRange",
     "UnitGroupRolesAssigned", "GetPartyAssignment", "GetBattlefieldWinner",

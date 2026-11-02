@@ -1,4 +1,4 @@
--- Spec: #48
+-- Spec: #48, #47
 -- Finding a setting: /friendly find <word>, the game's Settings search where
 -- the client has one, and the one table both read (OptionsIndex.lua).
 local wow = require("spec.support.wow")
@@ -69,7 +69,8 @@ describe("Finding a setting (#48)", function()
         it("has every control on every options page, so it can't drift from the pages", function()
             local paths = ControlPaths(ns.Options.widgets)
             local general, ledger = ns.Options.Pages()
-            local pages = { [_G.FriendlyForeverOptionsPanel] = true, [general] = true, [ledger] = true }
+            local pages = { [_G.FriendlyForeverOptionsPanel] = true, [general] = true, [ledger] = true,
+                [ns.Options.StartPage()] = true }
             local missing = {}
             for _, frame in ipairs(wow.frames) do
                 if CONTROL_KINDS[frame.kind] and OnAPage(frame, pages) then
