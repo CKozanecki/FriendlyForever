@@ -399,8 +399,9 @@ describe("UI simulator workflow", function()
             end
             assert.is_true(find("Work out").index < find("Restore the staged").index, "the key comes after the restore")
             assert.is_true(find("Restore the staged").index < find("Fetch the simulator").index, "the restore comes after the fetch")
-            assert.is_true(find("Save the staged").index < find("Check the staged files").index
-                and find("Check the staged files").index < find("actions/upload").index, "the check or upload is out of steps")
+            assert.is_true(find("Stage the simulator").index < find("Check the staged files").index
+                and find("Check the staged files").index < find("Save the staged").index
+                and find("Save the staged").index < find("actions/upload").index, "nothing unchecked may be saved: stage, check, save, upload")
         end)
 
         it("checks a restored build holds only plain files before it is uploaded (black)", function()
