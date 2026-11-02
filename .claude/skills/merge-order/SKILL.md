@@ -5,7 +5,7 @@ description: Trial-merge every pair of ready Friendly Forever pull requests, the
 
 # Merge order
 
-The rule is CLAUDE.md's "Several sessions at once" → **Merge order**; CONTRIBUTING.md's [Ready for review](../../../CONTRIBUTING.md#ready-for-review) says what "ready" means. This skill is the procedure. Where it and those files differ, they win and this file is fixed.
+The rule is AGENTS.md's "Several sessions at once" → **Merge order**; CONTRIBUTING.md's [Ready for review](../../../CONTRIBUTING.md#ready-for-review) says what "ready" means. This skill is the procedure. Where it and those files differ, they win and this file is fixed.
 
 Never merge, approve, push to another driver's branch or delete a branch. This is read-only work plus messages.
 
@@ -34,7 +34,7 @@ git merge-tree --write-tree origin/<a> origin/<b>   # exit code 1 means a confli
 For each conflicting pair, record the files and what the conflict is. Common ones:
 - `-- Spec:` headers on line 1 of the same spec file (#85/#87, #92/#93): keep both issue numbers.
 - Bullets under `### Unreleased` in `CHANGELOG.md`: keep both.
-- `spec/repo_spec.lua` and `CLAUDE.md`, which many PRs touch.
+- `spec/repo_spec.lua`, `AGENTS.md` and `CLAUDE.md`, which many PRs touch.
 
 For a clean pair with overlapping files, say what overlaps, since a clean textual merge can still break (two PRs changing the same behaviour). Where practical, run `make check` on the merged tree of the pairs that overlap.
 

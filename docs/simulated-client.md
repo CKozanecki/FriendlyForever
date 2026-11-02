@@ -1,6 +1,6 @@
 # The simulated client
 
-How `spec/support/wow.lua` models the game for the busted specs, and how to extend it. The rules for tests themselves (which kind each criterion needs, chaos-test invariants, mutation checks) are in [CONTRIBUTING.md](../CONTRIBUTING.md#specs-and-traceability) and [CLAUDE.md](../CLAUDE.md#tests); this file only describes the tool. Where the two differ, CONTRIBUTING.md wins and this file is fixed.
+How `spec/support/wow.lua` models the game for the busted specs, and how to extend it. The rules for tests themselves (which kind each criterion needs, chaos-test invariants, mutation checks) are in [CONTRIBUTING.md](../CONTRIBUTING.md#specs-and-traceability) and [AGENTS.md](../AGENTS.md#tests); this file only describes the tool. Where the two differ, CONTRIBUTING.md wins and this file is fixed.
 
 **Source:** everything here describes `spec/support/wow.lua` itself; read it when this file and the code differ, and fix this file. Game facts the model is built on are in [forever-facts.md](forever-facts.md), and the guesses it makes are listed in its ASSUMPTIONS block, with their launch checks on #50.
 
@@ -51,7 +51,7 @@ The block headed `ASSUMPTIONS ABOUT WOW FOREVER` near the top of `wow.lua` lists
 
 ## Extending it
 
-The rules are in CLAUDE.md's [Tests](../CLAUDE.md#tests) section; in short:
+The rules are in AGENTS.md's [Tests](../AGENTS.md#tests) section; in short:
 
 1. **Realistic.** New behaviour must be something the game does. A test hook that the game can't do (such as `state.castLandsOn`) must still keep the game's rules: #84 found that a cast `state.castLandsOn` redirected skipped the macro's conditions on the unit it landed on, so the client could land a buff on a dead or hostile unit, and 18 of the buff back storm's seeds 1–500 failed for it. Now the conditions are checked there too.
 2. **Pessimistic when unsure.** Choose the behaviour that is harder on the addon, and say so in the comment. Examples already in the client: `/targetexact` can't find a player known only as your target; a resurrection in a battleground gives a Preparation aura again; text widths are a little wider than the game's.
