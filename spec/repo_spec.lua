@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #172, #173, #178, #182, #186
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -333,6 +333,197 @@ describe("UI simulator workflow", function()
         end
     end)
 
+    -- #170: the finished build is cached, keyed on everything that shapes it.
+    describe("simulator build cache (#170)", function()
+        local build, keyStep, restore, save
+
+        setup(function()
+            build = jobs["simulator"]
+            for _, step in ipairs(build.steps) do
+                if step.text:find("id: key", 1, true) then keyStep = step end
+                if step.text:find("actions/cache/restore@", 1, true) then restore = step end
+                if step.text:find("actions/cache/save@", 1, true) then save = step end
+            end
+        end)
+
+        it("keys the cache on every pin and build setting the build uses (black)", function()
+            assert.is_truthy(keyStep and restore and save, "the key, restore and save steps are missing")
+            -- Every variable the fetch, image and build steps read, besides
+            -- the repository URLs, must be in the key's hash.
+            local used = {}
+            for _, step in ipairs(build.steps) do
+                if step ~= keyStep then
+                    for var in step.text:gmatch("%$[{]?([A-Z][A-Z_]+)") do
+                        if var:find("^SIM_") or var:find("^BUILD_") or var:find("^BLIZZARD_") then used[var] = true end
+                    end
+                end
+            end
+            for _, var in ipairs({ "SIM_COMMIT", "BLIZZARD_UI_COMMIT", "BUILD_BASE", "BUILD_PACKAGES", "BUILD_FEATURES", "BUILD_STRIP" }) do
+                assert.is_true(used[var], var .. " is no longer used by the build; update this check")
+            end
+            for var in pairs(used) do
+                if var ~= "SIM_REPO" then
+                    assert.is_truthy(keyStep.text:find("$" .. var, 1, true), "the cache key leaves out " .. var)
+                end
+            end
+            assert.is_truthy(keyStep.text:find("sha256sum", 1, true), "the key isn't a hash of its inputs")
+            -- The workflow file's own hash is in the key, so editing any
+            -- build step, even a literal flag, misses the cache.
+            assert.is_truthy(keyStep.text:find("hashFiles('.github/workflows/ui-sim.yml')", 1, true), "the key leaves out the workflow file's hash")
+            assert.is_truthy(keyStep.text:find('"workflow=$WORKFLOW_HASH"', 1, true), "the workflow hash isn't in the key's inputs")
+            assert.is_truthy(build.text:find("sparse-checkout: .github/workflows/ui-sim.yml", 1, true), "the workflow file isn't checked out for the hash")
+            assert.is_truthy(build.text:find("sparse-checkout-cone-mode: false", 1, true), "the sparse checkout reads the path as a folder")
+            local checkoutAt, keyAt
+            for i, step in ipairs(build.steps) do
+                if step.text:find("actions/checkout@", 1, true) then checkoutAt = i end
+                if step == keyStep then keyAt = i end
+            end
+            assert.is_truthy(checkoutAt and keyAt and checkoutAt < keyAt, "the workflow file is checked out after the key is worked out")
+            -- Both cache steps use the one computed key, and cache the staged folder.
+            for _, step in ipairs({ restore, save }) do
+                assert.are.equal("${{ steps.key.outputs.key }}", step.text:match("\n%s*key:%s*([^\n]+)"), "a cache step doesn't use the computed key")
+                assert.are.equal("${{ runner.temp }}/ui-sim-build", step.text:match("\n%s*path:%s*([^\n]+)"), "a cache step doesn't cache the staged build")
+            end
+        end)
+
+        -- A step's run: block, as the shell gets it, run for real in a fresh
+        -- folder: env is a table of variables, and prepare(dir) builds the
+        -- fixture. Returns the exit status, the log and the folder's reader.
+        local function runBlock(step, env, prepare)
+            local block = step.text:match("run: |\n(.*)$")
+            assert.is_truthy(block, "the step has no run block")
+            local dir = os.tmpname()
+            os.remove(dir)
+            assert.is_true(os.execute("mkdir -p '" .. dir .. "'") == 0)
+            if prepare then prepare(dir) end
+            local f = assert(io.open(dir .. "/run.sh", "wb"))
+            -- Dedent the block evenly.
+            local indent = block:match("^( *)")
+            local body = {}
+            for line in (block .. "\n"):gmatch("([^\n]*)\n") do body[#body + 1] = (line:gsub("^" .. indent, "", 1)) end
+            f:write("set -eo pipefail\nRUNNER_TEMP='" .. dir .. "'\nGITHUB_OUTPUT='" .. dir .. "/out'\n")
+            for name, value in pairs(env or {}) do f:write(name .. "='" .. value .. "'\n") end
+            f:write(table.concat(body, "\n"), "\n")
+            f:close()
+            local status = os.execute("bash '" .. dir .. "/run.sh' > '" .. dir .. "/step.log' 2>&1")
+            local function read(name)
+                local file = io.open(dir .. "/" .. name, "rb")
+                local content = file and file:read("*a") or ""
+                if file then file:close() end
+                return content
+            end
+            local result = { status = status, log = read("step.log"), out = read("out") }
+            os.execute("rm -rf '" .. dir .. "'")
+            return result
+        end
+
+        it("really changes the key when any one input changes (black)", function()
+            local base = { SIM_COMMIT = "a", BLIZZARD_UI_COMMIT = "b", BUILD_BASE = "c", BUILD_PACKAGES = "d",
+                BUILD_FEATURES = "e", BUILD_STRIP = "f", WORKFLOW_HASH = "g" }
+            local function key(env)
+                local r = runBlock(keyStep, env)
+                assert.is_true(r.status == 0 or r.status == true, "the key step failed: " .. r.log)
+                local hash = r.out:match("^key=wow%-ui%-sim%-build%-(%x+)\n$")
+                assert.is_truthy(hash and #hash == 64, "the key isn't a 64-character hash: " .. r.out)
+                return hash
+            end
+            local empty = {}
+            for k, v in pairs(base) do empty[k] = v end
+            empty.WORKFLOW_HASH = ""
+            local refused = runBlock(keyStep, empty)
+            assert.is_false(refused.status == 0 or refused.status == true, "an empty workflow hash gives a key anyway")
+            local first = key(base)
+            assert.are.equal(first, key(base), "the same inputs give another key")
+            -- WORKFLOW_HASH is named in the step's env: block, from the file's hash.
+            assert.is_truthy(keyStep.text:find("WORKFLOW_HASH: ${{ hashFiles('.github/workflows/ui-sim.yml') }}", 1, true),
+                "WORKFLOW_HASH isn't the workflow file's hash")
+            for name in pairs(base) do
+                local changed = {}
+                for k, v in pairs(base) do changed[k] = v end
+                changed[name] = base[name] .. "x"
+                assert.are_not.equal(first, key(changed), "changing " .. name .. " doesn't change the key")
+            end
+        end)
+
+        it("refuses a restored or built tree with a link, a special file or a missing part (black)", function()
+            local check
+            for _, step in ipairs(build.steps) do
+                if step.text:find("Check the staged files", 1, true) then check = step end
+            end
+            local function tree(dir)
+                local o = dir .. "/ui-sim-build"
+                assert.is_true(os.execute("mkdir -p '" .. o .. "/sim/Interface/AddOns/TestFramework' '" .. o
+                    .. "/blizzard-ui/AddOns/Blizzard_X' && touch '" .. o .. "/sim/wow-sim' '" .. o
+                    .. "/blizzard-ui/AddOns/Blizzard_X/a.lua' '" .. o .. "/blizzard-ui/AddOns/.marker'") == 0)
+            end
+            local function result(extra)
+                local r = runBlock(check, {}, function(dir)
+                    tree(dir)
+                    if extra then assert.is_true(os.execute(extra:gsub("OUT", dir .. "/ui-sim-build")) == 0, "fixture failed: " .. extra) end
+                end)
+                return r.status == 0 or r.status == true
+            end
+            assert.is_true(result(), "a complete tree of plain files is refused")
+            local bad = {
+                "rm OUT/sim/wow-sim && ln -s /bin/sh OUT/sim/wow-sim",
+                "rm OUT/sim/wow-sim",
+                "mkdir OUT/../plain-target && touch OUT/../plain-target/a && ln -s ../../../../plain-target OUT/blizzard-ui/AddOns/Blizzard_X/deep",
+                "touch OUT/../plain-target-file && ln -s ../../../../plain-target-file OUT/blizzard-ui/AddOns/Blizzard_X/deepfile",
+                "mkfifo OUT/sim/Interface/AddOns/TestFramework/pipe",
+                "rmdir OUT/sim/Interface/AddOns/TestFramework",
+                "rm -r OUT/blizzard-ui/AddOns",
+            }
+            for _, extra in ipairs(bad) do
+                assert.is_false(result(extra), "the check passes for: " .. extra)
+            end
+            assert.is_falsy(check.text:find("||", 1, true), "the check can be made to pass with ||")
+            assert.is_falsy(check.text:find("%f[%w]if:") or check.text:find("continue%-on%-error"), "the check can be skipped or made non-blocking")
+        end)
+
+        it("restores only the exact key, never a prefix (black)", function()
+            assert.is_falsy(restore.text:find("restore-keys", 1, true), "a prefix restore could bring back an older build")
+        end)
+
+        it("skips the fetch and build on a hit, and saves only after a miss (white)", function()
+            local steps = {}
+            for i, step in ipairs(build.steps) do
+                local skipped = step.text:find("if: steps.sim-cache.outputs.cache-hit != 'true'", 1, true) ~= nil
+                steps[#steps + 1] = { name = step.text, skipped = skipped, index = i }
+            end
+            local function find(fragment)
+                for _, entry in ipairs(steps) do
+                    if entry.name:find(fragment, 1, true) then return entry end
+                end
+                error("no step " .. fragment)
+            end
+            assert.is_truthy(restore.text:find("\n%s*id:%s*sim%-cache\n"), "the skip conditions read an id the restore step doesn't have")
+            for _, fragment in ipairs({ "Fetch the simulator", "Build a build image", "Download the simulator", "Build the simulator", "Stage the simulator", "Save the staged" }) do
+                assert.is_true(find(fragment).skipped, fragment .. " runs on a cache hit")
+            end
+            for _, fragment in ipairs({ "Work out the cache key", "Restore the staged", "Check the staged files", "actions/upload-artifact" }) do
+                assert.is_false(find(fragment).skipped, fragment .. " is skipped on a hit")
+            end
+            assert.is_true(find("Work out").index < find("Restore the staged").index, "the key comes after the restore")
+            assert.is_true(find("Restore the staged").index < find("Fetch the simulator").index, "the restore comes after the fetch")
+            assert.is_true(find("Stage the simulator").index < find("Check the staged files").index
+                and find("Check the staged files").index < find("Save the staged").index
+                and find("Save the staged").index < find("actions/upload").index, "nothing unchecked may be saved: stage, check, save, upload")
+        end)
+
+        it("checks a restored build holds only plain files before it is uploaded (black)", function()
+            local check
+            for _, step in ipairs(build.steps) do
+                if step.text:find("Check the staged files", 1, true) then check = step end
+            end
+            assert.is_truthy(check, "no check of the staged files")
+            assert.is_falsy(check.text:find("cache%-hit"), "the check is skipped on a hit")
+            assert.is_truthy(check.text:find('test -f "$out/sim/wow-sim"', 1, true), "the binary isn't checked as a file")
+            assert.is_truthy(check.text:find('test ! -L "$out/sim/wow-sim"', 1, true), "the binary isn't checked as not a link")
+            assert.is_truthy(check.text:find("! -type f ! -type d", 1, true), "links and special files in the tree aren't refused")
+            assert.is_falsy(text:find("cargo%-home\n%s+%${{ runner%.temp }}/sim%-target"), "the old cargo cache is still cached")
+        end)
+    end)
+
     -- #154: the maintainer's fixes, reviewed on #154 before the pin moved.
     -- There's no published image at that commit, and release binaries are
     -- never used, so the simulator job builds it and the others run that.
@@ -355,7 +546,8 @@ describe("UI simulator workflow", function()
         local stripped = false
         for _, command in ipairs(buildRun) do
             if command:find("cargo build", 1, true) then
-                stripped = command:find("-e CARGO_PROFILE_RELEASE_STRIP=symbols", 1, true) ~= nil
+                stripped = command:find('-e CARGO_PROFILE_RELEASE_STRIP="$BUILD_STRIP"', 1, true) ~= nil
+                    and text:find("\n%s*BUILD_STRIP: symbols\n") ~= nil
             end
         end
         assert.is_true(stripped, "the build doesn't strip the binary in its sandbox")

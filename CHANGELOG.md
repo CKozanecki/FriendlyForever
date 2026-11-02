@@ -1,5 +1,9 @@
 # Changelog
 
+### Unreleased
+
+- **UI simulator workflow:** the finished simulator build is cached, keyed on its pins and build settings, so it is rebuilt only when one moves instead of every run. Nothing ships in the addon. (#170)
+
 ## 0.9.1
 
 - **Start here:** a first options page under Friendly Forever with what the addon does, your settings as they are (whether the addon is on, how you thank people, friendly nameplates), the buff-back button's key and buff mode's key, and a link to every other page. It changes nothing itself: each setting is changed on its own page. (#47)
