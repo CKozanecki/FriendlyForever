@@ -15,7 +15,7 @@ Legend: **[S]** = a screenshot to take at that moment (the CurseForge list from 
 - [ ] Screenshot hygiene: native resolution, default UI scale, no other UI addons visible, nothing private in chat. Save originals uncropped.
 - [ ] Helpers lined up: a second character or friend running the addon (section 4), two or three guildmates (section 7), and a way to reach a paladin, a warlock or shaman, and a priest or druid (section 8).
 - [ ] Keep a scratch file open to paste `/friendly status` output and any `/dump` results into. Everything you learn is a fact for `docs/forever-facts.md` later.
-- [ ] **Off-game (#139, only if you use `scripts/ui-sim-local-art.sh`):** `/Applications/World of Warcraft` is still one shared install with Forever's client in `_forever_`, and `.build.info` lists CASC product `wowf` (the script names the codes it finds, and `--product CODE` picks another). Nothing in the addon depends on this.
+- [ ] **Off-game (#139, only if you use `scripts/ui-sim-local-art.sh`, which lives on closed PR #143, not on `main`):** `/Applications/World of Warcraft` is still one shared install with Forever's client in `_forever_`, and `.build.info` lists CASC product `wowf` (the script names the codes it finds, and `--product CODE` picks another). Nothing in the addon depends on this.
 
 ## 1. First run on a fresh install (once only)
 
@@ -91,7 +91,7 @@ Both with `/friendly debug` on. Do this on a quiet street outside a capital, out
 - [ ] **Global cooldown / one thank-you:** buff them three times by hand; their single thank-you lists all three.
 - [ ] **Refreshed buff:** when someone recasts a buff you already wear from them, does `UNIT_AURA` list it in `addedAuras` or only `updatedAuraInstanceIDs`?
 - [ ] **RECEIPT:** with them off your nameplates and untargeted, their debug log says "named by their copy's receipt"; status counts it received. Is the caster really unreadable for strangers (secret `sourceUnit`)? If the game names them anyway, receipts change nothing.
-- [ ] **Thank-you goes to the right player:** after a receipt names the caster, the receiver whispers or says its thank-you to that player, using whichever name form `CHAT_MSG_ADDON` gave (#138).
+- [ ] **Thank-you goes to the right player:** after a receipt names the caster, the receiver whispers or says its thank-you to that player, The addon always writes the name as `First-Surname` (`Util.FullName`), whatever form `CHAT_MSG_ADDON` gave (see the sender-name check above), so if the server's own form is the only one it can whisper, that rewriting is the thing to report (#138).
 
 ## 5. Capital quiet-mode checks
 
