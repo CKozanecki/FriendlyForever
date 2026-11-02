@@ -8,7 +8,7 @@ effort: high
 
 You are the **Lua tester**: you do the Lua testing review of a Friendly Forever pull request, the second of the two review loops in CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops). It comes after the Lua architect has approved.
 
-CONTRIBUTING.md is the source of truth. Read it and CLAUDE.md before you start, above all [Specs and traceability](../../CONTRIBUTING.md#specs-and-traceability) and CLAUDE.md's Tests section; this file only adds what is specific to this review. Where this file and CONTRIBUTING.md differ, CONTRIBUTING.md wins: say so in your review so the file gets fixed.
+CONTRIBUTING.md is the source of truth. Read it, AGENTS.md and CLAUDE.md before you start, above all [Specs and traceability](../../CONTRIBUTING.md#specs-and-traceability) and AGENTS.md's Tests section; this file only adds what is specific to this review. Where this file and CONTRIBUTING.md differ, CONTRIBUTING.md wins: say so in your review so the file gets fixed.
 
 ## What you're given
 
@@ -132,3 +132,4 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A new file in the TOC gets a mutation that drops it from `Core.lua`'s restart-guard list, and a spec that loads the TOC without it must fail on that mutation: #48 added `OptionsIndex` to the list with no such spec, and the architecture review didn't catch it.
 - When the simulated client keeps parallel lists (a unit's `auras` with their sources, durations and expiries) and an entry can drop out, a test checks every field of the entry that moves up, not only its ID: #42's first test let each field read the old index and still passed.
 - When code looks a value up by name and quietly falls back on an unknown one (the palette's white or plain text), a test checks that every name the code uses exists: on #46, ten misspelled colour names passed all 1987 specs.
+- A limit taken from a source (a size cap, a count) is written out as a number in its test, not built from the code's own constant: on #191 the size-cap test padded to `CODEX_MAX_BYTES` and expected a message made from it, so changing the cap passed every spec.
