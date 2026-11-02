@@ -10,6 +10,17 @@
 -- loads, print writes to the chat frame instead.
 local printLine = type(A_Print) == "function" and A_Print or print
 
+-- Each scenario says it's starting, numbered in file order, before the
+-- runner runs it. A pass the workflow stops at its time limit then names
+-- the scenario it hung in, in the run's summary, and its number in the
+-- run's annotations (#173).
+local runTest, scenarioCount = test, 0
+local function test(name, fn)
+    scenarioCount = scenarioCount + 1
+    printLine(("START %d %s"):format(scenarioCount, tostring(name)))
+    return runTest(name, fn)
+end
+
 -- The screen the scenarios run at, as "1920x1080" (#148); nil where the
 -- client can't say (the spec/ stand-in).
 local function Resolution()
