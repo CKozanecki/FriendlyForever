@@ -819,14 +819,14 @@ describe("Hidden channel limits and edge cases", function()
         end)
 
         it("logs who runs the addon, and what wasn't sent and why", function()
-            receive(hello("Ann-Vale", "0.9.1"), "GUILD")
+            receive(hello("Ann-Vale", "99.0.0"), "GUILD")
             ns.Comm.SayHello("PARTY")
             _G.C_ChatInfo.SendAddonMessage = function() return 9 end
             ns.Comm.SayHello("GUILD")
             _G.C_ChatInfo.SendAddonMessage = function() error("boom") end
             ns.Comm.SayHello("GUILD")
             local log = logText(ns)
-            assert.truthy(log:find("Ann-Vale runs Friendly Forever 0.9.1", 1, true))
+            assert.truthy(log:find("Ann-Vale runs Friendly Forever 99.0.0", 1, true))
             assert.truthy(log:find("didn't send HELLO on PARTY: not in that group any more", 1, true))
             assert.truthy(log:find("didn't send HELLO on GUILD: the game answered 9", 1, true))
             assert.truthy(log:find("didn't send HELLO on GUILD: error", 1, true))
