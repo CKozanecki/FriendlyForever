@@ -73,6 +73,9 @@ Your verdict is the only look the screenshots get: the owner doesn't review them
 
 Checks that caught real bugs in past reviews. Each cites where it came from. Add to this list when a review finds a lesson rather than a one-off (CONTRIBUTING.md's rule on keeping these files current).
 
+**Running checks**
+- Run confirmation checks one review loop at a time, or in separate worktrees: two `make check` runs in one worktree share `dist/` and can give a false failure (#178, #172, #176).
+
 **Chaos tests**
 - Invariants come from the simulated client's own records (`wow.sent`, `wow.casts`, auras, the roster, `wow.state`), never from the addon's rule functions. A storm that asks the rules whether the rules were kept proves nothing (#73; done this way since in #74, #88).
 - A storm must be able to catch the regression its criterion names: include time-only steps so a timeout has to fire, check the step that starts a fight, keep departed members targetable so a stale choice would land outside the group (#63, #67).
