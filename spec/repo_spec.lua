@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -2129,7 +2129,7 @@ describe("Release docs", function()
     end)
 
     describe("the real docs", function()
-        for _, path in ipairs({ "CONTRIBUTING.md", "README.md" }) do
+        for _, path in ipairs({ "CONTRIBUTING.md", "README.md", "docs/launch-day-runbook.md" }) do
             it(path .. " never tells the maintainer to create a GitHub release for the tag", function()
                 assert.are.same({}, manualReleaseSteps(wow.readFile(path)))
             end)

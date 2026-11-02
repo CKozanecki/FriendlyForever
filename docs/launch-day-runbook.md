@@ -1,6 +1,6 @@
 # Friendly Forever: launch-day runbook (Wed Nov 4)
 
-Built from #50's checklist and comments (every launch check, plus the approved CurseForge screenshot list), the release steps in CONTRIBUTING.md, and the README. Ordered by what each check needs, so you set things up once: solo first, then one other player, then a group, then the guild.
+Built from #50's checklist and comments (every launch check and the approved CurseForge screenshot list, as of Nov 2), the release steps in CONTRIBUTING.md, and the README. Ordered by what each check needs, so you set things up once: solo first, then one other player, then a group, then the guild.
 
 Legend: **[S]** = a screenshot to take at that moment (the CurseForge list from #50). **→ #n** = the issue to note the answer on.
 
@@ -15,6 +15,7 @@ Legend: **[S]** = a screenshot to take at that moment (the CurseForge list from 
 - [ ] Screenshot hygiene: native resolution, default UI scale, no other UI addons visible, nothing private in chat. Save originals uncropped.
 - [ ] Helpers lined up: a second character or friend running the addon (section 4), two or three guildmates (section 7), and a way to reach a paladin, a warlock or shaman, and a priest or druid (section 8).
 - [ ] Keep a scratch file open to paste `/friendly status` output and any `/dump` results into. Everything you learn is a fact for `docs/forever-facts.md` later.
+- [ ] **Off-game (#139, only if you use `scripts/ui-sim-local-art.sh`):** `/Applications/World of Warcraft` is still one shared install with Forever's client in `_forever_`, and `.build.info` lists CASC product `wowf` (the script names the codes it finds, and `--product CODE` picks another). Nothing in the addon depends on this.
 
 ## 1. First run on a fresh install (once only)
 
@@ -37,9 +38,11 @@ Run `/friendly status` first and paste it into your scratch file.
   (`false` = what we assume; `true` = scenarios' assumption should change.)
 - [ ] **UI scale / canvas:** default UI scale at 1920×1080 (and 2560×1440 if you can); is the canvas 768 units tall like retail? Note the buff-back button's default position.
 - [ ] **Emote:** with How to thank set to the emote, get buffed by someone (or do this in section 4) and press a key: chat should read "You thank Bob.", not "You thank everyone."
+- [ ] **Emote token reuse:** a unit token (nameplate or target) that now belongs to someone else gets a plain `/thank`, never one aimed at the wrong player (#52).
 - [ ] **Copy window:** `/friendly export`, then `/friendly report`: text pre-selected, Ctrl+C works, long line wraps and scrolls, paste into `/friendly import` reads it, Esc and the close button both close. In `/friendly import`, the hint's second line ends above the paste box with a gap.
 - [ ] **Options layout, every tab:** tabs span the full panel width on open; Buff Back's description wraps onto 2–3 lines without overlapping the Enabled row; message boxes' text is left-aligned (simulator draws it centred); the "Stay quiet in capital cities" row (Buff Thanks) and "Show the button in capital cities" row (Buff Back) sit on their own rows with labels inside the panel.
 - [ ] **Palette:** `/friendly off`, `/friendly on`, `/friendly status`, `/friendly debug` read clearly over a bright zone and a dark one (gold name, sky-blue on/enabled, rose off/disabled, orange notes, grey-blue hints). Minimap tooltip: Enabled blue, Snoozed orange, Disabled rose. Options hints grey-blue; nameplate warning orange.
+- [ ] **Buff-back button palette and widths:** "Buff mode:" is gold and the dim panel behind the text still reads. Real text widths: the simulator estimates 6 px a character for small fonts and 7 for normal; if real text is much wider than the button, say so (#64) so the wording can be shortened.
 - [ ] **Capital cities:** in each capital, `/friendly status` shows the map ID in its "capital city" line. Compare with `Cities.CAPITALS`: table has Classic IDs 1453–1458 (Stormwind 1453, Orgrimmar 1454, Ironforge 1455, Thunder Bluff 1456, Darnassus 1457, Undercity 1458); retail's would be 84/85/87/88/89/90. Also record **Valanaar** and **Dalaran** (not in the table yet). Check entering each fires `ZONE_CHANGED_NEW_AREA`. → #34 / #50 *(fix needed if IDs differ)*
 - [ ] **Water:** `IsSwimming()` / `IsSubmerged()` exist; `/friendly status` "near water" says "in the water" when swimming. Which slot of `GetMirrorTimerInfo(1..3)` is `"BREATH"` (sim assumes 2); `MIRROR_TIMER_START/STOP` fire.
 - [ ] **Chat lockdown / `/say` rules:** `/say` outdoors works only on a key press (hardware event)? Does an emote need a key press too?
@@ -88,6 +91,7 @@ Both with `/friendly debug` on. Do this on a quiet street outside a capital, out
 - [ ] **Global cooldown / one thank-you:** buff them three times by hand; their single thank-you lists all three.
 - [ ] **Refreshed buff:** when someone recasts a buff you already wear from them, does `UNIT_AURA` list it in `addedAuras` or only `updatedAuraInstanceIDs`?
 - [ ] **RECEIPT:** with them off your nameplates and untargeted, their debug log says "named by their copy's receipt"; status counts it received. Is the caster really unreadable for strangers (secret `sourceUnit`)? If the game names them anyway, receipts change nothing.
+- [ ] **Thank-you goes to the right player:** after a receipt names the caster, the receiver whispers or says its thank-you to that player, using whichever name form `CHAT_MSG_ADDON` gave (#138).
 
 ## 5. Capital quiet-mode checks
 
@@ -117,6 +121,7 @@ Both with `/friendly debug` on. Do this on a quiet street outside a capital, out
 
 - [ ] **Paladin:** Salvation spell ID (1038?) and Mass Salvation (25895?); is Salvation separate from the Blessing; **Revoke's spell ID** (`/dump C_Spell.GetSpellInfo("Revoke")`; nil for a paladin who hasn't learned it); does Revoke remove **another paladin's** Salvation? Revoke offered correctly in buff mode. **[S]** the Buff Back tab as a paladin (Revoke Salvation, "Blessings I give in this raid" in a raid).
 - [ ] **Warlock/shaman water:** `/run print(C_Spell.GetSpellName(5697), C_Spell.GetSpellName(131))` → `Unending Breath Water Breathing`. Cast Unending Breath on a member in buff mode; the button moves on. Not offered on dry land, offered while swimming, stays offered 2 minutes after. Any group water-breathing spell on Forever?
+- [ ] **Ranks and reagent:** Unending Breath has one rank; note Water Breathing's ranks, and whether it still needs Shiny Fish Scales (the addon doesn't check reagents) (#135, #136).
 - [ ] **Drowned City:** instance ID (`select(8, GetInstanceInfo())`), exact name "The Drowned City", type `"party"`. **Blackfathom Deeps** ID (Classic's 48).
 - [ ] **Buff spell IDs in `BuffData.lua`** (Classic's) match Forever's for your classes.
 - [ ] **Instances:** addon messages refused (which code)? Incoming text/sender readable? `C_ChatInfo.InChatMessagingLockdown()` says so? No RECEIPT sent inside any instance (status "sent" unchanged).
