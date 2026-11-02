@@ -121,6 +121,9 @@ jobs:
         env:
           WORKFLOW_HASH: ${{ hashFiles('.github/workflows/ui-sim.yml') }}
         run: |
+          # hashFiles gives '' when the file wasn't checked out; refuse that
+          # rather than cache without it.
+          test -n "$WORKFLOW_HASH"
           inputs="$(printf '%s\n' \
             "workflow=$WORKFLOW_HASH" \
             "sim=$SIM_COMMIT" \

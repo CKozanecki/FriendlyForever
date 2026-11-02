@@ -372,10 +372,17 @@ describe("UI simulator workflow", function()
             assert.is_truthy(keyStep.text:find("hashFiles('.github/workflows/ui-sim.yml')", 1, true), "the key leaves out the workflow file's hash")
             assert.is_truthy(keyStep.text:find('"workflow=$WORKFLOW_HASH"', 1, true), "the workflow hash isn't in the key's inputs")
             assert.is_truthy(build.text:find("sparse-checkout: .github/workflows/ui-sim.yml", 1, true), "the workflow file isn't checked out for the hash")
+            assert.is_truthy(build.text:find("sparse-checkout-cone-mode: false", 1, true), "the sparse checkout reads the path as a folder")
+            local checkoutAt, keyAt
+            for i, step in ipairs(build.steps) do
+                if step.text:find("actions/checkout@", 1, true) then checkoutAt = i end
+                if step == keyStep then keyAt = i end
+            end
+            assert.is_truthy(checkoutAt and keyAt and checkoutAt < keyAt, "the workflow file is checked out after the key is worked out")
             -- Both cache steps use the one computed key, and cache the staged folder.
             for _, step in ipairs({ restore, save }) do
-                assert.is_truthy(step.text:find("key: ${{ steps.key.outputs.key }}", 1, true), "a cache step doesn't use the computed key")
-                assert.is_truthy(step.text:find("path: ${{ runner.temp }}/ui-sim-build", 1, true), "a cache step doesn't cache the staged build")
+                assert.are.equal("${{ steps.key.outputs.key }}", step.text:match("\n%s*key:%s*([^\n]+)"), "a cache step doesn't use the computed key")
+                assert.are.equal("${{ runner.temp }}/ui-sim-build", step.text:match("\n%s*path:%s*([^\n]+)"), "a cache step doesn't cache the staged build")
             end
         end)
 
@@ -420,6 +427,11 @@ describe("UI simulator workflow", function()
                 assert.is_truthy(hash and #hash == 64, "the key isn't a 64-character hash: " .. r.out)
                 return hash
             end
+            local empty = {}
+            for k, v in pairs(base) do empty[k] = v end
+            empty.WORKFLOW_HASH = ""
+            local refused = runBlock(keyStep, empty)
+            assert.is_false(refused.status == 0 or refused.status == true, "an empty workflow hash gives a key anyway")
             local first = key(base)
             assert.are.equal(first, key(base), "the same inputs give another key")
             -- WORKFLOW_HASH is named in the step's env: block, from the file's hash.
@@ -455,7 +467,8 @@ describe("UI simulator workflow", function()
             local bad = {
                 "rm OUT/sim/wow-sim && ln -s /bin/sh OUT/sim/wow-sim",
                 "rm OUT/sim/wow-sim",
-                "ln -s /etc OUT/blizzard-ui/AddOns/Blizzard_X/deep",
+                "mkdir OUT/../plain-target && touch OUT/../plain-target/a && ln -s ../../../../plain-target OUT/blizzard-ui/AddOns/Blizzard_X/deep",
+                "ln -s ../../../../plain-target-file OUT/blizzard-ui/AddOns/Blizzard_X/deepfile",
                 "mkfifo OUT/sim/Interface/AddOns/TestFramework/pipe",
                 "rmdir OUT/sim/Interface/AddOns/TestFramework",
                 "rm -r OUT/blizzard-ui/AddOns",
@@ -464,6 +477,7 @@ describe("UI simulator workflow", function()
                 assert.is_false(result(extra), "the check passes for: " .. extra)
             end
             assert.is_falsy(check.text:find("||", 1, true), "the check can be made to pass with ||")
+            assert.is_falsy(check.text:find("%f[%w]if:") or check.text:find("continue%-on%-error"), "the check can be skipped or made non-blocking")
         end)
 
         it("restores only the exact key, never a prefix (black)", function()
