@@ -79,7 +79,7 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 ## Pull requests
 
 - **Branches:** name each one `<product>/<issue>-<what-it-does>`, with the prefix of the product driving it: `claude/` or `codex/`. Make a new one per PR from the latest `main`.
-- **Commit trailers:** each commit names the product that wrote it, in its last lines. Claude Code's carry `Claude-Session: <session link>`; Codex's carry `Agent: codex <model as served>`, and never a `Claude-Session:` line.
+- **Commit trailers:** each commit names the product that wrote it, in its last lines. Claude Code's carry `Claude-Session: <session link>`; Codex's carry `Agent: codex <model as served>`, and never a `Claude-Session:` line. CI's trailer check fails a PR whose commits break this ([Agent branches](CONTRIBUTING.md#agent-branches), #187).
 - **Easy to miss** (#75 missed both):
   - `Closes #<issue>` with the criteria checklist;
   - [marking the PR ready yourself](CONTRIBUTING.md#ready-for-review), with a comment.

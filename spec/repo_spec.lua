@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #172, #178, #182, #186
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #172, #178, #182, #186, #187
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -188,6 +188,26 @@ describe("CI workflow", function()
         assert.is_truthy(package and compare and compare > packager and compare > package,
             "CI doesn't compare the two packages after building both")
     end)
+    -- #187: the required check job runs the trailer check on every pull
+    -- request, and PR fields reach it only through env, never the run line.
+    it("runs the agent trailer check on pull requests, with PR fields passed as data", function()
+        local _, order = parseWorkflow(path)
+        local job = jobWith(order, "make test")
+        local at = indexOf(job.steps, "scripts/check%-trailers%.sh")
+        assert.is_truthy(at, "the check job never runs the trailer check")
+        local text = job.steps[at].text
+        assert.is_truthy(text:find("if: github.event_name == 'pull_request'", 1, true), "it doesn't run on PRs only")
+        for _, line in ipairs({ "BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            "HEAD_SHA: ${{ github.event.pull_request.head.sha }}", "HEAD_REF: ${{ github.head_ref }}",
+            'run: ./scripts/check-trailers.sh "$BASE_SHA" "$HEAD_SHA" "$HEAD_REF"' }) do
+            assert.is_truthy(text:find(line, 1, true), line)
+        end
+        local run = text:match("run:([^\n]*)") or ""
+        assert.is_falsy(run:find("${{", 1, true), "a PR field is interpolated into the shell")
+        assert.is_falsy(text:find("continue%-on%-error"), "a failed trailer check doesn't fail the job")
+        assert.is_truthy(job.text:find("fetch%-depth: 0"), "the checkout has no history to check")
+    end)
+
     -- #103: the tools come from scripts/dev-setup.sh, so a change to it or to
     -- its checksums must miss the cache, and a cache hit still runs the
     -- script, which checks the install and downloads nothing.

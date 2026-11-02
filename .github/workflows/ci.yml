@@ -21,6 +21,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Each product's commits stay on its own branches (#187): see AGENTS.md's
+      # Pull requests. PR fields reach the script only through env, as data.
+      - name: Agent commit trailers
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: ./scripts/check-trailers.sh "$BASE_SHA" "$HEAD_SHA" "$HEAD_REF"
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"

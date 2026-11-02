@@ -13,6 +13,17 @@ Ideas, bug reports and pull requests are welcome. Every change starts from an is
 5. Open the pull request as a **draft** and fill in the template, with `Closes #<issue>` for each spec it completes. Mark it ready for review when it is (see [Ready for review](#ready-for-review)). CI must pass and review conversations must be resolved before it can merge. The maintainer reviews outside pull requests. Their own get an automated review, because GitHub doesn't let authors approve their own pull requests, so `main` requires passing CI rather than an approval.
 6. Merges are squash merges, so each PR becomes one commit on `main`, its title ending with the pull request's number, as in `(#54)`. Numbers in commit titles are pull requests; numbers at the end of changelog entries are issues.
 
+### Agent branches
+
+Claude Code and Codex both push as the maintainer's account, so GitHub can't tell one product from the other (#183). Two things keep each product on its own branches (#187):
+
+- **The trailer check.** CI's required `check` job runs `scripts/check-trailers.sh` on every pull request. On a `claude/` branch, every commit must carry a `Claude-Session:` trailer and no `Agent: codex` one. On a `codex/` branch, every commit must carry `Agent: codex <model>` and no `Claude-Session:` line. A merge commit is exempt when one of its parents is already on `main`; any other merge is checked like a commit. Other branches aren't checked. A wrong push turns the pull request red, so it can't merge. AGENTS.md's Pull requests section has the trailers.
+- **The ruleset "Protect agent branches"**, which the maintainer applies in **Settings**, then **Rules**, then **Rulesets**, then **New branch ruleset**:
+  - **Name:** `Protect agent branches`; **Enforcement status:** Active; **Bypass list:** empty.
+  - **Target branches:** include by pattern `claude/**` and `codex/**`.
+  - **Rules:** only **Block force pushes**. Leave everything else off.
+  - **Not "Restrict deletions":** GitHub says rules that restrict deletion can stop it deleting a pull request's branch when it merges ([automatic deletion of branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-the-automatic-deletion-of-branches)). Merged branches would then pile up (#115, #119). Agents never delete branches anyway (AGENTS.md).
+
 ## Specs and traceability
 
 Every change can be traced from its spec to its code, tests, pull request and release.
