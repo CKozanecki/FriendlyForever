@@ -1,6 +1,6 @@
 # WoW Forever facts
 
-Game and API facts the addon's code depends on, so each session doesn't have to research them again. **Facts only:** each one gives its source, or the issue where it was researched and sourced. Anything that can't be confirmed until launch (Nov 5) is marked **launch check**, with a link to its item on #50.
+Game and API facts the addon's code depends on, so each session doesn't have to research them again. **Facts only:** each one gives its source, or the issue where it was researched and sourced. Anything that can't be confirmed until launch (Nov 4) is marked **launch check**, with a link to its item on #50.
 
 WoW Forever isn't Classic Era (AGENTS.md's "Issues and specs"). Check new facts against Forever sources (Wowhead's `/forever/` pages, patch notes), put the sources on the issue, and add the fact here in the same PR. When a launch check is settled, update its line here. Where this file and CONTRIBUTING.md differ, CONTRIBUTING.md wins and this file is fixed.
 

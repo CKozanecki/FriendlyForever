@@ -142,6 +142,8 @@ The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://g
 
 ## Releasing (maintainer)
 
+For the launch, [docs/launch-day-runbook.md](docs/launch-day-runbook.md) is the ordered in-game test pass (from #50) and the steps to 1.0.0.
+
 Versions below 1.0.0 are pre-launch: 0.8.0 is the first file on CurseForge and 1.0.0 is the launch. A tag uploads as a normal release; the packager marks a file alpha or beta only when its tag contains that word, and the Release workflow accepts only a tag that is exactly `v` plus the TOC version. No beta route is set up yet.
 
 Pull requests between releases add their `CHANGELOG.md` notes under a `### Unreleased` heading at the top; the release PR renames it to `## x.y.z`.
