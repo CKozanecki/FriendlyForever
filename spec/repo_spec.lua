@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #172, #182, #186
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #172, #178, #182, #186
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -1519,6 +1519,101 @@ describe("Release scripts", function()
         local _, code = run("./scripts/release-notes.sh")
         assert.are.equal(0, code)
         assert.is_nil(wow.readFile("RELEASE_NOTES.md"):find("Unreleased", 1, true))
+    end)
+
+    -- package.sh moves a finished zip into place, so the zip is
+    -- never missing while another run (or a test) uses it.
+    it("package.sh never removes or damages the zip while other runs rebuild it", function()
+        local zip = run("./scripts/package.sh"):match("([^\n]*%.zip)")
+        assert.is_truthy(zip, "package script did not report a zip")
+        local script = [[
+            for i in 1 2 3; do ./scripts/package.sh >/dev/null & done
+            missing=0
+            while [ -n "$(jobs -r)" ]; do unzip -tqq "$1" >/dev/null 2>&1 || missing=$((missing+1)); done
+            wait
+            echo "missing=$missing"
+            # Another make check may be building in this dist/ too: its temporary
+            # file goes when it finishes, a leaked one never does.
+            left=1
+            for i in $(seq 1 100); do
+                left=$(ls -A dist | grep -c '^\.' || true)
+                [ "$left" = 0 ] && break
+                sleep 0.2
+            done
+            echo "$left"
+        ]]
+        local out = run("bash -c '" .. script:gsub("'", "'\\''") .. "' _ \"" .. zip .. "\"")
+        assert.is_truthy(out:find("missing=0", 1, true), out)
+        assert.is_truthy(out:find("missing=0\n0\n", 1, true), "temporary files left in dist: " .. out)
+    end)
+
+    it("release-notes.sh fails on a changelog with no version section and keeps the old notes", function()
+        local dir = os.tmpname()
+        os.remove(dir)
+        os.execute('mkdir -p "' .. dir .. '"')
+        local function write(name, body)
+            local file = io.open(dir .. "/" .. name, "wb")
+            file:write(body)
+            file:close()
+        end
+        write("CHANGELOG.md", "# Changelog\n\n### Unreleased\n\n- x\n")
+        write("NOTES.md", "old notes\n")
+        local out, code = run('./scripts/release-notes.sh "' .. dir .. '/CHANGELOG.md" "' .. dir .. '/NOTES.md"')
+        local kept = io.open(dir .. "/NOTES.md"):read("*a")
+        local left = run('ls -A "' .. dir .. '" | grep -c "^NOTES.md\\." || true')
+        os.execute('rm -rf "' .. dir .. '"')
+        assert.are_not.equal(0, code)
+        assert.is_truthy(out:find("No ## version section", 1, true), out)
+        assert.are.equal("old notes\n", kept)
+        assert.is_truthy(left:find("^0"), "temporary notes file left behind: " .. left)
+    end)
+
+    -- A temporary file in another folder (a /tmp on its own filesystem) would
+    -- make the final mv a copy, and the race would be back (#178).
+    it("package.sh and release-notes.sh make their temporary files beside the output", function()
+        local bin = os.tmpname()
+        os.remove(bin)
+        os.execute('mkdir -p "' .. bin .. '"')
+        local real = run("command -v mktemp"):match("([^\n]+)")
+        local shim = io.open(bin .. "/mktemp", "wb")
+        shim:write('#!/bin/bash\necho "$*" >> "' .. bin .. '/calls"\nexec "' .. real .. '" "$@"\n')
+        shim:close()
+        os.execute('chmod +x "' .. bin .. '/mktemp"')
+        local pkg = run('PATH="' .. bin .. ':$PATH" ./scripts/package.sh')
+        local notes = run('PATH="' .. bin .. ':$PATH" ./scripts/release-notes.sh')
+        local file = io.open(bin .. "/calls")
+        local calls = file and file:read("*a") or ""
+        if file then file:close() end
+        os.execute('rm -rf "' .. bin .. '"')
+        assert.is_truthy(pkg:find("%.zip"), pkg)
+        assert.is_truthy(notes:find("RELEASE_NOTES.md", 1, true), notes)
+        assert.is_truthy(calls:find("/dist/.FriendlyForever-", 1, true), "package.sh's temp file isn't in dist/: " .. calls)
+        assert.is_truthy(calls:find("/RELEASE_NOTES.md.", 1, true), "release-notes.sh's temp file isn't beside its output: " .. calls)
+    end)
+
+    it("two package.sh runs started together both succeed", function()
+        local out = run("./scripts/package.sh >/dev/null & p=$!; ./scripts/package.sh >/dev/null; a=$?; wait $p; b=$?; echo rc=$a$b")
+        assert.is_truthy(out:find("rc=00", 1, true), out)
+    end)
+
+    it("release-notes.sh never leaves the notes empty while other runs rewrite them", function()
+        local script = [[
+            ./scripts/release-notes.sh >/dev/null
+            for i in 1 2 3; do ./scripts/release-notes.sh >/dev/null & done
+            bad=0
+            while [ -n "$(jobs -r)" ]; do [ -s RELEASE_NOTES.md ] || bad=$((bad+1)); done
+            wait
+            echo "bad=$bad"
+            left=1
+            for i in $(seq 1 100); do
+                left=$(ls -A | grep -c '^RELEASE_NOTES.md\.' || true)
+                [ "$left" = 0 ] && break
+                sleep 0.2
+            done
+            echo "$left"
+        ]]
+        local out = run("bash -c '" .. script:gsub("'", "'\\''") .. "'")
+        assert.is_truthy(out:find("bad=0\n0\n", 1, true), out)
     end)
 
     it("package comparison passes on matching zips and fails on different ones", function()

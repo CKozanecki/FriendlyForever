@@ -61,6 +61,9 @@ Something you find that isn't this PR's job is not a finding against it: list it
 
 Checks that caught real bugs in past reviews. Each cites where it came from. Add to this list when a review finds a lesson rather than a one-off (CONTRIBUTING.md's rule on keeping these files current).
 
+**Running checks**
+- Run confirmation checks one review loop at a time, or in separate worktrees: two `make check` runs in one worktree share `dist/` and can give a false failure (#178, #172, #176).
+
 **Secure buttons and combat**
 - Secure attributes and override bindings change only out of combat. What must stop for a fight stops in `PLAYER_REGEN_DISABLED`, while the game still allows it; requests during a fight wait until it ends, and so does an addon loaded mid-fight by a `/reload` (#21, #62: the key chooser stayed live into a fight and could swallow an ability key).
 - Every part interpolated into the secure button's macro (names, spells) is rejected if it could end its line or start a command, or holds `;`, `[` or `]`. Targeting uses `/targetexact`, a name that isn't found casts nothing and gives the old target back, and the macro stays within 255 characters (#21, #27).
