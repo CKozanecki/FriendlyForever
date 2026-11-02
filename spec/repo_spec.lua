@@ -468,7 +468,7 @@ describe("UI simulator workflow", function()
                 "rm OUT/sim/wow-sim && ln -s /bin/sh OUT/sim/wow-sim",
                 "rm OUT/sim/wow-sim",
                 "mkdir OUT/../plain-target && touch OUT/../plain-target/a && ln -s ../../../../plain-target OUT/blizzard-ui/AddOns/Blizzard_X/deep",
-                "ln -s ../../../../plain-target-file OUT/blizzard-ui/AddOns/Blizzard_X/deepfile",
+                "touch OUT/../plain-target-file && ln -s ../../../../plain-target-file OUT/blizzard-ui/AddOns/Blizzard_X/deepfile",
                 "mkfifo OUT/sim/Interface/AddOns/TestFramework/pipe",
                 "rmdir OUT/sim/Interface/AddOns/TestFramework",
                 "rm -r OUT/blizzard-ui/AddOns",
@@ -496,6 +496,7 @@ describe("UI simulator workflow", function()
                 end
                 error("no step " .. fragment)
             end
+            assert.is_truthy(restore.text:find("\n%s*id:%s*sim%-cache\n"), "the skip conditions read an id the restore step doesn't have")
             for _, fragment in ipairs({ "Fetch the simulator", "Build a build image", "Download the simulator", "Build the simulator", "Stage the simulator", "Save the staged" }) do
                 assert.is_true(find(fragment).skipped, fragment .. " runs on a cache hit")
             end
