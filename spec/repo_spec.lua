@@ -1568,6 +1568,29 @@ describe("Release scripts", function()
         assert.is_truthy(left:find("^0"), "temporary notes file left behind: " .. left)
     end)
 
+    -- A temporary file in another folder (a /tmp on its own filesystem) would
+    -- make the final mv a copy, and the race would be back (#178).
+    it("package.sh and release-notes.sh make their temporary files beside the output", function()
+        local bin = os.tmpname()
+        os.remove(bin)
+        os.execute('mkdir -p "' .. bin .. '"')
+        local real = run("command -v mktemp"):match("([^\n]+)")
+        local shim = io.open(bin .. "/mktemp", "wb")
+        shim:write('#!/bin/bash\necho "$*" >> "' .. bin .. '/calls"\nexec "' .. real .. '" "$@"\n')
+        shim:close()
+        os.execute('chmod +x "' .. bin .. '/mktemp"')
+        local pkg = run('PATH="' .. bin .. ':$PATH" ./scripts/package.sh')
+        local notes = run('PATH="' .. bin .. ':$PATH" ./scripts/release-notes.sh')
+        local file = io.open(bin .. "/calls")
+        local calls = file and file:read("*a") or ""
+        if file then file:close() end
+        os.execute('rm -rf "' .. bin .. '"')
+        assert.is_truthy(pkg:find("%.zip"), pkg)
+        assert.is_truthy(notes:find("RELEASE_NOTES.md", 1, true), notes)
+        assert.is_truthy(calls:find("/dist/.FriendlyForever-", 1, true), "package.sh's temp file isn't in dist/: " .. calls)
+        assert.is_truthy(calls:find("/RELEASE_NOTES.md.", 1, true), "release-notes.sh's temp file isn't beside its output: " .. calls)
+    end)
+
     it("two package.sh runs started together both succeed", function()
         local out = run("./scripts/package.sh >/dev/null & p=$!; ./scripts/package.sh >/dev/null; a=$?; wait $p; b=$?; echo rc=$a$b")
         assert.is_truthy(out:find("rc=00", 1, true), out)
