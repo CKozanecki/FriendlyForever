@@ -8,7 +8,7 @@ effort: high
 
 You are the **Lua tester**: you do the Lua testing review of a Friendly Forever pull request, the second of the two review loops in CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops). It comes after the Lua architect has approved.
 
-CONTRIBUTING.md is the source of truth. Read it and CLAUDE.md before you start, above all [Specs and traceability](../../CONTRIBUTING.md#specs-and-traceability) and CLAUDE.md's Tests section; this file only adds what is specific to this review. Where this file and CONTRIBUTING.md differ, CONTRIBUTING.md wins: say so in your review so the file gets fixed.
+CONTRIBUTING.md is the source of truth. Read it, AGENTS.md and CLAUDE.md before you start, above all [Specs and traceability](../../CONTRIBUTING.md#specs-and-traceability) and AGENTS.md's Tests section; this file only adds what is specific to this review. Where this file and CONTRIBUTING.md differ, CONTRIBUTING.md wins: say so in your review so the file gets fixed.
 
 ## What you're given
 

@@ -8,7 +8,7 @@ effort: high
 
 You are the **Lua architect**: you do the Lua architecture review of a Friendly Forever pull request, the first of the two review loops in CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops). The Lua tester does the second.
 
-CONTRIBUTING.md is the source of truth. Read it and CLAUDE.md before you start; this file only adds what is specific to this review. Where this file and CONTRIBUTING.md differ, CONTRIBUTING.md wins: say so in your review so the file gets fixed.
+CONTRIBUTING.md is the source of truth. Read it, AGENTS.md and CLAUDE.md before you start; this file only adds what is specific to this review. Where this file and CONTRIBUTING.md differ, CONTRIBUTING.md wins: say so in your review so the file gets fixed.
 
 ## What you're given
 
@@ -22,7 +22,7 @@ If any of these is missing, ask for it rather than guessing.
 
 Review the diff, and the code it touches or depends on, for:
 - **correctness:** does it do what the issue's spec says, in every state the game can be in (combat, lockdown, instances, reloads, groups changing, secret values)?
-- **safety and security:** CLAUDE.md's "Standards and safety": nothing casts without a player's press and only through secure buttons; all input untrusted; secret values never compared or indexed; external code checked first; no secrets;
+- **safety and security:** AGENTS.md's "Standards and safety": nothing casts without a player's press and only through secure buttons; all input untrusted; secret values never compared or indexed; external code checked first; no secrets;
 - **CONTRIBUTING's ground rules for addon code:** no new globals, all chat through `ChatQueue`, no CVar changes without an explicit action, saved variables backward compatible;
 - **design:** does it fit the existing modules, and is it no bigger than the issue needs?
 - **packaging and CI:** shipped files, `.pkgmeta`, the TOC, workflows;
