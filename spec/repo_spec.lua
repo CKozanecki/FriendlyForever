@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182
+-- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -1561,7 +1561,7 @@ describe("Toolchain setup", function()
             end
         end
         for _, path in ipairs({ "scripts", "spec", "uitests", ".github", "Makefile", "CONTRIBUTING.md", "CLAUDE.md",
-            ".busted", ".luacheckrc", ".gitignore" }) do
+            "AGENTS.md", ".busted", ".luacheckrc", ".gitignore" }) do
             assert.is_true(ignored[path], path .. " isn't in .pkgmeta's ignore list")
         end
         -- The setup script and its checksums live in an ignored folder.
@@ -2182,7 +2182,8 @@ describe("Claude sessions' agents, knowledge and skills", function()
 
     local AGENTS = { "lua-architect", "lua-tester" }
     local SKILLS = { "after-merge", "merge-order", "coordinator" }
-    local DOCS = { "docs/forever-facts.md", "docs/simulated-client.md", "docs/ui-simulator.md" }
+    local DOCS = { "docs/forever-facts.md", "docs/simulated-client.md", "docs/ui-simulator.md",
+        "docs/agent-facts.md" }
 
     it(".pkgmeta keeps .claude/ and docs/ out of the release", function()
         local ignored = {}
@@ -2432,8 +2433,8 @@ describe("Claude sessions' agents, knowledge and skills", function()
         end
     end)
 
-    it("CLAUDE.md, the PR template, the agents and the skills name no dated model ID", function()
-        local paths = { "CLAUDE.md", ".github/pull_request_template.md" }
+    it("CLAUDE.md, AGENTS.md, the PR template, the agents and the skills name no dated model ID", function()
+        local paths = { "CLAUDE.md", "AGENTS.md", ".github/pull_request_template.md" }
         for _, name in ipairs(AGENTS) do paths[#paths + 1] = ".claude/agents/" .. name .. ".md" end
         for _, name in ipairs(SKILLS) do paths[#paths + 1] = ".claude/skills/" .. name .. "/SKILL.md" end
         for _, path in ipairs(paths) do assert.are.same({}, modelIds(wow.readFile(path)), path) end
@@ -2499,15 +2500,18 @@ describe("Claude sessions' agents, knowledge and skills", function()
             "sessions start on an alias")
     end)
 
-    -- CLAUDE.md and the after-merge skill send drivers to its Reviews section.
-    it("CLAUDE.md keeps its Reviews section, with the re-confirmation rule", function()
-        local body = wow.readFile("CLAUDE.md"):match("\n## Reviews\n(.-)\n## ") or ""
-        assert.is_truthy(body:find("- **Changes after an approval:**", 1, true), "Changes after an approval")
-        assert.is_truthy(body:find("- **Which model reviewed:**", 1, true), "Which model reviewed")
-    end)
+    -- The after-merge skill sends drivers to AGENTS.md's Reviews section, and
+    -- CLAUDE.md keeps Claude's record of who reviewed (#186).
+    it("AGENTS.md keeps its Reviews section, with the re-confirmation rule, and CLAUDE.md its review records",
+        function()
+            local body = wow.readFile("AGENTS.md"):match("\n## Reviews\n(.-)\n## ") or ""
+            assert.is_truthy(body:find("- **Changes after an approval:**", 1, true), "Changes after an approval")
+            local records = wow.readFile("CLAUDE.md"):match("\n## Review records\n(.*)$") or ""
+            assert.is_truthy(records:find("- **Which model reviewed:**", 1, true), "Which model reviewed")
+        end)
 
-    it("CLAUDE.md starts with a Start here section that links to the detail", function()
-        local text = wow.readFile("CLAUDE.md")
+    it("AGENTS.md starts with a Start here section that links to the detail", function()
+        local text = wow.readFile("AGENTS.md")
         local first = text:match("\n## ([^\n]*)")
         assert.are.equal("Start here", first)
         local body = text:match("\n## Start here\n(.-)\n## ") or ""
@@ -2520,7 +2524,7 @@ describe("Claude sessions' agents, knowledge and skills", function()
     end)
 
     -- Files of game and simulator facts: every bullet has its source.
-    for _, path in ipairs({ "docs/forever-facts.md", "docs/ui-simulator.md" }) do
+    for _, path in ipairs({ "docs/forever-facts.md", "docs/ui-simulator.md", "docs/agent-facts.md" }) do
         it(path .. " gives every fact a source other than its #50 link, and links #50 for every launch check",
             function()
             assert.are.same({}, factProblems(wow.readFile(path)))
@@ -2539,33 +2543,39 @@ describe("Claude sessions' agents, knowledge and skills", function()
 
     it("CLAUDE.md sends reviews to the agents and points to every knowledge file and skill", function()
         local text = wow.readFile("CLAUDE.md")
+        local shared = wow.readFile("AGENTS.md")
+        for _, path in ipairs(DOCS) do assert.is_truthy(shared:find("(" .. path .. ")", 1, true), "AGENTS.md " .. path) end
         for _, name in ipairs(AGENTS) do assert.is_truthy(text:find("`" .. name .. "`", 1, true), name) end
         for _, name in ipairs(SKILLS) do assert.is_truthy(text:find("`" .. name .. "`", 1, true), name) end
         for _, path in ipairs(DOCS) do assert.is_truthy(text:find("(" .. path .. ")", 1, true), path) end
-        assert.is_truthy(text:find("**Keep them current:**", 1, true), "the keep-current rule")
+        assert.is_truthy(shared:find("**Keep them current:**", 1, true), "the keep-current rule")
     end)
 
     -- GitHub deletes merged branches and #115 deletes screenshot branches, so
     -- sessions flag only the ones that outlived their PR, or have none (#119).
-    it("CLAUDE.md and the coordinator skill flag only stale branches, and keep the never-delete"
+    it("AGENTS.md, CLAUDE.md and the coordinator skill flag only stale branches, and keep the never-delete"
         .. " and never-force-push rules", function()
         local claude = wow.readFile("CLAUDE.md")
+        local shared = wow.readFile("AGENTS.md")
         local coordinator = wow.readFile(".claude/skills/coordinator/SKILL.md")
-        for name, text in pairs({ ["CLAUDE.md"] = claude, coordinator = coordinator }) do
+        assert.is_falsy(claude:find("any branches for the owner to delete", 1, true), "CLAUDE.md lists merged branches")
+        assert.is_falsy(claude:find("branches it names for the owner", 1, true), "CLAUDE.md lists merged branches")
+        for name, text in pairs({ ["AGENTS.md"] = shared, coordinator = coordinator }) do
             assert.is_falsy(text:find("any branches for the owner to delete", 1, true), name .. " lists merged branches")
             assert.is_falsy(text:find("branches it names for the owner", 1, true), name .. " lists merged branches")
             assert.is_truthy(text:find("still there after its PR merged or closed, or one with no PR", 1, true),
                 name .. " flags a branch that outlived its PR or has none")
         end
+        assert.is_truthy(claude:find("\n  2. Send the coordinator one line: `done: #<issue>, PR #<n> merged`, plus any"
+            .. " step the owner still has to take (such as applying environment settings or running a workflow) and"
+            .. " any stale branch.\n", 1, true), "CLAUDE.md's done line")
         for _, rule in ipairs({
-            "\n  2. Send the coordinator one line: `done: #<issue>, PR #<n> merged`, plus any step the owner still has"
-                .. " to take (such as applying environment settings or running a workflow) and any stale branch.\n",
             "\n- **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale"
                 .. " branches for the owner, and say which they are.\n",
             "\n- **Force-pushing:** never. Push a rebased branch under a new name and flag the old one for the owner"
                 .. " to delete.\n",
         }) do
-            assert.is_truthy(claude:find(rule, 1, true), rule)
+            assert.is_truthy(shared:find(rule, 1, true), rule)
         end
         assert.is_truthy(coordinator:find("- **Never merges, approves or deletes:** not a PR, a branch, an issue"
             .. " or a comment.", 1, true), "the coordinator's never-delete rule")

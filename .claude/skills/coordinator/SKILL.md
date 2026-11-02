@@ -5,13 +5,13 @@ description: Run several Claude sessions working on Friendly Forever for the own
 
 # Coordinator
 
-How the owner's sessions were coordinated on 2026-10-28/29, when ten ran at once. The rules are CLAUDE.md's "Several sessions at once" and "The owner merges"; CONTRIBUTING.md is the source of truth for how changes land. This skill is the procedure. Where it and those files differ, they win and this file is fixed.
+How the owner's sessions were coordinated on 2026-10-28/29, when ten ran at once. The rules are AGENTS.md's "Several sessions at once" and "The owner merges", and CLAUDE.md's "Coordinating sessions"; CONTRIBUTING.md is the source of truth for how changes land. This skill is the procedure. Where it and those files differ, they win and this file is fixed.
 
 The tools are the remote-session ones: `list_sessions`, `get_session`, `list_events`, `send_message`, `archive_session` and `send_later` (or `create_trigger`).
 
 ## What the coordinator never does
 
-- **Never merges, approves or deletes:** not a PR, a branch, an issue or a comment. The owner merges (CLAUDE.md). Stale branches are listed for the owner: only a branch still there after its PR merged or closed, or one with no PR. A merged PR's branch and its `ui-screenshots/pr-<n>` branch delete themselves, so they aren't listed (#119).
+- **Never merges, approves or deletes:** not a PR, a branch, an issue or a comment. The owner merges (AGENTS.md). Stale branches are listed for the owner: only a branch still there after its PR merged or closed, or one with no PR. A merged PR's branch and its `ui-screenshots/pr-<n>` branch delete themselves, so they aren't listed (#119).
 - **Never drives another session's PR:** it doesn't push to it, edit its description or announce it ready. It sends that PR's driver a message.
 - **Never passes secrets on,** and never asks for one.
 
@@ -47,7 +47,7 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
 
 ## After the owner merges a PR
 
-**Spotting a merge.** The owner may say so, or may just merge on GitHub. So at every check-in, read each tracked PR's state (`gh api repos/CKozanecki/FriendlyForever/pulls/<n>`, read only). GitHub doesn't notify sessions of merges, and they don't poll (CLAUDE.md's "After each merge"); the coordinator tells them.
+**Spotting a merge.** The owner may say so, or may just merge on GitHub. So at every check-in, read each tracked PR's state (`gh api repos/CKozanecki/FriendlyForever/pulls/<n>`, read only). GitHub doesn't notify sessions of merges, and they don't poll (AGENTS.md's "After each merge"); the coordinator tells them.
 
 1. Tell the driver of each other ready PR to merge `main` in (the `after-merge` skill). Name the conflicts the trial merges predicted.
 2. **Tell the merged PR's session at once, politely** (the owner's standing rule, #172). Don't wait for it to notice. First check whether anything is left for it: the PR says `Refs #<issue>` rather than `Closes`, or its transcript shows more parts of the spec still to come.
