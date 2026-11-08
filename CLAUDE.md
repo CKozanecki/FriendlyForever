@@ -23,7 +23,7 @@ Claude sessions reach each other with the remote-session tools (`send_message` a
 
 - **Tell the coordinator:** when a coordinating session is running, send it one or two lines (the issue, the PR link, what's needed) the moment one of these happens, without waiting to be asked:
   - a PR is marked ready, or ready again after a merge of `main`;
-  - you need the owner: a question (one you ask in your own session too), a decision or a blocker;
+  - you need the owner: a question (one you ask in your own session too), a decision or a blocker. Ask before you mark the PR ready: it waits for the answer (#215);
   - you're done: your PR merged and nothing is left;
   - something failed that you can't fix.
 
