@@ -1,4 +1,4 @@
--- Spec: #186
+-- Spec: #186, #217
 -- The drift check for the agents' instruction files. AGENTS.md holds the rules
 -- every product follows; CLAUDE.md imports it and adds only Claude's own.
 -- Codex reads AGENTS.md (or an AGENTS.override.md, which Claude never reads)
@@ -166,5 +166,74 @@ describe("the agents' instruction files", function()
             assert.are.same({ "AGENTS.md is 32769 bytes, over Codex's cap of 32768" },
                 driftProblems(claude, padded .. "x", overrides))
         end)
+    end)
+end)
+
+-- The two review-saving rules (#217) are written once, in CONTRIBUTING.md,
+-- and every other rule file points there instead of restating them.
+describe("the review-saving rules", function()
+    local function flat(path) return (wow.readFile(path):gsub("%s+", " ")) end
+    local contributing = flat("CONTRIBUTING.md")
+    local LINK = "CONTRIBUTING.md#review-loops"
+
+    it("are written once in CONTRIBUTING.md, with the proof and the exceptions", function()
+        for _, text in ipairs({
+            "**A merge that touches none of the PR's files: CI only.**",
+            "`git diff --name-only <old main>..<new main>`",
+            "`git diff --name-only origin/main...HEAD`",
+            "If the merge was clean (no conflict resolved) and the lists share no file",
+            "puts both lists in the description",
+            "The reviewers don't confirm.",
+            "If any file is in both lists, or a conflict was resolved, the reviewers confirm the merge and the"
+                .. " resolution only",
+            "**A docs-only pull request: CI plus one review.**",
+            "the `lua-architect` and `lua-tester` files run as a single pass",
+            "It has no mutation pass and no second loop.",
+            "Any `*.lua` change outside comments, any `*.toc` or `*.xml` change and any workflow file is never"
+                .. " docs-only",
+            "a code PR still gets both review loops once",
+            "An approved review is never repeated",
+            "**Mutation checks are for safety-critical code only (#217).**",
+            "code where a mistake could cast wrongly, mishandle a secret value, or damage saved settings",
+            "the testing reviewer doesn't repeat about 20 more",
+        }) do
+            local _, count = contributing:gsub(text:gsub("%p", "%%%0"), "")
+            assert.are.equal(1, count, text)
+        end
+    end)
+
+    it("are referenced, not restated, by the rules, skills and agent files", function()
+        for _, path in ipairs({ "AGENTS.md", ".claude/skills/after-merge/SKILL.md",
+            ".claude/skills/coordinator/SKILL.md", ".claude/agents/lua-architect.md",
+            ".claude/agents/lua-tester.md" }) do
+            local text = flat(path)
+            assert.is_truthy(text:find(LINK, 1, true), path .. " doesn't point to the rules")
+            assert.is_falsy(text:find("A docs-only pull request: CI plus one review", 1, true), path .. " restates")
+            assert.is_falsy(text:find("A merge that touches none of the PR's files: CI only", 1, true), path .. " restates")
+        end
+    end)
+
+    it("define safety-critical code once, and AGENTS.md, the tester and the PR template point there", function()
+        for _, path in ipairs({ "AGENTS.md", ".claude/agents/lua-tester.md", ".github/pull_request_template.md" }) do
+            local text = flat(path)
+            assert.is_truthy(text:find("CONTRIBUTING.md#review-loops", 1, true), path)
+            assert.is_truthy(text:find("safety-critical", 1, true), path)
+            assert.is_falsy(text:find("mishandle a secret value", 1, true), path .. " restates the definition")
+        end
+        assert.is_falsy(contributing:find("trivial conflict", 1, true), "no trivial-conflict exemption")
+    end)
+
+    it("have the skills say how to prove a merge is file-disjoint, and send overlaps and conflicts to the reviewers",
+        function()
+        for _, path in ipairs({ ".claude/skills/after-merge/SKILL.md", ".claude/skills/coordinator/SKILL.md" }) do
+            local text = flat(path)
+            assert.is_truthy(text:find("git diff --name-only <old main>..<new main>", 1, true), path)
+            assert.is_truthy(text:find("git diff --name-only origin/main...HEAD", 1, true), path)
+        end
+        local afterMerge = flat(".claude/skills/after-merge/SKILL.md")
+        assert.is_truthy(afterMerge:find("If a file is in both lists, or a conflict was resolved, the reviewers"
+            .. " confirm the merge and the resolution only", 1, true))
+        assert.is_truthy(flat("AGENTS.md"):find("the reviewers confirm the merge, unless it touches none of the PR's"
+            .. " files", 1, true))
     end)
 end)
