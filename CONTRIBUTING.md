@@ -40,7 +40,10 @@ A pull request is **ready for review** when all of these hold:
 - CI is green on the latest commit;
 - the description matches the final code;
 - the branch is up to date with `main` and has no conflicts;
-- for pull requests written by an agent (Claude or Codex): both of its review loops (Lua architecture, then Lua testing) have approved, with every finding fixed.
+- for pull requests written by an agent (Claude or Codex): both of its review loops (Lua architecture, then Lua testing) have approved, with every finding fixed;
+- it has no open question for the maintainer (#215).
+
+**A pull request with an open question for the maintainer is not ready.** Whoever drives it asks the maintainer first (a session does so through the coordinator) and marks it ready only after the answer is applied. Its description has no "decisions for the maintainer" section when it is ready. A choice the driver made by following the spec is written plainly as a decision taken, not as a question. If the driver is unsure, that is a question, and the pull request waits. The coordinator doesn't call a pull request ready to merge while a question on it is open.
 
 Then whoever drives it marks it ready (GitHub's **Ready for review** button, out of draft) and says so in a comment, so the maintainer never has to ask.
 
