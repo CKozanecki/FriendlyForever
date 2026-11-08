@@ -1,15 +1,26 @@
--- The buffs each class gives other players on WoW Forever, by spell ID.
+-- The buffs each class gives other players on WoW Forever: the one place
+-- that says which buffs exist (#209). Other files ask it by buff key.
 --
--- The IDs are Classic Era's (1.15). Forever may differ (a buff removed, a
--- talent made trainable); that can only mean a buff isn't offered, because a
--- buff whose spell you don't know never is.
+-- The game's spell API decides what exists (#209). The table keeps each
+-- buff's English spell name and its rules; the spell IDs in it are only
+-- hints, Classic Era's (1.15), which Forever may have changed. Every ID is
+-- checked against the API before it's used (BuffData.Refresh): the spell
+-- must exist, and its name must be the one the table expects. The ID of the
+-- highest rank you know is asked of the API by name, and an aura or cast
+-- whose ID isn't in the table is still recognised by its spell name. A buff
+-- whose spell the API doesn't know is not available: never offered, listed
+-- or errored on, with the reason in debug. Saved settings that name it keep
+-- their values (KEYS lists every key, available or not).
 --
 -- Each buff:
 --   key       our name for it (saved settings, buff order)
---   ranks     every rank's spell ID, highest first: "/cast <name>" casts the
---             highest you know, and any of them on a player means they have it
---   group     the group versions' IDs (Arcane Brilliance...): they count as having it
---   blockers  other buffs that do the same job (Scroll of Intellect...): ditto
+--   name      the spell's English name ("Mark of the Wild"), asked of the API
+--   groupNames  the group versions' English names (Gift of the Wild...)
+--   ranks     hint: every rank's spell ID, highest first: "/cast <name>" casts
+--             the highest you know, and any of them on a player means they have
+--             it. Their order is the only rank order the API doesn't give.
+--   group     hint: the group versions' IDs: they count as having it
+--   blockers  hint: other buffs that do the same job (Scroll of Intellect...): ditto
 --   manaOnly  only offered to classes that use mana
 --   groupOnly only offered to your own group (Salvation)
 --   selfCast  cast on yourself, reaching your party (Battle Shout): never a return
@@ -21,49 +32,61 @@
 --             setting says so (Water.lua, #136)
 local _, ns = ...
 local Util = ns.Util
+local Read = Util.ReadGameValues
 
 local BuffData = {}
 ns.BuffData = BuffData
 
 BuffData.CLASSES = {
     MAGE = {
-        { key = "intellect", ranks = { 10157, 10156, 1461, 1460, 1459 }, group = { 23028 },
+        { key = "intellect", name = "Arcane Intellect", groupNames = { "Arcane Brilliance" },
+            ranks = { 10157, 10156, 1461, 1460, 1459 }, group = { 23028 },
             blockers = { 8096, 8097, 8098, 12176 }, manaOnly = true },
     },
     PRIEST = {
-        { key = "fortitude", ranks = { 10938, 10937, 2791, 1245, 1244, 1243 }, group = { 21564, 21562 },
+        { key = "fortitude", name = "Power Word: Fortitude", groupNames = { "Prayer of Fortitude" },
+            ranks = { 10938, 10937, 2791, 1245, 1244, 1243 }, group = { 21564, 21562 },
             blockers = { 8099, 8100, 8101, 12178 } },
-        { key = "spirit", ranks = { 27841, 14819, 14818, 14752 }, group = { 27681 },
+        { key = "spirit", name = "Divine Spirit", groupNames = { "Prayer of Spirit" },
+            ranks = { 27841, 14819, 14818, 14752 }, group = { 27681 },
             blockers = { 8112, 8113, 8114, 12177 }, manaOnly = true },
-        { key = "shadow", ranks = { 10958, 10957, 976 }, group = { 27683 } },
+        { key = "shadow", name = "Shadow Protection", groupNames = { "Prayer of Shadow Protection" },
+            ranks = { 10958, 10957, 976 }, group = { 27683 } },
     },
     DRUID = {
-        { key = "motw", ranks = { 9885, 9884, 8907, 5234, 6756, 5232, 1126 }, group = { 21850, 21849 } },
-        { key = "thorns", ranks = { 9910, 9756, 8914, 1075, 782, 467 } },
+        { key = "motw", name = "Mark of the Wild", groupNames = { "Gift of the Wild" },
+            ranks = { 9885, 9884, 8907, 5234, 6756, 5232, 1126 }, group = { 21850, 21849 } },
+        { key = "thorns", name = "Thorns", ranks = { 9910, 9756, 8914, 1075, 782, 467 } },
     },
     PALADIN = {
-        { key = "kings", ranks = { 20217 }, group = { 25898 }, family = "blessing" },
-        { key = "wisdom", ranks = { 25290, 19854, 19853, 19852, 19850, 19742 }, group = { 25918, 25894 },
+        { key = "kings", name = "Blessing of Kings", groupNames = { "Greater Blessing of Kings" },
+            ranks = { 20217 }, group = { 25898 }, family = "blessing" },
+        { key = "wisdom", name = "Blessing of Wisdom", groupNames = { "Greater Blessing of Wisdom" },
+            ranks = { 25290, 19854, 19853, 19852, 19850, 19742 }, group = { 25918, 25894 },
             manaOnly = true, family = "blessing" },
-        { key = "might", ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 }, group = { 25916, 25782 },
+        { key = "might", name = "Blessing of Might", groupNames = { "Greater Blessing of Might" },
+            ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 }, group = { 25916, 25782 },
             family = "blessing" },
-        { key = "light", ranks = { 19979, 19978, 19977 }, group = { 25890 }, family = "blessing" },
+        { key = "light", name = "Blessing of Light", groupNames = { "Greater Blessing of Light" },
+            ranks = { 19979, 19978, 19977 }, group = { 25890 }, family = "blessing" },
         -- Not a Blessing on Forever: it's worn beside one (#68). Kept off
         -- tanks by default, who don't want less threat.
-        { key = "salvation", ranks = { 1038 }, group = { 25895 }, groupOnly = true, defaultRule = "notTanks" },
+        { key = "salvation", name = "Blessing of Salvation", groupNames = { "Greater Blessing of Salvation" },
+            ranks = { 1038 }, group = { 25895 }, groupOnly = true, defaultRule = "notTanks" },
     },
     SHAMAN = {
         -- Does the same job as a warlock's Unending Breath, and the other way
         -- round (#136).
-        { key = "waterbreathing", ranks = { 131 }, blockers = { 5697 }, water = true },
+        { key = "waterbreathing", name = "Water Breathing", ranks = { 131 }, blockers = { 5697 }, water = true },
     },
     WARLOCK = {
         -- 131 is the shaman's Water Breathing: no group version of Unending
         -- Breath, but it does the same job, so it's a blocker (#135).
-        { key = "breath", ranks = { 5697 }, blockers = { 131 }, water = true },
+        { key = "breath", name = "Unending Breath", ranks = { 5697 }, blockers = { 131 }, water = true },
     },
     WARRIOR = {
-        { key = "battleshout", ranks = { 25289, 11551, 11550, 11549, 6192, 5242, 6673 }, selfCast = true },
+        { key = "battleshout", name = "Battle Shout",
+            ranks = { 25289, 11551, 11550, 11549, 6192, 5242, 6673 }, selfCast = true },
     },
 }
 
@@ -95,56 +118,200 @@ end
 -- On a client in another language it isn't found, and isn't offered.
 BuffData.REVOKE = { key = "revoke", name = "Revoke", ranks = {}, removes = "salvation" }
 
--- [spell ID] = buff, for every rank, group version and blocker. A spell
--- that is one buff's rank and another's blocker (Water Breathing, Unending
--- Breath) belongs to the buff it's a rank of: ranks are filled in last.
-local byAuraId = {}
--- [spell ID] = buff, for the ranks only (what our own casts can be).
-local byRankId = {}
--- [buff] = { [spell ID] = true }: every spell that counts as having it.
-local covers = {}
-for _, list in pairs(BuffData.CLASSES) do
-    for _, buff in ipairs(list) do
-        covers[buff] = {}
-        for _, field in ipairs({ "ranks", "group", "blockers" }) do
-            for _, id in ipairs(buff[field] or {}) do covers[buff][id] = true end
-        end
-        for _, field in ipairs({ "group", "blockers" }) do
-            for _, id in ipairs(buff[field] or {}) do byAuraId[id] = buff end
-        end
-    end
+-- Resolving the hints against the game's spell API (#209).
+--
+-- Everything the API returns is untrusted: an ID must be a whole number in
+-- range, a name a short string, and neither may be a secret value (never
+-- compared or used as a key).
+local MAX_SPELL_ID = 16777215
+local MAX_NAME_BYTES = 128
+
+local function ValidId(id)
+    if Util.IsSecret(id) then return false end
+    return type(id) == "number" and id == id and id >= 1 and id <= MAX_SPELL_ID and id % 1 == 0
 end
-for _, list in pairs(BuffData.CLASSES) do
-    for _, buff in ipairs(list) do
-        for _, id in ipairs(buff.ranks) do
-            byAuraId[id] = buff
-            byRankId[id] = buff
+
+-- The game's name for spell id, or nil when it has none (a spell the game
+-- doesn't have), or the answer is odd.
+local function NameOf(id)
+    if not ValidId(id) then return nil end
+    local name = Read(C_Spell and C_Spell.GetSpellName, id) or Read(GetSpellInfo, id)
+    if type(name) == "string" and name ~= "" and #name <= MAX_NAME_BYTES then return name end
+end
+
+-- Names are compared only on an English client: elsewhere the game spells
+-- them in its own language, so a hint is trusted when its spell exists.
+local function ComparesNames()
+    local locale = Read(GetLocale)
+    return locale == nil or locale == "enUS" or locale == "enGB"
+end
+
+local function Log(fmt, ...)
+    if ns.Diag then ns.Diag.Log("buffData", fmt, ...) end
+end
+
+-- Whether hint id is a real spell of this game that is one of names (any
+-- name when names is nil).
+local function Verified(id, names)
+    local name = NameOf(id)
+    if not name then return false end
+    if names == nil or not ComparesNames() then return true end
+    for _, expected in ipairs(names) do
+        if name == expected then return true end
+    end
+    return false
+end
+
+-- The ID the API gives for the highest rank of spell `name` that you know.
+local function IdByName(name)
+    local info = Read(C_Spell and C_Spell.GetSpellInfo, name)
+    if type(info) ~= "table" or Util.IsSecret(info) then return nil end
+    local id = info.spellID
+    if not ValidId(id) or not Verified(id, { name }) then return nil end
+    return id
+end
+
+local function List(value)
+    if type(value) ~= "table" then return {} end
+    return value
+end
+
+-- What Build makes; nil whenever it's stale.
+--   ranks[buff]    the verified rank IDs, the API's answer first, then the hints
+--   covers[buff]   { [id] = true } for every ID that counts as having it
+--   byAura[id]     the buff an ID belongs to; byRank[id] likewise, ranks only
+--   byName[name]   { buff, role = "rank" | "group" }
+--   unseen[id]     the byName hit for an ID no table has, or false
+local resolved
+
+local UNSEEN_CAP = 512
+
+local function Build()
+    local r = { ranks = {}, covers = {}, byAura = {}, byRank = {}, byName = {}, unseen = {}, unseenCount = 0 }
+    local owner, ambiguous = {}, {}
+    local buffs = {}
+    for _, list in pairs(BuffData.CLASSES) do
+        for _, buff in ipairs(List(list)) do buffs[#buffs + 1] = buff end
+    end
+    for _, buff in ipairs(buffs) do
+        local ranks, seen = {}, {}
+        local function add(id)
+            if ValidId(id) and not seen[id] then
+                seen[id] = true
+                ranks[#ranks + 1] = id
+            end
+        end
+        add(IdByName(buff.name))
+        for _, id in ipairs(List(buff.ranks)) do
+            if ValidId(id) and Verified(id, { buff.name }) then add(id) end
+        end
+        r.ranks[buff] = ranks
+        for _, id in ipairs(ranks) do
+            if owner[id] and owner[id] ~= buff then ambiguous[id] = true end
+            owner[id] = buff
+        end
+        r.byName[buff.name] = { buff = buff, role = "rank" }
+        for _, name in ipairs(List(buff.groupNames)) do r.byName[name] = { buff = buff, role = "group" } end
+    end
+    -- An ID two buffs both claim as a rank belongs to neither.
+    for _, buff in ipairs(buffs) do
+        local kept = {}
+        for _, id in ipairs(r.ranks[buff]) do
+            if ambiguous[id] then
+                Log("%s: spell %s is also another buff's rank; not used", buff.key, id)
+            else
+                kept[#kept + 1] = id
+            end
+        end
+        r.ranks[buff] = kept
+        if #kept == 0 then Log("%s not available: the game has no spell %s", buff.key, buff.name) end
+    end
+    for _, buff in ipairs(buffs) do
+        local covers = {}
+        r.covers[buff] = covers
+        for _, id in ipairs(r.ranks[buff]) do covers[id] = true end
+        for _, id in ipairs(List(buff.group)) do
+            if ValidId(id) and Verified(id, buff.groupNames) then
+                covers[id] = true
+                if r.byAura[id] == nil then r.byAura[id] = buff end
+            end
+        end
+        for _, id in ipairs(List(buff.blockers)) do
+            if ValidId(id) and Verified(id, nil) then
+                covers[id] = true
+                if r.byAura[id] == nil then r.byAura[id] = buff end
+            end
         end
     end
+    -- Ranks are filled in last: a spell that is one buff's rank and another's
+    -- blocker (Water Breathing, Unending Breath) belongs to the buff it's a rank of.
+    for _, buff in ipairs(buffs) do
+        for _, id in ipairs(r.ranks[buff]) do
+            r.byAura[id] = buff
+            r.byRank[id] = buff
+        end
+    end
+    return r
+end
+
+local function State()
+    if not resolved then resolved = Build() end
+    return resolved
+end
+
+-- Ask the API again for every buff. Also happens by itself the first time
+-- anything is asked, and after BuffData.SpellsChanged.
+function BuffData.Refresh()
+    resolved = nil
+    State()
+end
+
+-- The byName hit for an ID no table has (the game numbered it differently),
+-- or nil. Remembered, up to a limit.
+local function ByNameOfId(id)
+    local r = State()
+    local seen = r.unseen[id]
+    if seen ~= nil then return seen or nil end
+    local name = NameOf(id)
+    local hit = name and r.byName[name] or nil
+    if r.unseenCount >= UNSEEN_CAP then r.unseen, r.unseenCount = {}, 0 end
+    r.unseen[id] = hit or false
+    r.unseenCount = r.unseenCount + 1
+    return hit
 end
 
 -- The buff a spell ID belongs to (any rank, group version or blocker), or nil.
 function BuffData.ForAura(spellId)
-    return byAuraId[spellId]
+    if not ValidId(spellId) then return nil end
+    local buff = State().byAura[spellId]
+    if buff then return buff end
+    local hit = ByNameOfId(spellId)
+    return hit and hit.buff or nil
 end
 
 -- Whether wearing spell spellId counts as having buff (any of its ranks,
 -- group versions or blockers).
 function BuffData.Covers(buff, spellId)
-    local ids = covers[buff]
     -- A secret mustn't be used as a table key (the game raises an error).
-    if ids == nil or Util.IsSecret(spellId) then return false end
-    return ids[spellId] == true
+    if not ValidId(spellId) then return false end
+    local ids = State().covers[buff]
+    if ids == nil then return false end
+    if ids[spellId] == true then return true end
+    local hit = ByNameOfId(spellId)
+    return hit ~= nil and hit.buff == buff
 end
-
-local Read = Util.ReadGameValues
 
 -- The buff one of our casts was (or Revoke), or nil.
 function BuffData.ForCast(spellId)
-    local buff = byRankId[spellId]
-    if buff then return buff end
-    if spellId ~= nil and Read(C_Spell and C_Spell.GetSpellName, spellId) == BuffData.REVOKE.name then
-        return BuffData.REVOKE
+    if Util.IsSecret(spellId) or spellId == nil then return nil end
+    if ValidId(spellId) then
+        local buff = State().byRank[spellId]
+        if buff then return buff end
+        local hit = ByNameOfId(spellId)
+        if hit and hit.role == "rank" then return hit.buff end
+        if Read(C_Spell and C_Spell.GetSpellName, spellId) == BuffData.REVOKE.name then
+            return BuffData.REVOKE
+        end
     end
 end
 
@@ -153,18 +320,26 @@ function BuffData.RevokeKnown()
     return type(info) == "table"
 end
 
+-- Whether the game has this buff's spell at all (it need not be yours): the
+-- API found at least one rank. A buff it doesn't know is never offered or listed.
+function BuffData.Available(buff)
+    local ranks = State().ranks[buff]
+    return ranks ~= nil and #ranks > 0
+end
+
 -- The buff's name as the game spells it ("Mark of the Wild"), for /cast and
 -- for showing. Every rank has the same name, so the first one the client knows.
 function BuffData.SpellName(buff)
-    for _, id in ipairs(buff.ranks) do
-        local name = Read(C_Spell and C_Spell.GetSpellName, id) or Read(GetSpellInfo, id)
-        if type(name) == "string" and name ~= "" then return name end
+    for _, id in ipairs(State().ranks[buff] or {}) do
+        local name = NameOf(id)
+        if name then return name end
     end
 end
 
--- The icon of the buff's lowest rank (or, for Revoke, of its name), for the button.
+-- The icon of the buff's lowest rank, for the button.
 function BuffData.Icon(buff)
-    local id = buff.ranks[#buff.ranks] or buff.name
+    local ranks = State().ranks[buff] or {}
+    local id = ranks[#ranks] or buff.name
     if id == nil then return nil end
     return Read(C_Spell and C_Spell.GetSpellTexture, id) or Read(GetSpellTexture, id)
 end
@@ -184,7 +359,7 @@ local function Known(id)
 end
 
 function BuffData.IsKnown(buff)
-    for _, id in ipairs(buff.ranks) do
+    for _, id in ipairs(State().ranks[buff] or {}) do
         if Known(id) then return true end
     end
     return false
@@ -192,12 +367,12 @@ end
 
 -- Whether your cast of buff can replace spellId on a player, to top it up
 -- (#42): spellId is one of buff's ranks, and you know that rank or a higher
--- one. A group version, a blocker or a rank above yours is left to run out:
--- the game may refuse a weaker cast over it.
+-- one. A group version, a blocker, a rank above yours or an ID the API
+-- didn't give is left to run out: the game may refuse a weaker cast over it.
 function BuffData.CanReplace(buff, spellId)
-    if Util.IsSecret(spellId) then return false end
+    if not ValidId(spellId) then return false end
     local known = false
-    for _, id in ipairs(buff.ranks) do
+    for _, id in ipairs(State().ranks[buff] or {}) do
         known = known or Known(id)
         if id == spellId then return known end
     end
@@ -212,17 +387,21 @@ function BuffData.Mine()
     local _, class = Read(UnitClass, "player")
     local out = {}
     for _, buff in ipairs(class and BuffData.CLASSES[class] or {}) do
-        if BuffData.IsKnown(buff) then out[#out + 1] = buff end
+        if BuffData.Available(buff) and BuffData.IsKnown(buff) then out[#out + 1] = buff end
     end
     -- An unreadable class isn't remembered: the next call asks again.
     if class then mine = out end
     return out
 end
 
--- Your class's buffs, known or not, in the class's own order.
+-- Your class's buffs the game has, known or not, in the class's own order.
 function BuffData.ClassBuffs()
     local _, class = Read(UnitClass, "player")
-    return class and BuffData.CLASSES[class] or {}
+    local out = {}
+    for _, buff in ipairs(class and BuffData.CLASSES[class] or {}) do
+        if BuffData.Available(buff) then out[#out + 1] = buff end
+    end
+    return out
 end
 
 -- buffs reordered by order (a list of buff keys, from the Buff Back tab):
@@ -267,6 +446,7 @@ end
 -- Call when the spellbook changes (SPELLS_CHANGED, a spell learned).
 function BuffData.SpellsChanged()
     mine = nil
+    resolved = nil
 end
 
 -- Whether a class wants this buff. class: their file name ("WARRIOR") or nil

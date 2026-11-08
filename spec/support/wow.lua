@@ -356,6 +356,37 @@ nameSpell("Blessing of Wisdom", { 25290, 19854, 19853, 19852, 19850, 19742 })
 nameSpell("Unending Breath", { 5697 })
 nameSpell("Water Breathing", { 131 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
+-- Group versions, Blessing of Light and Salvation, and the scroll auras that
+-- count as a buff (#209). Classic's IDs and names; Forever's may differ.
+nameSpell("Prayer of Fortitude", { 21564, 21562 })
+nameSpell("Prayer of Spirit", { 27681 })
+nameSpell("Prayer of Shadow Protection", { 27683 })
+nameSpell("Greater Blessing of Kings", { 25898 })
+nameSpell("Greater Blessing of Wisdom", { 25918, 25894 })
+nameSpell("Greater Blessing of Might", { 25916, 25782 })
+nameSpell("Greater Blessing of Light", { 25890 })
+
+nameSpell("Blessing of Light", { 19979, 19978, 19977 })
+nameSpell("Intellect", { 8096, 8097, 8098, 12176 })
+nameSpell("Stamina", { 8099, 8100, 8101, 12178 })
+nameSpell("Spirit", { 8112, 8113, 8114, 12177 })
+
+-- The name of spell id in the simulated game, or nil when the game has no
+-- such spell. state.spellNames overrides the table above per spec: [id] =
+-- "name" renames or adds a spell, [id] = false removes it (#209).
+local function spellName(id)
+    local over = M.state and M.state.spellNames and M.state.spellNames[id]
+    if over ~= nil then return over or nil end
+    return M.SPELL_NAMES[id]
+end
+
+-- Every spell id the simulated game has, with its name.
+local function allSpells()
+    local out = {}
+    for id, name in pairs(M.SPELL_NAMES) do out[id] = name end
+    for id, name in pairs(M.state and M.state.spellNames or {}) do out[id] = name or nil end
+    return out
+end
 -- Forever's Revoke (paladins). Its real ID isn't known yet (#50): this one
 -- is the simulation's own, and the addon finds Revoke by name.
 M.REVOKE_ID = 990001
@@ -565,7 +596,7 @@ end
 -- The highest known rank of a spell name, or nil.
 local function knownRank(name)
     local best
-    for id, n in pairs(M.SPELL_NAMES) do
+    for id, n in pairs(allSpells()) do
         if n == name and M.state.knownSpells[id] and (not best or id > best) then best = id end
     end
     return best
@@ -982,7 +1013,7 @@ function M.reset()
         units = {}, cursorX = 0, cursorY = 0,
         playerAuras = {}, aurasRestricted = false,
         today = "2026-10-26", clock = 1793000000,
-        knownSpells = {}, castFailures = {}, targetNameForm = "space", sentTargetForm = "first",
+        knownSpells = {}, spellNames = {}, castFailures = {}, targetNameForm = "space", sentTargetForm = "first",
         -- overrides: [key] = { owner, button, mouseButton, priority } (SetOverrideBindingClick).
         -- bindings: [key] = the key's own binding action. mods: modifier keys held now.
         overrides = {}, bindings = {}, mods = {},
@@ -1249,13 +1280,13 @@ function M.reset()
 
     -- Spells: state.knownSpells[id] = true for spells in my spellbook.
     _G.C_Spell = {
-        GetSpellName = function(id) return M.SPELL_NAMES[id] end,
+        GetSpellName = function(id) return spellName(id) end,
         -- By ID: any spell the client has. By name: only a spell you know
         -- (the game looks names up in your spellbook).
         GetSpellInfo = function(spell)
             local id = spell
             if type(spell) == "string" then id = knownRank(spell) end
-            local name = id and M.SPELL_NAMES[id]
+            local name = id and spellName(id)
             if not name then return nil end
             return { name = name, spellID = id }
         end,
@@ -1263,7 +1294,7 @@ function M.reset()
         GetSpellTexture = function(spell)
             local id = spell
             if type(spell) == "string" then id = knownRank(spell) end
-            return id and M.SPELL_NAMES[id] and ("icon:" .. id) or nil
+            return id and spellName(id) and ("icon:" .. id) or nil
         end,
         -- Unit fields outOfSpellRange (the spell can't reach them) and
         -- spellRangeUnknown (the game won't say: nil).

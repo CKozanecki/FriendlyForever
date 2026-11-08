@@ -19,7 +19,7 @@ describe("Revoke", function()
     -- opts.noRevoke, in buff mode.
     local function boot(opts)
         opts = opts or {}
-        wow.SPELL_NAMES[SALVATION] = "Salvation"
+        wow.SPELL_NAMES[SALVATION] = "Blessing of Salvation"
         ns = wow.boot({ db = opts.db, before = function(state)
             state.class = opts.class or "PALADIN"
             state.knownSpells = opts.known
