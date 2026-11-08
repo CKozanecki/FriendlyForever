@@ -183,9 +183,7 @@ describe("Spell IDs from the game's spell API (#209)", function()
                 end
                 BuffData.SpellsChanged()
                 assert.has_no.errors(function() BuffData.Offerable() end)
-                local ranks = 0
-                for _, buff in ipairs(BuffData.Mine()) do ranks = ranks + 1 end
-                assert.are.equal(2, ranks, "the verified hints still serve: " .. tostring(odd))
+                assert.are.equal(2, #BuffData.Mine(), "the verified hints still serve: " .. tostring(odd))
             end
             boot()
             _G.C_Spell.GetSpellInfo = function() return wow.secret({ spellID = MOTW_1 }) end

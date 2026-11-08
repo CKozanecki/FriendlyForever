@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47
+-- Spec: #52, #112, #158, #47, #209
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's

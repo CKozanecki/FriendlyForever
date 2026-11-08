@@ -1,4 +1,4 @@
--- Spec: #68, #76
+-- Spec: #68, #76, #209
 -- Revoke (paladins, Forever): buff mode offers to take Salvation off members
 -- who shouldn't have it, as your setting says: your own Salvation on
 -- members your Salvation rule leaves out (the default), any tank, chosen
