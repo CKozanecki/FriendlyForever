@@ -15,8 +15,8 @@
 -- each buff (tanks only, chosen classes, named players: BuffRules.lua) apply
 -- here, and only here. Group buffs never say a line and are never thanked.
 --
--- You are a group member too (#198): once the others have the buffs you
--- give, a buff you are missing is offered on you (GroupBuffs.SELF_ORDER says
+-- You are a group member too (#198): for each buff you give, once the others
+-- have it, that buff is offered on you if you are missing it (GroupBuffs.SELF_ORDER says
 -- where you come in), under the same rules: your buff order, Never lists,
 -- who gets each buff, top-up timing. It is cast on you with [@player], so
 -- your target stays as it is. You are left out when dead or unreadable (the
@@ -258,7 +258,7 @@ function GroupBuffs.Next()
     local function Why(member, why)
         if member.self then
             -- The reasons are worded for someone else.
-            why = why:gsub("they're", "you're"):gsub("their", "your")
+            why = why:gsub("they're", "you're"):gsub("they have", "you have"):gsub("their", "your")
         end
         firstReason = firstReason or ((member.self and "You" or Util.DisplayName(member.name)) .. ": " .. why)
         open = true

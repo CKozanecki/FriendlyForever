@@ -245,6 +245,25 @@ describe("Buff mode buffing you too", function()
             assert.are.equal("Skipping yourself for 5 minutes.", button.result:GetText())
         end)
 
+        it("puts a Never mark on you in your own words (Shift+right-click)", function()
+            party({ "Ann-Vale" })
+            wearEverything(wow.state.units.party1)
+            _G.IsShiftKeyDown = function() return true end
+            wow.press(button, "RightButton")
+            assert.are.equal("You won't get Mark of the Wild (Never list, on the Buff Back tab).", button.result:GetText())
+        end)
+
+        it("says so in your words when the Never mark can't be added", function()
+            party({ "Ann-Vale" })
+            wearEverything(wow.state.units.party1)
+            _G.IsShiftKeyDown = function() return true end
+            local add = ns.BuffRules.AddName
+            ns.BuffRules.AddName = function() return false, "the list is full" end
+            wow.press(button, "RightButton")
+            ns.BuffRules.AddName = add
+            assert.are.equal("Couldn't add you to the Never list: the list is full.", button.result:GetText())
+        end)
+
         it("says you when the game never answers the cast", function()
             party({ "Ann-Vale" })
             wearEverything(wow.state.units.party1)
@@ -265,6 +284,21 @@ describe("Buff mode buffing you too", function()
             assert.is_nil(macro(), "held back for a moment")
             wow.advance(ns.GroupBuffs.HELD_BACK_SECONDS + 1)
             assert.is_truthy(macro())
+        end)
+    end)
+
+    describe("a paladin's Blessings", function()
+        it("says 'you' when it can't tell whose Blessing is on you", function()
+            local KINGS, MIGHT_1 = 20217, 19740
+            boot({ known = { [KINGS] = true, [MIGHT_1] = true }, class = "PALADIN" })
+            ns.db.buffBack.buffOrder = { "might", "kings" }
+            party({ "Ann-Vale" })
+            local ann = wow.state.units.party1
+            ann.auras, ann.auraSources = { KINGS }, { "player" }
+            wow.gainBuff({ spellId = KINGS, sourceUnit = wow.secret("party1") })
+            ns.BuffButton.Refresh()
+            assert.is_nil(macro())
+            assert.are.equal("You: can't tell whose Blessing you have", select(2, ns.GroupBuffs.Next()))
         end)
     end)
 

@@ -402,9 +402,10 @@ local function OnPostClick(_, mouseButton, isDown)
         local ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name)
         if ok then
             ShowResult(string.format("%s won't get %s (Never list, on the Buff Back tab).",
-                Util.DisplayName(name), offer.spell))
+                offer.self and "You" or Util.DisplayName(name), offer.spell))
         else
-            ShowResult("Couldn't add " .. Util.DisplayName(name) .. " to the Never list: " .. why .. ".", true)
+            ShowResult("Couldn't add " .. (offer.self and "you" or Util.DisplayName(name))
+                .. " to the Never list: " .. why .. ".", true)
         end
         ns.Options.Refresh()
     elseif offer.group then
