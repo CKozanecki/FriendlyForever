@@ -16,6 +16,7 @@
 --   key       our name for it (saved settings, buff order)
 --   name      the spell's English name ("Mark of the Wild"), asked of the API
 --   groupNames  the group versions' English names (Gift of the Wild...)
+--   blockerNames  the English names of the spells that count as having it (Unending Breath)
 --   ranks     hint: every rank's spell ID, highest first: "/cast <name>" casts
 --             the highest you know, and any of them on a player means they have
 --             it. Their order is the only rank order the API doesn't give.
@@ -39,15 +40,15 @@ ns.BuffData = BuffData
 
 BuffData.CLASSES = {
     MAGE = {
-        { key = "intellect", name = "Arcane Intellect", groupNames = { "Arcane Brilliance" },
+        { key = "intellect", name = "Arcane Intellect", groupNames = { "Arcane Brilliance" }, blockerNames = { "Intellect" },
             ranks = { 10157, 10156, 1461, 1460, 1459 }, group = { 23028 },
             blockers = { 8096, 8097, 8098, 12176 }, manaOnly = true },
     },
     PRIEST = {
-        { key = "fortitude", name = "Power Word: Fortitude", groupNames = { "Prayer of Fortitude" },
+        { key = "fortitude", name = "Power Word: Fortitude", groupNames = { "Prayer of Fortitude" }, blockerNames = { "Stamina" },
             ranks = { 10938, 10937, 2791, 1245, 1244, 1243 }, group = { 21564, 21562 },
             blockers = { 8099, 8100, 8101, 12178 } },
-        { key = "spirit", name = "Divine Spirit", groupNames = { "Prayer of Spirit" },
+        { key = "spirit", name = "Divine Spirit", groupNames = { "Prayer of Spirit" }, blockerNames = { "Spirit" },
             ranks = { 27841, 14819, 14818, 14752 }, group = { 27681 },
             blockers = { 8112, 8113, 8114, 12177 }, manaOnly = true },
         { key = "shadow", name = "Shadow Protection", groupNames = { "Prayer of Shadow Protection" },
@@ -77,12 +78,12 @@ BuffData.CLASSES = {
     SHAMAN = {
         -- Does the same job as a warlock's Unending Breath, and the other way
         -- round (#136).
-        { key = "waterbreathing", name = "Water Breathing", ranks = { 131 }, blockers = { 5697 }, water = true },
+        { key = "waterbreathing", name = "Water Breathing", blockerNames = { "Unending Breath" }, ranks = { 131 }, blockers = { 5697 }, water = true },
     },
     WARLOCK = {
         -- 131 is the shaman's Water Breathing: no group version of Unending
         -- Breath, but it does the same job, so it's a blocker (#135).
-        { key = "breath", name = "Unending Breath", ranks = { 5697 }, blockers = { 131 }, water = true },
+        { key = "breath", name = "Unending Breath", blockerNames = { "Water Breathing" }, ranks = { 5697 }, blockers = { 131 }, water = true },
     },
     WARRIOR = {
         { key = "battleshout", name = "Battle Shout",
@@ -112,9 +113,9 @@ function BuffData.ByKey(key)
 end
 
 -- Revoke (Forever, paladins): takes Salvation off a party or raid member.
--- Its spell ID isn't known yet (checked at launch, #50), so it's found by
--- its English name: in the spellbook (C_Spell.GetSpellInfo answers a name
--- only for a spell you know), and in cast events by the cast spell's name.
+-- Blizzard removed it right before launch (owner, Nov 8); the code is
+-- #208's. Its spell ID isn't recorded, so it's found by its English name: in the spellbook (C_Spell.GetSpellInfo
+-- answers a name only for a spell you know), and in cast events by the cast spell's name.
 -- On a client in another language it isn't found, and isn't offered.
 BuffData.REVOKE = { key = "revoke", name = "Revoke", ranks = {}, removes = "salvation" }
 
@@ -180,8 +181,8 @@ end
 --   ranks[buff]    the verified rank IDs: the hints in order, an ID only the API gave first
 --   covers[buff]   { [id] = true } for every ID that counts as having it
 --   byAura[id]     the buff an ID belongs to; byRank[id] likewise, ranks only
---   byName[name]   { buff, role = "rank" | "group" }
---   unseen[id]     the byName hit for an ID no table has, or false
+--   byName[name]   a list of { buff, role = "rank" | "group" | "blocker" }
+--   unseen[id]     the byName list for an ID no table has, or false
 local resolved
 
 local UNSEEN_CAP = 512
@@ -218,8 +219,14 @@ local function Build()
             if owner[id] and owner[id] ~= buff then ambiguous[id] = true end
             owner[id] = buff
         end
-        r.byName[buff.name] = { buff = buff, role = "rank" }
-        for _, name in ipairs(List(buff.groupNames)) do r.byName[name] = { buff = buff, role = "group" } end
+        local function named(name, role)
+            if type(name) ~= "string" then return end
+            r.byName[name] = r.byName[name] or {}
+            table.insert(r.byName[name], { buff = buff, role = role })
+        end
+        named(buff.name, "rank")
+        for _, name in ipairs(List(buff.groupNames)) do named(name, "group") end
+        for _, name in ipairs(List(buff.blockerNames)) do named(name, "blocker") end
     end
     -- An ID two buffs both claim as a rank belongs to neither.
     for _, buff in ipairs(buffs) do
@@ -270,11 +277,11 @@ end
 -- Ask the API again for every buff. Also happens by itself the first time
 -- anything is asked, and after BuffData.SpellsChanged.
 function BuffData.Refresh()
-    resolved = nil
+    BuffData.SpellsChanged()
     State()
 end
 
--- The byName hit for an ID no table has (the game numbered it differently),
+-- The byName hits (a list) for an ID no table has (the game numbered it differently),
 -- or nil. Remembered, up to a limit.
 local function ByNameOfId(id)
     local r = State()
@@ -293,8 +300,14 @@ function BuffData.ForAura(spellId)
     if not ValidId(spellId) then return nil end
     local buff = State().byAura[spellId]
     if buff then return buff end
-    local hit = ByNameOfId(spellId)
-    return hit and hit.buff or nil
+    local hits = ByNameOfId(spellId)
+    if not hits then return nil end
+    -- As with IDs, a spell that is one buff's rank and another's blocker
+    -- (Water Breathing, Unending Breath) belongs to the buff it's a rank of.
+    for _, hit in ipairs(hits) do
+        if hit.role == "rank" then return hit.buff end
+    end
+    return hits[1].buff
 end
 
 -- Whether wearing spell spellId counts as having buff (any of its ranks,
@@ -305,8 +318,10 @@ function BuffData.Covers(buff, spellId)
     local ids = State().covers[buff]
     if ids == nil then return false end
     if ids[spellId] == true then return true end
-    local hit = ByNameOfId(spellId)
-    return hit ~= nil and hit.buff == buff
+    for _, hit in ipairs(ByNameOfId(spellId) or {}) do
+        if hit.buff == buff then return true end
+    end
+    return false
 end
 
 -- The buff one of our casts was (or Revoke), or nil.
@@ -315,8 +330,9 @@ function BuffData.ForCast(spellId)
     if ValidId(spellId) then
         local buff = State().byRank[spellId]
         if buff then return buff end
-        local hit = ByNameOfId(spellId)
-        if hit and hit.role == "rank" then return hit.buff end
+        for _, hit in ipairs(ByNameOfId(spellId) or {}) do
+            if hit.role == "rank" then return hit.buff end
+        end
         if Read(C_Spell and C_Spell.GetSpellName, spellId) == BuffData.REVOKE.name then
             return BuffData.REVOKE
         end

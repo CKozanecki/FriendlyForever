@@ -74,6 +74,20 @@ describe("Spell IDs from the game's spell API (#209)", function()
             assert.is_nil(armed(), "they wear both, recognised by the new IDs")
         end)
 
+        it("buffs that stand in for each other are recognised by name on a client whose IDs differ", function()
+            boot(renumbered({ [131] = true }))
+            local breath, water = BuffData.ByKey("breath"), BuffData.ByKey("waterbreathing")
+            assert.is_true(BuffData.Covers(breath, 131 + OFFSET), "Water Breathing counts as Unending Breath")
+            assert.is_true(BuffData.Covers(water, 5697 + OFFSET), "and the other way round")
+            assert.are.equal(water, BuffData.ForAura(131 + OFFSET), "a rank beats a blocker")
+            assert.are.equal(breath, BuffData.ForAura(5697 + OFFSET))
+            local intellect = BuffData.ByKey("intellect")
+            assert.is_true(BuffData.Covers(intellect, 8096 + OFFSET), "a Scroll of Intellect's aura")
+            assert.is_false(BuffData.Covers(BuffData.ByKey("fortitude"), 8096 + OFFSET))
+            assert.are.equal(water, BuffData.ForCast(131 + OFFSET), "our cast of it is Water Breathing's")
+            assert.is_nil(BuffData.ForCast(8096 + OFFSET), "a scroll isn't a cast of ours")
+        end)
+
         it("a spell the API doesn't know isn't offered or listed, and nothing else changes: Blessing of Light", function()
             boot({ class = "PALADIN", known = { [20217] = true, [LIGHT_1] = true, [LIGHT] = true },
                 before = function() wow.removeSpell("Blessing of Light") end })
@@ -87,6 +101,11 @@ describe("Spell IDs from the game's spell API (#209)", function()
             for _, row in ipairs(ns.Options.widgets.buffRows) do
                 if row.name:IsShown() then assert.is_nil(row.name:GetText():find("light", 1, true)) end
             end
+            BuffData.Refresh()
+            assert.is_false(BuffData.Available(BuffData.ByKey("light")))
+            wow.state.spellNames = {}
+            BuffData.Refresh()
+            assert.are.same({ "kings", "light" }, keys(BuffData.Offerable()), "Refresh asks again too")
             wow.state.spellNames = {}
             wow.fire("SPELLS_CHANGED")
             assert.are.same({ "kings", "light" }, keys(BuffData.Offerable()), "it returns with the spell, no reload")

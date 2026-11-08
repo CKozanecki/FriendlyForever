@@ -29,7 +29,7 @@ Claude sessions reach each other with the remote-session tools (`send_message` a
 
   Its check-in is only a safety net, so don't wait for it. Don't message for routine progress.
 - **Finishing:** once your PR has merged and nothing is left on your issue, or the coordinator tells you your work is done, finish on your own. Don't ask the owner what's next or wait for a suggestion.
-  1. Leave a closing comment on the issue only if AGENTS.md or this file asks for one: a handoff, or launch checks still open on #50.
+  1. Leave a closing comment on the issue only if AGENTS.md or this file asks for one: a handoff.
   2. Send the coordinator one line: `done: #<issue>, PR #<n> merged`, plus any step the owner still has to take (such as applying environment settings or running a workflow) and any stale branch.
   3. Remove your worktree, cancel any check-ins you scheduled, and end your turn with a short summary saying the work is complete and the session can be archived. Ask no questions.
 
