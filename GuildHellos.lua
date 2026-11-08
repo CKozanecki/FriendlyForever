@@ -11,7 +11,7 @@
 -- before it. It then says its line or, if a copy before it took that, the
 -- lowest line none before it announced (see Taken). A copy that already
 -- heard K GREETs announces nothing and stays quiet. Every guild member
--- sees the same order (a launch check, #50), so even copies that announce
+-- sees the same order (confirmed in game at launch), so even copies that announce
 -- at the same moment can't go past K.
 --
 -- When in doubt, it doesn't greet, so the cap holds (fail closed): its
@@ -22,7 +22,7 @@
 --
 -- Until one of its own GREETs has come back this session, though, a copy
 -- doesn't know the game sends them back (or names us as we name
--- ourselves: both launch checks, #50). Until then a GREET that never comes
+-- ourselves: both confirmed in game at launch). Until then a GREET that never comes
 -- back greets anyway, as without the channel, so a game that doesn't send
 -- them back can't silence every hello.
 --
