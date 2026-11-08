@@ -75,8 +75,9 @@ local function Roster(units, inRaid)
     for i, unit in ipairs(units) do
         if Read(UnitExists, unit) == true then
             local name = Util.UnitFullName(unit)
-            if (name ~= nil and name == me) or Read(UnitIsUnit, unit, "player") == true then sawMe = true end
-            local entry = { unit = unit, name = name,
+            local isMe = (name ~= nil and name == me) or Read(UnitIsUnit, unit, "player") == true
+            sawMe = sawMe or isMe
+            local entry = { unit = unit, name = name, isMe = isMe,
                 class = select(2, Read(UnitClass, unit)) }
             if inRaid then
                 local _, _, subgroup = Read(GetRaidRosterInfo, i)

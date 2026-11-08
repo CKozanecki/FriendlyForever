@@ -203,9 +203,11 @@ local function ArmButton()
     if offer.revoke then
         SetLabels(Util.DisplayName(offer.name), "Revoke their Salvation (" .. offer.why .. ")")
     elseif offer.cast then
-        -- A group version (GroupCasts.lua): what it does, and whom it's aimed at.
-        SetLabels(string.format("%s on %s (%d missing)", offer.spell, offer.cast.label, offer.cast.count),
-            "aimed at " .. Util.DisplayName(offer.name))
+        -- A group version (GroupCasts.lua): who it reaches on the first line,
+        -- which spell on the second (the whole sentence, "Prayer of
+        -- Fortitude on Group 3 (4 missing)", is too wide for the title); the
+        -- tooltip says whom it's aimed at.
+        SetLabels(string.format("%s (%d missing)", offer.cast.label, offer.cast.count), offer.spell)
     elseif offer.note then
         -- The single buff, and why not its group version.
         SetLabels(Util.DisplayName(offer.name), offer.note)
@@ -344,6 +346,12 @@ local function AddPress(complete, unsure)
     return press
 end
 
+-- Whether two group casts (GroupCasts.lua) differ in whom they reach.
+local function CastDiffers(a, b)
+    if a == nil or b == nil then return a ~= b end
+    return a.key ~= b.key or a.count ~= b.count
+end
+
 -- Before the secure action runs. Which half of a press (down or up) the game
 -- acts on depends on the input and its settings, so this runs for both
 -- halves and re-arms each time, at the last moment (your target may have
@@ -380,7 +388,8 @@ local function OnPreClick(_, mouseButton, isDown)
     presses[#presses + 1] = press
     press.complete = true
     if press.sent then return end -- the down half acted; its wait continues
-    if armedOffer and (armedOffer.name ~= press.name or armedOffer.spell ~= press.spell) then
+    if armedOffer and (armedOffer.name ~= press.name or armedOffer.spell ~= press.spell
+        or CastDiffers(armedOffer.cast, press.cast)) then
         TakeArmedOffer(press)
     end
     press.lastHalfAt = GetTime()
@@ -664,7 +673,9 @@ local function ShowTooltip(self)
     if armedOffer and armedOffer.hint then GameTooltip:AddLine(armedOffer.hint, r, g, b, true) end
     if armedOffer then
         r, g, b = ns.Colours.RGB("bright")
-        GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on " .. Util.DisplayName(armedOffer.name)
+        local reach = armedOffer.cast and string.format(" (reaches %s, %d missing)", armedOffer.cast.label,
+            armedOffer.cast.count) or ""
+        GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on " .. Util.DisplayName(armedOffer.name) .. reach
             .. ", then gives you your target back.", r, g, b, true)
     end
     r, g, b = ns.Colours.RGB("text")

@@ -68,7 +68,8 @@ describe("Group versions in buff mode (#41)", function()
         it("offers Arcane Brilliance when 3 or more of the party are missing Intellect, and a press casts it", function()
             boot()
             assert.are.equal("Ann Vale: Arcane Brilliance", armed())
-            assert.are.equal("Arcane Brilliance on your party (4 missing)", button.title:GetText())
+            assert.are.equal("your party (4 missing)", button.title:GetText())
+            assert.are.equal("Arcane Brilliance", button.subtitle:GetText())
             wow.pressKey("MOUSEWHEELUP")
             assert.are.equal(1, #wow.casts)
             local cast = wow.casts[1]
@@ -152,18 +153,18 @@ describe("Group versions in buff mode (#41)", function()
 
         local CASES = {
             { name = "Prayer of Fortitude", class = "PRIEST", known = { FORT_6, PRAYER_FORT_2 },
-                item = ITEM.sacredCandle, id = PRAYER_FORT_2, equals = FORT_6, single = "Power Word: Fortitude" },
+                item = ITEM.sacredCandle, id = PRAYER_FORT_2, reagent = "Sacred Candle", equals = FORT_6, single = "Power Word: Fortitude" },
             { name = "Prayer of Fortitude (rank 1, Holy Candle)", class = "PRIEST",
-                known = { FORT_5, PRAYER_FORT_1 }, item = ITEM.holyCandle, id = PRAYER_FORT_1, equals = FORT_5,
+                known = { FORT_5, PRAYER_FORT_1 }, item = ITEM.holyCandle, id = PRAYER_FORT_1, reagent = "Holy Candle", equals = FORT_5,
                 single = "Power Word: Fortitude", spell = "Prayer of Fortitude" },
             { name = "Prayer of Spirit", class = "PRIEST", known = { SPIRIT_4, PRAYER_SPIRIT },
-                item = ITEM.sacredCandle, id = PRAYER_SPIRIT, equals = SPIRIT_4, single = "Divine Spirit" },
+                item = ITEM.sacredCandle, id = PRAYER_SPIRIT, reagent = "Sacred Candle", equals = SPIRIT_4, single = "Divine Spirit" },
             { name = "Prayer of Shadow Protection", class = "PRIEST", known = { SHADOW_3, PRAYER_SHADOW },
-                item = ITEM.sacredCandle, id = PRAYER_SHADOW, equals = SHADOW_3, single = "Shadow Protection" },
+                item = ITEM.sacredCandle, id = PRAYER_SHADOW, reagent = "Sacred Candle", equals = SHADOW_3, single = "Shadow Protection" },
             { name = "Gift of the Wild", class = "DRUID", known = { MOTW, GIFT_2 },
-                item = ITEM.wildThornroot, id = GIFT_2, equals = MOTW, single = "Mark of the Wild" },
+                item = ITEM.wildThornroot, id = GIFT_2, reagent = "Wild Thornroot", equals = MOTW, single = "Mark of the Wild" },
             { name = "Gift of the Wild (rank 1, Wild Berries)", class = "DRUID", known = { MOTW_6, GIFT_1 },
-                item = ITEM.wildBerries, id = GIFT_1, equals = MOTW_6, single = "Mark of the Wild", spell = "Gift of the Wild" },
+                item = ITEM.wildBerries, id = GIFT_1, reagent = "Wild Berries", equals = MOTW_6, single = "Mark of the Wild", spell = "Gift of the Wild" },
         }
         for _, case in ipairs(CASES) do
             it(case.name .. ": offered with its own reagent, single without it", function()
@@ -176,7 +177,7 @@ describe("Group versions in buff mode (#41)", function()
                 -- Only the right reagent counts.
                 boot({ class = case.class, known = case.known, items = { [case.item + 1] = 9, [case.item - 1] = 9 } })
                 assert.are.equal("Ann Vale: " .. case.single, armed())
-                assert.is_truthy(button.subtitle:GetText():find("^No "))
+                assert.are.equal("No " .. case.reagent .. ": buffing one at a time", button.subtitle:GetText())
                 -- A member wearing the single rank of the same strength (running low) is
                 -- not wearing a higher one: the group version may renew it.
                 boot({ class = case.class, known = case.known, items = { [case.item] = 2 } })
@@ -208,12 +209,13 @@ describe("Group versions in buff mode (#41)", function()
             local groups = { 1, 3, 3, 3, 3, 1, 1 }
             for i, g in ipairs(groups) do wow.state.units["raid" .. i].subgroup = g end
             assert.are.equal("Bo Fern: Arcane Brilliance", armed())
-            assert.are.equal("Arcane Brilliance on Group 3 (4 missing)", button.title:GetText())
+            assert.are.equal("Group 3 (4 missing)", button.title:GetText())
+            assert.are.equal("Arcane Brilliance", button.subtitle:GetText())
             wow.pressKey("MOUSEWHEELUP")
             assert.are.same({ "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill" }, wow.casts[1].covered)
             -- Group 1 has 3 missing: its turn next.
             assert.are.equal("Ann Vale: Arcane Brilliance", armed())
-            assert.are.equal("Arcane Brilliance on Group 1 (3 missing)", button.title:GetText())
+            assert.are.equal("Group 1 (3 missing)", button.title:GetText())
         end)
 
         it("in a raid, never counts members of other subgroups together", function()
@@ -222,6 +224,64 @@ describe("Group versions in buff mode (#41)", function()
             for i = 1, 4 do wow.state.units["raid" .. i].subgroup = i end
             assert.are.equal("Ann Vale: Arcane Intellect", armed())
             assert.are.equal("Not enough in one group: buffing one at a time", button.subtitle:GetText())
+        end)
+
+        it("knowing both ranks of a Prayer or Gift: the highest rank's reagent is the one that counts", function()
+            -- /cast casts the highest rank you know, so rank 2's reagent is needed.
+            boot({ class = "PRIEST", known = { FORT_6, FORT_5, PRAYER_FORT_2, PRAYER_FORT_1 },
+                items = { [ITEM.sacredCandle] = 1 } })
+            assert.are.equal("Ann Vale: Prayer of Fortitude", armed())
+            wow.pressKey("MOUSEWHEELUP")
+            assert.are.equal(PRAYER_FORT_2, wow.casts[1].id)
+            boot({ class = "PRIEST", known = { FORT_6, FORT_5, PRAYER_FORT_2, PRAYER_FORT_1 },
+                items = { [ITEM.holyCandle] = 5 } })
+            assert.are.equal("Ann Vale: Power Word: Fortitude", armed(), "only rank 1's candle: the cast would fail")
+            assert.are.equal("No Sacred Candle: buffing one at a time", button.subtitle:GetText())
+            boot({ class = "DRUID", known = { MOTW, MOTW_6, GIFT_2, GIFT_1 }, items = { [ITEM.wildThornroot] = 1 } })
+            assert.are.equal("Ann Vale: Gift of the Wild", armed())
+            boot({ class = "DRUID", known = { MOTW, MOTW_6, GIFT_2, GIFT_1 }, items = { [ITEM.wildBerries] = 3 } })
+            assert.are.equal("Ann Vale: Mark of the Wild", armed())
+            assert.are.equal("No Wild Thornroot: buffing one at a time", button.subtitle:GetText())
+        end)
+
+        it("counts reagents with either API alone, and uses the client's own name for the item", function()
+            boot()
+            _G.C_Item = nil
+            assert.are.equal("Ann Vale: Arcane Brilliance", armed(), "GetItemCount alone")
+            boot()
+            _G.GetItemCount = nil
+            assert.are.equal("Ann Vale: Arcane Brilliance", armed(), "C_Item.GetItemCount alone")
+            boot({ items = {} })
+            wow.state.itemNames = { [ITEM.arcanePowder] = "Arkanpulver" }
+            armed()
+            assert.are.equal("No Arkanpulver: buffing one at a time", button.subtitle:GetText())
+            -- A name with an escape code in it never reaches the button.
+            wow.state.itemNames = { [ITEM.arcanePowder] = "|cff00ff00Arkanpulver|r" }
+            armed()
+            assert.is_nil(button.subtitle:GetText():find("|", 1, true))
+        end)
+
+        it("the tooltip says whom a group cast is aimed at and whom it reaches", function()
+            boot()
+            armed()
+            wow.run(button, "OnEnter")
+            assert.is_truthy(table.concat(_G.GameTooltip.lines, "\n"):find(
+                "Casts Arcane Brilliance on Ann Vale (reaches your party, 4 missing)", 1, true))
+        end)
+
+        it("right-click says what it skipped", function()
+            boot()
+            armed()
+            wow.press(button, "RightButton")
+            assert.are.equal("Skipping Arcane Brilliance on your party for 5 minutes.", button.result:GetText())
+        end)
+
+        it("with two groups equally short, takes the first in group order", function()
+            boot()
+            raid({ "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed" })
+            for i, g in ipairs({ 2, 2, 2, 1, 1, 1 }) do wow.state.units["raid" .. i].subgroup = g end
+            assert.are.equal("Ann Vale: Arcane Brilliance", armed())
+            assert.are.equal("Group 2 (3 missing)", button.title:GetText(), "the first member's group, not the lowest number")
         end)
 
         it("right-click leaves that group out for 5 minutes, singles still offered", function()
@@ -426,6 +486,68 @@ describe("Group versions in buff mode (#41)", function()
             assert.is_truthy(button.subtitle:GetText():find("your rules leave you out", 1, true))
         end)
 
+        it("a group member whose name can't be read stops it", function()
+            boot()
+            wow.state.units.party4.secrets = { name = true }
+            assert.are.equal("Ann Vale: Arcane Intellect", armed())
+            assert.is_truthy(button.subtitle:GetText():find("name can't be read", 1, true))
+            wow.state.units.party4.secrets = nil
+            wow.state.units.party4.nameLoading = true
+            assert.are.equal("Ann Vale: Arcane Intellect", armed())
+        end)
+
+        it("a dead member's PvP flag counts too: they may be up by the time the cast goes out", function()
+            boot()
+            wow.state.units.party4.dead = true
+            wow.state.units.party4.pvp = true
+            assert.are.equal("Ann Vale: Arcane Intellect", armed())
+            assert.is_truthy(button.subtitle:GetText():find("Dot Moss is flagged for PvP", 1, true))
+        end)
+
+        it("an offline member's flag doesn't: the cast can't reach them", function()
+            boot()
+            wow.state.units.party4.offline = true
+            wow.state.units.party4.pvp = true
+            assert.are.equal("Ann Vale: Arcane Brilliance", armed())
+        end)
+
+        it("whose higher rank it is can't be told: single buffs", function()
+            boot({ class = "PRIEST", known = { FORT_6, FORT_5, PRAYER_FORT_1 }, items = { [ITEM.holyCandle] = 5 } })
+            wow.wearBuff("party4", FORT_6, { source = "player" })
+            _G.UnitIsUnit = function() return nil end
+            assert.are.equal("Ann Vale: Power Word: Fortitude", armed())
+            assert.is_truthy(button.subtitle:GetText():find("can't tell whose buff", 1, true))
+        end)
+
+        it("a group version whose name the game won't give is not offered, and the single buff is", function()
+            boot()
+            local real = _G.C_Spell.GetSpellName
+            _G.C_Spell.GetSpellName = function(id)
+                if id == BRILLIANCE then return wow.secret("Arcane Brilliance") end
+                return real(id)
+            end
+            assert.are.equal("Ann Vale: Arcane Intellect", armed(), "not an empty button")
+        end)
+
+        it("in a raid, your own slot is covered too: a higher rank of yours or your rule stops it", function()
+            boot({ class = "PRIEST", known = { FORT_6, FORT_5, PRAYER_FORT_1 }, items = { [ITEM.holyCandle] = 5 } })
+            raid({ "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
+            wow.addUnit("raid5", wow.state.units.player)
+            wow.state.units.player.subgroup = 1
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.are.equal("Ann Vale: Prayer of Fortitude", armed())
+            wow.state.playerAuras = { { isHelpful = true, spellId = FORT_6, sourceUnit = "player", auraInstanceID = 1 } }
+            assert.are.equal("Ann Vale: Power Word: Fortitude", armed())
+            assert.is_truthy(button.subtitle:GetText():find("You wear a higher rank of yours", 1, true))
+            wow.state.playerAuras = {}
+            wow.state.units.player.role = "TANK"
+            ns.db.buffBack.whoGets = { fortitude = { rule = "notTanks" } }
+            assert.are.equal("Ann Vale: Power Word: Fortitude", armed())
+            -- In another subgroup you are not covered.
+            wow.state.units.player.subgroup = 2
+            assert.are.equal("Ann Vale: Prayer of Fortitude", armed())
+        end)
+
         it("buff back to a stranger is unchanged: the single buff", function()
             boot()
             wow.addUnit("nameplate1", { name = "Zed", surname = "Stone", class = "MAGE", id = "Zed-Stone" })
@@ -479,13 +601,61 @@ describe("Group versions in buff mode (#41)", function()
         end)
 
         it("values damaged mid-session read as the defaults", function()
+            boot({ members = { "Ann-Vale", "Bo-Fern" } })
+            ns.db.buffBack.groupEnough = "x"
+            assert.are.equal("Ann Vale: Arcane Intellect", armed(), "2 missing: the default needs 3")
+            ns.db.buffBack.groupEnough = 0 / 0
+            assert.are.equal("Ann Vale: Arcane Intellect", armed())
             boot()
             ns.db.buffBack.groupEnough = "x"
             ns.db.buffBack.groupVersions = "off"
+            assert.are.equal("Ann Vale: Arcane Brilliance", armed(), "3 or more missing, and on")
+        end)
+
+        local function click(box, on)
+            box:SetChecked(on)
+            wow.run(box, "OnClick")
+        end
+
+        it("are on the Buff Back tab only; the checkbox and stepper change the setting and the button at once", function()
+            boot()
+            local w = ns.Options.widgets
+            slash("")
+            wow.run(w.tabs.buffBack, "OnClick")
+            assert.is_true(w.groupVersions:IsShown())
+            assert.is_true(w.groupVersions:GetChecked())
+            assert.is_true(w.steppers.groupEnough.label:IsShown())
+            assert.are.equal("3", w.steppers.groupEnough.box:GetText())
             assert.are.equal("Ann Vale: Arcane Brilliance", armed())
-            ns.db.buffBack.groupEnough = 0 / 0
-            assert.are.equal("Ann Vale: Arcane Brilliance", armed())
-            ns.db.buffBack.buffBack = nil
+            click(w.groupVersions, false)
+            assert.is_false(ns.db.buffBack.groupVersions)
+            assert.are.equal("Arcane Intellect", ns.BuffData.SpellName(ns.BuffData.ByKey("intellect")))
+            assert.are.equal("missing your Arcane Intellect", button.subtitle:GetText(), "re-armed at once")
+            click(w.groupVersions, true)
+            assert.are.equal("Arcane Brilliance", button.subtitle:GetText())
+            wow.run(w.steppers.groupEnough.plus, "OnClick")
+            wow.run(w.steppers.groupEnough.plus, "OnClick")
+            assert.are.equal(5, ns.db.buffBack.groupEnough)
+            assert.are.equal("5", w.steppers.groupEnough.box:GetText())
+            for _ = 1, 50 do wow.run(w.steppers.groupEnough.plus, "OnClick") end
+            assert.are.equal(40, ns.db.buffBack.groupEnough)
+            w.steppers.groupEnough.box:SetText("2")
+            wow.run(w.steppers.groupEnough.box, "OnEditFocusLost")
+            assert.are.equal(2, ns.db.buffBack.groupEnough)
+            wow.run(w.tabs.buff, "OnClick")
+            assert.is_false(w.groupVersions:IsShown())
+            assert.is_false(w.steppers.groupEnough.label:IsShown())
+        end)
+
+        it("a number typed in the box is saved when the tab changes", function()
+            boot()
+            local w = ns.Options.widgets
+            slash("")
+            wow.run(w.tabs.buffBack, "OnClick")
+            w.steppers.groupEnough.box:SetFocus()
+            w.steppers.groupEnough.box:SetText("7")
+            wow.run(w.tabs.buff, "OnClick")
+            assert.are.equal(7, ns.db.buffBack.groupEnough)
         end)
     end)
 
@@ -510,12 +680,15 @@ describe("Group versions in buff mode (#41)", function()
         it("a storm of roster, flag, rule, reagent and fight changes never offers a harmful group cast", function()
             local everyone = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed", "Gus-Lane",
                 "Hal-Pine", "Ivy-Cole", "Jon-Dale" }
+            local FORTS = { [FORT_6] = true, [FORT_5] = true, [PRAYER_FORT_1] = true, [PRAYER_FORT_2] = true }
             local group, singles = 0, 0
+            local reached = { flag = 0, rule = 0, rank = 0 }
             for _, seed in ipairs({ 3, 19, 77, 410, 2026, 9001 }) do
                 random.seed(seed)
                 -- A priest who knows rank 5 of the Prayer: rank 6 of the single is higher.
                 boot({ class = "PRIEST", known = { FORT_6, FORT_5, PRAYER_FORT_1 },
                     items = { [ITEM.holyCandle] = 6 } })
+                wow.state.groupBuffSeconds = 30 -- buffs run out, so there is always something missing
                 local inGroup = {}
                 local function roster()
                     local names = {}
@@ -528,7 +701,7 @@ describe("Group versions in buff mode (#41)", function()
                     inGroup = {}
                     for _, n in ipairs(names) do inGroup[n] = true end
                     if kind == "raid" then
-                        for i = 1, #names do wow.state.units["raid" .. i].subgroup = random.random(3) end
+                        for i = 1, #names do wow.state.units["raid" .. i].subgroup = random.random(2) end
                         if random.random() < 0.5 then
                             wow.addUnit("raid" .. (#names + 1), wow.state.units.player)
                         end
@@ -545,63 +718,62 @@ describe("Group versions in buff mode (#41)", function()
                         if u and u.id ~= "Me" then fn(u) end
                     end
                 end
-                local RULES = { "all", "notTanks", "tanks", "classes" }
+                local RULES = { "all", "all", "notTanks", "tanks", "classes" }
                 local actions = {
                     roster, roster,
-                    member(function(u) u.dead = random.random() < 0.2 end),
-                    member(function(u) u.pvp = random.random() < 0.25 end),
-                    member(function(u) u.outOfRange = random.random() < 0.25 end),
-                    member(function(u) u.offline = random.random() < 0.15 end),
-                    member(function(u) u.hidden = random.random() < 0.15 end),
-                    member(function(u) u.outOfSpellRange = random.random() < 0.2 end),
+                    member(function(u) u.dead = random.random() < 0.15 end),
+                    member(function(u) u.pvp = random.random() < 0.35 end),
+                    member(function(u) u.pvp = random.random() < 0.35 end),
+                    member(function(u) u.pvp = false end),
+                    member(function(u) u.outOfRange = random.random() < 0.15 end),
+                    member(function(u) u.offline = random.random() < 0.1 end),
+                    member(function(u) u.hidden = random.random() < 0.1 end),
+                    member(function(u) u.outOfSpellRange = random.random() < 0.15 end),
                     member(function(u) u.role = ({ "TANK", "HEALER", "DAMAGER", "NONE" })[random.random(4)] end),
+                    member(function(u) u.role = random.random() < 0.5 and "TANK" or "DAMAGER" end),
                     member(function(u)
-                        u.secrets = random.random() < 0.3
+                        u.secrets = random.random() < 0.2
                             and { pvp = random.random() < 0.5, role = true, mainTank = true } or nil
                     end),
                     member(function(u) u.class = ({ "MAGE", "WARRIOR", "PRIEST", "ROGUE" })[random.random(4)] end),
                     member(function(u) u.auras, u.auraSources, u.auraDurations, u.auraExpires = nil, nil, nil, nil end),
+                    member(function(u) u.auras, u.auraSources, u.auraDurations, u.auraExpires = nil, nil, nil, nil end),
                     function()
-                        -- A higher rank, from you or from someone the game doesn't name.
+                        -- A higher rank, from you or from someone the game doesn't name (rarely).
+                        if random.random() < 0.5 then return end
                         local list = tokens()
                         local token = list[random.random(math.max(#list, 1))]
                         if token and wow.state.units[token].id ~= "Me" then
-                            wow.wearBuff(token, FORT_6, { source = random.random() < 0.7 and "player" or nil })
+                            wow.wearBuff(token, FORT_6, { source = random.random() < 0.7 and "player" or nil,
+                                duration = random.random(20, 90) })
                         end
                     end,
-                    member(function(u) u.subgroup = random.random(3) end),
-                    function() wow.state.pvp = random.random() < 0.2 end,
+                    member(function(u) u.subgroup = random.random(2) end),
+                    function() wow.state.pvp = random.random() < 0.15 end,
                     function() wow.state.items[ITEM.holyCandle] = random.random(0, 3) end,
-                    function() wow.state.itemsSecret = random.random() < 0.15 end,
-                    function() wow.state.rosterSecret = random.random() < 0.1 end,
+                    function() wow.state.itemsSecret = random.random() < 0.1 end,
+                    function() wow.state.rosterSecret = random.random() < 0.05 end,
                     function()
                         ns.db.buffBack.whoGets = { fortitude = { rule = RULES[random.random(#RULES)],
                             classes = { MAGE = true } } }
                     end,
-                    function() ns.db.buffBack.groupEnough = random.random(1, 5) end,
-                    function() ns.db.buffBack.groupVersions = random.random() < 0.9 end,
+                    function() ns.db.buffBack.whoGets = { fortitude = { rule = "notTanks" } } end,
+                    function() ns.db.buffBack.whoGets = {} end,
+                    function() ns.db.buffBack.groupEnough = random.random(1, 4) end,
+                    function() ns.db.buffBack.groupVersions = random.random() < 0.95 end,
                     function() wow.pressKey("MOUSEWHEELUP") end,
                     function() wow.pressKey("MOUSEWHEELUP") end,
                     function() wow.pressKey("MOUSEWHEELUP") end,
                     function() wow.press(button, "RightButton") end,
                     function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
-                    function() slash(random.random() < 0.85 and "buffmode on" or "buffmode off") end,
+                    function() slash(random.random() < 0.9 and "buffmode on" or "buffmode off") end,
                     function() wow.state.castLatency = ({ 0, 0, 0.5 })[random.random(3)] end,
-                    function() wow.advance(random.random() * 12) end,
+                    function() wow.advance(random.random() * 15) end,
                 }
-                for step = 1, 500 do
-                    local before = #wow.casts
-                    local was = {}
-                    for _, token in ipairs(tokens()) do
-                        local u = wow.state.units[token]
-                        was[u.id] = { pvp = u.pvp, role = u.role, mainTank = u.mainTank, dead = u.dead,
-                            class = u.class, subgroup = u.subgroup }
-                    end
-                    local iAmFlagged = wow.state.pvp
-                    local rule = ns.db.buffBack.whoGets and ns.db.buffBack.whoGets.fortitude
-                        and ns.db.buffBack.whoGets.fortitude.rule or "all"
-                    actions[random.random(#actions)]()
-                    for i = before + 1, #wow.casts do
+
+                -- The cast's invariants, from the simulated client's own state.
+                local function check(step, from, was, iAmFlagged, rule)
+                    for i = from + 1, #wow.casts do
                         local cast = wow.casts[i]
                         local where = ("seed %d, step %d: %s on %s"):format(seed, step, cast.spell, cast.target)
                         assert.is_truthy(inGroup[cast.target], where .. ", not in the group")
@@ -623,9 +795,8 @@ describe("Group versions in buff mode (#41)", function()
                                         assert.are.equal("MAGE", m.class, where .. ", " .. id .. "'s class not chosen")
                                     end
                                     -- Nobody's higher rank from you is replaced.
-                                    for at, spell in ipairs(wow.casts[i].before[id] or {}) do
-                                        local src = wow.casts[i].beforeSources[id][at]
-                                        assert.is_false(spell == FORT_6 and src == "player",
+                                    for at, spell in ipairs(cast.before[id] or {}) do
+                                        assert.is_false(spell == FORT_6 and cast.beforeSources[id][at] == "player",
                                             where .. ", replaced " .. id .. "'s higher rank")
                                     end
                                 end
@@ -637,10 +808,90 @@ describe("Group versions in buff mode (#41)", function()
                     assert.are.same({}, wow.flaggedBy, ("seed %d, step %d: flagged for PvP"):format(seed, step))
                     assert.is_true((wow.state.items[ITEM.holyCandle] or 0) >= 0, "reagents never go below 0")
                 end
+
+                -- Which hazard stands between the armed single Fortitude and a
+                -- group version, if enough would be missing it: read from the
+                -- client's state alone. nil when the button holds something else.
+                local function hazard(iAmFlagged, rule)
+                    if wow.state.inCombat or not ns.db.buffBack.groupVersions then return nil end
+                    if wow.state.itemsSecret or wow.state.rosterSecret then return nil end
+                    if (wow.state.items[ITEM.holyCandle] or 0) < 1 then return nil end
+                    ns.BuffButton.Refresh()
+                    local text = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
+                    if not text or text:match("/cast %[help,nodead%] ([^\n]+)") ~= "Power Word: Fortitude" then
+                        return nil
+                    end
+                    local target
+                    local name = text:match("/targetexact ([^\n]+)")
+                    for _, token in ipairs(tokens()) do
+                        local u = wow.state.units[token]
+                        if u.name .. " " .. (u.surname or "") == name then target = u end
+                    end
+                    if not target then return nil end
+                    local inRaid = wow.state.groupType == "raid"
+                    local lacking, flag, tank, rank = 0, false, false, false
+                    for _, token in ipairs(tokens()) do
+                        local u = wow.state.units[token]
+                        if not inRaid or (u.subgroup or 1) == (target.subgroup or 1) then
+                            local has, mine = false, false
+                            for at, id in ipairs(u.auras or {}) do
+                                if FORTS[id] and not wow.auraExpired(u, at) then has = true end
+                                if id == FORT_6 and (u.auraSources or {})[at] == "player"
+                                    and not wow.auraExpired(u, at) then mine = true end
+                            end
+                            local usable = not (u.dead or u.offline or u.outOfRange or u.hidden)
+                            if usable and not has and (iAmFlagged or not u.pvp) then lacking = lacking + 1 end
+                            if not u.offline and u.pvp and not iAmFlagged then flag = true end
+                            if u.role == "TANK" and not (u.secrets and u.secrets.role) then tank = true end
+                            if mine then rank = true end
+                        end
+                    end
+                    if lacking < (ns.db.buffBack.groupEnough or 3) then return nil end
+                    if flag and not tank and not rank then return "flag" end
+                    if rule == "notTanks" and tank and not flag and not rank then return "rule" end
+                    if rank and not flag and not (rule == "notTanks" and tank) then return "rank" end
+                end
+
+                for step = 1, 500 do
+                    local before = #wow.casts
+                    local was = {}
+                    for _, token in ipairs(tokens()) do
+                        local u = wow.state.units[token]
+                        was[u.id] = { pvp = u.pvp, role = u.role, mainTank = u.mainTank, dead = u.dead,
+                            class = u.class, subgroup = u.subgroup }
+                    end
+                    local iAmFlagged = wow.state.pvp
+                    local function currentRule()
+                        local rules = ns.db.buffBack.whoGets
+                        return rules and rules.fortitude and rules.fortitude.rule or "all"
+                    end
+                    local rule = currentRule()
+                    actions[random.random(#actions)]()
+                    check(step, before, was, iAmFlagged, rule)
+                    -- In a state where a hazard is all that stops the group cast,
+                    -- press: a regression would cast it.
+                    local now = {}
+                    for _, token in ipairs(tokens()) do
+                        local u = wow.state.units[token]
+                        now[u.id] = { pvp = u.pvp, role = u.role, mainTank = u.mainTank, dead = u.dead,
+                            class = u.class, subgroup = u.subgroup }
+                    end
+                    local h = hazard(wow.state.pvp, currentRule())
+                    if h then
+                        reached[h] = reached[h] + 1
+                        local from = #wow.casts
+                        wow.pressKey("MOUSEWHEELUP")
+                        check(step, from, now, wow.state.pvp, currentRule())
+                    end
+                end
                 assert.are.same({}, wow.errors, "seed " .. seed)
             end
             assert.is_true(group > 10, "group casts: " .. group)
             assert.is_true(singles > 10, "single casts: " .. singles)
+            for kind, n in pairs(reached) do
+                assert.is_true(n >= 5, ("the storm reached the %s hazard %d times (flag %d, rule %d, rank %d, group casts %d, singles %d)")
+                    :format(kind, n, reached.flag, reached.rule, reached.rank, group, singles))
+            end
         end)
     end)
 end)

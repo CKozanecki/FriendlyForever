@@ -490,7 +490,8 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         number is the raid unit's number, and the counts'
 --                         readability are checked at launch (#50).
 --                         state.auraDelay: the covered players' buffs show only
---                         that many seconds after the cast (0 by default).
+--                         that many seconds after the cast (0 by default);
+--                         state.groupBuffSeconds: how long they last (an hour by default).
 --   state.mapId           what C_Map.GetBestMapForUnit("player") answers: the
 --                         uiMapID, or nil as on a loading screen (1429, Elwynn
 --                         Forest, by default). Capitals use Classic Era's
@@ -617,7 +618,7 @@ local function groupCovered(target)
     local inRaid = M.state.groupType == "raid" or M.state.raidSized
     local out = {}
     for token, u in pairs(M.state.units) do
-        if (token:find("^party%d") or token:find("^raid%d")) and u ~= M.state.units.player
+        if (token:find("^party%d") or token:find("^raid%d"))
             and not u.offline and not u.dead and not u.outOfRange and not u.hidden
             and (not inRaid or (u.subgroup or 1) == (target.subgroup or 1)) then
             out[#out + 1] = token
@@ -686,7 +687,7 @@ local function cast(args)
     local flagging = {}
     for _, token in ipairs(covered or {}) do
         local u = M.state.units[token]
-        if not failure and u.pvp and not M.state.pvp then
+        if not failure and u.pvp and not M.state.pvp and u ~= M.state.units.player then
             flags = true
             flagging[#flagging + 1] = u.id
         end
@@ -716,7 +717,9 @@ local function cast(args)
             -- answers) now wears it, from you.
             local function wear()
                 for i, token in ipairs(covered) do
-                    if M.state.units[token] == coveredUnits[i] then M.wearBuff(token, id, { source = "player" }) end
+                    if M.state.units[token] == coveredUnits[i] then
+                        M.wearBuff(token, id, { source = "player", duration = M.state.groupBuffSeconds })
+                    end
                 end
             end
             -- state.auraDelay: their buffs show only this many seconds later.
@@ -1416,7 +1419,9 @@ function M.reset()
         return M.state.items[item] or 0
     end
     _G.GetItemCount = itemCount
-    _G.C_Item = { GetItemCount = itemCount }
+    -- state.itemNames[itemId]: the client's name for an item (as GetItemNameByID gives it).
+    _G.C_Item = { GetItemCount = itemCount,
+        GetItemNameByID = function(item) return M.state.itemNames and M.state.itemNames[item] end }
     -- GetRaidRosterInfo(i) for raid slot i: name, rank, subgroup (unit.subgroup,
     -- 1 unless set), level, class, file name, zone, online, dead. A slot with
     -- no unit answers nothing. unit.secrets.subgroup makes the subgroup a
@@ -1466,7 +1471,8 @@ function M.reset()
     _G.C_UnitAuras = {
         GetAuraDataByIndex = function(unit, index)
             if M.state.aurasRestricted then error("aura data is restricted") end
-            if unit ~= "player" then
+            -- (Your own raid slot, if a spec added one, is you.)
+            if unit ~= "player" and M.state.units[unit] ~= M.state.units.player then
                 -- Other players: spec.auras = { spellId, ... } (secret while units are restricted).
                 local u = M.state.units[unit]
                 if not (u and u.auras) then return nil end

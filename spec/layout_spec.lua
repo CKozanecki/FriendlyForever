@@ -1,4 +1,4 @@
--- Spec: #52, #64, #112
+-- Spec: #52, #64, #112, #41
 -- Layout: the buff-back button's text stays inside the button, and on each
 -- options tab the message list follows the last row that tab shows. The
 -- checks work from the simulated client's own anchors and text widths
@@ -70,6 +70,25 @@ describe("Layout", function()
             local favour = assertInside(button, button.subtitle, "the favour")
             -- Too long for the pessimistic font: the game cuts it off.
             assert.are.equal("…", favour.text:sub(-#"…"))
+        end)
+
+        it("shows a group cast whole: who it reaches on the title, the spell on the subtitle (#41)", function()
+            local PRAYER_SHADOW, SHADOW_3 = 27683, 10958
+            boot("PRIEST", { [SHADOW_3] = true, [PRAYER_SHADOW] = true })
+            wow.state.items[wow.ITEM.sacredCandle] = 5
+            slash("buffmode on")
+            local names = {}
+            for i = 1, 40 do names[i] = "Nam" .. string.char(96 + i % 20 + 1) .. string.char(96 + math.floor(i / 20) + 1) .. "-Surname" end
+            wow.setGroup("raid", names)
+            for i = 1, 40 do wow.state.units["raid" .. i].subgroup = 8 end
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(0)
+            assert.are.equal("Group 8 (40 missing)", button.title:GetText(), button.subtitle:GetText())
+            assert.are.equal("Prayer of Shadow Protection", button.subtitle:GetText())
+            for _, fs in ipairs({ button.title, button.subtitle }) do
+                local drawn = assertInside(button, fs, "the group cast")
+                assert.are.equal(fs:GetText(), drawn.text, "not cut short")
+            end
         end)
 
         it("keeps text damaged into a very long string inside it, on one line", function()
