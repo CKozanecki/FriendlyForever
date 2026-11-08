@@ -665,7 +665,7 @@ local function cast(args)
         sentTo = target.surname and (target.name .. " " .. target.surname) or target.name
     end
     M.fire("UNIT_SPELLCAST_SENT", "player", sentTo, guid, id)
-    local record = { spell = name, id = id, target = target.id, failed = failure, guid = guid,
+    local record = { spell = name, id = id, target = target.id, failed = failure,
         targetDead = target.dead or nil, targetHostile = target.hostile or nil }
     if covered then
         -- Who it reaches, and what each wore before: for the specs' invariants.
@@ -679,6 +679,7 @@ local function cast(args)
         end
     end
     M.casts[#M.casts + 1] = record
+    M.lastCastGuid = guid -- the newest cast's GUID, for specs that answer it by hand
     -- Helping a player flagged for PvP flags you too (as things stand when
     -- the cast goes out). A group version helps everyone it covers.
     local flags = not failure and target.pvp and target ~= M.state.units.player and not M.state.pvp
