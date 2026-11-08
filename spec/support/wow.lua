@@ -367,7 +367,8 @@ nameSpell("Revoke", { M.REVOKE_ID })
 -- alternatives; the defaults are guesses, not facts. The launch test pass
 -- (Nov 4) checked these in game and they worked, except the four IDs on #207
 -- and the Salvation, Mass Salvation and Revoke ones, which Blizzard removed
--- right before launch (#208). The simulation stays as it is, as a record of
+-- right before launch (#208), and the [@player] cast added since (#198),
+-- which is unconfirmed: #213. The simulation stays as it is, as a record of
 -- what it models.
 --   state.targetNameForm  how /target and /targetexact spell a two-part
 --                         name: "space" ("Nikki Shifts", default) or "hyphen"
