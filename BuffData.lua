@@ -17,6 +17,8 @@
 --             Blessings): casting another replaces it
 --   defaultRule  who gets it in buff mode until you choose (BuffRules.lua);
 --             everyone when not set
+--   defaultClasses  the classes a "chosen classes" default gives it to,
+--             { CLASS = true }; used until you tick your own (#219)
 --   water     only helps underwater: offered only near water, when the
 --             setting says so (Water.lua, #136)
 local _, ns = ...
@@ -39,14 +41,18 @@ BuffData.CLASSES = {
     },
     DRUID = {
         { key = "motw", ranks = { 9885, 9884, 8907, 5234, 6756, 5232, 1126 }, group = { 21850, 21849 } },
-        { key = "thorns", ranks = { 9910, 9756, 8914, 1075, 782, 467 } },
+        { key = "thorns", ranks = { 9910, 9756, 8914, 1075, 782, 467 }, defaultRule = "tanks" },
     },
     PALADIN = {
         { key = "kings", ranks = { 20217 }, group = { 25898 }, family = "blessing" },
         { key = "wisdom", ranks = { 25290, 19854, 19853, 19852, 19850, 19742 }, group = { 25918, 25894 },
-            manaOnly = true, family = "blessing" },
+            manaOnly = true, family = "blessing", defaultRule = "classes",
+            defaultClasses = { PALADIN = true, HUNTER = true, PRIEST = true, SHAMAN = true, MAGE = true,
+                WARLOCK = true, DRUID = true } },
         { key = "might", ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 }, group = { 25916, 25782 },
-            family = "blessing" },
+            family = "blessing", defaultRule = "classes",
+            defaultClasses = { WARRIOR = true, PALADIN = true, HUNTER = true, ROGUE = true, SHAMAN = true,
+                DRUID = true } },
         { key = "light", ranks = { 19979, 19978, 19977 }, group = { 25890 }, family = "blessing" },
         -- Not a Blessing on Forever: it's worn beside one (#68). Kept off
         -- tanks by default, who don't want less threat.

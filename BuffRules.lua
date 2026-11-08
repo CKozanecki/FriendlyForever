@@ -11,7 +11,10 @@
 --
 -- Saved in buffBack.whoGets: [buff key] = { rule, classes = { [CLASS] = true },
 -- always = { [name key] = full name }, never = { ... } }. A missing or damaged
--- rule is the buff's default (BuffData's defaultRule, else everyone).
+-- rule is the buff's default (BuffData's defaultRule, else everyone). Chosen
+-- classes work the same way: a saved classes table (even an empty one) is
+-- yours; without one, the buff's defaultClasses apply (#219). Defaults are
+-- never saved, so a player who never chose gets any later change to them.
 local _, ns = ...
 local Util = ns.Util
 
@@ -62,6 +65,12 @@ local function OwnEntry(key)
         b.whoGets[key] = entry
     end
     return entry
+end
+
+-- The classes ticked for buff: your saved ones, else its default's.
+local function ChosenClasses(buff, entry)
+    if entry and type(entry.classes) == "table" then return entry.classes end
+    return buff.defaultClasses or {}
 end
 
 function BuffRules.DefaultRule(buff)
@@ -121,7 +130,7 @@ function BuffRules.Allows(buff, member)
     if rule == "all" then return true end
     if rule == "classes" then
         if not member.class then return nil, "can't see their class" end
-        local classes = entry and type(entry.classes) == "table" and entry.classes or {}
+        local classes = ChosenClasses(buff, entry)
         if classes[member.class] == true then return true end
         return false, "not a class you chose"
     end
@@ -153,14 +162,19 @@ function BuffRules.NextRule(buff)
 end
 
 function BuffRules.HasClass(buff, class)
-    local entry = Entry(buff.key)
-    return entry ~= nil and type(entry.classes) == "table" and entry.classes[class] == true
+    return ChosenClasses(buff, Entry(buff.key))[class] == true
 end
 
 function BuffRules.SetClass(key, class, on)
     if not ns.BuffData.KEYS[key] or not BuffRules.IS_CLASS[class] then return end
     local entry = OwnEntry(key)
-    if type(entry.classes) ~= "table" then entry.classes = {} end
+    if type(entry.classes) ~= "table" then
+        -- Start from what's ticked now (the default's), so one click changes one class.
+        entry.classes = {}
+        for c, ticked in pairs(ChosenClasses(ns.BuffData.ByKey(key), nil)) do
+            if ticked == true then entry.classes[c] = true end
+        end
+    end
     entry.classes[class] = on and true or nil
     ns.BuffButton.Refresh()
 end

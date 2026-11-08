@@ -1,4 +1,4 @@
--- Spec: #68, #76
+-- Spec: #68, #76, #219
 -- Who gets each buff in buff mode: everyone, tanks only, everyone but tanks,
 -- or chosen classes, plus players named Always or Never. Salvation isn't a
 -- Blessing on Forever, and goes to everyone but tanks by default.
@@ -9,6 +9,12 @@ local MOTW, MOTW_1, THORNS_1 = 9885, 1126, 467
 local KINGS, MIGHT_1, SALVATION = 20217, 19740, 1038
 local INTELLECT = 10157
 
+-- The owner's defaults (#219), written out here, not read from the addon.
+local DEFAULT_CLASSES = {
+    wisdom = { PALADIN = true, HUNTER = true, PRIEST = true, SHAMAN = true, MAGE = true, WARLOCK = true, DRUID = true },
+    might = { WARRIOR = true, PALADIN = true, HUNTER = true, ROGUE = true, SHAMAN = true, DRUID = true },
+}
+
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
 
 describe("Who gets each buff", function()
@@ -17,7 +23,7 @@ describe("Who gets each buff", function()
     -- A druid who knows Mark of the Wild and Thorns, in buff mode.
     local function boot(opts)
         opts = opts or {}
-        ns = wow.boot({ db = opts.db, before = function(state)
+        ns = wow.boot({ db = opts.db, buffDefaults = true, before = function(state)
             state.class = opts.class or "DRUID"
             state.knownSpells = opts.known or { [MOTW_1] = true, [MOTW] = true, [THORNS_1] = true }
         end })
@@ -160,12 +166,11 @@ describe("Who gets each buff", function()
             local w = ns.Options.widgets
             wow.run(w.tabs.buffBack, "OnClick")
             local thorns = w.buffRows[2]
-            assert.are.equal("Who: Everyone", thorns.who:GetText())
+            assert.are.equal("Who: Tanks only", thorns.who:GetText(), "Thorns starts at its default (#219)")
             wow.run(thorns.who, "OnClick")
-            assert.are.equal("Who: Tanks only", thorns.who:GetText())
-            assert.are.equal("tanks", ns.db.buffBack.whoGets.thorns.rule)
-            assert.is_truthy(w.who.header:GetText():find("Who gets Thorns in buff mode: Tanks only", 1, true))
-            wow.run(thorns.who, "OnClick")
+            assert.are.equal("Who: Everyone but tanks", thorns.who:GetText())
+            assert.are.equal("notTanks", ns.db.buffBack.whoGets.thorns.rule)
+            assert.is_truthy(w.who.header:GetText():find("Who gets Thorns in buff mode: Everyone but tanks", 1, true))
             wow.run(thorns.who, "OnClick")
             assert.are.equal("Who: Chosen classes", thorns.who:GetText())
             assert.is_true(w.who.classes.WARRIOR:IsShown())
@@ -177,7 +182,9 @@ describe("Who gets each buff", function()
             w.who.never:ClearFocus()
             assert.are.equal("Ann-Vale", ns.db.buffBack.whoGets.thorns.never["ann-vale"])
             wow.run(thorns.who, "OnClick")
-            assert.are.equal("Who: Everyone", thorns.who:GetText(), "round again")
+            assert.are.equal("Who: Everyone", thorns.who:GetText(), "next after chosen classes")
+            wow.run(thorns.who, "OnClick")
+            assert.are.equal("Who: Tanks only", thorns.who:GetText(), "round again")
             assert.is_false(w.who.classes.WARRIOR:IsShown())
         end)
 
@@ -449,7 +456,7 @@ describe("Who gets each buff", function()
             assert.are.same({ WARRIOR = true }, who.thorns.classes)
             assert.are.same({ ["ann-vale"] = "Ann-Vale" }, who.thorns.always)
             assert.is_nil(who.thorns.never)
-            assert.are.equal("all", ns.BuffRules.Rule(ns.BuffData.CLASSES.DRUID[2]))
+            assert.are.equal("tanks", ns.BuffRules.Rule(ns.BuffData.CLASSES.DRUID[2]))
             assert.are.equal("notTanks", ns.BuffRules.Rule(ns.BuffData.CLASSES.PALADIN[5]))
             boot({ db = { buffBack = { whoGets = "tanks" } } })
             assert.are.same({}, ns.db.buffBack.whoGets)
@@ -477,6 +484,120 @@ describe("Who gets each buff", function()
             assert.are.same({ WARRIOR = true }, thorns.classes)
             assert.are.same({ ["ann-vale"] = "Ann-Vale" }, thorns.always)
             assert.are.same({ ["cid-rock"] = "Cid-Rock" }, thorns.never)
+        end)
+    end)
+
+    describe("default rules (#219)", function()
+        local WISDOM_1, LIGHT_1 = 19742, 19977
+
+        local function blessings()
+            wow.SPELL_NAMES[LIGHT_1] = "Blessing of Light"
+            boot({ class = "PALADIN", known = { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true, [LIGHT_1] = true } })
+        end
+        local function members(classes)
+            local list = {}
+            for i, class in ipairs(classes) do list[i] = { "Pl" .. string.char(64 + i) .. "-Vale", class, "DAMAGER" } end
+            group("party", list)
+            return list
+        end
+        -- Who got the buff named spell (the others the paladin knows aren't looked at).
+        local function given(key, classes, spell)
+            ns.db.buffBack.buffOrder = { key }
+            members(classes)
+            local out = {}
+            for _, entry in ipairs(buffAll()) do
+                if entry:find(spell or "Blessing of " .. key:sub(1, 1):upper() .. key:sub(2), 1, true) then
+                    out[#out + 1] = entry
+                end
+            end
+            return out
+        end
+        after_each(function() wow.SPELL_NAMES[19977] = nil end)
+
+        it("Wisdom goes to a Priest but not to a Rogue or Warrior", function()
+            blessings()
+            assert.are.same({ "PlA-Vale Blessing of Wisdom" }, given("wisdom", { "PRIEST", "ROGUE", "WARRIOR" }))
+        end)
+
+        it("Might goes to a Warrior but not to a Warlock, Mage or Priest", function()
+            blessings()
+            assert.are.same({ "PlA-Vale Blessing of Might" }, given("might", { "WARRIOR", "WARLOCK", "MAGE", "PRIEST" }))
+        end)
+
+        it("Thorns goes to a tank but not to a non-tank", function()
+            ns.db.buffBack.buffOrder = { "thorns" }
+            group("party", { { "Ann-Vale", "WARRIOR", "TANK" }, { "Bo-Lake", "WARRIOR", "DAMAGER" } })
+            local out = {}
+            for _, entry in ipairs(buffAll()) do
+                if entry:find("Thorns", 1, true) then out[#out + 1] = entry end
+            end
+            assert.are.same({ "Ann-Vale Thorns" }, out)
+        end)
+
+        it("Kings and Light still go to everyone", function()
+            blessings()
+            for _, key in ipairs({ "kings", "light" }) do
+                assert.are.equal("all", ns.BuffRules.Rule(ns.BuffData.ByKey(key)))
+            end
+            assert.are.equal(3, #given("kings", { "ROGUE", "WARLOCK", "PRIEST" }))
+        end)
+
+        it("shows the defaults on the Buff Back tab and starts a click from them", function()
+            blessings()
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffBack, "OnClick")
+            local wisdom = ns.BuffData.ByKey("wisdom")
+            assert.are.equal("classes", ns.BuffRules.Rule(wisdom))
+            assert.is_false(ns.BuffRules.HasClass(wisdom, "ROGUE"))
+            assert.is_true(ns.BuffRules.HasClass(wisdom, "PRIEST"))
+            ns.BuffRules.SetClass("wisdom", "ROGUE", true)
+            assert.is_true(ns.BuffRules.HasClass(wisdom, "ROGUE"))
+            assert.is_true(ns.BuffRules.HasClass(wisdom, "PRIEST"), "one click changes one class")
+            assert.is_false(ns.BuffRules.HasClass(wisdom, "WARRIOR"))
+        end)
+
+        it("keeps a saved rule or class choice, and saves nothing for a default", function()
+            blessings()
+            assert.is_nil(ns.db.buffBack.whoGets.wisdom)
+            ns.db.buffBack.whoGets = { wisdom = { rule = "all" }, might = { rule = "classes", classes = {} },
+                thorns = { rule = "all" } }
+            assert.are.equal("all", ns.BuffRules.Rule(ns.BuffData.ByKey("wisdom")))
+            assert.is_true(ns.BuffRules.Allows(ns.BuffData.ByKey("wisdom"), { unit = "party1", name = "A-B", class = "ROGUE" }))
+            assert.is_false(ns.BuffRules.Allows(ns.BuffData.ByKey("might"), { unit = "party1", name = "A-B", class = "WARRIOR" }),
+                "an empty saved class list is the player's choice")
+            assert.are.equal("all", ns.BuffRules.Rule(ns.BuffData.ByKey("thorns")))
+        end)
+
+        it("an old file loads unchanged, and damaged rules fall back to the new defaults", function()
+            boot({ db = { buffBack = { whoGets = { wisdom = { rule = "everybody", classes = 5 },
+                might = { classes = { OGRE = true } }, thorns = { rule = {} } } } } })
+            local wisdom, might, thorns = ns.BuffData.ByKey("wisdom"), ns.BuffData.ByKey("might"), ns.BuffData.ByKey("thorns")
+            assert.are.equal("classes", ns.BuffRules.Rule(wisdom))
+            assert.is_false(ns.BuffRules.HasClass(wisdom, "ROGUE"))
+            assert.is_true(ns.BuffRules.HasClass(wisdom, "PRIEST"), "a damaged class table is the default's")
+            assert.are.equal("tanks", ns.BuffRules.Rule(thorns))
+            assert.are.same({}, ns.db.buffBack.whoGets.might.classes, "unknown classes dropped; the empty list is kept")
+            assert.is_false(ns.BuffRules.HasClass(might, "WARRIOR"))
+        end)
+
+        it("a class list damaged mid-session is the default's, without error", function()
+            blessings()
+            local wisdom = ns.BuffData.ByKey("wisdom")
+            for _, bad in ipairs({ 5, "PRIEST", true }) do
+                ns.db.buffBack.whoGets = { wisdom = { classes = bad } }
+                assert.is_true(ns.BuffRules.Allows(wisdom, { unit = "party1", name = "A-B", class = "PRIEST" }))
+                assert.is_false(ns.BuffRules.Allows(wisdom, { unit = "party1", name = "A-B", class = "ROGUE" }))
+            end
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("an unreadable class or role is never offered the buff", function()
+            blessings()
+            local wisdom, thorns = ns.BuffData.ByKey("wisdom"), ns.BuffData.ByKey("thorns")
+            assert.is_nil((ns.BuffRules.Allows(wisdom, { unit = "party1", name = "A-B" })))
+            group("party", { { "Ann-Vale", "WARRIOR", "TANK" } })
+            wow.state.units.party1.secrets = { role = true }
+            assert.is_nil((ns.BuffRules.Allows(thorns, { unit = "party1", name = "Ann-Vale", class = "WARRIOR" })))
         end)
     end)
 
@@ -569,7 +690,9 @@ describe("Who gets each buff", function()
                                 assert.is_true(not inRaid or not hidden.mainTank,
                                     where .. ": kept-off buff with Main Tank hidden")
                             elseif ruleNow == "classes" then
-                                assert.is_true((entry.classes or {})[u.class] == true, where .. ": class not chosen")
+                                -- Saved classes, else the owner's defaults: Wisdom not Rogue/Warrior, Might not Warlock/Mage/Priest.
+                                local chosenClasses = entry.classes or DEFAULT_CLASSES[offer.buff.key] or {}
+                                assert.is_true(chosenClasses[u.class] == true, where .. ": class not chosen")
                             end
                         end
                         if offer.buff.family == "blessing" then

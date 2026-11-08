@@ -13,6 +13,7 @@ A small simulation of the WoW client API, enough to load the addon as the game d
   - `opts.db`: the saved variables to start with;
   - `opts.before(state)`: change the client's state before the addon loads;
   - `opts.noGrace`: stop right after login;
+  - `opts.buffDefaults`: keep who gets Wisdom, Might and Thorns at their defaults (#219: classes and tanks). Without it, boot sets those three to Everyone unless `opts.db` sets them, so specs aren't surprised by a class left out;
   - `opts.autoBuffMode`: keep buff mode's turn-on triggers at their defaults (on, #72). Without it, boot turns them off unless `opts.db` sets them, so specs that join groups or get buffed don't lend a key by accident;
   - `opts.randomStagger`: keep a guild hello's random extra wait random (#38). Without it, it is always the shortest (`GuildHellos.STAGGER_MIN`), so specs know when a hello goes;
   - `opts.shippedLines`: keep the shipped message lines. Without it, types still on the shipped defaults use the fixed casual lines, since most specs check behaviour rather than wording.
