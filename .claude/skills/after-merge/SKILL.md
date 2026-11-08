@@ -1,6 +1,6 @@
 ---
 name: after-merge
-description: What the driver of a ready Friendly Forever pull request does after the owner merges another PR into main - merge main in, resolve conflicts, make check, both review loops confirm, CI, update the description, announce ready again. Use when told that another PR has merged while yours is ready or in review.
+description: What the driver of a ready Friendly Forever pull request does after the owner merges another PR into main - merge main in, resolve conflicts, make check, reviewers confirm unless the merge shares no file with the PR, CI, update the description, announce ready again. Use when told that another PR has merged while yours is ready or in review.
 ---
 
 # After a merge
