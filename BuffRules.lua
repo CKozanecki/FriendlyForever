@@ -13,8 +13,9 @@
 -- always = { [name key] = full name }, never = { ... } }. A missing or damaged
 -- rule is the buff's default (BuffData's defaultRule, else everyone). Chosen
 -- classes work the same way: a saved classes table (even an empty one) is
--- yours; without one, the buff's defaultClasses apply (#219). Defaults are
--- never saved, so a player who never chose gets any later change to them.
+-- yours; without one, the buff's defaultClasses apply (#219). A default is saved
+-- only once you choose classes or tick one, so a player who never chose gets any
+-- later change to it.
 local _, ns = ...
 local Util = ns.Util
 
@@ -67,10 +68,26 @@ local function OwnEntry(key)
     return entry
 end
 
--- The classes ticked for buff: your saved ones, else its default's.
+-- The classes ticked for buff: your saved ones; none, when you saved
+-- "Chosen classes" and ticked nothing (all it meant before #219); else its
+-- default's (no entry, no rule, or a damaged class list).
 local function ChosenClasses(buff, entry)
     if entry and type(entry.classes) == "table" then return entry.classes end
+    if entry and entry.classes == nil and entry.rule == "classes" then return {} end
     return buff.defaultClasses or {}
+end
+
+-- Save the classes ticked now (the default's, if you've chosen none) into
+-- entry, so what you see stays as you chose it.
+local function OwnClasses(key, entry)
+    if type(entry.classes) ~= "table" then
+        local now = ChosenClasses(ns.BuffData.ByKey(key), entry)
+        entry.classes = {}
+        for class, ticked in pairs(now) do
+            if ticked == true then entry.classes[class] = true end
+        end
+    end
+    return entry.classes
 end
 
 function BuffRules.DefaultRule(buff)
@@ -148,7 +165,10 @@ end
 
 function BuffRules.SetRule(key, rule)
     if not ns.BuffData.KEYS[key] or not BuffRules.IS_RULE[rule] then return end
-    OwnEntry(key).rule = rule
+    local entry = OwnEntry(key)
+    -- Choosing classes keeps the ones shown (the default's), as a saved list.
+    if rule == "classes" then OwnClasses(key, entry) end
+    entry.rule = rule
     ns.BuffButton.Refresh()
 end
 
@@ -168,14 +188,8 @@ end
 function BuffRules.SetClass(key, class, on)
     if not ns.BuffData.KEYS[key] or not BuffRules.IS_CLASS[class] then return end
     local entry = OwnEntry(key)
-    if type(entry.classes) ~= "table" then
-        -- Start from what's ticked now (the default's), so one click changes one class.
-        entry.classes = {}
-        for c, ticked in pairs(ChosenClasses(ns.BuffData.ByKey(key), nil)) do
-            if ticked == true then entry.classes[c] = true end
-        end
-    end
-    entry.classes[class] = on and true or nil
+    local classes = OwnClasses(key, entry)
+    classes[class] = on and true or nil
     ns.BuffButton.Refresh()
 end
 
