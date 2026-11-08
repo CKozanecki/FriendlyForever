@@ -2,6 +2,7 @@
 
 ### Unreleased
 
+- **Group versions in buff mode (party-wide):** the button offers Arcane Brilliance, Prayer of Fortitude, Prayer of Spirit, Prayer of Shadow Protection and Gift of the Wild before the single buff, when you've learned it, carry its reagent, and at least 3 of the party it covers (in a raid, the subgroup) are missing the buff. The button says what it does ("Prayer of Fortitude on Group 3 (4 missing)") and right-click leaves that group out for 5 minutes. With too few missing or no reagent it offers the single buff and says why. It is never offered if anyone it would cover is flagged for PvP and you aren't, is left out by your "who gets each buff" rules, or has a higher rank of the buff from you; and anything it can't read (reagent count, subgroups, flags, roles) gives single buffs. Set **Use group versions** and the number needed on the Buff Back tab. Greater Blessings and Mass Salvation follow. (#41)
 - **UI simulator workflow:** the finished simulator build is cached, keyed on its pins and build settings, so it is rebuilt only when one moves instead of every run. Nothing ships in the addon. (#170)
 
 ## 0.9.1

@@ -48,7 +48,7 @@ local MACRO_ACTION_TYPE = "macro"
 _G["BINDING_NAME_CLICK " .. BuffButton.FRAME_NAME .. ":LeftButton"] = "Friendly Forever: buff back"
 
 local button, eventFrame
-local armedOffer          -- what the button holds: { name, spell, buff, group, revoke, macroText }
+local armedOffer          -- what the button holds: { name, spell, buff, group, revoke, cast, macroText }
 local appliedMacroText    -- the macro text last written to the button (to skip rewriting it)
 local shownResult         -- the last result under the button: { text, shownAt }
 local lastResultText = "nothing pressed yet"
@@ -197,11 +197,18 @@ local function ArmButton()
 
     SetSecureMacro(macroText)
     armedOffer = { name = offer.name, spell = offer.spell, buff = offer.buff, group = offer.group,
-        revoke = offer.revoke, macroText = macroText }
+        revoke = offer.revoke, cast = offer.cast, hint = offer.hint, macroText = macroText }
     notArmedReason = nil
     button.icon:SetTexture(ns.BuffData.Icon(offer.buff) or BuffButton.PLACEHOLDER_ICON)
     if offer.revoke then
         SetLabels(Util.DisplayName(offer.name), "Revoke their Salvation (" .. offer.why .. ")")
+    elseif offer.cast then
+        -- A group version (GroupCasts.lua): what it does, and whom it's aimed at.
+        SetLabels(string.format("%s on %s (%d missing)", offer.spell, offer.cast.label, offer.cast.count),
+            "aimed at " .. Util.DisplayName(offer.name))
+    elseif offer.note then
+        -- The single buff, and why not its group version.
+        SetLabels(Util.DisplayName(offer.name), offer.note)
     else
         SetLabels(Util.DisplayName(offer.name),
             (offer.group and "missing your " or "buffed you - give ") .. offer.spell)
@@ -320,7 +327,7 @@ end
 -- Fill a press from what the button holds now.
 local function TakeArmedOffer(press)
     press.name, press.spell, press.buff = armedOffer.name, armedOffer.spell, armedOffer.buff
-    press.group, press.revoke = armedOffer.group, armedOffer.revoke
+    press.group, press.revoke, press.cast = armedOffer.group, armedOffer.revoke, armedOffer.cast
     ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
     return press
 end
@@ -388,7 +395,13 @@ local function OnPostClick(_, mouseButton, isDown)
     -- Kept: changing a Never list re-arms the button.
     local offer = armedOffer
     local name = offer.name
-    if offer.group and not offer.revoke and Util.ReadGameValues(IsShiftKeyDown) == true then
+    if offer.cast then
+        -- A group version: only that cast is left out; its members are
+        -- still offered the single buff. Shift adds nobody to a Never list.
+        ns.GroupCasts.Skip(offer.cast.key)
+        ShowResult(string.format("Skipping %s on %s for %d minutes.", offer.spell, offer.cast.label,
+            ns.GroupCasts.SKIP_SECONDS / 60))
+    elseif offer.group and not offer.revoke and Util.ReadGameValues(IsShiftKeyDown) == true then
         ns.Options.FinishEdits()
         local ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name)
         if ok then
@@ -419,11 +432,15 @@ end
 -- answer, for which wanted(press) holds.
 local function NewestPressFor(unit, spellId, wanted)
     if unit ~= "player" or Util.IsSecret(spellId) then return nil end
-    local buff = ns.BuffData.ForCast(spellId)
+    local groupBuff = ns.BuffData.ForGroupCast(spellId)
+    local buff = groupBuff or ns.BuffData.ForCast(spellId)
     if not buff then return nil end
     for i = #presses, 1, -1 do
         local press = presses[i]
-        if press.buff == buff and wanted(press) then return press end
+        -- A group version answers only a press of a group version (#41).
+        if press.buff == buff and (press.cast ~= nil) == (groupBuff ~= nil) and wanted(press) then
+            return press
+        end
     end
 end
 
@@ -522,6 +539,12 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
     elseif press.revoke then
         ns.GroupBuffs.NoteRevoked(press.name)
         ShowResult("Revoked Salvation from " .. who .. ".")
+    elseif press.cast then
+        -- A group version reached the target's party: everyone it covered
+        -- counts as just given (the game updates their buffs a moment
+        -- later); those out of range are filled in one by one afterwards.
+        for _, covered in ipairs(press.cast.covers) do ns.GroupBuffs.NoteGiven(covered, press.buff) end
+        ShowResult(string.format("Cast %s on %s.", press.spell, press.cast.label))
     elseif press.group then
         -- A group buff: no favour, no line, no thanks.
         ns.GroupBuffs.NoteGiven(press.name, press.buff)
@@ -637,6 +660,8 @@ local function ShowTooltip(self)
     local subtitle = button.subtitle:GetText()
     local r, g, b = ns.Colours.RGB("title")
     if subtitle and subtitle ~= "" then GameTooltip:AddLine(subtitle, r, g, b, true) end
+    -- Why not the group version, when that isn't worth the button's face.
+    if armedOffer and armedOffer.hint then GameTooltip:AddLine(armedOffer.hint, r, g, b, true) end
     if armedOffer then
         r, g, b = ns.Colours.RGB("bright")
         GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on " .. Util.DisplayName(armedOffer.name)

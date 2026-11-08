@@ -88,6 +88,10 @@ OptionsIndex.SETTINGS = {
     { name = "Top up my buffs with under", page = BUFF_BACK,
         keywords = "buff mode top up renew refresh expire running low minutes left",
         controls = { "steppers.topUpMinutes" } },
+    { name = "Use group versions", page = BUFF_BACK,
+        keywords = "buff mode group version arcane brilliance prayer fortitude spirit shadow gift wild party raid "
+            .. "reagent",
+        controls = { "groupVersions", "steppers.groupEnough" } },
     { name = "Buff in the preparation phase", page = BUFF_BACK, keywords = "buff battleground battlegrounds bg pvp",
         controls = { "bgPrepBuff" } },
     { name = "Water breathing: only near water", page = BUFF_BACK,

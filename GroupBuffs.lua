@@ -255,48 +255,73 @@ function GroupBuffs.Next()
             end
         end
     end
+    -- Whether member is missing buff and may have it (the rules allow it,
+    -- nothing says they have it or just got it): true, or false. Anything
+    -- that keeps a buff from them is said (Why) when it should be. Read once
+    -- per member and buff: the group version asks too.
+    local needs = {}
+    local function Needs(buff, member)
+        local nkey = member.name .. "\1" .. buff.key
+        if needs[nkey] ~= nil then return needs[nkey] end
+        local result = false
+        -- Your rules for who gets the buff (BuffRules.lua). A member they
+        -- leave out is passed over quietly: nothing is owed them.
+        local allowed, ruleWhy = false, nil
+        if not unreadable[member.name] and ns.BuffData.Useful(buff, member.class) then
+            allowed, ruleWhy = ns.BuffRules.Allows(buff, member)
+        end
+        if allowed ~= false then
+            local wears = ns.Offers.Wears(member.unit, buff, RunningLow)
+            local key = member.name .. "\1" .. buff.key
+            if wears == nil then
+                unreadable[member.name] = true
+                Why(member, "can't see their buffs")
+            elseif wears then
+                justGiven[key] = nil
+            elseif allowed == nil then
+                -- The rules can't tell (an unreadable role or class):
+                -- said, and not settled, only for a member missing it.
+                Why(member, ruleWhy)
+            elseif not Recently(justGiven[key], GroupBuffs.JUST_GIVEN_SECONDS) then
+                local covered = false
+                if buff.family then
+                    local fkey = member.name .. "\1" .. buff.key
+                    if family[fkey] == nil then
+                        local mine = WearsMyFamily(member.unit, buff.family, buff)
+                        if mine == nil then Why(member, "can't tell whose Blessing they have") end
+                        family[fkey] = mine ~= false
+                    end
+                    covered = family[fkey]
+                end
+                result = not covered
+            end
+        end
+        needs[nkey] = result
+        return result
+    end
+    local groupCtx = { units = units, inRaid = Read(IsInRaid) == true, InRange = InSpellRange }
     for _, buff in ipairs(myBuffs) do
         -- A Blessing you've left to another paladin in this raid is passed
         -- over quietly ("My Blessings in this raid", BuffRules.lua).
         local spell = not buff.selfCast and ns.BuffRules.CoversInRaid(buff) and ns.BuffData.SpellName(buff)
+        -- The group version comes before the single buff when enough of the
+        -- group is missing it (GroupCasts.lua); if not, the single buff
+        -- carries the reason.
+        local note, quiet
+        if spell then
+            groupCtx.Needs = function(member) return Needs(buff, member) end
+            local groupOffer
+            groupOffer, note, quiet = ns.GroupCasts.Offer(buff, members, groupCtx)
+            if groupOffer then return groupOffer end
+        end
         for _, member in ipairs(spell and members or {}) do
-            -- Your rules for who gets the buff (BuffRules.lua). A member they
-            -- leave out is passed over quietly: nothing is owed them.
-            local allowed, ruleWhy = false, nil
-            if not unreadable[member.name] and ns.BuffData.Useful(buff, member.class) then
-                allowed, ruleWhy = ns.BuffRules.Allows(buff, member)
-            end
-            if allowed ~= false then
-                local wears = ns.Offers.Wears(member.unit, buff, RunningLow)
-                local key = member.name .. "\1" .. buff.key
-                if wears == nil then
-                    unreadable[member.name] = true
-                    Why(member, "can't see their buffs")
-                elseif wears then
-                    justGiven[key] = nil
-                elseif allowed == nil then
-                    -- The rules can't tell (an unreadable role or class):
-                    -- said, and not settled, only for a member missing it.
-                    Why(member, ruleWhy)
-                elseif not Recently(justGiven[key], GroupBuffs.JUST_GIVEN_SECONDS) then
-                    local covered = false
-                    if buff.family then
-                        local fkey = member.name .. "\1" .. buff.key
-                        if family[fkey] == nil then
-                            local mine = WearsMyFamily(member.unit, buff.family, buff)
-                            if mine == nil then Why(member, "can't tell whose Blessing they have") end
-                            family[fkey] = mine ~= false
-                        end
-                        covered = family[fkey]
-                    end
-                    if not covered then
-                        if InSpellRange(spell, member.unit) == false then
-                            if not outOfRange[member.name] then Why(member, "out of range") end
-                            outOfRange[member.name] = true
-                        else
-                            return { name = member.name, buff = buff, spell = spell, group = true }
-                        end
-                    end
+            if Needs(buff, member) then
+                if InSpellRange(spell, member.unit) == false then
+                    if not outOfRange[member.name] then Why(member, "out of range") end
+                    outOfRange[member.name] = true
+                else
+                    return { name = member.name, buff = buff, spell = spell, group = true,
+                        note = not quiet and note or nil, hint = quiet and note or nil }
                 end
             end
         end
@@ -369,4 +394,5 @@ function GroupBuffs.Prune()
     for name, at in pairs(heldBack) do
         if not Recently(at, GroupBuffs.HELD_BACK_SECONDS) then heldBack[name] = nil end
     end
+    ns.GroupCasts.Prune()
 end

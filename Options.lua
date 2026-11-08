@@ -82,6 +82,11 @@ local function Tooltip(frame, text)
     frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
+Options.GROUP_VERSIONS_TOOLTIP = "In buff mode, offer the group version of a buff (Arcane Brilliance, "
+    .. "Prayer of Fortitude, Prayer of Spirit, Prayer of Shadow Protection, Gift of the Wild) "
+    .. "when you know it, carry its reagent, and enough of the party it covers (in a raid, the subgroup) "
+    .. "are missing the buff. Never cast at anyone flagged for PvP "
+    .. "when you aren't, and never against your \"who gets each buff\" rules."
 Options.BREATH_TOOLTIP = "Offer Unending Breath and Water Breathing only while you're swimming or underwater, "
     .. "for 2 minutes after, or in an underwater dungeon."
 
@@ -160,7 +165,8 @@ end
 -- before a tab switch or reset gives the boxes new contents.
 local function ClearEditFocus()
     local boxes = { widgets.steppers.delay.box, widgets.steppers.repeatCooldown.box,
-        widgets.steppers.owedMinutes.box, widgets.steppers.topUpMinutes.box, widgets.steppers.maxGreeters.box,
+        widgets.steppers.owedMinutes.box, widgets.steppers.topUpMinutes.box, widgets.steppers.groupEnough.box,
+        widgets.steppers.maxGreeters.box,
         widgets.unknownName }
     for _, edit in ipairs(widgets.edits) do boxes[#boxes + 1] = edit end
     if widgets.who then
@@ -496,6 +502,10 @@ local function FillAuto(shown)
     if shown then FillBox(widgets.steppers.autoOffMinutes.box, tostring(ns.db.buffBack.autoOffMinutes)) end
     ShowStepper(widgets.steppers.topUpMinutes, shown)
     if shown then FillBox(widgets.steppers.topUpMinutes.box, tostring(ns.db.buffBack.topUpMinutes)) end
+    widgets.groupVersions:SetShown(shown)
+    if shown then widgets.groupVersions:SetChecked(ns.db.buffBack.groupVersions == true) end
+    ShowStepper(widgets.steppers.groupEnough, shown)
+    if shown then FillBox(widgets.steppers.groupEnough.box, tostring(ns.db.buffBack.groupEnough)) end
     widgets.bgHeader:SetShown(shown)
     widgets.bgPrepBuff:SetShown(shown)
     if shown then widgets.bgPrepBuff:SetChecked(ns.db.buffBack.bgPrepBuff == true) end
@@ -905,11 +915,22 @@ function Options.Create()
     local topUp = Stepper(content, "Top up my buffs with under (minutes left, 0 = never):", "topUpMinutes")
     topUp.label:SetPoint("TOPLEFT", offMinutes.label, "BOTTOMLEFT", 0, -14)
     widgets.steppers.topUpMinutes = topUp
+    -- Group versions (GroupCasts.lua, #41): one cast for a whole party.
+    widgets.groupVersions = Checkbox(content, "Use group versions (Arcane Brilliance, the Prayers, Gift of the Wild)",
+        function(on)
+            ns.db.buffBack.groupVersions = on
+            ns.BuffButton.Refresh()
+        end)
+    widgets.groupVersions:SetPoint("TOPLEFT", topUp.label, "BOTTOMLEFT", -4, -10)
+    Tooltip(widgets.groupVersions, Options.GROUP_VERSIONS_TOOLTIP)
+    local enough = Stepper(content, "...when at least this many are missing the buff:", "groupEnough")
+    enough.label:SetPoint("TOPLEFT", widgets.groupVersions, "BOTTOMLEFT", 4, -8)
+    widgets.steppers.groupEnough = enough
 
     -- Battlegrounds (Battleground.lua): after the gates open the addon is
     -- quiet whatever this says; this is about the preparation phase.
     widgets.bgHeader = Label(content, "Battlegrounds (quiet once the battle starts):", "GameFontNormalSmall")
-    widgets.bgHeader:SetPoint("TOPLEFT", topUp.label, "BOTTOMLEFT", 0, -14)
+    widgets.bgHeader:SetPoint("TOPLEFT", enough.label, "BOTTOMLEFT", 0, -14)
     widgets.bgPrepBuff = Checkbox(content, "Buff in the preparation phase", function(on)
         ns.db.buffBack.bgPrepBuff = on
         ns.Battleground.Update()
