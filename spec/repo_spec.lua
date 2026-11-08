@@ -2731,31 +2731,32 @@ describe("Claude sessions' agents, knowledge and skills", function()
     -- The owner's rule (#215): a PR with an open question for the owner isn't
     -- ready. The rule is stated once in CONTRIBUTING.md and referenced elsewhere.
     it("a PR with an open question for the owner is not ready: the rule, its references and the template", function()
-        local contributing = wow.readFile("CONTRIBUTING.md")
-        for _, rule in ipairs({
-            "\n- it has no open question for the maintainer (#215).\n",
-            "**A pull request with an open question for the maintainer is not ready.** Whoever drives it asks the"
-                .. " maintainer first",
-            "marks it ready only after the answer is applied. Its description has no \"decisions for the maintainer\""
-                .. " section when it is ready.",
-            "A choice the driver made by following the spec is written plainly as a decision taken, not as a"
-                .. " question. If the driver is unsure, that is a question, and the pull request waits.",
-            "The coordinator doesn't call a pull request ready to merge while a question on it is open.",
-        }) do
-            assert.is_truthy(contributing:find(rule, 1, true), rule)
-        end
-        assert.is_truthy(wow.readFile("AGENTS.md"):find("- **No open question when ready** (#215): a PR with an"
-            .. " open question for the owner is not ready.", 1, true), "AGENTS.md's reference")
-        assert.is_truthy(wow.readFile("CLAUDE.md"):find("Ask before you mark the PR ready: it waits for the"
-            .. " answer (#215);", 1, true), "CLAUDE.md's notice rule")
-        assert.is_truthy(wow.readFile(".github/pull_request_template.md"):find("- [ ] No open question for the"
-            .. " owner: this description has no \"decisions for the owner\" section", 1, true), "the PR template")
+        local ready = wow.readFile("CONTRIBUTING.md"):match("\n### Ready for review\n(.-)\n## ") or ""
+        assert.is_truthy(ready:find("\n- it has no open question for the maintainer (#215).\n", 1, true), "the bullet")
+        assert.is_truthy(ready:find("\n**A pull request with an open question for the maintainer is not ready.**"
+            .. " Whoever drives it asks the maintainer first (a session does so through the coordinator) and marks it"
+            .. " ready only after the answer is applied. Its description has no \"decisions for the maintainer\""
+            .. " section when it is ready. A choice the driver made by following the spec is written plainly as a"
+            .. " decision taken, not as a question. If the driver is unsure, that is a question, and the pull request"
+            .. " waits. The coordinator doesn't call a pull request ready to merge while a question on it is open.\n",
+            1, true), "the rule paragraph")
+        assert.is_truthy(wow.readFile("AGENTS.md"):find("\n- **No open question when ready** (#215): a PR with an"
+            .. " open question for the owner is not ready. Ask first, and mark it ready only after the answer is"
+            .. " applied (CONTRIBUTING.md's \"Ready for review\").\n", 1, true), "AGENTS.md's reference")
+        assert.is_truthy(wow.readFile("CLAUDE.md"):find("\n  - you need the owner: a question (one you ask in your"
+            .. " own session too), a decision or a blocker. Ask before you mark the PR ready: it waits for the"
+            .. " answer (#215);\n", 1, true), "CLAUDE.md's notice rule")
+        assert.is_truthy(wow.readFile(".github/pull_request_template.md"):find("\n- [ ] No open question for the"
+            .. " owner: this description has no \"decisions for the owner\" section, and choices made by following the"
+            .. " spec are stated as decisions taken\n", 1, true), "the PR template")
         local coordinator = wow.readFile(".claude/skills/coordinator/SKILL.md")
         local announced = coordinator:match("\n## A PR announced ready\n(.-)\n## ") or ""
-        assert.is_truthy(announced:find("\n3. Check there is no open owner question on it:", 1, true),
-            "the coordinator's ready steps")
-        assert.is_truthy(coordinator:find("- **Questions come first.** Put every question for the owner at the top"
-            .. " of the report, one per line, before any list of PRs (#215).", 1, true), "questions first")
+        assert.is_truthy(announced:find("\n3. Check there is no open owner question on it: none in its description,"
+            .. " and none in its session's transcript that the owner hasn't answered. If there is one, it isn't ready"
+            .. " to merge (CONTRIBUTING.md's \"Ready for review\", #215): tell its driver to wait for the answer, and"
+            .. " put the question in the report.\n", 1, true), "the coordinator's ready steps")
+        assert.is_truthy(coordinator:find("\n- **Questions come first.** Put every question for the owner at the"
+            .. " top of the report, one per line, before any list of PRs (#215).\n", 1, true), "questions first")
     end)
 
     -- The owner's standing rule (#172): the coordinator spots merges itself and
