@@ -356,17 +356,18 @@ nameSpell("Blessing of Wisdom", { 25290, 19854, 19853, 19852, 19850, 19742 })
 nameSpell("Unending Breath", { 5697 })
 nameSpell("Water Breathing", { 131 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
--- Forever's Revoke (paladins). The owner reports Revoke was removed from
--- Forever (Nov 8); the code still offers it. This ID is the simulation's own,
+-- Forever's Revoke (paladins). Blizzard removed Revoke right before launch
+-- (owner, Nov 8; the code is #208's). This ID is the simulation's own,
 -- and the addon finds Revoke by name.
 M.REVOKE_ID = 990001
 nameSpell("Revoke", { M.REVOKE_ID })
 
 ------------------------------------------------------------------------
 -- ASSUMPTIONS ABOUT WOW FOREVER. Each is a state setting so specs can try the
--- alternatives; the defaults are guesses, not facts. Each was checked in game
--- at the launch test pass (Nov 4) and worked: the simulation stays as it is, as
--- a record of what it models.
+-- alternatives; the defaults are guesses, not facts. The launch test pass
+-- (Nov 4) checked these in game and they worked, except the four IDs on #207
+-- and Revoke, which Blizzard removed right before launch (#208). The
+-- simulation stays as it is, as a record of what it models.
 --   state.targetNameForm  how /target and /targetexact spell a two-part
 --                         name: "space" ("Nikki Shifts", default) or "hyphen"
 --   state.sentTargetForm  what UNIT_SPELLCAST_SENT gives as the target:
@@ -426,7 +427,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         spell you know (likewise GetSpellInfo(name)), as the
 --                         game's name lookup goes through your spellbook; by
 --                         ID it answers for any spell. Revoke has a made-up
---                         ID here (M.REVOKE_ID): The owner reports Revoke was removed from Forever (Nov 8).
+--                         ID here (M.REVOKE_ID): Blizzard removed Revoke right before launch (#208).
 --   UnitGroupRolesAssigned and GetPartyAssignment("MAINTANK") both exist and
 --                         answer for group units (unit.role, unit.mainTank;
 --                         Main Tank answers false outside a raid);

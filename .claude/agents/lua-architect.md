@@ -108,7 +108,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 
 **Words match the code**
 - Comments, docs, options text and messages describe what is built, not what is planned (#56, #58, #59, #72, #74, #81, #86).
-- Game facts follow WoW Forever: Salvation isn't a Blessing, Revoke is found by name until its ID is known, Main Tank doesn't count outside a raid. Anything unconfirmed goes on a new issue labelled `quality`, with its source and how to check it in game (#73, #74, #197).
+- Game facts follow WoW Forever: Salvation, Mass Salvation and Revoke were removed by Blizzard right before launch (owner, 2026-11-08; #208), Main Tank doesn't count outside a raid. Anything unconfirmed goes on a new issue labelled `quality`, with its source and how to check it in game (#73, #74, #197).
 
 **Merges**
 - A merge commit is checked with `git show <merge> --cc`: a line that matches neither parent was put there by hand or by accident, even outside the conflicts the driver lists (#46: 807bc8e carried a reviewer's temporary edit that neither side had).

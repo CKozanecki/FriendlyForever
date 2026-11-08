@@ -71,10 +71,10 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 ## Issues and specs
 
 - **Duplicates:** search the backlog before filing an issue. #69 duplicated #41 and had to be merged back.
-- **WoW Forever isn't Classic Era.** Check game facts against Forever sources (Wowhead's `/forever/` pages, patch notes) before writing a spec. Put the sources on the issue, and put anything unconfirmed on a new issue labelled `quality`, with the source and how to check it in game. For example: Salvation isn't a Blessing on Forever, Revoke and Mass Salvation exist, and Blessings last an hour. If a cloud session can't reach wowhead.com, use web search and say so on the issue.
+- **WoW Forever isn't Classic Era.** Check game facts against Forever sources (Wowhead's `/forever/` pages, patch notes) before writing a spec. Put the sources on the issue, and put anything unconfirmed on a new issue labelled `quality`, with the source and how to check it in game. For example: Blizzard removed Salvation, Mass Salvation and Revoke right before launch (owner, 2026-11-08), and Blessings last an hour. If a cloud session can't reach wowhead.com, use web search and say so on the issue.
 - **Product behaviour is the owner's call:** defaults, what's on or off, and how raids or battlegrounds behave. Ask them, and record the answer on the issue, as CONTRIBUTING.md asks for decisions. For example, the turn-on triggers default to on (#72), and "Start here" (#47) leads players to those settings.
 - **Out of scope:** something you find that isn't the issue's job gets a new issue, with what you found and a proposed spec. Don't widen the PR you're on.
-- **Unconfirmed game facts:** the launch-day test pass is complete and every check worked in game (#50, closed; #197). A game fact that can only be checked in game and isn't confirmed yet (spell IDs, role APIs and the like) goes on a new issue labelled `quality`, with the source and how to check it in game. Don't reopen #50.
+- **Unconfirmed game facts:** the launch-day test pass is complete and its checks worked in game, except four IDs on #207 and Revoke, removed by Blizzard (#50, closed; #197). A game fact that can only be checked in game and isn't confirmed yet (spell IDs, role APIs and the like) goes on a new issue labelled `quality`, with the source and how to check it in game. Don't reopen #50.
 
 ## Pull requests
 
