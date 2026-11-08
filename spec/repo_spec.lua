@@ -2650,21 +2650,40 @@ describe("Claude sessions' agents, knowledge and skills", function()
 
     -- The launch-day pass is complete (#197): a rule file never sends a session
     -- to #50 to file an unconfirmed fact; it names the `quality` issue instead.
+    -- Each rule is pinned whole (a phrase that also sits elsewhere in the file
+    -- would still pass after the rule itself was deleted).
     it("the rule files send unconfirmed game facts to a new quality issue, never to #50", function()
+        local function flatten(path) return (wow.readFile(path):gsub("%s+", " ")) end
         for _, path in ipairs({ "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md",
             ".claude/agents/lua-architect.md", ".claude/agents/lua-tester.md" }) do
-            local flat = wow.readFile(path):gsub("%s+", " ")
-            -- The only mentions left say #50 is closed or name it as the runbook's
-            -- source; any other #50 would send a session to a closed issue.
-            for _, allowed in ipairs({ "(#50, closed; #197)", "Don't reopen #50", "(from #50)" }) do
-                flat = flat:gsub(allowed:gsub("%p", "%%%0"), "")
+            local flat = flatten(path)
+            -- The only mentions left say #50 is closed, or name it as the
+            -- runbook's source; any other #50 would send a session to a closed issue.
+            local allowed = { "(#50, closed; #197)", "Don't reopen #50" }
+            if path == "CONTRIBUTING.md" then
+                allowed[#allowed + 1] = "is the ordered in-game test pass (from #50)"
+            end
+            for _, phrase in ipairs(allowed) do
+                flat = flat:gsub(phrase:gsub("%p", "%%%0"), "")
             end
             assert.is_falsy(flat:find("#50%f[%D]"), path)
+            assert.is_falsy(flat:find("/issues/50%f[%D]"), path)
         end
-        local flat = wow.readFile("AGENTS.md"):gsub("%s+", " ")
-        assert.is_truthy(flat:find("new issue labelled `quality`, with the source and how to check it in game", 1, true))
-        assert.is_truthy(wow.readFile(".claude/agents/lua-architect.md"):find("`quality`", 1, true))
-        assert.is_truthy(wow.readFile(".claude/agents/lua-tester.md"):find("`quality`", 1, true))
+        local agents = flatten("AGENTS.md")
+        for _, rule in ipairs({
+            "**Unconfirmed game facts:** the launch-day test pass is complete and every check worked in game "
+                .. "(#50, closed; #197). A game fact that can only be checked in game and isn't confirmed yet "
+                .. "(spell IDs, role APIs and the like) goes on a new issue labelled `quality`, with the source "
+                .. "and how to check it in game. Don't reopen #50.",
+            "Document it in the ASSUMPTIONS block, with the new `quality` issue that says what to verify in game, "
+                .. "if it isn't confirmed.",
+        }) do
+            assert.is_truthy(agents:find(rule, 1, true), rule)
+        end
+        assert.is_truthy(flatten(".claude/agents/lua-architect.md"):find("Anything unconfirmed goes on a new issue "
+            .. "labelled `quality`, with its source and how to check it in game (#73, #74, #197).", 1, true))
+        assert.is_truthy(flatten(".claude/agents/lua-tester.md"):find("in the ASSUMPTIONS block, and if it is an "
+            .. "unconfirmed game fact, with a new `quality` issue that says how to check it in game", 1, true))
     end)
 
     it("CLAUDE.md sends reviews to the agents and points to every knowledge file and skill", function()
