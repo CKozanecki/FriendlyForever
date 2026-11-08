@@ -7,7 +7,7 @@ local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
 local MOTW, MOTW_1, THORNS_1 = 9885, 1126, 467
-local KINGS, MIGHT_1 = 20217, 19740
+local KINGS, MIGHT_1, WISDOM_1 = 20217, 19740, 19742
 local INTELLECT = 10157
 
 -- The owner's defaults (#219), written out here, not read from the addon.
@@ -489,7 +489,7 @@ describe("Who gets each buff", function()
     end)
 
     describe("default rules (#219)", function()
-        local WISDOM_1, LIGHT_1 = 19742, 19977
+        local LIGHT_1 = 19977
 
         local function blessings()
             wow.SPELL_NAMES[LIGHT_1] = "Blessing of Light"
@@ -581,6 +581,33 @@ describe("Who gets each buff", function()
             assert.is_false(ns.BuffRules.HasClass(might, "WARRIOR"))
         end)
 
+        it("gives Wisdom and Might to exactly the owner's default classes", function()
+            blessings()
+            for _, key in ipairs({ "wisdom", "might" }) do
+                local buff = ns.BuffData.ByKey(key)
+                for _, class in ipairs(ns.BuffRules.CLASSES) do
+                    local allowed = ns.BuffRules.Allows(buff, { unit = "party1", name = "A-B", class = class })
+                    assert.are.equal(DEFAULT_CLASSES[key][class] == true, allowed == true, key .. " to " .. class)
+                    assert.are.equal(DEFAULT_CLASSES[key][class] == true, ns.BuffRules.HasClass(buff, class), key .. " " .. class)
+                end
+            end
+        end)
+
+        it("keeps saved rules when the file loads, as the player chose them", function()
+            boot({ class = "PALADIN", known = { [MIGHT_1] = true }, db = { buffBack = { whoGets = {
+                wisdom = { rule = "all" },
+                might = { rule = "classes", classes = { MAGE = true } },
+                thorns = { rule = "all" },
+            } } } })
+            local mage = { unit = "party1", name = "A-B", class = "MAGE" }
+            local rogue = { unit = "party1", name = "A-B", class = "ROGUE" }
+            local function allows(key, member) return ns.BuffRules.Allows(ns.BuffData.ByKey(key), member) end
+            assert.is_true(allows("wisdom", rogue))
+            assert.is_true(allows("might", mage))
+            assert.is_false(allows("might", rogue))
+            assert.are.equal("all", ns.BuffRules.Rule(ns.BuffData.ByKey("thorns")))
+        end)
+
         it("a saved Chosen classes with nothing ticked still means no class (an old save)", function()
             blessings()
             boot({ class = "PALADIN", known = { [MIGHT_1] = true },
@@ -635,14 +662,14 @@ describe("Who gets each buff", function()
 
     describe("chaos (red tests)", function()
         it("never gives a buff to a member its rule leaves out, nor replaces your own Blessing", function()
-            local given, refused = 0, 0
+            local given, refused, byDefault = 0, 0, 0
             for _, seed in ipairs({ 3, 68, 404, 1999 }) do
                 random.seed(seed)
-                paladin()
+                paladin({ [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true })
                 local everyone = { "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss", "Fay-Dune" }
-                local classes = { "WARRIOR", "ROGUE", "MAGE", "PRIEST", "PALADIN", "DRUID" }
+                local classes = { "WARRIOR", "ROGUE", "MAGE", "PRIEST", "PALADIN", "DRUID", "WARLOCK", "HUNTER", "SHAMAN" }
                 local roles = { "TANK", "HEALER", "DAMAGER", "NONE" }
-                local keys = { "kings", "might" }
+                local keys = { "kings", "might", "wisdom" }
                 local function reshuffle()
                     local members = {}
                     for _, name in ipairs(everyone) do
@@ -657,6 +684,12 @@ describe("Who gets each buff", function()
                 reshuffle()
                 local actions = {
                     reshuffle,
+                    -- Back to the defaults: nothing saved for a buff, or only names.
+                    function()
+                        local key = keys[random.random(#keys)]
+                        ns.db.buffBack.whoGets[key] = random.random() < 0.5 and nil or { never = {} }
+                        ns.BuffButton.Refresh()
+                    end,
                     function() rule(keys[random.random(#keys)], ns.BuffRules.RULES[random.random(4)]) end,
                     function()
                         ns.BuffRules.SetClass(keys[random.random(#keys)], classes[random.random(#classes)], random.random() < 0.5)
@@ -724,6 +757,7 @@ describe("Who gets each buff", function()
                             elseif ruleNow == "classes" then
                                 -- Saved classes, else the owner's defaults: Wisdom not Rogue/Warrior, Might not Warlock/Mage/Priest.
                                 local chosenClasses = entry.classes or DEFAULT_CLASSES[offer.buff.key] or {}
+                                if not entry.classes then byDefault = byDefault + 1 end
                                 assert.is_true(chosenClasses[u.class] == true, where .. ": class not chosen")
                             end
                         end
@@ -743,6 +777,7 @@ describe("Who gets each buff", function()
                 end
                 assert.are.same({}, wow.errors, "seed " .. seed)
             end
+            assert.is_true(byDefault > 20, "buffs given under a default class list: " .. byDefault)
             assert.is_true(given > 50, "buffs given: " .. given)
             assert.is_true(refused > 50, "presses with nothing to give: " .. refused)
         end)
