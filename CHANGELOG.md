@@ -3,6 +3,7 @@
 ### Unreleased
 
 - **Salvation, Mass Salvation and Revoke removed:** Blizzard removed Blessing of Salvation, Mass Salvation and Revoke right before launch, so the addon no longer offers, tracks or mentions them: no Salvation beside a paladin's Blessing, no Revoke on the button, and no Revoke or Salvation settings on the Buff Back tab or in the search. The Blessings (Kings, Wisdom, Might, Light) and **Blessings I give in this raid** work as before, and each buff's **Who** choices (everyone, tanks only, everyone but tanks, chosen classes) stay for every buff, all starting at everyone. Settings, profiles and settings lines saved earlier that mention them load without error and drop those entries quietly; everything else in them is kept. (#208)
+- **Guild welcome:** someone who joins the guild and shows as coming online gets only the welcome, not a login hello as well, whichever of the two game lines comes first and even if the hello was already waiting to go out. That welcome covers one login; a later login greets as usual, and a welcome whose login never comes stops counting after 2 minutes. Debug mode says why a hello was skipped. (#196)
 - **UI simulator workflow:** the finished simulator build is cached, keyed on its pins and build settings, so it is rebuilt only when one moves instead of every run. Nothing ships in the addon. (#170)
 
 ## 0.9.1
