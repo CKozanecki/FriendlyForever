@@ -280,6 +280,12 @@ function BuffRules.Clean(value)
                 for class, on in pairs(entry.classes) do
                     if BuffRules.IS_CLASS[class] and on == true then out.classes[class] = true end
                 end
+            elseif entry.classes ~= nil and out.rule == "classes" then
+                -- A damaged list reads as the default's (ChosenClasses); a repair must not make it "none".
+                out.classes = {}
+                for class, ticked in pairs(ns.BuffData.ByKey(key).defaultClasses or {}) do
+                    if ticked == true then out.classes[class] = true end
+                end
             end
             for list in pairs(BuffRules.NAME_LISTS) do
                 if type(entry[list]) == "table" then

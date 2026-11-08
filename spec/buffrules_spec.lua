@@ -604,6 +604,14 @@ describe("Who gets each buff", function()
             assert.are.same({}, ns.db.buffBack.whoGets.thorns.classes, "no default classes: none")
         end)
 
+        it("a damaged class list under Chosen classes loads as the default's, as it reads mid-session", function()
+            boot({ class = "PALADIN", known = { [MIGHT_1] = true },
+                db = { buffBack = { whoGets = { wisdom = { rule = "classes", classes = 5 } } } } })
+            local wisdom = ns.BuffData.ByKey("wisdom")
+            assert.is_true(ns.BuffRules.HasClass(wisdom, "PRIEST"))
+            assert.is_false(ns.BuffRules.HasClass(wisdom, "ROGUE"))
+        end)
+
         it("a class list damaged mid-session is the default's, without error", function()
             blessings()
             local wisdom = ns.BuffData.ByKey("wisdom")
