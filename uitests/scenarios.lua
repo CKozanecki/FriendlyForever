@@ -473,6 +473,34 @@ test("in buff mode, a party member missing your buff is offered it, and the text
     end)
 end)
 
+-- The list beside the button (#43): its rows list who the button would offer
+-- to, a click on a row changes the next offer, and it keeps out of the way
+-- in a fight. Casting stays with the button.
+test("the list beside the button shows who is offered, a click picks the next, and its text stays inside", function()
+    InState("buff list", FriendlyForeverUIStates.ListFilled, function(_, States)
+        local list = _G.FriendlyForeverBuffList
+        Expect(list ~= nil and list:IsShown(), "the list isn't up")
+        local wanted = 1 + #States.LISTED -- Aria's favour, then the party
+        local shown = {}
+        for _, row in ipairs(list.rows) do
+            if row:IsShown() then shown[#shown + 1] = row end
+        end
+        Expect(#shown == wanted, ("the list has %d rows, not %d"):format(#shown, wanted))
+        Expect(States.MacroTarget() == States.STRANGER, "the button doesn't hold the first row's player")
+        for i, row in ipairs(shown) do
+            TextInside(row, row.text, "list row " .. i, 1)
+        end
+        OnScreen(list, "buff list")
+        -- Clicking the last row (the long name) makes that player the next offer.
+        shown[#shown]:GetScript("OnClick")(shown[#shown])
+        Expect(States.MacroTarget() == States.LONGNAME, "a click on the last row didn't make that player next")
+        -- In a fight the list is gone, and the button empties as before.
+        States.Combat(true)
+        Expect(not list:IsShown(), "the list is up in a fight")
+        States.Combat(false)
+    end)
+end)
+
 -- Units no favour can come from: empty, a token that shows no one, the
 -- target when there's no target, a party slot when not in a party, you, a
 -- number, and values that aren't text at all (#98).

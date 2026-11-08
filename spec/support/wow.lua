@@ -130,6 +130,8 @@ function methods:SetEnabled(on) self.enabled = on and true or false end
 function methods:IsEnabled() return self.enabled end
 function methods:SetSize(w, h) self.width, self.height = w, h end
 function methods:SetWidth(w) self.width = w end
+function methods:SetHeight(h) self.height = h end
+function methods:GetHeight() return self.height end
 function methods:GetWidth() return self.width or 0 end
 function methods:GetCenter() return self.centerX or 0, self.centerY or 0 end
 function methods:GetEffectiveScale() return self.scale or 1 end

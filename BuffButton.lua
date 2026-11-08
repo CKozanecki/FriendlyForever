@@ -54,6 +54,8 @@ local shownResult         -- the last result under the button: { text, shownAt }
 local lastResultText = "nothing pressed yet"
 local notArmedReason      -- why the button is empty, for /friendly buffback
 local recheckScheduled = false
+local chosenName          -- the player a row of the list was clicked for: the next offer if still offered (#43)
+local offerList = {}      -- everyone the button would offer to now, in order (BuffList.lua shows it)
 
 ------------------------------------------------------------------------
 -- The macro
@@ -123,6 +125,7 @@ local function ShowRecentResult()
 end
 
 local function Empty(reason, keepShown)
+    ns.BuffList.Hide()
     armedOffer = nil
     notArmedReason = reason
     SetSecureMacro(nil)
@@ -155,18 +158,41 @@ local function HasTarget()
 end
 
 -- What to offer now: the newest favour you can return, or in buff mode a
--- group member missing your buff (GroupBuffs.lua). nil and why not.
+-- group member missing your buff (GroupBuffs.lua), unless a row of the list
+-- was clicked: then that player's offer, while they're still offered (#43).
+-- nil and why not. Every offer is collected into offerList, by the same
+-- rules, for the list; an offer that can't be put in a macro safely is left
+-- out of it, as the button could not cast it.
 local function NextOffer()
-    local offer, reason
+    local list = {}
+    local reason, groupReason
     -- Nothing owed: skip the spellbook and aura reads entirely.
     if ns.Offers.Count() > 0 then
-        offer, reason = ns.Offers.Current()
+        local _
+        _, reason = ns.Offers.Current(list)
     else
         reason = "nobody is owed a buff"
     end
-    if offer or not ns.BuffMode.LentKey() then return offer, reason end
-    local groupOffer, groupReason = ns.GroupBuffs.Next()
-    if groupOffer then return groupOffer end
+    if ns.BuffMode.LentKey() then
+        local _
+        _, groupReason = ns.GroupBuffs.Next(list)
+    end
+    local castable = {}
+    for _, offer in ipairs(list) do
+        if BuffButton.BuildCastMacro(offer.name, offer.spell, true) then castable[#castable + 1] = offer end
+    end
+    offerList = castable
+    local pick = castable[1]
+    if chosenName then
+        local chosen
+        for _, offer in ipairs(castable) do
+            if offer.name == chosenName then chosen = offer break end
+        end
+        if chosen then pick = chosen else chosenName = nil end
+    end
+    if pick then return pick end
+    if #list > 0 then return nil, "the name or spell can't be put in a macro safely" end
+    if not ns.BuffMode.LentKey() then return nil, reason end
     if ns.Offers.Count() == 0 then return nil, groupReason end
     return nil, reason .. "; " .. groupReason
 end
@@ -190,6 +216,7 @@ local function ArmButton()
     end
     local offer, reason = NextOffer()
     if not offer then return Empty(reason, showingResult) end
+    ns.BuffList.Update(button, offerList, offer.name)
 
     local hadTarget = HasTarget()
     local macroText = BuffButton.BuildCastMacro(offer.name, offer.spell, hadTarget)
@@ -234,6 +261,7 @@ end
 -- nothing armed for the world outside the fight is cast in it.
 function BuffButton.OnCombatStart()
     ns.BuffMode.OnCombatStart()
+    chosenName = nil
     if not button then return end
     Empty("in combat: the button is empty until the fight ends", false)
 end
@@ -770,6 +798,14 @@ end
 ------------------------------------------------------------------------
 
 function BuffButton.Frame() return button end
+
+-- A row of the list was clicked (BuffList.lua): this player is the next
+-- offer, if they're still offered. Out of combat only.
+function BuffButton.Choose(name)
+    if InCombatLockdown() then return end
+    chosenName = name
+    BuffButton.Refresh()
+end
 function BuffButton.ArmedOffer() return armedOffer end
 BuffButton.SECURE_ATTRIBUTE = SECURE_ATTRIBUTE
 

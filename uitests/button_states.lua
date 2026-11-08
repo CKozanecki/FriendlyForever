@@ -216,6 +216,14 @@ function States.Party(name, classIndex)
     end
 end
 
+-- Join a party of these members (names, up to four), newly made, as Party does.
+function States.PartyOf(names)
+    SaveParty()
+    Admin("SetPartySize", 0)
+    Admin("SetPartySize", #names)
+    for i, name in ipairs(names) do Admin("SetPartyMember", i, name, States.WARRIOR, 60) end
+end
+
 -- Put the party back as it was (its members' names, classes and levels;
 -- not their buffs: SetPartyMember now clears a member's auras, #100 item 5,
 -- fixed in wow-ui-sim d907b88), if anything here changed it.
@@ -359,8 +367,34 @@ States.GroupMissing = {
     end,
 }
 
+-- The list beside the button (#43) filled: a favour owed to Aria, and in
+-- buff mode three party members, one with a name too long for a row.
+States.LONGNAME = "Bartholomewthethirdofhisname Featherstonehaughsmythe"
+States.LISTED = { States.GROUPMATE, "Cedric Vane", States.LONGNAME }
+States.ListFilled = {
+    Set = function()
+        States.PassLoginGrace()
+        States.Learn()
+        States.Target(States.STRANGER)
+        States.BuffedBy("target")
+        States.PartyOf(States.LISTED)
+        Command("buffmode on")
+    end,
+    Undo = function()
+        if InCombatLockdown() then States.Combat(false) end
+        local button = States.Button()
+        if button and States.MacroTarget() == States.STRANGER then button:Click("RightButton") end
+        Command("buffmode off")
+        States.RestoreParty()
+        States.Unbuff()
+        States.Target(nil)
+        States.Unlearn()
+        States.Advance(States.RESULT_SECONDS)
+    end,
+}
+
 -- For the screenshot job: set a state up and leave it.
-local SHOWN = { favour = States.Favour, buffmode = States.GroupMissing }
+local SHOWN = { favour = States.Favour, buffmode = States.GroupMissing, bufflist = States.ListFilled }
 function States.Show(name)
     local state = SHOWN[name]
     if not state then error("no button state called " .. tostring(name)) end

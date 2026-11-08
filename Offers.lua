@@ -234,8 +234,10 @@ local function ChooseBuff(favour, myBuffs, held, visible)
 end
 
 -- What the button should offer now: { name, buff, spell }, or nil and why
--- not. Newest favour first.
-function Offers.Current()
+-- not. Newest favour first. With a list (#43), every favour the button
+-- could offer is appended to it, newest first, instead of stopping at the
+-- first, so the clickable list is made by these same rules.
+function Offers.Current(list)
     if not ns.db or not ns.db.enabled then return nil, "the addon is off" end
     if not ns.db.buffBack.enabled then return nil, "buff back is off" end
     -- No Changed() here: the button is the caller, and would re-enter.
@@ -244,15 +246,22 @@ function Offers.Current()
     -- Water breathing waits for water (Water.lua).
     local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
     local visible = VisiblePlayers()
-    local firstReason
+    local firstReason, first
     for i = #favours, 1, -1 do
         local favour = favours[i]
         local buff, reason = ChooseBuff(favour, myBuffs, held, visible)
         local spell = buff and ns.BuffData.SpellName(buff)
-        if spell then return { name = favour.name, buff = buff, spell = spell } end
-        firstReason = firstReason
-            or (Util.DisplayName(favour.name) .. ": " .. (reason or "the spell's name isn't known"))
+        if spell then
+            local offer = { name = favour.name, buff = buff, spell = spell }
+            if not list then return offer end
+            first = first or offer
+            list[#list + 1] = offer
+        else
+            firstReason = firstReason
+                or (Util.DisplayName(favour.name) .. ": " .. (reason or "the spell's name isn't known"))
+        end
     end
+    if first then return first end
     return nil, firstReason
 end
 
