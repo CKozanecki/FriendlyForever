@@ -5,7 +5,9 @@
 -- buff's English spell name and its rules; the spell IDs in it are only
 -- hints, Classic Era's (1.15), which Forever may have changed. Every ID is
 -- checked against the API before it's used (BuffData.Refresh): the spell
--- must exist, and its name must be the one the table expects. The ID of the
+-- must exist, and (for ranks and group versions) its name must be the one the
+-- table expects; a blocker only has to exist, since the names of the scroll
+-- auras are unconfirmed (#211). The ID of the
 -- highest rank you know is asked of the API by name, and an aura or cast
 -- whose ID isn't in the table is still recognised by its spell name. A buff
 -- whose spell the API doesn't know is not available: never offered, listed

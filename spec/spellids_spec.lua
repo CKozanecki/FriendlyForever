@@ -312,6 +312,15 @@ describe("Spell IDs from the game's spell API (#209)", function()
             assert.is_true(BuffData.Available(BuffData.ByKey("motw")))
         end)
 
+        it("a blocker only has to exist: an aura with another name still counts", function()
+            boot({ class = "MAGE", known = { [1459] = true }, before = function(state)
+                state.spellNames[8096] = "Scroll of Intellect"
+            end })
+            local intellect = BuffData.ByKey("intellect")
+            assert.is_true(BuffData.Covers(intellect, 8096))
+            assert.are.equal(intellect, BuffData.ForAura(8096))
+        end)
+
         it("a name over the size limit is no name, even where names aren't compared", function()
             boot({ before = function(state)
                 state.spellNames[MOTW_1] = ("x"):rep(500)

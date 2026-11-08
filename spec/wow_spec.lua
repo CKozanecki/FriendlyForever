@@ -302,4 +302,12 @@ describe("The simulated client's spell IDs and names (#209)", function()
         wow.reset()
         assert.are.equal("Mark of the Wild", C_Spell.GetSpellName(MOTW_1), "a new client starts with Classic's IDs")
     end)
+
+    it("renumberSpells with a small offset keeps every spell, though new ids overlap old ones (white)", function()
+        wow.boot({ before = function() wow.renumberSpells(1) end })
+        for id, name in pairs(wow.SPELL_NAMES) do
+            assert.are.equal(name, C_Spell.GetSpellName(id + 1), id)
+        end
+        assert.is_nil(C_Spell.GetSpellName(1459), "no spell is one below Arcane Intellect's first rank")
+    end)
 end)
