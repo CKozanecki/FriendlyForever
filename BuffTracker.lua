@@ -484,6 +484,11 @@ local function HandleAddedAura(aura, now)
     if Util.IsSecret(spellName) or type(spellName) ~= "string" then spellName = nil end
     if Util.IsSecret(helpful) or helpful ~= true then return end -- debuffs are never thanked
 
+    if ns.BuffData.IsRemoved(spellId) then
+        ns.Diag.Log("buff", "%s (spell %s): a buff the game no longer has -> skip", spellName or "?", spellId)
+        return
+    end
+
     ns.Diag.Count("buffsSeen")
     local age = BuffTracker.AuraAge(aura, now)
     if age and age > BuffTracker.STALE_AFTER then

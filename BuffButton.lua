@@ -48,7 +48,7 @@ local MACRO_ACTION_TYPE = "macro"
 _G["BINDING_NAME_CLICK " .. BuffButton.FRAME_NAME .. ":LeftButton"] = "Friendly Forever: buff back"
 
 local button, eventFrame
-local armedOffer          -- what the button holds: { name, spell, buff, group, revoke, macroText }
+local armedOffer          -- what the button holds: { name, spell, buff, group, macroText }
 local appliedMacroText    -- the macro text last written to the button (to skip rewriting it)
 local shownResult         -- the last result under the button: { text, shownAt }
 local lastResultText = "nothing pressed yet"
@@ -81,7 +81,16 @@ end
 -- /targetlasttarget brings it back whether or not /targetexact found them;
 -- [help,nodead] casts only on a friendly, living target, so a failed
 -- /targetexact casts nothing rather than on someone else.
-function BuffButton.BuildCastMacro(playerFullName, spellName, hadTarget)
+function BuffButton.BuildCastMacro(playerFullName, spellName, hadTarget, onSelf)
+    -- On yourself (#198): [@player] aims the cast without targeting anyone,
+    -- so there is no name to find and your target stays as it is. The same
+    -- secure macro button as for others; only its text differs.
+    if onSelf then
+        if not BuffButton.IsSafeMacroArgument(spellName) then return nil end
+        local selfText = "/cast [@player,nodead] " .. spellName
+        if #selfText > BuffButton.MACRO_MAX_LENGTH then return nil end
+        return selfText
+    end
     local targetName = Util.DisplayName(playerFullName)
     if not BuffButton.IsSafeMacroArgument(targetName) or not BuffButton.IsSafeMacroArgument(spellName) then
         return nil
@@ -181,7 +190,7 @@ local function NextOffer()
     -- make (a player owed a favour who is also in your group appears in both).
     local castable, seen = {}, {}
     for _, offer in ipairs(list) do
-        if not seen[offer.name] and BuffButton.BuildCastMacro(offer.name, offer.spell, true) then
+        if not seen[offer.name] and BuffButton.BuildCastMacro(offer.name, offer.spell, true, offer.self) then
             seen[offer.name] = true
             castable[#castable + 1] = offer
         end
@@ -224,20 +233,16 @@ local function ArmButton()
     ns.BuffList.Update(button, offerList, offer.name)
 
     local hadTarget = HasTarget()
-    local macroText = BuffButton.BuildCastMacro(offer.name, offer.spell, hadTarget)
+    local macroText = BuffButton.BuildCastMacro(offer.name, offer.spell, hadTarget, offer.self)
     if not macroText then return Empty("the name or spell can't be put in a macro safely", showingResult) end
 
     SetSecureMacro(macroText)
     armedOffer = { name = offer.name, spell = offer.spell, buff = offer.buff, group = offer.group,
-        revoke = offer.revoke, macroText = macroText }
+        self = offer.self, macroText = macroText }
     notArmedReason = nil
     button.icon:SetTexture(ns.BuffData.Icon(offer.buff) or BuffButton.PLACEHOLDER_ICON)
-    if offer.revoke then
-        SetLabels(Util.DisplayName(offer.name), "Revoke their Salvation (" .. offer.why .. ")")
-    else
-        SetLabels(Util.DisplayName(offer.name),
-            (offer.group and "missing your " or "buffed you - give ") .. offer.spell)
-    end
+    SetLabels(offer.self and "You" or Util.DisplayName(offer.name),
+        (offer.group and "missing your " or "buffed you - give ") .. offer.spell)
     button:SetShown(true)
 end
 
@@ -318,9 +323,9 @@ end
 local function Unanswered(press)
     if not ForgetPress(press) then return end
     press.expired = true
-    local who = Util.DisplayName(press.name)
+    local who = press.self and "you" or Util.DisplayName(press.name)
     if press.failed then
-        ShowResult((press.revoke and "Couldn't revoke Salvation from " or "Couldn't buff ") .. who
+        ShowResult("Couldn't buff " .. who
             .. " (the game gave no reason).", true)
     elseif press.sent then
         ShowResult("No word back on " .. press.spell .. " for " .. who .. ". If it didn't land, press again.")
@@ -353,7 +358,7 @@ end
 -- Fill a press from what the button holds now.
 local function TakeArmedOffer(press)
     press.name, press.spell, press.buff = armedOffer.name, armedOffer.spell, armedOffer.buff
-    press.group, press.revoke = armedOffer.group, armedOffer.revoke
+    press.group, press.self = armedOffer.group, armedOffer.self
     ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
     return press
 end
@@ -421,19 +426,20 @@ local function OnPostClick(_, mouseButton, isDown)
     -- Kept: changing a Never list re-arms the button.
     local offer = armedOffer
     local name = offer.name
-    if offer.group and not offer.revoke and Util.ReadGameValues(IsShiftKeyDown) == true then
+    if offer.group and Util.ReadGameValues(IsShiftKeyDown) == true then
         ns.Options.FinishEdits()
         local ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name)
         if ok then
             ShowResult(string.format("%s won't get %s (Never list, on the Buff Back tab).",
-                Util.DisplayName(name), offer.spell))
+                offer.self and "You" or Util.DisplayName(name), offer.spell))
         else
-            ShowResult("Couldn't add " .. Util.DisplayName(name) .. " to the Never list: " .. why .. ".", true)
+            ShowResult("Couldn't add " .. (offer.self and "you" or Util.DisplayName(name))
+                .. " to the Never list: " .. why .. ".", true)
         end
         ns.Options.Refresh()
     elseif offer.group then
         ns.GroupBuffs.Skip(name)
-        ShowResult(string.format("Skipping %s for %d minutes.", Util.DisplayName(name),
+        ShowResult(string.format("Skipping %s for %d minutes.", offer.self and "yourself" or Util.DisplayName(name),
             ns.GroupBuffs.SKIP_SECONDS / 60))
     else
         ns.Offers.LetGo(name)
@@ -547,14 +553,11 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
         return ns.Offers.OnCastLanded(unit, castGUID)
     end
     ForgetPress(press)
-    local who = Util.DisplayName(press.name)
+    local who = press.self and "you" or Util.DisplayName(press.name)
     -- castTargetName is only ever the intended player's (OnSpellcastSent).
     local reachedThem = press.castTargetName and BuffButton.IsIntendedPlayer(press.castTargetName, press.name)
     if reachedThem == nil then
         ShowResult("Cast " .. press.spell .. ", but the game didn't say it reached " .. who .. ".")
-    elseif press.revoke then
-        ns.GroupBuffs.NoteRevoked(press.name)
-        ShowResult("Revoked Salvation from " .. who .. ".")
     elseif press.group then
         -- A group buff: no favour, no line, no thanks.
         ns.GroupBuffs.NoteGiven(press.name, press.buff)
@@ -579,8 +582,8 @@ local unclaimedError
 local function ReportRefusal(press, text)
     ForgetPress(press)
     if press.group and ns.GroupBuffs.IsTargetRefusal(text) then ns.GroupBuffs.NoteRefused(press.name) end
-    ShowResult((press.revoke and "Couldn't revoke Salvation from " or "Couldn't buff ")
-        .. Util.DisplayName(press.name) .. ": " .. Util.StripChat(text), true)
+    ShowResult("Couldn't buff " .. (press.self and "you" or Util.DisplayName(press.name))
+        .. ": " .. Util.StripChat(text), true)
     BuffButton.Refresh()
 end
 
@@ -665,18 +668,23 @@ end
 local function ShowTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_TOP")
     GameTooltip:AddLine(ns.TITLE .. ": buff back")
-    -- The button cuts a long line short (a reason it's empty, why to Revoke):
+    -- The button cuts a long line short (a reason it's empty):
     -- here it is in full.
     local subtitle = button.subtitle:GetText()
     local r, g, b = ns.Colours.RGB("title")
     if subtitle and subtitle ~= "" then GameTooltip:AddLine(subtitle, r, g, b, true) end
     if armedOffer then
         r, g, b = ns.Colours.RGB("bright")
-        GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on " .. Util.DisplayName(armedOffer.name)
-            .. ", then gives you your target back.", r, g, b, true)
+        if armedOffer.self then
+            GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on you; your target stays as it is.", r, g, b, true)
+        else
+            GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on " .. Util.DisplayName(armedOffer.name)
+                .. ", then gives you your target back.", r, g, b, true)
+        end
     end
     r, g, b = ns.Colours.RGB("text")
-    GameTooltip:AddLine("Click or press its key to cast. Right-click to let them go.", r, g, b, true)
+    GameTooltip:AddLine("Click or press its key to cast. Right-click to "
+        .. (armedOffer and armedOffer.self and "skip yourself for a while." or "let them go."), r, g, b, true)
     GameTooltip:Show()
 end
 

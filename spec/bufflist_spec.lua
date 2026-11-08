@@ -137,6 +137,36 @@ describe("The list beside the buff button (#43)", function()
         end)
     end)
 
+    describe("you in the list (buff mode buffs you too, #198)", function()
+        local function bootSelf()
+            ns = wow.boot({ buffSelf = true, before = function(state)
+                state.class = "DRUID"
+                state.knownSpells = { [MOTW_1] = true, [MOTW] = true, [THORNS_1] = true }
+            end })
+            button = ns.BuffButton.Frame()
+            slash("buffmode on")
+        end
+
+        it("lists you as 'You' with your buff, first, and the button casts it on you", function()
+            bootSelf()
+            party({ "Ann-Vale" })
+            assert.are.same({ "> You: Mark of the Wild", "Ann Vale: Mark of the Wild" }, rows())
+            assert.is_truthy(button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
+                :find("/cast [@player,nodead] Mark of the Wild", 1, true))
+        end)
+
+        it("a click on another row, and back on yours, changes the next offer", function()
+            bootSelf()
+            party({ "Ann-Vale" })
+            click(2)
+            assert.are.equal("Ann Vale: Mark of the Wild", armed())
+            assert.are.same({ "You: Mark of the Wild", "> Ann Vale: Mark of the Wild" }, rows())
+            click(1)
+            assert.are.equal("You", button.title:GetText())
+            assert.are.same({ "> You: Mark of the Wild", "Ann Vale: Mark of the Wild" }, rows())
+        end)
+    end)
+
     describe("combat", function()
         it("is hidden in combat and shown again after", function()
             slash("buffmode on")

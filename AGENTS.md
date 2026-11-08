@@ -83,6 +83,7 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 - **Easy to miss** (#75 missed both):
   - `Closes #<issue>` with the criteria checklist;
   - [marking the PR ready yourself](CONTRIBUTING.md#ready-for-review), with a comment.
+- **No open question when ready** (#215): a PR with an open question for the owner is not ready. Ask first, and mark it ready only after the answer is applied (CONTRIBUTING.md's "Ready for review").
 - **Part of a spec:** say `Refs #<issue>`, list which acceptance criteria the PR covers, and name the parts still to come. Only the PR that completes the spec says `Closes`. #73 and #74 did this for #68.
 - **Stacked work:** never open a PR on another PR's branch. Build on it locally if you need to. Once the first PR merges (as a squash), rebase onto `main` and open the PR from the rebased branch.
 

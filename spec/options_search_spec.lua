@@ -1,4 +1,4 @@
--- Spec: #48, #47
+-- Spec: #48, #47, #208
 -- Finding a setting: /friendly find <word>, the game's Settings search where
 -- the client has one, and the one table both read (OptionsIndex.lua).
 local wow = require("spec.support.wow")
@@ -113,7 +113,7 @@ describe("Finding a setting (#48)", function()
             -- Not one label: a group of controls, or a label the tab fills in.
             local grouped = { ["Enabled"] = true, ["Messages"] = true, ["Load fantasy lines or casual lines"] = true,
                 ["Buff order"] = true, ["Never offer a buff"] = true, ["Who gets each buff in buff mode"] = true,
-                ["Revoke Salvation"] = true, ["Blessings I give in this raid"] = true, ["Buff mode key"] = true,
+                ["Blessings I give in this raid"] = true, ["Buff mode key"] = true,
                 ["Buff mode turns off again"] = true, ["Offer to buff back players who buff me"] = true,
                 ["Share your settings"] = true, ["Snooze"] = true, ["Profiles"] = true,
                 ["Never greet or thank"] = true }

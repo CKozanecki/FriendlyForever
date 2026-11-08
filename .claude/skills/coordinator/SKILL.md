@@ -33,6 +33,7 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
 - **Starting a session:** pass the `model` parameter, a family alias from CLAUDE.md's Models and effort, and say its effort in the opening prompt. For building that's a trial in progress, see #182: pass the family the owner names for the trial, or leave it out to keep the session default. Never a dated model ID. Check the plan's usage first (CLAUDE.md's Plan limits): a fan-out is long work.
 - **Before telling the owner something is pending, read that session's transcript** (`list_events` with `kinds: ["user", "assistant", "result"]`), not just its status. A status says idle; only the transcript says whether it's waiting on the owner, finished, or stuck, and whether the owner already answered.
 - Relay to the owner in one short list: what's needed, from whom, with the link. Don't relay routine progress.
+- **Questions come first.** Put every question for the owner at the top of the report, one per line, before any list of PRs (#215).
 
 ## A PR announced ready
 
@@ -43,7 +44,8 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
    ```
    If it doesn't, it isn't ready: tell its driver to merge `main` in (the `after-merge` skill), and don't report it to the owner yet.
 2. Check CI is green on its head and its description's ready checklist is ticked.
-3. When more than one PR is ready, **trial-merge every pair** and recommend an order (the `merge-order` skill) before reporting.
+3. Check there is no open owner question on it: none in its description, and none in its session's transcript that the owner hasn't answered. If there is one, it isn't ready to merge (CONTRIBUTING.md's "Ready for review", #215): tell its driver to wait for the answer, and put the question in the report.
+4. When more than one PR is ready, **trial-merge every pair** and recommend an order (the `merge-order` skill) before reporting.
 
 ## After the owner merges a PR
 

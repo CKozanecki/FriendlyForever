@@ -27,7 +27,7 @@ local shownOffers = {}   -- the offers the rows show, in order
 -- One row's text: the player's name, the buff, and a mark on the offer the
 -- button holds now (colour alone isn't enough).
 local function RowText(offer, current)
-    local name = Util.StripChat(Util.DisplayName(offer.name))
+    local name = offer.self and "You" or Util.StripChat(Util.DisplayName(offer.name))
     return (current and "> " or "") .. name .. ": " .. Util.StripChat(offer.spell)
 end
 

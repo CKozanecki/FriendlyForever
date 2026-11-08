@@ -15,6 +15,13 @@
 -- each buff (tanks only, chosen classes, named players: BuffRules.lua) apply
 -- here, and only here. Group buffs never say a line and are never thanked.
 --
+-- You are a group member too (#198): for each buff you give, that buff is
+-- offered on you first, if you are missing it, and then to the group
+-- (GroupBuffs.SELF_ORDER says where you come in), under the same rules: your buff order, Never lists,
+-- who gets each buff, top-up timing. It is cast on you with [@player], so
+-- your target stays as it is. You are left out when dead or unreadable (the
+-- reason is named); range and PvP flag don't apply to your own buffs.
+--
 -- Top-up timing (#42): a buff you give (whoever cast it) with less than the
 -- set time left (buffBack.topUpMinutes) counts as missing, so you can renew
 -- it before it runs out. Only a rank you can replace (BuffData.CanReplace),
@@ -36,14 +43,21 @@ GroupBuffs.SKIP_SECONDS = 300
 -- A member whose cast the game refused (out of range or sight) waits this long.
 GroupBuffs.HELD_BACK_SECONDS = 15
 
+-- Where you come in (#198): your own copy of each buff you give is offered
+-- before the group's copy of that buff ("first", the default, the owner's
+-- choice), or after it ("last"); your first buff still goes before anyone's
+-- second. "off" leaves you out (specs that predate #198 start with it:
+-- wow.boot). Only this line decides; the rest of the file follows it.
+GroupBuffs.SELF_ORDER = "first"
+
 local PARTY_UNITS, RAID_UNITS = {}, {}
 for i = 1, 4 do PARTY_UNITS[i] = "party" .. i end
 for i = 1, 40 do RAID_UNITS[i] = "raid" .. i end
 
 local justGiven = {} -- [name .. "\1" .. buff key] = GetTime()
-local justRevoked = {} -- [name] = GetTime() your Revoke reached them
 local skipped = {}   -- [name] = GetTime() you right-clicked them
 local heldBack = {}  -- [name] = GetTime() the game refused a cast to them
+local lastSelfWhy        -- why you were last left out of the offers (said once in debug)
 
 -- The slots to look through: raid1..40 in a raid (one of them is you),
 -- party1..4 in a party. Empty when you're in no group.
@@ -125,28 +139,6 @@ local function WearsMyFamily(unit, family, offered)
     return false
 end
 
--- Whether they wear Salvation (a rank, or Mass Salvation): true, false, or nil
--- when their buffs can't be read; and when they do, whether it's yours
--- (nil when who cast it can't be read).
-local function WearsSalvation(unit)
-    local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
-    if not api then return nil end
-    for i = 1, ns.Offers.MAX_AURAS do
-        local ok, aura = pcall(api, unit, i, "HELPFUL")
-        if not ok or Util.IsSecret(aura) then return nil end
-        if aura == nil then return false end
-        local id = aura.spellId
-        if Util.IsSecret(id) then return nil end
-        local buff = ns.BuffData.ForAura(id)
-        if buff and buff.key == ns.BuffData.REVOKE.removes then
-            local source = aura.sourceUnit
-            if source == nil or Util.IsSecret(source) then return true, nil end
-            return true, Read(UnitIsUnit, source, "player")
-        end
-    end
-    return false
-end
-
 -- Reasons a member is left out that still leave a buff of yours to give
 -- once they can have it (they're dead, out of reach for now, or can't be
 -- read). Offline, out of sight, flagged when you aren't, or skipped by you
@@ -202,8 +194,24 @@ local function Candidates(units)
     return out, firstReason, open
 end
 
+-- You as a member to buff (#198): { unit = "player", name, class, self = true },
+-- or nil, why not, and whether that leaves a buff to give later (dead, name
+-- unreadable). Range and the PvP flag are about other people: a buff on
+-- yourself can't be out of range or flag you.
+local function SelfMember()
+    local name = Util.UnitFullName("player")
+    if not name then return nil, "your name can't be read", true end
+    if Recently(skipped[name], GroupBuffs.SKIP_SECONDS) then
+        return nil, "skipped for now (you right-clicked it)", false
+    end
+    if Recently(heldBack[name], GroupBuffs.HELD_BACK_SECONDS) then
+        return nil, "the game refused your last cast on you", true
+    end
+    if Read(UnitIsDeadOrGhost, "player") == true then return nil, "you're dead", true end
+    return { unit = "player", name = name, class = select(2, Read(UnitClass, "player")), self = true }
+end
+
 -- The next group member to buff: { name, buff, spell, group = true }, or
--- (a paladin) Salvation to take off: { ..., revoke = true, why }; or
 -- nil, why not, and whether that's settled: nothing left that a buff of
 -- yours could fix now or soon (not in a group, or everyone you could buff
 -- has them; nobody dead, out of reach or unreadable); when that's because
@@ -213,16 +221,16 @@ end
 -- it once, in the order the button would reach them, with what it would
 -- offer, instead of stopping at the first: the clickable list is made by
 -- these same rules.
-function GroupBuffs.Next(list)
+function GroupBuffs.Next(out)
     local units = GroupUnits()
     local first, listed = nil, {}
     -- One offer found: the first is returned at once, or with a list kept.
     local function Found(offer)
-        if not list then return true end
+        if not out then return true end
         first = first or offer
         if not listed[offer.name] then
             listed[offer.name] = true
-            list[#list + 1] = offer
+            out[#out + 1] = offer
         end
         return false
     end
@@ -239,93 +247,85 @@ function GroupBuffs.Next(list)
     local family = {} -- [name .. buff key] = whether they wear another of yours (read once)
     -- Every reason a member is passed over here leaves a buff to give.
     local function Why(member, why)
-        firstReason = firstReason or (Util.DisplayName(member.name) .. ": " .. why)
+        if member.self then
+            -- The reasons are worded for someone else.
+            why = why:gsub("they're", "you're"):gsub("they have", "you have"):gsub("their", "your")
+        end
+        firstReason = firstReason or ((member.self and "You" or Util.DisplayName(member.name)) .. ": " .. why)
         open = true
     end
-    -- A paladin's Revoke comes before new buffs: Salvation on someone who
-    -- shouldn't have it (a tank, say) costs threat now.
-    if ns.BuffData.RevokeKnown() then
-        local revoke = ns.BuffData.REVOKE
-        for _, member in ipairs(members) do
-            local wears, mine = false, nil
-            if not Recently(justRevoked[member.name], GroupBuffs.JUST_GIVEN_SECONDS) then
-                wears, mine = WearsSalvation(member.unit)
-            end
-            -- Unreadable buffs are said by the buff pass below. Another
-            -- paladin's Salvation is theirs to manage in "mine" mode.
-            if wears and not (mine == false and ns.BuffRules.RevokeMode() == "mine") then
-                local covered, label = ns.BuffRules.RevokeCovers(member)
-                if covered == nil then
-                    Why(member, label)
-                elseif covered and ns.BuffRules.RevokeMode() == "mine" and mine ~= true then
-                    if mine == nil then Why(member, "can't tell whose Salvation they have") end
-                elseif covered then
-                    if InSpellRange(revoke.name, member.unit) == false then
-                        Why(member, "out of range to revoke their Salvation")
-                    else
-                        local offer = { name = member.name, buff = revoke, spell = revoke.name, group = true,
-                            revoke = true, why = label }
-                        if Found(offer) then return offer end
-                    end
+    -- The buffs for one list of members, in your buff order (the first
+    -- buff goes to all of them before the second goes to any).
+    local function Pass(list)
+        for _, buff in ipairs(myBuffs) do
+            -- A Blessing you've left to another paladin in this raid is passed
+            -- over quietly ("My Blessings in this raid", BuffRules.lua).
+            local spell = not buff.selfCast and ns.BuffRules.CoversInRaid(buff) and ns.BuffData.SpellName(buff)
+            for _, member in ipairs(spell and list or {}) do
+                -- Your rules for who gets the buff (BuffRules.lua). A member they
+                -- leave out is passed over quietly: nothing is owed them.
+                local allowed, ruleWhy = false, nil
+                if not unreadable[member.name] and ns.BuffData.Useful(buff, member.class) then
+                    allowed, ruleWhy = ns.BuffRules.Allows(buff, member)
                 end
-            end
-        end
-    end
-    for _, buff in ipairs(myBuffs) do
-        -- A Blessing you've left to another paladin in this raid is passed
-        -- over quietly ("My Blessings in this raid", BuffRules.lua).
-        local spell = not buff.selfCast and ns.BuffRules.CoversInRaid(buff) and ns.BuffData.SpellName(buff)
-        for _, member in ipairs(spell and members or {}) do
-            -- Your rules for who gets the buff (BuffRules.lua). A member they
-            -- leave out is passed over quietly: nothing is owed them.
-            local allowed, ruleWhy = false, nil
-            if not unreadable[member.name] and ns.BuffData.Useful(buff, member.class) then
-                allowed, ruleWhy = ns.BuffRules.Allows(buff, member)
-            end
-            if allowed ~= false then
-                local wears = ns.Offers.Wears(member.unit, buff, RunningLow)
-                local key = member.name .. "\1" .. buff.key
-                if wears == nil then
-                    unreadable[member.name] = true
-                    Why(member, "can't see their buffs")
-                elseif wears then
-                    justGiven[key] = nil
-                elseif allowed == nil then
-                    -- The rules can't tell (an unreadable role or class):
-                    -- said, and not settled, only for a member missing it.
-                    Why(member, ruleWhy)
-                elseif not Recently(justGiven[key], GroupBuffs.JUST_GIVEN_SECONDS) then
-                    local covered = false
-                    if buff.family then
-                        local fkey = member.name .. "\1" .. buff.key
-                        if family[fkey] == nil then
-                            local mine = WearsMyFamily(member.unit, buff.family, buff)
-                            if mine == nil then Why(member, "can't tell whose Blessing they have") end
-                            family[fkey] = mine ~= false
+                if allowed ~= false then
+                    local wears = ns.Offers.Wears(member.unit, buff, RunningLow)
+                    local key = member.name .. "\1" .. buff.key
+                    if wears == nil then
+                        unreadable[member.name] = true
+                        Why(member, "can't see their buffs")
+                    elseif wears then
+                        justGiven[key] = nil
+                    elseif allowed == nil then
+                        -- The rules can't tell (an unreadable role or class):
+                        -- said, and not settled, only for a member missing it.
+                        Why(member, ruleWhy)
+                    elseif not Recently(justGiven[key], GroupBuffs.JUST_GIVEN_SECONDS) then
+                        local covered = false
+                        if buff.family then
+                            local fkey = member.name .. "\1" .. buff.key
+                            if family[fkey] == nil then
+                                local mine = WearsMyFamily(member.unit, buff.family, buff)
+                                if mine == nil then Why(member, "can't tell whose Blessing they have") end
+                                family[fkey] = mine ~= false
+                            end
+                            covered = family[fkey]
                         end
-                        covered = family[fkey]
-                    end
-                    if not covered then
-                        if InSpellRange(spell, member.unit) == false then
-                            if not outOfRange[member.name] then Why(member, "out of range") end
-                            outOfRange[member.name] = true
-                        else
-                            local offer = { name = member.name, buff = buff, spell = spell, group = true }
-                            if Found(offer) then return offer end
+                        if not covered then
+                            -- Range is about other people: you are always in reach of yourself.
+                            if not member.self and InSpellRange(spell, member.unit) == false then
+                                if not outOfRange[member.name] then Why(member, "out of range") end
+                                outOfRange[member.name] = true
+                            else
+                                local offer = { name = member.name, buff = buff, spell = spell, group = true,
+                                    self = member.self }
+                                if Found(offer) then return offer end
+                            end
                         end
                     end
                 end
             end
         end
+        return nil
     end
+    -- You come first in each buff's round, before the group (SELF_ORDER,
+    -- #198): your first buff still goes before anyone's second.
+    local mine, mineWhy, mineOpen
+    if GroupBuffs.SELF_ORDER ~= "off" then mine, mineWhy, mineOpen = SelfMember() end
+    local list = members
+    if mine then
+        table.insert(list, GroupBuffs.SELF_ORDER == "last" and #list + 1 or 1, mine)
+    elseif mineWhy then
+        firstReason = firstReason or ("You: " .. mineWhy)
+        open = open or mineOpen
+        -- Debug says so once per reason, not at every refresh.
+        if mineWhy ~= lastSelfWhy then ns.Diag.Log("buffMode", "not buffing you: %s", mineWhy) end
+    end
+    lastSelfWhy = mine == nil and mineWhy or nil
+    local offer = Pass(list)
+    if offer then return offer end
     if first then return first end
     return nil, firstReason or "everyone in your group has your buffs", not open
-end
-
--- Your Revoke reached them: don't offer it again while their Salvation
--- still shows.
-function GroupBuffs.NoteRevoked(name)
-    justRevoked[name] = GetTime()
 end
 
 -- Your buff reached them (the game said so).
@@ -377,9 +377,6 @@ end
 function GroupBuffs.Prune()
     for key, at in pairs(justGiven) do
         if not Recently(at, GroupBuffs.JUST_GIVEN_SECONDS) then justGiven[key] = nil end
-    end
-    for name, at in pairs(justRevoked) do
-        if not Recently(at, GroupBuffs.JUST_GIVEN_SECONDS) then justRevoked[name] = nil end
     end
     for name, at in pairs(skipped) do
         if not Recently(at, GroupBuffs.SKIP_SECONDS) then skipped[name] = nil end

@@ -50,7 +50,7 @@ end
 local BUFFS = {
     { "Power Word: Fortitude", "Divine Spirit", "Shadow Protection" },
     { "Mark of the Wild", "Thorns" },
-    { "Blessing of Wisdom", "Blessing of Salvation" },
+    { "Blessing of Wisdom", "Blessing of Might" },
     { "Arcane Intellect", "Dampen Magic" },
 }
 -- What happened to each favour, with the longest notes the ledger writes.
@@ -200,7 +200,7 @@ end
 
 -- The Buff Back tab's buffs by their Forever names (#158). The simulator's
 -- spell data is retail's, with none of Forever's buffs (docs/ui-simulator.md),
--- so without these the tab shows the buff keys ("salvation"), much shorter
+-- so without these the tab shows the buff keys ("wisdom"), much shorter
 -- than what a player reads. The ranks are BuffData.lua's PALADIN ranks,
 -- which spec/uitests_pages_spec.lua checks.
 Pages.BUFF_NAMES = {
@@ -208,7 +208,6 @@ Pages.BUFF_NAMES = {
     { key = "wisdom", name = "Blessing of Wisdom", ranks = { 25290, 19854, 19853, 19852, 19850, 19742 } },
     { key = "might", name = "Blessing of Might", ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 } },
     { key = "light", name = "Blessing of Light", ranks = { 19979, 19978, 19977 } },
-    { key = "salvation", name = "Blessing of Salvation", ranks = { 1038 } },
 }
 
 -- Makes C_Spell.GetSpellName answer BUFF_NAMES' ranks, and pass every
