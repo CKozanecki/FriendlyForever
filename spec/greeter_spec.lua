@@ -286,7 +286,7 @@ describe("Greetings", function()
             online("Thrall") -- the hello is scheduled, about a minute away
             wow.advance(30)
             wow.systemMessage("Thrall has joined the guild.")
-            wow.advance(100) -- the hello comes due about 70 s after the join
+            wow.advance(100) -- the hello comes due about 30 s after the join
             assert.are.same({ "Welcome to the guild, Thrall! We're glad to have you." }, wow.sentTo("GUILD"))
         end)
 
