@@ -108,7 +108,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A helper that counts a /say or emote thank-you presses a key before `BuffTracker.SAY_MAX_AGE` runs out, and one test expects a non-zero count, so the count is shown to be live (#138: `story()` pressed after 40 s, so its "friend" count was always 0).
 
 **The simulated client**
-- New behaviour is realistic, pessimistic when unsure, in the ASSUMPTIONS block, with a launch check on #50 (#21, #60, #62, #88).
+- New behaviour is realistic, pessimistic when unsure, in the ASSUMPTIONS block, and if it is an unconfirmed game fact, with a new `quality` issue that says how to check it in game (#21, #60, #62, #88, #197).
 - Redirects and side paths (`state.castLandsOn`) apply the game's rules where the cast lands: macro conditions, PvP flags (#84: 18 storm seeds failed; #87: redirected PvP flags were filed by unit table instead of player).
 - When a test fails or flakes, check whether the simulated client is the cause before blaming the addon. Model fixes get tests of their own; other model gaps are filed as issues (#87 filed #84 and #89; #85 filed #90).
 - A test-wide default in `wow.boot` reads the given saved settings before loading fills in defaults, has an opt-out, and has a spec of its own. Check that a changed default doesn't quietly move every other spec onto a new path (#72: with the triggers on by default, every buff back spec ran in buff mode, and the helper read settings after loading).
@@ -117,7 +117,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - Any change after a loop approved goes back to it: test-only and test-helper changes, merges of `main` (above all ones that resolved conflicts), rebases. Check the PR records each confirmation (#72: a helper change after approval hid a real bug; #85, #87, #88).
 
 **Screenshots**
-- View every image and read the `LAYOUT` lines; compare with a before set where one exists (step 3 says where), and say when none did; say what isn't shown (an options tab that isn't in the shot is judged from its anchor specs, and its look goes to #50). Layout checks put state back even when they fail (#53, #85, #88).
+- View every image and read the `LAYOUT` lines; compare with a before set where one exists (step 3 says where), and say when none did; say what isn't shown (an options tab that isn't in the shot is judged from its anchor specs, and its look goes to a new `quality` issue). Layout checks put state back even when they fail (#53, #85, #88).
 - The simulator never wraps a line pinned to two different frames, so a passing layout check there isn't proof (#91).
 - A layout scenario that fails in the run is a finding even though the workflow stays green: read its results, and check that every LAYOUT line it should print is there. A failure early in a scenario hides the checks after it (#47: a text line sized with `SetWidth` and pinned on one side read as its unwrapped width, and the row-in-view check below it never ran). Pin a wrapping line on both sides of its own parent instead.
 - `TextInside` checks that text stays inside its frame, not that it clears a neighbour. Text that wraps above a box can run into it with every LAYOUT line passing, so compare the drawn edges with the next region's. And a line that wraps in game pushes down everything anchored below it, which the simulator never moves: check the page's lowest region with that growth added (#116: the import hint ran into the paste box; 25 ledger rows that wrap would have pushed the page's end off it).

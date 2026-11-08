@@ -47,7 +47,7 @@ An orientation for a new session (#182). It points to the detail rather than rep
 
 Facts sessions kept rediscovering, each with its source. Read the one you need before you research it again, and add to it in the PR that finds something new:
 
-- [`docs/forever-facts.md`](docs/forever-facts.md): WoW Forever API and game facts the code depends on, and which are launch checks;
+- [`docs/forever-facts.md`](docs/forever-facts.md): WoW Forever API and game facts the code depends on, and which are confirmed in game;
 - [`docs/simulated-client.md`](docs/simulated-client.md): how `spec/support/wow.lua` models the game, and how to extend it;
 - [`docs/ui-simulator.md`](docs/ui-simulator.md): the UI simulator's known quirks and workarounds (#100);
 - [`docs/visual-style.md`](docs/visual-style.md): the colour palette, its contrast and colour-blindness numbers, and the scrolling rule (#46);
@@ -71,10 +71,10 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 ## Issues and specs
 
 - **Duplicates:** search the backlog before filing an issue. #69 duplicated #41 and had to be merged back.
-- **WoW Forever isn't Classic Era.** Check game facts against Forever sources (Wowhead's `/forever/` pages, patch notes) before writing a spec. Put the sources on the issue, and list anything unconfirmed as a launch check on #50. For example: Salvation isn't a Blessing on Forever, Revoke and Mass Salvation exist, and Blessings last an hour. If a cloud session can't reach wowhead.com, use web search and say so on the issue.
+- **WoW Forever isn't Classic Era.** Check game facts against Forever sources (Wowhead's `/forever/` pages, patch notes) before writing a spec. Put the sources on the issue, and put anything unconfirmed on a new issue labelled `quality`, with the source and how to check it in game. For example: Blizzard removed Salvation, Mass Salvation and Revoke right before launch (owner, 2026-11-08), and Blessings last an hour. If a cloud session can't reach wowhead.com, use web search and say so on the issue.
 - **Product behaviour is the owner's call:** defaults, what's on or off, and how raids or battlegrounds behave. Ask them, and record the answer on the issue, as CONTRIBUTING.md asks for decisions. For example, the turn-on triggers default to on (#72), and "Start here" (#47) leads players to those settings.
 - **Out of scope:** something you find that isn't the issue's job gets a new issue, with what you found and a proposed spec. Don't widen the PR you're on.
-- **Launch checks:** anything that can only be checked once WoW Forever launches (spell IDs, role APIs and the like) goes on #50.
+- **Unconfirmed game facts:** the launch-day test pass is complete and its checks worked in game, except four IDs on #207 and the Salvation, Mass Salvation and Revoke checks, removed by Blizzard (#208) (#50, closed; #197). A game fact that can only be checked in game and isn't confirmed yet (spell IDs, role APIs and the like) goes on a new issue labelled `quality`, with the source and how to check it in game. Don't reopen #50.
 
 ## Pull requests
 
@@ -109,7 +109,7 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 - **Which tests:** write the test each acceptance criterion names: white, black or red (see [Specs and traceability](CONTRIBUTING.md#specs-and-traceability)).
 - **Chaos tests:** check invariants independently. Work them out from the simulated client's own state, never by calling the code under test. #73's testing review caught a chaos test that only checked the rules against themselves.
 - **The simulated client** (`spec/support/wow.lua`):
-  - New behaviour must be realistic. Document it in the ASSUMPTIONS block, with what to verify in game on #50.
+  - New behaviour must be realistic. Document it in the ASSUMPTIONS block, with the new `quality` issue that says what to verify in game, if it isn't confirmed.
   - When unsure, choose the pessimistic behaviour.
   - Test-wide defaults go in `wow.boot` with an opt-out, like `autoBuffMode`. Read the given saved settings before loading fills in defaults.
 - **Mutation checks:** before calling tests done, change each new line of code temporarily and confirm a test fails. Restore the file exactly afterwards.
