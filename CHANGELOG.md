@@ -3,6 +3,7 @@
 ### Unreleased
 
 - **Buff mode buffs you too:** the button offers the buffs you're missing on yourself, in your buff order and under your Never lists, who-gets-it rules and top-up time, so buff mode no longer ends while you're missing one and you needn't cast them by hand. For each buff you come last, after everyone else has that buff, and your first buff still comes before anyone's second. It casts on you without changing your target, only on your press. You're left out while dead or when your buffs or name can't be read, and buff mode doesn't end then. (#198)
+- **Guild welcome:** someone who joins the guild and shows as coming online gets only the welcome, not a login hello as well, whichever of the two game lines comes first and even if the hello was already waiting to go out. That welcome covers one login; a later login greets as usual, and a welcome whose login never comes stops counting after 2 minutes. Debug mode says why a hello was skipped. (#196)
 - **UI simulator workflow:** the finished simulator build is cached, keyed on its pins and build settings, so it is rebuilt only when one moves instead of every run. Nothing ships in the addon. (#170)
 
 ## 0.9.1
