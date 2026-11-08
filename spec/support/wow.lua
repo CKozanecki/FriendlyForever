@@ -394,10 +394,9 @@ end
 -- `knownSpells` stays the spec's to set, with the new ids.
 function M.renumberSpells(offset)
     local names = M.state.spellNames
-    for id, name in pairs(M.SPELL_NAMES) do
-        names[id] = false
-        names[id + offset] = name
-    end
+    -- Two passes: with a small offset a new id can be another spell's old one.
+    for id in pairs(M.SPELL_NAMES) do names[id] = false end
+    for id, name in pairs(M.SPELL_NAMES) do names[id + offset] = name end
 end
 
 function M.removeSpell(name)

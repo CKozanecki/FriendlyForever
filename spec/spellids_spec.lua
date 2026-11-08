@@ -66,6 +66,9 @@ describe("Spell IDs from the game's spell API (#209)", function()
             assert.is_true(BuffData.Covers(motw, GIFT + OFFSET), "the group version, by its name")
             assert.are.equal(motw, BuffData.ForAura(MOTW_1 + OFFSET))
             assert.are.equal(motw, BuffData.ForCast(MOTW + OFFSET))
+            assert.are.equal(motw, BuffData.ForAura(GIFT + OFFSET), "a stranger's Gift of the Wild, by its name")
+            assert.are.equal(motw, BuffData.ForCast(MOTW_1 + OFFSET), "a lower rank cast by hand, by its name")
+            assert.are.equal("icon:" .. (MOTW + OFFSET), BuffData.Icon(motw))
             assert.is_nil(BuffData.ForAura(MOTW), "Classic's ID is no spell here")
             assert.is_nil(BuffData.ForCast(GIFT + OFFSET), "a group version isn't one of our casts")
             assert.are.equal("Mark of the Wild", armed())
@@ -86,6 +89,49 @@ describe("Spell IDs from the game's spell API (#209)", function()
             assert.is_false(BuffData.Covers(BuffData.ByKey("fortitude"), 8096 + OFFSET))
             assert.are.equal(water, BuffData.ForCast(131 + OFFSET), "our cast of it is Water Breathing's")
             assert.is_nil(BuffData.ForCast(8096 + OFFSET), "a scroll isn't a cast of ours")
+        end)
+
+        it("a rank beats a blocker whichever buff is looked at first", function()
+            boot(renumbered({}))
+            assert.are.equal(BuffData.ByKey("waterbreathing"), BuffData.ForAura(131 + OFFSET))
+            assert.are.equal(BuffData.ByKey("breath"), BuffData.ForAura(5697 + OFFSET))
+        end)
+
+        it("every rank, group version and blocker of every buff is recognised on a client with other IDs", function()
+            boot(renumbered({}))
+            -- The expected answers come from the table's own IDs, not from BuffData.
+            local owner = {}
+            for _, list in pairs(BuffData.CLASSES) do
+                for _, buff in ipairs(list) do
+                    for _, id in ipairs(buff.ranks) do owner[id] = buff end
+                end
+            end
+            local checked = 0
+            for _, list in pairs(BuffData.CLASSES) do
+                for _, buff in ipairs(list) do
+                    for _, field in ipairs({ "ranks", "group", "blockers" }) do
+                        for _, id in ipairs(buff[field] or {}) do
+                            if buff.key ~= "salvation" then
+                                checked = checked + 1
+                                assert.is_true(BuffData.Covers(buff, id + OFFSET), buff.key .. " " .. field .. " " .. id)
+                                local expected = owner[id] or buff
+                                if field == "ranks" or owner[id] then
+                                    assert.are.equal(expected, BuffData.ForAura(id + OFFSET), buff.key .. " " .. id)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            assert.is_true(checked > 60, "the whole table was walked")
+        end)
+
+        it("casts the buff by name with the new IDs when the button is pressed", function()
+            boot(renumbered({ [MOTW_1] = true, [MOTW] = true }))
+            party()
+            wow.pressKey("MOUSEWHEELUP")
+            local cast = wow.casts[1]
+            assert.are.same({ "Mark of the Wild", MOTW + OFFSET, "Ann-Vale" }, { cast.spell, cast.id, cast.target })
         end)
 
         it("a spell the API doesn't know isn't offered or listed, and nothing else changes: Blessing of Light", function()
@@ -152,6 +198,48 @@ describe("Spell IDs from the game's spell API (#209)", function()
             assert.are.equal(thorns, BuffData.ForAura(900100), "forgotten once the limit was passed")
         end)
 
+        for _, locale in ipairs({ "deDE", "frFR", "koKR" }) do
+            it("trusts a hint whose spell exists where names aren't compared: " .. locale, function()
+                boot({ before = function(state)
+                    for id, name in pairs(wow.SPELL_NAMES) do state.spellNames[id] = "L " .. name end
+                    _G.GetLocale = function() return locale end
+                end })
+                finally(function() _G.GetLocale = nil end)
+                party()
+                local motw = BuffData.ByKey("motw")
+                assert.is_true(BuffData.Available(motw))
+                assert.are.same({ "motw", "thorns" }, keys(BuffData.Offerable()))
+                assert.are.equal("L Mark of the Wild", BuffData.SpellName(motw))
+                assert.is_true(BuffData.Covers(motw, GIFT), "the group version, by its ID")
+                assert.are.equal(motw, BuffData.ForAura(MOTW_1))
+                assert.are.equal(motw, BuffData.ForCast(MOTW))
+                assert.is_true(BuffData.Covers(BuffData.ByKey("intellect"), 8096), "a scroll, by its ID")
+                assert.are.equal("L Mark of the Wild", armed())
+            end)
+        end
+
+        it("compares names on an English client of either kind", function()
+            for _, locale in ipairs({ "enUS", "enGB" }) do
+                boot({ before = function(state)
+                    for id, name in pairs(wow.SPELL_NAMES) do state.spellNames[id] = "L " .. name end
+                    _G.GetLocale = function() return locale end
+                end })
+                finally(function() _G.GetLocale = nil end)
+                assert.is_false(BuffData.Available(BuffData.ByKey("motw")), locale)
+                assert.are.same({}, BuffData.Offerable(), locale)
+            end
+        end)
+
+        it("uses the older global GetSpellInfo for a name when C_Spell has none", function()
+            boot()
+            _G.C_Spell.GetSpellName = nil
+            _G.GetSpellInfo = function(id) return wow.SPELL_NAMES[id] end
+            finally(function() _G.GetSpellInfo = nil end)
+            BuffData.SpellsChanged()
+            assert.is_true(BuffData.Available(BuffData.ByKey("motw")))
+            assert.are.equal("Mark of the Wild", BuffData.SpellName(BuffData.ByKey("motw")))
+        end)
+
         it("compares names only on an English client; elsewhere a spell that exists is trusted", function()
             boot({ before = function(state)
                 state.spellNames[MOTW_1] = "Mal des Wilden"
@@ -186,6 +274,8 @@ describe("Spell IDs from the game's spell API (#209)", function()
                     BuffData.Covers(BuffData.ByKey("motw"), GIFT); BuffData.SpellName(BuffData.ByKey("motw"))
                 end, "answer " .. i)
                 assert.are.same({}, BuffData.Offerable(), "answer " .. i)
+                assert.is_nil(BuffData.ForAura(8096), "a blocker the game doesn't name, answer " .. i)
+                assert.is_false(BuffData.Covers(BuffData.ByKey("intellect"), 8096), "answer " .. i)
                 assert.is_nil(BuffData.ForAura(MOTW), "answer " .. i)
             end
         end)
@@ -236,12 +326,12 @@ describe("Spell IDs from the game's spell API (#209)", function()
             boot()
             local real = _G.C_Spell.GetSpellName
             _G.C_Spell.GetSpellName = function(id)
-                if type(id) == "number" and (id > 1e9 or id < 1) then return "Mark of the Wild" end
+                if type(id) == "number" and (id > 1e9 or id < 1 or id % 1 ~= 0) then return "Mark of the Wild" end
                 return real(id)
             end
             BuffData.SpellsChanged()
             local motw = BuffData.ByKey("motw")
-            for _, id in ipairs({ 1e20, math.huge, -7, 0 }) do
+            for _, id in ipairs({ 1e20, math.huge, -7, 0, 1.5, 9885.5 }) do
                 assert.is_nil(BuffData.ForAura(id))
                 assert.is_false(BuffData.Covers(motw, id))
                 assert.is_nil(BuffData.ForCast(id))
@@ -293,6 +383,24 @@ describe("Spell IDs from the game's spell API (#209)", function()
             assert.is_true(saved.light, "reordering the buffs there are keeps the one that's gone")
         end)
 
+        it("damaged saved settings that name an unavailable buff load, and the real values come back with the spell", function()
+            local db = { buffBack = { buffOrder = { "light", 5, {}, "kings", "light", "nonsense" },
+                neverOffer = { light = true, [5] = true, nonsense = true, kings = "yes" } } }
+            boot({ class = "PALADIN", db = db, known = { [20217] = true, [LIGHT] = true },
+                before = function() wow.removeSpell("Blessing of Light") end })
+            assert.are.same({ "light", "kings" }, ns.db.buffBack.buffOrder, "junk dropped, the unavailable key kept")
+            assert.are.same({ light = true }, ns.db.buffBack.neverOffer)
+            assert.has_no.errors(function()
+                ns.Options.SelectType("buffBack")
+                ns.Options.MoveBuff("kings", -1)
+                BuffData.Offerable()
+            end)
+            wow.state.spellNames = {}
+            wow.fire("SPELLS_CHANGED")
+            assert.are.same({ "kings" }, keys(BuffData.Offerable()), "never-offer Light still holds when it returns")
+            assert.is_true(BuffData.Available(BuffData.ByKey("light")))
+        end)
+
         it("damaged buff tables from another addon never error", function()
             boot({ class = "PALADIN", known = { [20217] = true } })
             local paladin = BuffData.CLASSES.PALADIN
@@ -340,6 +448,17 @@ describe("Spell IDs from the game's spell API (#209)", function()
             return false
         end
 
+        -- How much of the storm reached its cases, over all seeds.
+        local reached = { checked = 0, goneButKnown = 0, pressed = 0 }
+
+        -- Whether the simulated game has no spell of that name although you know a rank.
+        local function goneButKnown(name)
+            for id, known in pairs(wow.state.knownSpells) do
+                if known and wow.SPELL_NAMES[id] == name and wow.state.spellNames[id] == false then return true end
+            end
+            return false
+        end
+
         for seed = 1, 40 do
             it("spellbook changes, odd answers and group changes never error or offer a missing spell, seed " .. seed,
                 function()
@@ -351,7 +470,7 @@ describe("Spell IDs from the game's spell API (#209)", function()
                     }
                     local odd = { function() return nil end, function() return -3 end,
                         function() return wow.secret("x") end, function() error("boom") end }
-                    for _ = 1, 60 do
+                    for _ = 1, 120 do
                         local step = random.random(7)
                         if step == 1 then
                             local name = NAMES[random.random(#NAMES)]
@@ -381,10 +500,34 @@ describe("Spell IDs from the game's spell API (#209)", function()
                         -- is one the player knows, by name.
                         if spell and _G.C_Spell.GetSpellName == real.name then
                             assert.is_true(knowsByName(spell), "armed " .. spell)
+                            reached.checked = reached.checked + 1
+                        end
+                        for _, name in ipairs(NAMES) do
+                            if goneButKnown(name) then reached.goneButKnown = reached.goneButKnown + 1 end
+                        end
+                        if spell and random.random() < 0.8 then
+                            local before = #wow.casts
+                            wow.pressKey("MOUSEWHEELUP")
+                            reached.pressed = reached.pressed + 1
+                            assert.is_true(#wow.casts <= before + 1)
+                            local cast = wow.casts[before + 1]
+                            if cast and _G.C_Spell.GetSpellName == real.name then
+                                local all = {}
+                                for id, n in pairs(wow.SPELL_NAMES) do all[id] = n end
+                                for id, n in pairs(wow.state.spellNames) do all[id] = n or nil end
+                                assert.is_true(wow.state.knownSpells[cast.id] == true, "cast an unknown spell")
+                                assert.are.equal(all[cast.id], cast.spell, "cast by the name the game has")
+                            end
                         end
                     end
                     _G.C_Spell.GetSpellName, _G.C_Spell.GetSpellInfo = real.name, real.info
                 end)
         end
+
+        it("reached its cases: spells armed and checked, removed while known, and pressed", function()
+            assert.is_true(reached.checked >= 120, "armed " .. reached.checked)
+            assert.is_true(reached.goneButKnown >= 300, "gone but known " .. reached.goneButKnown)
+            assert.is_true(reached.pressed >= 120, "pressed " .. reached.pressed)
+        end)
     end)
 end)
