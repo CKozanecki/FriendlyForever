@@ -42,7 +42,8 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
         ns = wow.boot({ db = opts.db, before = function(state)
             state.class = opts.class or "PALADIN"
             state.knownSpells = opts.known
-                or { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true, [SALVATION] = true }
+                or { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true, [SALVATION] = true,
+                    [MASS_SALVATION] = true }
         end })
         button = ns.BuffButton.Frame()
         slash("buffmode on")
