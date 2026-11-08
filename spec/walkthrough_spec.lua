@@ -8,7 +8,8 @@ local random = require("spec.support.random")
 
 local BUTTON_BINDING = "CLICK FriendlyForeverBuffButton:LeftButton"
 -- The walkthrough's state once it's been finished or skipped.
-local SEEN = { seen = 1, firstRun = false }
+local V0 = wow.boot().Config.WALKTHROUGH_VERSION  -- the shipped walkthrough version
+local SEEN = { seen = V0, firstRun = false }
 
 local function printedHas(fragment)
     for _, line in ipairs(wow.printed) do
@@ -153,13 +154,14 @@ describe("The walkthrough", function()
         return function(loaded)
             local steps = loaded.Walkthrough.STEPS
             local closing = table.remove(steps)
-            for v = 2, version do
+            for v = V0 + 1, version do
                 steps[#steps + 1] = { since = v, title = "New " .. v, text = function() return "text " .. v end }
             end
             steps[#steps + 1] = closing
             loaded.Config.WALKTHROUGH_VERSION = version
         end
     end
+    local A, B = V0 + 1, V0 + 2  -- the versions two later releases add a step each at
     local function bootAt(version, db)
         boot({ db = db, afterLoad = release(version) })
     end
@@ -378,7 +380,7 @@ describe("The walkthrough", function()
     -- Damaged states: what a file damaged by another addon, a bad /run or
     -- an editor could hold instead of { seen = <0..1>, firstRun = <bool> }.
     local DAMAGED = { 42, "new", "done", true, {}, { "seen" }, { seen = "1" }, { seen = -1 }, { seen = 1.5 },
-        { seen = 2 }, { seen = 0 / 0 }, { seen = math.huge }, { seen = -math.huge } }
+        { seen = V0 + 1 }, { seen = 0 / 0 }, { seen = math.huge }, { seen = -math.huge } }
     -- A damaged first-run mark: never a first run, so never a switch turned on.
     local DAMAGED_MARK = { { seen = 0, firstRun = "yes" }, { seen = 0, firstRun = 1 }, { seen = 0, firstRun = {} } }
 
@@ -437,7 +439,7 @@ describe("The walkthrough", function()
         end)
 
         it("a first run already seen isn't a first run, and damage mid-session heals at the next login", function()
-            boot({ db = { enabled = false, walkthrough = { seen = 1, firstRun = true } } })
+            boot({ db = { enabled = false, walkthrough = { seen = V0, firstRun = true } } })
             assert.is_false(tour:IsShown())
             assert.is_false(ns.db.enabled, "seen, so its switch is the player's")
             wow.run(ns.Options.widgets.start.tour, "OnClick")
@@ -531,23 +533,28 @@ describe("The walkthrough", function()
     -- What's new (#169): steps record the version they were added in, and a
     -- player who finished an older version sees only the newer steps.
     describe("what's new after an update (white)", function()
-        local FINISHED = { seen = 1, firstRun = false }
+        local FINISHED = { seen = V0, firstRun = false }
 
         it("every step knows the version it was added in, and the version is the latest of them", function()
             boot()
-            local latest = 0
-            for _, info in ipairs(ns.Walkthrough.STEPS) do
+            local latest, inOrder = 0, 0
+            for i, info in ipairs(ns.Walkthrough.STEPS) do
                 assert.is_true(type(info.since) == "number" and info.since == math.floor(info.since)
                     and info.since >= 1, info.title)
-                assert.is_true(info.since >= latest, "steps are in the order they were added: " .. info.title)
-                latest = info.since
+                latest = math.max(latest, info.since)
+                -- Steps are in the order they were added, but for the closing
+                -- "That's it" (the last), which stays last.
+                if i < #ns.Walkthrough.STEPS then
+                    assert.is_true(info.since >= inOrder, "in the order they were added: " .. info.title)
+                    inOrder = info.since
+                end
             end
             assert.are.equal(ns.Config.WALKTHROUGH_VERSION, latest,
                 "a release that adds a step raises Config.WALKTHROUGH_VERSION to match")
         end)
 
         it("a new player sees every step, with no 'what's new' title", function()
-            bootAt(3, nil)
+            bootAt(B, nil)
             assert.is_false(ns.Walkthrough.WhatsNew())
             assert.are.equal(#ns.Walkthrough.STEPS, ns.Walkthrough.Count())
             local titles = runTitles()
@@ -557,18 +564,18 @@ describe("The walkthrough", function()
         end)
 
         it("a player who finished version 1 sees only the steps added since, introduced as what's new", function()
-            bootAt(3, { enabled = true, walkthrough = FINISHED })
+            bootAt(B, { enabled = true, walkthrough = FINISHED })
             assert.is_true(tour:IsShown())
             assert.is_true(ns.Walkthrough.WhatsNew())
             assert.is_true(printedHas("what's new in Friendly Forever: 2 new steps"))
             assert.is_true(printedHas("Start here"))
             assert.are.equal("1 of 2", tour.count:GetText())
-            assert.are.equal("What's new: New 2", tour.title:GetText())
+            assert.are.equal("What's new: New " .. A, tour.title:GetText())
             assert.are.equal("Next", tour.next:GetText(), "the welcome's button isn't on a new step")
             assert.is_false(tour.back:IsShown())
             assert.is_true(tour.skip:IsShown())
             wow.run(tour.next, "OnClick")
-            assert.are.equal("What's new: New 3", tour.title:GetText())
+            assert.are.equal("What's new: New " .. B, tour.title:GetText())
             assert.are.equal("2 of 2", tour.count:GetText())
             assert.are.equal("Finish", tour.next:GetText())
             assert.is_false(tour.skip:IsShown())
@@ -577,47 +584,47 @@ describe("The walkthrough", function()
         end)
 
         it("a player who finished version 2 sees only the one step added after it", function()
-            bootAt(3, { enabled = true, walkthrough = { seen = 2, firstRun = false } })
+            bootAt(B, { enabled = true, walkthrough = { seen = A, firstRun = false } })
             assert.are.equal(1, ns.Walkthrough.Count())
             assert.is_true(printedHas("1 new step in the walkthrough"))
-            assert.are.same({ "What's new: New 3" }, runTitles())
+            assert.are.same({ "What's new: New " .. B }, runTitles())
         end)
 
         it("an up-to-date player sees nothing", function()
-            bootAt(3, { enabled = true, walkthrough = { seen = 3, firstRun = false } })
+            bootAt(B, { enabled = true, walkthrough = { seen = B, firstRun = false } })
             assert.is_false(tour:IsShown())
             assert.is_nil(ns.Walkthrough.Step())
             assert.is_false(printedHas("Start here"))
-            assert.are.same({ seen = 3, firstRun = false }, ns.db.walkthrough)
+            assert.are.same({ seen = B, firstRun = false }, ns.db.walkthrough)
         end)
 
         it("finishing it saves the current version and doesn't show again; it changes no setting", function()
             for _, on in ipairs({ true, false }) do
-                bootAt(3, { enabled = on, walkthrough = FINISHED })
+                bootAt(B, { enabled = on, walkthrough = FINISHED })
                 local before = ns.Util.DeepCopy(settingsBut(ns.db))
                 runTitles()
                 assert.is_false(tour:IsShown())
-                assert.are.same({ seen = 3, firstRun = false }, ns.db.walkthrough)
+                assert.are.same({ seen = B, firstRun = false }, ns.db.walkthrough)
                 assert.are.same(before, settingsBut(ns.db), "a switch left as it was: " .. tostring(on))
                 assert.are.equal(on, ns.db.enabled)
                 local db = ns.db
-                bootAt(3, db)
+                bootAt(B, db)
                 assert.is_false(tour:IsShown(), "not at the next login")
             end
         end)
 
         it("skipping it, or closing its window, saves the current version too, switching nothing", function()
             for _, how in ipairs({ "skip", "CloseButton" }) do
-                bootAt(2, { enabled = false, walkthrough = FINISHED })
+                bootAt(A, { enabled = false, walkthrough = FINISHED })
                 wow.run(tour[how], "OnClick")
                 assert.is_false(tour:IsShown())
-                assert.are.same({ seen = 2, firstRun = false }, ns.db.walkthrough, how)
+                assert.are.same({ seen = A, firstRun = false }, ns.db.walkthrough, how)
                 assert.is_false(ns.db.enabled, "skipping what's new never turns the addon on")
             end
         end)
 
         it("can be replayed in full from Start here afterwards", function()
-            bootAt(3, { enabled = true, walkthrough = FINISHED })
+            bootAt(B, { enabled = true, walkthrough = FINISHED })
             runTitles()
             wow.run(ns.Options.widgets.start.tour, "OnClick")
             assert.is_false(ns.Walkthrough.WhatsNew())
@@ -628,26 +635,26 @@ describe("The walkthrough", function()
 
         it("a version raised with no step to show is saved without showing anything", function()
             boot({ db = { enabled = true, walkthrough = FINISHED }, afterLoad = function(loaded)
-                loaded.Config.WALKTHROUGH_VERSION = 2
+                loaded.Config.WALKTHROUGH_VERSION = A
             end })
             assert.is_false(tour:IsShown())
             assert.is_false(printedHas("Start here"))
-            assert.are.same({ seen = 2, firstRun = false }, ns.db.walkthrough)
+            assert.are.same({ seen = A, firstRun = false }, ns.db.walkthrough)
         end)
 
         it("closes for a fight and reopens at the same step, still only what's new", function()
-            bootAt(3, { enabled = true, walkthrough = FINISHED })
+            bootAt(B, { enabled = true, walkthrough = FINISHED })
             wow.run(tour.next, "OnClick")
             wow.enterCombat()
             assert.is_false(tour:IsShown())
             wow.leaveCombat()
             assert.is_true(tour:IsShown())
-            assert.are.equal("What's new: New 3", tour.title:GetText())
+            assert.are.equal("What's new: New " .. B, tour.title:GetText())
             assert.are.equal("2 of 2", tour.count:GetText())
         end)
 
         it("asked for at login in a fight, it waits, then shows only what's new", function()
-            boot({ db = { enabled = true, walkthrough = FINISHED }, afterLoad = release(3), before = function(state)
+            boot({ db = { enabled = true, walkthrough = FINISHED }, afterLoad = release(B), before = function(state)
                 state.inCombat = true
             end })
             assert.is_false(tour:IsShown())
@@ -658,12 +665,12 @@ describe("The walkthrough", function()
     end)
 
     describe("a damaged saved version (black)", function()
-        local BAD = { -1, -0.5, 1.5, 4, 99, 1e9, math.huge, -math.huge, 0 / 0, "2", "x", true, {}, false }
+        local BAD = { -1, -0.5, 1.5, V0 + 3, V0 + 98, 1e9, math.huge, -math.huge, 0 / 0, "2", "x", true, {}, false }
 
         it("shows every step once, never errors, and changes no setting", function()
             for _, bad in ipairs(BAD) do
                 for _, on in ipairs({ true, false }) do
-                    bootAt(3, { enabled = on, walkthrough = { seen = bad, firstRun = true } })
+                    bootAt(B, { enabled = on, walkthrough = { seen = bad, firstRun = true } })
                     local where = tostring(bad)
                     assert.is_true(tour:IsShown(), where)
                     assert.is_false(ns.Walkthrough.WhatsNew(), where)
@@ -673,23 +680,23 @@ describe("The walkthrough", function()
                     wow.run(tour.skip, "OnClick")
                     assert.are.same(before, settingsBut(ns.db), where)
                     assert.are.equal(on, ns.db.enabled, where)
-                    assert.are.same({ seen = 3, firstRun = false }, ns.db.walkthrough, "healed: " .. where)
+                    assert.are.same({ seen = B, firstRun = false }, ns.db.walkthrough, "healed: " .. where)
                     assert.are.same({}, wow.errors, where)
                     local db = ns.db
-                    bootAt(3, db)
+                    bootAt(B, db)
                     assert.is_false(tour:IsShown(), "once: " .. where)
                 end
             end
         end)
 
         it("a version damaged while playing heals when the walkthrough is next started", function()
-            bootAt(3, { enabled = true, walkthrough = { seen = 3, firstRun = false } })
+            bootAt(B, { enabled = true, walkthrough = { seen = B, firstRun = false } })
             for _, bad in ipairs(BAD) do
                 ns.db.walkthrough = { seen = bad }
                 ns.Walkthrough.Start(true)
                 assert.is_true(tour:IsShown(), tostring(bad))
                 wow.run(tour.skip, "OnClick")
-                assert.are.same({ seen = 3, firstRun = false }, ns.db.walkthrough)
+                assert.are.same({ seen = B, firstRun = false }, ns.db.walkthrough)
                 assert.are.same({}, wow.errors, tostring(bad))
             end
         end)
@@ -706,7 +713,7 @@ describe("The walkthrough", function()
             it("never shows a step twice in a run, errors, or changes a setting (seed " .. seed .. ")", function()
                 random.seed(seed)
                 for _ = 1, 5 do random.random() end
-                local version = 1
+                local version = V0
                 local record = 0       -- the version they finished, 0 for none or damage
                 local db = nil
                 local firstRun = true  -- a new install's first run, until finished or damaged
@@ -715,8 +722,10 @@ describe("The walkthrough", function()
                     if db and random.random(4) == 1 then
                         local damage = DAMAGED[random.random(#DAMAGED)]
                         db.walkthrough = damage
-                        -- { seen = 2 } is damage only while 2 is above the version.
-                        record = (type(damage) == "table" and damage.seen == 2 and version >= 2) and 2 or 0
+                        -- A table whose seen is a whole number up to the version is no
+                        -- damage at all (V0 + 1 is, once a release has reached it).
+                        local n = type(damage) == "table" and damage.seen
+                        record = (type(n) == "number" and n == math.floor(n) and n >= 0 and n <= version) and n or 0
                         firstRun = false
                         reached.damaged = reached.damaged + 1
                     end

@@ -252,7 +252,7 @@ end)
 -- first install is off until then. boot turns both off for most specs;
 -- opts.walkthrough, and given settings that set them, keep them.
 describe("The simulated client's boot and the walkthrough (#47)", function()
-    local SEEN = { seen = 1, firstRun = false }
+    local SEEN = { seen = wow.boot().Config.WALKTHROUGH_VERSION, firstRun = false }
 
     it("starts a first install switched on, its walkthrough finished, unless asked", function()
         local ns = wow.boot()
