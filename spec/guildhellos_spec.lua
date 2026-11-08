@@ -1,4 +1,4 @@
--- Spec: #38
+-- Spec: #38, #197
 -- Guild hellos: every copy in the guild greets a guildmate who logs in, a
 -- random while apart, with different lines, and at most K of them.
 local wow = require("spec.support.wow")
@@ -641,7 +641,7 @@ describe("Guild hellos (#38)", function()
 
         it("still greets, with the random wait, while none of its announcements has come back yet", function()
             -- The game may not send them back, or may name us otherwise
-            -- (launch checks, #50): that mustn't silence every hello.
+            -- (confirmed in game at launch): that mustn't silence every hello.
             local clients, net = Guild(2, 5)
             net.lose = function() return true end
             LogIn(clients, LOGIN)
@@ -738,8 +738,8 @@ describe("Guild hellos (#38)", function()
                 c.ns.db.guildLogin.repeatCooldown = random.random(0, 1) * 30
                 c.ns.db.guildLogin.delay = random.random(0, 4)
             end
-            -- The game relays a guild message to everyone or no one (a launch
-            -- check, #50): each message is lost whole, echo included.
+            -- The game relays a guild message to everyone or no one (confirmed
+            -- in game at launch): each message is lost whole, echo included.
             local lost = {}
             net.lose = function(msg)
                 if lost[msg] == nil then lost[msg] = random.random() < 0.3 end
