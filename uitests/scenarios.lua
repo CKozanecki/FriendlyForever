@@ -509,13 +509,13 @@ test("the list beside the button shows who is offered, a click picks the next, a
     InState("buff list", FriendlyForeverUIStates.ListFilled, function(button, States)
         local list = _G.FriendlyForeverBuffList
         Expect(list ~= nil and list:IsShown(), "the list isn't up")
-        local wanted = 1 + #States.LISTED -- Aria's favour, then the party
+        local wanted = 1 + #States.LISTED -- Eira's favour, then the party
         local shown = {}
         for _, row in ipairs(list.rows) do
             if row:IsShown() then shown[#shown + 1] = row end
         end
         Expect(#shown == wanted, ("the list has %d rows, not %d"):format(#shown, wanted))
-        Expect(States.MacroTarget() == States.STRANGER, "the button doesn't hold the first row's player")
+        Expect(States.MacroTarget() == States.LISTSTRANGER, "the button doesn't hold the first row's player")
         for i, row in ipairs(shown) do
             TextInside(row, row.text, "list row " .. i, 1)
         end

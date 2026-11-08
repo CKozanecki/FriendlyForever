@@ -140,6 +140,7 @@ function methods:GetWidth() return self.width or 0 end
 function methods:GetCenter() return self.centerX or 0, self.centerY or 0 end
 function methods:GetTop() return self.top end
 function methods:GetRight() return self.right end
+function methods:SetScrollChild(child) self.scrollChild = child end
 function methods:SetVerticalScroll(offset) self.verticalScroll = offset end
 function methods:GetVerticalScroll() return self.verticalScroll or 0 end
 function methods:GetVerticalScrollRange() return self.scrollRange or 0 end

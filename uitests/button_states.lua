@@ -41,6 +41,9 @@ States.SPELL = { id = 10938, name = "Power Word: Fortitude" }
 States.PRIEST, States.WARRIOR = 5, 1 -- class indexes, as A_Admin takes them
 States.STRANGER = "Aria Lindqvist"  -- buffs you from outside your group
 States.GROUPMATE = "Brenna Holt"    -- in your party, missing your buff
+-- Owed a favour in the list scenario: not Aria, whose thank-you the favour
+-- scenarios leave waiting on this clock, so a buff from her owes nothing new.
+States.LISTSTRANGER = "Eira Solvang"
 -- Announcer.LOGIN_GRACE (10 seconds after logging in, nothing is thanked or
 -- owed), and a second.
 States.LOGIN_GRACE_SECONDS = 11
@@ -367,7 +370,7 @@ States.GroupMissing = {
     end,
 }
 
--- The list beside the button (#43) filled: a favour owed to Aria, and in
+-- The list beside the button (#43) filled: a favour owed to Eira, and in
 -- buff mode three party members, one with a name too long for a row.
 States.LONGNAME = "Bartholomewthethirdofhisname Featherstonehaughsmythe"
 States.LISTED = { States.GROUPMATE, "Cedric Vane", States.LONGNAME }
@@ -375,7 +378,7 @@ States.ListFilled = {
     Set = function()
         States.PassLoginGrace()
         States.Learn()
-        States.Target(States.STRANGER)
+        States.Target(States.LISTSTRANGER)
         States.BuffedBy("target")
         States.PartyOf(States.LISTED)
         Command("buffmode on")
@@ -383,7 +386,7 @@ States.ListFilled = {
     Undo = function()
         if InCombatLockdown() then States.Combat(false) end
         local button = States.Button()
-        if button and States.MacroTarget() == States.STRANGER then button:Click("RightButton") end
+        if button and States.MacroTarget() == States.LISTSTRANGER then button:Click("RightButton") end
         Command("buffmode off")
         States.RestoreParty()
         States.Unbuff()

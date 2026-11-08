@@ -70,6 +70,7 @@ local function Create()
     content = CreateFrame("Frame", nil, scroll)
     content:SetSize(BuffList.WIDTH - 22, BuffList.ROW_HEIGHT)
     scroll:SetScrollChild(content)
+    frame.scroll, frame.content = scroll, content
 end
 
 -- Beside the button, level with its top: on its right, or on its left when

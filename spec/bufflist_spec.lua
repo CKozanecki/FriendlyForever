@@ -38,10 +38,9 @@ describe("The list beside the buff button (#43)", function()
         local out = {}
         local frame = ns.BuffList.Frame()
         if not frame or not frame:IsShown() then return out end
-        for i, offer in ipairs(ns.BuffList.ShownOffers()) do
-            out[i] = ns.BuffList.Rows()[i].text:GetText()
-            assert.is_true(ns.BuffList.Rows()[i]:IsShown())
-            assert.is_truthy(offer)
+        -- The rows actually visible, as a player would see them.
+        for _, row in ipairs(ns.BuffList.Rows()) do
+            if row:IsShown() then out[#out + 1] = row.text:GetText() end
         end
         return out
     end
@@ -223,12 +222,14 @@ describe("The list beside the buff button (#43)", function()
 
         it("returns the first offer it found, which is also first in the list", function()
             owe("Bob", "nameplate1")
+            owe("Dan", "nameplate2")
             slash("buffmode on")
             party({ "Ann-Vale" })
             local all = {}
             local first = ns.Offers.Current(all)
-            assert.are.equal("Bob-Stone", first.name)
+            assert.are.equal("Dan-Stone", first.name, "the newest favour is first")
             assert.are.equal(first, all[1])
+            assert.are.equal("Bob-Stone", all[2].name)
             local group = {}
             local member = ns.GroupBuffs.Next(group)
             assert.are.equal("Ann-Vale", member.name)
@@ -301,23 +302,47 @@ describe("The list beside the buff button (#43)", function()
         it("sits on the button's right, or on its left when the screen has no room there", function()
             slash("buffmode on")
             party({ "Ann-Vale" })
-            local function side() return ns.BuffList.Frame().points[1][1] end
-            assert.are.equal("TOPLEFT", side(), "room on the right (or unknown): beside it")
+            local function anchor() return ns.BuffList.Frame().points[1] end
+            local function expectRight()
+                assert.are.same({ "TOPLEFT", button, "TOPRIGHT", 6, 0 }, anchor())
+            end
+            local function expectLeft()
+                assert.are.same({ "TOPRIGHT", button, "TOPLEFT", -6, 0 }, anchor())
+            end
+            expectRight() -- room on the right, or unknown
             local savedWidth = _G.UIParent.width
             _G.UIParent.width = 1024
             button.right = 1014
             ns.BuffList.Update(button, offers(2), nil)
-            assert.are.equal("TOPRIGHT", side(), "no room on the right: on its left")
+            expectLeft()
             button.right = 100
             ns.BuffList.Update(button, offers(2), nil)
-            assert.are.equal("TOPLEFT", side())
+            expectRight()
+            -- Exactly fitting still goes on the right; one pixel more does not.
+            button.right = 1024 - 6 - ns.BuffList.WIDTH
+            ns.BuffList.Update(button, offers(2), nil)
+            expectRight()
+            button.right = 1024 - 6 - ns.BuffList.WIDTH + 1
+            ns.BuffList.Update(button, offers(2), nil)
+            expectLeft()
+            -- Measured in screen pixels: the button's scale and the screen's both count.
+            button.right = 1014
+            button.scale = 0.5
+            ns.BuffList.Update(button, offers(2), nil)
+            expectRight()
+            button.scale = nil
+            _G.UIParent.scale = 2
+            ns.BuffList.Update(button, offers(2), nil)
+            expectRight()
+            _G.UIParent.scale = nil
+            -- Unreadable readings fall back to the right.
             button.right = "wide"
             ns.BuffList.Update(button, offers(2), nil)
-            assert.are.equal("TOPLEFT", side(), "an unreadable edge falls back to the right")
+            expectRight()
             _G.UIParent.width = 0
             button.right = 1014
             ns.BuffList.Update(button, offers(2), nil)
-            assert.are.equal("TOPLEFT", side(), "an unreadable screen size falls back to the right")
+            expectRight()
             _G.UIParent.width = savedWidth
         end)
 
@@ -325,7 +350,14 @@ describe("The list beside the buff button (#43)", function()
             slash("buffmode on")
             party({ "Ann-Vale" })
             ns.BuffList.Update(button, offers(10), nil)
-            assert.are.equal(6 * ns.BuffList.ROW_HEIGHT, ns.BuffList.Frame().height)
+            assert.are.equal(6 * 18, ns.BuffList.Frame().height, "six rows are shown")
+            local content = ns.BuffList.Rows()[1].parent
+            assert.are.equal(10 * 18, content.height, "the rows beyond them are reached by scrolling")
+            assert.are.equal(content, ns.BuffList.Frame().scroll.scrollChild)
+            ns.BuffList.Update(button, offers(2), nil)
+            assert.are.equal(2 * 18, ns.BuffList.Frame().height, "a short list is no taller than its rows")
+            assert.are.equal(2 * 18, content.height)
+            ns.BuffList.Update(button, offers(10), nil)
             ns.BuffList.Update(button, offers(70), nil)
             assert.are.equal(ns.BuffList.MAX_ROWS, #ns.BuffList.ShownOffers())
             assert.is_nil(ns.BuffList.Rows()[ns.BuffList.MAX_ROWS + 1])
@@ -338,11 +370,14 @@ describe("The list beside the buff button (#43)", function()
             slash("buffmode on")
             local pool = { "Ann-Vale", "Cid-Rock", "Dot-Fern", "Eve-Glen", "Fay-Hill", "Gus-Moor" }
             local group = {}
+            local sawEmpty, sawLaterMark = 0, 0
             for _ = 1, 150 do
-                local roll = random.random(5)
+                local roll = random.random(6)
                 if roll ~= 2 then
                     group = {}
-                    for _, n in ipairs(pool) do if random.random(2) == 1 then group[#group + 1] = n end end
+                    if roll ~= 6 then -- a 6 empties the party
+                        for _, n in ipairs(pool) do if random.random(2) == 1 then group[#group + 1] = n end end
+                    end
                 end
                 if roll == 1 and #group > 0 then
                     party(group)
@@ -359,7 +394,9 @@ describe("The list beside the buff button (#43)", function()
                 local shown = rows()
                 local macroTarget = armed() and armed():match("^(.-):")
                 if #shown == 0 then
+                    sawEmpty = sawEmpty + 1
                     assert.is_nil(macroTarget)
+                    assert.is_false(ns.BuffList.Frame() ~= nil and ns.BuffList.Frame():IsShown(), "no empty box left up")
                 else
                     local wanted = {}
                     for _, n in ipairs(group) do wanted[(n:gsub("-", " "))] = true end
@@ -370,11 +407,14 @@ describe("The list beside the buff button (#43)", function()
                         if text:sub(1, 2) == "> " then
                             assert.is_nil(marked, "one mark only")
                             marked = name
+                            if text ~= shown[1] then sawLaterMark = sawLaterMark + 1 end
                         end
                     end
                     assert.are.equal(marked, (macroTarget:gsub("-", " ")))
                 end
             end
+            assert.is_true(sawEmpty > 0, "the storm reached an empty list")
+            assert.is_true(sawLaterMark > 0, "the storm reached a mark on a row other than the first")
         end)
     end)
 end)
