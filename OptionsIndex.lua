@@ -76,8 +76,6 @@ OptionsIndex.SETTINGS = {
     { name = "Who gets each buff in buff mode", page = BUFF_BACK,
         keywords = "buff mode who class classes always never names players",
         controls = { "buffRows.*.who", "who.classes", "who.always", "who.never" } },
-    { name = "Revoke Salvation", page = BUFF_BACK, keywords = "paladin salvation revoke tank names",
-        controls = { "who.revoke", "who.revokeNames" } },
     { name = "Blessings I give in this raid", page = BUFF_BACK, keywords = "paladin blessing blessings raid buff",
         controls = { "who.raidBlessings" } },
     { name = "Buff mode turns on by itself", page = BUFF_BACK,

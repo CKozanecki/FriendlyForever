@@ -356,10 +356,6 @@ nameSpell("Blessing of Wisdom", { 25290, 19854, 19853, 19852, 19850, 19742 })
 nameSpell("Unending Breath", { 5697 })
 nameSpell("Water Breathing", { 131 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
--- Forever's Revoke (paladins). Its real ID isn't known yet (#50): this one
--- is the simulation's own, and the addon finds Revoke by name.
-M.REVOKE_ID = 990001
-nameSpell("Revoke", { M.REVOKE_ID })
 
 ------------------------------------------------------------------------
 -- ASSUMPTIONS ABOUT WOW FOREVER, to check in game. Each is a state setting
@@ -422,8 +418,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --   C_Spell.GetSpellInfo(name) and GetSpellTexture(name) answer only for a
 --                         spell you know (likewise GetSpellInfo(name)), as the
 --                         game's name lookup goes through your spellbook; by
---                         ID it answers for any spell. Revoke has a made-up
---                         ID here (M.REVOKE_ID): Forever's is checked at launch.
+--                         ID it answers for any spell.
 --   UnitGroupRolesAssigned and GetPartyAssignment("MAINTANK") both exist and
 --                         answer for group units (unit.role, unit.mainTank;
 --                         Main Tank answers false outside a raid);

@@ -1,4 +1,4 @@
--- Spec: #136
+-- Spec: #136, #208
 -- Water breathing only near water: a warlock's Unending Breath and a
 -- shaman's Water Breathing are offered (buff back and buff mode) only while
 -- you're swimming, underwater, with your breath bar showing, in an
@@ -339,7 +339,6 @@ describe("Water breathing near water", function()
             assert.are.equal("breath", ns.BuffData.ForAura(BREATH).key)
             assert.are.equal("waterbreathing", ns.BuffData.ForCast(WATER_BREATHING).key)
             assert.is_false(ns.BuffData.Covers(list[1], INTELLECT))
-            assert.is_false(ns.BuffData.Covers(ns.BuffData.REVOKE, WATER_BREATHING), "not a buff in the data")
             assert.is_false(ns.BuffData.Covers({}, BREATH))
             for _, class in ipairs(ns.BuffRules.CLASSES) do
                 assert.is_true(ns.BuffData.Useful(list[1], class), class)
