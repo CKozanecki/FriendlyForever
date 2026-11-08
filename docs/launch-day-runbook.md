@@ -1,6 +1,6 @@
 # Friendly Forever: launch-day runbook (Wed Nov 4)
 
-**Done:** the owner completed this pass on launch day, and the checks worked in game, except four IDs the owner couldn't reach (#207) and Revoke, which Blizzard removed right before launch (#208) (#50 is closed; #197). The boxes below were never ticked; this file stays as the record of the pass.
+**Done:** the owner completed this pass on launch day, and the checks worked in game, except four IDs the owner couldn't reach (#207) and the Salvation, Mass Salvation and Revoke checks, which no longer apply: Blizzard removed those spells right before launch (#208) (#50 is closed; #197). The boxes below were never ticked; this file stays as the record of the pass.
 
 Built from #50's checklist and comments (every check in it and the approved CurseForge screenshot list, as of Nov 2), the release steps in CONTRIBUTING.md, and the README. Ordered by what each check needs, so you set things up once: solo first, then one other player, then a group, then the guild.
 

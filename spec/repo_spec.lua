@@ -2672,7 +2672,7 @@ describe("Claude sessions' agents, knowledge and skills", function()
         local agents = flatten("AGENTS.md")
         for _, rule in ipairs({
             "**Unconfirmed game facts:** the launch-day test pass is complete and its checks worked in game, "
-                .. "except four IDs on #207 and Revoke, removed by Blizzard (#50, closed; #197). A game fact that can only be checked in game and isn't confirmed yet "
+                .. "except four IDs on #207 and the Salvation, Mass Salvation and Revoke checks, removed by Blizzard (#208) (#50, closed; #197). A game fact that can only be checked in game and isn't confirmed yet "
                 .. "(spell IDs, role APIs and the like) goes on a new issue labelled `quality`, with the source "
                 .. "and how to check it in game. Don't reopen #50.",
             "Document it in the ASSUMPTIONS block, with the new `quality` issue that says what to verify in game, "

@@ -2,11 +2,11 @@
 
 How `spec/support/wow.lua` models the game for the busted specs, and how to extend it. The rules for tests themselves (which kind each criterion needs, chaos-test invariants, mutation checks) are in [CONTRIBUTING.md](../CONTRIBUTING.md#specs-and-traceability) and [AGENTS.md](../AGENTS.md#tests); this file only describes the tool. Where the two differ, CONTRIBUTING.md wins and this file is fixed.
 
-**Source:** everything here describes `spec/support/wow.lua` itself; read it when this file and the code differ, and fix this file. Game facts the model is built on are in [forever-facts.md](forever-facts.md), and the guesses it makes are listed in its ASSUMPTIONS block, checked at the launch test pass (Nov 4, #197) and worked, except the four IDs on #207 and Revoke, which Blizzard removed right before launch (#208).
+**Source:** everything here describes `spec/support/wow.lua` itself; read it when this file and the code differ, and fix this file. Game facts the model is built on are in [forever-facts.md](forever-facts.md), and the guesses it makes are listed in its ASSUMPTIONS block, checked at the launch test pass (Nov 4, #197) and worked, except the four IDs on #207 and the Salvation, Mass Salvation and Revoke assumptions, which no longer apply: Blizzard removed those spells right before launch (#208).
 
 ## What it is
 
-A small simulation of the WoW client API, enough to load the addon as the game does and drive it with events. It is not the game: every behaviour it adds is a claim about WoW Forever, and claims that can't be checked before the game is in hand go in the ASSUMPTIONS block. Those that were in the launch test pass (Nov 4) worked in game, except the four IDs on #207 and Revoke (removed by Blizzard, #208) (#197).
+A small simulation of the WoW client API, enough to load the addon as the game does and drive it with events. It is not the game: every behaviour it adds is a claim about WoW Forever, and claims that can't be checked before the game is in hand go in the ASSUMPTIONS block. Those that were in the launch test pass (Nov 4) worked in game, except the four IDs on #207 and the Salvation, Mass Salvation and Revoke ones (removed by Blizzard, #208) (#197).
 
 - **Loading:** `wow.load()` reads `FriendlyForever.toc` and runs each listed file in order with the `(addonName, ns)` varargs, as the game does. `wow.parseToc()` returns the TOC's metadata and file list.
 - **Booting:** `wow.boot(opts)` resets the client, loads the addon, fires `ADDON_LOADED` and `PLAYER_ENTERING_WORLD`, and advances past the login grace period. Options:
