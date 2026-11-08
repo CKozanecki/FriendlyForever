@@ -44,7 +44,8 @@ GroupBuffs.SKIP_SECONDS = 300
 GroupBuffs.HELD_BACK_SECONDS = 15
 
 -- Where you come in (#198): your own copy of each buff you give is offered
--- after the whole group's ("last", the default), or before it ("first").
+-- after the group's copy of that buff ("last", the default), or before it ("first"); your first buff still goes before
+-- anyone's second.
 -- "off" leaves you out (specs that predate #198 start with it: wow.boot).
 -- Only this line decides; the rest of the file follows it.
 GroupBuffs.SELF_ORDER = "last"
@@ -255,6 +256,10 @@ function GroupBuffs.Next()
     local family = {} -- [name .. buff key] = whether they wear another of yours (read once)
     -- Every reason a member is passed over here leaves a buff to give.
     local function Why(member, why)
+        if member.self then
+            -- The reasons are worded for someone else.
+            why = why:gsub("they're", "you're"):gsub("their", "your")
+        end
         firstReason = firstReason or ((member.self and "You" or Util.DisplayName(member.name)) .. ": " .. why)
         open = true
     end
@@ -339,12 +344,13 @@ function GroupBuffs.Next()
         end
         return nil
     end
-    -- The group's buffs come before yours, or after (SELF_ORDER, #198).
-    local passes = { members }
+    -- You come last in each buff's round, after the group (SELF_ORDER, #198):
+    -- your first buff still goes before anyone's second.
     local mine, mineWhy, mineOpen
     if GroupBuffs.SELF_ORDER ~= "off" then mine, mineWhy, mineOpen = SelfMember() end
+    local list = members -- the revoke pass above is done with it
     if mine then
-        table.insert(passes, GroupBuffs.SELF_ORDER == "first" and 1 or #passes + 1, { mine })
+        table.insert(list, GroupBuffs.SELF_ORDER == "first" and 1 or #list + 1, mine)
     elseif mineWhy then
         firstReason = firstReason or ("You: " .. mineWhy)
         open = open or mineOpen
@@ -352,10 +358,8 @@ function GroupBuffs.Next()
         if mineWhy ~= lastSelfWhy then ns.Diag.Log("buffMode", "not buffing you: %s", mineWhy) end
     end
     lastSelfWhy = mine == nil and mineWhy or nil
-    for _, list in ipairs(passes) do
-        local offer = Pass(list)
-        if offer then return offer end
-    end
+    local offer = Pass(list)
+    if offer then return offer end
     return nil, firstReason or "everyone in your group has your buffs", not open
 end
 

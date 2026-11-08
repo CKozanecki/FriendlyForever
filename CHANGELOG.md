@@ -2,7 +2,7 @@
 
 ### Unreleased
 
-- **Buff mode buffs you too:** once the group has your buffs, the button offers the ones you're missing on yourself, in your buff order and under your Never lists, who-gets-it rules and top-up time, so buff mode no longer ends while you're missing one and you needn't cast them by hand. You come last, after everyone else has that round's buffs. It casts on you without changing your target, only on your press. You're left out while dead or when your buffs or name can't be read, and buff mode doesn't end then. (#198)
+- **Buff mode buffs you too:** once the group has your buffs, the button offers the ones you're missing on yourself, in your buff order and under your Never lists, who-gets-it rules and top-up time, so buff mode no longer ends while you're missing one and you needn't cast them by hand. For each buff you come last, after everyone else has that buff, and your first buff still comes before anyone's second. It casts on you without changing your target, only on your press. You're left out while dead or when your buffs or name can't be read, and buff mode doesn't end then. (#198)
 - **UI simulator workflow:** the finished simulator build is cached, keyed on its pins and build settings, so it is rebuilt only when one moves instead of every run. Nothing ships in the addon. (#170)
 
 ## 0.9.1

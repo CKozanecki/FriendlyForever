@@ -92,7 +92,7 @@ describe("Buff mode buffing you too", function()
             assert.is_nil(macro():find("target", 1, true), "the macro never touches targeting")
         end)
 
-        it("offers the group everything first and you last", function()
+        it("offers each buff to the group first and you last, your first buff before anyone's second", function()
             party({ "Ann-Vale", "Cid-Rock" })
             local order = {}
             for _ = 1, 8 do
@@ -101,10 +101,9 @@ describe("Buff mode buffing you too", function()
                 order[#order + 1] = cast.target .. " " .. cast.spell
             end
             assert.are.same({
-                "Ann-Vale Mark of the Wild", "Cid-Rock Mark of the Wild",
-                "Ann-Vale Thorns", "Cid-Rock Thorns",
-                "Me Mark of the Wild", "Me Thorns",
-            }, { unpack(order, 1, 6) }, "the group's buffs, then yours, in your buff order")
+                "Ann-Vale Mark of the Wild", "Cid-Rock Mark of the Wild", "Me Mark of the Wild",
+                "Ann-Vale Thorns", "Cid-Rock Thorns", "Me Thorns",
+            }, { unpack(order, 1, 6) }, "each buff goes to the group, then to you; your first buff before anyone's second")
             assert.is_nil(order[7], "nothing more to cast")
             assert.is_nil(macro())
             assert.are.equal("everyone in your group has your buffs", button.subtitle:GetText())
@@ -115,7 +114,7 @@ describe("Buff mode buffing you too", function()
             party({ "Ann-Vale" })
             assert.are.equal("me: Mark of the Wild", armed())
             scroll()
-            assert.are.equal("me: Thorns", armed(), "your own buffs before the group's")
+            assert.are.equal("Ann Vale: Mark of the Wild", armed(), "you, then the group, for each buff")
         end)
 
         it("leaves you out when SELF_ORDER is off", function()
@@ -166,7 +165,7 @@ describe("Buff mode buffing you too", function()
                 local cast = scroll()
                 if cast then targets[#targets + 1] = cast.target end
             end
-            assert.are.same({ "Ann-Vale", "Ann-Vale", "Me", "Me" }, targets)
+            assert.are.same({ "Ann-Vale", "Me", "Ann-Vale", "Me" }, targets)
         end)
 
         it("applies your buff order, Never list and who-gets-it rules to you", function()
@@ -225,6 +224,35 @@ describe("Buff mode buffing you too", function()
             scroll()
             assert.are.equal("Gave Mark of the Wild to you.", button.result:GetText())
             assert.are.equal("me: Thorns", armed())
+        end)
+
+        it("describes a cast on you in the tooltip, not a target swap", function()
+            party({ "Ann-Vale" })
+            wearEverything(wow.state.units.party1)
+            wow.run(button, "OnEnter")
+            local text = {}
+            for _, line in ipairs(_G.GameTooltip.lines or {}) do text[#text + 1] = type(line) == "table" and line.text or line end
+            local all = table.concat(text, "\n")
+            assert.is_truthy(all:find("on you; your target stays as it is", 1, true), all)
+            assert.is_nil(all:find("gives you your target back", 1, true))
+            assert.is_truthy(all:find("skip yourself", 1, true))
+        end)
+
+        it("says you, not your name, when the game doesn't answer or you skip", function()
+            party({ "Ann-Vale" })
+            wearEverything(wow.state.units.party1)
+            wow.press(button, "RightButton")
+            assert.are.equal("Skipping yourself for 5 minutes.", button.result:GetText())
+        end)
+
+        it("says you when the game never answers the cast", function()
+            party({ "Ann-Vale" })
+            wearEverything(wow.state.units.party1)
+            wow.state.castLatency = 100 -- the server never answers within the wait
+            wow.pressKey("MOUSEWHEELUP")
+            wow.advance(ns.BuffButton.SENT_ANSWER_SECONDS + 1)
+            assert.are.equal("No word back on Mark of the Wild for you. If it didn't land, press again.",
+                button.result:GetText())
         end)
 
         it("holds you back for a moment when the game refuses the cast", function()
@@ -292,7 +320,7 @@ describe("Buff mode buffing you too", function()
             wow.state.playerAuras = { wow.secret({ spellId = MOTW, isHelpful = true }) }
             ns.BuffButton.Refresh()
             assert.is_nil(macro())
-            assert.are.equal("You: can't see their buffs", select(2, ns.GroupBuffs.Next()))
+            assert.are.equal("You: can't see your buffs", select(2, ns.GroupBuffs.Next()))
             wow.state.playerAuras = {}
             ns.BuffButton.Refresh()
             assert.are.equal("me: Mark of the Wild", armed())

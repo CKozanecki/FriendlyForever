@@ -294,7 +294,7 @@ end
 local function Unanswered(press)
     if not ForgetPress(press) then return end
     press.expired = true
-    local who = Util.DisplayName(press.name)
+    local who = press.self and "you" or Util.DisplayName(press.name)
     if press.failed then
         ShowResult((press.revoke and "Couldn't revoke Salvation from " or "Couldn't buff ") .. who
             .. " (the game gave no reason).", true)
@@ -409,7 +409,7 @@ local function OnPostClick(_, mouseButton, isDown)
         ns.Options.Refresh()
     elseif offer.group then
         ns.GroupBuffs.Skip(name)
-        ShowResult(string.format("Skipping %s for %d minutes.", Util.DisplayName(name),
+        ShowResult(string.format("Skipping %s for %d minutes.", offer.self and "yourself" or Util.DisplayName(name),
             ns.GroupBuffs.SKIP_SECONDS / 60))
     else
         ns.Offers.LetGo(name)
@@ -648,11 +648,16 @@ local function ShowTooltip(self)
     if subtitle and subtitle ~= "" then GameTooltip:AddLine(subtitle, r, g, b, true) end
     if armedOffer then
         r, g, b = ns.Colours.RGB("bright")
-        GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on " .. Util.DisplayName(armedOffer.name)
-            .. ", then gives you your target back.", r, g, b, true)
+        if armedOffer.self then
+            GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on you; your target stays as it is.", r, g, b, true)
+        else
+            GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on " .. Util.DisplayName(armedOffer.name)
+                .. ", then gives you your target back.", r, g, b, true)
+        end
     end
     r, g, b = ns.Colours.RGB("text")
-    GameTooltip:AddLine("Click or press its key to cast. Right-click to let them go.", r, g, b, true)
+    GameTooltip:AddLine("Click or press its key to cast. Right-click to "
+        .. (armedOffer and armedOffer.self and "skip yourself for a while." or "let them go."), r, g, b, true)
     GameTooltip:Show()
 end
 
