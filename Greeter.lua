@@ -107,12 +107,82 @@ local function MemberVars(name)
     return vars
 end
 
+-- A new member is welcomed once. The game reports them coming online as
+-- well as joining, and the two are one arrival (owner's decision on #196):
+-- when a guild welcome is scheduled for someone, the first login hello for
+-- them after it, or one already waiting to go out, is dropped. That consumes
+-- the record, so a later login greets as usual. The record also expires after
+-- this many seconds, so a welcome whose login never came can't silence a
+-- genuine login later.
+Greeter.WELCOME_QUIET = 120
+Greeter.MAX_WELCOMED = 100
+
+local welcomed = {} -- [full name] = GetTime() their welcome was scheduled
+local welcomedCount = 0
+
+-- Is this name inside its quiet window? A time stamp in the future (the
+-- clock went backwards) counts as over, so it can never silence anyone for long.
+local function InWelcomeQuiet(name)
+    local t = welcomed[name]
+    if not t then return false end
+    local age = GetTime() - t
+    return age >= 0 and age < Greeter.WELCOME_QUIET
+end
+
+local function ForgetWelcomed(name)
+    welcomed[name] = nil
+    welcomedCount = welcomedCount - 1
+end
+
+local function RememberWelcomed(name)
+    local now = GetTime()
+    if welcomed[name] then
+        welcomed[name] = now
+        return
+    end
+    -- Bounded: drop what is over, and if the table is still full, the oldest.
+    if welcomedCount >= Greeter.MAX_WELCOMED then
+        local oldest, oldestT
+        for n, t in pairs(welcomed) do
+            if not InWelcomeQuiet(n) then
+                ForgetWelcomed(n)
+            elseif not oldestT or t < oldestT then
+                oldest, oldestT = n, t
+            end
+        end
+        if welcomedCount >= Greeter.MAX_WELCOMED and oldest then ForgetWelcomed(oldest) end
+    end
+    welcomed[name] = now
+    welcomedCount = welcomedCount + 1
+end
+
+function Greeter.WelcomedCount()
+    return welcomedCount
+end
+
+-- True, and the record is used up, when this login belongs to a welcome.
+local function TakeWelcome(name)
+    if not InWelcomeQuiet(name) then return false end
+    ForgetWelcomed(name)
+    return true
+end
+
 -- Every copy in the guild greets, a random while apart and with different
 -- lines, and at most a few of them (GuildHellos.lua, #38).
 local function Greet(name)
     if Ignored("guildLogin", name) then return end
+    if TakeWelcome(name) then
+        ns.Diag.Log("guildLogin", "not sending for %s: just welcomed to the guild, one arrival", name)
+        return
+    end
     ns.Announcer.Schedule("guildLogin", name, {
-        channel = GuildChannel, vars = function() return MemberVars(name) end, isValid = NotIgnored(name),
+        channel = GuildChannel, vars = function() return MemberVars(name) end,
+        isValid = function()
+            local ok, why = NotIgnored(name)()
+            if not ok then return false, why end
+            if TakeWelcome(name) then return false, "just welcomed to the guild, one arrival" end
+            return true
+        end,
         delay = ns.db.guildLogin.delay + ns.GuildHellos.Stagger(),
         hold = function(go, line, drop) ns.GuildHellos.Hold(name, line, go, drop) end,
     })
@@ -505,7 +575,9 @@ function Greeter.OnSystemMessage(msg)
     elseif kind == "guildJoin" then
         members[name] = members[name] or true
         if Ignored("guildJoin", name) then return end
-        ns.Announcer.Schedule("guildJoin", name, { channel = GuildChannel, isValid = NotIgnored(name) })
+        if ns.Announcer.Schedule("guildJoin", name, { channel = GuildChannel, isValid = NotIgnored(name) }) then
+            RememberWelcomed(name)
+        end
     elseif kind == "partyJoin" then
         -- Every joiner would be welcomed, by every addon user, in /bg.
         if Greeter.InBattleground() then
