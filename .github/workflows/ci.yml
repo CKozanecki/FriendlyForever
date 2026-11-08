@@ -110,7 +110,7 @@ jobs:
       - name: Test (shard ${{ matrix.shard }} of ${{ env.SHARDS }})
         env:
           SHARD: ${{ matrix.shard }}
-        run: make test TOOLS="$RUNNER_TEMP/lua" SPECS="$(scripts/test-shards.sh files "$SHARDS" "$SHARD")"
+        run: make test TOOLS="$RUNNER_TEMP/lua" SPECS="$(scripts/test-shards.sh files "$SHARDS" "$SHARD" | tr '\n' ' ')"
 
   # The one required check on main (the job's name is the check's name): it
   # passes only when lint and packaging and every test shard passed, and when

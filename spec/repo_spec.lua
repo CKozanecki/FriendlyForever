@@ -234,7 +234,7 @@ describe("CI workflow", function()
         local expected = {}
         for i = 1, shards do expected[#expected + 1] = tostring(i) end
         assert.are.equal(table.concat(expected, ", "), listed, "the matrix isn't shards 1 to SHARDS")
-        assert.is_truthy(jobs.test.text:find('SPECS="$(scripts/test-shards.sh files "$SHARDS" "$SHARD")"', 1, true),
+        assert.is_truthy(jobs.test.text:find([[SPECS="$(scripts/test-shards.sh files "$SHARDS" "$SHARD" | tr '\n' ' ')"]], 1, true),
             "a shard doesn't run its own slice")
         assert.is_truthy(jobs.test.text:find("fail%-fast:%s*false"), "one failing shard hides the others")
         local packagers = 0
