@@ -3,7 +3,7 @@
 -- one you can return and casts on a press; nothing here casts anything.
 --
 -- For each favour the buff is chosen fresh: your class's buffs you know, in
--- order, skipping ones that can't go to a stranger (Battle Shout, Salvation),
+-- order, skipping ones that can't go to a stranger (Battle Shout),
 -- ones their class has no use for (Intellect to a warrior), and ones they
 -- already wear when the game lets us see.
 --
@@ -224,7 +224,7 @@ local function ChooseBuff(favour, myBuffs, held, visible)
     end
     local suitable = 0
     for _, buff in ipairs(myBuffs) do
-        if not buff.selfCast and not buff.groupOnly and ns.BuffData.Useful(buff, favour.class) then
+        if not buff.selfCast and ns.BuffData.Useful(buff, favour.class) then
             suitable = suitable + 1
             -- Unknown (no unit, or hidden in a fight) counts as not wearing it.
             if Offers.Wears(unit, buff) ~= true then return buff end
@@ -336,7 +336,7 @@ end
 function Offers.OnCastSent(unit, castTargetName, castGUID, spellId)
     if unit ~= "player" or Util.IsSecret(spellId) or type(spellId) ~= "number" then return end
     local buff = ns.BuffData.ForCast(spellId)
-    if not buff or buff == ns.BuffData.REVOKE then return end
+    if not buff then return end
     local guid, name = ReadableText(castGUID), Offers.CastTarget(castTargetName)
     if not guid or not name then
         ns.Diag.Log("buffBack", "a buff cast by hand: can't tell which player it went to")

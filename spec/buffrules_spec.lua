@@ -1,12 +1,14 @@
--- Spec: #68, #76
+-- Spec: #68, #76, #208
 -- Who gets each buff in buff mode: everyone, tanks only, everyone but tanks,
--- or chosen classes, plus players named Always or Never. Salvation isn't a
--- Blessing on Forever, and goes to everyone but tanks by default.
+-- or chosen classes, plus players named Always or Never. Every buff goes to
+-- everyone until you choose (Salvation, once kept off tanks by default, was
+-- removed from the game: #208); a tank-related choice is still yours to make
+-- for any buff, such as Might kept off tanks.
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
 local MOTW, MOTW_1, THORNS_1 = 9885, 1126, 467
-local KINGS, MIGHT_1, SALVATION = 20217, 19740, 1038
+local KINGS, MIGHT_1 = 20217, 19740
 local INTELLECT = 10157
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
@@ -26,8 +28,7 @@ describe("Who gets each buff", function()
     end
 
     local function paladin(known)
-        wow.SPELL_NAMES[SALVATION] = "Blessing of Salvation"
-        boot({ class = "PALADIN", known = known or { [KINGS] = true, [MIGHT_1] = true, [SALVATION] = true } })
+        boot({ class = "PALADIN", known = known or { [KINGS] = true, [MIGHT_1] = true } })
     end
 
     local function macro() return button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText) end
@@ -84,7 +85,6 @@ describe("Who gets each buff", function()
     local function rule(key, value) ns.BuffRules.SetRule(key, value) end
 
     before_each(function() boot() end)
-    after_each(function() wow.SPELL_NAMES[SALVATION] = nil end)
 
     describe("rules (white)", function()
         it("gives everyone Mark of the Wild and Thorns only to tanks, by group role or Main Tank", function()
@@ -139,21 +139,13 @@ describe("Who gets each buff", function()
 
         it("gives each member the first Blessing your rules give them, one each", function()
             paladin()
-            ns.db.buffBack.buffOrder = { "kings", "might", "salvation" }
+            ns.db.buffBack.buffOrder = { "kings", "might" }
             rule("kings", "tanks")
             group("party", { { "Ann-Vale", "WARRIOR", "TANK" }, { "Bo-Lake", "ROGUE", "DAMAGER" } })
             local given = buffAll()
             assert.are.same({
-                "Ann-Vale Blessing of Kings", "Bo-Lake Blessing of Might", "Bo-Lake Blessing of Salvation",
-            }, given, "Kings to the tank, Might to the rest, Salvation beside it and never on the tank")
-        end)
-
-        it("still offers your Blessing to a member wearing your Salvation: it isn't a Blessing", function()
-            paladin()
-            ns.db.buffBack.buffOrder = { "salvation", "might" }
-            group("party", { { "Bo-Lake", "ROGUE", "DAMAGER" } })
-            assert.are.same({ "Bo-Lake Blessing of Salvation", "Bo-Lake Blessing of Might" }, buffAll())
-            assert.is_nil(ns.BuffData.CLASSES.PALADIN[5].family)
+                "Ann-Vale Blessing of Kings", "Bo-Lake Blessing of Might",
+            }, given, "Kings to the tank, Might to the rest, and never a second Blessing on anyone")
         end)
 
         it("is shown and changed on the Buff Back tab", function()
@@ -181,13 +173,18 @@ describe("Who gets each buff", function()
             assert.is_false(w.who.classes.WARRIOR:IsShown())
         end)
 
-        it("Salvation's button starts at everyone but tanks", function()
+        it("every buff's button starts at everyone: no buff is kept off tanks by default (#208)", function()
             paladin()
             local w = ns.Options.widgets
             wow.run(w.tabs.buffBack, "OnClick")
+            local seen = 0
             for _, row in ipairs(w.buffRows) do
-                if row.key == "salvation" then assert.are.equal("Who: Everyone but tanks", row.who:GetText()) end
+                if row.key then
+                    seen = seen + 1
+                    assert.are.equal("Who: Everyone", row.who:GetText(), row.key)
+                end
             end
+            assert.are.equal(#ns.BuffData.CLASSES.PALADIN, seen)
         end)
 
         it("doesn't change buff back to strangers", function()
@@ -213,8 +210,9 @@ describe("Who gets each buff", function()
             assert.is_false(settled, "can't tell isn't done")
         end)
 
-        it("keeps Salvation off a member whose role can't be read", function()
-            paladin({ [SALVATION] = true })
+        it("keeps a buff you keep off tanks away from a member whose role can't be read", function()
+            paladin({ [MIGHT_1] = true })
+            rule("might", "notTanks")
             group("party", { { "Ann-Vale", "WARRIOR", "DAMAGER" } })
             wow.state.units.party1.secrets = { role = true }
             ns.BuffButton.Refresh()
@@ -245,8 +243,9 @@ describe("Who gets each buff", function()
             assert.is_nil(ns.BuffRules.IsTank("raid1"), "an API that throws doesn't count as an answer")
         end)
 
-        it("a role answer that isn't text can't be read: no Salvation, and the button says why", function()
-            paladin({ [SALVATION] = true })
+        it("a role answer that isn't text can't be read: no buff kept off tanks, and the button says why", function()
+            paladin({ [MIGHT_1] = true })
+            rule("might", "notTanks")
             local real = _G.UnitGroupRolesAssigned
             finally(function() _G.UnitGroupRolesAssigned = real end)
             group("party", { { "Ann-Vale", "WARRIOR" } })
@@ -406,13 +405,14 @@ describe("Who gets each buff", function()
         end)
 
         it("can't tell a party's tank without group roles: Main Tank is raid-only", function()
-            paladin({ [SALVATION] = true })
+            paladin({ [MIGHT_1] = true })
+            rule("might", "notTanks")
             local real = _G.UnitGroupRolesAssigned
             _G.UnitGroupRolesAssigned = nil
             finally(function() _G.UnitGroupRolesAssigned = real end)
             group("party", { { "Ann-Vale", "WARRIOR" } })
             assert.is_nil(ns.BuffRules.IsTank("party1"))
-            assert.is_nil(macro(), "no Salvation on someone who may be the tank")
+            assert.is_nil(macro(), "no buff kept off tanks on someone who may be the tank")
             assert.are.equal("Ann Vale: can't tell if they're a tank", button.subtitle:GetText())
             group("raid", { { "Ann-Vale", "WARRIOR" }, { "Cid-Rock", "MAGE", nil, true } })
             assert.is_false(ns.BuffRules.IsTank("raid1"), "in a raid, the Main Tank assignment says")
@@ -420,12 +420,13 @@ describe("Who gets each buff", function()
         end)
 
         it("an unreadable role doesn't hold back \"everyone has your buffs\" for members who have the buff", function()
-            paladin({ [SALVATION] = true })
+            paladin({ [MIGHT_1] = true })
+            rule("might", "notTanks")
             group("party", { { "Ann-Vale", "WARRIOR", "TANK" }, { "Bo-Lake", "ROGUE", "DAMAGER" } })
             for _, token in ipairs({ "party1", "party2" }) do
                 local u = wow.state.units[token]
                 u.secrets = { role = true }
-                u.auras, u.auraSources = { SALVATION }, { "raid9" } -- another paladin's Mass Salvation
+                u.auras, u.auraSources = { MIGHT_1 }, { "raid9" } -- another paladin's Might
             end
             local offer, why, settled = ns.GroupBuffs.Next()
             assert.is_nil(offer)
@@ -433,12 +434,12 @@ describe("Who gets each buff", function()
             assert.is_true(settled)
         end)
 
-        it("repairs damaged saved rules to each buff's default", function()
+        it("repairs damaged saved rules to everyone", function()
             boot({ db = { buffBack = { whoGets = {
                 thorns = { rule = "everybody", classes = { WARRIOR = true, OGRE = true, MAGE = "yes" },
                     always = { ["ann-vale"] = "Ann-Vale", bad = "Cid-Rock", [7] = "x", ["dot-fern"] = {} },
                     never = "Eve Moss" },
-                salvation = { rule = 3 },
+                might = { rule = 3 },
                 bogus = { rule = "tanks" },
                 motw = "tanks",
             } } } })
@@ -450,7 +451,7 @@ describe("Who gets each buff", function()
             assert.are.same({ ["ann-vale"] = "Ann-Vale" }, who.thorns.always)
             assert.is_nil(who.thorns.never)
             assert.are.equal("all", ns.BuffRules.Rule(ns.BuffData.CLASSES.DRUID[2]))
-            assert.are.equal("notTanks", ns.BuffRules.Rule(ns.BuffData.CLASSES.PALADIN[5]))
+            assert.are.equal("all", ns.BuffRules.Rule(ns.BuffData.CLASSES.PALADIN[3]), "a damaged rule is everyone")
             boot({ db = { buffBack = { whoGets = "tanks" } } })
             assert.are.same({}, ns.db.buffBack.whoGets)
         end)
@@ -489,7 +490,7 @@ describe("Who gets each buff", function()
                 local everyone = { "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss", "Fay-Dune" }
                 local classes = { "WARRIOR", "ROGUE", "MAGE", "PRIEST", "PALADIN", "DRUID" }
                 local roles = { "TANK", "HEALER", "DAMAGER", "NONE" }
-                local keys = { "kings", "might", "salvation" }
+                local keys = { "kings", "might" }
                 local function reshuffle()
                     local members = {}
                     for _, name in ipairs(everyone) do
@@ -504,23 +505,23 @@ describe("Who gets each buff", function()
                 reshuffle()
                 local actions = {
                     reshuffle,
-                    function() rule(keys[random.random(3)], ns.BuffRules.RULES[random.random(4)]) end,
+                    function() rule(keys[random.random(#keys)], ns.BuffRules.RULES[random.random(4)]) end,
                     function()
-                        ns.BuffRules.SetClass(keys[random.random(3)], classes[random.random(#classes)], random.random() < 0.5)
+                        ns.BuffRules.SetClass(keys[random.random(#keys)], classes[random.random(#classes)], random.random() < 0.5)
                     end,
                     function()
                         local pick = {}
                         for _, name in ipairs(everyone) do if random.random() < 0.3 then pick[#pick + 1] = name end end
-                        ns.BuffRules.SetNames(keys[random.random(3)], random.random() < 0.5 and "always" or "never",
+                        ns.BuffRules.SetNames(keys[random.random(#keys)], random.random() < 0.5 and "always" or "never",
                             table.concat(pick, ", "))
                     end,
                     function()
-                        -- Another paladin's Blessing or Salvation lands on someone.
+                        -- Another paladin's Blessing lands on someone.
                         local token = (wow.state.units.raid1 and "raid" or "party") .. random.random(1, 6)
                         local u = wow.state.units[token]
                         if u then
                             u.auras = u.auras or {}
-                            u.auras[#u.auras + 1] = ({ KINGS, MIGHT_1, SALVATION })[random.random(3)]
+                            u.auras[#u.auras + 1] = ({ KINGS, MIGHT_1 })[random.random(2)]
                             u.auraSources = u.auraSources or {}
                             u.auraSources[#u.auras] = "raid9"
                         end
@@ -534,7 +535,7 @@ describe("Who gets each buff", function()
                         end
                     end,
                     function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
-                    function() ns.db.buffBack.buffOrder = { keys[random.random(3)], keys[random.random(3)] } end,
+                    function() ns.db.buffBack.buffOrder = { keys[random.random(#keys)], keys[random.random(#keys)] } end,
                     function() wow.advance(random.random() * 20) end,
                 }
                 for step = 1, 400 do
