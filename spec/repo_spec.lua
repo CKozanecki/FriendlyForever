@@ -388,7 +388,7 @@ describe("UI simulator workflow", function()
             end
             p:close()
             assert.is_true(found >= 8, "expected the files that create frames, found " .. found)
-            for _, file in ipairs({ "OptionsIndex.lua", "Nameplates.lua" }) do
+            for _, file in ipairs({ "OptionsIndex.lua", "Nameplates.lua", "Colours.lua" }) do
                 assert.is_truthy(filter:find(file, 1, true), file .. " is a UI file")
             end
         end)
@@ -427,6 +427,8 @@ describe("UI simulator workflow", function()
             local cases = {
                 { { "Greeter.lua", "docs/a.md" }, "false" },
                 { { "Greeter.lua", "Options.lua" }, "true" },
+                -- The palette every colour comes from (the architecture review).
+                { { "Colours.lua" }, "true" },
                 { { "uitests/x.lua" }, "true" },
                 { { ".github/workflows/ui-sim.yml" }, "true" },
                 { { "Media/a.tga", "FriendlyForever.toc" }, "true" },

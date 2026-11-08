@@ -115,7 +115,7 @@ CI also builds the zip with the BigWigs packager that releases use, and fails if
 
 ## UI simulator
 
-The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://github.com/Osso/wow-ui-sim), a headless WoW client that runs Blizzard's real UI code (#49). It runs on every pull request and push to `main`, but its `changes` job skips the simulator unless a file that can change what players see was touched (#218): the root Lua files that create frames (`grep -l CreateFrame *.lua`, plus `OptionsIndex.lua` and `Nameplates.lua`), the TOC, `*.xml`, `Media/`, `uitests/`, `.pkgmeta`, `scripts/package.sh`, `scripts/ui-sim-harness.lua` and the workflow itself; a hand start always runs it. A skipped job counts as passing, and doubt means it runs. It's report only: it never fails CI, and nothing it produces is trusted.
+The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://github.com/Osso/wow-ui-sim), a headless WoW client that runs Blizzard's real UI code (#49). It runs on every pull request and push to `main`, but its `changes` job skips the simulator unless a file that can change what players see was touched (#218): the root Lua files that create frames (`grep -l CreateFrame *.lua`, plus `OptionsIndex.lua`, `Nameplates.lua` and `Colours.lua`, the palette every colour comes from), the TOC, `*.xml`, `Media/`, `uitests/`, `.pkgmeta`, `scripts/package.sh`, `scripts/ui-sim-harness.lua` and the workflow itself; a hand start always runs it. A skipped job counts as passing, and doubt means it runs. It's report only: it never fails CI, and nothing it produces is trusted.
 
 - **What it runs:**
   - **Lua errors** from loading, and the addon's frame tree.

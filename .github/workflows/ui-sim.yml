@@ -72,7 +72,8 @@ jobs:
   # everything but plain characters is replaced.
   #
   # The UI files are the root Lua files that create frames (grep CreateFrame
-  # *.lua) and the ones the options panel is built from, the scenarios, the
+  # *.lua), the ones the options panel is built from, Colours.lua (the palette
+  # every colour comes from), the scenarios, the
   # art, the packaging inputs, the simulator harness and this workflow. A
   # change to anything else, such as Greeter.lua or GroupBuffs.lua, skips the
   # jobs below; a skipped job counts as passing.
@@ -118,7 +119,7 @@ jobs:
                 case "$file" in
                   .pkgmeta | *.toc | *.xml) hit=yes ;;
                   Battleground.lua | BuffButton.lua | BuffMode.lua | BuffModeAuto.lua | ChatQueue.lua | Core.lua \
-                    | Minimap.lua | Nameplates.lua | Options.lua | OptionsIndex.lua | Walkthrough.lua | Water.lua \
+                    | Colours.lua | Minimap.lua | Nameplates.lua | Options.lua | OptionsIndex.lua | Walkthrough.lua | Water.lua \
                     | Window.lua) hit=yes ;;
                 esac ;;
             esac
