@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -205,6 +205,100 @@ describe("CI workflow", function()
             assert.is_truthy(key and key:find("'" .. file .. "'", 1, true), "the cache key doesn't cover " .. file)
         end
     end)
+
+    -- #218: the tests run in parallel shards and one job, `check`, is the
+    -- single required pass/fail. The job's name is the check's name on main.
+    it("reports one required check named check, which passes only when lint, packaging and every shard did", function()
+        local jobs = parseWorkflow(path)
+        local check = jobs.check
+        assert.is_truthy(check, "CI has no job named check, the check main requires")
+        assert.is_truthy(check.text:find("needs:%s*%[%s*lint%-package%s*,%s*test%s*%]"),
+            "check doesn't wait for lint-package and test")
+        -- Without it a failed or cancelled job would skip check, and a
+        -- skipped required check counts as passing.
+        assert.is_truthy(check.text:find("if:%s*${{%s*always%(%)%s*}}"), "check doesn't run when a job before it fails")
+        for _, job in ipairs({ "lint-package", "test" }) do
+            assert.is_truthy(check.text:find('"$' .. (job == "test" and "TESTS" or "LINT_PACKAGE") .. '" = success', 1, true),
+                "check doesn't require " .. job .. " to be success")
+            assert.is_truthy(check.text:find("needs." .. job .. ".result", 1, true), "check doesn't read " .. job .. "'s result")
+        end
+        assert.is_truthy(check.text:find('test-shards.sh check "$SHARDS"', 1, true), "check doesn't verify the shards cover every spec")
+    end)
+
+    it("runs the specs in as many shards as it says, each a different slice, with the release packager once", function()
+        local ci = wow.readFile(path)
+        local jobs, order = parseWorkflow(path)
+        local shards = tonumber(ci:match("\n  SHARDS:%s*(%d+)"))
+        assert.is_truthy(shards and shards >= 2, "CI doesn't say how many shards")
+        local listed = jobs.test.text:match("shard:%s*%[([^%]]*)%]")
+        local expected = {}
+        for i = 1, shards do expected[#expected + 1] = tostring(i) end
+        assert.are.equal(table.concat(expected, ", "), listed, "the matrix isn't shards 1 to SHARDS")
+        assert.is_truthy(jobs.test.text:find('SPECS="$(scripts/test-shards.sh files "$SHARDS" "$SHARD")"', 1, true),
+            "a shard doesn't run its own slice")
+        assert.is_truthy(jobs.test.text:find("fail%-fast:%s*false"), "one failing shard hides the others")
+        local packagers = 0
+        for _, job in ipairs(order) do
+            if job.text:find("BigWigsMods/packager@") then packagers = packagers + 1 end
+            -- Every job that runs a Lua tool installs it the same way, from the cache.
+            if job.text:find("make test") or job.text:find("make lint") then
+                assert.is_truthy(job.text:find("make setup", 1, true), job.name .. " runs a tool without make setup")
+            end
+        end
+        assert.are.equal(1, packagers, "the release packager must run once, not once per shard")
+        assert.is_falsy(jobs.test.text:find("BigWigsMods"), "a shard builds with the release packager")
+        assert.is_truthy(ci:find("cancel%-in%-progress:%s*true"), "a newer push doesn't cancel the older run")
+    end)
+end)
+
+describe("Test shards", function()
+    local function run(env)
+        local p = io.popen("cd '" .. wow.ROOT .. "' && " .. env .. " scripts/test-shards.sh check 4 2>&1; echo rc=$?")
+        local out = p:read("*a")
+        p:close()
+        return out, tonumber(out:match("rc=(%d+)"))
+    end
+
+    -- #218: a spec file that is in no shard is never run; one in two runs twice.
+    it("put every spec file in exactly one shard (white)", function()
+        local out, rc = run("env")
+        assert.are.equal(0, rc, out)
+        local p = io.popen("cd '" .. wow.ROOT .. "' && find spec -type f -name '*_spec*.lua' | wc -l")
+        local total = tonumber(p:read("*a"))
+        p:close()
+        assert.is_true(total > 50, "found too few spec files")
+        assert.is_truthy(out:find("all " .. total .. " spec files", 1, true), out)
+    end)
+
+    it("fail when a spec file is in no shard or in two (black)", function()
+        local out, rc = run("TEST_SHARDS_FAULT=drop")
+        assert.are_not.equal(0, rc, "a file in no shard went unnoticed")
+        assert.is_truthy(out:find("in no shard", 1, true), out)
+        out, rc = run("TEST_SHARDS_FAULT=dup")
+        assert.are_not.equal(0, rc, "a file in two shards went unnoticed")
+        assert.is_truthy(out:find("more than one shard", 1, true), out)
+    end)
+
+    it("refuse shard numbers that make no sense (black)", function()
+        for _, args in ipairs({ "files 4 0", "files 4 5", "files 0 1", "files x 1", "files 4", "bogus" }) do
+            local p = io.popen("cd '" .. wow.ROOT .. "' && scripts/test-shards.sh " .. args .. " >/dev/null 2>&1; echo $?")
+            local rc = tonumber(p:read("*a"))
+            p:close()
+            assert.are_not.equal(0, rc, args .. " was accepted")
+        end
+    end)
+
+    it("split the same way every time, with the slowest file alone in the lightest shard", function()
+        local function slice(n)
+            local p = io.popen("cd '" .. wow.ROOT .. "' && scripts/test-shards.sh files 4 " .. n)
+            local out = p:read("*a")
+            p:close()
+            return out
+        end
+        for n = 1, 4 do assert.are.equal(slice(n), slice(n)) end
+        assert.is_truthy(slice(1):find("spec/guildhellos_spec.lua", 1, true))
+        assert.is_falsy(slice(1):find("spec/repo_spec.lua", 1, true))
+    end)
 end)
 
 describe("UI simulator workflow", function()
@@ -234,6 +328,126 @@ describe("UI simulator workflow", function()
             "the default access isn't read-only")
         assert.is_falsy(header:find("write"), "the workflow grants write access to every job")
         assert.is_falsy(text:find("secrets%."), path .. " uses secrets")
+    end)
+
+    -- #218: the simulator runs only when a file that can change what players
+    -- see changes. The decision is made inside the workflow, never by a
+    -- `paths:` filter, which would leave a required check pending.
+    describe("runs only for UI changes (#218)", function()
+        local function onBlock()
+            return text:match("^(.-)\njobs:"):match("\non:\n(.-)\n[%w]") or ""
+        end
+
+        it("decides in a job, never with a paths filter (black)", function()
+            assert.is_falsy(text:match("^(.-)\njobs:"):find("paths:"), "a paths filter leaves a required check pending")
+            assert.is_truthy(onBlock():find("pull_request:"), "no longer runs on pull requests")
+            assert.is_truthy(onBlock():find("push:"), "no longer runs on pushes to main")
+            assert.is_truthy(onBlock():find("workflow_dispatch:"), "can't be started by hand")
+            assert.is_truthy(jobs.changes, "no job decides whether a UI file changed")
+        end)
+
+        it("skips the simulator jobs, and the publisher, only when the answer is false (white)", function()
+            local sim = jobs.simulator
+            assert.is_truthy(sim.text:find("needs:%s*changes"), "the simulator doesn't wait for the decision")
+            -- Not == 'true': an empty answer (the deciding job failed) must run it.
+            assert.is_truthy(sim.text:find("if:%s*${{%s*needs%.changes%.outputs%.ui != 'false'%s*}}"),
+                "the simulator isn't skipped on a false answer, or isn't run on an empty one")
+            for _, name in ipairs({ "ui-sim", "screenshots" }) do
+                assert.is_truthy(jobs[name].text:find("needs:%s*simulator"), name .. " doesn't follow the simulator")
+                assert.is_falsy(jobs[name].keys["if"], name .. " has its own condition, so it could run without a simulator")
+            end
+            -- !cancelled() runs a job whose needs were skipped; this one must not.
+            local publish = jobs["publish-screenshots"].text
+            assert.is_truthy(publish:find("needs.screenshots.result != 'skipped'", 1, true),
+                "the publisher runs when the screenshots were skipped")
+        end)
+
+        it("gives the deciding job no write access, no secrets and nothing from the pull request to run (black)", function()
+            local job = jobs.changes
+            assert.is_falsy(job.keys.permissions, "the deciding job has its own permissions")
+            assert.is_falsy(job.text:find("secrets%."), "the deciding job uses secrets")
+            assert.is_truthy(job.text:find("persist%-credentials:%s*false"), "its checkout keeps the token")
+            assert.is_truthy(job.text:find("continue%-on%-error:%s*true"), "it can fail CI")
+            -- A file name only ever reaches the log with all but plain characters replaced.
+            assert.is_truthy(job.text:find("tr %-c 'A%-Za%-z0%-9%._/%-' '%?'"), "a file name is printed as it is")
+            for _, banned in ipairs({ "make ", "busted", "luacheck", "docker", "bash scripts", "%./" }) do
+                assert.is_falsy(job.text:find(banned), "the deciding job runs " .. banned)
+            end
+        end)
+
+        -- The UI files are the ones that create frames. A new one has to join
+        -- the list, or its changes would skip the simulator.
+        it("lists every root Lua file that creates a frame as a UI file (white)", function()
+            local filter = jobs.changes.text:match("(Battleground%.lua.-Window%.lua)") or ""
+            assert.is_truthy(filter:find("Options.lua", 1, true), "couldn't find the UI file list")
+            local p = io.popen("cd '" .. wow.ROOT .. "' && grep -l CreateFrame *.lua")
+            local found = 0
+            for file in p:read("*a"):gmatch("[^\n]+") do
+                found = found + 1
+                assert.is_truthy(filter:find(file, 1, true), file .. " creates frames but isn't a UI file")
+            end
+            p:close()
+            assert.is_true(found >= 8, "expected the files that create frames, found " .. found)
+            for _, file in ipairs({ "OptionsIndex.lua", "Nameplates.lua" }) do
+                assert.is_truthy(filter:find(file, 1, true), file .. " is a UI file")
+            end
+        end)
+
+        -- Runs the decision itself on a throw-away repository shaped like a
+        -- pull request's merge commit (its first parent is the base).
+        it("says true for a UI file, the workflow or a hand start, and false for logic and docs (white, black)", function()
+            local script = jobs.changes.text:match("run: |\n(.-)\n\n") or jobs.changes.text:match("run: |\n(.*)$")
+            assert.is_truthy(script and script:find("set %-u"), "couldn't find the deciding script")
+            local dir = io.popen("mktemp -d"):read("*l")
+            local body = io.open(dir .. "/decide.sh", "w")
+            body:write((script:gsub("\n          ", "\n"):gsub("^%s+", "")))
+            body:close()
+            local function sh(command) return os.execute("cd '" .. dir .. "/repo' && ( " .. command .. " ) >/dev/null 2>&1") == 0 end
+            local function answer(event, before)
+                local out = io.popen("cd '" .. dir .. "/repo' && : > ../out && GITHUB_OUTPUT='" .. dir .. "/out' EVENT=" .. event
+                    .. " BEFORE='" .. (before or "") .. "' bash ../decide.sh >/dev/null 2>&1; cat ../out"):read("*a")
+                return out:match("ui=(%a+)")
+            end
+            local change = 0
+            local function pullRequest(files)
+                sh("git checkout -q -B base && git reset -q --hard root")
+                sh("git checkout -q -B pr && git reset -q --hard root")
+                for _, file in ipairs(files) do
+                    change = change + 1
+                    sh("mkdir -p $(dirname '" .. file .. "') && echo " .. change .. " >> '" .. file .. "'")
+                end
+                sh("git add -A && git commit -q -m change")
+                sh("git checkout -q base && git merge -q --no-ff -m merge pr")
+                return answer("pull_request")
+            end
+            os.execute("mkdir '" .. dir .. "/repo'")
+            assert.is_true(sh("git init -q && git config user.email a@b && git config user.name a"
+                .. " && mkdir uitests docs && echo 1 > Greeter.lua && echo 1 > Options.lua && echo 1 > docs/a.md"
+                .. " && echo 1 > uitests/x.lua && git add -A && git commit -q -m root && git tag root"))
+            local cases = {
+                { { "Greeter.lua", "docs/a.md" }, "false" },
+                { { "Greeter.lua", "Options.lua" }, "true" },
+                { { "uitests/x.lua" }, "true" },
+                { { ".github/workflows/ui-sim.yml" }, "true" },
+                { { "Media/a.tga", "FriendlyForever.toc" }, "true" },
+                { { "docs/new.md", "spec/x_spec.lua", "CHANGELOG.md" }, "false" },
+                -- Only the root files count, not a same-named file in a folder.
+                { { "docs/Options.lua", "docs/notes.xml" }, "false" },
+            }
+            for _, case in ipairs(cases) do
+                assert.are.equal(case[2], pullRequest(case[1]), table.concat(case[1], ", "))
+            end
+            assert.are.equal("true", answer("workflow_dispatch"))
+            -- No commit to compare with: run the simulator.
+            assert.are.equal("true", answer("push", "0000000000000000000000000000000000000000"))
+            assert.are.equal("true", answer("push", ""))
+            assert.are.equal("true", answer("push", "not-a-sha"))
+            assert.are.equal("false", (function()
+                sh("git checkout -q -B main root && echo 2 >> Greeter.lua && git commit -qam logic")
+                return answer("push", io.popen("cd '" .. dir .. "/repo' && git rev-parse HEAD^"):read("*l"))
+            end)())
+            os.execute("rm -rf '" .. dir .. "'")
+        end)
     end)
 
     it("never fails CI: every job is report only", function()

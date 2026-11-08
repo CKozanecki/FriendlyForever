@@ -109,11 +109,13 @@ Claude's cloud sessions get the toolchain from the environment's setup script. T
 
   The environment keeps the installed tools for its later sessions. If the script fails, sessions don't start, and its log names the file and the host. A session that starts without the tools runs `make setup` itself.
 
+CI runs the specs in four parallel shards (`scripts/test-shards.sh` splits the files, the slow ones spread out; `make test` still runs them all, and `make test SPECS="spec/a_spec.lua"` runs some). `check` is the one required job on `main`: it passes only when lint and packaging and every shard did, and when every spec file is in exactly one shard (#218).
+
 CI also builds the zip with the BigWigs packager that releases use, and fails if its files differ from `make package`'s. If that check fails, add the new top-level file to `.pkgmeta`'s `ignore` list, or to the TOC if it should ship.
 
 ## UI simulator
 
-The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://github.com/Osso/wow-ui-sim), a headless WoW client that runs Blizzard's real UI code (#49). It runs on pull requests and on `main` whenever addon code, the TOC, the packaging or `uitests/` changes. It's report only: it never fails CI, and nothing it produces is trusted.
+The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://github.com/Osso/wow-ui-sim), a headless WoW client that runs Blizzard's real UI code (#49). It runs on every pull request and push to `main`, but its `changes` job skips the simulator unless a file that can change what players see was touched (#218): the root Lua files that create frames (`grep -l CreateFrame *.lua`, plus `OptionsIndex.lua` and `Nameplates.lua`), the TOC, `*.xml`, `Media/`, `uitests/`, `.pkgmeta`, `scripts/package.sh`, `scripts/ui-sim-harness.lua` and the workflow itself; a hand start always runs it. A skipped job counts as passing, and doubt means it runs. It's report only: it never fails CI, and nothing it produces is trusted.
 
 - **What it runs:**
   - **Lua errors** from loading, and the addon's frame tree.
