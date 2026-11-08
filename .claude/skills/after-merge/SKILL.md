@@ -5,7 +5,7 @@ description: What the driver of a ready Friendly Forever pull request does after
 
 # After a merge
 
-The rule is CLAUDE.md's "Several sessions at once" → **After each merge**, and the review re-confirmation rule in its Reviews section. CONTRIBUTING.md's [Ready for review](../../../CONTRIBUTING.md#ready-for-review) is the bar to meet again. This skill is the procedure. Where it and those files differ, they win and this file is fixed.
+The rule is AGENTS.md's "Several sessions at once" → **After each merge**, and the review re-confirmation rule in its Reviews section. CONTRIBUTING.md's [Ready for review](../../../CONTRIBUTING.md#ready-for-review) is the bar to meet again. This skill is the procedure. Where it and those files differ, they win and this file is fixed.
 
 Only the driver of a PR does this to it. If it isn't your PR, message its driver instead.
 
@@ -20,7 +20,7 @@ When the owner or the coordinator says a PR has merged. GitHub doesn't notify se
    git fetch origin main
    git merge origin/main
    ```
-   Never force-push. (A branch that must be rebased is pushed under a new name, per CLAUDE.md.)
+   Never force-push. (A branch that must be rebased is pushed under a new name, per AGENTS.md.)
 2. **Resolve conflicts** keeping both sides' intent: `-- Spec:` headers get both issue numbers, `### Unreleased` keeps both bullets. If both sides changed the same logic and either choice loses behaviour, ask the other PR's driver.
 3. **`make check`** on the merged tree, after `git add` of anything new.
 4. **Both review loops confirm the merge,** architecture then testing, using the `lua-architect` and `lua-tester` agents. Give them the merge commit's range (`<old head>..<merge commit>`) and say what conflicted. A clean merge still goes back to them, since the merged code can interact with yours (#85, #88, #93 recorded each confirmation).

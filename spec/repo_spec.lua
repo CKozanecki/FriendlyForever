@@ -1,4 +1,4 @@
--- Spec: #49, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #172
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -333,6 +333,197 @@ describe("UI simulator workflow", function()
         end
     end)
 
+    -- #170: the finished build is cached, keyed on everything that shapes it.
+    describe("simulator build cache (#170)", function()
+        local build, keyStep, restore, save
+
+        setup(function()
+            build = jobs["simulator"]
+            for _, step in ipairs(build.steps) do
+                if step.text:find("id: key", 1, true) then keyStep = step end
+                if step.text:find("actions/cache/restore@", 1, true) then restore = step end
+                if step.text:find("actions/cache/save@", 1, true) then save = step end
+            end
+        end)
+
+        it("keys the cache on every pin and build setting the build uses (black)", function()
+            assert.is_truthy(keyStep and restore and save, "the key, restore and save steps are missing")
+            -- Every variable the fetch, image and build steps read, besides
+            -- the repository URLs, must be in the key's hash.
+            local used = {}
+            for _, step in ipairs(build.steps) do
+                if step ~= keyStep then
+                    for var in step.text:gmatch("%$[{]?([A-Z][A-Z_]+)") do
+                        if var:find("^SIM_") or var:find("^BUILD_") or var:find("^BLIZZARD_") then used[var] = true end
+                    end
+                end
+            end
+            for _, var in ipairs({ "SIM_COMMIT", "BLIZZARD_UI_COMMIT", "BUILD_BASE", "BUILD_PACKAGES", "BUILD_FEATURES", "BUILD_STRIP" }) do
+                assert.is_true(used[var], var .. " is no longer used by the build; update this check")
+            end
+            for var in pairs(used) do
+                if var ~= "SIM_REPO" then
+                    assert.is_truthy(keyStep.text:find("$" .. var, 1, true), "the cache key leaves out " .. var)
+                end
+            end
+            assert.is_truthy(keyStep.text:find("sha256sum", 1, true), "the key isn't a hash of its inputs")
+            -- The workflow file's own hash is in the key, so editing any
+            -- build step, even a literal flag, misses the cache.
+            assert.is_truthy(keyStep.text:find("hashFiles('.github/workflows/ui-sim.yml')", 1, true), "the key leaves out the workflow file's hash")
+            assert.is_truthy(keyStep.text:find('"workflow=$WORKFLOW_HASH"', 1, true), "the workflow hash isn't in the key's inputs")
+            assert.is_truthy(build.text:find("sparse-checkout: .github/workflows/ui-sim.yml", 1, true), "the workflow file isn't checked out for the hash")
+            assert.is_truthy(build.text:find("sparse-checkout-cone-mode: false", 1, true), "the sparse checkout reads the path as a folder")
+            local checkoutAt, keyAt
+            for i, step in ipairs(build.steps) do
+                if step.text:find("actions/checkout@", 1, true) then checkoutAt = i end
+                if step == keyStep then keyAt = i end
+            end
+            assert.is_truthy(checkoutAt and keyAt and checkoutAt < keyAt, "the workflow file is checked out after the key is worked out")
+            -- Both cache steps use the one computed key, and cache the staged folder.
+            for _, step in ipairs({ restore, save }) do
+                assert.are.equal("${{ steps.key.outputs.key }}", step.text:match("\n%s*key:%s*([^\n]+)"), "a cache step doesn't use the computed key")
+                assert.are.equal("${{ runner.temp }}/ui-sim-build", step.text:match("\n%s*path:%s*([^\n]+)"), "a cache step doesn't cache the staged build")
+            end
+        end)
+
+        -- A step's run: block, as the shell gets it, run for real in a fresh
+        -- folder: env is a table of variables, and prepare(dir) builds the
+        -- fixture. Returns the exit status, the log and the folder's reader.
+        local function runBlock(step, env, prepare)
+            local block = step.text:match("run: |\n(.*)$")
+            assert.is_truthy(block, "the step has no run block")
+            local dir = os.tmpname()
+            os.remove(dir)
+            assert.is_true(os.execute("mkdir -p '" .. dir .. "'") == 0)
+            if prepare then prepare(dir) end
+            local f = assert(io.open(dir .. "/run.sh", "wb"))
+            -- Dedent the block evenly.
+            local indent = block:match("^( *)")
+            local body = {}
+            for line in (block .. "\n"):gmatch("([^\n]*)\n") do body[#body + 1] = (line:gsub("^" .. indent, "", 1)) end
+            f:write("set -eo pipefail\nRUNNER_TEMP='" .. dir .. "'\nGITHUB_OUTPUT='" .. dir .. "/out'\n")
+            for name, value in pairs(env or {}) do f:write(name .. "='" .. value .. "'\n") end
+            f:write(table.concat(body, "\n"), "\n")
+            f:close()
+            local status = os.execute("bash '" .. dir .. "/run.sh' > '" .. dir .. "/step.log' 2>&1")
+            local function read(name)
+                local file = io.open(dir .. "/" .. name, "rb")
+                local content = file and file:read("*a") or ""
+                if file then file:close() end
+                return content
+            end
+            local result = { status = status, log = read("step.log"), out = read("out") }
+            os.execute("rm -rf '" .. dir .. "'")
+            return result
+        end
+
+        it("really changes the key when any one input changes (black)", function()
+            local base = { SIM_COMMIT = "a", BLIZZARD_UI_COMMIT = "b", BUILD_BASE = "c", BUILD_PACKAGES = "d",
+                BUILD_FEATURES = "e", BUILD_STRIP = "f", WORKFLOW_HASH = "g" }
+            local function key(env)
+                local r = runBlock(keyStep, env)
+                assert.is_true(r.status == 0 or r.status == true, "the key step failed: " .. r.log)
+                local hash = r.out:match("^key=wow%-ui%-sim%-build%-(%x+)\n$")
+                assert.is_truthy(hash and #hash == 64, "the key isn't a 64-character hash: " .. r.out)
+                return hash
+            end
+            local empty = {}
+            for k, v in pairs(base) do empty[k] = v end
+            empty.WORKFLOW_HASH = ""
+            local refused = runBlock(keyStep, empty)
+            assert.is_false(refused.status == 0 or refused.status == true, "an empty workflow hash gives a key anyway")
+            local first = key(base)
+            assert.are.equal(first, key(base), "the same inputs give another key")
+            -- WORKFLOW_HASH is named in the step's env: block, from the file's hash.
+            assert.is_truthy(keyStep.text:find("WORKFLOW_HASH: ${{ hashFiles('.github/workflows/ui-sim.yml') }}", 1, true),
+                "WORKFLOW_HASH isn't the workflow file's hash")
+            for name in pairs(base) do
+                local changed = {}
+                for k, v in pairs(base) do changed[k] = v end
+                changed[name] = base[name] .. "x"
+                assert.are_not.equal(first, key(changed), "changing " .. name .. " doesn't change the key")
+            end
+        end)
+
+        it("refuses a restored or built tree with a link, a special file or a missing part (black)", function()
+            local check
+            for _, step in ipairs(build.steps) do
+                if step.text:find("Check the staged files", 1, true) then check = step end
+            end
+            local function tree(dir)
+                local o = dir .. "/ui-sim-build"
+                assert.is_true(os.execute("mkdir -p '" .. o .. "/sim/Interface/AddOns/TestFramework' '" .. o
+                    .. "/blizzard-ui/AddOns/Blizzard_X' && touch '" .. o .. "/sim/wow-sim' '" .. o
+                    .. "/blizzard-ui/AddOns/Blizzard_X/a.lua' '" .. o .. "/blizzard-ui/AddOns/.marker'") == 0)
+            end
+            local function result(extra)
+                local r = runBlock(check, {}, function(dir)
+                    tree(dir)
+                    if extra then assert.is_true(os.execute(extra:gsub("OUT", dir .. "/ui-sim-build")) == 0, "fixture failed: " .. extra) end
+                end)
+                return r.status == 0 or r.status == true
+            end
+            assert.is_true(result(), "a complete tree of plain files is refused")
+            local bad = {
+                "rm OUT/sim/wow-sim && ln -s /bin/sh OUT/sim/wow-sim",
+                "rm OUT/sim/wow-sim",
+                "mkdir OUT/../plain-target && touch OUT/../plain-target/a && ln -s ../../../../plain-target OUT/blizzard-ui/AddOns/Blizzard_X/deep",
+                "touch OUT/../plain-target-file && ln -s ../../../../plain-target-file OUT/blizzard-ui/AddOns/Blizzard_X/deepfile",
+                "mkfifo OUT/sim/Interface/AddOns/TestFramework/pipe",
+                "rmdir OUT/sim/Interface/AddOns/TestFramework",
+                "rm -r OUT/blizzard-ui/AddOns",
+            }
+            for _, extra in ipairs(bad) do
+                assert.is_false(result(extra), "the check passes for: " .. extra)
+            end
+            assert.is_falsy(check.text:find("||", 1, true), "the check can be made to pass with ||")
+            assert.is_falsy(check.text:find("%f[%w]if:") or check.text:find("continue%-on%-error"), "the check can be skipped or made non-blocking")
+        end)
+
+        it("restores only the exact key, never a prefix (black)", function()
+            assert.is_falsy(restore.text:find("restore-keys", 1, true), "a prefix restore could bring back an older build")
+        end)
+
+        it("skips the fetch and build on a hit, and saves only after a miss (white)", function()
+            local steps = {}
+            for i, step in ipairs(build.steps) do
+                local skipped = step.text:find("if: steps.sim-cache.outputs.cache-hit != 'true'", 1, true) ~= nil
+                steps[#steps + 1] = { name = step.text, skipped = skipped, index = i }
+            end
+            local function find(fragment)
+                for _, entry in ipairs(steps) do
+                    if entry.name:find(fragment, 1, true) then return entry end
+                end
+                error("no step " .. fragment)
+            end
+            assert.is_truthy(restore.text:find("\n%s*id:%s*sim%-cache\n"), "the skip conditions read an id the restore step doesn't have")
+            for _, fragment in ipairs({ "Fetch the simulator", "Build a build image", "Download the simulator", "Build the simulator", "Stage the simulator", "Save the staged" }) do
+                assert.is_true(find(fragment).skipped, fragment .. " runs on a cache hit")
+            end
+            for _, fragment in ipairs({ "Work out the cache key", "Restore the staged", "Check the staged files", "actions/upload-artifact" }) do
+                assert.is_false(find(fragment).skipped, fragment .. " is skipped on a hit")
+            end
+            assert.is_true(find("Work out").index < find("Restore the staged").index, "the key comes after the restore")
+            assert.is_true(find("Restore the staged").index < find("Fetch the simulator").index, "the restore comes after the fetch")
+            assert.is_true(find("Stage the simulator").index < find("Check the staged files").index
+                and find("Check the staged files").index < find("Save the staged").index
+                and find("Save the staged").index < find("actions/upload").index, "nothing unchecked may be saved: stage, check, save, upload")
+        end)
+
+        it("checks a restored build holds only plain files before it is uploaded (black)", function()
+            local check
+            for _, step in ipairs(build.steps) do
+                if step.text:find("Check the staged files", 1, true) then check = step end
+            end
+            assert.is_truthy(check, "no check of the staged files")
+            assert.is_falsy(check.text:find("cache%-hit"), "the check is skipped on a hit")
+            assert.is_truthy(check.text:find('test -f "$out/sim/wow-sim"', 1, true), "the binary isn't checked as a file")
+            assert.is_truthy(check.text:find('test ! -L "$out/sim/wow-sim"', 1, true), "the binary isn't checked as not a link")
+            assert.is_truthy(check.text:find("! -type f ! -type d", 1, true), "links and special files in the tree aren't refused")
+            assert.is_falsy(text:find("cargo%-home\n%s+%${{ runner%.temp }}/sim%-target"), "the old cargo cache is still cached")
+        end)
+    end)
+
     -- #154: the maintainer's fixes, reviewed on #154 before the pin moved.
     -- There's no published image at that commit, and release binaries are
     -- never used, so the simulator job builds it and the others run that.
@@ -355,7 +546,8 @@ describe("UI simulator workflow", function()
         local stripped = false
         for _, command in ipairs(buildRun) do
             if command:find("cargo build", 1, true) then
-                stripped = command:find("-e CARGO_PROFILE_RELEASE_STRIP=symbols", 1, true) ~= nil
+                stripped = command:find('-e CARGO_PROFILE_RELEASE_STRIP="$BUILD_STRIP"', 1, true) ~= nil
+                    and text:find("\n%s*BUILD_STRIP: symbols\n") ~= nil
             end
         end
         assert.is_true(stripped, "the build doesn't strip the binary in its sandbox")
@@ -465,53 +657,76 @@ describe("UI simulator workflow", function()
         local sandboxLimit = tonumber(joined:match("timeout %-s TERM %-k 10 (%d+) docker run[^\n]*\"%$@\""))
         local sizedLimit = tonumber(joined:match("timeout %-s TERM %-k 10 (%d+) docker run[^\n]*layout%.lua"))
         assert.is_truthy(sandboxLimit and sizedLimit, "the limits can't be read")
-        local calls = select(2, joined:gsub("\n%s*sandbox %l", ""))
+        local calls = select(2, joined:gsub("\n%s*attempt %S+ [^\n]* sandbox %l", ""))
         local sizes = select(2, (text:match("LAYOUT_SIZES: ([^\n]+)") or ""):gsub("%S+", ""))
         local jobLimit = tonumber(job.text:match("\n%s*timeout%-minutes: (%d+)"))
-        local worst = calls * (sandboxLimit + 10) + sizes * (sizedLimit + 10)
+        assert.is_truthy(joined:find('\n%s*attempt "layout%-%$size" [^\n]* sized "%$size"\n'), "the sized passes aren't retried")
+        -- Each run can run twice: once more when it's stopped (#173).
+        local worst = 2 * (calls * (sandboxLimit + 10) + sizes * (sizedLimit + 10))
         assert.are.equal(3, calls, "expected lua-errors, run-tests and dump-tree")
         assert.is_true(worst + 180 <= jobLimit * 60, "the runs' limits don't fit in the job's")
         assert.is_truthy(job.text:find('echo "$1: exit $status after', 1, true), "the log doesn't say how each run ended")
     end)
 
-    -- The run step's own shell, as the job runs it: sandbox() and the sized
-    -- passes, with a stand-in docker that finishes, fails or hangs, and the
-    -- limits cut to 2 s. A hang must show as 124 in the step's log, naming
-    -- the run, and the report files must keep only the simulator's output
-    -- (#154's testing review).
+    -- The run step's own shell, as the job runs it (bash -e -o pipefail), with
+    -- a stand-in docker that finishes, fails, hangs, or hangs only the first
+    -- time it's given each command, and the limits cut to 2 s. A hang must
+    -- show as 124 in the step's log, naming the run, and the report files
+    -- must keep only the simulator's output (#154's testing review). A run
+    -- that hangs runs once more, keeping what the stopped one wrote, and
+    -- runs.txt says how each attempt ended (#173).
     describe("the scenario job's run step, run for real (black)", function()
         local function runStep(mode)
             local workflow = wow.readFile(path)
-            local sandbox = workflow:match("\n(%s*exec 3>&1\n.-\n%s*}\n)")
-            local sized = workflow:match("\n(%s*for size in %$LAYOUT_SIZES; do\n%s*# Stopped after.-\n%s*done)\n")
-            assert.is_truthy(sandbox, "no sandbox() in the run step")
-            assert.is_truthy(sized, "no sized passes in the run step")
-            local function short(block) return (block:gsub("timeout %-s TERM %-k 10 %d+", "timeout -s TERM -k 1 2")) end
+            local step = workflow:match("name: Run the simulator[^\n]*\n%s*run: |\n(.-)\n\n%s*%- name:")
+            assert.is_truthy(step, "no run step")
+            assert.is_truthy(step:find("sized() {", 1, true), "no sized passes in the run step")
+            step = step:gsub("timeout %-s TERM %-k 10 %d+", "timeout -s TERM -k 1 2")
             local dir = os.tmpname()
             os.remove(dir)
-            assert.is_true(os.execute("mkdir -p '" .. dir .. "/bin' '" .. dir .. "/report'") == 0)
+            assert.is_true(os.execute("mkdir -p '" .. dir .. "/bin' '" .. dir .. "/report' '" .. dir .. "/seen'") == 0)
             local fake = assert(io.open(dir .. "/bin/docker", "w"))
-            fake:write("#!/bin/sh\ncase \"$FAKE\" in\n  hang) exec sleep 30 ;;\n  fail) echo body; exit 3 ;;\n  *) echo body ;;\nesac\n")
+            fake:write("#!/bin/sh\nseen='" .. dir .. "/seen/'$(echo \"$*\" | cksum | cut -d' ' -f1)\n",
+                "case \"$*\" in *lua-errors*) echo partial-err >&2 ;; esac\n",
+                "case \"$FAKE\" in\n  hang) echo partial; exec sleep 30 ;;\n",
+                "  once) if [ -e \"$seen\" ]; then echo body; else touch \"$seen\"; echo partial; exec sleep 30; fi ;;\n",
+                "  fail) echo body; exit 3 ;;\n  *) echo body ;;\nesac\n")
             fake:close()
             local script = assert(io.open(dir .. "/run.sh", "w"))
-            script:write("set -e\nRUNNER_TEMP='" .. dir .. "'\nPATH='" .. dir .. "/bin':\"$PATH\"\nLAYOUT_SIZES=1024x768\n",
-                short(sandbox),
-                'sandbox lua-errors > "$RUNNER_TEMP/report/lua-errors.json" 2> "$RUNNER_TEMP/report/lua-errors.log" || true\n',
-                'sandbox run-tests FriendlyForever > "$RUNNER_TEMP/report/run-tests.log" 2>&1 || true\n',
-                short(sized), "\necho finished\n")
+            script:write("set -eo pipefail\nRUNNER_TEMP='" .. dir .. "'\nPATH='" .. dir .. "/bin':\"$PATH\"\nLAYOUT_SIZES=1024x768\n",
+                step, "\necho finished\n")
             script:close()
             os.execute("chmod +x '" .. dir .. "/bin/docker'")
             local status = os.execute("FAKE=" .. mode .. " bash '" .. dir .. "/run.sh' > '" .. dir .. "/step.log' 2>&1")
             local function read(name)
                 local f = io.open(dir .. "/" .. name)
-                local content = f and f:read("*a") or ""
+                local content = f and f:read("*a")
                 if f then f:close() end
                 return content
             end
             local result = { status = status, step = read("step.log"), report = read("report/run-tests.log"),
-                layout = read("report/layout-1024x768.log") }
+                layout = read("report/layout-1024x768.log"), runs = read("runs.txt"),
+                stopped = read("report/run-tests.log.timed-out"), stoppedJson = read("report/lua-errors.json.timed-out"),
+                stoppedLayout = read("report/layout-1024x768.log.timed-out"),
+                stoppedErrors = read("report/lua-errors.log.timed-out") }
             os.execute("rm -rf '" .. dir .. "'")
             return result
+        end
+
+        -- Each attempt's seconds, in runs.txt's order.
+        local function times(runs)
+            local list = {}
+            for seconds in (runs or ""):gmatch("%S+ %d %d+ (%d+)\n") do list[#list + 1] = tonumber(seconds) end
+            return list
+        end
+
+        -- runs.txt's lines, as { name, attempt, exit } strings.
+        local function attempts(runs)
+            local list = {}
+            for name, try, status in (runs or ""):gmatch("(%S+) (%d) (%d+) %d+\n") do
+                list[#list + 1] = name .. " " .. try .. " " .. status
+            end
+            return list
         end
 
         it("says each run finished, in the step's log, and keeps the report to the simulator's output", function()
@@ -523,18 +738,23 @@ describe("UI simulator workflow", function()
             assert.are.equal("body\n", r.report)
             assert.are.equal("body\n", r.layout)
             assert.is_truthy(r.step:find("finished", 1, true))
+            -- (white, #173) Each run once, and nothing kept as stopped.
+            assert.are.same({ "lua-errors 1 0", "run-tests 1 0", "dump-tree 1 0", "layout-1024x768 1 0" }, attempts(r.runs))
+            assert.is_nil(r.stopped)
+            assert.is_nil(r.stoppedLayout)
         end)
 
-        it("reports a failing run's own exit code, and carries on", function()
+        it("reports a failing run's own exit code, and carries on without running it again", function()
             local r = runStep("fail")
             assert.are.equal(0, r.status)
             assert.is_truthy(r.step:find("run%-tests: exit 3 after"), r.step)
             assert.is_truthy(r.step:find("layout pass 1024x768: exit 3", 1, true), r.step)
             assert.are.equal("body\n", r.report)
             assert.is_truthy(r.step:find("finished", 1, true))
+            assert.are.same({ "lua-errors 1 3", "run-tests 1 3", "dump-tree 1 3", "layout-1024x768 1 3" }, attempts(r.runs))
         end)
 
-        it("stops a hung run at its limit, says 124 with the time it ran, and carries on", function()
+        it("stops a hung run at its limit, says 124 with the time it ran, runs it once more, and carries on", function()
             local r = runStep("hang")
             assert.are.equal(0, r.status)
             local seconds = tonumber(r.step:match("run%-tests: exit 124 after (%d+) s"))
@@ -542,8 +762,190 @@ describe("UI simulator workflow", function()
             assert.is_true(seconds >= 2 and seconds <= 3, "run-tests' time counts from before it started: " .. seconds)
             assert.is_truthy(r.step:find("lua%-errors: exit 124 after"), r.step)
             assert.is_truthy(r.step:find("layout pass 1024x768: exit 124", 1, true), r.step)
-            assert.are.equal("", r.report, "the exit line went into the report")
+            assert.are.equal("partial\n", r.report, "the exit line went into the report")
             assert.is_truthy(r.step:find("finished", 1, true))
+            -- (black, #173) Twice each, never a third time, with the first
+            -- attempt's output kept beside the second's.
+            assert.are.same({ "lua-errors 1 124", "lua-errors 2 124", "run-tests 1 124", "run-tests 2 124",
+                "dump-tree 1 124", "dump-tree 2 124", "layout-1024x768 1 124", "layout-1024x768 2 124" }, attempts(r.runs))
+            assert.are.equal("partial\n", r.stopped)
+            assert.are.equal("partial\n", r.stoppedJson)
+            assert.are.equal("partial-err\n", r.stoppedErrors, "the stopped run's stderr isn't kept")
+            -- Each attempt's own time, from its own start, at the 2 s limit.
+            for i, took in ipairs(times(r.runs)) do
+                assert.is_true(took >= 2 and took <= 3, "attempt " .. i .. " took " .. took .. " s")
+            end
+            assert.are.equal("partial\n", r.stoppedLayout)
+        end)
+
+        it("keeps a run that hung once and then finished as the report, and the stopped one beside it (white)", function()
+            local r = runStep("once")
+            assert.are.equal(0, r.status)
+            assert.are.same({ "lua-errors 1 124", "lua-errors 2 0", "run-tests 1 124", "run-tests 2 0",
+                "dump-tree 1 124", "dump-tree 2 0", "layout-1024x768 1 124", "layout-1024x768 2 0" }, attempts(r.runs))
+            assert.are.equal("body\n", r.report)
+            assert.are.equal("body\n", r.layout)
+            assert.are.equal("partial\n", r.stopped)
+            assert.are.equal("partial\n", r.stoppedLayout)
+            assert.is_truthy(r.step:find("finished", 1, true))
+            -- The stopped attempts ran to the 2 s limit; each retry is timed from its own start.
+            local seconds = times(r.runs)
+            assert.are.equal(8, #seconds)
+            for i = 1, 8, 2 do
+                assert.is_true(seconds[i] >= 2 and seconds[i] <= 3, "a stopped attempt took " .. seconds[i] .. " s")
+                assert.is_true(seconds[i + 1] < 2, "a retry's time counts the stopped attempt: " .. seconds[i + 1])
+            end
+        end)
+    end)
+
+    -- The summary step's own shell, as the job runs it, on a report in which
+    -- runs were stopped at their time limit (#173). Each one stopped is named
+    -- at the top of the summary, with its last scenario and the end of its
+    -- log, and in an annotation, and the job never fails. The logs are
+    -- hostile: none of their text reaches the job log, where the runner reads
+    -- commands, and none can close the summary's code blocks.
+    describe("the scenario job's summary of runs stopped at their time limit, run for real", function()
+        local HOSTILE = "START 6 an unknown command is answered, not an error\nLAYOUT ok 1024x768 panel\n"
+            .. "START 7 ::error::seven\n```\n::warning::hostile\nx ##[set-env name=A;]b\r::error::carriage\n"
+            .. "START 12::error::bad\nthe last line\n"
+
+        local function summarize(runs, logs)
+            local workflow = wow.readFile(path)
+            local step = workflow:match("name: Summary\n%s*run: |\n(.-)\n\n")
+            assert.is_truthy(step, "no summary step")
+            local dir = os.tmpname()
+            os.remove(dir)
+            assert.is_true(os.execute("mkdir -p '" .. dir .. "/report'") == 0)
+            local function write(name, content)
+                local f = assert(io.open(dir .. "/" .. name, "wb"))
+                f:write(content)
+                f:close()
+            end
+            for _, name in ipairs({ "lua-errors.json", "lua-errors.log", "run-tests.log", "frame-tree.txt",
+                "layout-1024x768.log" }) do
+                write("report/" .. name, "body\n")
+            end
+            for name, content in pairs(logs or {}) do write("report/" .. name, content) end
+            if runs then write("runs.txt", runs) end
+            write("run.sh", "set -eo pipefail\nRUNNER_TEMP='" .. dir .. "'\nLAYOUT_SIZES=1024x768\n"
+                .. "GITHUB_STEP_SUMMARY='" .. dir .. "/summary.md'\n" .. step .. "\n")
+            local status = os.execute("bash '" .. dir .. "/run.sh' > '" .. dir .. "/step.log' 2>&1")
+            local function read(name)
+                local f = io.open(dir .. "/" .. name, "rb")
+                local content = f and f:read("*a") or ""
+                if f then f:close() end
+                return content
+            end
+            local result = { status = status, log = read("step.log"), summary = read("summary.md") }
+            os.execute("rm -rf '" .. dir .. "'")
+            return result
+        end
+
+        local ALL_FINISHED = "lua-errors 1 0 3\nrun-tests 1 0 20\ndump-tree 1 0 3\nlayout-1024x768 1 0 25\n"
+
+        -- The summary's text before its first section on the Lua errors.
+        local function top(summary) return summary:match("^(.-)### Lua errors") end
+
+        -- Lines as the runner splits them: at \n, \r or \r\n.
+        local function runnerLines(out)
+            local list = {}
+            for line in (out:gsub("\r\n?", "\n") .. "\n"):gmatch("([^\n]*)\n") do list[#list + 1] = line end
+            return list
+        end
+
+        it("reports a run that finished as before, with nothing at the top and no annotation (white)", function()
+            local r = summarize(ALL_FINISHED)
+            assert.are.equal(0, r.status)
+            assert.are.equal("## UI simulator (report only)\n\n", top(r.summary))
+            assert.are.equal("", r.log)
+        end)
+
+        it("notes a run that timed out, then finished on the retry, with its last scenario (white)", function()
+            local r = summarize("lua-errors 1 0 3\nrun-tests 1 124 130\nrun-tests 2 0 21\ndump-tree 1 0 3\nlayout-1024x768 1 0 25\n",
+                { ["run-tests.log.timed-out"] = HOSTILE })
+            assert.are.equal(0, r.status)
+            local head = top(r.summary)
+            assert.is_truthy(head:find("### ⚠️ The main pass (run-tests, at 1600x1200) timed out once, and ran again (exit 0)", 1, true), head)
+            assert.is_truthy(head:find("Stopped after 130 s, on attempt 1 of 2.", 1, true), head)
+            assert.is_truthy(head:find("```\n| START 12::error::bad\n```", 1, true), head)
+            assert.is_falsy(head:find("incomplete", 1, true), "a retry that finished is reported as lost")
+            assert.are.equal("::notice title=UI simulator: a run timed out once::The main pass (run-tests, at 1600x1200) was "
+                .. "stopped at its time limit and ran again (exit 0). Last scenario started: 12.\n", r.log)
+        end)
+
+        it("names a run that timed out twice at the top, with its size and last scenario, and never fails the job (black)", function()
+            local r = summarize("lua-errors 1 0 3\nrun-tests 1 0 20\ndump-tree 1 0 3\nlayout-1024x768 1 124 310\n"
+                .. "layout-1024x768 2 124 310\n",
+                { ["layout-1024x768.log.timed-out"] = "START 3 first try\n", ["layout-1024x768.log"] = HOSTILE })
+            assert.are.equal(0, r.status)
+            local head = top(r.summary)
+            local first = head:find("### ⚠️ The layout pass at 1024x768 timed out once, and ran again (exit 124)", 1, true)
+            local second = head:find("### ⚠️ The layout pass at 1024x768 timed out twice: its results are incomplete", 1, true)
+            assert.is_truthy(first and second and first < second, head)
+            assert.is_truthy(head:find("```\n| START 3 first try\n```", 1, true), head)
+            assert.is_truthy(head:find("```\n| START 12::error::bad\n```", 1, true), head)
+            assert.is_truthy(head:find("| the last line\n```", 1, true), "the end of the log isn't shown")
+            assert.is_truthy(head:find("| x ##(set-env name=A;]b\n| ::error::carriage\n| START 12::error::bad\n| the last line\n```", 1, true),
+                "the end of the log isn't its last lines, marked")
+            assert.is_truthy(head:find("\n| ```\n", 1, true), "a fence line in the log isn't shown, marked")
+            local log = runnerLines(r.log)
+            assert.are.same({
+                "::notice title=UI simulator: a run timed out once::The layout pass at 1024x768 was stopped at its time "
+                    .. "limit and ran again (exit 124). Last scenario started: 3.",
+                "::warning title=UI simulator: a run timed out twice::The layout pass at 1024x768 was stopped at its time "
+                    .. "limit twice, so its results (LAYOUT lines included) are incomplete. Last scenario started: 12. "
+                    .. "See the run's summary.",
+                "" }, log)
+        end)
+
+        it("reports as before when the run step wrote no runs.txt (black)", function()
+            local r = summarize(nil)
+            assert.are.equal(0, r.status)
+            assert.are.equal("## UI simulator (report only)\n\n", top(r.summary))
+            assert.are.equal("", r.log)
+        end)
+
+        it("shows the end of the frame tree's log when dump-tree timed out (black)", function()
+            local r = summarize("lua-errors 1 0 3\nrun-tests 1 0 20\ndump-tree 1 124 130\ndump-tree 2 124 130\n"
+                .. "layout-1024x768 1 0 25\n", { ["frame-tree.txt.timed-out"] = "first tree\n", ["frame-tree.txt"] = "the tree end\n" })
+            local head = top(r.summary)
+            assert.is_truthy(head:find("The dump-tree run timed out twice", 1, true), head)
+            assert.is_truthy(head:find("| first tree\n", 1, true), head)
+            assert.is_truthy(head:find("| the tree end\n", 1, true), head)
+        end)
+
+        it("says none when the stopped run started no scenario (black)", function()
+            local r = summarize("lua-errors 1 124 130\nlua-errors 2 124 130\nrun-tests 1 0 20\ndump-tree 1 0 3\n"
+                .. "layout-1024x768 1 0 25\n", { ["lua-errors.log"] = "::error::nothing\n" })
+            assert.are.equal(0, r.status)
+            assert.is_truthy(top(r.summary):find("The lua-errors run timed out twice", 1, true))
+            assert.is_truthy(top(r.summary):find("```\n| ::error::nothing\n```", 1, true), "the lua-errors log isn't shown")
+            assert.is_truthy(r.log:find("Last scenario started: none.", 1, true), r.log)
+            assert.is_falsy(r.log:find("nothing", 1, true), "the log's text reached the annotation")
+        end)
+
+        it("keeps every line of a stopped run's log inside the summary's code blocks, and out of the job log (black)", function()
+            local r = summarize("lua-errors 1 0 3\nrun-tests 1 124 130\nrun-tests 2 124 130\ndump-tree 1 0 3\n"
+                .. "layout-1024x768 1 0 25\n", { ["run-tests.log.timed-out"] = HOSTILE, ["run-tests.log"] = HOSTILE })
+            assert.are.equal(0, r.status)
+            local inside = false
+            for _, line in ipairs(runnerLines(top(r.summary))) do
+                if line == "```" then
+                    inside = not inside
+                elseif inside then
+                    assert.is_truthy(line:find("^| "), "a log line isn't marked in the summary: " .. line)
+                end
+            end
+            assert.is_false(inside, "a code block is left open")
+            -- Failures name the words only: printing a line would make a false CI annotation.
+            for _, line in ipairs(runnerLines(r.log)) do
+                if line:match("^%s*::") then
+                    assert.is_truthy(line:find("^::%a+ title=UI simulator: a run timed out "), "a command that isn't ours")
+                end
+                for _, word in ipairs({ "seven", "hostile", "carriage", "bad", "set%-env", "##%[" }) do
+                    assert.is_falsy(line:find(word), "the log's text reached the job log: " .. word)
+                end
+            end
         end)
     end)
 
@@ -578,8 +980,9 @@ describe("UI simulator workflow", function()
         assert.is_truthy(layoutRun:find("dump%-tree"), "the sized pass doesn't use dump-tree, which takes a size")
         local limit = tonumber(layoutRun:match("timeout %-s TERM %-k 10 (%d+) docker run"))
         assert.is_truthy(limit and limit >= 60 and limit <= 600, "a sized pass that never exits isn't stopped in time")
-        assert.is_truthy(layoutRun:find('%-%-width "${size%%x%*}" %-%-height "${size#%*x}"'), "the size isn't passed")
-        assert.is_truthy(scenarios.text:find("for size in $LAYOUT_SIZES; do", 1, true), "no pass per size")
+        assert.is_truthy(layoutRun:find('%-%-width "${1%%x%*}" %-%-height "${1#%*x}"'), "the size isn't passed")
+        assert.is_truthy(scenarios.text:find('for size in $LAYOUT_SIZES; do\n%s*attempt "layout%-$size" [^\n]* sized "$size"\n'),
+            "no pass per size")
         local shots = jobWith(order, "shoot")
         assert.is_truthy(shots.text:find("for size in $LAYOUT_SIZES; do\n%s*WIDTH=", 1), "the screenshots aren't taken per size")
         assert.is_truthy(shots.text:find('screenshot --png --width "$WIDTH" --height "$HEIGHT" -o "/shots/$name$SUFFIX.png"', 1, true))
@@ -666,6 +1069,9 @@ describe("UI simulator workflow", function()
                     local function check(line, filtered)
                         seen = seen + 1
                         local toFile = line:find('%s>%s*"%$RUNNER_TEMP/')
+                        -- Kept as digits only, in a variable (#173): no command can be made of those.
+                        filtered = filtered or line:find("^%s*[%w_]+=%$%([^);&]*| tr %-cd '0%-9'%)%s*|| true%s*$") ~= nil
+                            or line:find("^%s*[%w_]+=%$%([^);&]*| tr %-cd '0%-9'%)%s*$") ~= nil
                         assert.is_truthy(filtered or toFile or line:find("| shown", 1, true),
                             job.name .. " prints unfiltered output: " .. line)
                         -- docker logs replays the container's stderr on its own.
@@ -1262,7 +1668,7 @@ describe("Toolchain setup", function()
             end
         end
         for _, path in ipairs({ "scripts", "spec", "uitests", ".github", "Makefile", "CONTRIBUTING.md", "CLAUDE.md",
-            ".busted", ".luacheckrc", ".gitignore" }) do
+            "AGENTS.md", ".busted", ".luacheckrc", ".gitignore" }) do
             assert.is_true(ignored[path], path .. " isn't in .pkgmeta's ignore list")
         end
         -- The setup script and its checksums live in an ignored folder.
@@ -1521,6 +1927,101 @@ describe("Release scripts", function()
         assert.is_nil(wow.readFile("RELEASE_NOTES.md"):find("Unreleased", 1, true))
     end)
 
+    -- package.sh moves a finished zip into place, so the zip is
+    -- never missing while another run (or a test) uses it.
+    it("package.sh never removes or damages the zip while other runs rebuild it", function()
+        local zip = run("./scripts/package.sh"):match("([^\n]*%.zip)")
+        assert.is_truthy(zip, "package script did not report a zip")
+        local script = [[
+            for i in 1 2 3; do ./scripts/package.sh >/dev/null & done
+            missing=0
+            while [ -n "$(jobs -r)" ]; do unzip -tqq "$1" >/dev/null 2>&1 || missing=$((missing+1)); done
+            wait
+            echo "missing=$missing"
+            # Another make check may be building in this dist/ too: its temporary
+            # file goes when it finishes, a leaked one never does.
+            left=1
+            for i in $(seq 1 100); do
+                left=$(ls -A dist | grep -c '^\.' || true)
+                [ "$left" = 0 ] && break
+                sleep 0.2
+            done
+            echo "$left"
+        ]]
+        local out = run("bash -c '" .. script:gsub("'", "'\\''") .. "' _ \"" .. zip .. "\"")
+        assert.is_truthy(out:find("missing=0", 1, true), out)
+        assert.is_truthy(out:find("missing=0\n0\n", 1, true), "temporary files left in dist: " .. out)
+    end)
+
+    it("release-notes.sh fails on a changelog with no version section and keeps the old notes", function()
+        local dir = os.tmpname()
+        os.remove(dir)
+        os.execute('mkdir -p "' .. dir .. '"')
+        local function write(name, body)
+            local file = io.open(dir .. "/" .. name, "wb")
+            file:write(body)
+            file:close()
+        end
+        write("CHANGELOG.md", "# Changelog\n\n### Unreleased\n\n- x\n")
+        write("NOTES.md", "old notes\n")
+        local out, code = run('./scripts/release-notes.sh "' .. dir .. '/CHANGELOG.md" "' .. dir .. '/NOTES.md"')
+        local kept = io.open(dir .. "/NOTES.md"):read("*a")
+        local left = run('ls -A "' .. dir .. '" | grep -c "^NOTES.md\\." || true')
+        os.execute('rm -rf "' .. dir .. '"')
+        assert.are_not.equal(0, code)
+        assert.is_truthy(out:find("No ## version section", 1, true), out)
+        assert.are.equal("old notes\n", kept)
+        assert.is_truthy(left:find("^0"), "temporary notes file left behind: " .. left)
+    end)
+
+    -- A temporary file in another folder (a /tmp on its own filesystem) would
+    -- make the final mv a copy, and the race would be back (#178).
+    it("package.sh and release-notes.sh make their temporary files beside the output", function()
+        local bin = os.tmpname()
+        os.remove(bin)
+        os.execute('mkdir -p "' .. bin .. '"')
+        local real = run("command -v mktemp"):match("([^\n]+)")
+        local shim = io.open(bin .. "/mktemp", "wb")
+        shim:write('#!/bin/bash\necho "$*" >> "' .. bin .. '/calls"\nexec "' .. real .. '" "$@"\n')
+        shim:close()
+        os.execute('chmod +x "' .. bin .. '/mktemp"')
+        local pkg = run('PATH="' .. bin .. ':$PATH" ./scripts/package.sh')
+        local notes = run('PATH="' .. bin .. ':$PATH" ./scripts/release-notes.sh')
+        local file = io.open(bin .. "/calls")
+        local calls = file and file:read("*a") or ""
+        if file then file:close() end
+        os.execute('rm -rf "' .. bin .. '"')
+        assert.is_truthy(pkg:find("%.zip"), pkg)
+        assert.is_truthy(notes:find("RELEASE_NOTES.md", 1, true), notes)
+        assert.is_truthy(calls:find("/dist/.FriendlyForever-", 1, true), "package.sh's temp file isn't in dist/: " .. calls)
+        assert.is_truthy(calls:find("/RELEASE_NOTES.md.", 1, true), "release-notes.sh's temp file isn't beside its output: " .. calls)
+    end)
+
+    it("two package.sh runs started together both succeed", function()
+        local out = run("./scripts/package.sh >/dev/null & p=$!; ./scripts/package.sh >/dev/null; a=$?; wait $p; b=$?; echo rc=$a$b")
+        assert.is_truthy(out:find("rc=00", 1, true), out)
+    end)
+
+    it("release-notes.sh never leaves the notes empty while other runs rewrite them", function()
+        local script = [[
+            ./scripts/release-notes.sh >/dev/null
+            for i in 1 2 3; do ./scripts/release-notes.sh >/dev/null & done
+            bad=0
+            while [ -n "$(jobs -r)" ]; do [ -s RELEASE_NOTES.md ] || bad=$((bad+1)); done
+            wait
+            echo "bad=$bad"
+            left=1
+            for i in $(seq 1 100); do
+                left=$(ls -A | grep -c '^RELEASE_NOTES.md\.' || true)
+                [ "$left" = 0 ] && break
+                sleep 0.2
+            done
+            echo "$left"
+        ]]
+        local out = run("bash -c '" .. script:gsub("'", "'\\''") .. "'")
+        assert.is_truthy(out:find("bad=0\n0\n", 1, true), out)
+    end)
+
     it("package comparison passes on matching zips and fails on different ones", function()
         local zip = run("./scripts/package.sh"):match("([^\n]*%.zip)")
         assert.is_truthy(zip, "package script did not report a zip")
@@ -1628,7 +2129,7 @@ describe("Release docs", function()
     end)
 
     describe("the real docs", function()
-        for _, path in ipairs({ "CONTRIBUTING.md", "README.md" }) do
+        for _, path in ipairs({ "CONTRIBUTING.md", "README.md", "docs/launch-day-runbook.md" }) do
             it(path .. " never tells the maintainer to create a GitHub release for the tag", function()
                 assert.are.same({}, manualReleaseSteps(wow.readFile(path)))
             end)
@@ -1762,9 +2263,34 @@ describe("Claude sessions' agents, knowledge and skills", function()
         return problems
     end
 
+    -- Model choice (#182): a family alias and an effort level in front matter,
+    -- and never a dated model ID anywhere sessions read.
+    local FAMILIES = { haiku = true, sonnet = true, opus = true, fable = true }
+    local EFFORTS = { low = true, medium = true, high = true, xhigh = true, max = true }
+
+    local function modelProblems(text)
+        local fields = frontMatter(text)
+        local problems = {}
+        if not FAMILIES[fields.model or ""] then
+            problems[#problems + 1] = "model isn't a family alias: " .. tostring(fields.model)
+        end
+        if not EFFORTS[fields.effort or ""] then
+            problems[#problems + 1] = "effort isn't a level: " .. tostring(fields.effort)
+        end
+        return problems
+    end
+
+    -- Dated or versioned model IDs, such as claude-sonnet-4-5 or claude-3-opus.
+    local function modelIds(text)
+        local found = {}
+        for id in text:lower():gmatch("claude%-[%w%-%.]*%d[%w%-%.]*") do found[#found + 1] = id end
+        return found
+    end
+
     local AGENTS = { "lua-architect", "lua-tester" }
     local SKILLS = { "after-merge", "merge-order", "coordinator" }
-    local DOCS = { "docs/forever-facts.md", "docs/simulated-client.md", "docs/ui-simulator.md" }
+    local DOCS = { "docs/forever-facts.md", "docs/simulated-client.md", "docs/ui-simulator.md",
+        "docs/agent-facts.md" }
 
     it(".pkgmeta keeps .claude/ and docs/ out of the release", function()
         local ignored = {}
@@ -1959,8 +2485,153 @@ describe("Claude sessions' agents, knowledge and skills", function()
         end)
     end
 
+    describe("the model checks themselves", function()
+        local function file(parts) return table.concat(parts, "\n") end
+
+        it("pass a family alias with an effort level, for each family and level", function()
+            for family in pairs(FAMILIES) do
+                for effort in pairs(EFFORTS) do
+                    assert.are.same({}, modelProblems(file({ "---", "name: x", "model: " .. family,
+                        "effort: " .. effort, "---" })), family .. " " .. effort)
+                end
+            end
+        end)
+
+        it("catch a missing, inherited, vague or dated model, and a missing or unknown effort (black)", function()
+            for _, model in ipairs({ "inherit", "fastest", "Opus", "claude-opus-4-1", "" }) do
+                assert.are.equal(1, #modelProblems(file({ "---", "model: " .. model, "effort: high", "---" })),
+                    model)
+            end
+            assert.are.equal(1, #modelProblems(file({ "---", "effort: high", "---" })), "no model")
+            assert.are.equal(1, #modelProblems(file({ "---", "model: opus", "effort: huge", "---" })), "huge")
+            assert.are.equal(1, #modelProblems(file({ "---", "model: opus", "---" })), "no effort")
+            assert.are.equal(2, #modelProblems("model: opus\neffort: high\n"), "no front matter")
+        end)
+
+        it("find dated and versioned model IDs, and leave aliases and other words alone", function()
+            assert.are.same({ "claude-opus-4-1", "claude-3-5-sonnet-20241022", "claude-haiku-5-5" },
+                modelIds("Use claude-opus-4-1, Claude-3-5-Sonnet-20241022 or `claude-haiku-5-5`."))
+            assert.are.same({}, modelIds("opus, sonnet, claude.ai/code, claude-code-guide, claude/182-x"))
+        end)
+    end)
+
+    for _, name in ipairs(AGENTS) do
+        it(".claude/agents/" .. name .. ".md names its model family alias and effort level", function()
+            assert.are.same({}, modelProblems(wow.readFile(".claude/agents/" .. name .. ".md")))
+        end)
+    end
+
+    -- The developer and coordinator families are being trialled (#182): until
+    -- the owner sets them, the skills keep the session default.
+    it("the skills set no model or effort while the trial runs", function()
+        for _, name in ipairs(SKILLS) do
+            local fields = frontMatter(wow.readFile(".claude/skills/" .. name .. "/SKILL.md"))
+            assert.are.same({}, { fields.model, fields.effort }, name)
+        end
+        assert.is_truthy(wow.readFile(".claude/skills/coordinator/SKILL.md"):find("For building that's a trial in progress, see #182:",
+            1, true), "the coordinator's placeholder")
+    end)
+
+    -- The owner's choice on #182: opus at high effort for both reviewers.
+    it("the reviewer agents run on opus at high effort", function()
+        for _, name in ipairs(AGENTS) do
+            local fields = frontMatter(wow.readFile(".claude/agents/" .. name .. ".md"))
+            assert.are.same({ "opus", "high" }, { fields.model, fields.effort }, name)
+        end
+    end)
+
+    it("CLAUDE.md, AGENTS.md, the PR template, the agents and the skills name no dated model ID", function()
+        local paths = { "CLAUDE.md", "AGENTS.md", ".github/pull_request_template.md" }
+        for _, name in ipairs(AGENTS) do paths[#paths + 1] = ".claude/agents/" .. name .. ".md" end
+        for _, name in ipairs(SKILLS) do paths[#paths + 1] = ".claude/skills/" .. name .. "/SKILL.md" end
+        for _, path in ipairs(paths) do assert.are.same({}, modelIds(wow.readFile(path)), path) end
+    end)
+
+    it("CLAUDE.md maps each kind of job to a family alias and an effort level", function()
+        local text = wow.readFile("CLAUDE.md")
+        local body = text:match("\n## Models and effort\n(.-)\n## ") or ""
+        for _, row in ipairs({
+            "| Lookups, searches and routine checks | `haiku` | `low` |",
+            "| Building and fixing, coordinating, and the skills | trial in progress, see #182 | trial in progress, see #182 |",
+            "| The architecture and testing reviews (`lua-architect`, `lua-tester`) | `opus` | `high` |",
+        }) do
+            assert.is_truthy(body:find(row, 1, true), row)
+        end
+        assert.is_truthy(body:find("**A review served by the wrong family doesn't count.** Run it again on the"
+            .. " family its agent names, or flag it to the owner.", 1, true), "the wrong-family rule")
+    end)
+
+    it("CLAUDE.md, the agents and the PR template record the model that served each review", function()
+        local claude = wow.readFile("CLAUDE.md")
+        assert.is_truthy(claude:find("- **Which model reviewed:** each verdict names the model that served it,",
+            1, true), "CLAUDE.md's review rule")
+        for _, name in ipairs(AGENTS) do
+            local output = section(wow.readFile(".claude/agents/" .. name .. ".md"), "Output")
+            local model = output:find("**Model,** on one line starting `Model:`", 1, true)
+            local verdict = output:find("**The verdict, as the last line", 1, true)
+            assert.is_truthy(model and verdict and model < verdict, name .. " names its model before the verdict")
+        end
+        local template = wow.readFile(".github/pull_request_template.md")
+        for _, line in ipairs({ "\n- Lua architecture review: model , effort\n",
+            "\n- Lua testing review: model , effort\n", "doesn't count: run it again, or flag it to the owner." }) do
+            assert.is_truthy(template:find(line, 1, true), line)
+        end
+    end)
+
+    it("CLAUDE.md's plan-limits rule names the account spending limit as the only sure stop", function()
+        local text = wow.readFile("CLAUDE.md")
+        local body = text:match("\n## Plan limits\n(.-)\n## ") or ""
+        for _, rule in ipairs({
+            "- **The gate is 80%.** Past 80% of the weekly plan, long work needs the owner's explicit OK, recorded"
+                .. " on the issue.",
+            "by 2% of the plan at most. If it can't be sure of that, the owner decides.",
+            "- **The reserve:** leave about 3% of the weekly plan for scheduled tasks",
+            "- **The only sure stop is the account's spending limit.**",
+            "The owner sets that limit; Claude never changes it.",
+        }) do
+            assert.is_truthy(body:find(rule, 1, true), rule)
+        end
+    end)
+
+    it("the coordinator reports low usage and model mismatches, and starts sessions on a family alias", function()
+        local text = wow.readFile(".claude/skills/coordinator/SKILL.md")
+        local checkIn = text:match("\n## The 30%-minute check%-in\n(.*)$") or ""
+        assert.is_truthy(checkIn:find("- **compare models** for each session you watch: `get_session`'s"
+            .. " `configured_model` against `session_context.model` and `external_metadata.last_served_model`",
+            1, true), "the model comparison")
+        assert.is_truthy(checkIn:find("Report any session served by another family to the owner", 1, true),
+            "the mismatch report")
+        assert.is_truthy(checkIn:find("put what's left in the check-in, even if nothing else changed", 1, true),
+            "the low-usage report")
+        assert.is_truthy(text:find("- **Starting a session:** pass the `model` parameter, a family alias", 1, true),
+            "sessions start on an alias")
+    end)
+
+    -- The after-merge skill sends drivers to AGENTS.md's Reviews section, and
+    -- CLAUDE.md keeps Claude's record of who reviewed (#186).
+    it("AGENTS.md keeps its Reviews section, with the re-confirmation rule, and CLAUDE.md its review records",
+        function()
+            local body = wow.readFile("AGENTS.md"):match("\n## Reviews\n(.-)\n## ") or ""
+            assert.is_truthy(body:find("- **Changes after an approval:**", 1, true), "Changes after an approval")
+            local records = wow.readFile("CLAUDE.md"):match("\n## Review records\n(.*)$") or ""
+            assert.is_truthy(records:find("- **Which model reviewed:**", 1, true), "Which model reviewed")
+        end)
+
+    it("AGENTS.md starts with a Start here section that links to the detail", function()
+        local text = wow.readFile("AGENTS.md")
+        local first = text:match("\n## ([^\n]*)")
+        assert.are.equal("Start here", first)
+        local body = text:match("\n## Start here\n(.-)\n## ") or ""
+        for _, words in ipairs({ "`make setup`", "`make check`", "busted spec/<name>_spec.lua",
+            "[UI simulator](CONTRIBUTING.md#ui-simulator)", "(CONTRIBUTING.md#local-setup)",
+            "(docs/simulated-client.md)", "(docs/ui-simulator.md)", "CONTRIBUTING.md stays the source of truth",
+            "**The shape of the code:**" }) do
+            assert.is_truthy(body:find(words, 1, true), words)
+        end
+    end)
+
     -- Files of game and simulator facts: every bullet has its source.
-    for _, path in ipairs({ "docs/forever-facts.md", "docs/ui-simulator.md" }) do
+    for _, path in ipairs({ "docs/forever-facts.md", "docs/ui-simulator.md", "docs/agent-facts.md" }) do
         it(path .. " gives every fact a source other than its #50 link, and links #50 for every launch check",
             function()
             assert.are.same({}, factProblems(wow.readFile(path)))
@@ -1979,33 +2650,39 @@ describe("Claude sessions' agents, knowledge and skills", function()
 
     it("CLAUDE.md sends reviews to the agents and points to every knowledge file and skill", function()
         local text = wow.readFile("CLAUDE.md")
+        local shared = wow.readFile("AGENTS.md")
+        for _, path in ipairs(DOCS) do assert.is_truthy(shared:find("(" .. path .. ")", 1, true), "AGENTS.md " .. path) end
         for _, name in ipairs(AGENTS) do assert.is_truthy(text:find("`" .. name .. "`", 1, true), name) end
         for _, name in ipairs(SKILLS) do assert.is_truthy(text:find("`" .. name .. "`", 1, true), name) end
         for _, path in ipairs(DOCS) do assert.is_truthy(text:find("(" .. path .. ")", 1, true), path) end
-        assert.is_truthy(text:find("**Keep them current:**", 1, true), "the keep-current rule")
+        assert.is_truthy(shared:find("**Keep them current:**", 1, true), "the keep-current rule")
     end)
 
     -- GitHub deletes merged branches and #115 deletes screenshot branches, so
     -- sessions flag only the ones that outlived their PR, or have none (#119).
-    it("CLAUDE.md and the coordinator skill flag only stale branches, and keep the never-delete"
+    it("AGENTS.md, CLAUDE.md and the coordinator skill flag only stale branches, and keep the never-delete"
         .. " and never-force-push rules", function()
         local claude = wow.readFile("CLAUDE.md")
+        local shared = wow.readFile("AGENTS.md")
         local coordinator = wow.readFile(".claude/skills/coordinator/SKILL.md")
-        for name, text in pairs({ ["CLAUDE.md"] = claude, coordinator = coordinator }) do
+        assert.is_falsy(claude:find("any branches for the owner to delete", 1, true), "CLAUDE.md lists merged branches")
+        assert.is_falsy(claude:find("branches it names for the owner", 1, true), "CLAUDE.md lists merged branches")
+        for name, text in pairs({ ["AGENTS.md"] = shared, coordinator = coordinator }) do
             assert.is_falsy(text:find("any branches for the owner to delete", 1, true), name .. " lists merged branches")
             assert.is_falsy(text:find("branches it names for the owner", 1, true), name .. " lists merged branches")
             assert.is_truthy(text:find("still there after its PR merged or closed, or one with no PR", 1, true),
                 name .. " flags a branch that outlived its PR or has none")
         end
+        assert.is_truthy(claude:find("\n  2. Send the coordinator one line: `done: #<issue>, PR #<n> merged`, plus any"
+            .. " step the owner still has to take (such as applying environment settings or running a workflow) and"
+            .. " any stale branch.\n", 1, true), "CLAUDE.md's done line")
         for _, rule in ipairs({
-            "\n  2. Send the coordinator one line: `done: #<issue>, PR #<n> merged`, plus any step the owner still has"
-                .. " to take (such as applying environment settings or running a workflow) and any stale branch.\n",
             "\n- **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale"
                 .. " branches for the owner, and say which they are.\n",
             "\n- **Force-pushing:** never. Push a rebased branch under a new name and flag the old one for the owner"
                 .. " to delete.\n",
         }) do
-            assert.is_truthy(claude:find(rule, 1, true), rule)
+            assert.is_truthy(shared:find(rule, 1, true), rule)
         end
         assert.is_truthy(coordinator:find("- **Never merges, approves or deletes:** not a PR, a branch, an issue"
             .. " or a comment.", 1, true), "the coordinator's never-delete rule")

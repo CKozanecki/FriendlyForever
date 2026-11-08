@@ -13,7 +13,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHANGELOG="${1:-$ROOT/CHANGELOG.md}"
 OUT="${2:-$ROOT/RELEASE_NOTES.md}"
 
+# Write beside the output and move it into place, so a second run or a reader
+# never finds the file empty (#178).
+TMP="$(mktemp "$OUT.XXXXXX")"
+trap 'rm -f "$TMP"' EXIT
+
 awk '/^## / { if (seen) exit; seen = 1 } seen' "$CHANGELOG" | tr -d '\r' \
-    | LC_ALL=C sed -E 's/ \(#[1-9][0-9]*(, #[1-9][0-9]*)*\)[[:space:]]*$//' > "$OUT"
-[[ -s "$OUT" ]] || { echo "No ## version section in $CHANGELOG" >&2; exit 1; }
+    | LC_ALL=C sed -E 's/ \(#[1-9][0-9]*(, #[1-9][0-9]*)*\)[[:space:]]*$//' > "$TMP"
+[[ -s "$TMP" ]] || { echo "No ## version section in $CHANGELOG" >&2; exit 1; }
+chmod 644 "$TMP"
+mv -f "$TMP" "$OUT"
 echo "$OUT"

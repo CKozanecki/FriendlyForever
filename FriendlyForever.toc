@@ -2,7 +2,7 @@
 ## Title: Friendly Forever
 ## Notes: Greets guildmates who log in, welcomes new guild and party members, and thanks people who buff you.
 ## Author: Chris Kozanecki
-## Version: 0.9.0
+## Version: 0.9.1
 ## IconTexture: Interface\AddOns\FriendlyForever\Media\Icon
 ## SavedVariables: FriendlyForeverDB
 ## Category: Chat
@@ -47,5 +47,6 @@ BuffModeAuto.lua
 Battleground.lua
 OptionsIndex.lua
 Options.lua
+Walkthrough.lua
 Minimap.lua
 Core.lua

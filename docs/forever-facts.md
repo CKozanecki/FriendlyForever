@@ -1,8 +1,8 @@
 # WoW Forever facts
 
-Game and API facts the addon's code depends on, so each session doesn't have to research them again. **Facts only:** each one gives its source, or the issue where it was researched and sourced. Anything that can't be confirmed until launch (Nov 5) is marked **launch check**, with a link to its item on #50.
+Game and API facts the addon's code depends on, so each session doesn't have to research them again. **Facts only:** each one gives its source, or the issue where it was researched and sourced. Anything that can't be confirmed until launch (Nov 4) is marked **launch check**, with a link to its item on #50.
 
-WoW Forever isn't Classic Era (CLAUDE.md's "Issues and specs"). Check new facts against Forever sources (Wowhead's `/forever/` pages, patch notes), put the sources on the issue, and add the fact here in the same PR. When a launch check is settled, update its line here. Where this file and CONTRIBUTING.md differ, CONTRIBUTING.md wins and this file is fixed.
+WoW Forever isn't Classic Era (AGENTS.md's "Issues and specs"). Check new facts against Forever sources (Wowhead's `/forever/` pages, patch notes), put the sources on the issue, and add the fact here in the same PR. When a launch check is settled, update its line here. Where this file and CONTRIBUTING.md differ, CONTRIBUTING.md wins and this file is fixed.
 
 Many sessions couldn't reach wowhead.com or warcraft.wiki.gg and used web search instead; the issues say which.
 
@@ -14,7 +14,7 @@ Many sessions couldn't reach wowhead.com or warcraft.wiki.gg and used web search
 
 ## Secret values
 
-- In restricted moments the game hands addons **secret values**. Addon code must never compare, index, measure, concatenate or send one; it tests for them with `issecretvalue` and `issecrettable` (`Util.IsSecret`, `Util.Readable`). Source: #32 (Midnight's rules, sources above); CLAUDE.md's "Secret values".
+- In restricted moments the game hands addons **secret values**. Addon code must never compare, index, measure, concatenate or send one; it tests for them with `issecretvalue` and `issecrettable` (`Util.IsSecret`, `Util.Readable`). Source: #32 (Midnight's rules, sources above); AGENTS.md's "Secret values".
 - Chat received inside an instance can arrive as secret values. Source: #32. **Launch check** ([#50](https://github.com/CKozanecki/FriendlyForever/issues/50#issuecomment-6484203880), "Instances").
 - Whether your own PvP flag, and other players' flags and names, are secret, and when: **launch check** (#50). Until then the addon reads them as possibly secret. Source: as built for #27 and #30 (`Offers.lua`, `GroupBuffs.lua`).
 - Whether group members' roles and aura casters are readable: **launch check** ([#50](https://github.com/CKozanecki/FriendlyForever/issues/50#issuecomment-6459299223), from #68).

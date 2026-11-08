@@ -29,7 +29,7 @@ Every change can be traced from its spec to its code, tests, pull request and re
 
 ### Review loops
 
-Pull requests written by Claude go through two review loops before the maintainer's review: a Lua architecture review, then a Lua testing review, each repeated until it approves. Every finding is fixed. Reviewers report only real problems, things that would actually go wrong for the addon, its players or its releases, and never invent issues or stretch for unrealistic edge cases to keep a loop going. "Everything is OK" is a perfectly good review when it's true. Claude runs them with the `lua-architect` and `lua-tester` agents in `.claude/agents/`, which point back here.
+Pull requests written by an agent (Claude or Codex) go through two review loops before the maintainer's review: a Lua architecture review, then a Lua testing review, each repeated until it approves. Every finding is fixed. Reviewers report only real problems, things that would actually go wrong for the addon, its players or its releases, and never invent issues or stretch for unrealistic edge cases to keep a loop going. "Everything is OK" is a perfectly good review when it's true. Claude runs them with the `lua-architect` and `lua-tester` agents in `.claude/agents/`, which point back here; for a Codex pull request, Claude's coordinating session runs them.
 
 For a pull request that changes what players see, the Lua testing review also looks at its [UI simulator](#ui-simulator) screenshots and layout checks, and decides whether they're right. The maintainer doesn't review screenshots.
 
@@ -40,7 +40,7 @@ A pull request is **ready for review** when all of these hold:
 - CI is green on the latest commit;
 - the description matches the final code;
 - the branch is up to date with `main` and has no conflicts;
-- for pull requests written by Claude: both of its review loops (Lua architecture, then Lua testing) have approved, with every finding fixed.
+- for pull requests written by an agent (Claude or Codex): both of its review loops (Lua architecture, then Lua testing) have approved, with every finding fixed.
 
 Then whoever drives it marks it ready (GitHub's **Ready for review** button, out of draft) and says so in a comment, so the maintainer never has to ask.
 
@@ -117,6 +117,8 @@ The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://g
   - **UI scenarios** in `uitests/scenarios.lua`, including the layout checks: text stays inside its frame, and frames stay on screen. Each layout check prints a `LAYOUT` line. The scenarios run in `run-tests`, then again at 1024 × 768 (the narrowest layout) and 1920 × 1080 (what most players use) through `dump-tree`, since `run-tests` has no size option (#148). Each `LAYOUT` line names its resolution.
   - **Screenshots** of the game screen, each options tab and page, the copy window and the buff-back button. Each options tab's shot is named after it, such as `options-buff-back.png` (#112). Every shot is taken at 1024 × 768 and again at 1920 × 1080, saved beside it as `<name>-1920x1080.png` (#148).
 - **Where to look:** the run's summary has the errors, the scenarios and the layout lines. For a pull request from this repository, the screenshots are committed to the branch `ui-screenshots/pr-<number>`, replaced on every run. The branch is deleted when the pull request closes, merged or not, so look at the screenshots before then; the testing review already does, before the pull request is ready. To view them: `git fetch origin ui-screenshots/pr-<number>`, then open the PNGs, or browse the branch on GitHub.
+- **The simulator build is cached** (#170): the `simulator` job saves the finished, staged build, keyed on a hash of `SIM_COMMIT`, `BLIZZARD_UI_COMMIT`, `BUILD_BASE`, the build image's package list (`BUILD_PACKAGES`), the cargo features (`BUILD_FEATURES`) and the strip setting (`BUILD_STRIP`) and the hash of `ui-sim.yml` itself, so editing any build or staging step, even a literal flag, also misses. On a hit it skips the fetch, the image, `cargo fetch` and `cargo build`; any change to one of those misses and rebuilds. A pull request's cache is visible only to it (it can read `main`'s); a restored build is as untrusted as a fresh one, so the job checks it holds only plain files after a restore, and before saving a new build and uploading it. `spec/repo_spec.lua` fails if a variable the build uses is left out of the key.
+- **Runs that hang** (#173): a simulator run that reaches its time limit is stopped (exit 124) and runs once more. A run stopped is named at the top of the summary, with the last scenario it started (each scenario prints `START <number> <name>` first) and the end of its log, and in an annotation on the run. A warning annotation means it was stopped twice and its results, `LAYOUT` lines included, are incomplete; a notice means the retry ran. The job stays green either way.
 - **Clean-up** (#106): the **UI screenshots clean-up** workflow deletes the branches.
   - **When a pull request closes,** it deletes that pull request's branch, if there is one. It never fails the pull request's checks.
   - **The sweep** deletes `ui-screenshots/pr-N` wherever pull request N is closed, and keeps every other branch. Run it now for the branches left from before the clean-up existed, such as `pr-88` and `pr-91`, and any time branches pile up (a simulator run that finishes after its pull request closes can publish its branch again). To run it: **Actions**, then **UI screenshots clean-up**, then **Run workflow**. Only the maintainer can: sessions can't delete branches.
@@ -139,6 +141,8 @@ The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://g
 - Keep saved variables backward compatible. Old `FriendlyForeverDB` contents must still load.
 
 ## Releasing (maintainer)
+
+For the launch, [docs/launch-day-runbook.md](docs/launch-day-runbook.md) is the ordered in-game test pass (from #50) and the steps to 1.0.0.
 
 Versions below 1.0.0 are pre-launch: 0.8.0 is the first file on CurseForge and 1.0.0 is the launch. A tag uploads as a normal release; the packager marks a file alpha or beta only when its tag contains that word, and the Release workflow accepts only a tag that is exactly `v` plus the TOC version. No beta route is set up yet.
 
