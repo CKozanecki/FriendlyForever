@@ -11,12 +11,9 @@
 --   group     the group versions' IDs (Arcane Brilliance...): they count as having it
 --   blockers  other buffs that do the same job (Scroll of Intellect...): ditto
 --   manaOnly  only offered to classes that use mana
---   groupOnly only offered to your own group (Salvation)
 --   selfCast  cast on yourself, reaching your party (Battle Shout): never a return
 --   family    buffs of which a player keeps only one of yours (a paladin's
 --             Blessings): casting another replaces it
---   defaultRule  who gets it in buff mode until you choose (BuffRules.lua);
---             everyone when not set
 --   water     only helps underwater: offered only near water, when the
 --             setting says so (Water.lua, #136)
 local _, ns = ...
@@ -48,9 +45,6 @@ BuffData.CLASSES = {
         { key = "might", ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 }, group = { 25916, 25782 },
             family = "blessing" },
         { key = "light", ranks = { 19979, 19978, 19977 }, group = { 25890 }, family = "blessing" },
-        -- Not a Blessing on Forever: it's worn beside one (#68). Kept off
-        -- tanks by default, who don't want less threat.
-        { key = "salvation", ranks = { 1038 }, group = { 25895 }, groupOnly = true, defaultRule = "notTanks" },
     },
     SHAMAN = {
         -- Does the same job as a warlock's Unending Breath, and the other way
@@ -88,13 +82,6 @@ function BuffData.ByKey(key)
     return byKey[key]
 end
 
--- Revoke (Forever, paladins): takes Salvation off a party or raid member.
--- Blizzard removed it right before launch (owner, Nov 8); the code is
--- #208's. Its spell ID isn't recorded, so it's found by its English name: in the spellbook (C_Spell.GetSpellInfo
--- answers a name only for a spell you know), and in cast events by the cast spell's name.
--- On a client in another language it isn't found, and isn't offered.
-BuffData.REVOKE = { key = "revoke", name = "Revoke", ranks = {}, removes = "salvation" }
-
 -- [spell ID] = buff, for every rank, group version and blocker. A spell
 -- that is one buff's rank and another's blocker (Water Breathing, Unending
 -- Breath) belongs to the buff it's a rank of: ranks are filled in last.
@@ -123,6 +110,18 @@ for _, list in pairs(BuffData.CLASSES) do
     end
 end
 
+-- Buffs Blizzard removed before launch (#208): Blessing of Salvation and
+-- Mass Salvation. Nothing offers, tracks or thanks for them; an aura with
+-- one of these IDs (a stale one) is passed over quietly.
+local REMOVED_SPELL_IDS = { [1038] = true, [25895] = true }
+
+-- Whether spellId is one of a buff the game no longer has. A secret, or
+-- anything that isn't a number, is not.
+function BuffData.IsRemoved(spellId)
+    if type(spellId) ~= "number" or Util.IsSecret(spellId) then return false end
+    return REMOVED_SPELL_IDS[spellId] == true
+end
+
 -- The buff a spell ID belongs to (any rank, group version or blocker), or nil.
 function BuffData.ForAura(spellId)
     return byAuraId[spellId]
@@ -139,18 +138,9 @@ end
 
 local Read = Util.ReadGameValues
 
--- The buff one of our casts was (or Revoke), or nil.
+-- The buff one of our casts was, or nil.
 function BuffData.ForCast(spellId)
-    local buff = byRankId[spellId]
-    if buff then return buff end
-    if spellId ~= nil and Read(C_Spell and C_Spell.GetSpellName, spellId) == BuffData.REVOKE.name then
-        return BuffData.REVOKE
-    end
-end
-
-function BuffData.RevokeKnown()
-    local info = Read(C_Spell and C_Spell.GetSpellInfo, BuffData.REVOKE.name)
-    return type(info) == "table"
+    return byRankId[spellId]
 end
 
 -- The buff's name as the game spells it ("Mark of the Wild"), for /cast and
@@ -162,9 +152,9 @@ function BuffData.SpellName(buff)
     end
 end
 
--- The icon of the buff's lowest rank (or, for Revoke, of its name), for the button.
+-- The icon of the buff's lowest rank, for the button.
 function BuffData.Icon(buff)
-    local id = buff.ranks[#buff.ranks] or buff.name
+    local id = buff.ranks[#buff.ranks]
     if id == nil then return nil end
     return Read(C_Spell and C_Spell.GetSpellTexture, id) or Read(GetSpellTexture, id)
 end

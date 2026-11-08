@@ -1,4 +1,4 @@
--- Spec: #68, #76
+-- Spec: #68, #76, #208
 -- My Blessings in this raid (paladins): choose which of your Blessings you
 -- give in the raid you're in, so two paladins don't both give Kings. The
 -- choice is never saved and is forgotten once you're out of the raid.
@@ -7,7 +7,7 @@
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
-local KINGS, MIGHT_1, WISDOM_1, SALVATION = 20217, 19740, 19742, 1038
+local KINGS, MIGHT_1, WISDOM_1 = 20217, 19740, 19742
 local MOTW, MOTW_1 = 9885, 1126
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
@@ -15,18 +15,17 @@ local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
 describe("My Blessings in this raid", function()
     local ns, button
 
-    -- A paladin who knows Kings, Wisdom, Might and Salvation, in buff mode
+    -- A paladin who knows Kings, Wisdom and Might, in buff mode
     -- (unless opts.buffModeOff).
     local function boot(opts)
         opts = opts or {}
-        wow.SPELL_NAMES[SALVATION] = "Blessing of Salvation"
         ns = wow.boot({ before = function(state)
             state.class = opts.class or "PALADIN"
             state.knownSpells = opts.known
-                or { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true, [SALVATION] = true }
+                or { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true }
         end })
         button = ns.BuffButton.Frame()
-        ns.db.buffBack.buffOrder = { "kings", "might", "wisdom", "salvation" }
+        ns.db.buffBack.buffOrder = { "kings", "might", "wisdom" }
         if not opts.buffModeOff then slash("buffmode on") end
     end
 
@@ -100,18 +99,16 @@ describe("My Blessings in this raid", function()
     end
 
     before_each(function() boot() end)
-    after_each(function() wow.SPELL_NAMES[SALVATION] = nil end)
 
     describe("choosing (white)", function()
-        it("gives only the Blessings you chose, and Salvation as usual", function()
+        it("gives only the Blessings you chose", function()
             group("raid", { "Ann-Vale", "Bo-Lake" })
             assert.is_true(ns.BuffRules.SetRaidBlessings({ "might" }))
             assert.is_true(ns.BuffRules.RaidBlessingsChosen())
             assert.are.equal("Ann Vale: Blessing of Might", armed(), "Kings is first in your order, but not yours here")
             assert.are.same({
                 "Ann-Vale Blessing of Might", "Bo-Lake Blessing of Might",
-                "Ann-Vale Blessing of Salvation", "Bo-Lake Blessing of Salvation",
-            }, buffAll(), "Salvation isn't a Blessing")
+            }, buffAll(), "Kings is not yours here, so nothing else is given")
             assert.are.same({}, wow.errors)
         end)
 
@@ -120,7 +117,6 @@ describe("My Blessings in this raid", function()
             wow.state.units.raid1.auras, wow.state.units.raid1.auraSources = { KINGS }, { "raid9" }
             assert.are.same({
                 "Bo-Lake Blessing of Kings", "Cid-Rock Blessing of Kings", "Ann-Vale Blessing of Might",
-                "Ann-Vale Blessing of Salvation", "Bo-Lake Blessing of Salvation", "Cid-Rock Blessing of Salvation",
             }, buffAll(), "Ann wears another paladin's Kings: your next Blessing")
             for i = 1, 3 do wow.state.units["raid" .. i].auras, wow.state.units["raid" .. i].auraSources = {}, {} end
             slash("blessings might wisdom")
@@ -130,7 +126,6 @@ describe("My Blessings in this raid", function()
             end
             assert.are.same({
                 "Ann-Vale Blessing of Might", "Bo-Lake Blessing of Might", "Cid-Rock Blessing of Might",
-                "Ann-Vale Blessing of Salvation", "Bo-Lake Blessing of Salvation", "Cid-Rock Blessing of Salvation",
             }, given)
         end)
 
@@ -138,7 +133,7 @@ describe("My Blessings in this raid", function()
             group("raid", { "Ann-Vale" })
             ns.BuffRules.SetRaidBlessings({ "might" })
             ns.db.buffBack.buffOrder = { "kings", "might" }
-            wow.state.units.raid1.auras, wow.state.units.raid1.auraSources = { MIGHT_1, SALVATION }, { "player", "player" }
+            wow.state.units.raid1.auras, wow.state.units.raid1.auraSources = { MIGHT_1 }, { "player" }
             ns.BuffButton.Refresh()
             assert.is_nil(macro())
             local _, _, settled = ns.GroupBuffs.Next()
@@ -147,7 +142,7 @@ describe("My Blessings in this raid", function()
 
         it("lets the Blessing you switched to replace one you've left to others", function()
             group("raid", { "Ann-Vale" })
-            wow.state.units.raid1.auras, wow.state.units.raid1.auraSources = { MIGHT_1, SALVATION }, { "player", "player" }
+            wow.state.units.raid1.auras, wow.state.units.raid1.auraSources = { MIGHT_1 }, { "player" }
             ns.BuffButton.Refresh()
             assert.is_nil(macro(), "your Might: no second Blessing from you over it")
             slash("blessings kings")
@@ -155,6 +150,20 @@ describe("My Blessings in this raid", function()
             slash("blessings kings might")
             assert.is_nil(macro(), "and your Might counts again once you cover it")
         end)
+
+        it("a Blessing another paladin recasts over yours is no longer yours: your next Blessing is offered (#208)",
+            function()
+                group("party", { "Ann-Vale" })
+                wow.wearBuff("party1", KINGS, { source = "player" })
+                ns.BuffButton.Refresh()
+                assert.is_nil(macro(), "your Kings: no second Blessing from you over it")
+                wow.wearBuff("party1", KINGS, { source = "raid9" }) -- the same spell, recast: theirs now
+                ns.BuffButton.Refresh()
+                assert.are.equal("Ann Vale: Blessing of Might", armed())
+                wow.wearBuff("party1", KINGS, { source = "player" })
+                ns.BuffButton.Refresh()
+                assert.is_nil(macro(), "and yours again")
+            end)
 
         it("can choose more than one, and choosing all of them is the same as not choosing", function()
             group("raid", { "Ann-Vale" }, { "MAGE" })
@@ -235,7 +244,7 @@ describe("My Blessings in this raid", function()
                     assert.is_true(cb:GetChecked(), cb.key)
                 end
             end
-            assert.are.same({ "kings", "wisdom", "might" }, shown, "the Blessings you know, not Salvation")
+            assert.are.same({ "kings", "wisdom", "might" }, shown, "the Blessings you know")
             r.raidBlessings[1]:SetChecked(false)
             wow.run(r.raidBlessings[1], "OnClick")
             assert.is_true(ns.BuffRules.RaidBlessingsChosen())
@@ -258,10 +267,10 @@ describe("My Blessings in this raid", function()
             assert.is_true(w.who.raidBlessings[1]:GetChecked(), "and back to all")
         end)
 
-        it("sit below Revoke, above buff mode's rows, and only on the Buff Back tab", function()
+        it("sit below the Who rows, above buff mode's rows, and only on the Buff Back tab", function()
             local w = ns.Options.widgets
             wow.run(w.tabs.buffBack, "OnClick")
-            assert.are.equal(w.who.revoke, select(2, w.who.raidHeader:GetPoint()))
+            assert.are.equal(w.who.neverLabel, select(2, w.who.raidHeader:GetPoint()))
             assert.are.equal(w.who.raidBlessings[1], select(2, w.autoHeader:GetPoint()))
             wow.run(w.tabs.buff, "OnClick")
             assert.is_false(w.who.raidHeader:IsShown())
@@ -302,8 +311,8 @@ describe("My Blessings in this raid", function()
         it("refuses names that aren't your Blessings, and leaves the choice as it was", function()
             group("raid", { "Ann-Vale" })
             ns.BuffRules.SetRaidBlessings({ "might" })
-            assert.are.same({ false, "'salvation' isn't one of your Blessings" },
-                { ns.BuffRules.SetRaidBlessings({ "kings", "salvation" }) })
+            assert.are.same({ false, "'bogus' isn't one of your Blessings" },
+                { ns.BuffRules.SetRaidBlessings({ "kings", "bogus" }) })
             assert.are.same({ false, "'motw' isn't one of your Blessings" }, { ns.BuffRules.SetRaidBlessings({ "motw" }) })
             assert.are.same({ false, "choose at least one Blessing (or all)" }, { ns.BuffRules.SetRaidBlessings({}) })
             assert.is_false(ns.BuffRules.CoversInRaid(ns.BuffData.ByKey("kings")), "unchanged")
@@ -355,7 +364,6 @@ describe("My Blessings in this raid", function()
             assert.are.equal("Bo Lake: Blessing of Kings", armed())
             assert.are.same({
                 "Bo-Lake Blessing of Kings", "Ann-Vale Blessing of Might",
-                "Ann-Vale Blessing of Salvation", "Bo-Lake Blessing of Salvation",
             }, buffAll(), "only that buff: Ann still gets the next Blessing")
         end)
 
@@ -365,13 +373,13 @@ describe("My Blessings in this raid", function()
             assert.are.equal("Ann Vale won't get Blessing of Kings (Never list, on the Buff Back tab).",
                 button.result:GetText())
             assert.are.equal("Ann Vale: Blessing of Might", armed())
-            wow.state.units.party1.auras = { MIGHT_1, SALVATION }
+            wow.state.units.party1.auras = { MIGHT_1 }
             ns.BuffButton.Refresh()
             assert.is_nil(macro())
             ns.BuffRules.SetNames("kings", "never", "")
             ns.BuffButton.Refresh()
             assert.is_nil(macro(), "they wear your Might: Kings would replace it")
-            wow.state.units.party1.auras = { SALVATION }
+            wow.state.units.party1.auras = {}
             ns.BuffRules.SetNames("kings", "never", "Ann Vale")
             ns.BuffButton.Refresh()
             wow.press(button, "RightButton", { shift = true }) -- Might, the last thing shown
@@ -456,18 +464,6 @@ describe("My Blessings in this raid", function()
             assert.are.equal("", ns.BuffRules.NamesText("kings", "never"))
             assert.is_falsy((macro() or ""):find("Bob Stone", 1, true), "let go")
         end)
-
-        it("on Revoke skips the member instead: Never wouldn't take Salvation off", function()
-            boot({ known = { [KINGS] = true, [SALVATION] = true, [wow.REVOKE_ID] = true } })
-            group("party", { "Ann-Vale" })
-            wow.state.units.party1.role = "TANK"
-            wow.state.units.party1.auras, wow.state.units.party1.auraSources = { SALVATION }, { "player" }
-            ns.BuffButton.Refresh()
-            assert.are.equal("Ann Vale: Revoke", armed())
-            wow.press(button, "RightButton", { shift = true })
-            assert.are.equal("", ns.BuffRules.NamesText("salvation", "never"))
-            assert.are.equal("Skipping Ann Vale for 5 minutes.", button.result:GetText())
-        end)
     end)
 
     describe("chaos (red tests)", function()
@@ -477,7 +473,7 @@ describe("My Blessings in this raid", function()
                 random.seed(seed)
                 boot()
                 local everyone = { "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
-                local keys = { "kings", "wisdom", "might", "light", "salvation", "motw" }
+                local keys = { "kings", "wisdom", "might", "light", "motw" }
                 -- What we expect the choice to be: nil (all) or [key] = true.
                 local model
                 local function inRaid() return wow.state.groupType == "raid" end

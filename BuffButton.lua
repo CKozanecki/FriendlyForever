@@ -48,7 +48,7 @@ local MACRO_ACTION_TYPE = "macro"
 _G["BINDING_NAME_CLICK " .. BuffButton.FRAME_NAME .. ":LeftButton"] = "Friendly Forever: buff back"
 
 local button, eventFrame
-local armedOffer          -- what the button holds: { name, spell, buff, group, revoke, macroText }
+local armedOffer          -- what the button holds: { name, spell, buff, group, macroText }
 local appliedMacroText    -- the macro text last written to the button (to skip rewriting it)
 local shownResult         -- the last result under the button: { text, shownAt }
 local lastResultText = "nothing pressed yet"
@@ -206,15 +206,11 @@ local function ArmButton()
 
     SetSecureMacro(macroText)
     armedOffer = { name = offer.name, spell = offer.spell, buff = offer.buff, group = offer.group,
-        revoke = offer.revoke, self = offer.self, macroText = macroText }
+        self = offer.self, macroText = macroText }
     notArmedReason = nil
     button.icon:SetTexture(ns.BuffData.Icon(offer.buff) or BuffButton.PLACEHOLDER_ICON)
-    if offer.revoke then
-        SetLabels(Util.DisplayName(offer.name), "Revoke their Salvation (" .. offer.why .. ")")
-    else
-        SetLabels(offer.self and "You" or Util.DisplayName(offer.name),
-            (offer.group and "missing your " or "buffed you - give ") .. offer.spell)
-    end
+    SetLabels(offer.self and "You" or Util.DisplayName(offer.name),
+        (offer.group and "missing your " or "buffed you - give ") .. offer.spell)
     button:SetShown(true)
 end
 
@@ -296,7 +292,7 @@ local function Unanswered(press)
     press.expired = true
     local who = press.self and "you" or Util.DisplayName(press.name)
     if press.failed then
-        ShowResult((press.revoke and "Couldn't revoke Salvation from " or "Couldn't buff ") .. who
+        ShowResult("Couldn't buff " .. who
             .. " (the game gave no reason).", true)
     elseif press.sent then
         ShowResult("No word back on " .. press.spell .. " for " .. who .. ". If it didn't land, press again.")
@@ -329,7 +325,7 @@ end
 -- Fill a press from what the button holds now.
 local function TakeArmedOffer(press)
     press.name, press.spell, press.buff = armedOffer.name, armedOffer.spell, armedOffer.buff
-    press.group, press.revoke, press.self = armedOffer.group, armedOffer.revoke, armedOffer.self
+    press.group, press.self = armedOffer.group, armedOffer.self
     ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
     return press
 end
@@ -397,7 +393,7 @@ local function OnPostClick(_, mouseButton, isDown)
     -- Kept: changing a Never list re-arms the button.
     local offer = armedOffer
     local name = offer.name
-    if offer.group and not offer.revoke and Util.ReadGameValues(IsShiftKeyDown) == true then
+    if offer.group and Util.ReadGameValues(IsShiftKeyDown) == true then
         ns.Options.FinishEdits()
         local ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name)
         if ok then
@@ -529,9 +525,6 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
     local reachedThem = press.castTargetName and BuffButton.IsIntendedPlayer(press.castTargetName, press.name)
     if reachedThem == nil then
         ShowResult("Cast " .. press.spell .. ", but the game didn't say it reached " .. who .. ".")
-    elseif press.revoke then
-        ns.GroupBuffs.NoteRevoked(press.name)
-        ShowResult("Revoked Salvation from " .. who .. ".")
     elseif press.group then
         -- A group buff: no favour, no line, no thanks.
         ns.GroupBuffs.NoteGiven(press.name, press.buff)
@@ -556,8 +549,8 @@ local unclaimedError
 local function ReportRefusal(press, text)
     ForgetPress(press)
     if press.group and ns.GroupBuffs.IsTargetRefusal(text) then ns.GroupBuffs.NoteRefused(press.name) end
-    ShowResult((press.revoke and "Couldn't revoke Salvation from " or "Couldn't buff ")
-        .. (press.self and "you" or Util.DisplayName(press.name)) .. ": " .. Util.StripChat(text), true)
+    ShowResult("Couldn't buff " .. (press.self and "you" or Util.DisplayName(press.name))
+        .. ": " .. Util.StripChat(text), true)
     BuffButton.Refresh()
 end
 
@@ -642,7 +635,7 @@ end
 local function ShowTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_TOP")
     GameTooltip:AddLine(ns.TITLE .. ": buff back")
-    -- The button cuts a long line short (a reason it's empty, why to Revoke):
+    -- The button cuts a long line short (a reason it's empty):
     -- here it is in full.
     local subtitle = button.subtitle:GetText()
     local r, g, b = ns.Colours.RGB("title")

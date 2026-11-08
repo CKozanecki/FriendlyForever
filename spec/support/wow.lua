@@ -356,11 +356,6 @@ nameSpell("Blessing of Wisdom", { 25290, 19854, 19853, 19852, 19850, 19742 })
 nameSpell("Unending Breath", { 5697 })
 nameSpell("Water Breathing", { 131 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
--- Forever's Revoke (paladins). Blizzard removed Revoke right before launch
--- (owner, Nov 8; the code is #208's). This ID is the simulation's own,
--- and the addon finds Revoke by name.
-M.REVOKE_ID = 990001
-nameSpell("Revoke", { M.REVOKE_ID })
 
 ------------------------------------------------------------------------
 -- ASSUMPTIONS ABOUT WOW FOREVER. Each is a state setting so specs can try the
@@ -433,8 +428,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --   C_Spell.GetSpellInfo(name) and GetSpellTexture(name) answer only for a
 --                         spell you know (likewise GetSpellInfo(name)), as the
 --                         game's name lookup goes through your spellbook; by
---                         ID it answers for any spell. Revoke has a made-up
---                         ID here (M.REVOKE_ID): Blizzard removed Revoke right before launch (#208).
+--                         ID it answers for any spell.
 --   UnitGroupRolesAssigned and GetPartyAssignment("MAINTANK") both exist and
 --                         answer for group units (unit.role, unit.mainTank;
 --                         Main Tank answers false outside a raid);
@@ -1528,6 +1522,9 @@ end
 -- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
 -- opts.buffSelf: keep buff mode offering your own copy of your buffs (#198).
 -- opts.walkthrough: keep a first install's walkthrough (see below).
+-- opts.afterLoad: called with the addon's namespace once its files are
+-- loaded, before its saved settings are (a spec for a later release changes
+-- the code here, such as the walkthrough's steps and version, #169).
 function M.boot(opts)
     opts = opts or {}
     M.reset()
@@ -1543,6 +1540,7 @@ function M.boot(opts)
     local walkthroughGiven = type(opts.db) == "table" and opts.db.walkthrough or nil
     _G.FriendlyForeverDB = opts.db
     local ns = M.load()
+    if opts.afterLoad then opts.afterLoad(ns) end
     ns.Messages.random = function() return 1 end
     ns.Flavour.random = function() return 1 end
     -- Buff mode also buffs you (#198). Specs written before that count the
