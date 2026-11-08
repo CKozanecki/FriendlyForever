@@ -356,8 +356,8 @@ nameSpell("Blessing of Wisdom", { 25290, 19854, 19853, 19852, 19850, 19742 })
 nameSpell("Unending Breath", { 5697 })
 nameSpell("Water Breathing", { 131 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
--- Forever's Revoke (paladins). Its real ID wasn't known when this was
--- written (confirmed in game at launch): this one is the simulation's own,
+-- Forever's Revoke (paladins). Its real ID isn't recorded here (checked in
+-- game at launch, Nov 4): this one is the simulation's own,
 -- and the addon finds Revoke by name.
 M.REVOKE_ID = 990001
 nameSpell("Revoke", { M.REVOKE_ID })
@@ -426,7 +426,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         spell you know (likewise GetSpellInfo(name)), as the
 --                         game's name lookup goes through your spellbook; by
 --                         ID it answers for any spell. Revoke has a made-up
---                         ID here (M.REVOKE_ID): Forever's was confirmed in game at launch.
+--                         ID here (M.REVOKE_ID): Forever's was checked in game at launch; not recorded.
 --   UnitGroupRolesAssigned and GetPartyAssignment("MAINTANK") both exist and
 --                         answer for group units (unit.role, unit.mainTank;
 --                         Main Tank answers false outside a raid);
@@ -472,9 +472,9 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --   state.mapId           what C_Map.GetBestMapForUnit("player") answers: the
 --                         uiMapID, or nil as on a loading screen (1429, Elwynn
 --                         Forest, by default). Capitals use Classic Era's
---                         numbers (1453 Stormwind ... 1458 Undercity); Forever's,
---                         and the Skyborne hub's and Dalaran's, were confirmed in game at
---                         launch. setMap fires ZONE_CHANGED_NEW_AREA, as
+--                         numbers (1453 Stormwind ... 1458 Undercity); Forever's
+--                         were checked in game at launch; the Skyborne hub's and
+--                         Dalaran's aren't recorded. setMap fires ZONE_CHANGED_NEW_AREA, as
 --                         walking into a city does; specs also move without
 --                         any zone event, as the addon mustn't rely on one.
 --   A secret value used as a table key reads as missing (byAuraId[secret]
@@ -513,7 +513,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         the instance's name and its ID 8th; in the world, the
 --                         continent and "none". Blackfathom Deeps is Classic's
 --                         48; The Drowned City's ID is unknown (nil here, the
---                         pessimistic choice); the real one was confirmed in game at launch.
+--                         pessimistic choice); the real one was checked in game at launch; not recorded.
 --   unit.nameLoading = true: the client hasn't loaded that unit's details
 --                         yet (#99), so UnitName (and UnitFullName,
 --                         GetUnitName) gives UNKNOWNOBJECT ("Unknown") as the

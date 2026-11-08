@@ -89,9 +89,9 @@ function BuffData.ByKey(key)
 end
 
 -- Revoke (Forever, paladins): takes Salvation off a party or raid member.
--- Its spell ID wasn't known when this was written (confirmed in game at
--- launch), so it's found by its English name: in the spellbook (C_Spell.GetSpellInfo answers a name
--- only for a spell you know), and in cast events by the cast spell's name.
+-- Its spell ID isn't recorded here (checked in game at launch, Nov 4), so
+-- it's found by its English name: in the spellbook (C_Spell.GetSpellInfo
+-- answers a name only for a spell you know), and in cast events by the cast spell's name.
 -- On a client in another language it isn't found, and isn't offered.
 BuffData.REVOKE = { key = "revoke", name = "Revoke", ranks = {}, removes = "salvation" }
 

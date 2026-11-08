@@ -2654,9 +2654,12 @@ describe("Claude sessions' agents, knowledge and skills", function()
         for _, path in ipairs({ "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md",
             ".claude/agents/lua-architect.md", ".claude/agents/lua-tester.md" }) do
             local flat = wow.readFile(path):gsub("%s+", " ")
-            assert.is_falsy(flat:find("launch check on #50", 1, true), path)
-            assert.is_falsy(flat:find("goes on #50", 1, true), path)
-            assert.is_falsy(flat:find("to verify in game on #50", 1, true), path)
+            -- The only mentions left say #50 is closed or name it as the runbook's
+            -- source; any other #50 would send a session to a closed issue.
+            for _, allowed in ipairs({ "(#50, closed; #197)", "Don't reopen #50", "(from #50)" }) do
+                flat = flat:gsub(allowed:gsub("%p", "%%%0"), "")
+            end
+            assert.is_falsy(flat:find("#50%f[%D]"), path)
         end
         local flat = wow.readFile("AGENTS.md"):gsub("%s+", " ")
         assert.is_truthy(flat:find("new issue labelled `quality`, with the source and how to check it in game", 1, true))

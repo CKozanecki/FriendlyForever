@@ -17,7 +17,8 @@
 -- Only you are read: the game has no call that says whether another player
 -- is swimming. When none of the readings can be read (missing, or secret),
 -- you count as not near water, grace or not: the pessimistic choice.
--- Forever's APIs and the dungeons' IDs were confirmed in game at launch.
+-- Forever's APIs were confirmed in game at launch; the dungeons' IDs are not
+-- recorded here (see below).
 local _, ns = ...
 local Util = ns.Util
 
@@ -33,10 +34,11 @@ Water.BREATH_TIMER = "BREATH"
 Water.TIMER_NAMES = { BREATH = true, EXHAUSTION = true, FEIGNDEATH = true, UNKNOWN = true }
 
 -- Underwater dungeons, by instance ID (GetInstanceInfo's 8th value).
--- Blackfathom Deeps is Classic Era's 48: Forever's was confirmed in game at launch.
+-- Blackfathom Deeps is Classic Era's 48: Forever's was checked in game at launch
+-- (Nov 4) but is not recorded here.
 Water.UNDERWATER_INSTANCES = { [48] = "Blackfathom Deeps" }
 -- By their English name, while the ID isn't known: The Drowned City is new
--- on Forever (off Stranglethorn Vale), so its ID was confirmed in game at launch.
+-- on Forever (off Stranglethorn Vale), so its ID is not recorded here (checked in game at launch, Nov 4).
 -- On a client in another language it isn't matched by name.
 Water.UNDERWATER_INSTANCE_NAMES = { ["The Drowned City"] = true }
 
