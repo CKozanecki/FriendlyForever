@@ -2,6 +2,7 @@
 
 ### Unreleased
 
+- **Guild welcome:** a new guild member is greeted once. After Friendly Forever welcomes someone who joined the guild, their login hello stays quiet for 2 minutes, whichever of the two game lines comes first, and debug mode says why it was skipped. Later logins greet as usual. (#196)
 - **UI simulator workflow:** the finished simulator build is cached, keyed on its pins and build settings, so it is rebuilt only when one moves instead of every run. Nothing ships in the addon. (#170)
 
 ## 0.9.1

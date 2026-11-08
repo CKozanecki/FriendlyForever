@@ -1,5 +1,6 @@
--- Spec: #80, #35, #38
+-- Spec: #80, #35, #38, #196
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 
 describe("Greetings", function()
     local ns
@@ -249,13 +250,149 @@ describe("Greetings", function()
             assert.are.same({ "Welcome to the guild, Varian! We're glad to have you." }, wow.sentTo("GUILD"))
         end)
 
+        local WELCOME = "Welcome to the guild, Varian! We're glad to have you."
+        local HELLO = "Varian has logged in. Quick, everyone look busy."
+
         it("treats the newcomer as a member for later logins", function()
             wow.systemMessage("Varian has joined the guild.")
             wow.advance(10)
             online("Varian")
             wow.advance(10)
-            assert.are.same({ "Welcome to the guild, Varian! We're glad to have you.", "Varian has logged in. Quick, everyone look busy." },
-                wow.sentTo("GUILD"))
+            -- Welcomed once: the login right after joining stays quiet (#196).
+            assert.are.same({ WELCOME }, wow.sentTo("GUILD"))
+            assert.is_true(ns.Greeter.IsGuildMember("Varian"))
+        end)
+
+        it("sends only the welcome when the online line comes after the join line", function()
+            wow.systemMessage("Varian has joined the guild.")
+            online("Varian")
+            wow.advance(60)
+            assert.are.same({ WELCOME }, wow.sentTo("GUILD"))
+        end)
+
+        it("sends only the welcome when the online line comes first", function()
+            online("Varian") -- not on the roster yet: waits for a roster refresh
+            wow.systemMessage("Varian has joined the guild.")
+            wow.advance(60)
+            assert.are.same({ WELCOME }, wow.sentTo("GUILD"))
+        end)
+
+        it("drops a hello that was scheduled before the welcome", function()
+            online("Thrall") -- on the roster: the hello is scheduled at once
+            wow.systemMessage("Thrall has joined the guild.")
+            wow.advance(helloWait() + 5)
+            assert.are.same({ "Welcome to the guild, Thrall! We're glad to have you." }, wow.sentTo("GUILD"))
+        end)
+
+        it("greets the same player's later login once the quiet window is over", function()
+            wow.systemMessage("Varian has joined the guild.")
+            wow.advance(ns.Greeter.WELCOME_QUIET + 1)
+            online("Varian")
+            wow.advance(helloWait() + 1)
+            assert.are.same({ WELCOME, HELLO }, wow.sentTo("GUILD"))
+        end)
+
+        it("still greets another player's login during the window", function()
+            wow.systemMessage("Varian has joined the guild.")
+            wow.advance(5)
+            online("Thrall")
+            wow.advance(helloWait() + 1)
+            assert.are.same({ WELCOME, "Thrall has logged in. Quick, everyone look busy." }, wow.sentTo("GUILD"))
+        end)
+
+        it("is not silenced by a welcome that was never scheduled", function()
+            ns.db.guildJoin.enabled = false
+            wow.systemMessage("Varian has joined the guild.")
+            online("Varian")
+            wow.advance(helloWait() + 1)
+            assert.are.same({ HELLO }, wow.sentTo("GUILD"))
+        end)
+
+        it("forgets the quiet window when the clock goes backwards", function()
+            ns.db.debug = true
+            wow.advance(3000) -- well past the login grace period
+            wow.systemMessage("Varian has joined the guild.")
+            wow.advance(ns.db.guildJoin.delay + 1)
+            wow.now = wow.now - 1000
+            online("Varian")
+            -- The login is scheduled, not held back as "just welcomed".
+            local scheduled, held = false, false
+            for _, line in ipairs(ns.db.diagLog) do
+                if tostring(line):find("scheduled for Varian", 1, true) and tostring(line):find("guildLogin", 1, true) then scheduled = true end
+                if tostring(line):find("welcomed to the guild", 1, true) then held = true end
+            end
+            assert.is_true(scheduled)
+            assert.is_false(held)
+        end)
+
+        it("says in debug mode why a hello was skipped", function()
+            ns.db.debug = true
+            wow.systemMessage("Varian has joined the guild.")
+            online("Varian")
+            local said = false
+            for _, line in ipairs(ns.db.diagLog) do
+                if tostring(line):find("welcomed to the guild", 1, true) then said = true end
+            end
+            assert.is_true(said)
+        end)
+
+        -- Names are letters only; i = 27 gives "Newbieba".
+        local function newbie(i)
+            local n = ""
+            repeat
+                n = string.char(97 + i % 26) .. n
+                i = math.floor(i / 26)
+            until i == 0
+            return "Newbie" .. n
+        end
+
+        it("keeps its table within the cap under a storm of joins and logins", function()
+            random.seed(196)
+            for i = 1, ns.Greeter.MAX_WELCOMED * 3 do
+                local name = newbie(i)
+                wow.systemMessage(name .. " has joined the guild.")
+                if i % 2 == 0 then online(name) end
+                wow.advance(random.random() * 0.2)
+                assert.is_true(ns.Greeter.WelcomedCount() <= ns.Greeter.MAX_WELCOMED)
+            end
+            -- All still inside their window, so the table is full, not over.
+            assert.are.equal(ns.Greeter.MAX_WELCOMED, ns.Greeter.WelcomedCount())
+        end)
+
+        it("drops names whose window is over before it makes room", function()
+            for i = 1, ns.Greeter.MAX_WELCOMED do
+                wow.systemMessage(newbie(i) .. " has joined the guild.")
+                wow.advance(0.1)
+            end
+            assert.are.equal(ns.Greeter.MAX_WELCOMED, ns.Greeter.WelcomedCount())
+            wow.advance(ns.Greeter.WELCOME_QUIET + 1)
+            wow.systemMessage("Latecomer has joined the guild.")
+            assert.are.equal(1, ns.Greeter.WelcomedCount())
+        end)
+
+        it("counts a player who joins again once, with a fresh window", function()
+            ns.db.guildJoin.repeatCooldown = 0
+            wow.systemMessage("Varian has joined the guild.")
+            wow.advance(ns.Greeter.WELCOME_QUIET - 10)
+            wow.systemMessage("Varian has joined the guild.")
+            assert.are.equal(1, ns.Greeter.WelcomedCount())
+            wow.advance(20) -- past the first window, inside the second
+            online("Varian")
+            wow.advance(helloWait() + 5)
+            assert.are.equal(2, #wow.sentTo("GUILD"))
+            assert.are.equal(WELCOME, wow.sentTo("GUILD")[1])
+            assert.are.equal(WELCOME, wow.sentTo("GUILD")[2])
+        end)
+
+        it("copes with odd names", function()
+            for _, odd in ipairs({ "", " ", "A|cffff0000B", string.rep("x", 500), "Ünï-Realm" }) do
+                assert.has_no.errors(function()
+                    wow.systemMessage(odd .. " has joined the guild.")
+                    online(odd)
+                    wow.advance(1)
+                end)
+            end
+            assert.is_true(ns.Greeter.WelcomedCount() <= ns.Greeter.MAX_WELCOMED)
         end)
 
         it("can be switched off", function()
