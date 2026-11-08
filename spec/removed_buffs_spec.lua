@@ -35,6 +35,10 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
 
     local function boot(opts)
         opts = opts or {}
+        -- The game's spell data may still name them: the addon must not
+        -- offer them for that (pessimistic).
+        wow.SPELL_NAMES[SALVATION] = "Blessing of Salvation"
+        wow.SPELL_NAMES[MASS_SALVATION] = "Greater Blessing of Salvation"
         ns = wow.boot({ db = opts.db, before = function(state)
             state.class = opts.class or "PALADIN"
             state.knownSpells = opts.known
@@ -43,6 +47,10 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
         button = ns.BuffButton.Frame()
         slash("buffmode on")
     end
+
+    after_each(function()
+        wow.SPELL_NAMES[SALVATION], wow.SPELL_NAMES[MASS_SALVATION] = nil, nil
+    end)
 
     local function macro() return button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText) end
 
@@ -236,6 +244,7 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
             ns.db.buffBack.buffOrder = { "salvation", "kings" }
             ns.db.buffBack.neverOffer = { salvation = true }
             group("party", { { "Ann-Vale", "WARRIOR", "TANK" } })
+            assert.are.same({ "Ann-Vale Blessing of Kings" }, buffAll(), "still working before any repair")
             noRemovedBuff(buffAll())
             ns.Config.Repair()
             assert.is_nil(ns.db.buffBack.revokeMode)
@@ -275,6 +284,21 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
             assert.is_nil(b.revokeMode)
             assert.is_nil(b.whoGets.salvation)
             assert.are.equal("tanks", b.whoGets.kings.rule)
+        end)
+
+        it("loads a saved ledger whose favours name Salvation or Revoke, and keeps them as plain text", function()
+            boot({ db = { ledger = { entries = {
+                { t = 100, who = "Bo-Lake", buffs = { "Blessing of Salvation" }, result = "thanked",
+                    returned = "Blessing of Salvation" },
+                { t = 200, who = "Cid-Rock", buffs = { "Greater Blessing of Salvation", "Blessing of Kings" },
+                    result = "thanked", returned = "Revoke", note = "Revoke" },
+            }, totals = { received = 2, thanked = 2, returned = 2 } } } })
+            assert.are.same({}, wow.errors)
+            assert.are.equal(2, #ns.Ledger.Lines())
+            local lines = table.concat(ns.Ledger.Lines(), "\n")
+            assert.is_truthy(lines:find("Blessing of Salvation", 1, true), "history is kept as it was")
+            assert.is_truthy(lines:find("Revoke", 1, true))
+            assert.are.same({}, wow.errors)
         end)
 
         it("ignores a thank-you receipt or a plan naming Salvation from another copy", function()
@@ -318,6 +342,7 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
         it("loads old and damaged saved data, changes groups and auras with the stale IDs, and never offers a removed buff",
             function()
                 local offered = 0
+                local reached = { revokeMode = 0, revokeNames = 0, whoGets = 0, whoGetsAll = 0, buffOrder = 0, neverOffer = 0 }
                 for _, seed in ipairs({ 5, 208, 977, 2026 }) do
                     random.seed(seed)
                     local junk = { 7, true, "x", {}, { rule = {} }, "salvation", { "salvation" } }
@@ -325,14 +350,21 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
                     local function damagedDb()
                         local db = oldSettings()
                         local b = db.buffBack
-                        if random.random() < 0.5 then b.revokeMode = pickJunk() end
-                        if random.random() < 0.5 then b.revokeNames = pickJunk() end
-                        if random.random() < 0.5 then b.whoGets.salvation = pickJunk() end
-                        if random.random() < 0.3 then b.whoGets = pickJunk() end
-                        if random.random() < 0.3 then b.buffOrder = { "salvation", pickJunk(), "revoke", "kings" } end
-                        if random.random() < 0.3 then b.neverOffer = { salvation = pickJunk(), revoke = true } end
+                        -- Salvation is not marked never-offer here: only its removal keeps it away.
+                        b.neverOffer = { revoke = true }
+                        local function hit(name) reached[name] = reached[name] + 1 end
+                        if random.random() < 0.5 then b.revokeMode = pickJunk() hit("revokeMode") end
+                        if random.random() < 0.5 then b.revokeNames = pickJunk() hit("revokeNames") end
+                        if random.random() < 0.5 then b.whoGets.salvation = pickJunk() hit("whoGets") end
+                        if random.random() < 0.3 then b.whoGets = pickJunk() hit("whoGetsAll") end
+                        if random.random() < 0.5 then
+                            b.buffOrder = { "salvation", pickJunk(), "revoke", "kings" }
+                            hit("buffOrder")
+                        end
+                        if random.random() < 0.5 then b.neverOffer = { salvation = pickJunk(), revoke = true } hit("neverOffer") end
                         return db
                     end
+                    for load = 1, 6 do
                     boot({ db = damagedDb() })
                     local names = { "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
                     local classes = { "WARRIOR", "ROGUE", "MAGE", "PRIEST", "PALADIN" }
@@ -369,7 +401,7 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
                         function() ns.Config.Repair() end,
                         function() wow.advance(random.random() * 20) end,
                     }
-                    for step = 1, 200 do
+                    for step = 1, 80 do
                         actions[random.random(#actions)]()
                         local before = #wow.casts
                         local text = macro() or ""
@@ -385,8 +417,10 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
                             assert.are_not.equal(MASS_SALVATION, cast.id)
                         end
                     end
-                    assert.are.same({}, wow.errors, "seed " .. seed)
+                    assert.are.same({}, wow.errors, "seed " .. seed .. ", load " .. load)
+                    end
                 end
+                for name, count in pairs(reached) do assert.is_true(count > 0, "never damaged: " .. name) end
                 assert.is_true(offered > 50, "buffs offered: " .. offered)
             end)
     end)
