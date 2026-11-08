@@ -173,8 +173,8 @@ end
 -- listing every setting as a heading tagged with its words, which the
 -- search box finds. Only when the client has every part of that API; the
 -- other pages are drawn by the addon (canvas pages), which the search can't
--- look into. Returns whether the page was made. Launch check (#50): does
--- Forever's Settings panel have a search box, and does it find these?
+-- look into. Returns whether the page was made. Whether Forever's Settings
+-- panel has a search box, and finds these, was confirmed in game at launch.
 function OptionsIndex.RegisterSearch(parent)
     if not (parent and type(Settings) == "table"
         and type(Settings.RegisterVerticalLayoutSubcategory) == "function"
