@@ -359,6 +359,38 @@ describe("The simulated client's group versions (#41)", function()
         assert.are.same({ 23028 }, wow.state.units.raid1.auras)
     end)
 
+    it("makes the buff last state.groupBuffSeconds, an hour by default", function()
+        boot()
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Arcane Brilliance")
+        assert.are.equal(3600, wow.state.units.raid1.auraDurations[1])
+        boot()
+        wow.state.groupBuffSeconds = 30
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Arcane Brilliance")
+        assert.are.equal(30, wow.state.units.raid1.auraDurations[1])
+        assert.is_false(wow.auraExpired(wow.state.units.raid1, 1))
+        wow.advance(31)
+        assert.is_true(wow.auraExpired(wow.state.units.raid1, 1))
+        assert.is_nil(C_UnitAuras.GetAuraDataByIndex("raid1", 1), "gone from the aura list")
+    end)
+
+    it("covers you when your own raid slot is in the target's subgroup, and not otherwise", function()
+        boot()
+        wow.addUnit("raid5", wow.state.units.player)
+        wow.state.units.player.subgroup = 2
+        wow.state.playerAuras = { { isHelpful = true, spellId = 10938, sourceUnit = "player", auraInstanceID = 1 } }
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Arcane Brilliance")
+        local record = wow.casts[1]
+        assert.are.same({ "Ann-Vale", "Bo-Fern", "Cid-Rock", "Me" }, record.covered)
+        assert.are.same({ 10938 }, record.before.Me, "what you wore, from your own buffs")
+        assert.are.same({ "player" }, record.beforeSources.Me)
+        local worn = C_UnitAuras.GetAuraDataByIndex("player", 2)
+        assert.are.equal(23028, worn.spellId, "and now you wear it")
+        assert.are.same({}, wow.flaggedBy)
+        wow.state.units.player.subgroup = 1
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Arcane Brilliance")
+        for _, id in ipairs(wow.casts[2].covered) do assert.are_not.equal("Me", id) end
+    end)
+
     it("doesn't touch a unit that left the group before a slow answer", function()
         boot()
         wow.state.castLatency = 1

@@ -674,9 +674,18 @@ local function cast(args)
         for _, token in ipairs(covered) do
             local u = M.state.units[token]
             record.covered[#record.covered + 1] = u.id
-            record.before[u.id] = { unpack(u.auras or {}) }
             record.beforeSources = record.beforeSources or {}
-            record.beforeSources[u.id] = { unpack(u.auraSources or {}) }
+            if u == M.state.units.player then
+                -- Your own raid slot: your buffs are the game's playerAuras.
+                record.before[u.id], record.beforeSources[u.id] = {}, {}
+                for _, aura in ipairs(M.state.playerAuras) do
+                    record.before[u.id][#record.before[u.id] + 1] = aura.spellId
+                    record.beforeSources[u.id][#record.before[u.id]] = aura.sourceUnit
+                end
+            else
+                record.before[u.id] = { unpack(u.auras or {}) }
+                record.beforeSources[u.id] = { unpack(u.auraSources or {}) }
+            end
         end
     end
     M.casts[#M.casts + 1] = record
@@ -718,7 +727,14 @@ local function cast(args)
             local function wear()
                 for i, token in ipairs(covered) do
                     if M.state.units[token] == coveredUnits[i] then
-                        M.wearBuff(token, id, { source = "player", duration = M.state.groupBuffSeconds })
+                        if coveredUnits[i] == M.state.units.player then
+                            local seconds = M.state.groupBuffSeconds or 3600
+                            M.state.playerAuras[#M.state.playerAuras + 1] = { isHelpful = true, spellId = id,
+                                sourceUnit = "player", duration = seconds, expirationTime = M.now + seconds,
+                                auraInstanceID = 700000 + #M.state.playerAuras }
+                        else
+                            M.wearBuff(token, id, { source = "player", duration = M.state.groupBuffSeconds })
+                        end
                     end
                 end
             end
@@ -1747,6 +1763,13 @@ function M.wearBuff(token, spellId, opts)
     u.auraSources[i] = opts.source
     u.auraDurations[i] = duration
     u.auraExpires[i] = duration > 0 and M.now + duration or 0
+end
+
+-- The party or raid token of a unit table, or nil (for specs that hold the unit).
+function M.tokenFor(u)
+    for token, v in pairs(M.state.units) do
+        if v == u and (token:find("^party%d") or token:find("^raid%d")) then return token end
+    end
 end
 
 local nextAuraId = 1

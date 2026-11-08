@@ -289,6 +289,21 @@ describe("Group versions in buff mode (#41)", function()
             assert.are.equal("Dot Moss: Arcane Intellect", armed())
         end)
 
+        it("a press whose group moves between its halves says the group the up half cast on", function()
+            boot()
+            raid({ "Ann-Vale", "Bo-Fern", "Cid-Rock" })
+            armed()
+            wow.state.cvars.ActionButtonUseKeyDown = "0"
+            wow.hardware = true
+            wow.run(button, "PreClick", "LeftButton", true)
+            for i = 1, 3 do wow.state.units["raid" .. i].subgroup = 2 end
+            wow.run(button, "PreClick", "LeftButton", false)
+            wow.runMacro(button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText))
+            wow.run(button, "PostClick", "LeftButton", false)
+            wow.hardware = false
+            assert.are.equal("Cast Arcane Brilliance on Group 2.", button.result:GetText())
+        end)
+
         it("right-click says what it skipped", function()
             boot()
             armed()
@@ -626,10 +641,10 @@ describe("Group versions in buff mode (#41)", function()
             assert.are.equal("Ann Vale: Arcane Intellect", armed(), "2 missing: the default needs 3")
             ns.db.buffBack.groupEnough = 0 / 0
             assert.are.equal("Ann Vale: Arcane Intellect", armed())
-            boot()
+            boot({ members = { "Ann-Vale", "Bo-Fern", "Cid-Rock" } })
             ns.db.buffBack.groupEnough = "x"
             ns.db.buffBack.groupVersions = "off"
-            assert.are.equal("Ann Vale: Arcane Brilliance", armed(), "3 or more missing, and on")
+            assert.are.equal("Ann Vale: Arcane Brilliance", armed(), "exactly 3 missing, and on")
         end)
 
         local function click(box, on)
@@ -705,6 +720,7 @@ describe("Group versions in buff mode (#41)", function()
             local reached = { flag = 0, rule = 0, rank = 0 }
             for _, seed in ipairs({ 3, 19, 77, 410, 2026, 9001 }) do
                 random.seed(seed)
+                local perSeed = {}
                 -- A priest who knows rank 5 of the Prayer: rank 6 of the single is higher.
                 boot({ class = "PRIEST", known = { FORT_6, FORT_5, PRAYER_FORT_1 },
                     items = { [ITEM.holyCandle] = 6 } })
@@ -752,7 +768,7 @@ describe("Group versions in buff mode (#41)", function()
                     member(function(u) u.role = ({ "TANK", "HEALER", "DAMAGER", "NONE" })[random.random(4)] end),
                     member(function(u) u.role = random.random() < 0.5 and "TANK" or "DAMAGER" end),
                     member(function(u)
-                        u.secrets = random.random() < 0.2
+                        u.secrets = random.random() < 0.1
                             and { pvp = random.random() < 0.5, role = true, mainTank = true } or nil
                     end),
                     member(function(u) u.class = ({ "MAGE", "WARRIOR", "PRIEST", "ROGUE" })[random.random(4)] end),
@@ -791,6 +807,39 @@ describe("Group versions in buff mode (#41)", function()
                     function() wow.advance(random.random() * 15) end,
                 }
 
+                -- Every so often the storm sets up a state a guard is for: a
+                -- raid of 6 in two subgroups, enough lacking Fortitude, and
+                -- exactly one thing in the way. The press that follows (the
+                -- hazard check below) must not cast the group version.
+                local function scenario(kind)
+                    local names = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed" }
+                    wow.setGroup("raid", names)
+                    inGroup = {}
+                    for _, n in ipairs(names) do inGroup[n] = true end
+                    for i = 1, #names do
+                        local u = wow.state.units["raid" .. i]
+                        u.subgroup = i <= 3 and 1 or 2
+                    end
+                    wow.state.pvp = false
+                    wow.state.items[ITEM.holyCandle] = 3
+                    wow.state.itemsSecret, wow.state.rosterSecret = false, false
+                    ns.db.buffBack.groupVersions = true
+                    ns.db.buffBack.groupEnough = 2
+                    ns.db.buffBack.whoGets = {}
+                    wow.fire("GROUP_ROSTER_UPDATE")
+                    local u = wow.state.units["raid" .. random.random(3)]
+                    if kind == "flag" then
+                        u.pvp = true
+                    elseif kind == "secret" then
+                        u.secrets = { pvp = true }
+                    elseif kind == "rule" then
+                        ns.db.buffBack.whoGets = { fortitude = { rule = "notTanks" } }
+                        u.role = "TANK"
+                    else
+                        wow.wearBuff("raid" .. random.random(3), FORT_6, { source = "player", duration = 80 })
+                    end
+                end
+
                 -- The cast's invariants, from the simulated client's own state.
                 local function check(step, from, was, iAmFlagged, rule)
                     for i = from + 1, #wow.casts do
@@ -805,6 +854,8 @@ describe("Group versions in buff mode (#41)", function()
                                     local m = was[id]
                                     assert.is_truthy(m, where .. ", covered " .. id .. " outside the group")
                                     assert.is_true(iAmFlagged or not m.pvp, where .. ", flagged " .. id)
+                                    assert.is_true(iAmFlagged or not m.secretPvp, where .. ", " .. id
+                                        .. "'s flag couldn't be read")
                                     if rule == "notTanks" then
                                         assert.is_false(m.role == "TANK" or m.mainTank == true,
                                             where .. ", a tank " .. id .. " under 'everyone but tanks'")
@@ -829,82 +880,109 @@ describe("Group versions in buff mode (#41)", function()
                     assert.is_true((wow.state.items[ITEM.holyCandle] or 0) >= 0, "reagents never go below 0")
                 end
 
-                -- Which hazard stands between the armed single Fortitude and a
-                -- group version, if enough would be missing it: read from the
-                -- client's state alone. nil when the button holds something else.
-                local function hazard(iAmFlagged, rule)
-                    if wow.state.inCombat or not ns.db.buffBack.groupVersions then return nil end
-                    if wow.state.itemsSecret or wow.state.rosterSecret then return nil end
-                    if (wow.state.items[ITEM.holyCandle] or 0) < 1 then return nil end
-                    ns.BuffButton.Refresh()
-                    local text = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
-                    if not text or text:match("/cast %[help,nodead%] ([^\n]+)") ~= "Power Word: Fortitude" then
-                        return nil
+                -- Which hazards a group stands behind, read from the simulated
+                -- client's state alone (never from what the button holds): a
+                -- subgroup (or the party) where at least the threshold of
+                -- members who can be buffed lack Fortitude, and exactly one
+                -- thing would make a group cast harmful. Returns the hazard
+                -- names of such groups, or an empty list.
+                local function hazards(iAmFlagged, rule)
+                    local found = {}
+                    if wow.state.inCombat or ns.BuffMode.LentKey() == nil then return found end
+                    if not ns.db.buffBack.groupVersions or wow.state.itemsSecret or wow.state.rosterSecret then
+                        return found
                     end
-                    local target
-                    local name = text:match("/targetexact ([^\n]+)")
-                    for _, token in ipairs(tokens()) do
-                        local u = wow.state.units[token]
-                        if u.name .. " " .. (u.surname or "") == name then target = u end
-                    end
-                    if not target then return nil end
+                    if (wow.state.items[ITEM.holyCandle] or 0) < 1 then return found end
                     local inRaid = wow.state.groupType == "raid"
-                    local lacking, flag, tank, rank = 0, false, false, false
+                    local byGroup = {}
                     for _, token in ipairs(tokens()) do
                         local u = wow.state.units[token]
-                        if not inRaid or (u.subgroup or 1) == (target.subgroup or 1) then
+                        local key = inRaid and (u.subgroup or 1) or 1
+                        byGroup[key] = byGroup[key] or {}
+                        table.insert(byGroup[key], u)
+                    end
+                    for _, members in pairs(byGroup) do
+                        local lacking, flag, tank, rank, unclear = 0, false, false, false, false
+                        for _, u in ipairs(members) do
                             local has, mine = false, false
                             for at, id in ipairs(u.auras or {}) do
-                                if FORTS[id] and not wow.auraExpired(u, at) then has = true end
-                                if id == FORT_6 and (u.auraSources or {})[at] == "player"
-                                    and not wow.auraExpired(u, at) then mine = true end
+                                if not wow.auraExpired(u, at) then
+                                    if FORTS[id] then has = true end
+                                    if id == FORT_6 then
+                                        if (u.auraSources or {})[at] == "player" then mine = true else unclear = true end
+                                    end
+                                end
                             end
+                            if u.secrets then unclear = true end
                             local usable = not (u.dead or u.offline or u.outOfRange or u.hidden)
                             if usable and not has and (iAmFlagged or not u.pvp) then lacking = lacking + 1 end
                             if not u.offline and u.pvp and not iAmFlagged then flag = true end
-                            if u.role == "TANK" and not (u.secrets and u.secrets.role) then tank = true end
+                            if u.role == "TANK" then tank = true end
                             if mine then rank = true end
                         end
+                        if not unclear and lacking >= (ns.db.buffBack.groupEnough or 3) then
+                            if flag and not tank and not rank then found[#found + 1] = "flag" end
+                            if rule == "notTanks" and tank and not flag and not rank then found[#found + 1] = "rule" end
+                            if rank and not flag and not (rule == "notTanks" and tank) then
+                                found[#found + 1] = "rank"
+                            end
+                        end
                     end
-                    if lacking < (ns.db.buffBack.groupEnough or 3) then return nil end
-                    if flag and not tank and not rank then return "flag" end
-                    if rule == "notTanks" and tank and not flag and not rank then return "rule" end
-                    if rank and not flag and not (rule == "notTanks" and tank) then return "rank" end
+                    return found
                 end
 
-                for step = 1, 500 do
-                    local before = #wow.casts
-                    local was = {}
+                -- Who is in the group and how they stand, from the client's state.
+                local function snapshot()
+                    local now = {}
                     for _, token in ipairs(tokens()) do
                         local u = wow.state.units[token]
-                        was[u.id] = { pvp = u.pvp, role = u.role, mainTank = u.mainTank, dead = u.dead,
-                            class = u.class, subgroup = u.subgroup }
+                        now[u.id] = { pvp = u.pvp, role = u.role, mainTank = u.mainTank, dead = u.dead,
+                            class = u.class, subgroup = u.subgroup, secretPvp = u.secrets and u.secrets.pvp }
                     end
+                    return now
+                end
+
+                for step = 1, 600 do
+                    local before = #wow.casts
+                    local was = snapshot()
                     local iAmFlagged = wow.state.pvp
                     local function currentRule()
                         local rules = ns.db.buffBack.whoGets
                         return rules and rules.fortitude and rules.fortitude.rule or "all"
                     end
                     local rule = currentRule()
-                    actions[random.random(#actions)]()
+                    if step % 15 == 0 then
+                        ns.db.buffBack.groupVersions = true
+                        scenario(({ "flag", "rule", "rank", "secret" })[step / 15 % 4 + 1])
+                        ns.BuffButton.Refresh()
+                        local from = #wow.casts
+                        wow.pressKey("MOUSEWHEELUP")
+                        check(step, from, snapshot(), wow.state.pvp, currentRule())
+                        before = #wow.casts
+                    else
+                        actions[random.random(#actions)]()
+                    end
                     check(step, before, was, iAmFlagged, rule)
                     -- In a state where a hazard is all that stops the group cast,
                     -- press: a regression would cast it.
-                    local now = {}
-                    for _, token in ipairs(tokens()) do
-                        local u = wow.state.units[token]
-                        now[u.id] = { pvp = u.pvp, role = u.role, mainTank = u.mainTank, dead = u.dead,
-                            class = u.class, subgroup = u.subgroup }
-                    end
-                    local h = hazard(wow.state.pvp, currentRule())
-                    if h then
-                        reached[h] = reached[h] + 1
+                    local now = snapshot()
+                    local found = hazards(wow.state.pvp, currentRule())
+                    if #found > 0 then
+                        for _, kind in ipairs(found) do
+                            reached[kind] = reached[kind] + 1
+                            perSeed[kind] = (perSeed[kind] or 0) + 1
+                        end
                         local from = #wow.casts
+                        ns.BuffButton.Refresh()
                         wow.pressKey("MOUSEWHEELUP")
                         check(step, from, now, wow.state.pvp, currentRule())
                     end
                 end
                 assert.are.same({}, wow.errors, "seed " .. seed)
+                for _, kind in ipairs({ "flag", "rule", "rank" }) do
+                    assert.is_true((perSeed[kind] or 0) >= 3, ("seed %d reached the %s hazard %d times"):format(
+                        seed, kind, perSeed[kind] or 0))
+                end
             end
             assert.is_true(group > 10, "group casts: " .. group)
             assert.is_true(singles > 10, "single casts: " .. singles)
