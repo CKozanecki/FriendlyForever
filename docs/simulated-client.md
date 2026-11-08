@@ -12,6 +12,7 @@ A small simulation of the WoW client API, enough to load the addon as the game d
 - **Booting:** `wow.boot(opts)` resets the client, loads the addon, fires `ADDON_LOADED` and `PLAYER_ENTERING_WORLD`, and advances past the login grace period. Options:
   - `opts.db`: the saved variables to start with;
   - `opts.before(state)`: change the client's state before the addon loads;
+  - `opts.afterLoad(ns)`: change the addon's code once its files are loaded and before its saved settings are, to test a later release (the walkthrough's steps and version, #169);
   - `opts.noGrace`: stop right after login;
   - `opts.autoBuffMode`: keep buff mode's turn-on triggers at their defaults (on, #72). Without it, boot turns them off unless `opts.db` sets them, so specs that join groups or get buffed don't lend a key by accident;
   - `opts.randomStagger`: keep a guild hello's random extra wait random (#38). Without it, it is always the shortest (`GuildHellos.STAGGER_MIN`), so specs know when a hello goes;

@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47, #208
+-- Spec: #52, #112, #158, #47, #169, #208
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -291,7 +291,7 @@ describe("the UI simulator's walkthrough steps", function()
         ns.Walkthrough.Start()
         Pages.OpenTab("buff-back")
         assert.is_false(ns.Walkthrough.Frame():IsShown())
-        assert.are.same({ seen = 1, firstRun = false }, ns.db.walkthrough)
+        assert.are.same({ seen = ns.Config.WALKTHROUGH_VERSION, firstRun = false }, ns.db.walkthrough)
         assert.are.equal(ns.Options.StartPage(), Pages.Open("start"))
     end)
 

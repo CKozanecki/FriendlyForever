@@ -11,6 +11,13 @@
 -- handled in Close only. A fight closes it, and it reopens at the same step
 -- when the fight is over; one asked for in a fight waits for the fight to
 -- end (the owner's decisions on #47).
+--
+-- What's new (#169): each step records the walkthrough version it was added
+-- in (since). After an update that raised Config.WALKTHROUGH_VERSION, a
+-- player who finished or skipped an older version sees only the steps newer
+-- than it, titled "What's new"; a new player, or the replay from Start here,
+-- sees every step. Finishing or skipping saves the current version, and
+-- never turns the addon on or off.
 local _, ns = ...
 
 local Walkthrough = {}
@@ -19,7 +26,9 @@ ns.Walkthrough = Walkthrough
 Walkthrough.NAME = "FriendlyForeverWalkthrough"
 
 local frame
-local step          -- the step shown, or nil while closed
+local steps         -- the steps of this run, in order (every step, or just the new ones)
+local whatsNew      -- whether this run is only the steps added since the player last finished
+local step          -- the step shown (an index into steps), or nil while closed
 local pending       -- the step to show when the fight is over, or nil
 
 -- What a setting reads as, from a settings section that may be damaged.
@@ -43,10 +52,14 @@ end
 -- Whether this is a new install's first run, which ends by turning the addon on.
 function Walkthrough.FirstRun() return State().firstRun end
 
--- Each step: its title, its text (worked out when shown, from the settings
--- as they are), and the page it opens, if any.
+-- Each step: the walkthrough version it was added in (since: 1 for the
+-- first, raised by hand in Config.lua together with Config.WALKTHROUGH_VERSION
+-- when a release adds a step, see CONTRIBUTING.md), its title, its text
+-- (worked out when shown, from the settings as they are), and the page it
+-- opens, if any.
 Walkthrough.STEPS = {
     {
+        since = 1,
         title = "Welcome to Friendly Forever",
         text = function()
             local first = Walkthrough.FirstRun() and ("Friendly Forever is off until you finish or skip this "
@@ -58,6 +71,7 @@ Walkthrough.STEPS = {
         end,
     },
     {
+        since = 1,
         title = "Buff Back: buff order and \"Never offer\"",
         open = function() ns.Options.OpenTab("buffBack", "buffOrderHeader") end,
         text = function()
@@ -68,6 +82,7 @@ Walkthrough.STEPS = {
         end,
     },
     {
+        since = 1,
         title = "Buff mode: its key",
         open = function() ns.Options.OpenTab("buffBack", "buffModeKey") end,
         text = function()
@@ -78,6 +93,7 @@ Walkthrough.STEPS = {
         end,
     },
     {
+        since = 1,
         title = "Buff mode: when it turns on and off",
         open = function() ns.Options.OpenTab("buffBack", "autoHeader") end,
         text = function()
@@ -103,6 +119,7 @@ Walkthrough.STEPS = {
         end,
     },
     {
+        since = 1,
         title = "Thanks",
         open = function() ns.Options.OpenTab("buff", "header") end,
         text = function()
@@ -115,6 +132,7 @@ Walkthrough.STEPS = {
         end,
     },
     {
+        since = 1,
         title = "Welcome lines",
         open = function() ns.Options.OpenTab("guildJoin", "header") end,
         text = function()
@@ -125,6 +143,7 @@ Walkthrough.STEPS = {
         end,
     },
     {
+        since = 1,
         title = "That's it",
         open = function() ns.Options.OpenStart() end,
         text = function()
@@ -135,11 +154,21 @@ Walkthrough.STEPS = {
     },
 }
 
+-- The steps added after a version, in order. A version that is no number
+-- gives every step.
+function Walkthrough.StepsSince(seen)
+    local out = {}
+    for _, info in ipairs(Walkthrough.STEPS) do
+        if type(seen) ~= "number" or info.since > seen then out[#out + 1] = info end
+    end
+    return out
+end
+
 local function Fill()
-    local info = Walkthrough.STEPS[step]
-    local last = step == #Walkthrough.STEPS
-    frame.title:SetText(info.title)
-    frame.count:SetText(("%d of %d"):format(step, #Walkthrough.STEPS))
+    local info = steps[step]
+    local last = step == #steps
+    frame.title:SetText((whatsNew and "What's new: " or "") .. info.title)
+    frame.count:SetText(("%d of %d"):format(step, #steps))
     frame.stepText:SetText(info.text())
     -- The text's scrolling area holds all of it, back at its top.
     local height = frame.stepText:GetStringHeight()
@@ -147,14 +176,14 @@ local function Fill()
     frame.scroll:SetVerticalScroll(0)
     frame.back:SetShown(step > 1)
     frame.skip:SetShown(not last)
-    frame.next:SetText(last and "Finish" or (step == 1 and "Show me around" or "Next"))
+    frame.next:SetText(last and "Finish" or (info == Walkthrough.STEPS[1] and "Show me around" or "Next"))
 end
 
 local function Show(index)
     step = index
     frame:Show()
     Fill()
-    local open = Walkthrough.STEPS[step].open
+    local open = steps[step].open
     if open then open() end
 end
 
@@ -248,8 +277,12 @@ function Walkthrough.Create()
     if not frame then Create() end
 end
 
--- Starts it at the first step, or once the fight is over when in one.
-function Walkthrough.Start()
+-- Starts it at the first step, or once the fight is over when in one: every
+-- step, or with new set, only those added since the player last finished it.
+function Walkthrough.Start(new)
+    new = new == true
+    steps = new and Walkthrough.StepsSince(State().seen) or Walkthrough.STEPS
+    whatsNew = new
     if InCombatLockdown() then
         if not pending then ns.Print("the walkthrough will start when this fight is over.") end
         pending = 1
@@ -261,7 +294,7 @@ end
 
 function Walkthrough.Next()
     if not step then return end
-    if step == #Walkthrough.STEPS then return Close(true) end
+    if step == #steps then return Close(true) end
     Show(step + 1)
 end
 
@@ -274,15 +307,27 @@ function Walkthrough.Skip()
     Close(true)
 end
 
--- At login, until it has been finished or skipped: say where Start here
--- is, and start the walkthrough.
+-- At login, until the current version has been finished or skipped: say
+-- where Start here is, and start the walkthrough. Someone who finished an
+-- older version gets only what's new.
 function Walkthrough.OnLogin()
     local state = State()
-    if state.seen >= ns.Config.WALKTHROUGH_VERSION then return end
-    ns.Print((state.firstRun and "welcome! Friendly Forever is off until you finish or skip its walkthrough. "
-        or "new: a short walkthrough of the main settings. ")
-        .. "The Start here page shows your settings: Esc > Options > AddOns > " .. ns.TITLE .. " > Start here.")
-    Walkthrough.Start()
+    local latest = ns.Config.WALKTHROUGH_VERSION
+    if state.seen >= latest then return end
+    local new = state.seen > 0
+    local count = #Walkthrough.StepsSince(state.seen)
+    if new and count == 0 then
+        -- A version raised with no step to show: nothing to tell them.
+        ns.db.walkthrough = { seen = latest, firstRun = false }
+        return
+    end
+    local intro = state.firstRun and "welcome! Friendly Forever is off until you finish or skip its walkthrough. "
+        or new and ("what's new in Friendly Forever: %d new step%s in the walkthrough. "):format(count,
+            count == 1 and "" or "s")
+        or "new: a short walkthrough of the main settings. "
+    ns.Print(intro .. "The Start here page shows your settings: Esc > Options > AddOns > " .. ns.TITLE
+        .. " > Start here.")
+    Walkthrough.Start(new)
 end
 
 -- The addon was switched on or off by hand: that's the player's choice, so
@@ -294,5 +339,8 @@ function Walkthrough.EndFirstRun()
 end
 
 function Walkthrough.Step() return step end
+-- How many steps this run has (every step, or the new ones), 0 before any.
+function Walkthrough.Count() return steps and #steps or 0 end
+function Walkthrough.WhatsNew() return whatsNew == true end
 function Walkthrough.IsPending() return pending ~= nil end
 function Walkthrough.Frame() return frame end

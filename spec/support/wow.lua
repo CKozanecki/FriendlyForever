@@ -1504,6 +1504,9 @@ end
 -- opts.db: saved variables to start with. opts.noGrace: stop after login.
 -- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
 -- opts.walkthrough: keep a first install's walkthrough (see below).
+-- opts.afterLoad: called with the addon's namespace once its files are
+-- loaded, before its saved settings are (a spec for a later release changes
+-- the code here, such as the walkthrough's steps and version, #169).
 function M.boot(opts)
     opts = opts or {}
     M.reset()
@@ -1519,6 +1522,7 @@ function M.boot(opts)
     local walkthroughGiven = type(opts.db) == "table" and opts.db.walkthrough or nil
     _G.FriendlyForeverDB = opts.db
     local ns = M.load()
+    if opts.afterLoad then opts.afterLoad(ns) end
     ns.Messages.random = function() return 1 end
     ns.Flavour.random = function() return 1 end
     -- A guild hello waits the shortest random extra (GuildHellos.STAGGER_MIN,
