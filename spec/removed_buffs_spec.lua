@@ -8,7 +8,7 @@
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
-local KINGS, WISDOM_1, MIGHT_1, LIGHT_1 = 20217, 19742, 19740, 19977
+local KINGS, WISDOM_1, MIGHT_1 = 20217, 19742, 19740
 -- The spell IDs the removed buffs had, and what the old addon called Revoke.
 local SALVATION, MASS_SALVATION = 1038, 25895
 
@@ -19,7 +19,7 @@ local function oldSettings()
     return {
         buffBack = {
             buffOrder = { "salvation", "kings", "might" },
-            neverOffer = { salvation = true, light = true },
+            neverOffer = { salvation = true, might = true },
             whoGets = {
                 salvation = { rule = "notTanks", classes = { WARRIOR = true }, always = { ["ann-vale"] = "Ann-Vale" } },
                 kings = { rule = "tanks" },
@@ -38,7 +38,7 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
         ns = wow.boot({ db = opts.db, before = function(state)
             state.class = opts.class or "PALADIN"
             state.knownSpells = opts.known
-                or { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true, [LIGHT_1] = true, [SALVATION] = true }
+                or { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true, [SALVATION] = true }
         end })
         button = ns.BuffButton.Frame()
         slash("buffmode on")
@@ -170,11 +170,11 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
             end
         end)
 
-        it("leaves Kings, Wisdom, Might and Light in their order, to everyone", function()
+        it("leaves the paladin's other buffs as they were, to everyone", function()
             boot()
             local keys = {}
             for i, buff in ipairs(ns.BuffData.CLASSES.PALADIN) do keys[i] = buff.key end
-            assert.are.same({ "kings", "wisdom", "might", "light" }, keys)
+            assert.are.same({ "kings", "wisdom", "might" }, { keys[1], keys[2], keys[3] }, "in their order")
             for _, buff in ipairs(ns.BuffData.CLASSES.PALADIN) do
                 assert.are.equal("all", ns.BuffRules.Rule(buff), buff.key)
             end
@@ -197,7 +197,7 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
                 for _, key in ipairs(b.buffOrder) do keep[#keep + 1] = key end
                 return keep
             end)(), "the order keeps its other buffs")
-            assert.is_true(b.neverOffer.light, "and the other buffs' never-offer marks")
+            assert.is_true(b.neverOffer.might, "and the other buffs' never-offer marks")
             assert.are.equal("tanks", b.whoGets.kings.rule, "and the other buffs' rules")
             assert.are.equal("Blessing of Kings", ns.BuffData.SpellName(ns.BuffData.ByKey("kings")))
         end)
@@ -208,8 +208,8 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
             local given = buffAll()
             noRemovedBuff(given)
             assert.are.same({}, wow.errors)
-            assert.are.same({ "Ann-Vale Blessing of Kings", "Bo-Lake Blessing of Might" }, given,
-                "Kings stays tanks only; Light stays never-offered")
+            assert.are.same({ "Ann-Vale Blessing of Kings" }, given,
+                "Kings stays tanks only; Might stays never-offered")
         end)
 
         it("never errors on a damaged value where a removed key used to be", function()
@@ -218,14 +218,14 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
                 boot({ db = { buffBack = {
                     revokeMode = bad, revokeNames = bad,
                     whoGets = { salvation = bad, kings = { rule = "tanks" } },
-                    buffOrder = { "salvation", bad, "might" }, neverOffer = { salvation = bad, light = true },
+                    buffOrder = { "salvation", bad, "might" }, neverOffer = { salvation = bad, might = true },
                 } } })
                 assert.are.same({}, wow.errors, "damage " .. i)
                 local b = ns.db.buffBack
                 assert.is_nil(b.revokeMode)
                 assert.is_nil(b.whoGets.salvation)
                 assert.are.equal("tanks", b.whoGets.kings.rule, "damage " .. i)
-                assert.is_true(b.neverOffer.light, "damage " .. i)
+                assert.is_true(b.neverOffer.might, "damage " .. i)
             end
         end)
 

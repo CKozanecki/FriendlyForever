@@ -151,6 +151,20 @@ describe("My Blessings in this raid", function()
             assert.is_nil(macro(), "and your Might counts again once you cover it")
         end)
 
+        it("a Blessing another paladin recasts over yours is no longer yours: your next Blessing is offered (#208)",
+            function()
+                group("party", { "Ann-Vale" })
+                wow.wearBuff("party1", KINGS, { source = "player" })
+                ns.BuffButton.Refresh()
+                assert.is_nil(macro(), "your Kings: no second Blessing from you over it")
+                wow.wearBuff("party1", KINGS, { source = "raid9" }) -- the same spell, recast: theirs now
+                ns.BuffButton.Refresh()
+                assert.are.equal("Ann Vale: Blessing of Might", armed())
+                wow.wearBuff("party1", KINGS, { source = "player" })
+                ns.BuffButton.Refresh()
+                assert.is_nil(macro(), "and yours again")
+            end)
+
         it("can choose more than one, and choosing all of them is the same as not choosing", function()
             group("raid", { "Ann-Vale" }, { "MAGE" })
             assert.is_true(ns.BuffRules.SetRaidBlessings({ "wisdom", "might", "wisdom" }))
@@ -297,8 +311,8 @@ describe("My Blessings in this raid", function()
         it("refuses names that aren't your Blessings, and leaves the choice as it was", function()
             group("raid", { "Ann-Vale" })
             ns.BuffRules.SetRaidBlessings({ "might" })
-            assert.are.same({ false, "'light' isn't one of your Blessings" },
-                { ns.BuffRules.SetRaidBlessings({ "kings", "light" }) })
+            assert.are.same({ false, "'bogus' isn't one of your Blessings" },
+                { ns.BuffRules.SetRaidBlessings({ "kings", "bogus" }) })
             assert.are.same({ false, "'motw' isn't one of your Blessings" }, { ns.BuffRules.SetRaidBlessings({ "motw" }) })
             assert.are.same({ false, "choose at least one Blessing (or all)" }, { ns.BuffRules.SetRaidBlessings({}) })
             assert.is_false(ns.BuffRules.CoversInRaid(ns.BuffData.ByKey("kings")), "unchanged")

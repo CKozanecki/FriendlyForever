@@ -1,4 +1,4 @@
--- Spec: #30, #76, #99
+-- Spec: #30, #76, #99, #208
 -- Buff mode buffs group members missing your buffs, one per press, with the
 -- same safety rules as buff back.
 local wow = require("spec.support.wow")
@@ -253,6 +253,17 @@ describe("Buffing your group in buff mode", function()
                 "not 'everyone has your buffs'")
             wow.advance(ns.GroupBuffs.SKIP_SECONDS + 1)
             assert.are.equal("Ann Vale: Mark of the Wild", armed())
+        end)
+
+        it("says Couldn't buff, not a reason, when a refused cast gives none (kept from Revoke's spec, #208)", function()
+            party({ "Ann-Vale" })
+            wow.state.castFailures["Ann-Vale"] = "Interrupted"
+            local real = wow.uiError
+            wow.uiError = function() end -- the game's error text never comes
+            finally(function() wow.uiError = real end)
+            wow.pressKey("MOUSEWHEELUP")
+            wow.advance(ns.BuffButton.SENT_ANSWER_SECONDS + 1)
+            assert.are.equal("Couldn't buff Ann Vale (the game gave no reason).", button.result:GetText())
         end)
 
         it("a refused cast is reported, and the next press goes to the next member", function()

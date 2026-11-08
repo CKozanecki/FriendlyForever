@@ -8,7 +8,7 @@ local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
 local MOTW, MOTW_1, THORNS_1 = 9885, 1126, 467
-local KINGS, MIGHT_1, LIGHT_1 = 20217, 19740, 19977
+local KINGS, MIGHT_1 = 20217, 19740
 local INTELLECT = 10157
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
@@ -28,7 +28,7 @@ describe("Who gets each buff", function()
     end
 
     local function paladin(known)
-        boot({ class = "PALADIN", known = known or { [KINGS] = true, [MIGHT_1] = true, [LIGHT_1] = true } })
+        boot({ class = "PALADIN", known = known or { [KINGS] = true, [MIGHT_1] = true } })
     end
 
     local function macro() return button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText) end
@@ -139,7 +139,7 @@ describe("Who gets each buff", function()
 
         it("gives each member the first Blessing your rules give them, one each", function()
             paladin()
-            ns.db.buffBack.buffOrder = { "kings", "might", "light" }
+            ns.db.buffBack.buffOrder = { "kings", "might" }
             rule("kings", "tanks")
             group("party", { { "Ann-Vale", "WARRIOR", "TANK" }, { "Bo-Lake", "ROGUE", "DAMAGER" } })
             local given = buffAll()
@@ -490,7 +490,7 @@ describe("Who gets each buff", function()
                 local everyone = { "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss", "Fay-Dune" }
                 local classes = { "WARRIOR", "ROGUE", "MAGE", "PRIEST", "PALADIN", "DRUID" }
                 local roles = { "TANK", "HEALER", "DAMAGER", "NONE" }
-                local keys = { "kings", "might", "light" }
+                local keys = { "kings", "might" }
                 local function reshuffle()
                     local members = {}
                     for _, name in ipairs(everyone) do
@@ -505,14 +505,14 @@ describe("Who gets each buff", function()
                 reshuffle()
                 local actions = {
                     reshuffle,
-                    function() rule(keys[random.random(3)], ns.BuffRules.RULES[random.random(4)]) end,
+                    function() rule(keys[random.random(#keys)], ns.BuffRules.RULES[random.random(4)]) end,
                     function()
-                        ns.BuffRules.SetClass(keys[random.random(3)], classes[random.random(#classes)], random.random() < 0.5)
+                        ns.BuffRules.SetClass(keys[random.random(#keys)], classes[random.random(#classes)], random.random() < 0.5)
                     end,
                     function()
                         local pick = {}
                         for _, name in ipairs(everyone) do if random.random() < 0.3 then pick[#pick + 1] = name end end
-                        ns.BuffRules.SetNames(keys[random.random(3)], random.random() < 0.5 and "always" or "never",
+                        ns.BuffRules.SetNames(keys[random.random(#keys)], random.random() < 0.5 and "always" or "never",
                             table.concat(pick, ", "))
                     end,
                     function()
@@ -521,7 +521,7 @@ describe("Who gets each buff", function()
                         local u = wow.state.units[token]
                         if u then
                             u.auras = u.auras or {}
-                            u.auras[#u.auras + 1] = ({ KINGS, MIGHT_1, LIGHT_1 })[random.random(3)]
+                            u.auras[#u.auras + 1] = ({ KINGS, MIGHT_1 })[random.random(2)]
                             u.auraSources = u.auraSources or {}
                             u.auraSources[#u.auras] = "raid9"
                         end
@@ -535,7 +535,7 @@ describe("Who gets each buff", function()
                         end
                     end,
                     function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
-                    function() ns.db.buffBack.buffOrder = { keys[random.random(3)], keys[random.random(3)] } end,
+                    function() ns.db.buffBack.buffOrder = { keys[random.random(#keys)], keys[random.random(#keys)] } end,
                     function() wow.advance(random.random() * 20) end,
                 }
                 for step = 1, 400 do
