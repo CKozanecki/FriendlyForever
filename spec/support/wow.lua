@@ -370,6 +370,10 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         "first" (default), "full" or "none"
 --   state.cvars.ActionButtonUseKeyDown  "1" (default): secure buttons act
 --                         on key down; "0": on key up
+--   /cast [@player] Spell (#198) casts on that unit without changing your
+--                         target; the other conditions ([nodead]) test that unit.
+--                         An empty condition list after the @ is fine. SENT
+--                         names the unit by its first name, as for any target.
 --   /cleartarget then /targetexact X leaves your old target as the "last
 --                         target", so /targetlasttarget brings it back (setTarget)
 --   Mouse clicks, like key presses, act on the half the key-down setting
@@ -589,8 +593,19 @@ local castCount = 0
 local function cast(args)
     local conds, name = args:match("^%[(.-)%]%s*(.+)$")
     local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
+    -- [@unit] aims the cast at that unit instead of your target, whom the
+    -- other conditions then test (#198; see ASSUMPTIONS). Your target is untouched.
+    local aimed
     if conds then
-        if not conditionsHold(conds, M.state.units.target) then return end
+        local token
+        conds = conds:gsub("@([%w]+)", function(t) token = t return "" end):gsub(",,", ","):gsub("^,", ""):gsub(",$", "")
+        if token then
+            aimed = M.state.units[token]
+            if not aimed then return end -- no such unit: the game casts nothing
+        end
+    end
+    if conds then
+        if not conditionsHold(conds, aimed or M.state.units.target) then return end
         -- The conditions apply to the unit the cast goes to (#84).
         if elsewhere and not conditionsHold(conds, elsewhere) then return end
     else
@@ -602,7 +617,7 @@ local function cast(args)
         return
     end
     -- A helpful spell with no friendly target lands on yourself.
-    local target = M.state.units.target
+    local target = aimed or M.state.units.target
     if not (target and not target.hostile) then target = M.state.units.player end
     local redirected = elsewhere ~= nil and elsewhere.id ~= target.id -- another player, not another token
     if elsewhere then target = elsewhere end
@@ -1504,6 +1519,7 @@ end
 -- Fresh client, addon loaded, logged in and past the login grace period.
 -- opts.db: saved variables to start with. opts.noGrace: stop after login.
 -- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
+-- opts.buffSelf: keep buff mode offering your own copy of your buffs (#198).
 -- opts.walkthrough: keep a first install's walkthrough (see below).
 function M.boot(opts)
     opts = opts or {}
@@ -1522,6 +1538,9 @@ function M.boot(opts)
     local ns = M.load()
     ns.Messages.random = function() return 1 end
     ns.Flavour.random = function() return 1 end
+    -- Buff mode also buffs you (#198). Specs written before that count the
+    -- group's casts only, so they start with it off; opts.buffSelf keeps it.
+    if not opts.buffSelf then ns.GroupBuffs.SELF_ORDER = "off" end
     -- A guild hello waits the shortest random extra (GuildHellos.STAGGER_MIN,
     -- #38), so specs know when it goes; opts.randomStagger keeps it random.
     if not opts.randomStagger then ns.GuildHellos.random = function() return 0 end end
