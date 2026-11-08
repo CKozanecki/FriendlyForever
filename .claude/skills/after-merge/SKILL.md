@@ -1,6 +1,6 @@
 ---
 name: after-merge
-description: What the driver of a ready Friendly Forever pull request does after the owner merges another PR into main - merge main in, resolve conflicts, make check, both review loops confirm, CI, update the description, announce ready again. Use when told that another PR has merged while yours is ready or in review.
+description: What the driver of a ready Friendly Forever pull request does after the owner merges another PR into main - merge main in, resolve conflicts, make check, reviewers confirm unless the merge shares no file with the PR, CI, update the description, announce ready again. Use when told that another PR has merged while yours is ready or in review.
 ---
 
 # After a merge
@@ -23,7 +23,8 @@ When the owner or the coordinator says a PR has merged. GitHub doesn't notify se
    Never force-push. (A branch that must be rebased is pushed under a new name, per AGENTS.md.)
 2. **Resolve conflicts** keeping both sides' intent: `-- Spec:` headers get both issue numbers, `### Unreleased` keeps both bullets. If both sides changed the same logic and either choice loses behaviour, ask the other PR's driver.
 3. **`make check`** on the merged tree, after `git add` of anything new.
-4. **Both review loops confirm the merge,** architecture then testing, using the `lua-architect` and `lua-tester` agents. Give them the merge commit's range (`<old head>..<merge commit>`) and say what conflicted. A clean merge still goes back to them, since the merged code can interact with yours (#85, #88, #93 recorded each confirmation).
+4. **Prove whether the merge is file-disjoint** (CONTRIBUTING.md's [Review loops](../../../CONTRIBUTING.md#review-loops)). Before step 1, save `git diff --name-only origin/main...HEAD` (the PR's files). After it, run `git diff --name-only <old main>..<new main>`. If step 2 had no conflicts and no file is in both lists, run `make check`, confirm CI is green, put both lists in the description and skip to step 5: the reviewers don't confirm.
+   If a file is in both lists, or a conflict was resolved, the reviewers confirm the merge and the resolution only: architecture then testing, using the `lua-architect` and `lua-tester` agents. Give them the merge commit's range (`<old head>..<merge commit>`) and say what conflicted. Where a file overlaps, a clean merge still goes back to them, since the merged code can interact with yours (#85, #88, #93 recorded each confirmation).
 5. **Push** (`git push -u origin <branch>`) and wait for CI to go green on the merge commit.
-6. **Update the description:** the merge, what conflicted and how it was resolved, the reviewers' confirmations, any new test count, and the ready checklist.
+6. **Update the description:** the merge, what conflicted and how it was resolved, both file lists or the reviewers' confirmations, any new test count, and the ready checklist.
 7. **Announce ready again** with a comment on the PR, and send the coordinator a one-line notice if one is running.
