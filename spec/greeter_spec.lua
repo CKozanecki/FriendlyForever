@@ -271,10 +271,38 @@ describe("Greetings", function()
         end)
 
         it("sends only the welcome when the online line comes first", function()
-            online("Varian") -- not on the roster yet: waits for a roster refresh
+            wow.state.rosterReplyDelay = 2 -- the server answers our request after 2s
+            wow.state.guildRoster = { "Thrall", "Jaina", "Varian" }
+            online("Varian") -- not on the cached roster yet: waits for the refresh
+            assert.are.equal(1, ns.Greeter.PendingCount())
             wow.systemMessage("Varian has joined the guild.")
             wow.advance(60)
+            assert.are.equal(0, ns.Greeter.PendingCount()) -- the refresh was reached
             assert.are.same({ WELCOME }, wow.sentTo("GUILD"))
+        end)
+
+        it("drops a hello still waiting out a long delay when the welcome comes", function()
+            ns.db.guildLogin.delay = 60
+            online("Thrall") -- the hello is scheduled, about a minute away
+            wow.advance(30)
+            wow.systemMessage("Thrall has joined the guild.")
+            wow.advance(100) -- the hello comes due about 70 s after the join
+            assert.are.same({ "Welcome to the guild, Thrall! We're glad to have you." }, wow.sentTo("GUILD"))
+        end)
+
+        it("keeps a welcome for 2 minutes: a login at 119 s is hers, at 121 s greets", function()
+            ns.db.guildLogin.repeatCooldown = 0
+            wow.systemMessage("Varian has joined the guild.")
+            wow.advance(119)
+            online("Varian")
+            wow.advance(helloWait() + 1)
+            assert.are.same({ WELCOME }, wow.sentTo("GUILD"))
+            wow.systemMessage("Jaina has joined the guild.")
+            wow.advance(121)
+            online("Jaina")
+            wow.advance(helloWait() + 1)
+            assert.are.same({ WELCOME, "Welcome to the guild, Jaina! We're glad to have you.",
+                "Jaina has logged in. Quick, everyone look busy." }, wow.sentTo("GUILD"))
         end)
 
         it("drops a hello that was scheduled before the welcome", function()
@@ -358,14 +386,21 @@ describe("Greetings", function()
 
         it("keeps its table within the cap under a storm of joins and logins", function()
             random.seed(196)
-            for i = 1, ns.Greeter.MAX_WELCOMED * 3 do
+            local highest = 0
+            for i = 1, 300 do
                 local name = newbie(i)
                 wow.systemMessage(name .. " has joined the guild.")
                 if i % 2 == 0 then online(name) end
                 wow.advance(random.random() * 0.2)
-                assert.is_true(ns.Greeter.WelcomedCount() <= ns.Greeter.MAX_WELCOMED)
+                highest = math.max(highest, ns.Greeter.WelcomedCount())
+                assert.is_true(ns.Greeter.WelcomedCount() <= 100)
             end
-            assert.is_true(ns.Greeter.WelcomedCount() > 0)
+            wow.advance(60)
+            assert.are.equal(100, highest) -- the storm did fill the table
+            -- Judged from what was sent: nobody got a welcome and a hello.
+            for _, line in ipairs(wow.sentTo("GUILD")) do
+                assert.is_nil(line:find("has logged in", 1, true), line)
+            end
         end)
 
         it("drops names whose window is over before it makes room", function()
