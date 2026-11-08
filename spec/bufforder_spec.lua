@@ -1,4 +1,4 @@
--- Spec: #31, #71, #76, #136, #42, #46
+-- Spec: #31, #71, #76, #136, #42, #46, #208
 -- Buff order and the never-offer list: which of your buffs the button offers
 -- first, and which it never offers.
 local wow = require("spec.support.wow")
@@ -49,7 +49,7 @@ describe("Buff order and never offer", function()
             local buffs = ns.BuffData.CLASSES.PALADIN
             local keys = {}
             for i, buff in ipairs(ns.BuffData.InOrder(buffs, { "light", "might" })) do keys[i] = buff.key end
-            assert.are.same({ "light", "might", "kings", "wisdom", "salvation" }, keys)
+            assert.are.same({ "light", "might", "kings", "wisdom" }, keys)
         end)
 
         it("goes by a key's first place when an order damaged mid-session names it twice", function()

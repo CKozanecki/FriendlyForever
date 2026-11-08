@@ -127,11 +127,21 @@ function methods:GetText() return self.text end
 function methods:SetChecked(on) self.checked = on and true or false end
 function methods:GetChecked() return self.checked end
 function methods:SetEnabled(on) self.enabled = on and true or false end
+-- A click from code, as the game's Button:Click: runs OnClick, unless the
+-- button is disabled.
+function methods:Click(mouseButton)
+    if self.enabled and self.scripts.OnClick then self.scripts.OnClick(self, mouseButton or "LeftButton") end
+end
 function methods:IsEnabled() return self.enabled end
 function methods:SetSize(w, h) self.width, self.height = w, h end
 function methods:SetWidth(w) self.width = w end
+function methods:SetHeight(h) self.height = h end
 function methods:GetWidth() return self.width or 0 end
 function methods:GetCenter() return self.centerX or 0, self.centerY or 0 end
+function methods:GetTop() return self.top end
+function methods:SetVerticalScroll(offset) self.verticalScroll = offset end
+function methods:GetVerticalScroll() return self.verticalScroll or 0 end
+function methods:GetVerticalScrollRange() return self.scrollRange or 0 end
 function methods:GetEffectiveScale() return self.scale or 1 end
 function methods:SetDesaturated(on) self.desaturated = on and true or false end
 function methods:SetTexture(path) self.texture = path end
@@ -189,7 +199,7 @@ function methods:SetOwner(owner) self.owner, self.lines = owner, {} end
 
 -- The simulation has no fonts. A character counts as this many pixels wide
 -- in each font, a little wider than the game's average (the pessimistic
--- choice); colour codes take no room. Real widths are checked in game (#50).
+-- choice); colour codes take no room. Real widths: confirmed in game at launch.
 M.CHAR_WIDTH = {
     GameFontNormal = 7, GameFontHighlight = 7, GameFontNormalLarge = 9,
     GameFontNormalSmall = 6, GameFontHighlightSmall = 6,
@@ -241,7 +251,7 @@ end
 -- What a text line draws, measured from root's left edge: { left, right,
 -- lines, text }. Text too wide for its line wraps onto more lines, unless
 -- word wrap is off or it has reached its max lines: then the game cuts it
--- off with "…" (an assumption, checked in game on #50).
+-- off with "…" (an assumption, confirmed in game at launch).
 function M.drawnText(fs, root)
     local left, right = M.horizontalEdges(fs, root)
     local room = right - left
@@ -346,20 +356,26 @@ nameSpell("Blessing of Wisdom", { 25290, 19854, 19853, 19852, 19850, 19742 })
 nameSpell("Unending Breath", { 5697 })
 nameSpell("Water Breathing", { 131 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
--- Forever's Revoke (paladins). Its real ID isn't known yet (#50): this one
--- is the simulation's own, and the addon finds Revoke by name.
-M.REVOKE_ID = 990001
-nameSpell("Revoke", { M.REVOKE_ID })
 
 ------------------------------------------------------------------------
--- ASSUMPTIONS ABOUT WOW FOREVER, to check in game. Each is a state setting
--- so specs can try the alternatives; the defaults are guesses, not facts.
+-- ASSUMPTIONS ABOUT WOW FOREVER. Each is a state setting so specs can try the
+-- alternatives; the defaults are guesses, not facts. The launch test pass
+-- (Nov 4) checked these in game and they worked, except the four IDs on #207
+-- and the Salvation, Mass Salvation and Revoke ones, which Blizzard removed
+-- right before launch (#208), and the [@player] cast added since (#198),
+-- which is unconfirmed: #213. The simulation stays as it is, as a record of
+-- what it models.
 --   state.targetNameForm  how /target and /targetexact spell a two-part
 --                         name: "space" ("Nikki Shifts", default) or "hyphen"
 --   state.sentTargetForm  what UNIT_SPELLCAST_SENT gives as the target:
 --                         "first" (default), "full" or "none"
 --   state.cvars.ActionButtonUseKeyDown  "1" (default): secure buttons act
 --                         on key down; "0": on key up
+--   /cast [@player] Spell (#198) casts on that unit without changing your
+--                         target; the other conditions ([nodead]) test that unit.
+--                         An empty condition list after the @ is fine. SENT
+--                         names the unit by its first name, as for any target.
+--                         UNCONFIRMED in game: #213 says how to check it.
 --   /cleartarget then /targetexact X leaves your old target as the "last
 --                         target", so /targetlasttarget brings it back (setTarget)
 --   Mouse clicks, like key presses, act on the half the key-down setting
@@ -379,6 +395,17 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         on your target, and nothing is cast unless both hold
 --                         (#84): in the game they apply to the unit the cast
 --                         goes to, and requiring both is the pessimistic choice.
+--   GetBindingKey(action) answers the first key, in sorted order, whose
+--                         state.bindings entry is that action, or nil. The
+--                         game answers every key bound to it; the first is
+--                         the one Key Bindings shows first (confirmed in game at launch).
+--   CreateFrame with "BasicFrameTemplateWithInset" gives the frame a
+--                         CloseButton whose own click only hides the frame
+--                         (the game's template does the same; confirmed in game at launch).
+--   Region edges: GetTop answers region.top, set by a spec, or nil (not laid
+--                         out yet, the pessimistic case). A scroll frame keeps
+--                         SetVerticalScroll's offset, and its range is
+--                         frame.scrollRange (0 when unset). SetHeight keeps the height given.
 --   Override bindings (SetOverrideBindingClick, ClearOverrideBindings) are
 --                         blocked in combat, and allowed in PLAYER_REGEN_DISABLED's
 --                         handlers (as secure frames are). state.unbindable[key]:
@@ -394,19 +421,18 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         out) give aura i's duration and expirationTime. Unset,
 --                         they're nil: whether Forever shows group members'
 --                         buff times, or makes them secret (Midnight hides
---                         some aura durations from addons), is checked at
---                         launch (#50). A buff whose expiry has come is gone
+--                         some aura durations from addons), was confirmed in
+--                         game at launch. A buff whose expiry has come is gone
 --                         from GetAuraDataByIndex, with no UNIT_AURA, so the
 --                         addon must look again. M.wearBuff puts one on.
 --   C_Spell.GetSpellInfo(name) and GetSpellTexture(name) answer only for a
 --                         spell you know (likewise GetSpellInfo(name)), as the
 --                         game's name lookup goes through your spellbook; by
---                         ID it answers for any spell. Revoke has a made-up
---                         ID here (M.REVOKE_ID): Forever's is checked at launch.
+--                         ID it answers for any spell.
 --   UnitGroupRolesAssigned and GetPartyAssignment("MAINTANK") both exist and
 --                         answer for group units (unit.role, unit.mainTank;
 --                         Main Tank answers false outside a raid);
---                         which of them Forever has is checked at launch (#50).
+--                         which of them Forever has was confirmed in game at launch.
 --   UnitInRange(unit) answers inRange, checkedRange for group units (unit
 --                         fields outOfRange, rangeUnknown); in a raid, setGroup
 --                         leaves your own raid slot out (the game puts you in
@@ -422,7 +448,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         off it stays one line and cuts what doesn't fit with
 --                         "…". Pinned on one side, it grows to fit its text.
 --                         Widths come from M.CHAR_WIDTH (a little wide on
---                         purpose); real fonts are checked in game (#50).
+--                         purpose); real fonts: confirmed in game at launch.
 --   Addon messages (#32): C_ChatInfo.RegisterAddonMessagePrefix and
 --                         SendAddonMessage answer with the 10.2.7+ result codes
 --                         (Enum.*Result). The game's throttle is a burst of 10
@@ -435,8 +461,8 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         guess at the round trip; #38). state.addonSenderForm: how
 --                         CHAT_MSG_ADDON spells the sender ("hyphen", default,
 --                         or "space"). An addon whisper reaches anyone by full
---                         name; whether it reaches a stranger is checked at
---                         launch (#50).
+--                         name; whether it reaches a stranger was confirmed in
+--                         game at launch.
 --   Buffs between clients (#37; deliverBuffs): a buff that lands on another
 --                         client arrives there as a new aura (UNIT_AURA's
 --                         addedAuras), replacing any of the same spell, even
@@ -444,13 +470,13 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         since each looks like a new favour. Its caster is
 --                         named (sourceUnit) only when the receiver has a unit
 --                         token for them. Whether Forever reports a refreshed
---                         buff as added is checked at launch (#50).
+--                         buff as added: confirmed in game at launch.
 --   state.mapId           what C_Map.GetBestMapForUnit("player") answers: the
 --                         uiMapID, or nil as on a loading screen (1429, Elwynn
 --                         Forest, by default). Capitals use Classic Era's
---                         numbers (1453 Stormwind ... 1458 Undercity); Forever's,
---                         and the Skyborne hub's and Dalaran's, are checked at
---                         launch (#50). setMap fires ZONE_CHANGED_NEW_AREA, as
+--                         numbers (1453 Stormwind ... 1458 Undercity); Forever's
+--                         were confirmed in game at launch; the Skyborne hub's and
+--                         Dalaran's aren't checked yet (#207). setMap fires ZONE_CHANGED_NEW_AREA, as
 --                         walking into a city does; specs also move without
 --                         any zone event, as the addon mustn't rely on one.
 --   A secret value used as a table key reads as missing (byAuraId[secret]
@@ -462,7 +488,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         44521) and START_TIMER counts down with TIMER_TYPE_PVP
 --                         (1); useStartTimerEnum() switches to the newer
 --                         Enum.StartTimerType.PvPBeginTimer (0). Forever may
---                         give either signal, both or neither (#50). The aura
+--                         give either signal, both or neither: confirmed in game at launch. The aura
 --                         goes as the gates open. Pessimistically, a
 --                         resurrection gives a Preparation aura again (older
 --                         clients' spirit healer buff), so it mustn't read as
@@ -489,7 +515,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         the instance's name and its ID 8th; in the world, the
 --                         continent and "none". Blackfathom Deeps is Classic's
 --                         48; The Drowned City's ID is unknown (nil here, the
---                         pessimistic choice) until launch (#50).
+--                         pessimistic choice); the real one isn't checked yet (#207).
 --   unit.nameLoading = true: the client hasn't loaded that unit's details
 --                         yet (#99), so UnitName (and UnitFullName,
 --                         GetUnitName) gives UNKNOWNOBJECT ("Unknown") as the
@@ -500,7 +526,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         UNIT_NAME_UPDATE may not come, so the addon must
 --                         find the name on its own next check. What Forever's
 --                         UnitName returns for a member still loading is
---                         checked at launch (#50).
+--                         confirmed in game at launch.
 --   state.settingsSearch  the Settings panel's search (#48): nil (default,
 --                         the pessimistic choice) is a client without
 --                         Settings.RegisterVerticalLayoutSubcategory or
@@ -509,7 +535,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         finds a heading by its search tags (M.searchSettings);
 --                         "noTags": headings without AddSearchTags. Whether
 --                         Forever's panel has a search box, and finds these,
---                         is checked at launch (#50).
+--                         was confirmed in game at launch.
 ------------------------------------------------------------------------
 
 local function targetableName(u)
@@ -568,8 +594,19 @@ local castCount = 0
 local function cast(args)
     local conds, name = args:match("^%[(.-)%]%s*(.+)$")
     local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
+    -- [@unit] aims the cast at that unit instead of your target, whom the
+    -- other conditions then test (#198; see ASSUMPTIONS). Your target is untouched.
+    local aimed
     if conds then
-        if not conditionsHold(conds, M.state.units.target) then return end
+        local token
+        conds = conds:gsub("@([%w]+)", function(t) token = t return "" end):gsub(",,", ","):gsub("^,", ""):gsub(",$", "")
+        if token then
+            aimed = M.state.units[token]
+            if not aimed then return end -- no such unit: the game casts nothing
+        end
+    end
+    if conds then
+        if not conditionsHold(conds, aimed or M.state.units.target) then return end
         -- The conditions apply to the unit the cast goes to (#84).
         if elsewhere and not conditionsHold(conds, elsewhere) then return end
     else
@@ -581,7 +618,7 @@ local function cast(args)
         return
     end
     -- A helpful spell with no friendly target lands on yourself.
-    local target = M.state.units.target
+    local target = aimed or M.state.units.target
     if not (target and not target.hostile) then target = M.state.units.player end
     local redirected = elsewhere ~= nil and elsewhere.id ~= target.id -- another player, not another token
     if elsewhere then target = elsewhere end
@@ -993,6 +1030,12 @@ function M.reset()
         local f = M.newFrame(kind, name, parent)
         f.template = template
         if type(template) == "string" and template:find("Secure") then f.protected = true end
+        -- The window templates' close button, whose own click only hides
+        -- the window (the pessimistic case: nothing else is told).
+        if template == "BasicFrameTemplateWithInset" then
+            f.CloseButton = M.newFrame("Button", nil, f)
+            f.CloseButton.scripts.OnClick = function() f:Hide() end
+        end
         return f
     end
     _G.SlashCmdList = {}
@@ -1095,6 +1138,14 @@ function M.reset()
         end
     end
     _G.GetBindingAction = function(key) return M.state.bindings[key] or "" end
+    _G.GetBindingKey = function(action)
+        local keys = {}
+        for key, bound in pairs(M.state.bindings) do
+            if bound == action then keys[#keys + 1] = key end
+        end
+        table.sort(keys)
+        return keys[1]
+    end
     _G.GetBindingText = function(key) return M.state.bindingText and M.state.bindingText[key] or key end
     _G.IsShiftKeyDown = function() return M.state.mods.shift == true end
     _G.IsControlKeyDown = function() return M.state.mods.ctrl == true end
@@ -1425,10 +1476,6 @@ end
 -- Buff mode's turn-on triggers, which boot switches off for most specs.
 M.TURN_ON_TRIGGERS = { "autoOnJoin", "autoOnDeath", "autoOnBuffed" }
 
--- Fresh client, addon loaded, logged in and past the login grace period.
--- opts.db: saved variables to start with. opts.noGrace: stop after login.
--- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
--- opts.buffDefaults: keep who gets Wisdom, Might and Thorns at their defaults (#219, see below).
 -- The Settings panel's search (state.settingsSearch, see ASSUMPTIONS): vertical
 -- pages, whose headings M.searchSettings finds by their search tags.
 function M.addSettingsSearch(withTags)
@@ -1470,6 +1517,15 @@ function M.searchSettings(text)
     return shown
 end
 
+-- Fresh client, addon loaded, logged in and past the login grace period.
+-- opts.db: saved variables to start with. opts.noGrace: stop after login.
+-- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
+-- opts.buffDefaults: keep who gets Wisdom, Might and Thorns at their defaults (#219, see below).
+-- opts.buffSelf: keep buff mode offering your own copy of your buffs (#198).
+-- opts.walkthrough: keep a first install's walkthrough (see below).
+-- opts.afterLoad: called with the addon's namespace once its files are
+-- loaded, before its saved settings are (a spec for a later release changes
+-- the code here, such as the walkthrough's steps and version, #169).
 function M.boot(opts)
     opts = opts or {}
     M.reset()
@@ -1482,10 +1538,15 @@ function M.boot(opts)
     if givenBuffBack then
         for _, field in ipairs(M.TURN_ON_TRIGGERS) do triggersGiven[field] = givenBuffBack[field] end
     end
+    local walkthroughGiven = type(opts.db) == "table" and opts.db.walkthrough or nil
     _G.FriendlyForeverDB = opts.db
     local ns = M.load()
+    if opts.afterLoad then opts.afterLoad(ns) end
     ns.Messages.random = function() return 1 end
     ns.Flavour.random = function() return 1 end
+    -- Buff mode also buffs you (#198). Specs written before that count the
+    -- group's casts only, so they start with it off; opts.buffSelf keeps it.
+    if not opts.buffSelf then ns.GroupBuffs.SELF_ORDER = "off" end
     -- A guild hello waits the shortest random extra (GuildHellos.STAGGER_MIN,
     -- #38), so specs know when it goes; opts.randomStagger keeps it random.
     if not opts.randomStagger then ns.GuildHellos.random = function() return 0 end end
@@ -1525,6 +1586,20 @@ function M.boot(opts)
                 for i, line in ipairs(ns.CasualMessages[msgType]) do casual[i] = line end
                 ns.db[msgType].messages = casual
             end
+        end
+    end
+    -- The walkthrough (#47) opens at login until it's finished or skipped,
+    -- and a first install (no saved settings) is off until then, which most
+    -- specs don't want. Unless opts.walkthrough, or the given settings set
+    -- them, it starts as finished, and a first install as switched on.
+    -- spec/walkthrough_spec.lua covers the walkthrough.
+    if not opts.walkthrough then
+        if walkthroughGiven == nil then
+            ns.db.walkthrough = { seen = ns.Config.WALKTHROUGH_VERSION, firstRun = false }
+        end
+        if opts.db == nil then
+            ns.db.enabled = true
+            ns.RefreshEvents() -- as switching it on does
         end
     end
     M.fire("PLAYER_ENTERING_WORLD", true, false)

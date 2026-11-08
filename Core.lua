@@ -17,6 +17,7 @@ function ns.Print(msg)
 end
 
 function ns.SetEnabled(on)
+    ns.Walkthrough.EndFirstRun()
     ns.db.enabled = on and true or false
     ns.RefreshEvents()
     ns.BuffButton.Refresh()
@@ -68,7 +69,7 @@ function handlers.ADDON_LOADED(name)
     -- say so, rather than erroring on every event.
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
         "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
-        "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "OptionsIndex", "Colours" }) do
+        "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "OptionsIndex", "Colours", "Walkthrough" }) do
         if ns[module] == nil then
             local text = "this update added files. Restart the game (not /reload) to finish updating."
             ns.Print(ns.Colours and ns.Colours.Text("bad", text) or text)
@@ -82,6 +83,7 @@ function handlers.ADDON_LOADED(name)
     ns.ChatQueue.Init()
     ns.Comm.Init()
     ns.Options.Create()
+    ns.Walkthrough.Create()
     ns.Minimap.Create()
     ns.BuffMode.Create()
     ns.BuffButton.Create()
@@ -95,6 +97,7 @@ function handlers.ADDON_LOADED(name)
             ns.Announcer.OnEnteringWorld()
             ns.Greeter.OnEnteringWorld()
             ns.Greeter.RequestRoster()
+            ns.Walkthrough.OnLogin()
         end
     end)
     Register("CHAT_MSG_SYSTEM", ns.Greeter.OnSystemMessage)

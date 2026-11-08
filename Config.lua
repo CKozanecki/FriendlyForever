@@ -163,8 +163,8 @@ Config.DEFAULTS = {
         buffModeKey = "MOUSEWHEELUP",
         -- When buff mode turns on and off by itself (BuffModeAuto.lua). All
         -- on by default: each turn-on says why in chat, and the first one a
-        -- session says where to switch them (BuffMode.Set). The "Start here"
-        -- walkthrough (#47, planned) will show them too. The ones that turn
+        -- session says where to switch them (BuffMode.Set). The walkthrough
+        -- (Walkthrough.lua, #47) shows them too. The ones that turn
         -- it off end only buff mode a trigger turned on.
         autoOnJoin = true,
         autoOnDeath = true,
@@ -188,12 +188,8 @@ Config.DEFAULTS = {
         buffOrder = {},
         neverOffer = {},
         -- Who gets each buff in buff mode (BuffRules.lua): [buff key] =
-        -- { rule, classes, always, never }. Empty: every buff's default.
+        -- { rule, classes, always, never }. Empty: every buff gets everyone.
         whoGets = {},
-        -- Whose Salvation buff mode offers to Revoke (paladins), and the
-        -- names its "chosen" modes cover (BuffRules.lua).
-        revokeMode = "mine",
-        revokeNames = {},
         messages = DefaultMessages.buffBack,
     },
 }
@@ -298,8 +294,6 @@ Config.FIELD_VALIDATORS = {
         return clean
     end,
     whoGets = function(value) return ns.BuffRules.Clean(value) end,
-    revokeMode = function(value, default) return ns.BuffRules.IS_REVOKE_MODE[value] and value or default end,
-    revokeNames = function(value) return ns.BuffRules.CleanRevokeNames(value) end,
     messages = function(value, default)
         if type(value) ~= "table" then return CopyList(default) end
         local clean = {}
@@ -498,6 +492,33 @@ function Config.ValidIgnore(list)
     return ignore
 end
 
+-- The walkthrough (#47): db.walkthrough = { seen = the version of the
+-- walkthrough last finished or skipped (0: none), firstRun = true while a
+-- new install waits for it (the addon is off until it's finished or
+-- skipped) }. When a release adds a walkthrough step, give the step this new
+-- version as its `since` and raise the version to match: players who finished
+-- an older one then see only the new steps (#169). A spec checks that
+-- they agree (spec/walkthrough_spec.lua).
+Config.WALKTHROUGH_VERSION = 1
+
+-- A checked copy of the saved walkthrough state. None at all (settings from
+-- before it): seen 0, so every step shows once, and not a first run, so the
+-- switch is left alone. Damaged (no table, no whole number, below 0 or above
+-- the current version): the same, every step once (#169). It is never a
+-- first run, so damage never touches the addon's switch (the owner's spec on
+-- #47): it never switches anyone off, and never switches on an addon the
+-- player switched off. Finishing or skipping saves a good version, healing it.
+function Config.ValidWalkthrough(saved)
+    local latest = Config.WALKTHROUGH_VERSION
+    if saved == nil then return { seen = 0, firstRun = false } end
+    local seen = type(saved) == "table" and saved.seen
+    if type(seen) ~= "number" or seen ~= math.floor(seen) or seen < 0 or seen > latest then
+        return { seen = 0, firstRun = false }
+    end
+    return { seen = seen, firstRun = saved.firstRun == true and seen == 0 }
+end
+
+
 -- Everything in the saved file but the ledger (which checks itself as it's
 -- used, and whose live entries a full check would change: see Ledger.Data).
 local function ValidateSettings(db)
@@ -513,6 +534,7 @@ local function ValidateSettings(db)
 
     -- Diagnostics: a debug flag and the most recent log lines (strings only).
     if type(db.debug) ~= "boolean" then db.debug = false end
+    db.walkthrough = Config.ValidWalkthrough(db.walkthrough)
     local log = {}
     if type(db.diagLog) == "table" then
         for _, line in ipairs(db.diagLog) do
@@ -564,8 +586,10 @@ local function ValidateSettings(db)
 end
 
 -- The saved file as loaded: migrated, every value checked. Returns it.
+-- No saved file at all is a first install: the addon starts off, and the
+-- walkthrough turns it on (#47).
 function Config.Load(saved)
-    local db = type(saved) == "table" and saved or {}
+    local db = type(saved) == "table" and saved or { enabled = false, walkthrough = { seen = 0, firstRun = true } }
     Config.Migrate(db)
     ValidateSettings(db)
     db.ledger = ns.Ledger.Validate(db.ledger)

@@ -35,6 +35,10 @@ cp -R "$ROOT/Media" "$STAGE/$ADDON/"
 
 mkdir -p "$ROOT/dist"
 OUT="$ROOT/dist/$ADDON-$VERSION.zip"
-rm -f "$OUT"
-(cd "$STAGE" && zip -qrX "$OUT" "$ADDON")
+# Build beside the zip and move it into place, so a second run (or a test
+# reading the zip) never finds it missing (#178).
+TMP="$(mktemp "$ROOT/dist/.$ADDON-$VERSION.XXXXXX")"
+trap 'rm -rf "$STAGE" "$TMP" "$TMP.zip"' EXIT
+(cd "$STAGE" && zip -qrX "$TMP.zip" "$ADDON")
+mv -f "$TMP.zip" "$OUT"
 echo "$OUT"

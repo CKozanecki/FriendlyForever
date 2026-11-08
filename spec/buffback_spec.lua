@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76, #84, #35, #133, #154
+-- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -262,19 +262,13 @@ describe("Buff back", function()
             assert.are.equal(1, ns.Offers.Count())
         end)
 
-        it("never offers a self-cast buff (Battle Shout) or a party-only one (Salvation) to a stranger", function()
+        it("never offers a self-cast buff (Battle Shout) to a stranger", function()
             boot({ class = "WARRIOR", known = { [6673] = true } })
             stranger()
             buffedBy()
             local offer, why = ns.Offers.Current()
             assert.is_nil(offer)
             assert.is_truthy(why:find("none of your buffs suit them", 1, true))
-            wow.SPELL_NAMES[1038] = "Blessing of Salvation"
-            finally(function() wow.SPELL_NAMES[1038] = nil end)
-            boot({ class = "PALADIN", known = { [1038] = true } })
-            stranger()
-            buffedBy()
-            assert.is_nil(ns.Offers.Current(), "Salvation would cut a tank's threat")
         end)
 
         it("can't tell what someone wears when the whole aura, or its spell ID, is secret", function()

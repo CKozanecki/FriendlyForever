@@ -67,6 +67,10 @@ env:
   # That commit's Dockerfile builds on rust:1.92-bookworm; running uses the
   # same Debian, so the binary finds the ICU it was linked with.
   BUILD_BASE: rust@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2 # 1.92-bookworm
+  # What the build uses; the cache key covers each (#170).
+  BUILD_PACKAGES: clang mold git pkg-config cmake libicu-dev libudev-dev
+  BUILD_FEATURES: gui client-retail
+  BUILD_STRIP: symbols
   RENDER_BASE: debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 # bookworm-slim
 
 jobs:
@@ -76,18 +80,69 @@ jobs:
   # No Blizzard art is fetched, so Blizzard's textures are missing: text,
   # layout and our own colors show.
   #
+  # The finished, staged build is cached (#170), keyed on everything that
+  # shapes it, so it is rebuilt only when a pin or a build setting moves. On
+  # a hit the job goes straight to the checks and the upload. The older cache
+  # of cargo's home and target directories is gone: each run checks the
+  # simulator out fresh, so the timestamps changed and cargo recompiled the
+  # simulator's own crates anyway (about 2.5 minutes), and it cost 25 s to
+  # restore. A pull request's cache is visible only to that pull request; it
+  # can read main's but can't write it.
+  #
   # The build runs the simulator's build scripts and macros, so it is
   # sandboxed like the simulator itself: cargo first downloads the locked,
   # checksummed crates (it runs none of their code), then compiles with no
   # network, no capabilities and the sources read-only. Its output goes to
   # the other jobs as an artifact: the stripped binary, the test framework
-  # run-tests loads from beside it, and Blizzard's UI code.
+  # run-tests loads from beside it, and Blizzard's UI code. Whatever comes
+  # out of the cache is as untrusted as a fresh build: the runner checks it
+  # holds only plain files and copies nothing else, and only a sandbox runs
+  # it.
   simulator:
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     continue-on-error: true
     steps:
+      # The workflow file itself is in the key, so editing any build or
+      # staging step (a flag, a marker, a copied folder) misses the cache and
+      # is built and checked in the run that changes it, never hidden by a
+      # hit. Only this file is checked out.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/workflows/ui-sim.yml
+          sparse-checkout-cone-mode: false
+
+      # One hash over every input of the build below. Change any of them and
+      # the key, and so the cache, changes. spec/repo_spec.lua checks each
+      # setting the build steps use is named here.
+      - name: Work out the cache key from the build's inputs
+        id: key
+        env:
+          WORKFLOW_HASH: ${{ hashFiles('.github/workflows/ui-sim.yml') }}
+        run: |
+          # hashFiles gives '' when the file wasn't checked out; refuse that
+          # rather than cache without it.
+          test -n "$WORKFLOW_HASH"
+          inputs="$(printf '%s\n' \
+            "workflow=$WORKFLOW_HASH" \
+            "sim=$SIM_COMMIT" \
+            "blizzard-ui=$BLIZZARD_UI_COMMIT" \
+            "build-base=$BUILD_BASE" \
+            "packages=$BUILD_PACKAGES" \
+            "features=$BUILD_FEATURES" \
+            "strip=$BUILD_STRIP")"
+          echo "key=wow-ui-sim-build-$(printf '%s' "$inputs" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the staged simulator build
+        id: sim-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ui-sim-build
+          key: ${{ steps.key.outputs.key }}
+
       - name: Fetch the simulator and Blizzard's UI code at their pinned commits
+        if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
           git init -q "$RUNNER_TEMP/sim"
           git -C "$RUNNER_TEMP/sim" fetch -q --depth 1 "$SIM_REPO" "$SIM_COMMIT"
@@ -113,27 +168,17 @@ jobs:
           touch .wow-ui-sim-blizzard-ui-complete
 
       - name: Build a build image (the Dockerfile's build tools)
+        if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
           docker build -t ff-build - <<DOCKERFILE
           FROM $BUILD_BASE
           RUN apt-get update -q && apt-get install -yq --no-install-recommends \
-                clang mold git pkg-config cmake libicu-dev libudev-dev \
+                $BUILD_PACKAGES \
               && rm -rf /var/lib/apt/lists/*
           DOCKERFILE
           # Published binaries use the commit's portable CI config.
           cp "$RUNNER_TEMP/sim/.cargo/config.ci.toml" "$RUNNER_TEMP/sim/.cargo/config.toml"
           mkdir -p "$RUNNER_TEMP/cargo-home" "$RUNNER_TEMP/sim-target"
-
-      # Restored and saved separately, so the build is cached as soon as it
-      # finishes, even if a later step fails or the run is cancelled.
-      - name: Restore the simulator build
-        id: sim-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ${{ runner.temp }}/cargo-home
-            ${{ runner.temp }}/sim-target
-          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui-stripped
 
       # The only container with network: cargo fetch downloads the crates
       # Cargo.lock names, checks their checksums and unpacks them, and runs
@@ -147,24 +192,16 @@ jobs:
             ff-build cargo fetch --locked
 
       - name: Build the simulator with its renderer (no network, sources read-only)
+        if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
           docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
             --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/cargo -e CARGO_TARGET_DIR=/target \
-            -e CARGO_PROFILE_RELEASE_STRIP=symbols \
+            -e CARGO_PROFILE_RELEASE_STRIP="$BUILD_STRIP" \
             --memory 12g --memory-swap 12g --pids-limit 8192 \
             -v "$RUNNER_TEMP/sim:/build:ro" -v "$RUNNER_TEMP/cargo-home:/cargo:ro" \
             -v "$RUNNER_TEMP/sim-target:/target" -w /build \
             ff-build cargo build --release --locked --offline --bin wow-sim \
-              --no-default-features --features "gui client-retail"
-
-      - name: Save the simulator build
-        if: steps.sim-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ${{ runner.temp }}/cargo-home
-            ${{ runner.temp }}/sim-target
-          key: wow-ui-sim-${{ env.SIM_COMMIT }}-gui-stripped
+              --no-default-features --features "$BUILD_FEATURES"
 
       # What the simulator's image holds: the binary (stripped by the build,
       # as the image's is), with the test framework run-tests loads from
@@ -172,6 +209,7 @@ jobs:
       # is untrusted, so the runner only copies the binary, and only a plain
       # file, never a link: nothing here reads or runs it outside a sandbox.
       - name: Stage the simulator for the other jobs
+        if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
           out="$RUNNER_TEMP/ui-sim-build"
           bin="$RUNNER_TEMP/sim-target/release/wow-sim"
@@ -181,6 +219,29 @@ jobs:
           cp -P "$bin" "$out/sim/wow-sim"
           cp -r "$RUNNER_TEMP/sim/Interface/AddOns/TestFramework" "$out/sim/Interface/AddOns/"
           cp -r "$RUNNER_TEMP/blizzard-ui/Interface/AddOns" "$out/blizzard-ui/"
+
+      # Runs after a restore as well as after a build, and before the save,
+      # so nothing unchecked is ever cached: a restored cache is as
+      # untrusted as anything the build made. The binary must be a plain
+      # file, and nothing in the tree may be a link or any other special
+      # file; the upload below would follow or carry them on.
+      - name: Check the staged files are plain files
+        run: |
+          out="$RUNNER_TEMP/ui-sim-build"
+          test -f "$out/sim/wow-sim"
+          test ! -L "$out/sim/wow-sim"
+          test -d "$out/sim/Interface/AddOns/TestFramework"
+          test -d "$out/blizzard-ui/AddOns"
+          test -z "$(find "$out" -mindepth 1 ! -type f ! -type d -print -quit)"
+
+      # Saved as soon as it is staged and checked, so a later failure or a
+      # cancelled run still keeps it.
+      - name: Save the staged simulator build
+        if: steps.sim-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ui-sim-build
+          key: ${{ steps.key.outputs.key }}
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -195,8 +256,9 @@ jobs:
     needs: simulator
     runs-on: ubuntu-24.04
     # Its simulator runs stop themselves (three at 2 minutes, two at 5, each
-    # with 10 s to exit: about 17 minutes if all five hung), well inside this.
-    timeout-minutes: 25
+    # with 10 s to exit), and each one stopped runs once more (#173): about
+    # 34 minutes if all five hung twice, inside this.
+    timeout-minutes: 40
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -261,6 +323,7 @@ jobs:
           # Each command is stopped after 2 minutes if it hasn't finished (they
           # take seconds), so one that never exits can't hold up the job; its
           # output so far is kept, and the log says how each one ended (#154).
+          # One that's stopped runs once more (#173).
           exec 3>&1
           sandbox() {
             local started=$SECONDS status=0
@@ -273,13 +336,11 @@ jobs:
             echo "$1: exit $status after $((SECONDS - started)) s (124: stopped at the time limit)" >&3
             return "$status"
           }
-          sandbox lua-errors > "$RUNNER_TEMP/report/lua-errors.json" 2> "$RUNNER_TEMP/report/lua-errors.log" || true
-          sandbox run-tests FriendlyForever > "$RUNNER_TEMP/report/run-tests.log" 2>&1 || true
-          sandbox dump-tree --filter FriendlyForever > "$RUNNER_TEMP/report/frame-tree.txt" 2>&1 || true
-          # The scenarios again at each size (#148); the frame tree stays in each log.
-          for size in $LAYOUT_SIZES; do
-            # Stopped after 5 minutes if it hasn't finished, so a pass that
-            # never exits can't hold up the job; its output so far is kept.
+          # The scenarios again at one size (#148); the frame tree stays in its
+          # log. Stopped after 5 minutes if it hasn't finished, so a pass that
+          # never exits can't hold up the job; its output so far is kept.
+          sized() {
+            local status=0
             timeout -s TERM -k 10 300 docker run --rm --init --network none --cap-drop ALL --security-opt no-new-privileges \
               --user "$(id -u):$(id -g)" -e HOME=/tmp \
               -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 -e WOW_SIM_NO_SAVED_VARS=1 -e WOW_SIM_CASC=0 \
@@ -287,8 +348,33 @@ jobs:
               -v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
               -v "$RUNNER_TEMP/addons:/test-addons:ro" -v "$RUNNER_TEMP/layout-lua:/layout-lua:ro" \
               ff-render /sim/wow-sim --addons-path /test-addons --exec-lua @/layout-lua/layout.lua \
-              dump-tree --filter FriendlyForever --width "${size%x*}" --height "${size#*x}" \
-              > "$RUNNER_TEMP/report/layout-$size.log" 2>&1 || echo "layout pass $size: exit $?" >&3
+              dump-tree --filter FriendlyForever --width "${1%x*}" --height "${1#*x}" || status=$?
+            [ "$status" -eq 0 ] || echo "layout pass $1: exit $status" >&3
+            return "$status"
+          }
+          # Runs one of them into its report file (and stderr into a second
+          # file, if one is given). A run stopped at its time limit (124) keeps
+          # what it wrote as <file>.timed-out and runs once more (#173). Each
+          # attempt's end goes to runs.txt, which only this step writes, for
+          # the summary: the run's name, the attempt, its exit and its time.
+          attempt() {
+            local name="$1" out="$2" err="$3" try status started
+            shift 3
+            for try in 1 2; do
+              started=$SECONDS status=0
+              if [ -n "$err" ]; then "$@" > "$out" 2> "$err" || status=$?; else "$@" > "$out" 2>&1 || status=$?; fi
+              echo "$name $try $status $((SECONDS - started))" >> "$RUNNER_TEMP/runs.txt"
+              if [ "$status" -ne 124 ] || [ "$try" -eq 2 ]; then break; fi
+              mv "$out" "$out.timed-out"
+              if [ -n "$err" ]; then mv "$err" "$err.timed-out"; fi
+            done
+          }
+          report="$RUNNER_TEMP/report"
+          attempt lua-errors "$report/lua-errors.json" "$report/lua-errors.log" sandbox lua-errors
+          attempt run-tests "$report/run-tests.log" "" sandbox run-tests FriendlyForever
+          attempt dump-tree "$report/frame-tree.txt" "" sandbox dump-tree --filter FriendlyForever
+          for size in $LAYOUT_SIZES; do
+            attempt "layout-$size" "$report/layout-$size.log" "" sized "$size"
           done
 
       - name: Show the reports in the log
@@ -335,9 +421,63 @@ jobs:
       - name: Summary
         run: |
           report="$RUNNER_TEMP/report"
+          # Simulator output, shown as in the steps above (#153). In the
+          # summary its mark also stops a line from closing a code block.
+          shown() { tr '\r' '\n' | sed -e "s/^/${1:-| }/" -e 's/##\[/##(/g'; }
+          # What each run is, and the report file it writes (the run step's names).
+          what() {
+            case "$1" in
+              run-tests) echo "The main pass (run-tests, at 1600x1200)" ;;
+              layout-*) echo "The layout pass at ${1#layout-}" ;;
+              *) echo "The $1 run" ;;
+            esac
+          }
+          fileOf() {
+            case "$1" in
+              lua-errors) echo "$report/lua-errors.log" ;;
+              dump-tree) echo "$report/frame-tree.txt" ;;
+              *) echo "$report/$1.log" ;;
+            esac
+          }
+          # Runs stopped at their time limit (exit 124), from the run step's
+          # runs.txt (#173): each is named at the top of the summary, with the
+          # last scenario it started and the end of its log, and in an
+          # annotation, which a Claude session can read when it can't read
+          # the summary. Report only: nothing here fails the job. The
+          # annotation holds only the runner's own words and the scenario's
+          # number, digits only, never the simulator's text.
+          exec 3>&1
+          timeouts() {
+            local name try status seconds file last again
+            [ -f "$RUNNER_TEMP/runs.txt" ] || return 0
+            while read -r name try status seconds; do
+              [ "$status" = 124 ] || continue
+              file=$(fileOf "$name")
+              [ "$try" = 2 ] || file="$file.timed-out"
+              last=$(grep -o 'START [0-9]*' "$file" | tail -n 1 | tr -cd '0-9') || true
+              if [ "$try" = 2 ]; then
+                echo "### ⚠️ $(what "$name") timed out twice: its results are incomplete"
+                echo "::warning title=UI simulator: a run timed out twice::$(what "$name") was stopped at its time limit twice, so its results (LAYOUT lines included) are incomplete. Last scenario started: ${last:-none}. See the run's summary." >&3
+              else
+                again=$(grep "^$name 2 " "$RUNNER_TEMP/runs.txt" | cut -d' ' -f3 || true)
+                echo "### ⚠️ $(what "$name") timed out once, and ran again (exit ${again:-none})"
+                echo "::notice title=UI simulator: a run timed out once::$(what "$name") was stopped at its time limit and ran again (exit ${again:-none}). Last scenario started: ${last:-none}." >&3
+              fi
+              echo
+              echo "Stopped after $seconds s, on attempt $try of 2. The last scenario it started:"
+              echo '```'
+              grep 'START [0-9]' "$file" | tail -n 1 | shown || true
+              echo '```'
+              echo "The end of its log:"
+              echo '```'
+              tail -n 15 "$file" | shown || true
+              echo '```'
+            done < "$RUNNER_TEMP/runs.txt"
+          }
           {
             echo "## UI simulator (report only)"
             echo
+            timeouts
             echo "### Lua errors while loading (from FriendlyForever files)"
             echo '```'
             grep -i "FriendlyForever" "$report/lua-errors.json" | head -50 || echo "none"
@@ -372,13 +512,17 @@ jobs:
   screenshots:
     needs: simulator
     runs-on: ubuntu-24.04
-    timeout-minutes: 70
+    timeout-minutes: 87
     continue-on-error: true
     env:
       # The options panel's tabs, one shot each (#112): uitests/pages.lua's
       # Pages.TABS names, in the panel's order (spec/uitests_pages_spec.lua
       # checks they match).
       OPTIONS_TABS: guild-login buff-thanks guild-join party-join party-hello hello-again buff-back
+      # The walkthrough's steps shot (#47): uitests/pages.lua's
+      # Pages.WALKTHROUGH_STEPS names (spec/uitests_pages_spec.lua checks
+      # they match).
+      WALKTHROUGH_STEPS: welcome buff-mode-key buff-mode-triggers
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -405,8 +549,9 @@ jobs:
             { cat uitests/button_states.lua; printf '\nFriendlyForeverUIStates.Show("%s")\n' "$state"; } \
               > "$states/$state.lua"
           done
-          # The phase 1 options pages (#52), filled by uitests/pages.lua.
-          for page in general ledger; do
+          # The phase 1 options pages (#52), filled by uitests/pages.lua, and
+          # Start here (#47).
+          for page in general ledger start; do
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.Show("%s")\n' "$page"; } \
               > "$states/page-$page.lua"
           done
@@ -414,6 +559,11 @@ jobs:
           for tab in $OPTIONS_TABS; do
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowTab("%s")\n' "$tab"; } \
               > "$states/tab-$tab.lua"
+          done
+          # The walkthrough at each step shot, taken again from Start here (#47).
+          for step in $WALKTHROUGH_STEPS; do
+            { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowWalkthrough("%s")\n' "$step"; } \
+              > "$states/walkthrough-$step.lua"
           done
           chmod -R a-w "$states"
 
@@ -437,10 +587,10 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Each one
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so 17 shots and the probe take at most about 57 minutes.
+        # clean-up, so 21 shots and the probe take at most about 71 minutes.
         # (Each usually takes about 8 s.) The second pass, at 1920 x 1080
         # (#148), starts no shot after 50 minutes, so this still holds.
-        timeout-minutes: 58
+        timeout-minutes: 75
         run: |
           # WOW_SIM_CASC=0: never look for game files (no WoW install here).
           # Each shot runs as a detached container capped at 6 GB and 3 CPUs,
@@ -514,6 +664,10 @@ jobs:
           docker rm -f "$probe" >/dev/null 2>&1 || true
           # Every shot, at the size and suffix the pass set (#148).
           shoot_all() {
+            # The game screen as a new install shows it: the simulator has no
+            # saved settings, so the addon is off and its walkthrough open
+            # (#47). The other shots skip it first, by its Skip button, as a
+            # player would, which turns the addon on.
             shoot game
             # Each tab of the options panel (#112), named after the tab:
             # options-guild-login (the tab the panel opens on), options-buff-thanks...
@@ -521,11 +675,11 @@ jobs:
               shoot "options-$tab" --exec-lua "@/shot-lua/tab-$tab.lua"
             done
             # The Buff Thanks tab (#101), with the longest "Thank them with" choice.
-            shoot options-buff --exec-lua "FriendlyForeverDB.buff.thankStyle = 'both'; SlashCmdList.FRIENDLYFOREVER(''); for _, f in ipairs({ FriendlyForeverOptionsPanel:GetChildren() }) do local c = f.GetScrollChild and f:GetScrollChild(); for _, b in ipairs(c and { c:GetChildren() } or {}) do if b.GetText and b:GetText() == 'Buff Thanks' then b:GetScript('OnClick')(b) end end end"
+            shoot options-buff --exec-lua "if FriendlyForeverWalkthrough and FriendlyForeverWalkthrough:IsShown() then FriendlyForeverWalkthrough.skip:Click() end; FriendlyForeverDB.buff.thankStyle = 'both'; SlashCmdList.FRIENDLYFOREVER(''); for _, f in ipairs({ FriendlyForeverOptionsPanel:GetChildren() }) do local c = f.GetScrollChild and f:GetScrollChild(); for _, b in ipairs(c and { c:GetChildren() } or {}) do if b.GetText and b:GetText() == 'Buff Thanks' then b:GetScript('OnClick')(b) end end end"
             # The General page (#35): it doesn't scroll, so everything must fit.
-            shoot general --exec-lua "SlashCmdList.FRIENDLYFOREVER(''); Settings.OpenToCategory(FriendlyForeverOptionsPanel.generalPage.category:GetID())"
+            shoot general --exec-lua "if FriendlyForeverWalkthrough and FriendlyForeverWalkthrough:IsShown() then FriendlyForeverWalkthrough.skip:Click() end; SlashCmdList.FRIENDLYFOREVER(''); Settings.OpenToCategory(FriendlyForeverOptionsPanel.generalPage.category:GetID())"
             # /friendly move shows the buff back button, unlocked, with nobody owed.
-            shoot button --exec-lua "SlashCmdList.FRIENDLYFOREVER('move')"
+            shoot button --exec-lua "if FriendlyForeverWalkthrough and FriendlyForeverWalkthrough:IsShown() then FriendlyForeverWalkthrough.skip:Click() end; SlashCmdList.FRIENDLYFOREVER('move')"
             # A favour owed: someone outside your group buffed you.
             shoot button-favour --exec-lua @/shot-lua/favour.lua
             # Buff mode, with a party member missing your buff.
@@ -534,9 +688,14 @@ jobs:
             # many entries, and the copy window as /friendly export opens it (#52).
             shoot options-general --exec-lua @/shot-lua/page-general.lua
             shoot options-ledger --exec-lua @/shot-lua/page-ledger.lua
-            shoot copy-window --exec-lua "SlashCmdList.FRIENDLYFOREVER('export')"
+            # Start here, and the walkthrough at each step in WALKTHROUGH_STEPS (#47).
+            shoot options-start --exec-lua @/shot-lua/page-start.lua
+            for step in $WALKTHROUGH_STEPS; do
+              shoot "walkthrough-$step" --exec-lua "@/shot-lua/walkthrough-$step.lua"
+            done
+            shoot copy-window --exec-lua "if FriendlyForeverWalkthrough and FriendlyForeverWalkthrough:IsShown() then FriendlyForeverWalkthrough.skip:Click() end; SlashCmdList.FRIENDLYFOREVER('export')"
             # The palette (#46): chat lines in each colour, and the minimap tooltip.
-            shoot palette --exec-lua "for _, c in ipairs({ 'off', 'on', 'debug', 'debug', 'ignore Bob' }) do SlashCmdList.FRIENDLYFOREVER(c) end; FriendlyForeverMinimapButton:GetScript('OnEnter')(FriendlyForeverMinimapButton)"
+            shoot palette --exec-lua "if FriendlyForeverWalkthrough and FriendlyForeverWalkthrough:IsShown() then FriendlyForeverWalkthrough.skip:Click() end; for _, c in ipairs({ 'off', 'on', 'debug', 'debug', 'ignore Bob' }) do SlashCmdList.FRIENDLYFOREVER(c) end; FriendlyForeverMinimapButton:GetScript('OnEnter')(FriendlyForeverMinimapButton)"
           }
           for size in $LAYOUT_SIZES; do
             WIDTH="${size%x*}"; HEIGHT="${size#*x}"

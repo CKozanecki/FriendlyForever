@@ -18,6 +18,7 @@ local BUFF = "the Buff Thanks tab"
 local BUFF_BACK = "the Buff Back tab"
 local GENERAL = "the General page"
 local LEDGER = "the Favour Ledger page"
+local START = "the Start here page"
 
 -- name: as the page shows it. page: where it is. keywords: more words to find
 -- it by. controls: the Options.widgets paths of its controls ("*" for any
@@ -75,8 +76,6 @@ OptionsIndex.SETTINGS = {
     { name = "Who gets each buff in buff mode", page = BUFF_BACK,
         keywords = "buff mode who class classes always never names players",
         controls = { "buffRows.*.who", "who.classes", "who.always", "who.never" } },
-    { name = "Revoke Salvation", page = BUFF_BACK, keywords = "paladin salvation revoke tank names",
-        controls = { "who.revoke", "who.revokeNames" } },
     { name = "Blessings I give in this raid", page = BUFF_BACK, keywords = "paladin blessing blessings raid buff",
         controls = { "who.raidBlessings" } },
     { name = "Buff mode turns on by itself", page = BUFF_BACK,
@@ -108,6 +107,14 @@ OptionsIndex.SETTINGS = {
 
     { name = "Clear the ledger", page = LEDGER, keywords = "favour ledger history clear",
         controls = { "ledger.clear" } },
+
+    -- Start here (#47) changes no setting: it shows them, links to each page
+    -- and replays the walkthrough.
+    { name = "Take the walkthrough", page = START,
+        keywords = "walkthrough tour guide help start new first setup replay settings keys overview",
+        controls = { "start.tour" } },
+    { name = "Every other page", page = START, keywords = "start pages links messages buff back general ledger",
+        controls = { "start.openMessages", "start.openGeneral", "start.openLedger" } },
 }
 
 -- Everything a setting can be found by, in lower case.
@@ -160,8 +167,8 @@ end
 -- listing every setting as a heading tagged with its words, which the
 -- search box finds. Only when the client has every part of that API; the
 -- other pages are drawn by the addon (canvas pages), which the search can't
--- look into. Returns whether the page was made. Launch check (#50): does
--- Forever's Settings panel have a search box, and does it find these?
+-- look into. Returns whether the page was made. Whether Forever's Settings
+-- panel has a search box, and finds these, was confirmed in game at launch.
 function OptionsIndex.RegisterSearch(parent)
     if not (parent and type(Settings) == "table"
         and type(Settings.RegisterVerticalLayoutSubcategory) == "function"

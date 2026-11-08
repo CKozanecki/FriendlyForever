@@ -28,4 +28,9 @@ See [Ready for review](https://github.com/CKozanecki/FriendlyForever/blob/main/C
 - [ ] CI is green on the latest commit
 - [ ] This description matches the final code
 - [ ] The branch is up to date with `main` and has no conflicts
-- [ ] Written by Claude: both review loops approved, every finding fixed
+- [ ] Written by an agent (Claude or Codex): both review loops approved, every finding fixed
+- [ ] No open question for the owner: this description has no "decisions for the owner" section, and choices made by following the spec are stated as decisions taken
+
+<!-- Written by Claude: the model that served each review loop's final verdict, with its effort (CLAUDE.md's Models and effort). A review served by another family than its agent names doesn't count: run it again, or flag it to the owner. -->
+- Lua architecture review: model , effort
+- Lua testing review: model , effort

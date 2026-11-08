@@ -1,4 +1,4 @@
--- Spec: #48
+-- Spec: #48, #47, #208
 -- Finding a setting: /friendly find <word>, the game's Settings search where
 -- the client has one, and the one table both read (OptionsIndex.lua).
 local wow = require("spec.support.wow")
@@ -69,7 +69,8 @@ describe("Finding a setting (#48)", function()
         it("has every control on every options page, so it can't drift from the pages", function()
             local paths = ControlPaths(ns.Options.widgets)
             local general, ledger = ns.Options.Pages()
-            local pages = { [_G.FriendlyForeverOptionsPanel] = true, [general] = true, [ledger] = true }
+            local pages = { [_G.FriendlyForeverOptionsPanel] = true, [general] = true, [ledger] = true,
+                [ns.Options.StartPage()] = true }
             local missing = {}
             for _, frame in ipairs(wow.frames) do
                 if CONTROL_KINDS[frame.kind] and OnAPage(frame, pages) then
@@ -112,7 +113,7 @@ describe("Finding a setting (#48)", function()
             -- Not one label: a group of controls, or a label the tab fills in.
             local grouped = { ["Enabled"] = true, ["Messages"] = true, ["Load fantasy lines or casual lines"] = true,
                 ["Buff order"] = true, ["Never offer a buff"] = true, ["Who gets each buff in buff mode"] = true,
-                ["Revoke Salvation"] = true, ["Blessings I give in this raid"] = true, ["Buff mode key"] = true,
+                ["Blessings I give in this raid"] = true, ["Buff mode key"] = true,
                 ["Buff mode turns off again"] = true, ["Offer to buff back players who buff me"] = true,
                 ["Share your settings"] = true, ["Snooze"] = true, ["Profiles"] = true,
                 ["Never greet or thank"] = true }

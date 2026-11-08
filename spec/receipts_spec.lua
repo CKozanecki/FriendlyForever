@@ -1,4 +1,4 @@
--- Spec: #138
+-- Spec: #138, #208
 -- Buff receipts: when your buff lands on a player outside your group, your
 -- copy whispers theirs a hidden RECEIPT, used only to name the caster of a
 -- buff whose caster the game wouldn't name.
@@ -702,7 +702,7 @@ describe("Buff receipts (#138)", function()
         it("for no buff, or for yourself, when asked directly", function()
             local ns = wow.boot()
             assert.is_false(ns.Receipts.Send("Bo-Lake", nil))
-            assert.is_false(ns.Receipts.Send("Bo-Lake", ns.BuffData.REVOKE))
+            assert.is_false(ns.Receipts.Send("Bo-Lake", { key = "salvation" }), "a buff the game no longer has")
             assert.is_false(ns.Receipts.Send(wow.state.units.player.id, ns.BuffData.ByKey("fortitude")))
             assert.is_true(ns.Receipts.Send("Bo-Lake", ns.BuffData.ByKey("fortitude")))
             assert.are.equal(1, #receiptsIn(wow.addonSent))

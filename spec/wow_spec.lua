@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42
+-- Spec: #76, #84, #136, #42, #47, #169, #198
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -245,5 +245,94 @@ describe("The simulated client", function()
             wow.state.units.party1.auraDurations[1] = nil
             assert.is_nil(aura(1).duration, "unset stays nil")
         end)
+    end)
+end)
+
+-- #47: the walkthrough opens at login until it's finished or skipped, and a
+-- first install is off until then. boot turns both off for most specs;
+-- opts.walkthrough, and given settings that set them, keep them.
+describe("The simulated client's boot and the walkthrough (#47)", function()
+    local SEEN = { seen = wow.boot().Config.WALKTHROUGH_VERSION, firstRun = false }
+
+    it("starts a first install switched on, its walkthrough finished, unless asked", function()
+        local ns = wow.boot()
+        assert.are.same(SEEN, ns.db.walkthrough)
+        assert.is_true(ns.db.enabled)
+        assert.is_false(ns.Walkthrough.Frame():IsShown())
+        ns = wow.boot({ walkthrough = true })
+        assert.are.same({ seen = 0, firstRun = true }, ns.db.walkthrough)
+        assert.is_false(ns.db.enabled)
+        assert.is_true(ns.Walkthrough.Frame():IsShown())
+    end)
+
+    it("starts given settings without a walkthrough state as finished, and leaves their switch", function()
+        local ns = wow.boot({ db = { enabled = false } })
+        assert.are.same(SEEN, ns.db.walkthrough)
+        assert.is_false(ns.db.enabled)
+        assert.is_false(ns.Walkthrough.Frame():IsShown())
+    end)
+
+    it("leaves a given walkthrough state alone, so one not yet seen still starts", function()
+        local ns = wow.boot({ db = { walkthrough = { seen = 0, firstRun = false } } })
+        assert.are.same({ seen = 0, firstRun = false }, ns.db.walkthrough)
+        assert.is_true(ns.Walkthrough.Frame():IsShown())
+    end)
+
+    it("opts.afterLoad changes the loaded code before the saved settings are checked (#169)", function()
+        local seenBy
+        local ns = wow.boot({ db = { enabled = true, walkthrough = { seen = 2, firstRun = false } },
+            afterLoad = function(loaded)
+                seenBy = loaded.db
+                loaded.Config.WALKTHROUGH_VERSION = 2
+            end })
+        assert.is_nil(seenBy, "the settings aren't loaded yet")
+        assert.are.equal(2, ns.Config.WALKTHROUGH_VERSION)
+        assert.are.same({ seen = 2, firstRun = false }, ns.db.walkthrough, "2 is checked against the new version")
+    end)
+end)
+
+describe("The simulated client's [@unit] casts and buff-self default (#198)", function()
+    local function boot(opts)
+        opts = opts or {}
+        opts.before = function(state)
+            state.class = "DRUID"
+            state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
+        end
+        return wow.boot(opts)
+    end
+
+    it("casts on the unit named, leaving your target alone", function()
+        boot()
+        wow.setGroup("party", { "Ann-Vale" })
+        wow.addUnit("target", { name = "Bob", surname = "Stone", id = "Bob-Stone" })
+        wow.runMacro("/cast [@party1] Mark of the Wild")
+        assert.are.equal("Ann-Vale", wow.casts[1].target)
+        assert.are.equal("Bob-Stone", wow.state.units.target.id)
+    end)
+
+    it("takes [@player] with the conditions after it, or none", function()
+        boot()
+        wow.runMacro("/cast [@player] Mark of the Wild")
+        wow.runMacro("/cast [@player,nodead] Mark of the Wild")
+        assert.are.equal(2, #wow.casts)
+        assert.are.equal("Me", wow.casts[2].target)
+    end)
+
+    it("tests the other conditions against that unit: nothing on a dead you", function()
+        boot()
+        wow.state.units.player.dead = true
+        wow.runMacro("/cast [@player,nodead] Mark of the Wild")
+        assert.are.equal(0, #wow.casts)
+    end)
+
+    it("casts nothing for a unit that isn't there", function()
+        boot()
+        wow.runMacro("/cast [@party3] Mark of the Wild")
+        assert.are.equal(0, #wow.casts)
+    end)
+
+    it("boots with buff mode not buffing you, unless buffSelf keeps it", function()
+        assert.are.equal("off", boot().GroupBuffs.SELF_ORDER)
+        assert.are.equal("first", boot({ buffSelf = true }).GroupBuffs.SELF_ORDER)
     end)
 end)

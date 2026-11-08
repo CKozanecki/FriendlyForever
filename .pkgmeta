@@ -18,6 +18,7 @@ ignore:
   - Makefile
   - CONTRIBUTING.md
   - CLAUDE.md
+  - AGENTS.md
   - SECURITY.md
   - RELEASE_NOTES.md
 
