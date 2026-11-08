@@ -489,6 +489,23 @@ describe("Group versions in buff mode (#41)", function()
         end)
     end)
 
+    describe("an update that adds GroupCasts.lua (black)", function()
+        it("asks for a restart, not erroring, after only a /reload", function()
+            wow.reset()
+            local loaded = {}
+            local _, files = wow.parseToc()
+            for _, file in ipairs(files) do
+                if file ~= "GroupCasts.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+            end
+            wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+            wow.fire("PLAYER_ENTERING_WORLD", true, false)
+            wow.advance(20)
+            assert.are.same({}, wow.errors)
+            assert.are.equal(0, #wow.casts)
+            assert.truthy(table.concat(wow.printed, "\n"):find("Restart the game (not /reload)", 1, true))
+        end)
+    end)
+
     describe("chaos (red tests)", function()
         it("a storm of roster, flag, rule, reagent and fight changes never offers a harmful group cast", function()
             local everyone = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed", "Gus-Lane",
