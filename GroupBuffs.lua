@@ -15,9 +15,9 @@
 -- each buff (tanks only, chosen classes, named players: BuffRules.lua) apply
 -- here, and only here. Group buffs never say a line and are never thanked.
 --
--- You are a group member too (#198): for each buff you give, once the others
--- have it, that buff is offered on you if you are missing it (GroupBuffs.SELF_ORDER says
--- where you come in), under the same rules: your buff order, Never lists,
+-- You are a group member too (#198): for each buff you give, that buff is
+-- offered on you first, if you are missing it, and then to the group
+-- (GroupBuffs.SELF_ORDER says where you come in), under the same rules: your buff order, Never lists,
 -- who gets each buff, top-up timing. It is cast on you with [@player], so
 -- your target stays as it is. You are left out when dead or unreadable (the
 -- reason is named); range and PvP flag don't apply to your own buffs.
@@ -44,11 +44,11 @@ GroupBuffs.SKIP_SECONDS = 300
 GroupBuffs.HELD_BACK_SECONDS = 15
 
 -- Where you come in (#198): your own copy of each buff you give is offered
--- after the group's copy of that buff ("last", the default), or before it ("first"); your first buff still goes before
--- anyone's second.
--- "off" leaves you out (specs that predate #198 start with it: wow.boot).
--- Only this line decides; the rest of the file follows it.
-GroupBuffs.SELF_ORDER = "last"
+-- before the group's copy of that buff ("first", the default, the owner's
+-- choice), or after it ("last"); your first buff still goes before anyone's
+-- second. "off" leaves you out (specs that predate #198 start with it:
+-- wow.boot). Only this line decides; the rest of the file follows it.
+GroupBuffs.SELF_ORDER = "first"
 
 local PARTY_UNITS, RAID_UNITS = {}, {}
 for i = 1, 4 do PARTY_UNITS[i] = "party" .. i end
@@ -344,13 +344,13 @@ function GroupBuffs.Next()
         end
         return nil
     end
-    -- You come last in each buff's round, after the group (SELF_ORDER, #198):
-    -- your first buff still goes before anyone's second.
+    -- You come first in each buff's round, before the group (SELF_ORDER,
+    -- #198): your first buff still goes before anyone's second.
     local mine, mineWhy, mineOpen
     if GroupBuffs.SELF_ORDER ~= "off" then mine, mineWhy, mineOpen = SelfMember() end
     local list = members -- the revoke pass above is done with it
     if mine then
-        table.insert(list, GroupBuffs.SELF_ORDER == "first" and 1 or #list + 1, mine)
+        table.insert(list, GroupBuffs.SELF_ORDER == "last" and #list + 1 or 1, mine)
     elseif mineWhy then
         firstReason = firstReason or ("You: " .. mineWhy)
         open = open or mineOpen

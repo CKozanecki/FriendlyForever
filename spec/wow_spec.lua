@@ -321,6 +321,6 @@ describe("The simulated client's [@unit] casts and buff-self default (#198)", fu
 
     it("boots with buff mode not buffing you, unless buffSelf keeps it", function()
         assert.are.equal("off", boot().GroupBuffs.SELF_ORDER)
-        assert.are.equal("last", boot({ buffSelf = true }).GroupBuffs.SELF_ORDER)
+        assert.are.equal("first", boot({ buffSelf = true }).GroupBuffs.SELF_ORDER)
     end)
 end)

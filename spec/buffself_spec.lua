@@ -92,7 +92,25 @@ describe("Buff mode buffing you too", function()
             assert.is_nil(macro():find("target", 1, true), "the macro never touches targeting")
         end)
 
-        it("offers each buff to the group first and you last, your first buff before anyone's second", function()
+        it("offers each buff to you first and then the group, your first buff before anyone's second", function()
+            party({ "Ann-Vale", "Cid-Rock" })
+            local order = {}
+            for _ = 1, 8 do
+                local cast = scroll()
+                if not cast then break end
+                order[#order + 1] = cast.target .. " " .. cast.spell
+            end
+            assert.are.same({
+                "Me Mark of the Wild", "Ann-Vale Mark of the Wild", "Cid-Rock Mark of the Wild",
+                "Me Thorns", "Ann-Vale Thorns", "Cid-Rock Thorns",
+            }, { unpack(order, 1, 6) }, "each buff goes to you, then the group; your first buff before anyone's second")
+            assert.is_nil(order[7], "nothing more to cast")
+            assert.is_nil(macro())
+            assert.are.equal("everyone in your group has your buffs", button.subtitle:GetText())
+        end)
+
+        it("puts you after the group for each buff when SELF_ORDER says last (the one line that decides)", function()
+            ns.GroupBuffs.SELF_ORDER = "last"
             party({ "Ann-Vale", "Cid-Rock" })
             local order = {}
             for _ = 1, 8 do
@@ -103,18 +121,7 @@ describe("Buff mode buffing you too", function()
             assert.are.same({
                 "Ann-Vale Mark of the Wild", "Cid-Rock Mark of the Wild", "Me Mark of the Wild",
                 "Ann-Vale Thorns", "Cid-Rock Thorns", "Me Thorns",
-            }, { unpack(order, 1, 6) }, "each buff goes to the group, then to you; your first buff before anyone's second")
-            assert.is_nil(order[7], "nothing more to cast")
-            assert.is_nil(macro())
-            assert.are.equal("everyone in your group has your buffs", button.subtitle:GetText())
-        end)
-
-        it("puts you first when SELF_ORDER says so (the one line that decides)", function()
-            ns.GroupBuffs.SELF_ORDER = "first"
-            party({ "Ann-Vale" })
-            assert.are.equal("me: Mark of the Wild", armed())
-            scroll()
-            assert.are.equal("Ann Vale: Mark of the Wild", armed(), "you, then the group, for each buff")
+            }, order)
         end)
 
         it("leaves you out when SELF_ORDER is off", function()
@@ -165,7 +172,7 @@ describe("Buff mode buffing you too", function()
                 local cast = scroll()
                 if cast then targets[#targets + 1] = cast.target end
             end
-            assert.are.same({ "Ann-Vale", "Me", "Ann-Vale", "Me" }, targets)
+            assert.are.same({ "Me", "Ann-Vale", "Me", "Ann-Vale" }, targets)
         end)
 
         it("applies your buff order, Never list and who-gets-it rules to you", function()
