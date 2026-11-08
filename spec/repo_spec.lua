@@ -249,6 +249,45 @@ describe("CI workflow", function()
         assert.is_falsy(jobs.test.text:find("BigWigsMods"), "a shard builds with the release packager")
         assert.is_truthy(ci:find("cancel%-in%-progress:%s*true"), "a newer push doesn't cancel the older run")
     end)
+
+    -- The gate: nothing may soften it, and its script must say no to anything
+    -- but success (the testing review, #218).
+    it("lets check pass only when lint, packaging and every shard succeeded, and nothing softens it (black)", function()
+        local jobs = parseWorkflow(path)
+        for _, name in ipairs({ "check", "lint-package", "test" }) do
+            assert.is_falsy(jobs[name].text:find("continue%-on%-error"), name .. " can fail without failing CI")
+        end
+        assert.is_truthy(jobs.check.text:find('\n%s*run: scripts/test%-shards%.sh check "%$SHARDS"\n'),
+            "the shard check isn't exactly its command, so it could be softened")
+        local script = jobs.check.text:match("run: |\n(.*)$")
+        assert.is_truthy(script and script:find('"$TESTS" = success', 1, true), "couldn't find the result check")
+        local dir = io.popen("mktemp -d"):read("*l")
+        local file = io.open(dir .. "/gate.sh", "w")
+        file:write((script:gsub("\n          ", "\n"):gsub("^%s+", "")))
+        file:close()
+        local function gate(lint, tests)
+            return os.execute("cd '" .. dir .. "' && LINT_PACKAGE=" .. lint .. " TESTS=" .. tests .. " bash -e gate.sh >/dev/null 2>&1")
+        end
+        assert.are.equal(0, gate("success", "success"))
+        for _, bad in ipairs({ "failure", "skipped", "cancelled", "" }) do
+            assert.are_not.equal(0, gate("success", "'" .. bad .. "'"), "tests " .. bad .. " passed the gate")
+            assert.are_not.equal(0, gate("'" .. bad .. "'", "success"), "lint " .. bad .. " passed the gate")
+        end
+        os.execute("rm -rf '" .. dir .. "'")
+    end)
+
+    -- Without $(SPECS) every shard would quietly run all the specs.
+    it("makes each shard run only its own spec files (white)", function()
+        local function recipe(args)
+            local p = io.popen("cd '" .. wow.ROOT .. "' && make -n test TOOLS=/nowhere " .. args .. " 2>&1")
+            local out = p:read("*a")
+            p:close()
+            return out
+        end
+        local some = recipe("SPECS='spec/a_spec.lua spec/b_spec.lua'")
+        assert.is_truthy(some:find("busted\" spec/a_spec.lua spec/b_spec.lua", 1, true), some)
+        assert.is_falsy(recipe(""):find("_spec", 1, true), "make test with no SPECS names spec files")
+    end)
 end)
 
 describe("Test shards", function()
@@ -277,6 +316,9 @@ describe("Test shards", function()
         out, rc = run("TEST_SHARDS_FAULT=dup")
         assert.are_not.equal(0, rc, "a file in two shards went unnoticed")
         assert.is_truthy(out:find("more than one shard", 1, true), out)
+        out, rc = run("TEST_SHARDS_FAULT=extra")
+        assert.are_not.equal(0, rc, "a file that isn't a spec went unnoticed")
+        assert.is_truthy(out:find("not a spec file", 1, true), out)
     end)
 
     it("refuse shard numbers that make no sense (black)", function()
@@ -362,6 +404,11 @@ describe("UI simulator workflow", function()
                 "the publisher runs when the screenshots were skipped")
         end)
 
+        it("gives each push to main its own run group, so one can't cancel another's (white)", function()
+            assert.is_truthy(text:find("group: ui-sim-${{ github.event_name == 'push' && github.sha || github.ref }}", 1, true))
+            assert.is_truthy(text:find("cancel%-in%-progress:%s*true"), "a newer pull request push doesn't replace the older run")
+        end)
+
         it("gives the deciding job no write access, no secrets and nothing from the pull request to run (black)", function()
             local job = jobs.changes
             assert.is_falsy(job.keys.permissions, "the deciding job has its own permissions")
@@ -431,7 +478,14 @@ describe("UI simulator workflow", function()
                 { { "Colours.lua" }, "true" },
                 { { "uitests/x.lua" }, "true" },
                 { { ".github/workflows/ui-sim.yml" }, "true" },
-                { { "Media/a.tga", "FriendlyForever.toc" }, "true" },
+                { { "Media/a.tga" }, "true" },
+                { { "Media/\195\169.tga" }, "true" },
+                { { "FriendlyForever.toc" }, "true" },
+                { { "Bindings.xml" }, "true" },
+                { { ".pkgmeta" }, "true" },
+                { { "scripts/package.sh" }, "true" },
+                { { "scripts/ui-sim-harness.lua" }, "true" },
+                { { "scripts/other.sh", "Makefile" }, "false" },
                 { { "docs/new.md", "spec/x_spec.lua", "CHANGELOG.md" }, "false" },
                 -- Only the root files count, not a same-named file in a folder.
                 { { "docs/Options.lua", "docs/notes.xml" }, "false" },
@@ -440,14 +494,19 @@ describe("UI simulator workflow", function()
                 assert.are.equal(case[2], pullRequest(case[1]), table.concat(case[1], ", "))
             end
             assert.are.equal("true", answer("workflow_dispatch"))
-            -- No commit to compare with: run the simulator.
+            local function rev(ref) return io.popen("cd '" .. dir .. "/repo' && git rev-parse " .. ref):read("*l") end
+            -- Doubt means it runs: no commit to compare with, a pull request
+            -- with no parent (a shallow checkout), nothing changed.
             assert.are.equal("true", answer("push", "0000000000000000000000000000000000000000"))
             assert.are.equal("true", answer("push", ""))
             assert.are.equal("true", answer("push", "not-a-sha"))
-            assert.are.equal("false", (function()
-                sh("git checkout -q -B main root && echo 2 >> Greeter.lua && git commit -qam logic")
-                return answer("push", io.popen("cd '" .. dir .. "/repo' && git rev-parse HEAD^"):read("*l"))
-            end)())
+            sh("git checkout -q -B base root")
+            assert.are.equal("true", answer("pull_request"), "a pull request without a base commit skipped the simulator")
+            assert.are.equal("true", answer("push", rev("HEAD")), "a push that changed nothing skipped the simulator")
+            -- A push of several commits: the UI file changed in an earlier one.
+            sh("git checkout -q -B main root && echo 2 >> Options.lua && git commit -qam ui && echo 3 >> Greeter.lua && git commit -qam logic")
+            assert.are.equal("true", answer("push", rev("root")), "a UI file in the first of two commits was missed")
+            assert.are.equal("false", answer("push", rev("HEAD^")), "a logic-only push ran the simulator")
             os.execute("rm -rf '" .. dir .. "'")
         end)
     end)

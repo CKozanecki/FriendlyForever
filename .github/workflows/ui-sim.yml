@@ -102,10 +102,10 @@ jobs:
           # the base, so the diff is what the pull request changes. A push to
           # main compares with the commit before it.
           if [ "$EVENT" = pull_request ]; then
-            list=$(git diff --name-only HEAD^1 HEAD) || answer true "no diff"
+            list=$(git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD) || answer true "no diff"
           else
             case "$BEFORE" in *[!0-9a-f]* | "" | 0000000000000000000000000000000000000000) answer true "no commit to compare with" ;; esac
-            list=$(git diff --name-only "$BEFORE" HEAD) || answer true "no diff"
+            list=$(git -c core.quotePath=false diff --no-renames --name-only "$BEFORE" HEAD) || answer true "no diff"
           fi
           [ -n "$list" ] || answer true "no changed files"
           while IFS= read -r file; do

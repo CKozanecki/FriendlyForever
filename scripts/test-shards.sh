@@ -56,6 +56,7 @@ case "${1:-}" in
         assign "$2" | awk -v i="$3" -v fault="${TEST_SHARDS_FAULT:-}" '
             fault == "drop" && NR == 1 { next }
             fault == "dup" && NR == 1 { print $2 }
+            fault == "extra" && NR == 1 { print "spec/ghost_spec.lua" }
             $1 == i { print $2 }' | LC_ALL=C sort
         ;;
     count)
