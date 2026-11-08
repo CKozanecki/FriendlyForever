@@ -269,6 +269,26 @@ describe("Group versions in buff mode (#41)", function()
                 "Casts Arcane Brilliance on Ann Vale (reaches your party, 4 missing)", 1, true))
         end)
 
+        it("a press whose group cast changes between its two halves uses the one the up half casts", function()
+            boot()
+            wow.state.auraDelay = 0
+            armed()
+            local MACRO = ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText
+            wow.state.cvars.ActionButtonUseKeyDown = "0" -- the up half casts
+            wow.hardware = true
+            wow.run(button, "PreClick", "LeftButton", true) -- the down half: 4 missing
+            -- Before the key comes up, Dot dies: 3 are left to cover.
+            wow.state.units.party4.dead = true
+            wow.run(button, "PreClick", "LeftButton", false)
+            wow.runMacro(button:GetAttribute(MACRO))
+            wow.run(button, "PostClick", "LeftButton", false)
+            wow.hardware = false
+            assert.are.equal(1, #wow.casts)
+            -- Dot is up again at once: they weren't part of what was given, so they're next.
+            wow.state.units.party4.dead = false
+            assert.are.equal("Dot Moss: Arcane Intellect", armed())
+        end)
+
         it("right-click says what it skipped", function()
             boot()
             armed()
