@@ -150,12 +150,15 @@ describe("The walkthrough", function()
     -- A later release's code: the walkthrough at `version`, with one new
     -- step for each version above 1, spliced in before "That's it". Used as
     -- opts.afterLoad.
+    local opened = {}  -- the versions of the fake steps that opened their page, in order
     local function release(version)
         return function(loaded)
+            opened = {}
             local steps = loaded.Walkthrough.STEPS
             local closing = table.remove(steps)
             for v = V0 + 1, version do
-                steps[#steps + 1] = { since = v, title = "New " .. v, text = function() return "text " .. v end }
+                steps[#steps + 1] = { since = v, title = "New " .. v, text = function() return "text " .. v end,
+                    open = function() opened[#opened + 1] = v end }
             end
             steps[#steps + 1] = closing
             loaded.Config.WALKTHROUGH_VERSION = version
@@ -583,6 +586,23 @@ describe("The walkthrough", function()
             assert.are.equal("1 of 2", tour.count:GetText())
         end)
 
+        it("each step of a what's-new run opens its own page, and no shipped step's", function()
+            bootAt(B, { enabled = true, walkthrough = FINISHED })
+            assert.are.same({ A }, opened)
+            wow.run(tour.next, "OnClick")
+            assert.are.same({ A, B }, opened)
+            assert.is_nil(wow.settings.opened, "none of the shipped steps' pages")
+        end)
+
+        it("StepsSince gives every step for a version that is no number", function()
+            boot()
+            for _, bad in ipairs({ "x", {}, true }) do
+                assert.are.equal(#ns.Walkthrough.STEPS, #ns.Walkthrough.StepsSince(bad), tostring(bad))
+            end
+            assert.are.equal(#ns.Walkthrough.STEPS, #ns.Walkthrough.StepsSince(nil))
+            assert.are.equal(0, #ns.Walkthrough.StepsSince(V0))
+        end)
+
         it("a player who finished version 2 sees only the one step added after it", function()
             bootAt(B, { enabled = true, walkthrough = { seen = A, firstRun = false } })
             assert.are.equal(1, ns.Walkthrough.Count())
@@ -717,16 +737,20 @@ describe("The walkthrough", function()
     -- out here, from the storm's own record of what the player finished and
     -- of the damage, never from the addon.
     describe("storms of releases and logins (red)", function()
-        local reached = { whatsNew = 0, everything = 0, nothing = 0, fights = 0, damaged = 0, finished = 0 }
+        local reached = { whatsNew = 0, everything = 0, nothing = 0, fights = 0, damaged = 0, finished = 0,
+            whatsNewFinishedOff = 0, switchedOff = 0 }
 
         for seed = 1, 40 do
             it("never shows a step twice in a run, errors, or changes a setting (seed " .. seed .. ")", function()
                 random.seed(seed)
                 for _ = 1, 5 do random.random() end
                 local version = V0
-                local record = 0       -- the version they finished, 0 for none or damage
-                local db = nil
-                local firstRun = true  -- a new install's first run, until finished or damaged
+                -- Half the storms start as a new install, half as a player who
+                -- finished the shipped walkthrough.
+                local existing = seed % 2 == 0
+                local record = existing and V0 or 0 -- the version they finished, 0 for none or damage
+                local db = existing and { enabled = true, walkthrough = { seen = V0, firstRun = false } } or nil
+                local firstRun = not existing  -- a new install's first run, until finished or damaged
                 for login = 1, 12 do
                     if random.random(3) == 1 then version = version + 1 end
                     if db and random.random(4) == 1 then
@@ -740,6 +764,12 @@ describe("The walkthrough", function()
                         reached.damaged = reached.damaged + 1
                     end
                     local hadFirstRun = firstRun
+                    -- The player switches the addon on or off by hand now and then.
+                    if db and not firstRun and random.random(4) == 1 then
+                        db.enabled = not db.enabled
+                        if not db.enabled then reached.switchedOff = reached.switchedOff + 1 end
+                    end
+                    local handedEnabled = db and db.enabled
                     bootAt(version, db)
                     local where = ("seed %d, login %d"):format(seed, login)
                     -- What the storm expects: the steps newer than its record.
@@ -748,7 +778,6 @@ describe("The walkthrough", function()
                         if info.since > record then expected[#expected + 1] = info.title end
                     end
                     local settings = ns.Util.DeepCopy(settingsBut(ns.db))
-                    local enabled = ns.db.enabled
                     settings.enabled = nil
                     assert.are.equal(#expected > 0, tour:IsShown(), where)
                     assert.are.same({}, wow.errors, where)
@@ -787,6 +816,9 @@ describe("The walkthrough", function()
                             record = version
                             firstRun = false
                             reached.finished = reached.finished + 1
+                            if whatsNew and handedEnabled == false then
+                                reached.whatsNewFinishedOff = reached.whatsNewFinishedOff + 1
+                            end
                         end
                         reached[whatsNew and "whatsNew" or "everything"] = reached[whatsNew and "whatsNew"
                             or "everything"] + 1
@@ -797,7 +829,7 @@ describe("The walkthrough", function()
                     local after = ns.Util.DeepCopy(settingsBut(ns.db))
                     after.enabled = nil
                     assert.are.same(settings, after, where)
-                    if not hadFirstRun then assert.are.equal(enabled, ns.db.enabled, where) end
+                    if not hadFirstRun then assert.are.equal(handedEnabled, ns.db.enabled, where) end
                     assert.are.same({}, wow.errors, where)
                     db = ns.Util.DeepCopy(ns.db)
                 end

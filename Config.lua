@@ -503,8 +503,8 @@ end
 -- new install waits for it (the addon is off until it's finished or
 -- skipped) }. When a release adds a walkthrough step, give the step this new
 -- version as its `since` and raise the version to match: players who finished
--- an older one then see only the new steps (#169). A repo test checks that
--- they agree.
+-- an older one then see only the new steps (#169). A spec checks that
+-- they agree (spec/walkthrough_spec.lua).
 Config.WALKTHROUGH_VERSION = 1
 
 -- A checked copy of the saved walkthrough state. None at all (settings from
