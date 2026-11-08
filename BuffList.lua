@@ -55,13 +55,10 @@ local function MakeRow(i)
     return row
 end
 
-local function Create(button)
+local function Create()
     frame = CreateFrame("Frame", BuffList.FRAME_NAME, UIParent)
     frame:SetFrameStrata("MEDIUM")
-    frame:SetClampedToScreen(true)
     frame:SetWidth(BuffList.WIDTH)
-    -- Beside the button, level with its top.
-    frame:SetPoint("TOPLEFT", button, "TOPRIGHT", 6, 0)
     frame.rows = rows
     frame:Hide()
     local background = frame:CreateTexture(nil, "BACKGROUND")
@@ -75,13 +72,32 @@ local function Create(button)
     scroll:SetScrollChild(content)
 end
 
+-- Beside the button, level with its top: on its right, or on its left when
+-- there isn't room on the right, so the list never covers the button (it
+-- would take the button's clicks).
+local GAP = 6
+local function Place(button)
+    local ok, right = pcall(button.GetRight, button)
+    local scale = button:GetEffectiveScale()
+    local screenWidth = UIParent:GetWidth() * UIParent:GetEffectiveScale()
+    local roomOnRight = not (ok and type(right) == "number" and type(scale) == "number"
+        and type(screenWidth) == "number" and screenWidth > 0)
+        or (right + GAP + BuffList.WIDTH) * scale <= screenWidth
+    frame:ClearAllPoints()
+    if roomOnRight then
+        frame:SetPoint("TOPLEFT", button, "TOPRIGHT", GAP, 0)
+    else
+        frame:SetPoint("TOPRIGHT", button, "TOPLEFT", -GAP, 0)
+    end
+end
+
 -- Show these offers (the first row's offer is what the button holds unless
 -- another is chosen), marking current, the name the button holds. Hidden
 -- when there is nothing to show or the player is in combat.
 function BuffList.Update(button, offers, current)
     if InCombatLockdown() then return BuffList.Hide() end
     if not offers or #offers == 0 then return BuffList.Hide() end
-    if not frame then Create(button) end
+    if not frame then Create() end
     for i = #shownOffers, 1, -1 do shownOffers[i] = nil end
     local count = math.min(#offers, BuffList.MAX_ROWS)
     for i = 1, count do
@@ -93,6 +109,7 @@ function BuffList.Update(button, offers, current)
     for i = count + 1, #rows do rows[i]:Hide() end
     content:SetHeight(count * BuffList.ROW_HEIGHT)
     frame:SetHeight(math.min(count, BuffList.VISIBLE_ROWS) * BuffList.ROW_HEIGHT)
+    Place(button)
     frame:Show()
 end
 

@@ -506,7 +506,7 @@ end)
 -- to, a click on a row changes the next offer, and it keeps out of the way
 -- in a fight. Casting stays with the button.
 test("the list beside the button shows who is offered, a click picks the next, and its text stays inside", function()
-    InState("buff list", FriendlyForeverUIStates.ListFilled, function(_, States)
+    InState("buff list", FriendlyForeverUIStates.ListFilled, function(button, States)
         local list = _G.FriendlyForeverBuffList
         Expect(list ~= nil and list:IsShown(), "the list isn't up")
         local wanted = 1 + #States.LISTED -- Aria's favour, then the party
@@ -520,6 +520,20 @@ test("the list beside the button shows who is offered, a click picks the next, a
             TextInside(row, row.text, "list row " .. i, 1)
         end
         OnScreen(list, "buff list")
+        -- It must never cover the button, which would take the button's clicks.
+        local okEdges, bl, br, ll, lr = pcall(function()
+            return button:GetLeft(), button:GetRight(), list:GetLeft(), list:GetRight()
+        end)
+        local numbers = type(bl) == "number" and type(br) == "number" and type(ll) == "number"
+            and type(lr) == "number"
+        if okEdges and numbers then
+            local line = ("LAYOUT buff list beside the button: list %.0f..%.0f, button %.0f..%.0f")
+                :format(ll, lr, bl, br)
+            report(line)
+            check(lr <= bl + 1 or ll >= br - 1, line .. ": the list covers the button")
+        else
+            report("LAYOUT buff list beside the button: edges can't be read here")
+        end
         -- Clicking the last row (the long name) makes that player the next offer.
         shown[#shown]:GetScript("OnClick")(shown[#shown])
         Expect(States.MacroTarget() == States.LONGNAME, "a click on the last row didn't make that player next")

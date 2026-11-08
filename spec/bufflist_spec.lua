@@ -298,6 +298,29 @@ describe("The list beside the buff button (#43)", function()
             assert.is_nil(ns.BuffList.Rows()[1].text:GetText():find("|", 1, true))
         end)
 
+        it("sits on the button's right, or on its left when the screen has no room there", function()
+            slash("buffmode on")
+            party({ "Ann-Vale" })
+            local function side() return ns.BuffList.Frame().points[1][1] end
+            assert.are.equal("TOPLEFT", side(), "room on the right (or unknown): beside it")
+            local savedWidth = _G.UIParent.width
+            _G.UIParent.width = 1024
+            button.right = 1014
+            ns.BuffList.Update(button, offers(2), nil)
+            assert.are.equal("TOPRIGHT", side(), "no room on the right: on its left")
+            button.right = 100
+            ns.BuffList.Update(button, offers(2), nil)
+            assert.are.equal("TOPLEFT", side())
+            button.right = "wide"
+            ns.BuffList.Update(button, offers(2), nil)
+            assert.are.equal("TOPLEFT", side(), "an unreadable edge falls back to the right")
+            _G.UIParent.width = 0
+            button.right = 1014
+            ns.BuffList.Update(button, offers(2), nil)
+            assert.are.equal("TOPLEFT", side(), "an unreadable screen size falls back to the right")
+            _G.UIParent.width = savedWidth
+        end)
+
         it("scrolls past six rows, and keeps no more than the most it can ever need", function()
             slash("buffmode on")
             party({ "Ann-Vale" })
