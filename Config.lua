@@ -521,7 +521,7 @@ function Config.ValidWalkthrough(saved)
     if type(seen) ~= "number" or seen ~= math.floor(seen) or seen < 0 or seen > latest then
         return { seen = 0, firstRun = false }
     end
-    return { seen = seen, firstRun = saved.firstRun == true and seen < latest }
+    return { seen = seen, firstRun = saved.firstRun == true and seen == 0 }
 end
 
 
