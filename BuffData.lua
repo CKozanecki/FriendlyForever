@@ -40,12 +40,14 @@ ns.BuffData = BuffData
 
 BuffData.CLASSES = {
     MAGE = {
-        { key = "intellect", name = "Arcane Intellect", groupNames = { "Arcane Brilliance" }, blockerNames = { "Intellect" },
+        { key = "intellect", name = "Arcane Intellect", groupNames = { "Arcane Brilliance" },
+            blockerNames = { "Intellect" },
             ranks = { 10157, 10156, 1461, 1460, 1459 }, group = { 23028 },
             blockers = { 8096, 8097, 8098, 12176 }, manaOnly = true },
     },
     PRIEST = {
-        { key = "fortitude", name = "Power Word: Fortitude", groupNames = { "Prayer of Fortitude" }, blockerNames = { "Stamina" },
+        { key = "fortitude", name = "Power Word: Fortitude", groupNames = { "Prayer of Fortitude" },
+            blockerNames = { "Stamina" },
             ranks = { 10938, 10937, 2791, 1245, 1244, 1243 }, group = { 21564, 21562 },
             blockers = { 8099, 8100, 8101, 12178 } },
         { key = "spirit", name = "Divine Spirit", groupNames = { "Prayer of Spirit" }, blockerNames = { "Spirit" },
@@ -78,12 +80,14 @@ BuffData.CLASSES = {
     SHAMAN = {
         -- Does the same job as a warlock's Unending Breath, and the other way
         -- round (#136).
-        { key = "waterbreathing", name = "Water Breathing", blockerNames = { "Unending Breath" }, ranks = { 131 }, blockers = { 5697 }, water = true },
+        { key = "waterbreathing", name = "Water Breathing",
+            blockerNames = { "Unending Breath" }, ranks = { 131 }, blockers = { 5697 }, water = true },
     },
     WARLOCK = {
         -- 131 is the shaman's Water Breathing: no group version of Unending
         -- Breath, but it does the same job, so it's a blocker (#135).
-        { key = "breath", name = "Unending Breath", blockerNames = { "Water Breathing" }, ranks = { 5697 }, blockers = { 131 }, water = true },
+        { key = "breath", name = "Unending Breath",
+            blockerNames = { "Water Breathing" }, ranks = { 5697 }, blockers = { 131 }, water = true },
     },
     WARRIOR = {
         { key = "battleshout", name = "Battle Shout",
