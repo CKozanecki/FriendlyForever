@@ -687,7 +687,11 @@ describe("Who gets each buff", function()
                     -- Back to the defaults: nothing saved for a buff, or only names.
                     function()
                         local key = keys[random.random(#keys)]
-                        ns.db.buffBack.whoGets[key] = random.random() < 0.5 and nil or { never = {} }
+                        if random.random() < 0.5 then
+                            ns.db.buffBack.whoGets[key] = nil
+                        else
+                            ns.db.buffBack.whoGets[key] = { never = {} }
+                        end
                         ns.BuffButton.Refresh()
                     end,
                     function() rule(keys[random.random(#keys)], ns.BuffRules.RULES[random.random(4)]) end,
