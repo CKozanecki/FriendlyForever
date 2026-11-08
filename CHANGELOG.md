@@ -2,6 +2,7 @@
 
 ### Unreleased
 
+- **Guild welcome:** someone who joins the guild and shows as coming online gets only the welcome, not a login hello as well, whichever of the two game lines comes first and even if the hello was already waiting to go out. That welcome covers one login; a later login greets as usual, and a welcome whose login never comes stops counting after 2 minutes. Debug mode says why a hello was skipped. (#196)
 - **List beside the buff button:** a small list next to the button shows everyone it would offer to (favours owed, then, in buff mode, group members missing your buffs), with the buff for each; the player the button holds now is marked with `>`. Click a row to make that player the button's next offer; the cast still happens only when you press the button or its key. The list is hidden in a fight, and scrolls when it has more than six rows. This version adds a file (BuffList.lua): after updating, restart the game; /reload isn't enough. (#43)
 - **UI simulator workflow:** the finished simulator build is cached, keyed on its pins and build settings, so it is rebuilt only when one moves instead of every run. Nothing ships in the addon. (#170)
 

@@ -1,4 +1,4 @@
--- Spec: #101
+-- Spec: #101, #196
 -- WoW Forever names are a first name plus a mandatory surname, and the pair
 -- is the player's identity. These tests use names in both shapes the client
 -- may report them: "First-Surname" in one string, or the first name with the
@@ -127,6 +127,12 @@ describe("Forever first name + surname", function()
             wow.advance(10)
             online("Jaina-Proudmoore")
             wow.advance(10)
+            -- Their login right after joining stays quiet (#196)...
+            assert.are.same({ "Welcome to the guild, Jaina! We're glad to have you." }, wow.sentTo("GUILD"))
+            -- ...and a login once the quiet window is over is greeted.
+            wow.advance(ns.Greeter.WELCOME_QUIET)
+            online("Jaina-Proudmoore")
+            wow.advance(30)
             assert.are.same({ "Welcome to the guild, Jaina! We're glad to have you.", "Jaina has logged in. Quick, everyone look busy." },
                 wow.sentTo("GUILD"))
         end)

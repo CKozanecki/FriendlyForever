@@ -1,4 +1,4 @@
--- Spec: #52, #64, #112
+-- Spec: #52, #64, #112, #197
 -- Layout: the buff-back button's text stays inside the button, and on each
 -- options tab the message list follows the last row that tab shows. The
 -- checks work from the simulated client's own anchors and text widths
@@ -140,7 +140,7 @@ describe("Layout", function()
     describe("the copy window", function()
         -- A line of the small font the hint uses, in pixels: the UI simulator
         -- draws two of them 33 px tall (docs/ui-simulator.md), so 17 is the
-        -- pessimistic choice. The game's real height is checked on #50.
+        -- pessimistic choice. The game's real height was confirmed in game at launch.
         local SMALL_LINE = 17
 
         it("keeps its hint to two lines, above the text box, for export, import and the bug report", function()

@@ -2,11 +2,11 @@
 
 How `spec/support/wow.lua` models the game for the busted specs, and how to extend it. The rules for tests themselves (which kind each criterion needs, chaos-test invariants, mutation checks) are in [CONTRIBUTING.md](../CONTRIBUTING.md#specs-and-traceability) and [AGENTS.md](../AGENTS.md#tests); this file only describes the tool. Where the two differ, CONTRIBUTING.md wins and this file is fixed.
 
-**Source:** everything here describes `spec/support/wow.lua` itself; read it when this file and the code differ, and fix this file. Game facts the model is built on are in [forever-facts.md](forever-facts.md), and the guesses it makes are listed in its ASSUMPTIONS block, with their launch checks on #50.
+**Source:** everything here describes `spec/support/wow.lua` itself; read it when this file and the code differ, and fix this file. Game facts the model is built on are in [forever-facts.md](forever-facts.md), and the guesses it makes are listed in its ASSUMPTIONS block, checked at the launch test pass (Nov 4, #197) and worked, except the four IDs on #207 and the Salvation, Mass Salvation and Revoke assumptions, which no longer apply: Blizzard removed those spells right before launch (#208).
 
 ## What it is
 
-A small simulation of the WoW client API, enough to load the addon as the game does and drive it with events. It is not the game: every behaviour it adds is a claim about WoW Forever, and claims that can't be checked before launch are listed as launch checks on #50.
+A small simulation of the WoW client API, enough to load the addon as the game does and drive it with events. It is not the game: every behaviour it adds is a claim about WoW Forever, and claims that can't be checked before the game is in hand go in the ASSUMPTIONS block. Those that were in the launch test pass (Nov 4) worked in game, except the four IDs on #207 and the Salvation, Mass Salvation and Revoke ones (removed by Blizzard, #208) (#197).
 
 - **Loading:** `wow.load()` reads `FriendlyForever.toc` and runs each listed file in order with the `(addonName, ns)` varargs, as the game does. `wow.parseToc()` returns the TOC's metadata and file list.
 - **Booting:** `wow.boot(opts)` resets the client, loads the addon, fires `ADDON_LOADED` and `PLAYER_ENTERING_WORLD`, and advances past the login grace period. Options:
@@ -55,7 +55,7 @@ The rules are in AGENTS.md's [Tests](../AGENTS.md#tests) section; in short:
 
 1. **Realistic.** New behaviour must be something the game does. A test hook that the game can't do (such as `state.castLandsOn`) must still keep the game's rules: #84 found that a cast `state.castLandsOn` redirected skipped the macro's conditions on the unit it landed on, so the client could land a buff on a dead or hostile unit, and 18 of the buff back storm's seeds 1–500 failed for it. Now the conditions are checked there too.
 2. **Pessimistic when unsure.** Choose the behaviour that is harder on the addon, and say so in the comment. Examples already in the client: `/targetexact` can't find a player known only as your target; a resurrection in a battleground gives a Preparation aura again; text widths are a little wider than the game's.
-3. **Documented.** Add the behaviour to the ASSUMPTIONS block, and add what to verify in game to #50.
+3. **Documented.** Add the behaviour to the ASSUMPTIONS block, and, if it is a game fact nobody has confirmed, open a new issue labelled `quality` with the source and how to check it in game.
 4. **Test-wide defaults** go in `wow.boot` with an opt-out, like `opts.autoBuffMode`. Read the given saved settings (`opts.db`) before loading fills in defaults, or the opt-out can't tell what the spec asked for.
 5. **Tested.** A change to the simulated client is reviewed like addon code, and its own behaviour has tests in `spec/wow_spec.lua`. A change to a test helper after a review approved goes back to that review (#72).
 6. **Unknown widget methods** (capitalised names such as `SetJustifyH`) are accepted as no-ops; unset data fields stay `nil`, so a test can't be fooled by a value the client never set. When a test needs a no-op method to do something, give it real behaviour and a test of its own.
@@ -71,8 +71,8 @@ For behaviour between two copies of the addon (#32), `wow.newClient({ name, surn
   - a client gets only the prefixes it registered.
 - `net.lose = function(msg, sender, receiver)` drops each copy of a message it returns true for, so a chaos test can lose messages at random, as the game may (#36). To lose a message for everyone, sender included (the server dropped it), answer once per `msg` (#38).
 - `wow.advanceAll(net, seconds, step)` moves every client's clock on together, delivering after each step.
-- `wow.deliverBuffs(net)` carries each buff that landed (`wow.landed`) on another client in the network to that client as a new aura, named by the first unit token (sorted) that shows the caster there, or by none (#37). Pessimistically, a buff that only refreshes one arrives as new (`addedAuras`), so it looks like a new favour; that's in the ASSUMPTIONS block and a launch check ([#50](https://github.com/CKozanecki/FriendlyForever/issues/50#issuecomment-6504872140)).
-- `state.addonSenderForm` (`"hyphen"` or `"space"`) sets how a receiving client spells the sender: a launch check (#50).
+- `wow.deliverBuffs(net)` carries each buff that landed (`wow.landed`) on another client in the network to that client as a new aura, named by the first unit token (sorted) that shows the caster there, or by none (#37). Pessimistically, a buff that only refreshes one arrives as new (`addedAuras`), so it looks like a new favour; that's in the ASSUMPTIONS block, and was confirmed in game at launch (#37).
+- `state.addonSenderForm` (`"hyphen"` or `"space"`) sets how a receiving client spells the sender: confirmed in game at launch (#32).
 
 The network's own behaviour is tested in `spec/wow_comm_spec.lua`.
 
