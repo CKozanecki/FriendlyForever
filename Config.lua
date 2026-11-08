@@ -501,21 +501,25 @@ end
 -- The walkthrough (#47): db.walkthrough = { seen = the version of the
 -- walkthrough last finished or skipped (0: none), firstRun = true while a
 -- new install waits for it (the addon is off until it's finished or
--- skipped) }. Raise the version when the walkthrough gets new steps (#169).
+-- skipped) }. When a release adds a walkthrough step, give the step this new
+-- version as its `since` and raise the version to match: players who finished
+-- an older one then see only the new steps (#169). A repo test checks that
+-- they agree.
 Config.WALKTHROUGH_VERSION = 1
 
 -- A checked copy of the saved walkthrough state. None at all (settings from
--- before it): seen 0, so it shows once, and not a first run, so the switch
--- is left alone. Damaged: seen, and not a first run, so it never touches
--- the addon's switch (the owner's spec on #47). So damage never leaves the
--- addon off for a player who finished or skipped it, never switches anyone
--- off, and never switches on an addon the player switched off.
+-- before it): seen 0, so every step shows once, and not a first run, so the
+-- switch is left alone. Damaged (no table, no whole number, below 0 or above
+-- the current version): the same, every step once (#169). It is never a
+-- first run, so damage never touches the addon's switch (the owner's spec on
+-- #47): it never switches anyone off, and never switches on an addon the
+-- player switched off. Finishing or skipping saves a good version, healing it.
 function Config.ValidWalkthrough(saved)
     local latest = Config.WALKTHROUGH_VERSION
     if saved == nil then return { seen = 0, firstRun = false } end
     local seen = type(saved) == "table" and saved.seen
     if type(seen) ~= "number" or seen ~= math.floor(seen) or seen < 0 or seen > latest then
-        return { seen = latest, firstRun = false }
+        return { seen = 0, firstRun = false }
     end
     return { seen = seen, firstRun = saved.firstRun == true and seen < latest }
 end

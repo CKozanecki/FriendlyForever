@@ -2,6 +2,7 @@
 
 ### Unreleased
 
+- **Walkthrough, what's new:** each step of the first-install walkthrough now records the version it was added in. After an update that adds steps, a player who already finished or skipped the walkthrough sees only the new ones, titled "What's new", and a new player still sees every step. Finishing or skipping saves the new version, and never turns Friendly Forever on or off. Take the whole walkthrough again any time from **Start here**. A damaged saved walkthrough version now shows the whole walkthrough once, instead of nothing, and heals when it's finished or skipped. No release adds a step yet, so nothing changes for players now. (#169)
 - **UI simulator workflow:** the finished simulator build is cached, keyed on its pins and build settings, so it is rebuilt only when one moves instead of every run. Nothing ships in the addon. (#170)
 
 ## 0.9.1

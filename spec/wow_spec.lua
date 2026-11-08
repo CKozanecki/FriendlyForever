@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47
+-- Spec: #76, #84, #136, #42, #47, #169
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -276,5 +276,17 @@ describe("The simulated client's boot and the walkthrough (#47)", function()
         local ns = wow.boot({ db = { walkthrough = { seen = 0, firstRun = false } } })
         assert.are.same({ seen = 0, firstRun = false }, ns.db.walkthrough)
         assert.is_true(ns.Walkthrough.Frame():IsShown())
+    end)
+
+    it("opts.afterLoad changes the loaded code before the saved settings are checked (#169)", function()
+        local seenBy
+        local ns = wow.boot({ db = { enabled = true, walkthrough = { seen = 2, firstRun = false } },
+            afterLoad = function(loaded)
+                seenBy = loaded.db
+                loaded.Config.WALKTHROUGH_VERSION = 2
+            end })
+        assert.is_nil(seenBy, "the settings aren't loaded yet")
+        assert.are.equal(2, ns.Config.WALKTHROUGH_VERSION)
+        assert.are.same({ seen = 2, firstRun = false }, ns.db.walkthrough, "2 is checked against the new version")
     end)
 end)

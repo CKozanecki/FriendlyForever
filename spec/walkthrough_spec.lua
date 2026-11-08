@@ -1,4 +1,4 @@
--- Spec: #47
+-- Spec: #47, #169
 -- The Start here page and the walkthrough: the page's controls change the
 -- same settings as their full pages, the walkthrough reaches buff mode's key
 -- and triggers, skipping or finishing it is remembered, it can be replayed,
@@ -140,6 +140,38 @@ describe("The walkthrough", function()
 
     local function goTo(index)
         while ns.Walkthrough.Step() < index do wow.run(tour.next, "OnClick") end
+    end
+
+    -- Whether the window is showing a what's-new run, from its title.
+    local function whatsNewShown()
+        return tour.title:GetText():find("What's new: ", 1, true) == 1
+    end
+    -- A later release's code: the walkthrough at `version`, with one new
+    -- step for each version above 1, spliced in before "That's it". Used as
+    -- opts.afterLoad.
+    local function release(version)
+        return function(loaded)
+            local steps = loaded.Walkthrough.STEPS
+            local closing = table.remove(steps)
+            for v = 2, version do
+                steps[#steps + 1] = { since = v, title = "New " .. v, text = function() return "text " .. v end }
+            end
+            steps[#steps + 1] = closing
+            loaded.Config.WALKTHROUGH_VERSION = version
+        end
+    end
+    local function bootAt(version, db)
+        boot({ db = db, afterLoad = release(version) })
+    end
+    -- The titles of a run in order, by stepping to its end with Next. Leaves
+    -- it finished.
+    local function runTitles()
+        local out = {}
+        while ns.Walkthrough.Step() do
+            out[#out + 1] = tour.title:GetText()
+            wow.run(tour.next, "OnClick")
+        end
+        return out
     end
 
     describe("on a first install", function()
@@ -351,7 +383,7 @@ describe("The walkthrough", function()
     local DAMAGED_MARK = { { seen = 0, firstRun = "yes" }, { seen = 0, firstRun = 1 }, { seen = 0, firstRun = {} } }
 
     describe("a damaged or missing walkthrough state (black)", function()
-        it("never leaves the addon off for a player who finished or skipped it, and never shows it again", function()
+        it("never leaves the addon off for a player who finished or skipped it; damage shows everything once", function()
             for _, damaged in ipairs(DAMAGED) do
                 boot()
                 wow.run(tour.skip, "OnClick")
@@ -359,8 +391,16 @@ describe("The walkthrough", function()
                 db.walkthrough = damaged
                 boot({ db = db })
                 assert.is_true(ns.db.enabled, tostring(damaged))
-                assert.is_false(tour:IsShown(), tostring(damaged))
-                assert.are.same(SEEN, ns.db.walkthrough)
+                assert.is_true(tour:IsShown(), tostring(damaged))
+                assert.is_false(ns.Walkthrough.FirstRun())
+                assert.is_false(whatsNewShown(), "a damaged version isn't a what's-new run: every step")
+                assert.are.equal(#ns.Walkthrough.STEPS, ns.Walkthrough.Count())
+                wow.run(tour.skip, "OnClick")
+                assert.is_true(ns.db.enabled, tostring(damaged))
+                assert.are.same(SEEN, ns.db.walkthrough, "and finishing heals it")
+                local healed = ns.db
+                boot({ db = healed })
+                assert.is_false(tour:IsShown(), "once")
             end
         end)
 
@@ -368,7 +408,9 @@ describe("The walkthrough", function()
             for _, damaged in ipairs(DAMAGED) do
                 boot({ db = { enabled = true, walkthrough = damaged } })
                 assert.is_true(ns.db.enabled, tostring(damaged))
-                assert.is_false(tour:IsShown(), "a damaged state on an addon that's on reads as seen")
+                assert.is_true(tour:IsShown(), "a damaged state is shown once")
+                wow.run(tour.skip, "OnClick")
+                assert.is_true(ns.db.enabled, tostring(damaged))
             end
             boot({ db = { enabled = true } })
             assert.is_true(tour:IsShown(), "missing: shown once")
@@ -379,9 +421,11 @@ describe("The walkthrough", function()
         it("never switches on an addon the player switched off: damage isn't a first run", function()
             for _, damaged in ipairs(DAMAGED) do
                 boot({ db = { enabled = false, walkthrough = damaged } })
-                assert.is_false(tour:IsShown(), tostring(damaged))
                 assert.is_false(ns.Walkthrough.FirstRun())
                 assert.is_false(ns.db.enabled, tostring(damaged))
+                assert.is_true(tour:IsShown(), tostring(damaged))
+                wow.run(tour.skip, "OnClick")
+                assert.is_false(ns.db.enabled, "skipping a damaged state's walkthrough doesn't switch it on")
             end
             for _, damaged in ipairs(DAMAGED_MARK) do
                 boot({ db = { enabled = false, walkthrough = damaged } })
@@ -438,10 +482,14 @@ describe("The walkthrough", function()
                 local existing = seed % 2 == 0
                 local db = existing and { enabled = true } or nil
                 local done = existing
+                -- Damage to a new install's state before it was finished loses
+                -- its first run (#169: damage is never a first run), so
+                -- finishing no longer switches the addon on.
+                local lost = false
                 for login = 1, 8 do
                     if db and random.random(3) == 1 then
                         db.walkthrough = DAMAGED[random.random(#DAMAGED)]
-                        if done then reached.damagedAfterDone = reached.damagedAfterDone + 1 end
+                        if done then reached.damagedAfterDone = reached.damagedAfterDone + 1 else lost = true end
                     end
                     if db and random.random(4) == 1 then
                         db.enabled = SWITCH_DAMAGE[random.random(#SWITCH_DAMAGE)]
@@ -456,12 +504,12 @@ describe("The walkthrough", function()
                         if action == 1 then
                             goTo(#ns.Walkthrough.STEPS)
                             wow.run(tour.next, "OnClick")
-                            done = true
-                            if new then reached.newFinished = reached.newFinished + 1 end
+                            done = not lost
+                            if new and done then reached.newFinished = reached.newFinished + 1 end
                         elseif action == 2 then
                             wow.run(tour.skip, "OnClick")
-                            done = true
-                            if new then reached.newSkipped = reached.newSkipped + 1 end
+                            done = not lost
+                            if new and done then reached.newSkipped = reached.newSkipped + 1 end
                         elseif action == 3 then
                             wow.enterCombat()
                             wow.leaveCombat()
@@ -476,6 +524,268 @@ describe("The walkthrough", function()
         end
 
         it("reached every case it's for: new installs finished and skipped, damage after, fights", function()
+            for case, count in pairs(reached) do assert.is_true(count > 0, case .. " never happened") end
+        end)
+    end)
+
+    -- What's new (#169): steps record the version they were added in, and a
+    -- player who finished an older version sees only the newer steps.
+    describe("what's new after an update (white)", function()
+        local FINISHED = { seen = 1, firstRun = false }
+
+        it("every step knows the version it was added in, and the version is the latest of them", function()
+            boot()
+            local latest = 0
+            for _, info in ipairs(ns.Walkthrough.STEPS) do
+                assert.is_true(type(info.since) == "number" and info.since == math.floor(info.since)
+                    and info.since >= 1, info.title)
+                assert.is_true(info.since >= latest, "steps are in the order they were added: " .. info.title)
+                latest = info.since
+            end
+            assert.are.equal(ns.Config.WALKTHROUGH_VERSION, latest,
+                "a release that adds a step raises Config.WALKTHROUGH_VERSION to match")
+        end)
+
+        it("a new player sees every step, with no 'what's new' title", function()
+            bootAt(3, nil)
+            assert.is_false(ns.Walkthrough.WhatsNew())
+            assert.are.equal(#ns.Walkthrough.STEPS, ns.Walkthrough.Count())
+            local titles = runTitles()
+            assert.are.equal("Welcome to Friendly Forever", titles[1])
+            assert.are.equal(#ns.Walkthrough.STEPS, #titles)
+            assert.is_false(titles[#titles]:find("What's new", 1, true) ~= nil)
+        end)
+
+        it("a player who finished version 1 sees only the steps added since, introduced as what's new", function()
+            bootAt(3, { enabled = true, walkthrough = FINISHED })
+            assert.is_true(tour:IsShown())
+            assert.is_true(ns.Walkthrough.WhatsNew())
+            assert.is_true(printedHas("what's new in Friendly Forever: 2 new steps"))
+            assert.is_true(printedHas("Start here"))
+            assert.are.equal("1 of 2", tour.count:GetText())
+            assert.are.equal("What's new: New 2", tour.title:GetText())
+            assert.are.equal("Next", tour.next:GetText(), "the welcome's button isn't on a new step")
+            assert.is_false(tour.back:IsShown())
+            assert.is_true(tour.skip:IsShown())
+            wow.run(tour.next, "OnClick")
+            assert.are.equal("What's new: New 3", tour.title:GetText())
+            assert.are.equal("2 of 2", tour.count:GetText())
+            assert.are.equal("Finish", tour.next:GetText())
+            assert.is_false(tour.skip:IsShown())
+            wow.run(tour.back, "OnClick")
+            assert.are.equal("1 of 2", tour.count:GetText())
+        end)
+
+        it("a player who finished version 2 sees only the one step added after it", function()
+            bootAt(3, { enabled = true, walkthrough = { seen = 2, firstRun = false } })
+            assert.are.equal(1, ns.Walkthrough.Count())
+            assert.is_true(printedHas("1 new step in the walkthrough"))
+            assert.are.same({ "What's new: New 3" }, runTitles())
+        end)
+
+        it("an up-to-date player sees nothing", function()
+            bootAt(3, { enabled = true, walkthrough = { seen = 3, firstRun = false } })
+            assert.is_false(tour:IsShown())
+            assert.is_nil(ns.Walkthrough.Step())
+            assert.is_false(printedHas("Start here"))
+            assert.are.same({ seen = 3, firstRun = false }, ns.db.walkthrough)
+        end)
+
+        it("finishing it saves the current version and doesn't show again; it changes no setting", function()
+            for _, on in ipairs({ true, false }) do
+                bootAt(3, { enabled = on, walkthrough = FINISHED })
+                local before = ns.Util.DeepCopy(settingsBut(ns.db))
+                runTitles()
+                assert.is_false(tour:IsShown())
+                assert.are.same({ seen = 3, firstRun = false }, ns.db.walkthrough)
+                assert.are.same(before, settingsBut(ns.db), "a switch left as it was: " .. tostring(on))
+                assert.are.equal(on, ns.db.enabled)
+                local db = ns.db
+                bootAt(3, db)
+                assert.is_false(tour:IsShown(), "not at the next login")
+            end
+        end)
+
+        it("skipping it, or closing its window, saves the current version too, switching nothing", function()
+            for _, how in ipairs({ "skip", "CloseButton" }) do
+                bootAt(2, { enabled = false, walkthrough = FINISHED })
+                wow.run(tour[how], "OnClick")
+                assert.is_false(tour:IsShown())
+                assert.are.same({ seen = 2, firstRun = false }, ns.db.walkthrough, how)
+                assert.is_false(ns.db.enabled, "skipping what's new never turns the addon on")
+            end
+        end)
+
+        it("can be replayed in full from Start here afterwards", function()
+            bootAt(3, { enabled = true, walkthrough = FINISHED })
+            runTitles()
+            wow.run(ns.Options.widgets.start.tour, "OnClick")
+            assert.is_false(ns.Walkthrough.WhatsNew())
+            assert.are.equal(#ns.Walkthrough.STEPS, ns.Walkthrough.Count())
+            assert.are.equal("Welcome to Friendly Forever", tour.title:GetText())
+            assert.are.equal("1 of " .. #ns.Walkthrough.STEPS, tour.count:GetText())
+        end)
+
+        it("a version raised with no step to show is saved without showing anything", function()
+            boot({ db = { enabled = true, walkthrough = FINISHED }, afterLoad = function(loaded)
+                loaded.Config.WALKTHROUGH_VERSION = 2
+            end })
+            assert.is_false(tour:IsShown())
+            assert.is_false(printedHas("Start here"))
+            assert.are.same({ seen = 2, firstRun = false }, ns.db.walkthrough)
+        end)
+
+        it("closes for a fight and reopens at the same step, still only what's new", function()
+            bootAt(3, { enabled = true, walkthrough = FINISHED })
+            wow.run(tour.next, "OnClick")
+            wow.enterCombat()
+            assert.is_false(tour:IsShown())
+            wow.leaveCombat()
+            assert.is_true(tour:IsShown())
+            assert.are.equal("What's new: New 3", tour.title:GetText())
+            assert.are.equal("2 of 2", tour.count:GetText())
+        end)
+
+        it("asked for at login in a fight, it waits, then shows only what's new", function()
+            boot({ db = { enabled = true, walkthrough = FINISHED }, afterLoad = release(3), before = function(state)
+                state.inCombat = true
+            end })
+            assert.is_false(tour:IsShown())
+            wow.leaveCombat()
+            assert.is_true(tour:IsShown())
+            assert.are.equal("1 of 2", tour.count:GetText())
+        end)
+    end)
+
+    describe("a damaged saved version (black)", function()
+        local BAD = { -1, -0.5, 1.5, 4, 99, 1e9, math.huge, -math.huge, 0 / 0, "2", "x", true, {}, false }
+
+        it("shows every step once, never errors, and changes no setting", function()
+            for _, bad in ipairs(BAD) do
+                for _, on in ipairs({ true, false }) do
+                    bootAt(3, { enabled = on, walkthrough = { seen = bad, firstRun = true } })
+                    local where = tostring(bad)
+                    assert.is_true(tour:IsShown(), where)
+                    assert.is_false(ns.Walkthrough.WhatsNew(), where)
+                    assert.is_false(ns.Walkthrough.FirstRun(), where)
+                    assert.are.equal(#ns.Walkthrough.STEPS, ns.Walkthrough.Count(), where)
+                    local before = ns.Util.DeepCopy(settingsBut(ns.db))
+                    wow.run(tour.skip, "OnClick")
+                    assert.are.same(before, settingsBut(ns.db), where)
+                    assert.are.equal(on, ns.db.enabled, where)
+                    assert.are.same({ seen = 3, firstRun = false }, ns.db.walkthrough, "healed: " .. where)
+                    assert.are.same({}, wow.errors, where)
+                    local db = ns.db
+                    bootAt(3, db)
+                    assert.is_false(tour:IsShown(), "once: " .. where)
+                end
+            end
+        end)
+
+        it("a version damaged while playing heals when the walkthrough is next started", function()
+            bootAt(3, { enabled = true, walkthrough = { seen = 3, firstRun = false } })
+            for _, bad in ipairs(BAD) do
+                ns.db.walkthrough = { seen = bad }
+                ns.Walkthrough.Start(true)
+                assert.is_true(tour:IsShown(), tostring(bad))
+                wow.run(tour.skip, "OnClick")
+                assert.are.same({ seen = 3, firstRun = false }, ns.db.walkthrough)
+                assert.are.same({}, wow.errors, tostring(bad))
+            end
+        end)
+    end)
+
+    -- Red: storms of releases (each adds a step), logins, fights, skips,
+    -- finishes and damaged saved data. What each login must show is worked
+    -- out here, from the storm's own record of what the player finished and
+    -- of the damage, never from the addon.
+    describe("storms of releases and logins (red)", function()
+        local reached = { whatsNew = 0, everything = 0, nothing = 0, fights = 0, damaged = 0, finished = 0 }
+
+        for seed = 1, 40 do
+            it("never shows a step twice in a run, errors, or changes a setting (seed " .. seed .. ")", function()
+                random.seed(seed)
+                for _ = 1, 5 do random.random() end
+                local version = 1
+                local record = 0       -- the version they finished, 0 for none or damage
+                local db = nil
+                local firstRun = true  -- a new install's first run, until finished or damaged
+                for login = 1, 12 do
+                    if random.random(3) == 1 then version = version + 1 end
+                    if db and random.random(4) == 1 then
+                        local damage = DAMAGED[random.random(#DAMAGED)]
+                        db.walkthrough = damage
+                        -- { seen = 2 } is damage only while 2 is above the version.
+                        record = (type(damage) == "table" and damage.seen == 2 and version >= 2) and 2 or 0
+                        firstRun = false
+                        reached.damaged = reached.damaged + 1
+                    end
+                    local hadFirstRun = firstRun
+                    bootAt(version, db)
+                    local where = ("seed %d, login %d"):format(seed, login)
+                    -- What the storm expects: the steps newer than its record.
+                    local expected = {}
+                    for _, info in ipairs(ns.Walkthrough.STEPS) do
+                        if info.since > record then expected[#expected + 1] = info.title end
+                    end
+                    local settings = ns.Util.DeepCopy(settingsBut(ns.db))
+                    local enabled = ns.db.enabled
+                    settings.enabled = nil
+                    assert.are.equal(#expected > 0, tour:IsShown(), where)
+                    assert.are.same({}, wow.errors, where)
+                    if #expected > 0 then
+                        local whatsNew = record > 0
+                        local seen, index = {}, 0
+                        local interrupt = random.random(3) == 1
+                        local finish = random.random(3) > 1
+                        local count = ns.Walkthrough.Count()
+                        assert.are.equal(#expected, count, where)
+                        assert.are.equal(whatsNew, ns.Walkthrough.WhatsNew(), where)
+                        while ns.Walkthrough.Step() do
+                            local at = ns.Walkthrough.Step()
+                            assert.are.equal(index + 1, at, where .. ": steps go in order, once")
+                            index = at
+                            local title = tour.title:GetText():gsub("^What's new: ", "")
+                            assert.is_nil(seen[title], where .. ": " .. title .. " shown twice")
+                            seen[title] = true
+                            assert.are.equal(expected[at], title, where)
+                            if interrupt and at == 2 then
+                                interrupt = false
+                                reached.fights = reached.fights + 1
+                                wow.enterCombat()
+                                assert.is_false(tour:IsShown(), where)
+                                wow.leaveCombat()
+                                assert.are.equal(at, ns.Walkthrough.Step(), where .. ": back at the same step")
+                            end
+                            if not finish and at == 2 then break end
+                            wow.run(tour.next, "OnClick")
+                        end
+                        if ns.Walkthrough.Step() then
+                            -- Left open at a later login: nothing is recorded.
+                            if random.random(2) == 1 then wow.run(tour.skip, "OnClick") end
+                        end
+                        if not ns.Walkthrough.Step() then
+                            record = version
+                            firstRun = false
+                            reached.finished = reached.finished + 1
+                        end
+                        reached[whatsNew and "whatsNew" or "everything"] = reached[whatsNew and "whatsNew"
+                            or "everything"] + 1
+                    else
+                        reached.nothing = reached.nothing + 1
+                    end
+                    -- No setting changed, but a new install's first run switches the addon on.
+                    local after = ns.Util.DeepCopy(settingsBut(ns.db))
+                    after.enabled = nil
+                    assert.are.same(settings, after, where)
+                    if not hadFirstRun then assert.are.equal(enabled, ns.db.enabled, where) end
+                    assert.are.same({}, wow.errors, where)
+                    db = ns.Util.DeepCopy(ns.db)
+                end
+            end)
+        end
+
+        it("reached every case it's for: what's new, everything, nothing, fights, damage, finishing", function()
             for case, count in pairs(reached) do assert.is_true(count > 0, case .. " never happened") end
         end)
     end)
