@@ -108,8 +108,12 @@ local function MemberVars(name)
 end
 
 -- A new member is welcomed once. The game reports them coming online as
--- well as joining, so after a guild welcome is scheduled for someone, their
--- login hello stays quiet for this many seconds (#196).
+-- well as joining, and the two are one arrival (owner's decision on #196):
+-- when a guild welcome is scheduled for someone, the first login hello for
+-- them after it, or one already waiting to go out, is dropped. That consumes
+-- the record, so a later login greets as usual. The record also expires after
+-- this many seconds, so a welcome whose login never came can't silence a
+-- genuine login later.
 Greeter.WELCOME_QUIET = 120
 Greeter.MAX_WELCOMED = 100
 
@@ -156,20 +160,19 @@ function Greeter.WelcomedCount()
     return welcomedCount
 end
 
-local function NotJustWelcomed(name)
-    return function()
-        if InWelcomeQuiet(name) then return false, "just welcomed to the guild" end
-        return true
-    end
+-- True, and the record is used up, when this login belongs to a welcome.
+local function TakeWelcome(name)
+    if not InWelcomeQuiet(name) then return false end
+    ForgetWelcomed(name)
+    return true
 end
 
 -- Every copy in the guild greets, a random while apart and with different
 -- lines, and at most a few of them (GuildHellos.lua, #38).
 local function Greet(name)
     if Ignored("guildLogin", name) then return end
-    if InWelcomeQuiet(name) then
-        ns.Diag.Log("guildLogin", "not sending for %s: welcomed to the guild within the last %ss",
-            name, Greeter.WELCOME_QUIET)
+    if TakeWelcome(name) then
+        ns.Diag.Log("guildLogin", "not sending for %s: just welcomed to the guild, one arrival", name)
         return
     end
     ns.Announcer.Schedule("guildLogin", name, {
@@ -177,7 +180,8 @@ local function Greet(name)
         isValid = function()
             local ok, why = NotIgnored(name)()
             if not ok then return false, why end
-            return NotJustWelcomed(name)()
+            if TakeWelcome(name) then return false, "just welcomed to the guild, one arrival" end
+            return true
         end,
         delay = ns.db.guildLogin.delay + ns.GuildHellos.Stagger(),
         hold = function(go, line, drop) ns.GuildHellos.Hold(name, line, go, drop) end,

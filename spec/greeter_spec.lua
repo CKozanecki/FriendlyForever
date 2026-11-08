@@ -284,6 +284,16 @@ describe("Greetings", function()
             assert.are.same({ "Welcome to the guild, Thrall! We're glad to have you." }, wow.sentTo("GUILD"))
         end)
 
+        it("suppresses one hello per welcome: a later login greets at once", function()
+            ns.db.guildLogin.repeatCooldown = 0
+            wow.systemMessage("Varian has joined the guild.")
+            online("Varian")
+            wow.advance(20)
+            online("Varian") -- well inside the safety window, but the welcome is used up
+            wow.advance(helloWait() + 1)
+            assert.are.same({ WELCOME, HELLO }, wow.sentTo("GUILD"))
+        end)
+
         it("greets the same player's later login once the quiet window is over", function()
             wow.systemMessage("Varian has joined the guild.")
             wow.advance(ns.Greeter.WELCOME_QUIET + 1)
@@ -355,8 +365,7 @@ describe("Greetings", function()
                 wow.advance(random.random() * 0.2)
                 assert.is_true(ns.Greeter.WelcomedCount() <= ns.Greeter.MAX_WELCOMED)
             end
-            -- All still inside their window, so the table is full, not over.
-            assert.are.equal(ns.Greeter.MAX_WELCOMED, ns.Greeter.WelcomedCount())
+            assert.is_true(ns.Greeter.WelcomedCount() > 0)
         end)
 
         it("drops names whose window is over before it makes room", function()
