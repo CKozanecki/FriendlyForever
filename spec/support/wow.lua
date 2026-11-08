@@ -379,6 +379,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         target; the other conditions ([nodead]) test that unit.
 --                         An empty condition list after the @ is fine. SENT
 --                         names the unit by its first name, as for any target.
+--                         UNCONFIRMED in game: #213 says how to check it.
 --   /cleartarget then /targetexact X leaves your old target as the "last
 --                         target", so /targetlasttarget brings it back (setTarget)
 --   Mouse clicks, like key presses, act on the half the key-down setting
