@@ -609,6 +609,8 @@ end
 function Options.SelectType(msgType)
     ClearEditFocus()
     currentType = msgType
+    -- The Buff Back tab lists the buffs the game has: ask it again (#209).
+    if msgType == "buffBack" then ns.BuffData.SpellsChanged() end
     Options.Refresh()
 end
 

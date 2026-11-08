@@ -83,8 +83,8 @@ describe("Unending Breath", function()
             local list = ns.BuffData.CLASSES.WARLOCK
             assert.are.equal(1, #list)
             local breath = list[1]
-            assert.are.same({ key = "breath", ranks = { BREATH }, blockers = { WATER_BREATHING }, water = true },
-                breath)
+            assert.are.same({ key = "breath", name = "Unending Breath", ranks = { BREATH },
+                blockers = { WATER_BREATHING }, water = true }, breath)
             assert.are.equal(breath, ns.BuffData.ByKey("breath"))
             assert.is_true(ns.BuffData.KEYS.breath)
             assert.are.equal("Unending Breath", ns.BuffData.SpellName(breath))

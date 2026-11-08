@@ -177,7 +177,7 @@ local function List(value)
 end
 
 -- What Build makes; nil whenever it's stale.
---   ranks[buff]    the verified rank IDs, the API's answer first, then the hints
+--   ranks[buff]    the verified rank IDs: the hints in order, an ID only the API gave first
 --   covers[buff]   { [id] = true } for every ID that counts as having it
 --   byAura[id]     the buff an ID belongs to; byRank[id] likewise, ranks only
 --   byName[name]   { buff, role = "rank" | "group" }
@@ -190,8 +190,10 @@ local function Build()
     local r = { ranks = {}, covers = {}, byAura = {}, byRank = {}, byName = {}, unseen = {}, unseenCount = 0 }
     local owner, ambiguous = {}, {}
     local buffs = {}
-    for _, list in pairs(BuffData.CLASSES) do
-        for _, buff in ipairs(List(list)) do buffs[#buffs + 1] = buff end
+    for _, list in pairs(List(BuffData.CLASSES)) do
+        for _, buff in ipairs(List(list)) do
+            if type(buff) == "table" and type(buff.name) == "string" then buffs[#buffs + 1] = buff end
+        end
     end
     for _, buff in ipairs(buffs) do
         local ranks, seen = {}, {}
@@ -201,9 +203,15 @@ local function Build()
                 ranks[#ranks + 1] = id
             end
         end
-        add(IdByName(buff.name))
         for _, id in ipairs(List(buff.ranks)) do
             if ValidId(id) and Verified(id, { buff.name }) then add(id) end
+        end
+        -- The API's answer keeps its place among the hints; an ID the hints
+        -- lack (Forever numbered it differently) is the best we know: first.
+        local byName = IdByName(buff.name)
+        if byName and not seen[byName] then
+            seen[byName] = true
+            table.insert(ranks, 1, byName)
         end
         r.ranks[buff] = ranks
         for _, id in ipairs(ranks) do
@@ -379,6 +387,13 @@ function BuffData.CanReplace(buff, spellId)
     return false
 end
 
+-- The table's list for a class (an empty one when it's missing or damaged).
+local function ClassList(class)
+    local classes = BuffData.CLASSES
+    local list = type(classes) == "table" and class and classes[class]
+    return type(list) == "table" and list or {}
+end
+
 -- Your class's buffs that you know, in order. Kept until your spells change
 -- (BuffData.SpellsChanged), since it takes a spellbook call per rank.
 local mine
@@ -386,8 +401,8 @@ function BuffData.Mine()
     if mine then return mine end
     local _, class = Read(UnitClass, "player")
     local out = {}
-    for _, buff in ipairs(class and BuffData.CLASSES[class] or {}) do
-        if BuffData.Available(buff) and BuffData.IsKnown(buff) then out[#out + 1] = buff end
+    for _, buff in ipairs(ClassList(class)) do
+        if BuffData.IsKnown(buff) then out[#out + 1] = buff end
     end
     -- An unreadable class isn't remembered: the next call asks again.
     if class then mine = out end
@@ -398,7 +413,7 @@ end
 function BuffData.ClassBuffs()
     local _, class = Read(UnitClass, "player")
     local out = {}
-    for _, buff in ipairs(class and BuffData.CLASSES[class] or {}) do
+    for _, buff in ipairs(ClassList(class)) do
         if BuffData.Available(buff) then out[#out + 1] = buff end
     end
     return out

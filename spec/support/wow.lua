@@ -387,6 +387,26 @@ local function allSpells()
     for id, name in pairs(M.state and M.state.spellNames or {}) do out[id] = name or nil end
     return out
 end
+
+-- Forever numbers its spells its own way, or drops one (#209). Call in a
+-- boot's `before`: renumberSpells(offset) gives every spell the id + offset
+-- (the old ids are no longer spells); removeSpell(name) takes away every
+-- spell of that name. Both change what the spell API answers, nothing else:
+-- `knownSpells` stays the spec's to set, with the new ids.
+function M.renumberSpells(offset)
+    local names = M.state.spellNames
+    for id, name in pairs(M.SPELL_NAMES) do
+        names[id] = false
+        names[id + offset] = name
+    end
+end
+
+function M.removeSpell(name)
+    local names = M.state.spellNames
+    for id, n in pairs(allSpells()) do
+        if n == name then names[id] = false end
+    end
+end
 -- Forever's Revoke (paladins). Its real ID isn't known yet (#50): this one
 -- is the simulation's own, and the addon finds Revoke by name.
 M.REVOKE_ID = 990001
@@ -431,6 +451,17 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         out yet, the pessimistic case). A scroll frame keeps
 --                         SetVerticalScroll's offset, and its range is
 --                         frame.scrollRange (0 when unset). SetHeight keeps the height given.
+--   Spell IDs and names (#209): the simulated game has Classic Era's IDs and
+--                         English names by default. state.spellNames[id] =
+--                         "name" adds or renames a spell, = false removes it
+--                         (wow.renumberSpells and wow.removeSpell do whole
+--                         buffs). C_Spell.GetSpellName(id) and GetSpellInfo(id)
+--                         answer for any spell the game has; by name they
+--                         answer the highest rank you KNOW, nothing for a
+--                         spell you don't (pessimistic: the game's name lookup
+--                         may also find lower ranks). Forever's real IDs, names
+--                         (Salvation's, the scrolls' auras) and whether
+--                         Blessing of Light still exists are launch checks.
 --   Override bindings (SetOverrideBindingClick, ClearOverrideBindings) are
 --                         blocked in combat, and allowed in PLAYER_REGEN_DISABLED's
 --                         handlers (as secure frames are). state.unbindable[key]:

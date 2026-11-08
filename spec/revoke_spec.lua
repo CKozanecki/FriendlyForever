@@ -123,7 +123,7 @@ describe("Revoke", function()
                 local c = scroll()
                 if c then given[#given + 1] = c.target .. " " .. c.spell end
             end
-            assert.are.same({ "Ann-Vale Blessing of Might", "Bo-Lake Blessing of Might", "Bo-Lake Salvation" }, given,
+            assert.are.same({ "Ann-Vale Blessing of Might", "Bo-Lake Blessing of Might", "Bo-Lake Blessing of Salvation" }, given,
                 "Salvation never goes back on the tank")
         end)
 

@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47
+-- Spec: #76, #84, #136, #42, #47, #209
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -276,5 +276,30 @@ describe("The simulated client's boot and the walkthrough (#47)", function()
         local ns = wow.boot({ db = { walkthrough = { seen = 0, firstRun = false } } })
         assert.are.same({ seen = 0, firstRun = false }, ns.db.walkthrough)
         assert.is_true(ns.Walkthrough.Frame():IsShown())
+    end)
+end)
+
+describe("The simulated client's spell IDs and names (#209)", function()
+    it("answers names by ID for any spell the game has, and by name only for a spell you know (white)", function()
+        wow.boot({ before = function(state) state.knownSpells = { [MOTW_1] = true } end })
+        assert.are.equal("Mark of the Wild", C_Spell.GetSpellName(MOTW))
+        assert.are.equal(MOTW_1, C_Spell.GetSpellInfo("Mark of the Wild").spellID)
+        assert.is_nil(C_Spell.GetSpellInfo("Thorns"))
+        assert.is_nil(C_Spell.GetSpellName(424242))
+    end)
+
+    it("renumberSpells moves every spell and removeSpell takes a name away (white)", function()
+        wow.boot({ before = function(state)
+            wow.renumberSpells(1000)
+            wow.removeSpell("Thorns")
+            state.knownSpells = { [MOTW_1 + 1000] = true, [467 + 1000] = true }
+        end })
+        assert.is_nil(C_Spell.GetSpellName(MOTW_1))
+        assert.are.equal("Mark of the Wild", C_Spell.GetSpellName(MOTW_1 + 1000))
+        assert.are.equal(MOTW_1 + 1000, C_Spell.GetSpellInfo("Mark of the Wild").spellID)
+        assert.is_nil(C_Spell.GetSpellInfo("Thorns"), "removed, though its renumbered rank is known")
+        assert.is_nil(C_Spell.GetSpellTexture("Thorns"))
+        wow.reset()
+        assert.are.equal("Mark of the Wild", C_Spell.GetSpellName(MOTW_1), "a new client starts with Classic's IDs")
     end)
 end)

@@ -2,6 +2,7 @@
 
 ### Unreleased
 
+- **Buffs come from the game's spell API:** the addon no longer trusts its table of Classic spell IDs. It asks the game for each buff's spell by name and checks every answer; a buff the game doesn't have is never offered or listed in the options (your saved settings for it are kept, and it comes back if the spell does), buffs are still recognised if Forever numbers them differently, and a rank you learn is picked up without a reload. (#209)
 - **UI simulator workflow:** the finished simulator build is cached, keyed on its pins and build settings, so it is rebuilt only when one moves instead of every run. Nothing ships in the addon. (#170)
 
 ## 0.9.1
