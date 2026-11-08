@@ -16,7 +16,7 @@ local Cities = {}
 ns.Cities = Cities
 
 -- [uiMapID] = the city's name. These are Classic Era's numbers; Forever's
--- are checked on launch day (#50). Valanaar (the Skyborne hub, which High
+-- were confirmed in game at launch. Valanaar (the Skyborne hub, which High
 -- Order and Windshaper share) and Dalaran (Alliance) count too (decided on
 -- #34), and go here once their numbers are known.
 Cities.CAPITALS = {

@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -2647,6 +2647,22 @@ describe("Claude sessions' agents, knowledge and skills", function()
                 assert.is_falsy(problem:find("^launch check"), problem)
             end
         end)
+
+    -- The launch-day pass is complete (#197): a rule file never sends a session
+    -- to #50 to file an unconfirmed fact; it names the `quality` issue instead.
+    it("the rule files send unconfirmed game facts to a new quality issue, never to #50", function()
+        for _, path in ipairs({ "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md",
+            ".claude/agents/lua-architect.md", ".claude/agents/lua-tester.md" }) do
+            local flat = wow.readFile(path):gsub("%s+", " ")
+            assert.is_falsy(flat:find("launch check on #50", 1, true), path)
+            assert.is_falsy(flat:find("goes on #50", 1, true), path)
+            assert.is_falsy(flat:find("to verify in game on #50", 1, true), path)
+        end
+        local flat = wow.readFile("AGENTS.md"):gsub("%s+", " ")
+        assert.is_truthy(flat:find("new issue labelled `quality`, with the source and how to check it in game", 1, true))
+        assert.is_truthy(wow.readFile(".claude/agents/lua-architect.md"):find("`quality`", 1, true))
+        assert.is_truthy(wow.readFile(".claude/agents/lua-tester.md"):find("`quality`", 1, true))
+    end)
 
     it("CLAUDE.md sends reviews to the agents and points to every knowledge file and skill", function()
         local text = wow.readFile("CLAUDE.md")

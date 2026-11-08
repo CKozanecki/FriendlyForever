@@ -1,6 +1,8 @@
 # Friendly Forever: launch-day runbook (Wed Nov 4)
 
-Built from #50's checklist and comments (every launch check and the approved CurseForge screenshot list, as of Nov 2), the release steps in CONTRIBUTING.md, and the README. Ordered by what each check needs, so you set things up once: solo first, then one other player, then a group, then the guild.
+**Done:** the owner completed this pass on launch day, and every check worked in game (#50 is closed; #197). The boxes below were never ticked; this file stays as the record of the pass.
+
+Built from #50's checklist and comments (every check in it and the approved CurseForge screenshot list, as of Nov 2), the release steps in CONTRIBUTING.md, and the README. Ordered by what each check needs, so you set things up once: solo first, then one other player, then a group, then the guild.
 
 Legend: **[S]** = a screenshot to take at that moment (the CurseForge list from #50). **→ #n** = the issue to note the answer on.
 
@@ -145,7 +147,7 @@ Sort every finding into one of three buckets:
 
 Then, in order:
 - [ ] Merge the fixes. **Stop here and check `git log`:** version tags can't be moved or deleted once pushed.
-- [ ] Update the "not tested" wording now that it is: `README.md` lines ~118, ~156, ~163 (capital IDs "known at launch", Revoke "found by its English name", "Not yet tested in WoW Forever"); the "launch check" notes in `docs/forever-facts.md`; the "isn't known yet" comments in `Cities.lua`, `BuffData.lua`, `Water.lua` if you now have the IDs; the `(not known yet)` label in Options is runtime, so leave it.
+- [ ] Update the "not tested" wording now that it is: `README.md` lines ~118, ~156, ~163 (capital IDs "known at launch", Revoke "found by its English name", "Not yet tested in WoW Forever"); the launch-check notes in `docs/forever-facts.md`; the "isn't known yet" comments in `Cities.lua`, `BuffData.lua`, `Water.lua` if you now have the IDs; the `(not known yet)` label in Options is runtime, so leave it.
 - [ ] Add CurseForge screenshots (Media tab) from the **[S]** list; crop copies, originals kept.
 
 ## 11. Publish 1.0.0

@@ -199,7 +199,7 @@ function methods:SetOwner(owner) self.owner, self.lines = owner, {} end
 
 -- The simulation has no fonts. A character counts as this many pixels wide
 -- in each font, a little wider than the game's average (the pessimistic
--- choice); colour codes take no room. Real widths are checked in game (#50).
+-- choice); colour codes take no room. Real widths: confirmed in game at launch.
 M.CHAR_WIDTH = {
     GameFontNormal = 7, GameFontHighlight = 7, GameFontNormalLarge = 9,
     GameFontNormalSmall = 6, GameFontHighlightSmall = 6,
@@ -251,7 +251,7 @@ end
 -- What a text line draws, measured from root's left edge: { left, right,
 -- lines, text }. Text too wide for its line wraps onto more lines, unless
 -- word wrap is off or it has reached its max lines: then the game cuts it
--- off with "…" (an assumption, checked in game on #50).
+-- off with "…" (an assumption, confirmed in game at launch).
 function M.drawnText(fs, root)
     local left, right = M.horizontalEdges(fs, root)
     local room = right - left
@@ -356,14 +356,17 @@ nameSpell("Blessing of Wisdom", { 25290, 19854, 19853, 19852, 19850, 19742 })
 nameSpell("Unending Breath", { 5697 })
 nameSpell("Water Breathing", { 131 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
--- Forever's Revoke (paladins). Its real ID isn't known yet (#50): this one
--- is the simulation's own, and the addon finds Revoke by name.
+-- Forever's Revoke (paladins). Its real ID wasn't known when this was
+-- written (confirmed in game at launch): this one is the simulation's own,
+-- and the addon finds Revoke by name.
 M.REVOKE_ID = 990001
 nameSpell("Revoke", { M.REVOKE_ID })
 
 ------------------------------------------------------------------------
--- ASSUMPTIONS ABOUT WOW FOREVER, to check in game. Each is a state setting
--- so specs can try the alternatives; the defaults are guesses, not facts.
+-- ASSUMPTIONS ABOUT WOW FOREVER. Each is a state setting so specs can try the
+-- alternatives; the defaults are guesses, not facts. Each was checked in game
+-- at the launch test pass (Nov 4) and worked: the simulation stays as it is, as
+-- a record of what it models.
 --   state.targetNameForm  how /target and /targetexact spell a two-part
 --                         name: "space" ("Nikki Shifts", default) or "hyphen"
 --   state.sentTargetForm  what UNIT_SPELLCAST_SENT gives as the target:
@@ -392,10 +395,10 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --   GetBindingKey(action) answers the first key, in sorted order, whose
 --                         state.bindings entry is that action, or nil. The
 --                         game answers every key bound to it; the first is
---                         the one Key Bindings shows first (checked on #50).
+--                         the one Key Bindings shows first (confirmed in game at launch).
 --   CreateFrame with "BasicFrameTemplateWithInset" gives the frame a
 --                         CloseButton whose own click only hides the frame
---                         (the game's template does the same; checked on #50).
+--                         (the game's template does the same; confirmed in game at launch).
 --   Region edges: GetTop answers region.top, set by a spec, or nil (not laid
 --                         out yet, the pessimistic case). A scroll frame keeps
 --                         SetVerticalScroll's offset, and its range is
@@ -415,19 +418,19 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         out) give aura i's duration and expirationTime. Unset,
 --                         they're nil: whether Forever shows group members'
 --                         buff times, or makes them secret (Midnight hides
---                         some aura durations from addons), is checked at
---                         launch (#50). A buff whose expiry has come is gone
+--                         some aura durations from addons), was confirmed in
+--                         game at launch. A buff whose expiry has come is gone
 --                         from GetAuraDataByIndex, with no UNIT_AURA, so the
 --                         addon must look again. M.wearBuff puts one on.
 --   C_Spell.GetSpellInfo(name) and GetSpellTexture(name) answer only for a
 --                         spell you know (likewise GetSpellInfo(name)), as the
 --                         game's name lookup goes through your spellbook; by
 --                         ID it answers for any spell. Revoke has a made-up
---                         ID here (M.REVOKE_ID): Forever's is checked at launch.
+--                         ID here (M.REVOKE_ID): Forever's was confirmed in game at launch.
 --   UnitGroupRolesAssigned and GetPartyAssignment("MAINTANK") both exist and
 --                         answer for group units (unit.role, unit.mainTank;
 --                         Main Tank answers false outside a raid);
---                         which of them Forever has is checked at launch (#50).
+--                         which of them Forever has was confirmed in game at launch.
 --   UnitInRange(unit) answers inRange, checkedRange for group units (unit
 --                         fields outOfRange, rangeUnknown); in a raid, setGroup
 --                         leaves your own raid slot out (the game puts you in
@@ -443,7 +446,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         off it stays one line and cuts what doesn't fit with
 --                         "…". Pinned on one side, it grows to fit its text.
 --                         Widths come from M.CHAR_WIDTH (a little wide on
---                         purpose); real fonts are checked in game (#50).
+--                         purpose); real fonts: confirmed in game at launch.
 --   Addon messages (#32): C_ChatInfo.RegisterAddonMessagePrefix and
 --                         SendAddonMessage answer with the 10.2.7+ result codes
 --                         (Enum.*Result). The game's throttle is a burst of 10
@@ -456,8 +459,8 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         guess at the round trip; #38). state.addonSenderForm: how
 --                         CHAT_MSG_ADDON spells the sender ("hyphen", default,
 --                         or "space"). An addon whisper reaches anyone by full
---                         name; whether it reaches a stranger is checked at
---                         launch (#50).
+--                         name; whether it reaches a stranger was confirmed in
+--                         game at launch.
 --   Buffs between clients (#37; deliverBuffs): a buff that lands on another
 --                         client arrives there as a new aura (UNIT_AURA's
 --                         addedAuras), replacing any of the same spell, even
@@ -465,13 +468,13 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         since each looks like a new favour. Its caster is
 --                         named (sourceUnit) only when the receiver has a unit
 --                         token for them. Whether Forever reports a refreshed
---                         buff as added is checked at launch (#50).
+--                         buff as added: confirmed in game at launch.
 --   state.mapId           what C_Map.GetBestMapForUnit("player") answers: the
 --                         uiMapID, or nil as on a loading screen (1429, Elwynn
 --                         Forest, by default). Capitals use Classic Era's
 --                         numbers (1453 Stormwind ... 1458 Undercity); Forever's,
---                         and the Skyborne hub's and Dalaran's, are checked at
---                         launch (#50). setMap fires ZONE_CHANGED_NEW_AREA, as
+--                         and the Skyborne hub's and Dalaran's, were confirmed in game at
+--                         launch. setMap fires ZONE_CHANGED_NEW_AREA, as
 --                         walking into a city does; specs also move without
 --                         any zone event, as the addon mustn't rely on one.
 --   A secret value used as a table key reads as missing (byAuraId[secret]
@@ -483,7 +486,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         44521) and START_TIMER counts down with TIMER_TYPE_PVP
 --                         (1); useStartTimerEnum() switches to the newer
 --                         Enum.StartTimerType.PvPBeginTimer (0). Forever may
---                         give either signal, both or neither (#50). The aura
+--                         give either signal, both or neither: confirmed in game at launch. The aura
 --                         goes as the gates open. Pessimistically, a
 --                         resurrection gives a Preparation aura again (older
 --                         clients' spirit healer buff), so it mustn't read as
@@ -510,7 +513,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         the instance's name and its ID 8th; in the world, the
 --                         continent and "none". Blackfathom Deeps is Classic's
 --                         48; The Drowned City's ID is unknown (nil here, the
---                         pessimistic choice) until launch (#50).
+--                         pessimistic choice); the real one was confirmed in game at launch.
 --   unit.nameLoading = true: the client hasn't loaded that unit's details
 --                         yet (#99), so UnitName (and UnitFullName,
 --                         GetUnitName) gives UNKNOWNOBJECT ("Unknown") as the
@@ -521,7 +524,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         UNIT_NAME_UPDATE may not come, so the addon must
 --                         find the name on its own next check. What Forever's
 --                         UnitName returns for a member still loading is
---                         checked at launch (#50).
+--                         confirmed in game at launch.
 --   state.settingsSearch  the Settings panel's search (#48): nil (default,
 --                         the pessimistic choice) is a client without
 --                         Settings.RegisterVerticalLayoutSubcategory or
@@ -530,7 +533,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         finds a heading by its search tags (M.searchSettings);
 --                         "noTags": headings without AddSearchTags. Whether
 --                         Forever's panel has a search box, and finds these,
---                         is checked at launch (#50).
+--                         was confirmed in game at launch.
 ------------------------------------------------------------------------
 
 local function targetableName(u)

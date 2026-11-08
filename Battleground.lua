@@ -11,8 +11,8 @@
 -- With "Buff in the preparation phase" off, the preparation phase is quiet too.
 --
 -- The phase is read from the Preparation aura on you and from the
--- start-of-battle timer (START_TIMER). Which of these Forever gives is
--- checked at launch (#50). When neither says "preparation", the battle
+-- start-of-battle timer (START_TIMER). Which of these Forever gives was
+-- confirmed in game at launch. When neither says "preparation", the battle
 -- counts as started: the quiet side is the safe side. Once it has surely
 -- started (the timer ran out, the aura went away, or you died) it stays
 -- started until you leave, so a Preparation aura given later can't open
@@ -30,8 +30,8 @@ local Read = Util.ReadGameValues
 local Battleground = {}
 ns.Battleground = Battleground
 
--- The Preparation aura before the gates open (Classic's ID; Forever's is
--- checked at launch, #50).
+-- The Preparation aura before the gates open (Classic's ID; Forever's was
+-- confirmed in game at launch).
 Battleground.PREPARATION_SPELL_IDS = { [44521] = true }
 -- Auras looked through for it (the same bound as the rest of the addon).
 Battleground.MAX_AURAS = 40
