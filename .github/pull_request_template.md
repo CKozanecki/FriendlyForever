@@ -13,6 +13,7 @@ Closes #
 ## How it was tested
 
 - [ ] `make check` passes (lint, tests, package)
+- [ ] Any safety-critical code (casting, secret values, saved settings) was mutation-checked: each new line changed, a test failed, the file restored. Say "none" if there is none ([what counts](https://github.com/CKozanecki/FriendlyForever/blob/main/CONTRIBUTING.md#review-loops))
 - [ ] New or changed behavior has a test in `spec/`, and changed spec files name their issue (`-- Spec: #27`)
 - [ ] Tried in game (say where: beta, stress test, live) and what was checked:
 

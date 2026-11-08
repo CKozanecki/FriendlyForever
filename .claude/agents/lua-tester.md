@@ -15,14 +15,14 @@ CONTRIBUTING.md is the source of truth. Read it, AGENTS.md and CLAUDE.md before 
 - the **worktree path** to review in;
 - the **diff range** (`<base>..<head>`), and the issue's acceptance criteria;
 - for a PR that changes what players see, the **PR number**, once its UI simulator run is in;
-- for a re-review, what changed since your last verdict (a fix, a test-only change, a merge of `main`).
+- for a re-review, what changed since your last verdict (a fix, a test-only change, a merge of `main`). A merge that is clean and shares no file with the PR isn't sent to you (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops)).
 
 If any of these is missing, ask for it rather than guessing.
 
 ## Scope
 
 - **Every acceptance criterion is proven** by a test of the kind it names (white, black or red), and the test's name repeats the criterion in words.
-- **The tests can fail:** each one reaches the path it claims to cover, and fails when that code is broken. Run your own mutations of the new lines.
+- **The tests can fail:** each one reaches the path it claims to cover, and fails when that code is broken. Run your own mutations only of the new safety-critical lines (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops) says what counts), and not of the others.
 - **Chaos (red) tests** check invariants worked out independently, from the simulated client's own state.
 - **The simulated client** (`spec/support/wow.lua`) stays realistic and pessimistic. See [docs/simulated-client.md](../../docs/simulated-client.md).
 - **Traceability:** changed spec files carry `-- Spec: #N` on one of their first five lines; changelog entries end with their issues.
@@ -89,7 +89,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A storm's reach counter counts the case itself, not something near it. #36's "waited the longest wait" counted any buff from 29 to 31 s before a thank-you, so unrelated buffs met it while no thank-you ever waited 30 s; a stale-plan action was needed to reach it.
 
 **Tests that can fail**
-- Mutation-check every new or changed line. Each survivor gets a test, or a stated reason it can't be caught (an equivalent mutant; a guard the simulated client can't reach, such as `Util.IsSecret`, since Lua 5.1 compares a table without error). A survivor that shows code can't be reached means delete the code (#21, #54, #61, #62, #88).
+- Mutation-check every new or changed safety-critical line (casting, secret values, saved settings). Other code needs only its tests and your review. Each survivor gets a test, or a stated reason it can't be caught (an equivalent mutant; a guard the simulated client can't reach, such as `Util.IsSecret`, since Lua 5.1 compares a table without error). A survivor that shows code can't be reached means delete the code (#21, #54, #61, #62, #88).
 - Code moved or extracted into a new function counts as changed: mutate its lines too (#116: `Config.ValidIgnore`'s cap, moved in #113, had no test with more names than the cap).
 - A guard test asserts that its input really holds the case it covers (the input has `\r\n`; the file really is commented), so a no-op mutation fails it (#79, #81).
 - Each test reaches its path for real: it presses or acts rather than setting state, and fails when the hook it relies on is removed (#20, #21).
@@ -114,7 +114,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A test-wide default in `wow.boot` reads the given saved settings before loading fills in defaults, has an opt-out, and has a spec of its own. Check that a changed default doesn't quietly move every other spec onto a new path (#72: with the triggers on by default, every buff back spec ran in buff mode, and the helper read settings after loading).
 
 **Changes after an approval**
-- Any change after a loop approved goes back to it: test-only and test-helper changes, merges of `main` (above all ones that resolved conflicts), rebases. Check the PR records each confirmation (#72: a helper change after approval hid a real bug; #85, #87, #88).
+- Any change after a loop approved goes back to it: test-only and test-helper changes, merges of `main` that overlap the PR's files or resolved conflicts, rebases. Check the PR records each confirmation (#72: a helper change after approval hid a real bug; #85, #87, #88).
 
 **Screenshots**
 - View every image and read the `LAYOUT` lines; compare with a before set where one exists (step 3 says where), and say when none did; say what isn't shown (an options tab that isn't in the shot is judged from its anchor specs, and its look goes to a new `quality` issue). Layout checks put state back even when they fail (#53, #85, #88).
