@@ -3,6 +3,7 @@
 ### Unreleased
 
 - **Buffs come from the game's spell API:** the addon no longer trusts its table of Classic spell IDs. It asks the game for each buff's spell by name and checks every answer; a buff the game doesn't have is never offered or listed in the options (your saved settings for it are kept, and it comes back if the spell does), buffs are still recognised if Forever numbers them differently, and a rank you learn is picked up without a reload. (#209)
+- **Guild welcome:** someone who joins the guild and shows as coming online gets only the welcome, not a login hello as well, whichever of the two game lines comes first and even if the hello was already waiting to go out. That welcome covers one login; a later login greets as usual, and a welcome whose login never comes stops counting after 2 minutes. Debug mode says why a hello was skipped. (#196)
 - **UI simulator workflow:** the finished simulator build is cached, keyed on its pins and build settings, so it is rebuilt only when one moves instead of every run. Nothing ships in the addon. (#170)
 
 ## 0.9.1
