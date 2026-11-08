@@ -112,6 +112,32 @@ describe("The list beside the buff button (#43)", function()
         end)
     end)
 
+    describe("one row per player", function()
+        it("shows a player owed a favour who is also in your group once, with the offer the button makes", function()
+            owe("Bob", "nameplate1")
+            slash("buffmode on")
+            party({ "Bob-Stone", "Cid-Rock" })
+            assert.are.same({ "> Bob Stone: Mark of the Wild", "Cid Rock: Mark of the Wild" }, rows())
+            click(2)
+            assert.are.equal("Cid Rock: Mark of the Wild", armed())
+        end)
+    end)
+
+    describe("a new file after an update", function()
+        it("asks for a restart when only BuffList.lua is new, and the button doesn't error", function()
+            wow.reset()
+            local loaded = {}
+            local _, files = wow.parseToc()
+            for _, file in ipairs(files) do
+                if file ~= "BuffList.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+            end
+            wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+            wow.fire("PLAYER_ENTERING_WORLD", true, false)
+            assert.are.same({}, wow.errors)
+            assert.is_truthy(table.concat(wow.printed, "\n"):find("Restart the game", 1, true))
+        end)
+    end)
+
     describe("combat", function()
         it("is hidden in combat and shown again after", function()
             slash("buffmode on")

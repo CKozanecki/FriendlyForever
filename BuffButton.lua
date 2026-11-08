@@ -177,9 +177,14 @@ local function NextOffer()
         local _
         _, groupReason = ns.GroupBuffs.Next(list)
     end
-    local castable = {}
+    -- One offer per player: the first, which is the one the button would
+    -- make (a player owed a favour who is also in your group appears in both).
+    local castable, seen = {}, {}
     for _, offer in ipairs(list) do
-        if BuffButton.BuildCastMacro(offer.name, offer.spell, true) then castable[#castable + 1] = offer end
+        if not seen[offer.name] and BuffButton.BuildCastMacro(offer.name, offer.spell, true) then
+            seen[offer.name] = true
+            castable[#castable + 1] = offer
+        end
     end
     offerList = castable
     local pick = castable[1]
