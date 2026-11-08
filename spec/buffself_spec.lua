@@ -212,6 +212,7 @@ describe("Buff mode buffing you too", function()
             assert.are.equal("me: Mark of the Wild", armed())
             wow.press(button, "RightButton")
             assert.is_nil(macro())
+            assert.is_true(select(3, ns.GroupBuffs.Next()), "skipping yourself leaves nothing to do, as for anyone")
             wow.advance(ns.GroupBuffs.SKIP_SECONDS + 1)
             assert.are.equal("me: Mark of the Wild", armed())
         end)
@@ -282,6 +283,7 @@ describe("Buff mode buffing you too", function()
             assert.is_truthy(cast.failed)
             assert.are.equal("Couldn't buff you: Invalid target", button.result:GetText())
             assert.is_nil(macro(), "held back for a moment")
+            assert.is_false(select(3, ns.GroupBuffs.Next()), "you still need the buff, so buff mode stays on")
             wow.advance(ns.GroupBuffs.HELD_BACK_SECONDS + 1)
             assert.is_truthy(macro())
         end)
@@ -369,6 +371,36 @@ describe("Buff mode buffing you too", function()
             assert.is_false(only("You: your name can't be read"))
         end)
 
+        it("doesn't offer a buff a group version on you already covers (Gift of the Wild)", function()
+            party({ "Ann-Vale" })
+            wearEverything(wow.state.units.party1)
+            wow.gainBuff({ spellId = 21850, sourceUnit = "party1" })
+            wow.gainBuff({ spellId = THORNS_1, sourceUnit = "player" })
+            ns.BuffButton.Refresh()
+            assert.is_nil(macro())
+            assert.are.equal("everyone in your group has your buffs", select(2, ns.GroupBuffs.Next()))
+        end)
+
+        it("never offers a buff only for yourself on you (a warrior's Battle Shout)", function()
+            boot({ known = { [6673] = true }, class = "WARRIOR" })
+            party({ "Ann-Vale" })
+            ns.BuffButton.Refresh()
+            assert.is_nil(macro())
+            assert.are.equal("everyone in your group has your buffs", select(2, ns.GroupBuffs.Next()))
+        end)
+
+        it("says it in your words when your own role can't be read for a tanks-only rule", function()
+            party({ "Ann-Vale" })
+            wearEverything(wow.state.units.party1)
+            ns.db.buffBack.whoGets.motw = { rule = "tanks" }
+            wow.gainBuff({ spellId = THORNS_1, sourceUnit = "player" })
+            wow.state.units.player.secrets = { role = true, mainTank = true }
+            ns.BuffButton.Refresh()
+            assert.is_nil(macro())
+            assert.are.equal("You: can't tell if you're a tank", select(2, ns.GroupBuffs.Next()))
+            assert.is_false(select(3, ns.GroupBuffs.Next()))
+        end)
+
         it("says in debug, once, why you're left out", function()
             ns.db.debug = true
             party({ "Ann-Vale" })
@@ -410,6 +442,7 @@ describe("Buff mode buffing you too", function()
                         if random.random() < 0.5 then names[#names + 1] = n end
                     end
                     local kind = ({ "party", "raid", nil })[random.random(3)]
+                    if #names == 0 then kind = nil end -- a group of one disbands
                     wow.setGroup(kind, kind and names or {})
                     if kind == "raid" and random.random() < 0.5 then
                         wow.addUnit("raid" .. (#names + 1), wow.state.units.player)
@@ -434,7 +467,14 @@ describe("Buff mode buffing you too", function()
                     local before = #wow.casts
                     local wasDead = wow.state.units.player.dead
                     local wasHidden = wow.state.units.player.secrets
-                    local grouped = wow.state.units.party1 ~= nil or wow.state.units.raid1 ~= nil
+                    -- Worked out from the client's own state before the step.
+                    local grouped = wow.state.groupType ~= nil
+                    local wears = {}
+                    for _, aura in ipairs(wow.state.playerAuras) do
+                        if type(aura) == "table" and wow.SPELL_NAMES[aura.spellId] then
+                            wears[wow.SPELL_NAMES[aura.spellId]] = true
+                        end
+                    end
                     actions[random.random(#actions)]()
                     for i = before + 1, #wow.casts do
                         local cast = wow.casts[i]
@@ -443,6 +483,7 @@ describe("Buff mode buffing you too", function()
                             assert.is_falsy(wasDead, where .. ", dead")
                             assert.is_falsy(wasHidden, where .. ", name unreadable")
                             assert.is_truthy(grouped, where .. ", outside a group")
+                            assert.is_falsy(wears[cast.spell], where .. ", already on you")
                             selfCasts = selfCasts + 1
                         end
                     end
