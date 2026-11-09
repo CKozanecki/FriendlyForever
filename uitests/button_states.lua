@@ -28,7 +28,9 @@
 --     moved on only by Advance, so the login grace and the result line under
 --     the button pass whatever the runner's speed.
 --
--- Each state's Undo puts back everything its Set did.
+-- Each state's Undo puts back everything its Set did, except what the
+-- simulator seeded at random and a Set removed (NoFortitude): no scenario
+-- can rely on that.
 
 local States = {}
 FriendlyForeverUIStates = States
