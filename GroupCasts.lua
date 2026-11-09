@@ -15,7 +15,10 @@
 --   - not flagged for PvP, unless you are (the cast would flag you);
 --   - allowed the buff by your rules (BuffRules.lua);
 --   - not wearing a higher rank of the buff from you than the group
---     version's (it would replace it).
+--     version's (it would replace it);
+--   - among those it would renew, none missing it only because a stronger
+--     buff, from anyone, is running low (#206): the game keeps the stronger
+--     one, so the single buff renews them.
 -- Members out of range for the cast are filled in one by one afterwards.
 local _, ns = ...
 local Util = ns.Util
@@ -117,11 +120,11 @@ local function Roster(units, inRaid, scope)
     return out
 end
 
--- Whether unit wears, from you, a higher rank of buff than `equals` (the
--- single-target rank the group version matches), a group version counting
--- as the rank it equals (#206): true, false, or nil when their buffs, or who
--- cast one, can't be read.
-local function WearsHigherRank(unit, buff, equals)
+-- Whether unit wears, from you (from anyone, with anyone), a higher rank of
+-- buff than `equals` (the single-target rank the group version matches), a
+-- group version counting as the rank it equals (#206): true, false, or nil
+-- when their buffs, or who cast one, can't be read.
+local function WearsHigherRank(unit, buff, equals, anyone)
     local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
     if not api then return nil end
     local equalsAt = ns.BuffData.RankOf(buff, equals)
@@ -134,6 +137,7 @@ local function WearsHigherRank(unit, buff, equals)
         if Util.IsSecret(id) then return nil end
         local at = ns.BuffData.RankOf(buff, id)
         if at and at < equalsAt then
+            if anyone then return true end
             local source = aura.sourceUnit
             if source == nil or Util.IsSecret(source) then return nil end
             local mine = Read(UnitIsUnit, source, "player")
@@ -167,6 +171,21 @@ local function WearsOtherBlessing(unit, buff)
         end
     end
     return false
+end
+
+-- Why the group version can't renew these missing members, or nil: one of
+-- them is missing it only because a stronger buff (from anyone) is running
+-- low (#206), which the weaker cast can't replace. The single buff, at least
+-- as strong (BuffData.CanReplace), renews them instead.
+local function Weaker(buff, spell, missing)
+    for _, m in ipairs(missing) do
+        local stronger = WearsHigherRank(m.unit, buff, spell.equals, true)
+        local who = m.self and "you" or Util.DisplayName(m.name)
+        if stronger == nil then return "can't tell whose buff " .. who .. " wears" end
+        if stronger then
+            return (m.self and "Your" or (who .. "'s")) .. " buff is stronger than your " .. spell.name
+        end
+    end
 end
 
 local function Cap(text)
@@ -293,7 +312,7 @@ function GroupCasts.Offer(buff, members, ctx)
         if Recently(skipped[buff.key .. "\1" .. g.key], GroupCasts.SKIP_SECONDS) then
             firstWhy = firstWhy or ("You skipped " .. g.label)
         else
-            local blocked = WhyNot(buff, spell, g.members, iAmFlagged)
+            local blocked = WhyNot(buff, spell, g.members, iAmFlagged) or Weaker(buff, spell, g.missing)
             if blocked then
                 firstWhy = firstWhy or blocked
             else

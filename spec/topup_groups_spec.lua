@@ -173,6 +173,45 @@ describe("Top-up timing renews group versions (#206)", function()
             wears("party4", GIFT_2, 30 * 60, HOUR, "party1")
             assert.are.equal("Ann Vale: Gift of the Wild", armed())
         end)
+
+        it("renews another caster's stronger group version with the single buff, never a weaker group version", function()
+            -- You know Mark rank 7 but only Gift rank 1; the party wears
+            -- another druid's Gift rank 2, running low.
+            boot({ class = "DRUID", known = { MOTW, MOTW_6, GIFT_1 }, items = { [ITEM.wildBerries] = 5 } })
+            for _, token in ipairs(PARTY) do wears(token, GIFT_2, 60, HOUR, "party1") end
+            assert.are.equal("Ann Vale: Mark of the Wild", armed())
+            assert.are.equal("Ann Vale's buff is stronger than your Gift of the Wild: buffing one at a time",
+                button.subtitle:GetText())
+            -- Another caster's Gift rank 1 running low is renewed by your Gift rank 1.
+            for _, token in ipairs(PARTY) do
+                wow.state.units[token].auras = {}
+                wears(token, GIFT_1, 60, HOUR, "party1")
+            end
+            assert.are.equal("Ann Vale: Gift of the Wild", armed())
+            -- A stronger buff with time left isn't missing: it doesn't stop the group version.
+            wow.state.units.party4.auras = {}
+            wears("party4", GIFT_2, 30 * 60, HOUR, "party1")
+            assert.are.equal("Ann Vale: Gift of the Wild", armed(), "3 low, Dot keeps hers")
+            -- The same for a single rank: another caster's Mark rank 7 running low.
+            for _, token in ipairs(PARTY) do
+                wow.state.units[token].auras = {}
+                wears(token, MOTW, 60, 1800, "party1")
+            end
+            assert.are.equal("Ann Vale: Mark of the Wild", armed())
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("renews your own group version on you with the single buff when a weaker group version is all you could cast",
+            function()
+            boot({ class = "DRUID", known = { MOTW, MOTW_6, GIFT_1 }, items = { [ITEM.wildBerries] = 5 },
+                buffSelf = true })
+            for _, token in ipairs(PARTY) do wears(token, GIFT_1, 60, HOUR, "party1") end
+            wow.state.playerAuras = { { isHelpful = true, spellId = GIFT_2, sourceUnit = "party1",
+                duration = HOUR, expirationTime = wow.now + 60, auraInstanceID = 1 } }
+            assert.are.equal("me: Mark of the Wild", armed())
+            assert.are.equal("Your buff is stronger than your Gift of the Wild: buffing one at a time",
+                button.subtitle:GetText())
+        end)
     end)
 
     describe("what can't be read (black)", function()
