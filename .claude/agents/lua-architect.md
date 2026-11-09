@@ -14,7 +14,7 @@ CONTRIBUTING.md is the source of truth. Read it, AGENTS.md and CLAUDE.md before 
 
 - the **worktree path** to review in;
 - the **diff range** (`<base>..<head>`), and what the PR is for (its issue and acceptance criteria);
-- for a re-review, what changed since your last verdict (a fix, a test-only change, a merge of `main`).
+- for a re-review, what changed since your last verdict (a fix, a test-only change, a merge of `main`). A merge that is clean and shares no file with the PR isn't sent to you (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops)).
 
 If any of these is missing, ask for it rather than guessing.
 

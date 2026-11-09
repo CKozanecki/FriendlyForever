@@ -92,15 +92,15 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 - **Your own worktree:** other sessions share the main checkout and switch its branches. Work in a worktree of your own, never switch branches in the shared checkout, and remove your worktree when you're done.
 - **One driver per PR:** only the session driving a PR pushes to its branch, updates its description or announces it ready. Anyone else sends that session a message. Never push to a branch with another product's prefix.
 - **Merge order:** when several PRs are ready, trial-merge every pair locally. Recommend an order to the owner, with the reasons and which pairs conflict. Note what you ran in the descriptions of your own PRs, and send it to the drivers of the others.
-- **After each merge:** GitHub doesn't notify sessions of merges, so wait for the owner or the coordinator to say so; don't poll. The coordinator watches GitHub for merges and tells each PR's session (#172). Then the driver of each ready PR merges `main` into it and resolves any conflicts. Next comes `make check`, and both review loops confirm the merge (see Reviews). Then CI, an updated description, and the PR announced ready again.
+- **After each merge:** GitHub doesn't notify sessions of merges, so wait for the owner or the coordinator to say so; don't poll. The coordinator watches GitHub for merges and tells each PR's session (#172). Then the driver of each ready PR merges `main` into it and resolves any conflicts. Next comes `make check`, and the reviewers confirm the merge, unless it touches none of the PR's files (CONTRIBUTING.md's [Review loops](CONTRIBUTING.md#review-loops)). Then CI, an updated description, and the PR announced ready again.
 
 ## Reviews
 
 - **Fix everything a review finds,** optional nits included.
 - **Reviewers share your worktree:** while a review agent is running, it temporarily changes files to check the tests catch it. Don't stage or commit then: `git add -A` on #46 picked up a reviewer's edit into a merge commit (807bc8e). Wait until it reports and `git status` is clean, or stage only the files you changed.
-- **Changes after an approval:** any change a review loop hasn't seen goes back to it for confirmation before the PR is called ready. That includes test-only and test-helper changes, merges that resolved conflicts, and rebases. On #72, a test-helper change made after the architecture approval hid a real bug, and the re-check caught it.
+- **Changes after an approval:** any change a review loop hasn't seen goes back to it for confirmation before the PR is called ready. That includes test-only and test-helper changes, merges that resolved conflicts, and rebases. A merge that is clean and shares no file with the PR, and a docs-only PR, need less review: CONTRIBUTING.md's [Review loops](CONTRIBUTING.md#review-loops). On #72, a test-helper change made after the architecture approval hid a real bug, and the re-check caught it.
 - **UI changes:** before the testing review, wait for the [UI simulator](CONTRIBUTING.md#ui-simulator) run, then tell the testing reviewer to fetch `ui-screenshots/pr-<number>`, view the screenshots, read the `LAYOUT` lines, and decide. Their verdict is the only look the screenshots get: the owner won't review them. Say in the PR what the reviewer saw.
-- **Who reviews:** every PR, whichever product wrote it, goes through both review loops (Lua architecture, then Lua testing) before it's marked ready. They run as Claude's reviewer agents (CLAUDE.md); a Codex session can't run them, so the coordinator does.
+- **Who reviews:** every PR, whichever product wrote it, goes through both review loops (Lua architecture, then Lua testing) before it's marked ready, except where CONTRIBUTING.md's [Review loops](CONTRIBUTING.md#review-loops) allows less (a docs-only PR, a merge that shares no file). They run as Claude's reviewer agents (CLAUDE.md); a Codex session can't run them, so the coordinator does.
 - **Keep them current:** when a review finds a lesson rather than a one-off (a bug class that can recur, or a check that would have caught it), the same PR adds it, citing the PR or issue, to the right reviewer agent's Lessons, or a fact to the right file in `docs/`.
 
 ## Tests
@@ -113,7 +113,7 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
   - New behaviour must be realistic. Document it in the ASSUMPTIONS block, with the new `quality` issue that says what to verify in game, if it isn't confirmed.
   - When unsure, choose the pessimistic behaviour.
   - Test-wide defaults go in `wow.boot` with an opt-out, like `autoBuffMode`. Read the given saved settings before loading fills in defaults.
-- **Mutation checks:** before calling tests done, change each new line of code temporarily and confirm a test fails. Restore the file exactly afterwards.
+- **Mutation checks:** for safety-critical code only (casting, secret values, saved settings: CONTRIBUTING.md's [Review loops](CONTRIBUTING.md#review-loops) says what counts), change each new line of it temporarily before calling tests done and confirm a test fails. Restore the file exactly afterwards.
 - **`make check`:**
   - **Every change:** docs, art and config too. An asset missing from `.pkgmeta`'s ignore list once broke the build on a no-code change.
   - **After `git add`:** the repo spec checks tracked files, so a new file has to be tracked before the check can see it.
@@ -124,4 +124,4 @@ Notes only Codex sessions need (#183). Everything above applies to Codex too.
 
 - **Where it runs:** during the trial, Codex Cloud only, so each task has its own container and never touches a shared checkout (#183).
 - **Talking to the other sessions:** Codex can't receive the coordinator's session messages. It reports through GitHub: the handoff comment above on the issue, and its PR.
-- **Its PRs:** branch `codex/<issue>-<what-it-does>`, the Codex commit trailer above, and both review loops, run by the coordinator, before the PR is ready.
+- **Its PRs:** branch `codex/<issue>-<what-it-does>`, the Codex commit trailer above, and its review loops (CONTRIBUTING.md's [Review loops](CONTRIBUTING.md#review-loops) says how many), run by the coordinator, before the PR is ready.
