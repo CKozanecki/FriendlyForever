@@ -25,7 +25,7 @@ How the simulated client models secrets, and its limits, is in [simulated-client
 
 - A chat message is at most 255 bytes (`Util.MAX_CHAT_BYTES`), and may not contain `|` escape codes. Source: as built since #20; the simulated client enforces both.
 - Addons may use `/say` outdoors only right after a key press (a hardware event); inside instances they may use it freely. Source: [Patch 8.2.5 API changes](https://warcraft.wiki.gg/wiki/Patch_8.2.5/API_changes); as built (README's Buff thanks, `ChatQueue.lua`). Confirmed in game: the owner tested it before the beta ended (Nov 8).
-- Whether text emotes (`/thank`) also need a key press: the addon assumes they do. Source: #52 (PR #20). **Confirmed in game** (launch, Nov 4).
+- Text emotes (`/thank`) do **not** need a key press (owner, in game, 2026-11-09). The addon still assumes they do and holds them for one outdoors (`ChatQueue.NeedsHardwareEvent`, #52, PR #20); letting them go out at once is a code change for a separate issue.
 - Whether `C_ChatInfo.PerformEmote("THANK", unit)` (with `DoEmote` as the fallback) is aimed at that unit. Source: #52. **Confirmed in game** (launch, Nov 4).
 - The game has a chat lockdown (`C_ChatInfo.InChatMessagingLockdown`); nothing is sent while it's on. Source: #32. Whether it covers addon messages: **confirmed in game** (launch, Nov 4).
 - Raid join messages do appear on Forever: the maintainer saw them on the beta, 2026-10-22. Source: #15.
