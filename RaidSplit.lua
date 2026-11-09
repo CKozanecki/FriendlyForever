@@ -228,7 +228,9 @@ function RaidSplit.Enabled()
 end
 
 -- Whether you take part now: buff mode is on, or went off less than GRACE
--- seconds ago. The grace runs from the first time buff mode is seen off
+-- seconds ago, in this raid (leaving a raid forgets it: OnRosterUpdate). A
+-- copy whose buff mode hasn't been on in this raid doesn't take part. The
+-- grace runs from the first time buff mode is seen off
 -- (turning it off refreshes the button, which looks at once; a fight's end
 -- of a trigger's buff mode is seen at the next heartbeat at the latest).
 local offAt         -- GetTime() buff mode was first seen off, or nil
@@ -505,6 +507,8 @@ function RaidSplit.OnRosterUpdate()
     Changed()
     if not InRaid() then
         peers, lastSent, lastSentAt = {}, nil, nil
+        -- Buff mode's grace is for this raid: the next starts afresh.
+        everOn, offAt = false, nil
         beatToken, beating = beatToken + 1, false
         return
     end

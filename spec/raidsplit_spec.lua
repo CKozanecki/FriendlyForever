@@ -687,6 +687,17 @@ describe("The raid buff split (#70)", function()
             assert.equal("fortitude", share(clients[1]))
         end)
 
+        it("buff mode turned off between raids: the copy doesn't take part in the next raid", function()
+            form({ clients[2], clients[3] }) -- Ann leaves, buff mode still on
+            wow.use(clients[1])
+            clients[1].ns.BuffMode.Set(false)
+            wow.advanceAll(net, 3600, 10)
+            form()
+            assert.is_nil(share(clients[1]))
+            assert.equal("fortitude", share(clients[2]))
+            assert.equal("shadow,spirit", share(clients[3]))
+        end)
+
         it("switched off, a copy is offered everything, says nothing, and the others pick up its share", function()
             wow.use(clients[1])
             local w = clients[1].ns.Options.widgets
@@ -1040,7 +1051,9 @@ describe("The raid buff split (#70)", function()
                             reach.offline = reach.offline + 1
                             markOffline()
                             if not offline[i] then
-                                -- Back online: the game logs the copy in again.
+                                -- Back online: PLAYER_ENTERING_WORLD again (the
+                                -- copy keeps its state; a fresh copy is the
+                                -- reload test's job).
                                 wow.use(c)
                                 wow.reloadInPlace(true)
                             end
