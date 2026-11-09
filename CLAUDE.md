@@ -50,11 +50,12 @@ Name the model by its family alias: `haiku`, `sonnet`, `opus` or `fable`. An ali
 | Job | Family | Effort |
 | --- | --- | --- |
 | Lookups, searches and routine checks | `haiku` | `low` |
-| Building and fixing, coordinating, and the skills | trial in progress, see #182 | trial in progress, see #182 |
+| Developer sessions: building and fixing | `sonnet` | session default |
+| Developer sessions on security-sensitive and release-workflow changes, specs and hard bugs | `opus` | `high` |
+| The coordinator (`coordinator` skill) | `opus` | session default |
 | The architecture and testing reviews (`lua-architect`, `lua-tester`) | `opus` | `high` |
-| Specs and hard bugs | the owner's choice; `opus` if they haven't said | `high` |
 
-The reviewers' and lookups' rows are the owner's choices on #182 (2026-11-01); the testing reviewer's may change after the trials. The developer and coordinator families are being trialled: until the owner sets them, their row stays "trial in progress, see #182", the skills set no `model:` or `effort:`, and sessions keep the session default. Each reviewer agent names its family and effort in its frontmatter; the repo spec checks them against this table, and checks the skills set none while the trial runs.
+These are the owner's choices on #182 (reviewers and lookups 2026-11-01, developers and coordinator 2026-11-09). The Claude side is decided; the Codex arm (#183) isn't implemented and doesn't hold it up. The owner hasn't set an effort for developers or the coordinator, so those cells say "session default" and the sessions keep it. **The coordinator sets `model` explicitly on every session it starts** and doesn't rely on the session default. Each reviewer agent names its family and effort in its frontmatter, and the `coordinator` skill names its family; the repo spec checks them against this table. `after-merge` and `merge-order` set no `model:`: a skill's `model:` switches the running session for the rest of that turn, and these run inside developer sessions and the coordinator, so they stay on whichever family that session has.
 
 - **Record what served.** A session can be moved to another model mid-turn (overload or unavailability) even when its setting is right. `get_session` keeps the configured model (`configured_model`), the current setting (`session_context.model`) and the one that served the last turn (`external_metadata.last_served_model`), and `list_events` logs the fallbacks.
 - **A review served by the wrong family doesn't count.** Run it again on the family its agent names, or flag it to the owner.
