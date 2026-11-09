@@ -37,7 +37,7 @@ ns.BuffData = BuffData
 
 -- The table is generated from Forever's own spell data (BuffTable.lua, #209):
 -- the addon never looks IDs up while you play. A buff whose spell the data
--- doesn't have, or that the owner excluded (Blessing of Light, #225), is not in it.
+-- doesn't have, or that Blizzard removed (Blessing of Light, #237), is not in it.
 local Table = ns.BuffTable
 BuffData.CLASSES = Table.classes
 

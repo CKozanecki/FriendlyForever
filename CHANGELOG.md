@@ -1,5 +1,9 @@
 # Changelog
 
+### Unreleased
+
+- **Blessing of Light is gone:** Blizzard removed it, so it is no longer offered, tracked or listed; settings and profiles that mention it still load and keep their values. This corrects the 1.0.0 note. (#237, #225)
+
 ## 1.0.0
 
 - **Spell IDs come from Forever's own spell data:** every buff's spell IDs (all ranks and the group versions) now come from a table made from Blizzard's Forever data (build 1.60.1.70685) instead of being copied from Classic Era, and the addon looks nothing up while you play. Two changes follow. **Blessing of Light is gone:** Blizzard removed it, so it is no longer offered, tracked or listed; settings and profiles that mention it still load and keep their values. **Scrolls no longer count as a buff you already have:** a Scroll of Intellect, Protection or Spirit on a player does not stop the button offering the matching spell. This version adds a file (BuffTable.lua). After updating, restart the game; /reload isn't enough. (#209)
