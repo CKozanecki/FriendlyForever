@@ -601,6 +601,10 @@ describe("UI simulator workflow", function()
                 { "a long comment", { ["BuffData.lua"] = data .. "--[[ note ]]\n" }, "true" },
                 { "a long string", { ["BuffData.lua"] = data .. "-- [=[ x ]=]\n" }, "true" },
                 { "a backslash at a line's end", { ["BuffData.lua"] = data .. "-- \\\n" }, "true" },
+                -- Lua reads a lone carriage return as a line break, so x = 2 is code.
+                { "a carriage return inside a line", { ["Window.lua"] = "local w = 1 -- w\rw = 2\r\nreturn w\r\n" }, "true" },
+                -- Bash drops a NUL byte from what it reads, which would hide this change.
+                { "a NUL byte", { ["BuffData.lua"] = edit(data, "x -- y", "x -\0- y") }, "true" },
                 { "a deleted UI file", { ["Options.lua"] = false }, "true" },
                 { "a new UI file of comments", { ["Water.lua"] = "-- Water.\n" }, "true" },
                 { "a new TOC", { ["Other.toc"] = "## Version: 1\n" }, "true" },

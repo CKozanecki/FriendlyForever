@@ -84,8 +84,10 @@ jobs:
   # and the file list still count), and a root Lua file whose only changes are
   # `--` comments and blank lines. Both versions are read with git show and
   # compared as text; nothing in them runs. A file added, deleted or unreadable
-  # on either side, Lua with a long bracket ([[ or [=, where a -- can be inside
-  # a string) or a line ending in a backslash is doubt, and runs.
+  # on either side, either side holding a NUL byte, Lua with a long bracket
+  # ([[ or [=, where a -- can be inside a string), a line ending in a backslash
+  # or a carriage return inside a line (Lua reads one as a line break) is
+  # doubt, and runs.
   changes:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -118,8 +120,14 @@ jobs:
           fi
           list=$(git -c core.quotePath=false diff --no-renames --name-only "$base" HEAD) || answer true "no diff"
           [ -n "$list" ] || answer true "no changed files"
-          # Both versions of a file, or a failure when either side has none (#241).
-          both() { old=$(git show "$base:$1" 2>/dev/null) && new=$(git show "HEAD:$1" 2>/dev/null); }
+          # Both versions of a file, or a failure when either side has none or
+          # holds a NUL byte, which bash would drop unseen (#241).
+          both() {
+            for side in "$base" HEAD; do
+              [ "$(git show "$side:$1" 2>/dev/null | tr -dc '\000' | wc -c)" -eq 0 ] || return 1
+            done
+            old=$(git show "$base:$1" 2>/dev/null) && new=$(git show "HEAD:$1" 2>/dev/null)
+          }
           # The same TOC once its ## Version: lines are left out.
           version_only() {
             both "$1" || return 1
@@ -127,9 +135,10 @@ jobs:
           }
           # Lua without -- comments, blank lines and trailing spaces. A comment
           # is cut only where no quote comes before it on its line; a long
-          # bracket or a line ending in a backslash fails (exit 2).
+          # bracket, a line ending in a backslash or a carriage return inside a
+          # line fails (exit 2).
           strip_lua() {
-            awk '/\[\[|\[=|\\\r?$/ { exit 2 }
+            awk '/\[\[|\[=|\\\r?$|\r[^\n]/ { exit 2 }
               { sub(/\r$/, ""); i = index($0, "--"); if (i > 0 && substr($0, 1, i - 1) !~ /["'\'']/) $0 = substr($0, 1, i - 1)
                 sub(/[ \t]+$/, ""); if ($0 != "") print }'
           }
