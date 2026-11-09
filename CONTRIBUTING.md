@@ -173,6 +173,8 @@ Pull requests between releases add their `CHANGELOG.md` notes under a `### Unrel
 3. Run `python3 scripts/gen_spell_table.py --spells scripts/data/forever-spells.json --buffs scripts/spell-buffs.json --out BuffTable.lua`. It prints a report of every buff and spell found or not found, and exits non-zero without writing anything if the data is damaged. Put the report in the PR.
 4. `make check` runs `spec/bufftable_spec.lua`, which checks the committed table is valid and that the generator reproduces it exactly from the committed source. That is all that is checked automatically; the extraction itself is only as good as the review of upstream's code and the hash.
 
+To release:
+
 1. In a PR: bump `## Version` in `FriendlyForever.toc` and rename `### Unreleased` at the top of `CHANGELOG.md` to `## 0.8.0` (add notes there for anything missing). CurseForge shows only that section (`make release-notes` previews it).
 2. After it merges, tag the merge commit and push the tag: `git tag v0.8.0 && git push origin v0.8.0`. Version tags can't be moved or deleted once pushed, so double-check the commit first. The GitHub release isn't made by hand: the workflow makes it in step 3.
 3. The Release workflow's `verify` job checks that the tag is on `main` and matches the TOC, then runs lint and tests with no secrets. After that, the `release` job waits for your approval in the `release` environment, checks that the CurseForge project ID and key are set, and uploads. The packager uploads to CurseForge and creates the GitHub release for the tag, with the same notes and the zip attached. Once the job is green, there's nothing left to do.

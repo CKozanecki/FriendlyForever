@@ -31,7 +31,8 @@ local function write(path, text)
 end
 
 local function sha256(path)
-    local p = io.popen('sha256sum "' .. path .. '"')
+    -- sha256sum, or shasum on a host that has only that (macOS), as dev-setup.sh does.
+    local p = io.popen('(sha256sum "' .. path .. '" 2>/dev/null || shasum -a 256 "' .. path .. '")')
     local out = p:read("*a")
     p:close()
     return out:match("^(%x+)")
@@ -197,6 +198,21 @@ describe("The generated buff table", function()
             assert.is_truthy(cast, "a cast happened")
             assert.are.equal("Mark of the Wild", cast.spell)
             for id in pairs(wow.SPELL_NAMES) do if id > offset then wow.SPELL_NAMES[id] = nil end end
+        end)
+    end)
+
+    describe("a new file after an update (black)", function()
+        it("asks for a restart when only BuffTable.lua is new, and nothing errors", function()
+            wow.reset()
+            local loaded = {}
+            local _, files = wow.parseToc()
+            for _, file in ipairs(files) do
+                if file ~= "BuffTable.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+            end
+            wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+            wow.fire("PLAYER_ENTERING_WORLD", true, false)
+            assert.are.same({}, wow.errors)
+            assert.is_truthy(table.concat(wow.printed, "\n"):find("Restart the game", 1, true))
         end)
     end)
 

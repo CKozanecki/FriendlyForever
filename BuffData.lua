@@ -17,6 +17,10 @@
 --   water     only helps underwater: offered only near water, when the
 --             setting says so (Water.lua, #136)
 local _, ns = ...
+-- BuffTable.lua is a file added in #209: after an update that added it, /reload
+-- runs this file without it. Define nothing, so Core's check asks for a restart.
+if type(ns.BuffTable) ~= "table" then return end
+
 local Util = ns.Util
 
 local BuffData = {}
@@ -24,7 +28,7 @@ ns.BuffData = BuffData
 
 -- The table is generated from Forever's own spell data (BuffTable.lua, #209):
 -- the addon never looks IDs up while you play. A buff whose spell the data
--- doesn't have is simply not in it.
+-- doesn't have, or that the owner excluded (Blessing of Light, #225), is not in it.
 local Table = ns.BuffTable
 BuffData.CLASSES = Table.classes
 
@@ -80,9 +84,11 @@ for _, list in pairs(BuffData.CLASSES) do
     end
 end
 
--- Buffs Blizzard removed before launch (#208): Blessing of Salvation and
--- Mass Salvation. Nothing offers, tracks or thanks for them; an aura with
--- one of these IDs (a stale one) is passed over quietly.
+-- Spells of buffs left out of the game's buffs: Blessing of Salvation and
+-- Mass Salvation, which Blizzard removed before launch (#208), and Blessing of
+-- Light, which the owner believes it removed (#225; the data still has it).
+-- Nothing offers, tracks or thanks for them; an aura with one of these IDs
+-- (a stale one) is passed over quietly.
 local REMOVED_SPELL_IDS = {}
 for _, id in ipairs(Table.removedSpells) do REMOVED_SPELL_IDS[id] = true end
 

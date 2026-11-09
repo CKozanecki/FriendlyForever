@@ -68,7 +68,7 @@ function handlers.ADDON_LOADED(name)
     -- added files, /reload runs the new code without them. Stay inert and
     -- say so, rather than erroring on every event.
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
-        "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
+        "BuffTable", "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
         "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "OptionsIndex", "Colours", "Walkthrough",
         "BuffList" }) do
         if ns[module] == nil then

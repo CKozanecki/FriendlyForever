@@ -304,6 +304,7 @@ def main(argv):
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as out:
             out.write(text)
+        os.chmod(temp, 0o644)
         os.replace(temp, args.out)
     except OSError as err:
         if os.path.exists(temp):
