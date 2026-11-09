@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #241, #242
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -2755,6 +2755,30 @@ describe("Release docs", function()
             local agents = wow.readFile("AGENTS.md"):gsub("%s+", " ")
             assert.is_truthy(agents:find("a PR can merge once the required `check` is green", 1, true), "AGENTS.md")
             assert.is_truthy(agents:find("A patch release of documentation-only fixes is one PR with the fix", 1, true), "AGENTS.md")
+        end)
+
+        -- #229: a ready PR only behind main is updated by the owner; overlap or a
+        -- conflict still goes to the developer and the reviewers.
+        it("the Update branch rule is written once in CONTRIBUTING.md and only referenced elsewhere (white, black)", function()
+            local flat = wow.readFile("CONTRIBUTING.md"):gsub("%s+", " ")
+            local rule = flat:match("#### Only behind `main` (.-) ## ") or ""
+            assert.is_truthy(rule:find("**No file in both lists and no conflict: update branch only.**", 1, true), "update-branch case")
+            assert.is_truthy(rule:find("The developer does nothing: no merge, no push, no reviewer re-run.", 1, true))
+            assert.is_truthy(rule:find("counts as met, with both file lists in the description", 1, true))
+            assert.is_truthy(rule:find("**A file in both lists, or any conflict: developer must merge.**", 1, true), "developer case")
+            assert.is_truthy(rule:find("the reviewers confirm the merge and the resolutions", 1, true), "reviewers still confirm")
+            assert.is_truthy(rule:find("The coordinator tells the maintainer which case each waiting pull request is in", 1, true))
+            local ready = flat:match("### Ready for review (.-) #### Only behind") or ""
+            assert.is_truthy(ready:find("only behind `main` counts as up to date", 1, true), "ready checklist")
+            for _, path in ipairs({ "AGENTS.md", "CLAUDE.md", ".claude/skills/after-merge/SKILL.md", ".claude/skills/coordinator/SKILL.md" }) do
+                local text = wow.readFile(path):gsub("%s+", " ")
+                assert.is_truthy(text:find("#only-behind-main", 1, true), path .. " doesn't reference the rule")
+                assert.is_falsy(text:find("update branch only.**", 1, true), path .. " restates the rule")
+            end
+            local coordinator = wow.readFile(".claude/skills/coordinator/SKILL.md"):gsub("%s+", " ")
+            assert.is_truthy(coordinator:find('"update branch only" or "developer must merge"', 1, true), "coordinator labels")
+            local afterMerge = wow.readFile(".claude/skills/after-merge/SKILL.md"):gsub("%s+", " ")
+            assert.is_truthy(afterMerge:find("a conflict was resolved, the reviewers confirm the merge", 1, true), "overlap/conflict still reviewed")
         end)
     end)
 end)
