@@ -174,4 +174,23 @@ describe("UI scenarios: the player's seeded buffs on wow-ui-sim ac893c6 (#223)",
         assert.are.same({ { spellId = 1459 } }, client.auras, "no Fortitude is left once the state is set")
         assert.is_true(table.concat(log, "\n"):find("RemoveBuff 21562", 1, true) ~= nil)
     end)
+
+    it("removes exactly the IDs the addon counts as Priest Fortitude (BuffData.lua), so a rank change can't leave one (white)", function()
+        local States = load()
+        local ns = { Util = {} }
+        assert(loadfile("BuffData.lua"))("FriendlyForever", ns)
+        local expected = {}
+        for _, buff in ipairs(ns.BuffData.CLASSES.PRIEST) do
+            if buff.key == "fortitude" then
+                for _, id in ipairs(buff.ranks) do expected[#expected + 1] = id end
+                for _, id in ipairs(buff.group) do expected[#expected + 1] = id end
+            end
+        end
+        local removed = {}
+        for _, id in ipairs(States.FORTITUDE_IDS) do removed[#removed + 1] = id end
+        table.sort(expected)
+        table.sort(removed)
+        assert.are.same(expected, removed)
+    end)
 end)
+

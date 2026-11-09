@@ -230,6 +230,7 @@ end
 -- The auras that count as your own Power Word: Fortitude to the addon
 -- (BuffData.lua's Priest "fortitude": every rank and the group version).
 local FORTITUDE_IDS = { 10938, 10937, 2791, 1245, 1244, 1243, 21564, 21562 }
+States.FORTITUDE_IDS = FORTITUDE_IDS -- for spec/uitests_states_spec.lua
 
 -- The simulator seeds the player with 4 to 6 random buffs when it starts, and
 -- its pool includes Power Word: Fortitude (21562) one start in five (wow-ui-sim
