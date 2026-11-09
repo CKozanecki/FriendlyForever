@@ -36,6 +36,7 @@ Config.LIMITS = {
     owedMinutes    = { min = 1, max = 60 },  -- how long a favour stays on the buff-back button
     autoOffMinutes = { min = 0, max = 30 },  -- buff mode a trigger turned on ends after this (0: never)
     topUpMinutes   = { min = 0, max = 15 },  -- a group member's buff with less left counts as missing (0: never)
+    groupEnough    = { min = 1, max = 40 },  -- members missing a buff before its group version is offered (#41)
     linesPerMinute = { min = 1, max = 10 },  -- the most lines each chat type gets a minute (ChatQueue)
     maxGreeters    = { min = 1, max = 20 },  -- the most copies of the addon that greet one login (#38)
 }
@@ -176,6 +177,11 @@ Config.DEFAULTS = {
         -- member's buff of a kind you give, with less than this many minutes
         -- left, counts as missing. 0: only once it's gone.
         topUpMinutes = 5,
+        -- Group versions (GroupCasts.lua, #41): in buff mode, offer Arcane
+        -- Brilliance, the Prayers and Gift of the Wild when at least
+        -- groupEnough members they'd cover are missing the buff.
+        groupVersions = true,
+        groupEnough = 3,
         -- Battlegrounds (Battleground.lua): buff before the gates open. Off,
         -- the preparation phase is as quiet as the battle.
         bgPrepBuff = true,
@@ -253,6 +259,8 @@ Config.FIELD_VALIDATORS = {
     autoOffDone = Bool,
     autoOffMinutes = Limited("autoOffMinutes"),
     topUpMinutes = Limited("topUpMinutes"),
+    groupVersions = Bool,
+    groupEnough = Limited("groupEnough"),
     bgPrepBuff = Bool,
     breathNearWater = Bool,
     unlocked = Bool,
