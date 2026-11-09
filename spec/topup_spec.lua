@@ -339,7 +339,7 @@ describe("Top-up timing in buff mode (#42)", function()
 
         it("time running out and clock changes never cause errors or a top-up the state forbids", function()
             -- topUps: casts over a live Mark; held: steps near its end that
-            -- the state forbids (secret or junk times, Gift, a short buff, 0).
+            -- the state forbids (secret or junk times, a short buff, 0).
             local topUps, held = 0, 0
             for _, seed in ipairs({ 3, 42, 99, 512, 2026, 7777 }) do
                 random.seed(seed)

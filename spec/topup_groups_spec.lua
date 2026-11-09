@@ -282,16 +282,27 @@ describe("Top-up timing renews group versions (#206)", function()
     end)
 
     describe("chaos (red tests)", function()
-        -- Arcane Intellect rank 5 and 4, Arcane Brilliance (as strong as rank 5).
-        local COVERS = { [INTELLECT] = true, [INTELLECT_4] = true, [BRILLIANCE] = true }
-        local STRENGTH = { [INTELLECT] = 1, [BRILLIANCE] = 1, [INTELLECT_4] = 2 }
+        -- Mark of the Wild ranks 7 and 6, Gift of the Wild ranks 2 and 1, by
+        -- strength (1 the strongest): Gift rank 2 equals Mark rank 7, Gift
+        -- rank 1 equals Mark rank 6.
+        local STRENGTH = { [MOTW] = 1, [GIFT_2] = 1, [MOTW_6] = 2, [GIFT_1] = 2 }
+        -- What the druid knows, one set per seed: the top Mark with only Gift
+        -- rank 1 (a group version weaker than the single buff), only rank 6 of
+        -- each (stronger buffs are left to run out), and everything.
+        local KNOWN = {
+            { spells = { MOTW, MOTW_6, GIFT_1 }, single = 1 },
+            { spells = { MOTW_6, GIFT_1 }, single = 2 },
+            { spells = { MOTW, MOTW_6, GIFT_2, GIFT_1 }, single = 1 },
+        }
 
-        -- From the client's own state: whether u may be offered Intellect now,
-        -- and whether u wears a rank of yours stronger than strength.
-        local function mayOffer(u, threshold, known)
+        -- From the client's own state: whether u may be offered Mark now (no
+        -- live Mark or Gift, or every live one has a readable time, longer
+        -- than the threshold with less of it left, and is no stronger than
+        -- the strongest single rank you know).
+        local function mayOffer(u, threshold, single)
             for i, id in ipairs(u.auras or {}) do
-                if COVERS[id] and not wow.auraExpired(u, i) then
-                    if threshold <= 0 or STRENGTH[id] < known then return false end
+                if STRENGTH[id] and not wow.auraExpired(u, i) then
+                    if threshold <= 0 or STRENGTH[id] < single then return false end
                     local duration, expires = u.auraDurations[i], u.auraExpires[i]
                     if u.secrets and u.secrets.auraTimes then return false end
                     if type(duration) ~= "number" or type(expires) ~= "number" then return false end
@@ -301,32 +312,56 @@ describe("Top-up timing renews group versions (#206)", function()
             end
             return true
         end
-        local function wearsHigherOfMine(before, sources, strength)
-            for i, id in ipairs(before or {}) do
-                if STRENGTH[id] and STRENGTH[id] < strength and sources[i] == "player" then return true end
+        -- Whether u wears a live Mark or Gift stronger than strength, from you
+        -- (mine) or from anyone.
+        local function wearsStronger(u, strength, mine)
+            for i, id in ipairs(u.auras or {}) do
+                if STRENGTH[id] and STRENGTH[id] < strength and not wow.auraExpired(u, i)
+                    and (not mine or u.auraSources[i] == "player") then
+                    return true
+                end
             end
             return false
         end
 
         it("expiring group versions, junk times and rank changes never give a cast the state forbids", function()
-            local renewals, groupRenewals = 0, 0
-            for _, seed in ipairs({ 5, 61, 206, 999, 4242 }) do
+            -- Per known set: renewals by single and group casts over a live
+            -- Mark or Gift; held, steps where a low buff stronger than your
+            -- single ranks was left alone; weaker, steps where a weaker group
+            -- version than a low stronger buff was not cast.
+            local reach = {}
+            for k = 1, #KNOWN do reach[k] = { single = 0, group = 0, held = 0 } end
+            for run, seed in ipairs({ 5, 61, 206, 999, 4242, 31337 }) do
                 random.seed(seed)
-                -- known: the strongest Intellect rank you know (1: rank 5, 2: rank 4).
-                local known = random.random() < 0.7 and 1 or 2
-                boot({ known = known == 1 and { INTELLECT, INTELLECT_4, BRILLIANCE } or { INTELLECT_4 } })
+                local k = (run - 1) % #KNOWN + 1
+                local known = KNOWN[k]
+                boot({ class = "DRUID", known = known.spells,
+                    items = { [ITEM.wildBerries] = 5, [ITEM.wildThornroot] = 5 } })
                 local function unit() return wow.state.units[PARTY[random.random(#PARTY)]] end
+                local function setLeft(u, spell, left)
+                    for i, id in ipairs(u.auras) do
+                        if id == spell and u.auraDurations[i] > 0 then u.auraExpires[i] = wow.now + left end
+                    end
+                end
+                local SPELLS = { GIFT_2, GIFT_1, MOTW, MOTW_6 }
                 local actions = {
                     function()
                         local token = PARTY[random.random(#PARTY)]
-                        local spell = ({ BRILLIANCE, BRILLIANCE, INTELLECT, INTELLECT_4 })[random.random(4)]
+                        local spell = SPELLS[random.random(#SPELLS)]
                         wow.wearBuff(token, spell, { duration = ({ HOUR, HOUR, 1800, 240, 0 })[random.random(5)],
                             source = ({ "player", "player", "party1", nil })[random.random(4)] })
-                        local u = wow.state.units[token]
-                        for i, id in ipairs(u.auras) do
-                            if id == spell and u.auraDurations[i] > 0 then
-                                u.auraExpires[i] = wow.now + random.random(1, 900)
-                            end
+                        setLeft(wow.state.units[token], spell, random.random(1, 900))
+                        ns.BuffButton.Refresh()
+                    end,
+                    -- An earlier Gift on the whole party, near its end, from you or another druid.
+                    function()
+                        local spell, left = random.random() < 0.5 and GIFT_2 or GIFT_1, random.random(1, 900)
+                        local source = random.random() < 0.5 and "player" or "party1"
+                        for _, token in ipairs(PARTY) do
+                            local u = wow.state.units[token]
+                            u.auras, u.auraSources, u.auraDurations, u.auraExpires = {}, {}, {}, {}
+                            wow.wearBuff(token, spell, { duration = HOUR, source = source })
+                            setLeft(u, spell, left)
                         end
                         ns.BuffButton.Refresh()
                     end,
@@ -344,24 +379,15 @@ describe("Top-up timing renews group versions (#206)", function()
                         u.secrets = random.random() < 0.3 and { auraTimes = true } or nil
                         ns.BuffButton.Refresh()
                     end,
-                    -- An earlier Brilliance on the whole party, near its end.
-                    function()
-                        local left = random.random(1, 900)
-                        for _, token in ipairs(PARTY) do
-                            wow.wearBuff(token, BRILLIANCE, { duration = HOUR, source = "player" })
-                            local u = wow.state.units[token]
-                            for i, id in ipairs(u.auras) do
-                                if id == BRILLIANCE then u.auraExpires[i] = wow.now + left end
-                            end
-                        end
-                        ns.BuffButton.Refresh()
-                    end,
                     function() local u = unit(); u.auras, u.auraSources, u.auraDurations, u.auraExpires = nil, nil, nil, nil end,
                     function()
                         ns.db.buffBack.topUpMinutes = ({ 0, 5, 5, 10, 15, "x" })[random.random(6)]
                         ns.BuffButton.Refresh()
                     end,
-                    function() wow.state.items[ITEM.arcanePowder] = random.random(0, 3) end,
+                    function()
+                        wow.state.items[ITEM.wildBerries] = random.random(0, 3)
+                        wow.state.items[ITEM.wildThornroot] = random.random(0, 3)
+                    end,
                     function() wow.advance(random.random() * 400) end,
                     function() wow.advance(random.random() * 10) end,
                     function() wow.pressKey("MOUSEWHEELUP") end,
@@ -373,28 +399,39 @@ describe("Top-up timing renews group versions (#206)", function()
                     local minutes = ns.db.buffBack.topUpMinutes
                     if type(minutes) ~= "number" or minutes ~= minutes then minutes = 5 end
                     minutes = math.max(0, math.min(15, math.floor(minutes)))
-                    local allowed, wore = {}, {}
+                    local allowed, wore, stronger, strongerOfMine = {}, {}, {}, {}
                     for _, token in ipairs(PARTY) do
                         local u = wow.state.units[token]
-                        allowed[u.id] = mayOffer(u, minutes * 60, known)
-                        for i, id in ipairs(u.auras or {}) do
-                            if COVERS[id] and not wow.auraExpired(u, i) then wore[u.id] = true end
+                        allowed[u.id] = mayOffer(u, minutes * 60, known.single)
+                        wore[u.id] = wearsStronger(u, 3, false)
+                        stronger[u.id] = wearsStronger(u, 2, false)
+                        strongerOfMine[u.id] = wearsStronger(u, 2, true)
+                        -- A low buff stronger than your single ranks: never offered.
+                        if minutes > 0 and wore[u.id] and not allowed[u.id] and known.single == 2
+                            and stronger[u.id] then
+                            reach[k].held = reach[k].held + 1
                         end
                     end
                     actions[random.random(#actions)]()
                     for i = before + 1, #wow.casts do
                         local cast = wow.casts[i]
                         local where = ("seed %d, step %d: %s on %s"):format(seed, step, cast.spell, cast.target)
-                        if cast.id == BRILLIANCE then
-                            -- It covers everyone in the party: never over a higher rank of yours.
-                            for who, auras in pairs(cast.before) do
-                                assert.is_false(wearsHigherOfMine(auras, cast.beforeSources[who], 1), where)
+                        assert.is_true(allowed[cast.target], where)
+                        if cast.id == GIFT_1 or cast.id == GIFT_2 then
+                            -- Never over a stronger buff of yours (#41), and
+                            -- never renewing a member whose low buff is
+                            -- stronger, whoever cast it (#206).
+                            for _, who in ipairs(cast.covered) do
+                                if allowed[who] ~= nil and STRENGTH[cast.id] == 2 then
+                                    assert.is_false(strongerOfMine[who], where .. ", covering " .. who)
+                                    if allowed[who] and wore[who] then
+                                        assert.is_false(stronger[who], where .. ", renewing " .. who)
+                                    end
+                                end
                             end
-                            assert.is_true(allowed[cast.target], where)
-                            if wore[cast.target] then groupRenewals = groupRenewals + 1 end
-                        elseif COVERS[cast.id] then
-                            assert.is_true(allowed[cast.target], where)
-                            if wore[cast.target] then renewals = renewals + 1 end
+                            if wore[cast.target] then reach[k].group = reach[k].group + 1 end
+                        elseif STRENGTH[cast.id] then
+                            if wore[cast.target] then reach[k].single = reach[k].single + 1 end
                             for _, token in ipairs(PARTY) do
                                 if wow.state.units[token].id == cast.target then
                                     wow.wearBuff(token, cast.id, { duration = 1800, source = "player" })
@@ -405,8 +442,12 @@ describe("Top-up timing renews group versions (#206)", function()
                 end
                 assert.are.same({}, wow.errors, "seed " .. seed)
             end
-            assert.is_true(renewals > 10, "single renewals: " .. renewals)
-            assert.is_true(groupRenewals > 3, "group renewals: " .. groupRenewals)
+            for k, r in ipairs(reach) do
+                assert.is_true(r.single > 5, ("known set %d: single renewals %d"):format(k, r.single))
+            end
+            assert.is_true(reach[1].group > 2, "a weaker group version renewing its own strength: " .. reach[1].group)
+            assert.is_true(reach[3].group > 2, "group renewals: " .. reach[3].group)
+            assert.is_true(reach[2].held > 20, "stronger buffs held: " .. reach[2].held)
         end)
     end)
 end)
