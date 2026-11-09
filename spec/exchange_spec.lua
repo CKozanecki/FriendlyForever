@@ -1,4 +1,4 @@
--- Spec: #36
+-- Spec: #36, #236
 -- Buff exchanges: one thank-you each way, sent after the last buff. Each
 -- side's thank-you is held while the exchange goes on, lists every buff it
 -- got, and always goes out within Exchange.MAX_DELAY.
@@ -612,9 +612,9 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             wow.use(b)
             wow.keyDown()
             assert.are.same({}, wow.sentTo("SAY"), "released at the longest wait, then too old to say")
-            assert.are.same({}, wow.emotes)
+            assert.are.equal(1, #wow.emotes, "the /thank needs no key press (#236)")
             local entries = b.ns.db.ledger.entries
-            assert.are.equal("no key press in time", entries[#entries].note)
+            assert.are.equal("with /thank", entries[#entries].note, "thanked by the emote alone")
         end)
 
         it("but a /say released early still waits for a key press until then", function()

@@ -47,10 +47,11 @@ function ChatQueue.InChatLockdown()
     return info ~= nil and info.InChatMessagingLockdown ~= nil and info.InChatMessagingLockdown() == true
 end
 
--- "EMOTE" is a text emote (/thank). Whether the game holds those back like
--- /say is untested, so they wait for a key press outdoors too.
+-- Only /say and /yell wait for a key press outdoors. "EMOTE" is a text emote
+-- (/thank): the game doesn't hold those back (owner, in game, 2026-11-09), so
+-- they go out at once (#236). Chat stays behind a key press.
 function ChatQueue.NeedsHardwareEvent(channel)
-    if channel ~= "SAY" and channel ~= "YELL" and channel ~= "EMOTE" then return false end
+    if channel ~= "SAY" and channel ~= "YELL" then return false end
     return not IsInInstance()
 end
 

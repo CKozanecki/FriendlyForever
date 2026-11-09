@@ -1,4 +1,4 @@
--- Spec: #80, #71, #35
+-- Spec: #80, #71, #35, #236
 -- Regression tests for problems found in review of the 0.8.0 work.
 local wow = require("spec.support.wow")
 
@@ -132,7 +132,9 @@ describe("Regressions", function()
             ns.db.buff.repeatCooldown = 0
             wow.addUnit("target", { name = "Bob", surname = "Stone" })
             wow.gainBuff({ sourceUnit = "target", name = "Arcane Intellect" })
-            settle() -- the line goes; the emote waits behind the send interval
+            settle() -- the emote goes at once; the line waits behind the send interval
+            wow.advance(ns.ChatQueue.MIN_INTERVAL + 0.01)
+            wow.keyDown() -- ...and goes on a key press
             wow.gainBuff({ sourceUnit = "target", name = "Thorns" })
             assert.are.equal(2, #ns.db.ledger.entries)
             assert.are.same({ "Thorns" }, ns.db.ledger.entries[2].buffs)
