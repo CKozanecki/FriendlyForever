@@ -273,6 +273,8 @@ function BuffButton.Refresh()
     if not button then return end
     ns.BuffMode.Apply()
     ns.GroupBuffs.Prune()
+    -- Your buffs or settings may have changed what you give in a raid.
+    ns.RaidSplit.Check()
     ArmButton()
     ns.BuffModeAuto.Check()
     if ns.Offers.Count() > 0 or shownResult or ns.BuffMode.LentKey() then ScheduleRecheck() end

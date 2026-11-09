@@ -337,12 +337,25 @@ function BuffRules.MyBlessings()
     return out
 end
 
--- Whether you cover buff in this raid: every buff that isn't a Blessing,
--- and every Blessing until you choose.
+-- Whether you cover buff in this raid: the Blessings you chose, once you
+-- have; otherwise your share of the raid buff split (RaidSplit.lua, #70),
+-- which is every buff when there's no split (not in a raid, or no other
+-- copy of your class in it).
 function BuffRules.CoversInRaid(buff)
     BuffRules.CheckRaid()
-    if not raidBlessings or buff.family ~= "blessing" then return true end
-    return raidBlessings[buff.key] == true
+    if raidBlessings and buff.family == "blessing" then return raidBlessings[buff.key] == true end
+    return ns.RaidSplit.Covers(buff)
+end
+
+-- The Blessings you chose for this raid, as a copy ([key] = true), or nil
+-- when you haven't (the split then decides). Announced to the other copies
+-- of your class in the raid (RaidSplit.lua).
+function BuffRules.HandSetBlessings()
+    BuffRules.CheckRaid()
+    if not raidBlessings then return nil end
+    local out = {}
+    for key in pairs(raidBlessings) do out[key] = true end
+    return out
 end
 
 -- Choose the Blessings you cover in this raid: keys is a list of your

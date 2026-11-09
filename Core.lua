@@ -107,6 +107,8 @@ function handlers.ADDON_LOADED(name)
         -- Forget this raid's Blessings as you leave it, so they can't carry
         -- into the next raid (BuffRules.lua).
         ns.BuffRules.CheckRaid()
+        -- Who shares out the raid's buffs (RaidSplit.lua, #70).
+        ns.RaidSplit.OnRosterUpdate()
         ns.Options.Refresh() -- the raid Blessing boxes work only in a raid
         ns.Greeter.OnGroupRosterUpdate(...)
     end)
@@ -232,6 +234,7 @@ local function StatusLines()
         .. "%d unknown type, %d wrong route, %d spoofed, %d flooding", c("commUnreadable"), c("commOversized"),
         c("commMalformed"), c("commWrongVersion"), c("commUnknownType"), c("commWrongRoute"), c("commSpoofed"),
         c("commFlood")))
+    add(string.format("%s; %d shares ignored", ns.RaidSplit.StatusLine(), c("splitIgnored")))
     add(string.format("Lua errors in this addon: %d%s", c("luaErrors"),
         ns.Diag.lastError and (" (last: " .. ns.Diag.lastError .. ")") or ""))
     add(string.format("APIs: SendChatMessage %s, chat lockdown check %s, aura query %s, secret check %s, emote %s",

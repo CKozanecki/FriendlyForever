@@ -594,3 +594,24 @@ Comm.RegisterType("GREET", {
     echo = true,
     handler = function(sender, fields) ns.GuildHellos.OnGreet(sender, fields[1], tonumber(fields[2])) end,
 })
+
+
+------------------------------------------------------------------------
+-- SHARE: "these are the buffs I give in this raid" (#70)
+------------------------------------------------------------------------
+
+-- Sent to the raid by each copy (RaidSplit.lua) when it joins, when the
+-- roster changes, and when what it gives changes. Fields: the buff keys it
+-- can give, in its buff order ("-": none), and its Blessings set by hand
+-- for this raid ("-": none). Never names or free text. It can only put its
+-- own sender into the receiver's split, among raid members of the
+-- receiver's class.
+function Comm.SendShare(keys, fixed)
+    return Comm.Send("SHARE", { keys, fixed }, "RAID")
+end
+
+Comm.RegisterType("SHARE", {
+    fields = { Comm.Field.KeyList, Comm.Field.KeyList },
+    routes = { RAID = true },
+    handler = function(sender, fields) ns.RaidSplit.OnShare(sender, fields[1], fields[2]) end,
+})
