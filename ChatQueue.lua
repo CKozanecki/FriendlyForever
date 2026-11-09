@@ -7,7 +7,7 @@
 --   * holds messages while the game's chat lockdown is active,
 --   * holds /say outside instances until a hardware event (key press),
 --     which the game requires for that channel (text emotes such as /thank
---     wait the same way, to be safe),
+--     need no key press and go out at once: #236),
 --   * re-checks each message is still wanted right before sending,
 --   * drops automatic messages that come due while you're AFK (an option).
 local _, ns = ...
@@ -49,7 +49,7 @@ end
 
 -- Only /say and /yell wait for a key press outdoors. "EMOTE" is a text emote
 -- (/thank): the game doesn't hold those back (owner, in game, 2026-11-09), so
--- they go out at once (#236). Chat stays behind a key press.
+-- they go out at once (#236). /say and /yell still wait for a key press.
 function ChatQueue.NeedsHardwareEvent(channel)
     if channel ~= "SAY" and channel ~= "YELL" then return false end
     return not IsInInstance()

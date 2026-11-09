@@ -2,7 +2,7 @@
 
 ### Unreleased
 
-- **Thank-you emotes need no key press:** a `/thank` emote now goes out at once, since the game doesn't hold emotes back like /say (checked in game by the owner). One person who buffs you two or more times still gets a single `/thank`, from the existing repeat cooldown (the buff thank-you's, 180 seconds by default); another person's buff is never held back by it, and once it has passed their next buff gets a `/thank` again. /say thank-yous and every other chat line still wait for a key press. (#236)
+- **Thank-you emotes need no key press:** a `/thank` emote now goes out at once, since the game doesn't hold emotes back like /say (checked in game by the owner). One person who buffs you two or more times still gets a single `/thank`, from the existing repeat cooldown (the buff thank-you's, 180 seconds by default); another person's buff is never held back by it, and once it has passed their next buff gets a `/thank` again. /say thank-yous still wait for a key press outdoors; nothing else changes. (#236)
 
 ## 1.0.1
 
