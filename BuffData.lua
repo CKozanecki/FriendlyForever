@@ -108,7 +108,8 @@ end
 
 -- Spells of buffs left out of the game's buffs: Blessing of Salvation and
 -- Mass Salvation, which Blizzard removed before launch (#208), and Blessing of
--- Light, which the owner believes it removed (#225; the data still has it).
+-- Light, which Blizzard removed too (owner, with Blizzard's beta development
+-- notes of November 2; #237). The data still has rows for all of them.
 -- Nothing offers, tracks or thanks for them; an aura with one of these IDs
 -- (a stale one) is passed over quietly.
 local REMOVED_SPELL_IDS = {}

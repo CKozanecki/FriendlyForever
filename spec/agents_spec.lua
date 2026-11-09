@@ -1,4 +1,4 @@
--- Spec: #186, #217
+-- Spec: #186, #217, #237
 -- The drift check for the agents' instruction files. AGENTS.md holds the rules
 -- every product follows; CLAUDE.md imports it and adds only Claude's own.
 -- Codex reads AGENTS.md (or an AGENTS.override.md, which Claude never reads)
@@ -95,6 +95,17 @@ describe("the agents' instruction files", function()
         assert.is_truthy(agents:find("**[CONTRIBUTING.md](CONTRIBUTING.md) is the source of truth.**", 1, true))
         assert.is_truthy(agents:find("Codex's carry `Agent: codex <model as served>`, and never a"
             .. " `Claude-Session:` line.", 1, true), "the Codex trailer")
+    end)
+
+    it("AGENTS.md records the owner's word about the game as fact, never hedged (#237)", function()
+        assert.is_truthy(agents:find("**The owner's word about the game is a fact.** Record it as a fact, with the owner"
+            .. " as the source. Never write \"the owner believes\", \"on the owner's belief\" or a similar hedge in"
+            .. " player-facing text or docs.", 1, true))
+        assert.is_truthy(agents:find("checks the official patch notes first and tells the coordinator before writing"
+            .. " anything public; it doesn't ask the owner to prove it and doesn't publish the doubt", 1, true))
+        local _, count = agents:gsub("The owner's word about the game is a fact", "")
+        assert.are.equal(1, count)
+        assert.is_falsy(claude:find("word about the game is a fact", 1, true), "written once, not repeated in CLAUDE.md")
     end)
 
     it("CLAUDE.md keeps only Claude's own sections", function()
