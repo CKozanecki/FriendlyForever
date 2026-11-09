@@ -1,4 +1,4 @@
--- Spec: #52, #64, #112, #197, #208, #41
+-- Spec: #52, #64, #112, #197, #208, #41, #209
 -- Layout: the buff-back button's text stays inside the button, and on each
 -- options tab the message list follows the last row that tab shows. The
 -- checks work from the simulated client's own anchors and text widths

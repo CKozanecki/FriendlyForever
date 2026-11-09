@@ -179,7 +179,9 @@ describe("The generated buff table", function()
             end
             local function walk(class)
                 local known = {}
-                for _, id in ipairs(made.classes[class][1].ranks) do known[id] = true end
+                for _, buff in ipairs(made.classes[class]) do
+                    for _, id in ipairs(buff.ranks) do known[id] = true end
+                end
                 ns = wow.boot({ buffTable = made, before = function(state)
                     state.class = class
                     state.knownSpells = known
@@ -201,7 +203,14 @@ describe("The generated buff table", function()
                     end
                 end
             end
-            for class in pairs(made.classes) do walk(class) end
+            for class in pairs(made.classes) do
+                walk(class)
+                -- Knowing every rank of every buff of the class, all of them are offered, in its order.
+                local keys, want = {}, {}
+                for _, buff in ipairs(ns.BuffData.Offerable()) do keys[#keys + 1] = buff.key end
+                for _, buff in ipairs(made.classes[class]) do want[#want + 1] = buff.key end
+                assert.are.same(want, keys, class)
+            end
             -- A pressed cast, by name.
             walk("DRUID")
             local offered = ns.BuffData.Offerable()
@@ -244,6 +253,7 @@ describe("The generated buff table", function()
             local ok = pcall(ns.Profiles.Import, line)
             assert.is_true(ok, "importing a damaged rule for a buff not in the table must not raise")
             assert.are.same({}, wow.errors)
+            assert.are.equal("classes", ns.db.buffBack.whoGets.light.rule, "and its rule is kept")
         end)
 
         it("can have a class ticked from a saved key without error (a call with the key alone)", function()
@@ -254,11 +264,126 @@ describe("The generated buff table", function()
             assert.is_true(ns.db.buffBack.whoGets.light.classes.WARRIOR)
         end)
 
+        it("keeps a buff's settings through a profile switch (profiles keep their values)", function()
+            ns = bootPaladin({ buffBack = { neverOffer = { light = true },
+                whoGets = { light = { rule = "tanks", never = { ["bo-lake"] = "Bo-Lake" } } } } })
+            assert.is_truthy(ns.Profiles.New("Raiding"))
+            assert.is_truthy(ns.Profiles.New("Other"))
+            for _, name in ipairs({ "Raiding", "Other", "Raiding" }) do
+                assert.is_truthy(ns.Profiles.Use(name))
+                local b = ns.db.buffBack
+                assert.are.same({}, wow.errors)
+                assert.is_true(b.neverOffer.light, name)
+                assert.are.equal("tanks", b.whoGets.light.rule, name)
+                assert.are.equal("Bo-Lake", b.whoGets.light.never["bo-lake"], name)
+            end
+        end)
+
         it("is cleaned by the rules' own repair without error", function()
             ns = bootPaladin({})
             local ok, cleaned = pcall(ns.BuffRules.Clean, { light = { rule = "classes", classes = 5 } })
             assert.is_true(ok, tostring(cleaned))
             assert.are.equal("classes", cleaned.light.rule)
+        end)
+    end)
+
+    describe("chaos (red tests)", function()
+        it("damaged saved data naming Blessing of Light, group changes and Light auras never error or offer Light", function()
+            local random = require("spec.support.random")
+            local LIGHT_IDS = { 19977, 19978, 19979, 25890 }
+            local reached = { whoGets = 0, whoGetsAll = 0, neverOffer = 0, buffOrder = 0, kept = 0, casts = 0 }
+            wow.SPELL_NAMES[19977] = "Blessing of Light"
+            wow.SPELL_NAMES[25890] = "Greater Blessing of Light"
+            local function tokenOf(id)
+                for token, u in pairs(wow.state.units) do
+                    if u.id == id and token ~= "target" then return token end
+                end
+            end
+            for _, seed in ipairs({ 11, 209, 1109, 2026 }) do
+                random.seed(seed)
+                local junk = { 7, true, "x", {}, { rule = {} }, "light", { "light" },
+                    { rule = "classes", classes = "junk" }, { rule = "classes", classes = 5 } }
+                local function pick() return junk[random.random(#junk)] end
+                for load = 1, 5 do
+                    local b = { buffOrder = { "light", "kings" }, neverOffer = { light = true },
+                        whoGets = { light = { rule = "tanks" }, kings = { rule = "all" } } }
+                    if load > 1 then
+                        if random.random() < 0.6 then b.whoGets.light = pick() reached.whoGets = reached.whoGets + 1 end
+                        if random.random() < 0.3 then b.whoGets = pick() reached.whoGetsAll = reached.whoGetsAll + 1 end
+                        if random.random() < 0.5 then b.neverOffer = { light = pick() } reached.neverOffer = reached.neverOffer + 1 end
+                        if random.random() < 0.5 then b.buffOrder = { "light", pick(), "kings" } reached.buffOrder = reached.buffOrder + 1 end
+                    end
+                    ns = wow.boot({ db = { buffBack = b }, before = function(state)
+                        state.class = "PALADIN"
+                        state.knownSpells = { [20217] = true, [19742] = true, [19740] = true,
+                            [19977] = true, [19978] = true, [19979] = true, [25890] = true }
+                    end })
+                    assert.are.same({}, wow.errors, ("seed %d load %d"):format(seed, load))
+                    if load == 1 then
+                        assert.are.equal("tanks", ns.db.buffBack.whoGets.light.rule, "valid light values survive")
+                        reached.kept = reached.kept + 1
+                    end
+                    ns.BuffButton.Frame()
+                    _G.SlashCmdList.FRIENDLYFOREVER("buffmode on")
+                    local names = { "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
+                    local classes = { "WARRIOR", "ROGUE", "MAGE", "PRIEST", "PALADIN" }
+                    local actions = {
+                        function()
+                            local members = {}
+                            for _, name in ipairs(names) do
+                                if random.random() < 0.7 then members[#members + 1] = name end
+                            end
+                            if #members == 0 then members[1] = names[1] end
+                            wow.setGroup(random.random() < 0.5 and "raid" or "party", members)
+                            local prefix = wow.state.groupType == "raid" and "raid" or "party"
+                            for i = 1, #members do
+                                local u = wow.state.units[prefix .. i]
+                                if u then u.class = classes[random.random(#classes)] end
+                            end
+                            wow.fire("GROUP_ROSTER_UPDATE")
+                            wow.advance(0)
+                        end,
+                        function()
+                            for token, u in pairs(wow.state.units) do
+                                if (token:find("^party%d") or token:find("^raid%d")) and random.random() < 0.4 then
+                                    u.auras, u.auraSources = u.auras or {}, u.auraSources or {}
+                                    u.auras[#u.auras + 1] = LIGHT_IDS[random.random(#LIGHT_IDS)]
+                                    u.auraSources[#u.auras] = random.random() < 0.5 and "player" or "raid9"
+                                end
+                            end
+                        end,
+                        function()
+                            ns.db.buffBack.whoGets = ns.db.buffBack.whoGets
+                            ns.db.buffBack.neverOffer = random.random() < 0.5 and pick() or { light = pick() }
+                            ns.BuffButton.Refresh()
+                        end,
+                        function() ns.Config.Repair() end,
+                        function() wow.advance(random.random() * 20) end,
+                    }
+                    for step = 1, 60 do
+                        actions[random.random(#actions)]()
+                        ns.BuffButton.Refresh()
+                        local before = #wow.casts
+                        wow.pressKey("MOUSEWHEELUP")
+                        local cast = wow.casts[before + 1]
+                        if cast then
+                            reached.casts = reached.casts + 1
+                            local where = ("seed %d load %d step %d"):format(seed, load, step)
+                            assert.is_falsy(tostring(cast.spell):find("Light", 1, true), where)
+                            for _, id in ipairs(LIGHT_IDS) do assert.are_not.equal(id, cast.id, where) end
+                            local u = wow.state.units[tokenOf(cast.target)]
+                            if u and not cast.failed then
+                                u.auras, u.auraSources = u.auras or {}, u.auraSources or {}
+                                u.auras[#u.auras + 1] = cast.id
+                                u.auraSources[#u.auras] = "player"
+                            end
+                        end
+                    end
+                    assert.are.same({}, wow.errors, ("seed %d load %d"):format(seed, load))
+                end
+            end
+            wow.SPELL_NAMES[19977], wow.SPELL_NAMES[25890] = nil, nil
+            for kind, n in pairs(reached) do assert.is_true(n > 0, "the storm never reached " .. kind) end
         end)
     end)
 

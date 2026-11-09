@@ -1,4 +1,4 @@
--- Spec: #68, #76, #208, #219
+-- Spec: #68, #76, #208, #219, #209
 -- Who gets each buff in buff mode: everyone, tanks only, everyone but tanks,
 -- or chosen classes, plus players named Always or Never. Buffs go to everyone
 -- until you choose (#208), except the owner's defaults (#219): Wisdom and

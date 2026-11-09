@@ -1,4 +1,4 @@
--- Spec: #42
+-- Spec: #42, #209
 -- Top-up timing: in buff mode, a group member's buff with less than the set
 -- time left (default 5 minutes) counts as missing, so the button offers to
 -- top it up. Group members only, never strangers; a time that can't be read

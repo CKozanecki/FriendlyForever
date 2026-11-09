@@ -1,4 +1,4 @@
--- Spec: #136, #208
+-- Spec: #136, #208, #209
 -- Water breathing only near water: a warlock's Unending Breath and a
 -- shaman's Water Breathing are offered (buff back and buff mode) only while
 -- you're swimming, underwater, with your breath bar showing, in an
