@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #242
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -2801,15 +2801,22 @@ describe("Claude sessions' agents, knowledge and skills", function()
         end)
     end
 
-    -- The developer and coordinator families are being trialled (#182): until
-    -- the owner sets them, the skills keep the session default.
-    it("the skills set no model or effort while the trial runs", function()
+    -- The skills against CLAUDE.md's table (#182, #242): the coordinator runs on
+    -- opus; after-merge and merge-order run inside other sessions, so a model:
+    -- would switch that session's family mid-turn, and they set none. No skill
+    -- sets an effort: the owner hasn't set one for developers or the coordinator.
+    it("the skills' model and effort match CLAUDE.md's table", function()
+        local EXPECTED = { coordinator = "opus", ["after-merge"] = false, ["merge-order"] = false }
         for _, name in ipairs(SKILLS) do
             local fields = frontMatter(wow.readFile(".claude/skills/" .. name .. "/SKILL.md"))
-            assert.are.same({}, { fields.model, fields.effort }, name)
+            assert.are.same({ EXPECTED[name] or nil, nil }, { fields.model, fields.effort }, name)
         end
-        assert.is_truthy(wow.readFile(".claude/skills/coordinator/SKILL.md"):find("For building that's a trial in progress, see #182:",
-            1, true), "the coordinator's placeholder")
+        local body = wow.readFile("CLAUDE.md"):match("\n## Models and effort\n(.-)\n## ") or ""
+        assert.is_truthy(body:find("| The coordinator (`coordinator` skill) | `opus` | session default |", 1, true),
+            "the table's coordinator row")
+        assert.is_falsy(body:find("trial in progress", 1, true), "no trial cell is left")
+        assert.is_truthy(body:find("the coordinator session itself is started on `opus`", 1, true),
+            "the coordinator session itself runs on opus")
     end)
 
     -- The owner's choice on #182: opus at high effort for both reviewers.
@@ -2832,7 +2839,9 @@ describe("Claude sessions' agents, knowledge and skills", function()
         local body = text:match("\n## Models and effort\n(.-)\n## ") or ""
         for _, row in ipairs({
             "| Lookups, searches and routine checks | `haiku` | `low` |",
-            "| Building and fixing, coordinating, and the skills | trial in progress, see #182 | trial in progress, see #182 |",
+            "| Developer sessions: building and fixing | `sonnet` | session default |",
+            "| Developer sessions on security-sensitive and release-workflow changes, specs and hard bugs | `opus` | `high` |",
+            "| The coordinator (`coordinator` skill) | `opus` | session default |",
             "| The architecture and testing reviews (`lua-architect`, `lua-tester`) | `opus` | `high` |",
         }) do
             assert.is_truthy(body:find(row, 1, true), row)
@@ -2873,18 +2882,24 @@ describe("Claude sessions' agents, knowledge and skills", function()
         end
     end)
 
-    it("the coordinator reports low usage and model mismatches, and starts sessions on a family alias", function()
+    it("the coordinator reports low usage and model mismatches, and starts every session with model set explicitly and named in the prompt", function()
         local text = wow.readFile(".claude/skills/coordinator/SKILL.md")
         local checkIn = text:match("\n## The 30%-minute check%-in\n(.*)$") or ""
         assert.is_truthy(checkIn:find("- **compare models** for each session you watch: `get_session`'s"
             .. " `configured_model` against `session_context.model` and `external_metadata.last_served_model`",
             1, true), "the model comparison")
+        assert.is_truthy(checkIn:find("Include your own session: it must be served by `opus`", 1, true),
+            "the coordinator checks its own family")
         assert.is_truthy(checkIn:find("Report any session served by another family to the owner", 1, true),
             "the mismatch report")
         assert.is_truthy(checkIn:find("put what's left in the check-in, even if nothing else changed", 1, true),
             "the low-usage report")
-        assert.is_truthy(text:find("- **Starting a session:** pass the `model` parameter, a family alias", 1, true),
-            "sessions start on an alias")
+        local start = text:match("%- %*%*Starting a session:%*%*[^\n]*") or ""
+        assert.is_truthy(start:find("pass the `model` parameter on every session, set explicitly", 1, true),
+            "sessions start with model set explicitly")
+        assert.is_truthy(start:find("`sonnet` for a developer, `opus` for security-sensitive and release-workflow"
+            .. " changes, specs and hard bugs (with effort `high`)", 1, true), "the families the table gives")
+        assert.is_truthy(start:find("The opening prompt names the model", 1, true), "the prompt names the model")
     end)
 
     -- The after-merge skill sends drivers to AGENTS.md's Reviews section, and
