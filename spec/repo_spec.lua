@@ -279,7 +279,7 @@ describe("CI workflow", function()
     -- Without $(SPECS) every shard would quietly run all the specs.
     it("makes each shard run only its own spec files (white)", function()
         local function recipe(args)
-            local p = io.popen("cd '" .. wow.ROOT .. "' && make -n test TOOLS=/nowhere " .. args .. " 2>&1")
+            local p = io.popen("cd '" .. wow.ROOT .. "' && env -u SPECS -u MAKEFLAGS -u MAKELEVEL -u MFLAGS make -n test TOOLS=/nowhere " .. args .. " 2>&1")
             local out = p:read("*a")
             p:close()
             return out
