@@ -488,10 +488,31 @@ test("with a favour owed, the button names the player and the buff, and its text
     end)
 end)
 
-test("in buff mode, a party member missing your buff is offered it, and the text stays inside", function()
+-- In buff mode the button offers you first (#198), then the party member
+-- missing your buff. The list beside the button (#43) makes the member the
+-- next offer, so both states are measured.
+test("in buff mode, you are offered first, then a party member missing your buff, and the text stays inside", function()
     InState("buff mode", FriendlyForeverUIStates.GroupMissing, function(button, States)
         Expect((button.mode:GetText() or ""):find("Buff mode:", 1, true) ~= nil, "buff mode isn't on")
         Expect(button:IsShown(), "the button isn't up")
+        -- You come first, cast on yourself with [@player].
+        Expect(button.title:GetText() == "You", "the title doesn't say You")
+        Expect(button.subtitle:GetText() == "missing your " .. States.SPELL.name,
+            "the hint doesn't offer " .. States.SPELL.name)
+        Expect((States.Macro() or ""):find("/cast [@player,nodead] " .. States.SPELL.name, 1, true) ~= nil,
+            "the macro doesn't cast " .. States.SPELL.name .. " on you")
+        TextInside(button, button.title, "buff mode (you first) title", 1)
+        TextInside(button, button.subtitle, "buff mode (you first) hint", 1)
+        OnScreen(button, "buff-back button (buff mode, you first)")
+        -- A click on the party member's row in the list makes her the next offer.
+        local list = _G.FriendlyForeverBuffList
+        Expect(list ~= nil and list:IsShown(), "the list isn't up")
+        local member
+        for _, row in ipairs(list.rows) do
+            if row:IsShown() and (row.text:GetText() or ""):find(States.GROUPMATE, 1, true) then member = row end
+        end
+        Expect(member ~= nil, "the list has no row for " .. States.GROUPMATE)
+        member:GetScript("OnClick")(member)
         Expect(button.title:GetText() == States.GROUPMATE, "the title doesn't name " .. States.GROUPMATE)
         Expect(button.subtitle:GetText() == "missing your " .. States.SPELL.name,
             "the hint doesn't offer " .. States.SPELL.name)

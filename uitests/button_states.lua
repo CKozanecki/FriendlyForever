@@ -28,7 +28,9 @@
 --     moved on only by Advance, so the login grace and the result line under
 --     the button pass whatever the runner's speed.
 --
--- Each state's Undo puts back everything its Set did.
+-- Each state's Undo puts back everything its Set did, except what the
+-- simulator seeded at random and a Set removed (NoFortitude): no scenario
+-- can rely on that.
 
 local States = {}
 FriendlyForeverUIStates = States
@@ -227,6 +229,28 @@ function States.PartyOf(names)
     for i, name in ipairs(names) do Admin("SetPartyMember", i, name, States.WARRIOR, 60) end
 end
 
+-- The auras that count as your own Power Word: Fortitude to the addon
+-- (BuffData.lua's Priest "fortitude": every rank and the group version).
+local FORTITUDE_IDS = { 10938, 10937, 2791, 1245, 1244, 1243, 21564, 21562 }
+States.FORTITUDE_IDS = FORTITUDE_IDS -- for spec/uitests_states_spec.lua
+
+-- The simulator seeds the player with 4 to 6 random buffs when it starts, and
+-- its pool includes Power Word: Fortitude (21562) one start in five (wow-ui-sim
+-- ac893c6, docs/ui-simulator.md). Then buff mode never offers you your own
+-- Fortitude, and a scenario that expects "You" first flakes (#223). Take every
+-- Fortitude off the player, and fail loudly if one stays, so a change to the
+-- simulator's pool can't make a scenario pass or fail by chance.
+function States.NoFortitude()
+    for _, id in ipairs(FORTITUDE_IDS) do Admin("RemoveBuff", id) end
+    for i = 1, 255 do
+        local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
+        if not aura then return end
+        for _, id in ipairs(FORTITUDE_IDS) do
+            if aura.spellId == id then error("the player still wears Fortitude (" .. id .. ")", 2) end
+        end
+    end
+end
+
 -- Put the party back as it was (its members' names, classes and levels;
 -- not their buffs: SetPartyMember now clears a member's auras, #100 item 5,
 -- fixed in wow-ui-sim d907b88), if anything here changed it.
@@ -359,6 +383,7 @@ States.GroupMissing = {
     Set = function()
         States.PassLoginGrace()
         States.Learn()
+        States.NoFortitude()
         States.Party(States.GROUPMATE)
         Command("buffmode on")
     end,
