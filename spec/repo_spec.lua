@@ -523,7 +523,8 @@ describe("UI simulator workflow", function()
             local script = jobs.changes.text:match("run: |\n(.-)\n\n") or jobs.changes.text:match("run: |\n(.*)$")
             assert.is_truthy(script and script:find("comments_only", 1, true), "couldn't find the deciding script")
             -- GitHub runs a step with no shell: key as bash -e, and so does this test.
-            assert.is_falsy(jobs.changes.text:find("\n%s*shell:"), "the deciding step names its own shell")
+            -- Nowhere: a workflow- or job-level defaults: could set one too.
+            assert.is_falsy(withoutComments(text):find("shell:"), "ui-sim.yml names a shell")
             local dir = io.popen("mktemp -d"):read("*l")
             local body = io.open(dir .. "/decide.sh", "w")
             body:write((script:gsub("\n          ", "\n"):gsub("^%s+", "")))
@@ -638,6 +639,14 @@ describe("UI simulator workflow", function()
             write({ ["BuffData.lua"] = data })
             sh("git commit -qam nulgone")
             assert.are.equal("true", answer("push", nulBase), "a NUL byte in the old version skipped the simulator")
+            -- A carriage return inside the old TOC's version line could hide a file line the bump removes.
+            sh("git checkout -q -B main root")
+            write({ ["FriendlyForever.toc"] = edit(toc, "1.0.1\n", "1.0.1\rWater.lua\n") })
+            sh("git commit -qam crbase")
+            local crBase = io.popen("cd '" .. repo .. "' && git rev-parse HEAD"):read("*l")
+            write({ ["FriendlyForever.toc"] = bumped })
+            sh("git commit -qam crgone")
+            assert.are.equal("true", answer("push", crBase), "a carriage return in the old TOC skipped the simulator")
             -- A push to main compares with the commit before it.
             sh("git checkout -q -B main root")
             write({ ["FriendlyForever.toc"] = bumped, ["BuffData.lua"] = edit(data, "-- one", "-- 1") })
@@ -2030,7 +2039,8 @@ describe("Release workflow", function()
         -- Runs the step's own script against a fake gh that answers from files.
         it("passes on success, runs the tests when unsure, and fails on a failed check (white, black)", function()
             -- GitHub runs a step with no shell: key as bash -e, and so does this test.
-            assert.is_falsy(ciStep.text:find("\n%s*shell:"), "the step that asks CI names its own shell")
+            -- Nowhere: a workflow- or job-level defaults: could set one too.
+            assert.is_falsy(withoutComments(wow.readFile(path)):find("shell:"), "release.yml names a shell")
             local script = ciStep.text:match("run: |\n(.*)$")
             assert.is_truthy(script and script:find("set %-u"), "couldn't find the script that asks CI")
             local dir = io.popen("mktemp -d"):read("*l")
