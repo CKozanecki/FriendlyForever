@@ -1,5 +1,6 @@
 # Dev tooling lives outside the project because LuaRocks cannot build in
 # paths containing spaces. Override with: make TOOLS=/some/path ...
+# SPECS names the spec files to run (default: all of them), as CI's shards do.
 TOOLS ?= $(HOME)/.cache/friendlyforever
 BIN := $(TOOLS)/lua51/bin
 
@@ -13,7 +14,7 @@ lint:
 	"$(BIN)/luacheck" .
 
 test:
-	"$(BIN)/busted"
+	"$(BIN)/busted" $(SPECS)
 
 package:
 	./scripts/package.sh
