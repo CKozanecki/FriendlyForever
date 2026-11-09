@@ -269,8 +269,9 @@ describe("The generated buff table", function()
         end)
 
         it("refuses a duplicated spell, NaN, and a file that is not JSON", function()
-            refuses(spells(467, '"Thorns"', '"Rank 1"',
-                { ',{"ID":467,"NameSubtext_lang":"Rank 2"}', ',{"ID":467,"Name_lang":"Thorns"}' }), "duplicate")
+            refuses(spells(467, '"Thorns"', '"Rank 1"', { "", ',{"ID":467,"Name_lang":"Thorns"}' }), "duplicate name row")
+            refuses(spells(467, '"Thorns"', '"Rank 1"', { ',{"ID":467,"NameSubtext_lang":"Rank 2"}', "" }),
+                "duplicate spell row")
             refuses(spells("NaN", '"Thorns"', '"Rank 1"'), "NaN")
             refuses("not json at all", "not JSON")
             refuses("", "empty")
