@@ -324,6 +324,22 @@ describe("Top-up timing renews group versions (#206)", function()
             return false
         end
 
+        -- Whether u wears a live Mark or Gift stronger than strength that is
+        -- running low: a readable time, longer than the threshold, with less
+        -- of it left.
+        local function lowStronger(u, strength, threshold)
+            if u.secrets and u.secrets.auraTimes then return false end
+            for i, id in ipairs(u.auras or {}) do
+                local duration, expires = u.auraDurations[i], u.auraExpires[i]
+                if STRENGTH[id] and STRENGTH[id] < strength and not wow.auraExpired(u, i)
+                    and type(duration) == "number" and type(expires) == "number"
+                    and duration > threshold and expires > 0 and expires - wow.now < threshold then
+                    return true
+                end
+            end
+            return false
+        end
+
         it("expiring group versions, junk times and rank changes never give a cast the state forbids", function()
             -- Per known set: renewals by single and group casts over a live
             -- Mark or Gift; held, steps where a low buff stronger than your
@@ -407,8 +423,8 @@ describe("Top-up timing renews group versions (#206)", function()
                         stronger[u.id] = wearsStronger(u, 2, false)
                         strongerOfMine[u.id] = wearsStronger(u, 2, true)
                         -- A low buff stronger than your single ranks: never offered.
-                        if minutes > 0 and wore[u.id] and not allowed[u.id] and known.single == 2
-                            and stronger[u.id] then
+                        if minutes > 0 and not allowed[u.id] and known.single == 2
+                            and lowStronger(u, 2, minutes * 60) then
                             reach[k].held = reach[k].held + 1
                         end
                     end
