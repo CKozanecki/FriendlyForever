@@ -458,7 +458,7 @@ describe("Who gets each buff", function()
             assert.are.same({ ["ann-vale"] = "Ann-Vale" }, who.thorns.always)
             assert.is_nil(who.thorns.never)
             assert.are.equal("tanks", ns.BuffRules.Rule(ns.BuffData.CLASSES.DRUID[2]))
-            assert.are.equal("all", ns.BuffRules.Rule(ns.BuffData.CLASSES.PALADIN[4]), "a damaged rule is everyone (Light)")
+            assert.are.equal("all", ns.BuffRules.Rule(ns.BuffData.CLASSES.PALADIN[1]), "a buff with no default is everyone (Kings)")
             boot({ db = { buffBack = { whoGets = "tanks" } } })
             assert.are.same({}, ns.db.buffBack.whoGets)
         end)
@@ -535,9 +535,9 @@ describe("Who gets each buff", function()
             assert.are.same({ "Ann-Vale Thorns" }, out)
         end)
 
-        it("Kings and Light still go to everyone", function()
+        it("Kings still goes to everyone", function()
             blessings()
-            for _, key in ipairs({ "kings", "light" }) do
+            for _, key in ipairs({ "kings" }) do
                 assert.are.equal("all", ns.BuffRules.Rule(ns.BuffData.ByKey(key)))
             end
             assert.are.equal(3, #given("kings", { "ROGUE", "WARLOCK", "PRIEST" }))
