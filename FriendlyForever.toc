@@ -2,7 +2,7 @@
 ## Title: Friendly Forever
 ## Notes: Greets guildmates who log in, welcomes new guild and party members, and thanks people who buff you.
 ## Author: Chris Kozanecki
-## Version: 1.0.0
+## Version: 1.0.1
 ## IconTexture: Interface\AddOns\FriendlyForever\Media\Icon
 ## SavedVariables: FriendlyForeverDB
 ## Category: Chat
