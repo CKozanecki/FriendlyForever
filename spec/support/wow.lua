@@ -356,12 +356,20 @@ nameSpell("Prayer of Shadow Protection", { 27683 })
 -- subgroup) and uses one reagent, by item ID, as in Classic Era; Forever's
 -- are unconfirmed (#202). Kept apart from the addon's table (BuffData.lua).
 M.ITEM = { arcanePowder = 17020, holyCandle = 17028, sacredCandle = 17029, wildBerries = 17021,
-    wildThornroot = 17026 }
+    wildThornroot = 17026, symbolOfKings = 21177 }
 M.GROUP_CASTS = {
     [23028] = M.ITEM.arcanePowder, [21564] = M.ITEM.sacredCandle, [21562] = M.ITEM.holyCandle,
     [27681] = M.ITEM.sacredCandle, [27683] = M.ITEM.sacredCandle,
     [21850] = M.ITEM.wildThornroot, [21849] = M.ITEM.wildBerries,
+    -- Greater Blessings: Symbol of Kings, and they cover the target's class.
+    [25898] = M.ITEM.symbolOfKings, [25918] = M.ITEM.symbolOfKings, [25894] = M.ITEM.symbolOfKings,
+    [25916] = M.ITEM.symbolOfKings, [25782] = M.ITEM.symbolOfKings,
 }
+-- Group casts that cover the target's class in the group, not their party.
+M.CLASS_CASTS = { [25898] = true, [25918] = true, [25894] = true, [25916] = true, [25782] = true }
+nameSpell("Greater Blessing of Kings", { 25898 })
+nameSpell("Greater Blessing of Wisdom", { 25918, 25894 })
+nameSpell("Greater Blessing of Might", { 25916, 25782 })
 nameSpell("Power Word: Fortitude", { 10938, 10937, 2791, 1245, 1244, 1243 })
 nameSpell("Divine Spirit", { 27841, 14819, 14818, 14752 })
 nameSpell("Shadow Protection", { 10958, 10957, 976 })
@@ -621,18 +629,31 @@ end
 -- The group members a group version cast on target reaches (#41): the
 -- target's party, in a raid their subgroup (unit.subgroup, 1 unless set),
 -- less anyone offline, dead, out of range or out of sight. Unit tokens.
-local function groupCovered(target)
+local function groupCovered(target, byClass)
     local inRaid = M.state.groupType == "raid" or M.state.raidSized
+    -- A unit's class: yours is the client's.
+    local function classOf(u)
+        if u == M.state.units.player then return M.state.class end
+        return u.class
+    end
     local out = {}
     for token, u in pairs(M.state.units) do
         if (token:find("^party%d") or token:find("^raid%d"))
-            and not u.offline and not u.dead and not u.outOfRange and not u.hidden
-            and (not inRaid or (u.subgroup or 1) == (target.subgroup or 1)) then
-            out[#out + 1] = token
+            and not u.offline and not u.dead and not u.outOfRange and not u.hidden then
+            local same
+            if byClass then
+                same = classOf(u) ~= nil and classOf(u) == classOf(target)
+            else
+                same = not inRaid or (u.subgroup or 1) == (target.subgroup or 1)
+            end
+            if same then out[#out + 1] = token end
         end
     end
     -- In a party you are one of its members, though not one of its slots.
-    if not inRaid and M.state.groupType ~= nil then out[#out + 1] = "player" end
+    if not inRaid and M.state.groupType ~= nil
+        and (not byClass or M.state.class == classOf(target)) then
+        out[#out + 1] = "player"
+    end
     table.sort(out)
     return out
 end
@@ -673,7 +694,7 @@ local function cast(args)
     -- A group version (#41) uses a reagent and covers the target's party.
     local reagent = M.GROUP_CASTS[id]
     if reagent and (M.state.items[reagent] or 0) < 1 then failure = failure or "Missing reagent" end
-    local covered = reagent and groupCovered(target) or nil
+    local covered = reagent and groupCovered(target, M.CLASS_CASTS[id]) or nil
     local coveredUnits = {}
     for i, token in ipairs(covered or {}) do coveredUnits[i] = M.state.units[token] end
     castCount = castCount + 1

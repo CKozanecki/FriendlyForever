@@ -28,6 +28,13 @@ ns.GroupCasts = GroupCasts
 GroupCasts.SKIP_SECONDS = 300
 GroupCasts.MAX_SUBGROUP = 8
 
+-- What a class is called in "Warriors (6 missing)", by class file name. A
+-- class that isn't here is a class we can't name: unreadable.
+local CLASS_PLURAL = {
+    WARRIOR = "Warriors", PALADIN = "Paladins", HUNTER = "Hunters", ROGUE = "Rogues", PRIEST = "Priests",
+    SHAMAN = "Shamans", MAGE = "Mages", WARLOCK = "Warlocks", DRUID = "Druids",
+}
+
 local skipped = {} -- [buff key .. "\1" .. group key] = GetTime() you right-clicked it
 
 local function Recently(at, seconds)
@@ -63,12 +70,14 @@ local function ReagentName(item)
     return ns.BuffData.REAGENTS[item] or "reagent"
 end
 
--- Everyone in your group with the subgroup they're in: { unit, name, class,
--- group = key, label }, you included (a group version covers you
--- too), or nil and why when it can't be told. In a party everyone is one
--- group; in a raid a member's subgroup is GetRaidRosterInfo's, and one that
--- can't be read for anyone leaves every subgroup unknown.
-local function Roster(units, inRaid)
+-- Everyone in your group with the group a cast would cover them in: { unit,
+-- name, class, group = key, label }, you included (a group version covers
+-- you too), or nil and why when it can't be told. A party-wide version
+-- (scope "party"): in a party everyone is one group; in a raid a member's
+-- subgroup is GetRaidRosterInfo's, and one that can't be read for anyone
+-- leaves every subgroup unknown. A class-wide one (scope "class"): a
+-- member's class.
+local function Roster(units, inRaid, scope)
     local out = {}
     local me = Util.UnitFullName("player")
     local sawMe = false
@@ -79,7 +88,13 @@ local function Roster(units, inRaid)
             sawMe = sawMe or isMe
             local entry = { unit = unit, name = name, isMe = isMe,
                 class = select(2, Read(UnitClass, unit)) }
-            if inRaid then
+            if scope == "class" then
+                -- Every member of the target's class (Greater Blessings): a
+                -- class that can't be read or named leaves every class unknown.
+                local plural = type(entry.class) == "string" and CLASS_PLURAL[entry.class]
+                if not plural then return nil, "can't read a group member's class" end
+                entry.group, entry.label = entry.class, plural
+            elseif inRaid then
                 local _, _, subgroup = Read(GetRaidRosterInfo, i)
                 if type(subgroup) ~= "number" or subgroup ~= math.floor(subgroup)
                     or subgroup < 1 or subgroup > GroupCasts.MAX_SUBGROUP then
@@ -96,8 +111,14 @@ local function Roster(units, inRaid)
     -- you too: your rules and your own buffs count like anyone's. (In a raid
     -- the game gives you a slot.)
     if not inRaid and not sawMe then
-        out[#out + 1] = { unit = "player", name = me, isMe = true, group = "party", label = "your party",
+        local entry = { unit = "player", name = me, isMe = true, group = "party", label = "your party",
             class = select(2, Read(UnitClass, "player")) }
+        if scope == "class" then
+            local plural = type(entry.class) == "string" and CLASS_PLURAL[entry.class]
+            if not plural then return nil, "can't read a group member's class" end
+            entry.group, entry.label = entry.class, plural
+        end
+        out[#out + 1] = entry
     end
     return out
 end
@@ -132,6 +153,31 @@ local function WearsHigherRank(unit, buff, equals)
     return false
 end
 
+-- The other Blessing of yours (a buff of buff's family, but not buff) unit
+-- wears: that buff, false when none, or nil when their buffs, or who cast
+-- one, can't be read. A Greater Blessing replaces the Blessing of yours on
+-- everyone it covers, so nobody's Might may be turned into Kings.
+local function WearsOtherBlessing(unit, buff)
+    local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    if not api then return nil end
+    for i = 1, ns.Offers.MAX_AURAS do
+        local ok, aura = pcall(api, unit, i, "HELPFUL")
+        if not ok or Util.IsSecret(aura) then return nil end
+        if aura == nil then return false end
+        local id = aura.spellId
+        if Util.IsSecret(id) then return nil end
+        local other = ns.BuffData.ForAura(id)
+        if other and other.family == buff.family and other.key ~= buff.key then
+            local source = aura.sourceUnit
+            if source == nil or Util.IsSecret(source) then return nil end
+            local mine = Read(UnitIsUnit, source, "player")
+            if mine == nil then return nil end
+            if mine then return other end
+        end
+    end
+    return false
+end
+
 local function Cap(text)
     return (text:gsub("^%l", string.upper))
 end
@@ -155,6 +201,14 @@ local function WhyNot(buff, spell, members, iAmFlagged)
         local allowed, ruleWhy = ns.BuffRules.Allows(buff, { unit = m.unit, name = m.name or "", class = m.class })
         if allowed == nil then return ruleWhy and (Cap(who) .. ": " .. ruleWhy) or "a rule can't be applied" end
         if allowed ~= true then return "your rules leave " .. who .. " out" end
+        if buff.family then
+            local other = WearsOtherBlessing(m.unit, buff)
+            if other == nil then return "can't tell whose Blessing " .. who .. " wears" end
+            if other then
+                return Cap(who) .. (m.isMe and " wear" or " wears") .. " your "
+                    .. (ns.BuffData.SpellName(other) or "other Blessing") .. ", which it would replace"
+            end
+        end
         local higher = WearsHigherRank(m.unit, buff, spell.equals)
         if higher == nil then return "can't tell whose buff " .. who .. " wears" end
         if higher then return Cap(who) .. (m.isMe and " wear" or " wears") .. " a higher rank of yours" end
@@ -184,6 +238,10 @@ function GroupCasts.Offer(buff, members, ctx)
         return nil, why, true
     end
 
+    -- Class-wide versions (Greater Blessings) are for a raid: in a party the
+    -- single Blessing is just as fast, so nothing is said about them.
+    if spell.scope == "class" and not ctx.inRaid then return nil end
+
     local missing = {}
     for _, member in ipairs(members) do
         if ctx.Needs(member) then missing[#missing + 1] = member end
@@ -198,7 +256,7 @@ function GroupCasts.Offer(buff, members, ctx)
     if count == nil then return Single("Can't count your " .. ReagentName(spell.reagent)) end
     if count < 1 then return Single("No " .. ReagentName(spell.reagent)) end
 
-    local roster, why = Roster(ctx.units, ctx.inRaid)
+    local roster, why = Roster(ctx.units, ctx.inRaid, spell.scope)
     if not roster then return Single(why) end
     local groups, order = {}, {}
     for _, entry in ipairs(roster) do

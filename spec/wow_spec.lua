@@ -460,6 +460,41 @@ describe("The simulated client's group versions (#41)", function()
         for _, id in ipairs(wow.casts[2].covered) do assert.are_not.equal("Me", id) end
     end)
 
+    it("covers the target's class for a Greater Blessing, and uses a Symbol of Kings", function()
+        wow.boot({ before = function(state)
+            state.class = "PALADIN"
+            state.knownSpells = { [25898] = true }
+            state.items = { [wow.ITEM.symbolOfKings] = 2 }
+        end })
+        wow.setGroup("raid", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
+        for i, class in ipairs({ "WARRIOR", "MAGE", "WARRIOR", "WARRIOR" }) do
+            wow.state.units["raid" .. i].class = class
+        end
+        wow.state.units.raid4.outOfRange = true
+        wow.state.units.raid1.subgroup = 5 -- the subgroup doesn't matter to a class cast
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Greater Blessing of Kings")
+        local record = wow.casts[1]
+        assert.are.same({ "Ann-Vale", "Cid-Rock" }, record.covered, "warriors in range, whatever their subgroup")
+        assert.are.equal(1, wow.state.items[wow.ITEM.symbolOfKings])
+        assert.are.same({ 25898 }, wow.state.units.raid3.auras)
+        assert.is_nil(wow.state.units.raid2.auras, "the mage isn't covered")
+    end)
+
+    it("covers you in a Greater Blessing when your class is the target's", function()
+        wow.boot({ before = function(state)
+            state.class = "PALADIN"
+            state.knownSpells = { [25898] = true }
+            state.items = { [wow.ITEM.symbolOfKings] = 2 }
+        end })
+        wow.setGroup("party", { "Ann-Vale" })
+        wow.state.units.party1.class = "PALADIN"
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Greater Blessing of Kings")
+        assert.are.same({ "Ann-Vale", "Me" }, wow.casts[1].covered)
+        wow.state.units.party1.class = "WARRIOR"
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Greater Blessing of Kings")
+        assert.are.same({ "Ann-Vale" }, wow.casts[2].covered)
+    end)
+
     it("doesn't touch a unit that left the group before a slow answer", function()
         boot()
         wow.state.castLatency = 1
