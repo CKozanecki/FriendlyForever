@@ -226,6 +226,18 @@ describe("Greater Blessings in buff mode (#41)", function()
             assert.is_truthy(button.subtitle:GetText():find("your rules leave", 1, true))
         end)
 
+        it("is never offered with 'tanks only': the single Blessing goes to each tank", function()
+            boot()
+            raid(WARRIORS)
+            ns.db.buffBack.whoGets = { kings = { rule = "tanks" } }
+            for _, token in ipairs(tokensOf("WARRIOR")) do wow.state.units[token].role = "TANK" end
+            assert.are.equal("Ann Vale: Blessing of Kings", armed(), "even when every warrior is a tank")
+            assert.are.equal("missing your Blessing of Kings", button.subtitle:GetText(), "and no note")
+            ns.db.buffBack.whoGets = { kings = { rule = "notTanks" } }
+            for _, token in ipairs(tokensOf("WARRIOR")) do wow.state.units[token].role = "DAMAGER" end
+            assert.are.equal("Ann Vale: Greater Blessing of Kings", armed(), "other rules still allow it")
+        end)
+
         it("is not offered with no Symbol of Kings, or when the count can't be read", function()
             boot({ items = {} })
             raid(WARRIORS)

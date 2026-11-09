@@ -241,6 +241,10 @@ function GroupCasts.Offer(buff, members, ctx)
     -- Class-wide versions (Greater Blessings) are for a raid: in a party the
     -- single Blessing is just as fast, so nothing is said about them.
     if spell.scope == "class" and not ctx.inRaid then return nil end
+    -- "Tanks only" never gets a class-wide cast (#41: Greater Blessing of
+    -- Kings is never offered with "Kings: tanks only"): the single Blessing
+    -- goes to each tank.
+    if spell.scope == "class" and ns.BuffRules.Rule(buff) == "tanks" then return nil end
 
     local missing = {}
     for _, member in ipairs(members) do
