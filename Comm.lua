@@ -602,16 +602,17 @@ Comm.RegisterType("GREET", {
 
 -- Sent to the raid by each copy (RaidSplit.lua) when it joins, when the
 -- roster changes, and when what it gives changes. Fields: the buff keys it
--- can give, in its buff order ("-": none), and its Blessings set by hand
--- for this raid ("-": none). Never names or free text. It can only put its
--- own sender into the receiver's split, among raid members of the
--- receiver's class.
-function Comm.SendShare(keys, fixed)
-    return Comm.Send("SHARE", { keys, fixed }, "RAID")
+-- can give, in its buff order ("-": none), its Blessings set by hand for
+-- this raid ("-": none), and "1" when it asks to hear the others' (its
+-- first since joining or a reload). Never names or free text. It can only
+-- put its own sender into the receiver's split, among raid members of the
+-- receiver's class, and ask for one rate-limited answer.
+function Comm.SendShare(keys, fixed, ask)
+    return Comm.Send("SHARE", { keys, fixed, ask and "1" or "0" }, "RAID")
 end
 
 Comm.RegisterType("SHARE", {
-    fields = { Comm.Field.KeyList, Comm.Field.KeyList },
+    fields = { Comm.Field.KeyList, Comm.Field.KeyList, Comm.Field.Flag },
     routes = { RAID = true },
-    handler = function(sender, fields) ns.RaidSplit.OnShare(sender, fields[1], fields[2]) end,
+    handler = function(sender, fields) ns.RaidSplit.OnShare(sender, fields[1], fields[2], fields[3] == "1") end,
 })

@@ -1,5 +1,9 @@
 # Changelog
 
+### Unreleased
+
+- **Raid buff split:** in a raid, copies of Friendly Forever share out the buffs their class has in common, so three priests give Fortitude, Spirit and Shadow Protection between them, and two paladins give different Blessings (one Kings, the other Wisdom and Might) instead of all giving the same one. Buff mode offers you only your share, group versions included; your who-gets-it rules still decide who gets it. Setting **Blessings I give in this raid** by hand still works: the other paladins share out the rest around it. A player who leaves the raid or goes offline has their share picked up by the others. With no other copy of your class in the raid, or outside a raid, nothing changes. Copies tell each other only buff names from the addon's own list, over the hidden addon channel; anything else is ignored, and nothing is ever cast without your press. This version adds a file (RaidSplit.lua): after updating, restart the game; /reload isn't enough. (#70)
+
 ## 1.0.1
 
 - **Blessing of Light is gone:** Blizzard removed it, so it is no longer offered, tracked or listed; settings and profiles that mention it still load and keep their values. This corrects the 1.0.0 note. (#237, #225)

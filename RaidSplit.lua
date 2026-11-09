@@ -180,6 +180,7 @@ local function Players()
     if not class then return nil, "can't read your class" end
     local me = Util.UnitFullName("player")
     if not me then return nil, "can't read your name" end
+    if next(ClassKeys(class)) == nil then return nil, "your class has no buffs to share" end
     local mine = MyEntry(class)
     local list = { { name = me, keys = mine.keys, fixed = mine.fixed, me = true } }
     local roster = Roster()
@@ -217,9 +218,10 @@ local function Changed()
 end
 
 -- Whether buff mode may offer buff (it's yours to give in this raid): every
--- buff when there's no split, or a buff the split doesn't share.
+-- buff when there's no split, else your share (a buff the split doesn't
+-- share, such as Battle Shout, is never in it; buff mode never offers those
+-- to the group).
 function RaidSplit.Covers(buff)
-    if not Shared(buff) then return true end
     local mine = RaidSplit.Current()
     if not mine then return true end
     return mine[buff.key] == true
@@ -243,13 +245,14 @@ local function FixedText(fixed, order)
     return KeyText(out)
 end
 
--- What you'd announce now, as the message's two fields, or nil when you
+-- What you'd announce now, as the message's first two fields, or nil when you
 -- announce nothing (not in a raid, the channel is closed, your class
--- can't be read).
+-- can't be read or has nothing to share).
 local function MyFields()
     if not InRaid() or not ns.Comm.Ready() then return nil end
     local class = MyClass()
-    if not class then return nil end
+    -- A class with nothing to share (warriors) has nothing to say.
+    if not class or next(ClassKeys(class)) == nil then return nil end
     local mine = MyEntry(class)
     return KeyText(mine.keys), FixedText(mine.fixed, mine.keys)
 end
@@ -265,7 +268,9 @@ local function SendNow()
     if not keys then return end
     local text = keys .. ";" .. fixed
     if text == lastSent and not force then return end
-    if ns.Comm.SendShare(keys, fixed) then
+    -- The first since you joined (or since a reload) asks the others to
+    -- say theirs: they may not have changed, so wouldn't say it otherwise.
+    if ns.Comm.SendShare(keys, fixed, lastSent == nil) then
         lastSent, lastSentAt = text, GetTime()
     end
 end
@@ -316,9 +321,9 @@ local function ParseKeys(text, allowed)
 end
 
 -- SHARE from another copy (Comm.lua): the buff keys it gives, in its order,
--- and its Blessings set by hand ("-": none). Untrusted.
-function RaidSplit.OnShare(sender, keysText, fixedText)
-    if not InRaid() then return end
+-- its Blessings set by hand ("-": none), and whether it asks to hear ours
+-- (it just arrived). Untrusted.
+function RaidSplit.OnShare(sender, keysText, fixedText, asks)
     local class = MyClass()
     if not class then return end
     if not Eligible(Roster(), sender, class) then
@@ -338,12 +343,12 @@ function RaidSplit.OnShare(sender, keysText, fixedText)
             fixed[key] = true
         end
     end
-    local known = peers[sender] ~= nil
     peers[sender] = { keys = keys, fixed = fixed }
     Changed()
     ns.Diag.Log("split", "%s gives %s (by hand: %s)", sender, KeyText(keys), fixedText)
-    -- A copy we hadn't heard yet may not have heard us.
-    if not known then RaidSplit.Announce(true) end
+    -- Rate-limited (Announce): a sender asking again and again costs one
+    -- message per MIN_GAP.
+    if asks then RaidSplit.Announce(true) end
 end
 
 -- The roster changed (GROUP_ROSTER_UPDATE): forget everyone who left the

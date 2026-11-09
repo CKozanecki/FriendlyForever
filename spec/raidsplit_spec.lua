@@ -285,6 +285,45 @@ describe("The raid buff split (#70)", function()
             assert.is_nil(share(clients[1])) -- out of the raid: no split
         end)
 
+        it("a leaver is forgotten, and a copy that leaves forgets the raid", function()
+            form({ clients[2], clients[3] })
+            wow.use(clients[2])
+            assert.equal(1, clients[2].ns.RaidSplit.PeerCount())
+            wow.use(clients[1])
+            assert.equal(0, clients[1].ns.RaidSplit.PeerCount())
+        end)
+
+        it("out of the raid there's no split, even before the roster update arrives", function()
+            wow.use(clients[1])
+            wow.setGroup("party", { "Bob-Lake" })
+            assert.is_nil(share(clients[1]))
+        end)
+
+        it("a copy that reloads in the raid asks, and hears everyone's share again", function()
+            -- Ann's /reload: a fresh copy of the addon, still in the raid.
+            local old = clients[1]
+            local fresh = wow.newClient({ name = "Ann", surname = "Vale", db = { buffBack = { buffOrder =
+                { "fortitude", "spirit", "shadow" } } }, before = function(state)
+                    state.class = "PRIEST"
+                    state.knownSpells = { [FORT] = true, [SPIRIT] = true, [SHADOW] = true }
+                end })
+            fresh.class = "PRIEST"
+            wow.setGroup("raid", { "Bob-Lake", "Cid-Rock", "Tor-Axe" })
+            for i, class in ipairs({ "PRIEST", "PRIEST", "WARRIOR" }) do wow.state.units["raid" .. i].class = class end
+            wow.state.networked = true
+            net.clients[1], net.seen[fresh] = fresh, 0
+            clients[1] = fresh
+            -- The game says nothing about the roster after a reload; only
+            -- PLAYER_ENTERING_WORLD.
+            wow.reloadInPlace()
+            wow.advanceAll(net, 30, 0.5)
+            assert.equal("fortitude", share(fresh))
+            assert.equal("spirit", share(clients[2]))
+            assert.equal("shadow", share(clients[3]))
+            assert.equal(2, fresh.ns.RaidSplit.PeerCount())
+            assert.is_not_nil(old)
+        end)
+
         it("a player who goes offline has their share picked up by the others", function()
             for _, c in ipairs({ clients[2], clients[3] }) do
                 wow.use(c)
@@ -326,6 +365,24 @@ describe("The raid buff split (#70)", function()
             assert.is_nil(share(clients[1]))
             assert.is_nil(share(clients[2]))
             wow.use(clients[1])
+            assert.truthy(clients[1].ns.RaidSplit.StatusLine():find("not in a raid", 1, true))
+            for _, msg in ipairs(wow.addonSent) do assert.is_nil(msg.text:find(";SHARE;", 1, true)) end
+        end)
+    end)
+
+    describe("classes with nothing to share (black)", function()
+        it("two warriors don't split: Battle Shout reaches only your party", function()
+            local BATTLE_SHOUT = 25289
+            raid({
+                { name = "Ann", surname = "Vale", class = "WARRIOR", known = { [BATTLE_SHOUT] = true } },
+                { name = "Bob", surname = "Lake", class = "WARRIOR", known = { [BATTLE_SHOUT] = true } },
+            })
+            form()
+            assert.is_nil(share(clients[1]))
+            wow.use(clients[1])
+            local shout = clients[1].ns.BuffData.ByKey("battleshout")
+            assert.is_true(clients[1].ns.BuffRules.CoversInRaid(shout))
+            assert.truthy(clients[1].ns.RaidSplit.StatusLine():find("no buffs to share", 1, true))
             for _, msg in ipairs(wow.addonSent) do assert.is_nil(msg.text:find(";SHARE;", 1, true)) end
         end)
     end)
@@ -348,24 +405,25 @@ describe("The raid buff split (#70)", function()
         end
 
         it("a well-formed share from a priest in the raid splits (the control)", function()
-            hear("1;SHARE;Pia-Light;fortitude,spirit,shadow;-")
+            hear("1;SHARE;Pia-Light;fortitude,spirit,shadow;-;0")
             -- Ann picks first, Pia then picks twice (the second round runs backwards).
             assert.equal("fortitude", share(me))
         end)
 
         it("spoofed, malformed, out-of-raid, wrong-class, offline and flooding shares change nothing", function()
             local bad = {
-                { "1;SHARE;Pia-Light;fortitude,spirit;-", "Tor-Axe" },         -- about someone else
-                { "1;SHARE;Tor-Axe;fortitude,spirit;-", "Tor-Axe" },           -- a warrior
-                { "1;SHARE;Zed-Away;fortitude;-", "Zed-Away" },                 -- not in the raid
-                { "1;SHARE;Off-Line;fortitude;-", "Off-Line" },                 -- offline
-                { "1;SHARE;Pia-Light;fortitude", "Pia-Light" },                  -- a field missing
-                { "1;SHARE;Pia-Light;fortitude;-;x", "Pia-Light" },              -- one too many
-                { "1;SHARE;Pia-Light;Fort itude;-", "Pia-Light" },               -- not a key
-                { "1;SHARE;Pia-Light;a,b,c,d,e,f,g,h,i;-", "Pia-Light" },        -- too many keys
-                { "1;SHARE;Pia-Light;fortitude;-", "Pia-Light", "WHISPER" },     -- the wrong route
-                { "1;SHARE;Pia-Light;fortitude;-", "Pia-Light", "GUILD" },
-                { "2;SHARE;Pia-Light;fortitude;-", "Pia-Light" },                -- another version
+                { "1;SHARE;Pia-Light;fortitude,spirit;-;0", "Tor-Axe" },         -- about someone else
+                { "1;SHARE;Tor-Axe;fortitude,spirit;-;0", "Tor-Axe" },           -- a warrior
+                { "1;SHARE;Zed-Away;fortitude;-;0", "Zed-Away" },                 -- not in the raid
+                { "1;SHARE;Off-Line;fortitude;-;0", "Off-Line" },                 -- offline
+                { "1;SHARE;Pia-Light;fortitude;-", "Pia-Light" },                  -- a field missing
+                { "1;SHARE;Pia-Light;fortitude;-;0;x", "Pia-Light" },            -- one too many
+                { "1;SHARE;Pia-Light;fortitude;-;2", "Pia-Light" },              -- not a flag
+                { "1;SHARE;Pia-Light;Fort itude;-;0", "Pia-Light" },               -- not a key
+                { "1;SHARE;Pia-Light;a,b,c,d,e,f,g,h,i;-;0", "Pia-Light" },        -- too many keys
+                { "1;SHARE;Pia-Light;fortitude;-;0", "Pia-Light", "WHISPER" },     -- the wrong route
+                { "1;SHARE;Pia-Light;fortitude;-;0", "Pia-Light", "GUILD" },
+                { "2;SHARE;Pia-Light;fortitude;-;0", "Pia-Light" },                -- another version
                 { string.rep("x", 300), "Pia-Light" },                           -- oversized
             }
             for _, case in ipairs(bad) do hear(case[1], case[2], case[3]) end
@@ -378,15 +436,47 @@ describe("The raid buff split (#70)", function()
         end)
 
         it("keys that aren't the class's buffs are dropped", function()
-            hear("1;SHARE;Pia-Light;intellect,might,battleshout,nonsense;kings")
+            hear("1;SHARE;Pia-Light;intellect,might,battleshout,nonsense;kings;0")
             -- Pia is in it, but gives nothing of ours: we keep everything.
             assert.equal("fortitude,shadow,spirit", share(me))
+            local _, all = me.ns.RaidSplit.Current()
+            assert.equal("", keysOf(all["Pia-Light"]))
+        end)
+
+        it("only Blessings a player says they give count as set by hand", function()
+            -- A priest can't set Fortitude by hand: Pia drafts like anyone.
+            hear("1;SHARE;Pia-Light;fortitude,spirit,shadow;fortitude;0")
+            assert.equal("fortitude", share(me))
+        end)
+
+        it("a share that asks for ours is answered, at most once per MIN_GAP however often it asks", function()
+            local function shares()
+                local n = 0
+                for _, msg in ipairs(wow.addonSent) do
+                    if msg.text:find(";SHARE;", 1, true) then n = n + 1 end
+                end
+                return n
+            end
+            wow.advance(30)
+            local before = shares()
+            hear("1;SHARE;Pia-Light;spirit;-;1")
+            wow.advance(me.ns.RaidSplit.SETTLE)
+            assert.equal(before + 1, shares())
+            -- Asked every second for a minute (the channel lets one a second through).
+            for _ = 1, 60 do
+                hear("1;SHARE;Pia-Light;spirit;-;1")
+                wow.advance(1)
+            end
+            wow.advance(me.ns.RaidSplit.MIN_GAP)
+            assert.is_true(shares() - before <= 1 + 60 / me.ns.RaidSplit.MIN_GAP + 1)
+            -- Ours doesn't ask back: it isn't our first.
+            assert.truthy(wow.addonSent[#wow.addonSent].text:find(";0$"))
         end)
 
         it("a player can only announce themselves, and once each: a flood doesn't grow the split", function()
-            for i = 1, 200 do hear("1;SHARE;Pia-Light;" .. (i % 2 == 0 and "spirit" or "shadow") .. ";-") end
+            for i = 1, 200 do hear("1;SHARE;Pia-Light;" .. (i % 2 == 0 and "spirit" or "shadow") .. ";-;0") end
             wow.advance(60)
-            hear("1;SHARE;Pia-Light;spirit;-")
+            hear("1;SHARE;Pia-Light;spirit;-;0")
             assert.equal(1, me.ns.RaidSplit.PeerCount())
             assert.equal("fortitude,shadow", share(me))
             assert.is_true(count(me.ns, "commFlood") > 0)
@@ -395,11 +485,31 @@ describe("The raid buff split (#70)", function()
         it("a share never casts, sends chat or changes saved settings", function()
             local casts, chat = #wow.casts, #wow.sent
             local saved = dump(_G.FriendlyForeverDB)
-            hear("1;SHARE;Pia-Light;fortitude,spirit,shadow;-")
+            hear("1;SHARE;Pia-Light;fortitude,spirit,shadow;-;0")
             wow.advance(30)
             assert.equal(casts, #wow.casts)
             assert.equal(chat, #wow.sent)
             assert.equal(saved, dump(_G.FriendlyForeverDB))
+        end)
+    end)
+
+    describe("an update that adds RaidSplit.lua (black)", function()
+        it("asks for a restart, not erroring, after only a /reload", function()
+            wow.reset()
+            local loaded = {}
+            local _, files = wow.parseToc()
+            for _, file in ipairs(files) do
+                if file ~= "RaidSplit.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+            end
+            wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+            wow.fire("PLAYER_ENTERING_WORLD", true, false)
+            wow.setGroup("raid", { "Pia-Light" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;SHARE;Pia-Light;fortitude;-;0", "RAID", "Pia-Light", "", 0, 0, "", 0)
+            wow.advance(20)
+            assert.are.same({}, wow.errors)
+            assert.are.equal(0, #wow.casts)
+            assert.truthy(table.concat(wow.printed, "\n"):find("Restart the game (not /reload)", 1, true))
         end)
     end)
 end)

@@ -70,7 +70,7 @@ function handlers.ADDON_LOADED(name)
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
         "BuffTable", "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
         "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "OptionsIndex", "Colours", "Walkthrough",
-        "BuffList", "GroupCasts" }) do
+        "BuffList", "GroupCasts", "RaidSplit" }) do
         if ns[module] == nil then
             local text = "this update added files. Restart the game (not /reload) to finish updating."
             ns.Print(ns.Colours and ns.Colours.Text("bad", text) or text)
@@ -99,6 +99,8 @@ function handlers.ADDON_LOADED(name)
             ns.Greeter.OnEnteringWorld()
             ns.Greeter.RequestRoster()
             ns.Walkthrough.OnLogin()
+            -- After a reload in a raid, say what you give and hear the others'.
+            ns.RaidSplit.OnRosterUpdate()
         end
     end)
     Register("CHAT_MSG_SYSTEM", ns.Greeter.OnSystemMessage)
