@@ -1,4 +1,4 @@
--- Spec: #154, #223
+-- Spec: #154, #223, #209
 -- The UI scenarios' game-event helpers (uitests/button_states.lua), run here
 -- against a stand-in for the simulator's A_Admin that records each call and
 -- event in order. They follow what wow-ui-sim ac893c6 does itself (its
@@ -178,6 +178,7 @@ describe("UI scenarios: the player's seeded buffs on wow-ui-sim ac893c6 (#223)",
     it("removes exactly the IDs the addon counts as Priest Fortitude (BuffData.lua), so a rank change can't leave one (white)", function()
         local States = load()
         local ns = { Util = {} }
+        assert(loadfile("BuffTable.lua"))("FriendlyForever", ns)
         assert(loadfile("BuffData.lua"))("FriendlyForever", ns)
         local expected = {}
         for _, buff in ipairs(ns.BuffData.CLASSES.PRIEST) do
