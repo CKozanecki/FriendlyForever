@@ -193,4 +193,3 @@ describe("UI scenarios: the player's seeded buffs on wow-ui-sim ac893c6 (#223)",
         assert.are.same(expected, removed)
     end)
 end)
-
