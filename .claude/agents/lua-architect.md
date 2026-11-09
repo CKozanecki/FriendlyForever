@@ -112,3 +112,4 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 
 **Merges**
 - A merge commit is checked with `git show <merge> --cc`: a line that matches neither parent was put there by hand or by accident, even outside the conflicts the driver lists (#46: 807bc8e carried a reviewer's temporary edit that neither side had).
+- A key kept known without a buff (`BuffTable.absent`, #209: Blessing of Light) passes every `BuffData.KEYS[key]` check, so any `ByKey(key)` after such a check must handle nil. #221's `BuffRules.Clean` and `ChosenClasses` indexed it: a damaged saved or pasted `light` rule raised on load. Neither PR had the bug alone; the merge did (#209's review).

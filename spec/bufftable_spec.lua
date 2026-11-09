@@ -213,6 +213,47 @@ describe("The generated buff table", function()
         end)
     end)
 
+    describe("a damaged rule for a buff that is not in the table (black)", function()
+        local function bootPaladin(db)
+            return wow.boot({ db = db, before = function(state)
+                state.class = "PALADIN"
+                state.knownSpells = { [20217] = true }
+            end })
+        end
+
+        it("loads without error and keeps the other settings", function()
+            ns = bootPaladin({ buffBack = { neverOffer = { kings = true },
+                whoGets = { light = { rule = "classes", classes = "junk" } } } })
+            assert.are.same({}, wow.errors)
+            assert.is_not_nil(ns.db)
+            assert.is_true(ns.db.buffBack.neverOffer.kings)
+            assert.are.equal("classes", ns.db.buffBack.whoGets.light.rule)
+        end)
+
+        it("is cleaned, not raised, when pasted in a settings line", function()
+            ns = bootPaladin({})
+            local line = "FF1:{Ssettings;{SbuffBack;{SwhoGets;{Slight;{Sclasses;N1;Srule;Sclasses;}}}}Sv;N1;}"
+            local ok = pcall(ns.Profiles.Import, line)
+            assert.is_true(ok, "importing a damaged rule for a buff not in the table must not raise")
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("can have a class ticked from a saved key without error (a call with the key alone)", function()
+            ns = bootPaladin({})
+            ns.BuffButton.Frame()
+            local ok, err = pcall(ns.BuffRules.SetClass, "light", "WARRIOR", true)
+            assert.is_true(ok, tostring(err))
+            assert.is_true(ns.db.buffBack.whoGets.light.classes.WARRIOR)
+        end)
+
+        it("is cleaned by the rules' own repair without error", function()
+            ns = bootPaladin({})
+            local ok, cleaned = pcall(ns.BuffRules.Clean, { light = { rule = "classes", classes = 5 } })
+            assert.is_true(ok, tostring(cleaned))
+            assert.are.equal("classes", cleaned.light.rule)
+        end)
+    end)
+
     describe("a new file after an update (black)", function()
         it("asks for a restart when only BuffTable.lua is new, and nothing errors", function()
             wow.reset()
