@@ -476,6 +476,8 @@ describe("UI simulator workflow", function()
                 { { "Greeter.lua", "Options.lua" }, "true" },
                 -- The palette every colour comes from (the architecture review).
                 { { "Colours.lua" }, "true" },
+                -- A file that creates frames, added by #43 after this list was written.
+                { { "BuffList.lua" }, "true" },
                 { { "uitests/x.lua" }, "true" },
                 { { ".github/workflows/ui-sim.yml" }, "true" },
                 { { "Media/a.tga" }, "true" },

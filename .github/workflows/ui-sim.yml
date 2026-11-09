@@ -118,7 +118,7 @@ jobs:
               *)
                 case "$file" in
                   .pkgmeta | *.toc | *.xml) hit=yes ;;
-                  Battleground.lua | BuffButton.lua | BuffMode.lua | BuffModeAuto.lua | ChatQueue.lua | Core.lua \
+                  Battleground.lua | BuffButton.lua | BuffList.lua | BuffMode.lua | BuffModeAuto.lua | ChatQueue.lua | Core.lua \
                     | Colours.lua | Minimap.lua | Nameplates.lua | Options.lua | OptionsIndex.lua | Walkthrough.lua | Water.lua \
                     | Window.lua) hit=yes ;;
                 esac ;;
