@@ -17,6 +17,12 @@ local PALADIN_SPELLS = { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true }
 local KEY_OF = { [FORT] = "fortitude", [PRAYER_FORT] = "fortitude", [SPIRIT] = "spirit", [SHADOW] = "shadow",
     [KINGS] = "kings", [WISDOM_1] = "wisdom", [MIGHT_1] = "might" }
 
+-- The chaos storm's seeds: each ends with at least two copies in the raid,
+-- and a paladin storm with one drafting (the test checks both).
+local SEEDS = { { n = 3, class = "PRIEST" }, { n = 7, class = "PRIEST" }, { n = 13, class = "PRIEST" },
+    { n = 2, class = "PALADIN" }, { n = 4, class = "PALADIN" }, { n = 10, class = "PALADIN" },
+    { n = 18, class = "PALADIN" } }
+
 local function count(ns, key)
     return ns.Diag.Counters()[key] or 0
 end
@@ -58,6 +64,7 @@ describe("The raid buff split (#70)", function()
             local buffBack = { buffOrder = p.order }
             for k, v in pairs(p.db or {}) do buffBack[k] = v end
             local c = wow.newClient({ name = p.name, surname = p.surname, buffDefaults = p.buffDefaults,
+                buffSelf = p.buffSelf,
                 db = { buffBack = buffBack },
                 before = function(state)
                     state.class = p.class
@@ -100,6 +107,9 @@ describe("The raid buff split (#70)", function()
                     wow.state.units["raid" .. i].class = class
                     wow.state.units["raid" .. i].subgroup = groups[i]
                 end
+                -- In the game you have a raid slot too (setGroup leaves it out).
+                wow.addUnit("raid" .. (#names + 1), { name = c.name, surname = c.surname, id = c.full,
+                    class = c.class, subgroup = c.group })
             else
                 wow.setGroup(nil)
             end
@@ -196,18 +206,35 @@ describe("The raid buff split (#70)", function()
                 wow.state.items[wow.ITEM.sacredCandle] = 5
                 c.ns.BuffData.SpellsChanged()
             end
+            local prayers = 0
             for _, c in ipairs(clients) do
                 for _, offer in ipairs(offers(c)) do
-                    if offer.cast then assert.equal(clients[1], c) end
+                    if offer.cast then
+                        assert.equal(clients[1], c)
+                        prayers = prayers + 1
+                    end
                     assert.equal(share(c), offer.buff.key)
                 end
             end
+            assert.is_true(prayers > 0, "the Fortitude priest is offered Prayer of Fortitude")
         end)
 
-        it("/friendly status names the split", function()
+        it("/friendly status names the split, and counts shares from outside the raid", function()
             wow.use(clients[2])
-            assert.equal("raid split: Your share: Divine Spirit; Ann Vale has Power Word: Fortitude, "
-                .. "Cid Rock has Shadow Protection", clients[2].ns.RaidSplit.StatusLine())
+            local function statusLine()
+                local from = #wow.printed
+                _G.SlashCmdList.FRIENDLYFOREVER("status")
+                for i = from + 1, #wow.printed do
+                    if wow.printed[i]:find("raid split:", 1, true) then return wow.printed[i] end
+                end
+            end
+            local line = statusLine()
+            assert.truthy(line:find("raid split: Your share: Divine Spirit; Ann Vale has Power Word: Fortitude, "
+                .. "Cid Rock has Shadow Protection; 0 shares ignored", 1, true), line)
+            wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;SHARE;Zed-Away;fortitude;-;0", "RAID", "Zed-Away",
+                "", 0, 0, "", 0)
+            line = statusLine()
+            assert.truthy(line:find("; 1 shares ignored", 1, true), line)
         end)
     end)
 
@@ -357,6 +384,20 @@ describe("The raid buff split (#70)", function()
             assert.equal("shadow", share(clients[3]))
             assert.equal(2, fresh.ns.RaidSplit.PeerCount())
             assert.is_not_nil(old)
+            -- Past the 3-minute silence: the reloaded copy keeps saying its
+            -- share (its heartbeat started again), so nobody takes it over.
+            wow.use(fresh)
+            local sentBefore = #wow.addonSent
+            wow.advanceAll(net, 300, 1)
+            assert.equal("fortitude", share(fresh))
+            assert.equal("spirit", share(clients[2]))
+            assert.equal("shadow", share(clients[3]))
+            wow.use(fresh)
+            local beats = 0
+            for i = sentBefore + 1, #wow.addonSent do
+                if wow.addonSent[i].text:find(";SHARE;", 1, true) then beats = beats + 1 end
+            end
+            assert.is_true(beats >= 4, tostring(beats))
         end)
 
         it("a player who goes offline has their share picked up by the others", function()
@@ -560,21 +601,35 @@ describe("The raid buff split (#70)", function()
         end)
 
         it("copies say their share again every minute, so the split holds as long as they're there", function()
-            local sharesSent = shares()
-            local before = sharesSent(clients[1])
-            wow.advanceAll(net, 600, 1)
+            wow.use(clients[1])
+            local from = #wow.addonSent
+            wow.advanceAll(net, 600, 0.5)
             assert.equal("fortitude", share(clients[1]))
             assert.equal("spirit", share(clients[2]))
             assert.equal("shadow", share(clients[3]))
-            local sent = sharesSent(clients[1]) - before
-            assert.is_true(sent >= 9 and sent <= 11, tostring(sent))
+            -- Exactly a minute apart, timed from the client's own record.
+            wow.use(clients[1])
+            local times = {}
+            for i = from + 1, #wow.addonSent do
+                if wow.addonSent[i].text:find(";SHARE;", 1, true) then times[#times + 1] = wow.addonSent[i].time end
+            end
+            assert.is_true(#times >= 9, tostring(#times))
+            for i = 2, #times do
+                assert.is_true(math.abs(times[i] - times[i - 1] - 60) < 0.01, tostring(times[i] - times[i - 1]))
+            end
         end)
 
         it("a player who goes quiet (no word for 3 minutes) has their share picked up by the others", function()
+            -- Ann's last share that got through, from her own record.
+            wow.use(clients[1])
+            local last
+            for _, msg in ipairs(wow.addonSent) do
+                if msg.text:find(";SHARE;", 1, true) then last = msg.time end
+            end
             net.lose = function(_, sender) return sender == clients[1] end
-            wow.advanceAll(net, 150, 1)
-            assert.equal("spirit", share(clients[2])) -- not yet: 3 minutes
-            wow.advanceAll(net, 60, 1)
+            wow.advanceAll(net, last + 180 - 1 - wow.now, 0.5)
+            assert.equal("spirit", share(clients[2])) -- a second short of 3 minutes: still counted
+            wow.advanceAll(net, 2, 0.5)
             assert.equal("fortitude", share(clients[2]))
             assert.equal("shadow,spirit", share(clients[3]))
         end)
@@ -601,11 +656,16 @@ describe("The raid buff split (#70)", function()
         it("a copy takes part while buff mode is on, and for 5 minutes after it goes off", function()
             wow.use(clients[1])
             clients[1].ns.BuffMode.Set(false)
-            wow.advanceAll(net, 240, 1)
-            assert.equal("fortitude", share(clients[1]))
+            local offAt = wow.now
+            wow.advanceAll(net, 300 - 0.5, 0.5)
+            assert.equal("fortitude", share(clients[1])) -- half a second short of 5 minutes
             assert.equal("spirit", share(clients[2]))
-            wow.advanceAll(net, 130, 1)
+            wow.advanceAll(net, 1, 0.5)
+            wow.use(clients[1])
+            assert.is_true(wow.now - offAt > 300)
             assert.is_nil(share(clients[1]))
+            -- The others hear it at the next heartbeat at the latest.
+            wow.advanceAll(net, 70, 1)
             assert.equal("fortitude", share(clients[2]))
             assert.equal("shadow,spirit", share(clients[3]))
             -- Saying "not taking part" once is enough.
@@ -620,6 +680,11 @@ describe("The raid buff split (#70)", function()
             assert.equal("fortitude", share(clients[1]))
             assert.equal("spirit", share(clients[2]))
             assert.equal("shadow", share(clients[3]))
+            -- Off again: the 5 minutes start again from now.
+            wow.use(clients[1])
+            clients[1].ns.BuffMode.Set(false)
+            wow.advanceAll(net, 60, 1)
+            assert.equal("fortitude", share(clients[1]))
         end)
 
         it("switched off, a copy is offered everything, says nothing, and the others pick up its share", function()
@@ -658,6 +723,14 @@ describe("The raid buff split (#70)", function()
             assert.is_true(ns.RaidSplit.Enabled())
         end)
 
+        it("the Buff Back tab shows a saved off as off", function()
+            local ns = wow.boot({ db = { buffBack = { raidSplit = false } } })
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffBack, "OnClick")
+            assert.is_true(w.raidSplit:IsShown())
+            assert.is_false(w.raidSplit:GetChecked())
+        end)
+
         it("is found by the options search", function()
             local ns = wow.boot({ before = function(state) state.settingsSearch = true end })
             local found = false
@@ -669,21 +742,35 @@ describe("The raid buff split (#70)", function()
     end)
 
     describe("more players than buffs (white)", function()
-        it("two mages split the raid's groups 1-4 and 5-8, and each buffs only their own groups", function()
+        it("two mages split the raid's groups 1-4 and 5-8, and each buffs only their own groups, "
+            .. "themselves included", function()
+            -- Ann (groups 1-4) stands in group 7, Bob (groups 5-8) in group 2:
+            -- each buffs the other, and neither buffs themselves.
             raid({
-                { name = "Ann", surname = "Vale", class = "MAGE", known = { [INTELLECT] = true }, group = 1 },
-                { name = "Bob", surname = "Lake", class = "MAGE", known = { [INTELLECT] = true }, group = 5 },
+                { name = "Ann", surname = "Vale", class = "MAGE", known = { [INTELLECT] = true }, group = 7,
+                    buffSelf = true },
+                { name = "Bob", surname = "Lake", class = "MAGE", known = { [INTELLECT] = true }, group = 2,
+                    buffSelf = true },
             }, { { "Pia-Light", "PRIEST", 3 }, { "Zoe-Sage", "PRIEST", 6 }, { "Odd-Group", "PRIEST", 8 } })
             form()
             wow.use(clients[1])
             assert.equal("Your share: Arcane Intellect (groups 1-4)", clients[1].ns.RaidSplit.ShareText(false))
             local names = {}
             for _, offer in ipairs(offers(clients[1])) do names[#names + 1] = offer.name end
-            assert.same({ "Pia-Light" }, names)
+            table.sort(names)
+            assert.same({ "Bob-Lake", "Pia-Light" }, names)
             names = {}
             for _, offer in ipairs(offers(clients[2])) do names[#names + 1] = offer.name end
             table.sort(names)
-            assert.same({ "Odd-Group", "Zoe-Sage" }, names)
+            assert.same({ "Ann-Vale", "Odd-Group", "Zoe-Sage" }, names)
+            -- In her own share's groups, Ann buffs herself.
+            wow.use(clients[1])
+            unitOf("Ann-Vale").subgroup = 3 -- her own raid slot
+            wow.advance(0.1)
+            names = {}
+            for _, offer in ipairs(offers(clients[1])) do names[#names + 1] = offer.name end
+            table.sort(names)
+            assert.same({ "Ann-Vale", "Bob-Lake", "Pia-Light" }, names)
         end)
 
         it("a group that can't be read is offered, not left out", function()
@@ -787,7 +874,44 @@ describe("The raid buff split (#70)", function()
     end)
 
     describe("chaos (red)", function()
-        it("a storm of joins, leaves, offline players, reorders, overrides and dropped messages settles on one split",
+        -- Every "member, buff" a copy would offer now, worked out from the
+        -- simulated client's own state and buff mode's own list: each offer
+        -- is marked as worn (cast by someone else) and the list asked again,
+        -- until nothing more is offered; then the auras are put back.
+        local function offered(c)
+            wow.use(c)
+            local saved = {}
+            for token, u in pairs(wow.state.units) do
+                if token:find("^raid%d") then
+                    local auras, sources = {}, {}
+                    for k, v in pairs(u.auras or {}) do auras[k] = v end
+                    for k, v in pairs(u.auraSources or {}) do sources[k] = v end
+                    saved[u] = { auras = u.auras and auras, sources = u.auraSources and sources }
+                end
+            end
+            local out = {}
+            for _ = 1, 4 do
+                local list, more = {}, false
+                c.ns.GroupBuffs.Next(list)
+                for _, o in ipairs(list) do
+                    local k = o.name .. "/" .. o.buff.key
+                    if not out[k] then
+                        out[k] = o.buff.key
+                        more = true
+                    end
+                    local u = unitOf(o.name)
+                    u.auras, u.auraSources = u.auras or {}, u.auraSources or {}
+                    u.auras[#u.auras + 1] = o.buff.ranks[1]
+                    u.auraSources[#u.auras] = "target"
+                end
+                if not more then break end
+            end
+            for u, v in pairs(saved) do u.auras, u.auraSources = v.auras, v.sources end
+            return out
+        end
+
+        it("a storm of joins, leaves, offline players, reorders, hand-set Blessings and dropped messages never "
+            .. "leaves two copies offering the same buff to the same player for long, and settles on one split",
             function()
                 local random = require("spec.support.random")
                 local ORDERS = {
@@ -795,9 +919,15 @@ describe("The raid buff split (#70)", function()
                     { "shadow", "fortitude", "spirit" }, { "kings", "wisdom", "might" },
                     { "might", "kings", "wisdom" }, { "wisdom", "might", "kings" },
                 }
-                for _, seed in ipairs({ 1, 7, 42, 2026 }) do
-                    random.seed(seed)
-                    local class = seed % 2 == 0 and "PALADIN" or "PRIEST"
+                local BLESSINGS = { "kings", "wisdom", "might" }
+                -- How long a duplicate may last after the last thing that
+                -- could cause one: a silent copy's timeout, then a heartbeat
+                -- and the send gaps.
+                local LIMIT = 180 + 60 + 2 * 10 + 5
+                local reach = { offline = 0, handVsDraft = 0, twoDrafting = 0, steps = 0, healed = 0 }
+                for _, seed in ipairs(SEEDS) do
+                    random.seed(seed.n)
+                    local class = seed.class
                     local known = class == "PALADIN" and PALADIN_SPELLS or PRIEST_SPELLS
                     local base = class == "PALADIN" and 3 or 0
                     local players = {}
@@ -805,8 +935,19 @@ describe("The raid buff split (#70)", function()
                         players[i] = { name = n[1], surname = n[2], class = class, known = known,
                             order = ORDERS[base + 1 + (i % 3)], group = 1 + (i % 8) }
                     end
-                    raid(players, { { "Tor-Axe", "WARRIOR", 2 } })
-                    local inRaid = { true, true, true, true }
+                    raid(players, { { "Tor-Axe", "WARRIOR", 2 }, { "Mia-Fire", "MAGE", 3 } })
+                    local index = {}
+                    for i, c in ipairs(clients) do index[c] = i end
+                    local inRaid, offline, handSet = { true, true, true, true }, {}, {}
+                    local lossy = false
+                    net.lose = function(_, sender, receiver)
+                        if offline[index[sender]] or offline[index[receiver]] then return true end
+                        return lossy and random.random(1, 3) == 1
+                    end
+                    local function clock()
+                        wow.use(clients[1])
+                        return wow.now
+                    end
                     local function members()
                         local out = {}
                         for i, c in ipairs(clients) do
@@ -814,72 +955,149 @@ describe("The raid buff split (#70)", function()
                         end
                         return out
                     end
+                    -- Offline players read as offline in everyone else's raid.
+                    local function markOffline()
+                        for i, c in ipairs(clients) do
+                            for j, d in ipairs(clients) do
+                                if i ~= j then
+                                    wow.use(d)
+                                    local u = unitOf(c.full)
+                                    if u then u.offline = offline[i] or nil end
+                                end
+                            end
+                        end
+                    end
+                    local function active(i) return inRaid[i] and not offline[i] end
                     form(members())
+                    local lastDisruption = clock()
+                    local dupSince
+
+                    -- The invariant, at every step.
+                    local function check(final)
+                        local seenOffers, active2 = {}, 0
+                        for i, c in ipairs(clients) do
+                            if active(i) then
+                                seenOffers[i] = offered(c)
+                                active2 = active2 + 1
+                            end
+                        end
+                        if active2 >= 2 then reach.steps = reach.steps + 1 end
+                        local drafting, hand = 0, 0
+                        for i in pairs(seenOffers) do
+                            if handSet[i] then hand = hand + 1 else drafting = drafting + 1 end
+                        end
+                        if drafting >= 2 then reach.twoDrafting = reach.twoDrafting + 1 end
+                        if drafting >= 1 and hand >= 1 then reach.handVsDraft = reach.handVsDraft + 1 end
+                        local dup
+                        for i, a in pairs(seenOffers) do
+                            for j, b in pairs(seenOffers) do
+                                if i < j then
+                                    for k, key in pairs(a) do
+                                        local both = handSet[i] and handSet[i][key] and handSet[j] and handSet[j][key]
+                                        if b[k] and not both then dup = clients[i].name .. "+" .. clients[j].name .. " " .. k end
+                                    end
+                                end
+                            end
+                        end
+                        local now = clock()
+                        if dup then
+                            dupSince = dupSince or now
+                            assert.is_false(final, "seed " .. seed.n .. ": after the calm, " .. dup)
+                            assert.is_true(now - lastDisruption <= LIMIT,
+                                "seed " .. seed.n .. ": " .. dup .. " for " .. (now - lastDisruption) .. "s")
+                        elseif dupSince then
+                            reach.healed = reach.healed + 1
+                            dupSince = nil
+                        end
+                    end
+
                     for _ = 1, 40 do
                         local roll = random.random(1, 6)
                         local i = random.random(1, #clients)
                         local c = clients[i]
-                        if roll == 1 then
+                        if roll == 1 and not offline[i] then
                             inRaid[i] = not inRaid[i]
+                            if not inRaid[i] then handSet[i] = nil end -- forgotten as you leave
                             form(members())
+                            markOffline()
                         elseif roll == 2 then
                             wow.use(c)
                             local order = ORDERS[base + random.random(1, 3)]
                             c.ns.db.buffBack.buffOrder = { order[1], order[2], order[3] }
                             c.ns.BuffButton.Refresh()
-                        elseif roll == 3 and class == "PALADIN" and inRaid[i] then
+                        elseif roll == 3 and class == "PALADIN" and active(i) then
                             wow.use(c)
-                            local pick = ({ "kings", "wisdom", "might" })[random.random(1, 3)]
-                            _G.SlashCmdList.FRIENDLYFOREVER(random.random(1, 2) == 1 and ("blessings " .. pick)
-                                or "blessings all")
-                        elseif roll == 4 then
-                            net.lose = function() return random.random(1, 3) == 1 end
+                            if random.random(1, 3) == 1 then
+                                _G.SlashCmdList.FRIENDLYFOREVER("blessings all")
+                                handSet[i] = nil
+                            else
+                                local pick = BLESSINGS[random.random(1, 3)]
+                                _G.SlashCmdList.FRIENDLYFOREVER("blessings " .. pick)
+                                handSet[i] = { [pick] = true }
+                            end
+                        elseif roll == 4 and inRaid[i] then
+                            offline[i] = not offline[i]
+                            reach.offline = reach.offline + 1
+                            markOffline()
+                            if not offline[i] then
+                                -- Back online: the game logs the copy in again.
+                                wow.use(c)
+                                wow.reloadInPlace(true)
+                            end
+                        elseif roll == 5 then
+                            lossy = true
                         else
-                            net.lose = nil
+                            lossy = false
                         end
+                        if roll ~= 6 then lastDisruption = clock() end
                         wow.advanceAll(net, random.random(1, 20), 1)
+                        if lossy then lastDisruption = clock() end
+                        check(false)
                     end
-                    -- Calm: no more losses, then a few minutes for the
-                    -- heartbeats to carry everything.
-                    net.lose = nil
+                    -- Calm: everyone back online, no more losses, then a few
+                    -- minutes for the heartbeats to carry everything.
+                    for i in pairs(offline) do
+                        offline[i] = nil
+                        wow.use(clients[i])
+                        wow.reloadInPlace(true)
+                    end
+                    markOffline()
+                    lossy = false
                     wow.advanceAll(net, 4 * 60, 1)
-                    local seen
-                    local holder = {}
-                    local splitting = 0
+                    check(true)
+                    -- Every copy in the raid works out the same split.
+                    local seen, splitting = nil, 0
+                    assert.is_true(#members() >= 2, "seed " .. seed.n .. " ends with " .. #members() .. " in the raid")
                     for i, c in ipairs(clients) do
                         if inRaid[i] then
                             wow.use(c)
                             local mine, all = c.ns.RaidSplit.Current()
-                            local text
-                            if mine then
-                                local parts = {}
-                                for name, sh in pairs(all) do parts[#parts + 1] = name .. "=" .. keysOf(sh) end
-                                table.sort(parts)
-                                text = table.concat(parts, ";")
-                            end
-                            -- Worked out independently: who holds each key whole.
-                            if mine then
-                                for key, v in pairs(mine) do
-                                    local fixed = c.ns.BuffRules.RaidBlessingsChosen()
-                                    if v == true and not fixed then
-                                        assert.is_nil(holder[key], "seed " .. seed .. ": two copies hold " .. key)
-                                        holder[key] = c.full
-                                    end
-                                end
-                            end
-                            if text then splitting = splitting + 1 end
+                            assert.is_not_nil(mine, "seed " .. seed.n .. ": " .. c.name .. " in no split")
+                            local parts = {}
+                            for name, sh in pairs(all) do parts[#parts + 1] = name .. "=" .. keysOf(sh) end
+                            table.sort(parts)
+                            local text = table.concat(parts, ";")
+                            splitting = splitting + 1
                             seen = seen or text
-                            assert.equal(seen, text, "seed " .. seed)
+                            assert.equal(seen, text, "seed " .. seed.n)
                         end
                     end
-                    -- Everyone in the raid takes part in the split, or nobody does.
-                    local inIt = #members()
-                    assert.equal(inIt >= 2 and inIt or 0, splitting, "seed " .. seed)
+                    assert.is_true(splitting >= 2, "seed " .. seed.n .. " ends with " .. splitting .. " in the raid")
+                    if class == "PALADIN" then
+                        local drafting = 0
+                        for i = 1, #clients do
+                            if inRaid[i] and not handSet[i] then drafting = drafting + 1 end
+                        end
+                        assert.is_true(drafting >= 1, "seed " .. seed.n .. " ends with no drafting paladin")
+                    end
                     for _, c in ipairs(clients) do
                         wow.use(c)
                         assert.same({}, wow.errors)
                     end
+                    net.lose = nil
                 end
+                -- The storm reached every case it is about.
+                for what, n in pairs(reach) do assert.is_true(n > 0, what .. " never happened") end
             end)
     end)
 

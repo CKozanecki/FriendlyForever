@@ -228,15 +228,20 @@ function RaidSplit.Enabled()
 end
 
 -- Whether you take part now: buff mode is on, or went off less than GRACE
--- seconds ago.
-local lastOnAt
+-- seconds ago. The grace runs from the first time buff mode is seen off
+-- (turning it off refreshes the button, which looks at once; a fight's end
+-- of a trigger's buff mode is seen at the next heartbeat at the latest).
+local offAt         -- GetTime() buff mode was first seen off, or nil
+local everOn = false
 local function TakingPart()
     local now = GetTime()
     if ns.BuffMode.IsOn() then
-        lastOnAt = now
+        everOn, offAt = true, nil
         return true
     end
-    return lastOnAt ~= nil and now >= lastOnAt and now - lastOnAt < RaidSplit.GRACE
+    if not everOn then return false end
+    offAt = offAt or now
+    return now >= offAt and now - offAt < RaidSplit.GRACE
 end
 
 -- Whether name is someone the split may count: in your raid now, of your
