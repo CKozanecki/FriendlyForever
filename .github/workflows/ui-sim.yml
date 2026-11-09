@@ -128,9 +128,11 @@ jobs:
             done
             old=$(git show "$base:$1" 2>/dev/null) && new=$(git show "HEAD:$1" 2>/dev/null)
           }
-          # The same TOC once its ## Version: lines are left out.
+          # The same TOC once its ## Version: lines are left out. A carriage
+          # return inside a line could start another line, so it is doubt.
           version_only() {
             both "$1" || return 1
+            printf '%s\n%s\n' "$old" "$new" | awk '/\r[^\n]/ { exit 2 }' || return 1
             [ "$(printf '%s\n' "$old" | grep -v '^## Version:')" = "$(printf '%s\n' "$new" | grep -v '^## Version:')" ]
           }
           # Lua without -- comments, blank lines and trailing spaces. A comment

@@ -452,7 +452,7 @@ describe("UI simulator workflow", function()
             local function sh(command) return os.execute("cd '" .. dir .. "/repo' && ( " .. command .. " ) >/dev/null 2>&1") == 0 end
             local function answer(event, before)
                 local out = io.popen("cd '" .. dir .. "/repo' && : > ../out && GITHUB_OUTPUT='" .. dir .. "/out' EVENT=" .. event
-                    .. " BEFORE='" .. (before or "") .. "' bash ../decide.sh >/dev/null 2>&1; cat ../out"):read("*a")
+                    .. " BEFORE='" .. (before or "") .. "' bash -e ../decide.sh >/dev/null 2>&1; cat ../out"):read("*a")
                 return out:match("ui=(%a+)")
             end
             local change = 0
@@ -522,6 +522,8 @@ describe("UI simulator workflow", function()
         it("skips a TOC version bump and comment-only Lua, and runs for anything else or any doubt (white, black)", function()
             local script = jobs.changes.text:match("run: |\n(.-)\n\n") or jobs.changes.text:match("run: |\n(.*)$")
             assert.is_truthy(script and script:find("comments_only", 1, true), "couldn't find the deciding script")
+            -- GitHub runs a step with no shell: key as bash -e, and so does this test.
+            assert.is_falsy(jobs.changes.text:find("\n%s*shell:"), "the deciding step names its own shell")
             local dir = io.popen("mktemp -d"):read("*l")
             local body = io.open(dir .. "/decide.sh", "w")
             body:write((script:gsub("\n          ", "\n"):gsub("^%s+", "")))
@@ -542,7 +544,7 @@ describe("UI simulator workflow", function()
             end
             local function answer(event, before)
                 local out = io.popen("cd '" .. repo .. "' && : > ../out && GITHUB_OUTPUT='" .. dir .. "/out' EVENT=" .. event
-                    .. " BEFORE='" .. (before or "") .. "' bash ../decide.sh >/dev/null 2>&1; cat ../out"):read("*a")
+                    .. " BEFORE='" .. (before or "") .. "' bash -e ../decide.sh >/dev/null 2>&1; cat ../out"):read("*a")
                 return out:match("ui=(%a+)")
             end
             local function pullRequest(files)
@@ -577,6 +579,9 @@ describe("UI simulator workflow", function()
                 { "a file line", { ["FriendlyForever.toc"] = bumped .. "Water.lua\n" }, "true" },
                 { "a file line removed", { ["FriendlyForever.toc"] = edit(bumped, "BuffData.lua\n", "") }, "true" },
                 { "the title", { ["FriendlyForever.toc"] = edit(bumped, "Forever\n", "Forever!\n") }, "true" },
+                { "a line that says Version:", { ["FriendlyForever.toc"] = bumped .. "## Notes: Version: 2\n" }, "true" },
+                -- A carriage return could start a line the game reads as a file.
+                { "a file line behind the version line", { ["FriendlyForever.toc"] = edit(bumped, "1.0.2\n", "1.0.2\rWater.lua\n") }, "true" },
                 -- Comments in a UI Lua file (#239 changed BuffData.lua's).
                 { "a comment line", { ["BuffData.lua"] = edit(data, "The buffs.", "The buffs we know.") }, "false" },
                 { "a comment at the end of a line", { ["BuffData.lua"] = edit(data, "-- one", "-- the first") }, "false" },
@@ -588,6 +593,7 @@ describe("UI simulator workflow", function()
                     { ["BuffData.lua"] = edit(data, "-- one", "-- 1"), ["Options.lua"] = "-- d\nlocal t = 1\n",
                         ["FriendlyForever.toc"] = bumped }, "false" },
                 { "code", { ["BuffData.lua"] = edit(data, "local a = 1", "local a = 2") }, "true" },
+                { "code with a minus", { ["Core.lua"] = "return 1 - 1\n" }, "true" },
                 { "a -- inside a string", { ["BuffData.lua"] = edit(data, "x -- y", "x -- z") }, "true" },
                 { "a comment after a quote", { ["BuffData.lua"] = edit(data, "it's", "it is") }, "true" },
                 { "code commented out", { ["BuffData.lua"] = edit(data, "return a", "-- return a") }, "true" },
@@ -624,6 +630,14 @@ describe("UI simulator workflow", function()
             write({ ["Options.lua"] = "local t = 1\n-- d\n" })
             sh("git commit -qam longcomment")
             assert.are.equal("true", answer("push", longBase), "a long bracket in either version skipped the simulator")
+            -- A NUL byte in the old version only: bash would drop it and read the two the same.
+            sh("git checkout -q -B main root")
+            write({ ["BuffData.lua"] = edit(data, "x -- y", "x -\0- y") })
+            sh("git commit -qam nulbase")
+            local nulBase = io.popen("cd '" .. repo .. "' && git rev-parse HEAD"):read("*l")
+            write({ ["BuffData.lua"] = data })
+            sh("git commit -qam nulgone")
+            assert.are.equal("true", answer("push", nulBase), "a NUL byte in the old version skipped the simulator")
             -- A push to main compares with the commit before it.
             sh("git checkout -q -B main root")
             write({ ["FriendlyForever.toc"] = bumped, ["BuffData.lua"] = edit(data, "-- one", "-- 1") })
@@ -2015,6 +2029,8 @@ describe("Release workflow", function()
 
         -- Runs the step's own script against a fake gh that answers from files.
         it("passes on success, runs the tests when unsure, and fails on a failed check (white, black)", function()
+            -- GitHub runs a step with no shell: key as bash -e, and so does this test.
+            assert.is_falsy(ciStep.text:find("\n%s*shell:"), "the step that asks CI names its own shell")
             local script = ciStep.text:match("run: |\n(.*)$")
             assert.is_truthy(script and script:find("set %-u"), "couldn't find the script that asks CI")
             local dir = io.popen("mktemp -d"):read("*l")
@@ -2067,7 +2083,7 @@ describe("Release workflow", function()
                     f:close()
                 end
                 local ok = os.execute("cd '" .. dir .. "' && PATH='" .. dir .. "/bin':\"$PATH\" FAKE='" .. dir .. "' GITHUB_OUTPUT='"
-                    .. dir .. "/out' GITHUB_REPOSITORY=o/r GITHUB_SHA='" .. (env or sha) .. "' bash ask.sh >/dev/null 2>&1") == 0
+                    .. dir .. "/out' GITHUB_REPOSITORY=o/r GITHUB_SHA='" .. (env or sha) .. "' bash -e ask.sh >/dev/null 2>&1") == 0
                 local out = io.open(dir .. "/out"):read("*a")
                 return ok and (out:match("^passed=(%a+)\n$") or "no answer") or "failed"
             end
