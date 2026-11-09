@@ -49,6 +49,6 @@
     { "key": "salvation", "ids": [1038, 25895],
       "reason": "Blizzard removed Blessing of Salvation and Mass Salvation before launch (owner, 2026-11-08; #208)" },
     { "key": "light", "keepKey": true, "ids": [19977, 19978, 19979, 25890],
-      "reason": "owner's belief, not proved by the data: Blizzard removed Blessing of Light (owner, 2026-11-09; the data still has its rows)" }
+      "reason": "Blizzard removed Blessing of Light (owner, 2026-11-09, citing Blizzard's WoW Forever beta development notes of November 2; the data still has its rows)" }
   ]
 }
