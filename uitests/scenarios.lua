@@ -565,6 +565,26 @@ test("the list beside the button shows who is offered, a click picks the next, a
     end)
 end)
 
+-- A group cast is one row in the list (#227): who it reaches, how many are
+-- missing, and the spell; the members it covers have no rows of their own.
+test("the list shows a group cast as one row, and its text stays inside", function()
+    InState("buff list, group cast", FriendlyForeverUIStates.ListGroupCast, function(_, States)
+        local list = _G.FriendlyForeverBuffList
+        Expect(list ~= nil and list:IsShown(), "the list isn't up")
+        local shown = {}
+        for _, row in ipairs(list.rows) do
+            if row:IsShown() then shown[#shown + 1] = row end
+        end
+        Expect(#shown == 1, ("the list has %d rows, not the one group row"):format(#shown))
+        local text = shown[1].text:GetText() or ""
+        local want = ("your party (%d missing): %s"):format(#States.GROUP_MEMBERS, States.GROUP_SPELL.name)
+        Expect(text == "> " .. want, ("the row reads %q, not %q"):format(text, "> " .. want))
+        TextInside(shown[1], shown[1].text, "group row", 1)
+        OnScreen(list, "buff list (group cast)")
+        report("LAYOUT group row: " .. text)
+    end)
+end)
+
 -- Units no favour can come from: empty, a token that shows no one, the
 -- target when there's no target, a party slot when not in a party, you, a
 -- number, and values that aren't text at all (#98).

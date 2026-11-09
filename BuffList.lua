@@ -24,9 +24,20 @@ local frame, scroll, content
 local rows = {}
 local shownOffers = {}   -- the offers the rows show, in order
 
--- One row's text: the player's name, the buff, and a mark on the offer the
+-- One row's text: the player's name (or the group a cast reaches), the buff, and a mark on the offer the
 -- button holds now (colour alone isn't enough).
 local function RowText(offer, current)
+    -- A group cast reads as the button's face does (#227): who it reaches,
+    -- how many are missing, then the spell. Anything unreadable is left out
+    -- or shown as plain text, never an error.
+    local cast = offer.cast
+    if type(cast) == "table" and type(cast.count) == "number" and cast.count == cast.count then
+        local label = Util.StripChat(cast.label)
+        if label ~= "" then
+            return string.format("%s%s (%d missing): %s", current and "> " or "", label,
+                math.floor(cast.count), Util.StripChat(offer.spell))
+        end
+    end
     local name = offer.self and "You" or Util.StripChat(Util.DisplayName(offer.name))
     return (current and "> " or "") .. name .. ": " .. Util.StripChat(offer.spell)
 end

@@ -1,5 +1,9 @@
 # Changelog
 
+### Unreleased
+
+- **A group cast is one row in the list:** when the button holds a group version (Arcane Brilliance, a Prayer, Gift of the Wild, a Greater Blessing), the clickable list beside it shows one row for the cast, such as "Group 3 (4 missing): Arcane Brilliance", and no longer lists the members it covers as separate single-buff rows. Members the cast doesn't cover keep their own rows, and a click on a row still makes that row the button's next offer. (#227)
+
 ## 1.0.1
 
 - **Blessing of Light is gone:** Blizzard removed it, so it is no longer offered, tracked or listed; settings and profiles that mention it still load and keep their values. This corrects the 1.0.0 note. (#237, #225)

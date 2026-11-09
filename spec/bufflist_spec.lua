@@ -1,4 +1,4 @@
--- Spec: #43
+-- Spec: #43, #227
 -- The clickable list beside the buff button: everyone the button would offer
 -- to, and the buff for each; a click makes that player the next offer.
 local wow = require("spec.support.wow")
@@ -445,6 +445,154 @@ describe("The list beside the buff button (#43)", function()
             end
             assert.is_true(sawEmpty > 0, "the storm reached an empty list")
             assert.is_true(sawLaterMark > 0, "the storm reached a mark on a row other than the first")
+        end)
+    end)
+end)
+
+describe("A group cast in the list (#227)", function()
+    local ns, button
+    local BRILLIANCE = 23028
+
+    local function boot()
+        ns = wow.boot({ before = function(state)
+            state.class = "MAGE"
+            state.knownSpells = { [INTELLECT] = true, [BRILLIANCE] = true }
+            state.items = { [wow.ITEM.arcanePowder] = 5 }
+        end })
+        button = ns.BuffButton.Frame()
+        slash("buffmode on")
+    end
+
+    local function group(kind, names)
+        wow.setGroup(kind, names)
+        wow.fire("GROUP_ROSTER_UPDATE")
+        wow.advance(0)
+    end
+
+    local function rows()
+        local out = {}
+        local frame = ns.BuffList.Frame()
+        if not frame or not frame:IsShown() then return out end
+        for _, row in ipairs(ns.BuffList.Rows()) do
+            if row:IsShown() then out[#out + 1] = row.text:GetText() end
+        end
+        return out
+    end
+
+    local function armed()
+        local text = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
+        if not text then return nil end
+        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
+    end
+
+    local function click(i) ns.BuffList.Rows()[i].scripts.OnClick(ns.BuffList.Rows()[i]) end
+
+    describe("white", function()
+        it("shows a party's group cast as one row, not the members it covers", function()
+            boot()
+            group("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
+            assert.are.same({ "> your party (4 missing): Arcane Brilliance" }, rows())
+            assert.are.equal("Ann Vale: Arcane Brilliance", armed())
+            assert.are.equal(0, #wow.casts, "listing casts nothing")
+        end)
+
+        it("shows a raid subgroup's cast as 'Group 3 (4 missing)', and the rest singly", function()
+            boot()
+            group("raid", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed", "Gus-Lane" })
+            for i, g in ipairs({ 1, 3, 3, 3, 3, 1, 1 }) do wow.state.units["raid" .. i].subgroup = g end
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(0)
+            assert.are.same({
+                "> Group 3 (4 missing): Arcane Brilliance",
+                "Ann Vale: Arcane Intellect",
+                "Fay Reed: Arcane Intellect",
+                "Gus Lane: Arcane Intellect",
+            }, rows())
+        end)
+
+        it("clicking the group row arms the group cast; another member's row arms their single buff", function()
+            boot()
+            group("raid", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed", "Gus-Lane" })
+            for i, g in ipairs({ 1, 3, 3, 3, 3, 1, 1 }) do wow.state.units["raid" .. i].subgroup = g end
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(0)
+            click(3)
+            assert.are.equal("Fay Reed: Arcane Intellect", armed())
+            assert.are.equal("Fay Reed", button.title:GetText())
+            assert.are.equal("Group 3 (4 missing): Arcane Brilliance", rows()[1])
+            click(1)
+            assert.are.equal("Bo Fern: Arcane Brilliance", armed())
+            assert.are.equal("Group 3 (4 missing)", button.title:GetText())
+            assert.are.equal("> Group 3 (4 missing): Arcane Brilliance", rows()[1])
+            assert.are.equal(0, #wow.casts, "a click casts nothing")
+        end)
+
+        it("goes back to single rows once the group cast is done", function()
+            boot()
+            group("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
+            wow.pressKey("MOUSEWHEELUP")
+            assert.are.equal(1, #wow.casts)
+            ns.BuffButton.Refresh()
+            assert.are.same({}, rows())
+        end)
+
+        it("is hidden in combat", function()
+            boot()
+            group("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
+            wow.enterCombat()
+            assert.is_false(ns.BuffList.Frame():IsShown())
+        end)
+    end)
+
+    describe("black", function()
+        local function show(cast)
+            boot()
+            group("party", { "Ann-Vale" })
+            ns.BuffList.Update(button, { { name = "Ann-Vale", spell = "Arcane Brilliance", buff = {}, cast = cast } },
+                "Ann-Vale")
+            return ns.BuffList.Rows()[1].text:GetText()
+        end
+
+        it("never errors on a damaged, secret or odd label or count, and falls back to a single row", function()
+            assert.are.equal("> Ann Vale: Arcane Brilliance", show(wow.secret and { label = wow.secret("Group 3"), count = 4 }))
+            assert.are.equal("> Ann Vale: Arcane Brilliance", show({ label = 5, count = 4 }))
+            assert.are.equal("> Ann Vale: Arcane Brilliance", show({ label = "Group 3", count = "4" }))
+            assert.are.equal("> Ann Vale: Arcane Brilliance", show({ label = "Group 3", count = 0 / 0 }))
+            assert.are.equal("> Ann Vale: Arcane Brilliance", show({ label = "|| ", count = 4 }))
+            assert.are.equal("> Ann Vale: Arcane Brilliance", show("damaged"))
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("shows escape codes in a label as plain text, on one line", function()
+            local text = show({ label = "Gr|cffff0000oup\n3", count = 4 })
+            assert.are.equal("> Grcffff0000oup 3 (4 missing): Arcane Brilliance", text)
+            assert.is_false(ns.BuffList.Rows()[1].text.wordWrap)
+        end)
+    end)
+
+    describe("red", function()
+        it("a storm of groups, deaths and clicks keeps one row per player and the button's offer on the list", function()
+            boot()
+            local names = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed", "Gus-Lane" }
+            for step = 1, 60 do
+                group("raid", names)
+                for i = 1, #names do wow.state.units["raid" .. i].subgroup = random.random(1, 3) end
+                wow.fire("GROUP_ROSTER_UPDATE")
+                wow.advance(0)
+                if random.random(1, 3) == 1 then click(random.random(1, math.max(1, #rows()))) end
+                local seen = {}
+                for _, text in ipairs(rows()) do
+                    local who = text:gsub("^> ", ""):match("^(.-):")
+                    assert.is_nil(seen[who], who .. " is listed twice (step " .. step .. ")")
+                    seen[who] = true
+                end
+                if #rows() > 0 then
+                    local marks = 0
+                    for _, text in ipairs(rows()) do if text:sub(1, 2) == "> " then marks = marks + 1 end end
+                    assert.are.equal(1, marks, "exactly one row is marked")
+                end
+            end
+            assert.are.same({}, wow.errors)
         end)
     end)
 end)
