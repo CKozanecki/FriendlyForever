@@ -154,9 +154,9 @@ The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://g
 
 ## Releasing (maintainer)
 
-For the launch, [docs/launch-day-runbook.md](docs/launch-day-runbook.md) is the ordered in-game test pass (from #50) and the steps to 1.0.0.
+[docs/launch-day-runbook.md](docs/launch-day-runbook.md) is the ordered in-game test pass (from #50), completed on launch day, and the steps to 1.0.0.
 
-Versions below 1.0.0 are pre-launch: 0.8.0 is the first file on CurseForge and 1.0.0 is the launch. A tag uploads as a normal release; the packager marks a file alpha or beta only when its tag contains that word, and the Release workflow accepts only a tag that is exactly `v` plus the TOC version. No beta route is set up yet.
+0.8.0 was the first file on CurseForge and 1.0.0 is the launch release. A tag uploads as a normal release; the packager marks a file alpha or beta only when its tag contains that word, and the Release workflow accepts only a tag that is exactly `v` plus the TOC version. No beta route is set up yet.
 
 Pull requests between releases add their `CHANGELOG.md` notes under a `### Unreleased` heading at the top; the release PR renames it to `## x.y.z`.
 
@@ -175,6 +175,6 @@ Pull requests between releases add their `CHANGELOG.md` notes under a `### Unrel
 
 To release:
 
-1. In a PR: bump `## Version` in `FriendlyForever.toc` and rename `### Unreleased` at the top of `CHANGELOG.md` to `## 0.8.0` (add notes there for anything missing). CurseForge shows only that section (`make release-notes` previews it).
-2. After it merges, tag the merge commit and push the tag: `git tag v0.8.0 && git push origin v0.8.0`. Version tags can't be moved or deleted once pushed, so double-check the commit first. The GitHub release isn't made by hand: the workflow makes it in step 3.
+1. In a PR: bump `## Version` in `FriendlyForever.toc` and rename `### Unreleased` at the top of `CHANGELOG.md` to `## x.y.z` (add notes there for anything missing). CurseForge shows only that section (`make release-notes` previews it).
+2. After it merges, tag the merge commit and push the tag: `git tag vx.y.z && git push origin vx.y.z`. Version tags can't be moved or deleted once pushed, so double-check the commit first. The GitHub release isn't made by hand: the workflow makes it in step 3.
 3. The Release workflow's `verify` job checks that the tag is on `main` and matches the TOC, then runs lint and tests with no secrets. After that, the `release` job waits for your approval in the `release` environment, checks that the CurseForge project ID and key are set, and uploads. The packager uploads to CurseForge and creates the GitHub release for the tag, with the same notes and the zip attached. Once the job is green, there's nothing left to do.
