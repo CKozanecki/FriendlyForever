@@ -226,9 +226,14 @@ describe("Thank emote", function()
         wow.gainBuff({ sourceUnit = "target", name = "Arcane Intellect" })
         wow.advance(ns.db.buff.delay + 0.01)
         assert.are.equal(1, #wow.emotes)
+        -- Past the exchange's own one-thank-you rule, so only the repeat
+        -- cooldown can stop the second one.
+        wow.advance(ns.Exchange.GAP + 5)
+        assert.are.equal(0, ns.Exchange.Count(), "the exchange is over")
         wow.gainBuff({ sourceUnit = "target", name = "Dampen Magic" })
         wow.advance(ns.db.buff.delay + 0.01)
         assert.are.equal(1, #wow.emotes, "the same person's second buff is inside the cooldown")
+        assert.are.equal("not thanked", ns.db.ledger.entries[2].result)
     end)
 
     it("doesn't hold another person's /thank back for someone else's cooldown (#236)", function()

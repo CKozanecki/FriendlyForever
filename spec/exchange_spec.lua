@@ -600,21 +600,26 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             assert.are.same({}, plansSent(a))
         end)
 
-        it("a held /say and /thank wait no longer for a key press than they would unheld", function()
+        it("a held /say and /thank are dropped at the same limit as unheld ones", function()
             pair({ db = { thankStyle = "both" } })
             handCast(a, "Power Word: Fortitude")
             local firstAt = wow.now
+            -- Chat is locked when the hold releases them, so both wait; the
+            -- emote's age counts from its due time, like the /say's (#236).
+            wow.use(b)
+            wow.state.lockdown = true
             advance(E.MAX_DELAY + E.TICK)
             wow.use(b)
             local limit = firstAt + b.ns.db.buff.delay + b.ns.BuffTracker.SAY_MAX_AGE
             assert.is_true(wow.now < limit, "released before the limit")
+            assert.are.same({}, wow.emotes, "held by the lockdown")
             advance(limit - wow.now + 0.5)
             wow.use(b)
+            wow.state.lockdown = false
             wow.keyDown()
+            advance(b.ns.ChatQueue.RETRY_DELAY + 1)
             assert.are.same({}, wow.sentTo("SAY"), "released at the longest wait, then too old to say")
-            assert.are.equal(1, #wow.emotes, "the /thank needs no key press (#236)")
-            local entries = b.ns.db.ledger.entries
-            assert.are.equal("with /thank", entries[#entries].note, "thanked by the emote alone")
+            assert.are.same({}, wow.emotes, "the /thank is too old as well")
         end)
 
         it("but a /say released early still waits for a key press until then", function()

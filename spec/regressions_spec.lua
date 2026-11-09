@@ -130,11 +130,12 @@ describe("Regressions", function()
         it("with 'both', a buff after the line went out is a favour of its own", function()
             ns.db.buff.thankStyle = "both"
             ns.db.buff.repeatCooldown = 0
+            wow.state.inInstance = true -- /say needs no key press: the line goes first (#236)
             wow.addUnit("target", { name = "Bob", surname = "Stone" })
             wow.gainBuff({ sourceUnit = "target", name = "Arcane Intellect" })
-            settle() -- the emote goes at once; the line waits behind the send interval
-            wow.advance(ns.ChatQueue.MIN_INTERVAL + 0.01)
-            wow.keyDown() -- ...and goes on a key press
+            wow.advance(ns.db.buff.delay + 0.01)
+            assert.are.equal(1, #wow.sentTo("SAY"), "the line went")
+            assert.are.equal(0, #wow.emotes, "the /thank still waits behind the send interval")
             wow.gainBuff({ sourceUnit = "target", name = "Thorns" })
             assert.are.equal(2, #ns.db.ledger.entries)
             assert.are.same({ "Thorns" }, ns.db.ledger.entries[2].buffs)
