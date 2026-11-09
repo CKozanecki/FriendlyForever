@@ -15,6 +15,13 @@ ns.BuffTable = {
                 name = "Mark of the Wild",
                 ranks = { 9885, 9884, 8907, 5234, 6756, 5232, 1126 },
                 group = { 21850, 21849 },
+                groupCast = {
+                    scope = "party",
+                    spells = {
+                        { id = 21850, reagent = 17026, equals = 9885 },
+                        { id = 21849, reagent = 17021, equals = 9884 },
+                    },
+                },
             },
             {
                 key = "thorns",
@@ -29,6 +36,12 @@ ns.BuffTable = {
                 name = "Arcane Intellect",
                 ranks = { 10157, 10156, 1461, 1460, 1459 },
                 group = { 23028 },
+                groupCast = {
+                    scope = "party",
+                    spells = {
+                        { id = 23028, reagent = 17020, equals = 10157 },
+                    },
+                },
                 manaOnly = true,
             },
         },
@@ -81,12 +94,25 @@ ns.BuffTable = {
                 name = "Power Word: Fortitude",
                 ranks = { 10938, 10937, 2791, 1245, 1244, 1243 },
                 group = { 21564, 21562 },
+                groupCast = {
+                    scope = "party",
+                    spells = {
+                        { id = 21564, reagent = 17029, equals = 10938 },
+                        { id = 21562, reagent = 17028, equals = 10937 },
+                    },
+                },
             },
             {
                 key = "spirit",
                 name = "Divine Spirit",
                 ranks = { 27841, 14819, 14818, 14752 },
                 group = { 27681 },
+                groupCast = {
+                    scope = "party",
+                    spells = {
+                        { id = 27681, reagent = 17029, equals = 27841 },
+                    },
+                },
                 manaOnly = true,
             },
             {
@@ -94,6 +120,12 @@ ns.BuffTable = {
                 name = "Shadow Protection",
                 ranks = { 10958, 10957, 976 },
                 group = { 27683 },
+                groupCast = {
+                    scope = "party",
+                    spells = {
+                        { id = 27683, reagent = 17029, equals = 10958 },
+                    },
+                },
             },
         },
         SHAMAN = {

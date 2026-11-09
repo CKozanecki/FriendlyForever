@@ -44,6 +44,7 @@ BuffButton.lua
 BuffList.lua
 BuffMode.lua
 GroupBuffs.lua
+GroupCasts.lua
 BuffModeAuto.lua
 Battleground.lua
 OptionsIndex.lua

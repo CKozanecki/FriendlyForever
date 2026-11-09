@@ -9,6 +9,10 @@
 --   ranks     every rank's spell ID, highest first: "/cast <name>" casts the
 --             highest you know, and any of them on a player means they have it
 --   group     the group versions' IDs (Arcane Brilliance...): they count as having it
+--   groupCast the group version you can cast (GroupCasts.lua, #41): scope
+--             "party" (the target's party), and spells, highest rank first,
+--             each { id, reagent = item ID, equals = the single-target rank
+--             of the same strength }; every id is also in group
 --   blockers  other buffs that do the same job (Unending Breath for Water Breathing): ditto
 --   manaOnly  only offered to classes that use mana
 --   selfCast  cast on yourself, reaching your party (Battle Shout): never a return
@@ -60,12 +64,24 @@ function BuffData.ByKey(key)
     return byKey[key]
 end
 
+-- The reagents of the group versions (#41), by item ID. The IDs and names are
+-- Classic Era's; Forever's are unconfirmed (#202, #225). They are hand-listed,
+-- not generated: the spell data has no items (scripts/spell-buffs.json holds
+-- the reagent of each group cast, checked only for range). The name is only a
+-- fallback for messages: the client's own is used when it has it.
+BuffData.REAGENTS = {
+    [17020] = "Arcane Powder", [17028] = "Holy Candle", [17029] = "Sacred Candle",
+    [17021] = "Wild Berries", [17026] = "Wild Thornroot",
+}
+
 -- [spell ID] = buff, for every rank, group version and blocker. A spell
 -- that is one buff's rank and another's blocker (Water Breathing, Unending
 -- Breath) belongs to the buff it's a rank of: ranks are filled in last.
 local byAuraId = {}
 -- [spell ID] = buff, for the ranks only (what our own casts can be).
 local byRankId = {}
+-- [spell ID] = buff, for the group versions you can cast (#41).
+local byGroupCastId = {}
 -- [buff] = { [spell ID] = true }: every spell that counts as having it.
 local covers = {}
 for _, list in pairs(BuffData.CLASSES) do
@@ -77,6 +93,7 @@ for _, list in pairs(BuffData.CLASSES) do
         for _, field in ipairs({ "group", "blockers" }) do
             for _, id in ipairs(buff[field] or {}) do byAuraId[id] = buff end
         end
+        for _, spell in ipairs(buff.groupCast and buff.groupCast.spells or {}) do byGroupCastId[spell.id] = buff end
     end
 end
 for _, list in pairs(BuffData.CLASSES) do
@@ -159,6 +176,37 @@ function BuffData.IsKnown(buff)
         if Known(id) then return true end
     end
     return false
+end
+
+-- The group version of buff you can cast, or nil: { id, reagent, equals,
+-- name, scope }, the highest rank you know, which is the one "/cast <name>"
+-- casts (#41). A group version you haven't learned is never offered, so no
+-- level table is needed here, the same test as the single-target ranks.
+function BuffData.KnownGroupCast(buff)
+    local cast = buff.groupCast
+    if not cast then return nil end
+    for _, spell in ipairs(cast.spells) do
+        if Known(spell.id) then
+            local name = Read(C_Spell and C_Spell.GetSpellName, spell.id) or Read(GetSpellInfo, spell.id)
+            if type(name) ~= "string" or name == "" then return nil end
+            return { id = spell.id, reagent = spell.reagent, equals = spell.equals, name = name, scope = cast.scope }
+        end
+    end
+    return nil
+end
+
+-- The name of buff's group version as the game spells it, learned or not.
+function BuffData.GroupCastName(buff)
+    local spell = buff.groupCast and buff.groupCast.spells[1]
+    local name = spell and Read(C_Spell and C_Spell.GetSpellName, spell.id)
+    if type(name) == "string" and name ~= "" then return name end
+end
+
+-- The buff a group version's spell ID belongs to, or nil (one of our group
+-- casts, as ForCast is for the single-target ones).
+function BuffData.ForGroupCast(spellId)
+    if Util.IsSecret(spellId) then return nil end
+    return byGroupCastId[spellId]
 end
 
 -- Whether your cast of buff can replace spellId on a player, to top it up

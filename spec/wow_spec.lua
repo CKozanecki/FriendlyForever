@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47, #169, #198, #219
+-- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -345,5 +345,127 @@ describe("The simulated client's [@unit] casts and buff-self default (#198)", fu
         local kept = boot({ buffDefaults = true }).db.buffBack.whoGets
         assert.is_nil(kept.wisdom)
         assert.is_nil(kept.thorns)
+    end)
+end)
+
+describe("The simulated client's group versions (#41)", function()
+    local function cast(text) wow.runMacro(text) end
+
+    local function boot(items)
+        wow.boot({ before = function(state)
+            state.class = "MAGE"
+            state.knownSpells = { [10157] = true, [23028] = true }
+            state.items = items or { [wow.ITEM.arcanePowder] = 1 }
+        end })
+        wow.setGroup("raid", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
+        wow.state.units.raid1.subgroup = 2
+        wow.state.units.raid2.subgroup = 2
+        wow.state.units.raid3.subgroup = 2
+        wow.state.units.raid4.subgroup = 1
+    end
+
+    it("answers reagent counts, and secrets and failures as asked", function()
+        boot({ [17020] = 3 })
+        assert.are.equal(3, GetItemCount(17020))
+        assert.are.equal(3, C_Item.GetItemCount(17020))
+        assert.are.equal(0, GetItemCount(17029))
+        wow.state.itemsSecret = true
+        assert.is_true(issecretvalue(GetItemCount(17020)))
+    end)
+
+    it("answers the raid roster's subgroups by slot", function()
+        boot()
+        assert.are.equal(2, select(3, GetRaidRosterInfo(1)))
+        assert.are.equal(1, select(3, GetRaidRosterInfo(4)))
+        assert.is_nil(GetRaidRosterInfo(5))
+        wow.state.units.raid1.secrets = { subgroup = true }
+        assert.is_true(issecretvalue(select(3, GetRaidRosterInfo(1))))
+        wow.state.rosterSecret = true
+        assert.is_true(issecretvalue(GetRaidRosterInfo(2)))
+    end)
+
+    it("covers the target's subgroup, uses a reagent, and puts the buff on those reached", function()
+        boot()
+        wow.state.units.raid2.outOfRange = true
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Arcane Brilliance")
+        local record = wow.casts[1]
+        assert.are.same({ "Ann-Vale", "Cid-Rock" }, record.covered)
+        assert.are.equal(0, wow.state.items[17020])
+        assert.are.same({ 23028 }, wow.state.units.raid1.auras)
+        assert.are.equal("player", wow.state.units.raid1.auraSources[1])
+        assert.is_nil(wow.state.units.raid2.auras, "out of range: not reached")
+        assert.is_nil(wow.state.units.raid4.auras, "another subgroup: not reached")
+    end)
+
+    it("fails with no reagent, also when it runs out while the server answers", function()
+        boot({})
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Arcane Brilliance")
+        assert.is_truthy(wow.casts[1].failed)
+        assert.are.equal(0, #wow.landed)
+        boot()
+        wow.state.castLatency = 1
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Arcane Brilliance")
+        wow.state.items[17020] = 0
+        wow.advance(2)
+        assert.are.equal(0, #wow.landed)
+        assert.are.equal(0, wow.state.items[17020])
+    end)
+
+    it("flags you for a covered player who is flagged, whoever the target is", function()
+        boot()
+        wow.state.units.raid3.pvp = true
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Arcane Brilliance")
+        assert.is_true(wow.state.pvp)
+        assert.are.same({ "Ann-Vale", "Cid-Rock" }, wow.flaggedBy)
+    end)
+
+    it("shows the buff only after state.auraDelay", function()
+        boot()
+        wow.state.auraDelay = 2
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Arcane Brilliance")
+        assert.is_nil(wow.state.units.raid1.auras)
+        wow.advance(2)
+        assert.are.same({ 23028 }, wow.state.units.raid1.auras)
+    end)
+
+    it("makes the buff last state.groupBuffSeconds, an hour by default", function()
+        boot()
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Arcane Brilliance")
+        assert.are.equal(3600, wow.state.units.raid1.auraDurations[1])
+        boot()
+        wow.state.groupBuffSeconds = 30
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Arcane Brilliance")
+        assert.are.equal(30, wow.state.units.raid1.auraDurations[1])
+        assert.is_false(wow.auraExpired(wow.state.units.raid1, 1))
+        wow.advance(31)
+        assert.is_true(wow.auraExpired(wow.state.units.raid1, 1))
+        assert.is_nil(C_UnitAuras.GetAuraDataByIndex("raid1", 1), "gone from the aura list")
+    end)
+
+    it("covers you when your own raid slot is in the target's subgroup, and not otherwise", function()
+        boot()
+        wow.addUnit("raid5", wow.state.units.player)
+        wow.state.units.player.subgroup = 2
+        wow.state.playerAuras = { { isHelpful = true, spellId = 10938, sourceUnit = "player", auraInstanceID = 1 } }
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Arcane Brilliance")
+        local record = wow.casts[1]
+        assert.are.same({ "Ann-Vale", "Bo-Fern", "Cid-Rock", "Me" }, record.covered)
+        assert.are.same({ 10938 }, record.before.Me, "what you wore, from your own buffs")
+        assert.are.same({ "player" }, record.beforeSources.Me)
+        local worn = C_UnitAuras.GetAuraDataByIndex("player", 2)
+        assert.are.equal(23028, worn.spellId, "and now you wear it")
+        assert.are.same({}, wow.flaggedBy)
+        wow.state.units.player.subgroup = 1
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Arcane Brilliance")
+        for _, id in ipairs(wow.casts[2].covered) do assert.are_not.equal("Me", id) end
+    end)
+
+    it("doesn't touch a unit that left the group before a slow answer", function()
+        boot()
+        wow.state.castLatency = 1
+        cast("/targetexact Ann Vale\n/cast [help,nodead] Arcane Brilliance")
+        wow.setGroup(nil, {})
+        wow.advance(2)
+        assert.are.same({}, wow.errors)
     end)
 end)

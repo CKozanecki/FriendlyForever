@@ -2,15 +2,22 @@
   "format": 1,
   "classes": {
     "MAGE": [
-      { "key": "intellect", "name": "Arcane Intellect", "group": ["Arcane Brilliance"], "manaOnly": true }
+      { "key": "intellect", "name": "Arcane Intellect", "group": ["Arcane Brilliance"],
+        "groupCast": {"scope": "party", "spells": [{"name": "Arcane Brilliance", "reagent": 17020, "equalsRank": 5}]}, "manaOnly": true }
     ],
     "PRIEST": [
-      { "key": "fortitude", "name": "Power Word: Fortitude", "group": ["Prayer of Fortitude"] },
-      { "key": "spirit", "name": "Divine Spirit", "group": ["Prayer of Spirit"], "manaOnly": true },
-      { "key": "shadow", "name": "Shadow Protection", "group": ["Prayer of Shadow Protection"] }
+      { "key": "fortitude", "name": "Power Word: Fortitude", "group": ["Prayer of Fortitude"],
+        "groupCast": {"scope": "party", "spells": [
+          {"name": "Prayer of Fortitude", "rank": 2, "reagent": 17029, "equalsRank": 6},
+          {"name": "Prayer of Fortitude", "rank": 1, "reagent": 17028, "equalsRank": 5}]} },
+      { "key": "spirit", "name": "Divine Spirit", "group": ["Prayer of Spirit"],
+        "groupCast": {"scope": "party", "spells": [{"name": "Prayer of Spirit", "rank": 1, "reagent": 17029, "equalsRank": 4}]}, "manaOnly": true },
+      { "key": "shadow", "name": "Shadow Protection", "group": ["Prayer of Shadow Protection"],
+        "groupCast": {"scope": "party", "spells": [{"name": "Prayer of Shadow Protection", "reagent": 17029, "equalsRank": 3}]} }
     ],
     "DRUID": [
-      { "key": "motw", "name": "Mark of the Wild", "group": ["Gift of the Wild"] },
+      { "key": "motw", "name": "Mark of the Wild", "group": ["Gift of the Wild"],
+        "groupCast": {"scope": "party", "spells": [{"name": "Gift of the Wild", "rank": 2, "reagent": 17026, "equalsRank": 7}, {"name": "Gift of the Wild", "rank": 1, "reagent": 17021, "equalsRank": 6}]} },
       { "key": "thorns", "name": "Thorns", "defaultRule": "tanks" }
     ],
     "PALADIN": [

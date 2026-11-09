@@ -349,6 +349,19 @@ nameSpell("Gift of the Wild", { 21850, 21849 })
 nameSpell("Thorns", { 9910, 9756, 8914, 1075, 782, 467 })
 nameSpell("Arcane Intellect", { 10157, 10156, 1461, 1460, 1459 })
 nameSpell("Arcane Brilliance", { 23028 })
+nameSpell("Prayer of Fortitude", { 21564, 21562 })
+nameSpell("Prayer of Spirit", { 27681 })
+nameSpell("Prayer of Shadow Protection", { 27683 })
+-- The group versions (#41): each covers the target's party (in a raid, their
+-- subgroup) and uses one reagent, by item ID, as in Classic Era; Forever's
+-- are unconfirmed (#202). Kept apart from the addon's table (BuffData.lua).
+M.ITEM = { arcanePowder = 17020, holyCandle = 17028, sacredCandle = 17029, wildBerries = 17021,
+    wildThornroot = 17026 }
+M.GROUP_CASTS = {
+    [23028] = M.ITEM.arcanePowder, [21564] = M.ITEM.sacredCandle, [21562] = M.ITEM.holyCandle,
+    [27681] = M.ITEM.sacredCandle, [27683] = M.ITEM.sacredCandle,
+    [21850] = M.ITEM.wildThornroot, [21849] = M.ITEM.wildBerries,
+}
 nameSpell("Power Word: Fortitude", { 10938, 10937, 2791, 1245, 1244, 1243 })
 nameSpell("Divine Spirit", { 27841, 14819, 14818, 14752 })
 nameSpell("Shadow Protection", { 10958, 10957, 976 })
@@ -473,6 +486,19 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         named (sourceUnit) only when the receiver has a unit
 --                         token for them. Whether Forever reports a refreshed
 --                         buff as added: confirmed in game at launch.
+--   Group versions (#41): GetItemCount / C_Item.GetItemCount answer
+--                         state.items[id] (0 when unset); GetRaidRosterInfo(i)
+--                         answers for the unit "raid"..i, its subgroup third
+--                         (unit.subgroup, 1 unless set). A group cast covers
+--                         the target's party (a raid's subgroup) less anyone
+--                         offline, dead, out of range or sight, uses one
+--                         reagent, and fails with none: the reagents are
+--                         Classic's. Forever's reagents, whether the slot
+--                         number is the raid unit's number, and the counts'
+--                         readability are unconfirmed (#202).
+--                         state.auraDelay: the covered players' buffs show only
+--                         that many seconds after the cast (0 by default);
+--                         state.groupBuffSeconds: how long they last (an hour by default).
 --   state.mapId           what C_Map.GetBestMapForUnit("player") answers: the
 --                         uiMapID, or nil as on a loading screen (1429, Elwynn
 --                         Forest, by default). Capitals use Classic Era's
@@ -592,6 +618,25 @@ local function conditionsHold(list, unit)
     return true
 end
 
+-- The group members a group version cast on target reaches (#41): the
+-- target's party, in a raid their subgroup (unit.subgroup, 1 unless set),
+-- less anyone offline, dead, out of range or out of sight. Unit tokens.
+local function groupCovered(target)
+    local inRaid = M.state.groupType == "raid" or M.state.raidSized
+    local out = {}
+    for token, u in pairs(M.state.units) do
+        if (token:find("^party%d") or token:find("^raid%d"))
+            and not u.offline and not u.dead and not u.outOfRange and not u.hidden
+            and (not inRaid or (u.subgroup or 1) == (target.subgroup or 1)) then
+            out[#out + 1] = token
+        end
+    end
+    -- In a party you are one of its members, though not one of its slots.
+    if not inRaid and M.state.groupType ~= nil then out[#out + 1] = "player" end
+    table.sort(out)
+    return out
+end
+
 local castCount = 0
 local function cast(args)
     local conds, name = args:match("^%[(.-)%]%s*(.+)$")
@@ -625,6 +670,12 @@ local function cast(args)
     local redirected = elsewhere ~= nil and elsewhere.id ~= target.id -- another player, not another token
     if elsewhere then target = elsewhere end
     local failure = M.state.castFailures[target.id]
+    -- A group version (#41) uses a reagent and covers the target's party.
+    local reagent = M.GROUP_CASTS[id]
+    if reagent and (M.state.items[reagent] or 0) < 1 then failure = failure or "Missing reagent" end
+    local covered = reagent and groupCovered(target) or nil
+    local coveredUnits = {}
+    for i, token in ipairs(covered or {}) do coveredUnits[i] = M.state.units[token] end
     castCount = castCount + 1
     local guid = "Cast-" .. castCount
     local form = M.state.sentTargetForm
@@ -637,22 +688,78 @@ local function cast(args)
     M.fire("UNIT_SPELLCAST_SENT", "player", sentTo, guid, id)
     local record = { spell = name, id = id, target = target.id, failed = failure,
         targetDead = target.dead or nil, targetHostile = target.hostile or nil }
+    if covered then
+        -- Who it reaches, and what each wore before: for the specs' invariants.
+        record.covered, record.before = {}, {}
+        for _, token in ipairs(covered) do
+            local u = M.state.units[token]
+            record.covered[#record.covered + 1] = u.id
+            record.beforeSources = record.beforeSources or {}
+            if u == M.state.units.player then
+                -- Your own raid slot: your buffs are the game's playerAuras.
+                record.before[u.id], record.beforeSources[u.id] = {}, {}
+                for _, aura in ipairs(M.state.playerAuras) do
+                    record.before[u.id][#record.before[u.id] + 1] = aura.spellId
+                    record.beforeSources[u.id][#record.before[u.id]] = aura.sourceUnit
+                end
+            else
+                record.before[u.id] = { unpack(u.auras or {}) }
+                record.beforeSources[u.id] = { unpack(u.auraSources or {}) }
+            end
+        end
+    end
     M.casts[#M.casts + 1] = record
+    M.lastCastGuid = guid -- the newest cast's GUID, for specs that answer it by hand
     -- Helping a player flagged for PvP flags you too (as things stand when
-    -- the cast goes out).
+    -- the cast goes out). A group version helps everyone it covers.
     local flags = not failure and target.pvp and target ~= M.state.units.player and not M.state.pvp
+    local flagging = {}
+    for _, token in ipairs(covered or {}) do
+        local u = M.state.units[token]
+        if not failure and u.pvp and not M.state.pvp and u ~= M.state.units.player then
+            flags = true
+            flagging[#flagging + 1] = u.id
+        end
+    end
     -- The server's answer: at once, or after state.castLatency seconds.
     local function answer()
-        if failure then
-            if M.state.errorBeforeFailed then M.uiError(failure) end
+        -- A reagent used up while the server thought about it fails the cast.
+        local failed = failure
+        if reagent and (M.state.items[reagent] or 0) < 1 then failed = failed or "Missing reagent" end
+        if failed then
+            if M.state.errorBeforeFailed then M.uiError(failed) end
             M.fire("UNIT_SPELLCAST_FAILED", "player", guid, id)
-            if not M.state.errorBeforeFailed then M.uiError(failure) end
+            if not M.state.errorBeforeFailed then M.uiError(failed) end
             return
         end
         if flags then
             M.state.pvp = true
             local list = redirected and M.flaggedElsewhere or M.flaggedBy
             list[#list + 1] = target.id
+            for _, who in ipairs(flagging) do
+                if who ~= target.id then list[#list + 1] = who end
+            end
+        end
+        if covered then
+            M.state.items[reagent] = M.state.items[reagent] - 1
+            -- Everyone it reached (and who is still here when a slow server
+            -- answers) now wears it, from you.
+            local function wear()
+                for i, token in ipairs(covered) do
+                    if M.state.units[token] == coveredUnits[i] then
+                        if coveredUnits[i] == M.state.units.player then
+                            local seconds = M.state.groupBuffSeconds or 3600
+                            M.state.playerAuras[#M.state.playerAuras + 1] = { isHelpful = true, spellId = id,
+                                sourceUnit = "player", duration = seconds, expirationTime = M.now + seconds,
+                                auraInstanceID = 700000 + #M.state.playerAuras }
+                        else
+                            M.wearBuff(token, id, { source = "player", duration = M.state.groupBuffSeconds })
+                        end
+                    end
+                end
+            end
+            -- state.auraDelay: their buffs show only this many seconds later.
+            if (M.state.auraDelay or 0) > 0 then _G.C_Timer.After(M.state.auraDelay, wear) else wear() end
         end
         M.landed[#M.landed + 1] = { spell = name, id = id, target = target.id, at = M.now }
         M.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, id)
@@ -1000,7 +1107,7 @@ function M.reset()
         units = {}, cursorX = 0, cursorY = 0,
         playerAuras = {}, aurasRestricted = false,
         today = "2026-10-26", clock = 1793000000,
-        knownSpells = {}, castFailures = {}, targetNameForm = "space", sentTargetForm = "first",
+        knownSpells = {}, castFailures = {}, items = {}, mySubgroup = 1, targetNameForm = "space", sentTargetForm = "first",
         -- overrides: [key] = { owner, button, mouseButton, priority } (SetOverrideBindingClick).
         -- bindings: [key] = the key's own binding action. mods: modifier keys held now.
         overrides = {}, bindings = {}, mods = {},
@@ -1341,6 +1448,30 @@ function M.reset()
         for _ in pairs(M.state.groupMembers) do n = n + 1 end
         return n
     end
+    -- Reagents (#41): state.items[itemId] = how many you carry. state.itemsSecret
+    -- makes every count a secret, and specs remove the call for a client without it.
+    local function itemCount(item)
+        if M.state.itemsSecret then return M.secret(M.state.items[item] or 0) end
+        return M.state.items[item] or 0
+    end
+    _G.GetItemCount = itemCount
+    -- state.itemNames[itemId]: the client's name for an item (as GetItemNameByID gives it).
+    _G.C_Item = { GetItemCount = itemCount,
+        GetItemNameByID = function(item) return M.state.itemNames and M.state.itemNames[item] end }
+    -- GetRaidRosterInfo(i) for raid slot i: name, rank, subgroup (unit.subgroup,
+    -- 1 unless set), level, class, file name, zone, online, dead. A slot with
+    -- no unit answers nothing. unit.secrets.subgroup makes the subgroup a
+    -- secret; state.rosterSecret makes the whole answer one; specs remove the
+    -- function for a client without it. The slot number is the raid unit's number, as in
+    -- the game. Whether Forever behaves so is unconfirmed (#202).
+    _G.GetRaidRosterInfo = function(i)
+        local u = M.state.units["raid" .. tostring(i)]
+        if not u then return nil end
+        if M.state.rosterSecret then return M.secret(u.name) end
+        local subgroup = u.subgroup or 1
+        if u.secrets and u.secrets.subgroup then subgroup = M.secret(subgroup) end
+        return u.name, 0, subgroup, 60, u.class, u.class, "Zone", not u.offline, u.dead == true
+    end
     _G.UnitIsPVP = restricted(function(unit)
         if unit == "player" then return M.state.pvp == true end
         local u = M.state.units[unit]
@@ -1376,7 +1507,8 @@ function M.reset()
     _G.C_UnitAuras = {
         GetAuraDataByIndex = function(unit, index)
             if M.state.aurasRestricted then error("aura data is restricted") end
-            if unit ~= "player" then
+            -- (Your own raid slot, if a spec added one, is you.)
+            if unit ~= "player" and M.state.units[unit] ~= M.state.units.player then
                 -- Other players: spec.auras = { spellId, ... } (secret while units are restricted).
                 local u = M.state.units[unit]
                 if not (u and u.auras) then return nil end
@@ -1675,6 +1807,13 @@ function M.wearBuff(token, spellId, opts)
     u.auraSources[i] = opts.source
     u.auraDurations[i] = duration
     u.auraExpires[i] = duration > 0 and M.now + duration or 0
+end
+
+-- The party or raid token of a unit table, or nil (for specs that hold the unit).
+function M.tokenFor(u)
+    for token, v in pairs(M.state.units) do
+        if v == u and (token:find("^party%d") or token:find("^raid%d")) then return token end
+    end
 end
 
 local nextAuraId = 1

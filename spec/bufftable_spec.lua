@@ -76,6 +76,14 @@ local function problems(t)
                 bad(tostring(buff.key) .. ": no name")
             end
             if type(buff.ranks) ~= "table" or #buff.ranks == 0 then bad(tostring(buff.key) .. ": no ranks") end
+            local isGroup, isRank = {}, {}
+            for _, id in ipairs(buff.group or {}) do isGroup[id] = true end
+            for _, id in ipairs(buff.ranks or {}) do isRank[id] = true end
+            for _, spell in ipairs(buff.groupCast and buff.groupCast.spells or {}) do
+                if not validId(spell.id) or not isGroup[spell.id] then bad(tostring(buff.key) .. ": group cast ID") end
+                if not validId(spell.reagent) then bad(tostring(buff.key) .. ": group cast reagent") end
+                if not isRank[spell.equals] then bad(tostring(buff.key) .. ": group cast equals") end
+            end
             for _, field in ipairs({ "ranks", "group", "blockers" }) do
                 local seen = {}
                 for _, id in ipairs(buff[field] or {}) do
@@ -285,6 +293,12 @@ describe("The generated buff table", function()
             assert.are_not.same({}, damaged(function(t) t.classes.DRUID[2].ranks[1] = t.classes.DRUID[1].ranks[1] end),
                 "a rank of two buffs")
             assert.are_not.same({}, damaged(function(t) t.classes.DRUID[1].name = nil end), "no name")
+            assert.are_not.same({}, damaged(function(t) t.classes.DRUID[1].groupCast.spells[1].id = 1 end),
+                "a group cast that is not a group version")
+            assert.are_not.same({}, damaged(function(t) t.classes.DRUID[1].groupCast.spells[1].reagent = 1.5 end),
+                "a fractional reagent")
+            assert.are_not.same({}, damaged(function(t) t.classes.DRUID[1].groupCast.spells[1].equals = 1 end),
+                "an equals that is not a rank")
             assert.are_not.same({}, damaged(function(t) t.sourceSha256 = "abc" end), "bad hash")
         end)
     end)

@@ -133,6 +133,40 @@ def read_buffs(data):
     return classes, removed
 
 
+def group_cast(key, spec, buff, spells, index, report):
+    """The group versions you can cast (GroupCasts.lua, #41), highest rank first.
+
+    Each spell is found by name and rank number; `equals` is the buff's own
+    rank of the same strength, found by its rank number. The reagent is an item
+    ID, which the spell data does not cover: it is hand-listed in the buff
+    definitions and only range-checked here (#209, #225).
+    """
+    if not isinstance(spec, dict) or spec.get("scope") != "party" or not isinstance(spec.get("spells"), list):
+        raise Problem(f"{key}: groupCast needs scope 'party' and a list of spells")
+    out = []
+    for item in spec["spells"]:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            raise Problem(f"{key}: a groupCast spell needs a name")
+        rank = item.get("rank", 0)
+        equals_rank = item.get("equalsRank", 0)
+        for number in (rank, equals_rank):
+            if type(number) is not int or not 0 <= number <= 999:
+                raise Problem(f"{key}: groupCast rank must be a whole number from 0 to 999")
+        reagent = check_id(item.get("reagent"), f"{key} groupCast reagent")
+        found = [i for i in ids_named(item["name"], index, spells) if spells[i][1] == rank]
+        if len(found) != 1:
+            report.append(f"NOT FOUND  {key}: group cast {item['name']!r} rank {rank}")
+            continue
+        if found[0] not in buff.get("group", []):
+            raise Problem(f"{key}: group cast {found[0]} is not one of its group versions")
+        same = [i for i in buff["ranks"] if spells[i][1] == equals_rank]
+        if len(same) != 1:
+            raise Problem(f"{key}: no single rank {equals_rank} to match group cast {found[0]}")
+        out.append({"id": found[0], "reagent": reagent, "equals": same[0]})
+        report.append(f"FOUND  {key} group cast {found[0]} ({item['name']}), reagent item {reagent} (hand-listed), equals {same[0]}")
+    return {"scope": "party", "spells": out} if out else None
+
+
 def build(spells, classes, removed):
     index = by_name(spells)
     report = []
@@ -218,6 +252,10 @@ def build(spells, classes, removed):
                         or not all(isinstance(c, str) and CLASS_RE.match(c) for c in classes_list)):
                     raise Problem(f"{key}: defaultClasses must be a list of class names, each once")
                 buff["defaultClasses"] = classes_list
+            if "groupCast" in spec:
+                cast = group_cast(key, spec["groupCast"], buff, spells, index, report)
+                if cast:
+                    buff["groupCast"] = cast
             for flag in FLAGS:
                 if spec.get(flag) is True:
                     buff[flag] = True
@@ -274,6 +312,12 @@ def render(build_id, digest, source_name, classes, absent, removed_ids):
                     parts.append(f"{field} = {lua_list(buff[field])}")
             if "family" in buff:
                 parts.append(f"family = {lua_string(buff['family'])}")
+            if "groupCast" in buff:
+                spells_text = "\n".join(
+                    f"                        {{ id = {c['id']}, reagent = {c['reagent']}, equals = {c['equals']} }},"
+                    for c in buff["groupCast"]["spells"])
+                parts.append('groupCast = {\n                    scope = "party",\n                    spells = {\n'
+                             + spells_text + "\n                    },\n                }")
             if "defaultRule" in buff:
                 parts.append(f"defaultRule = {lua_string(buff['defaultRule'])}")
             if "defaultClasses" in buff:
