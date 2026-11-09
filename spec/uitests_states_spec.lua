@@ -1,4 +1,4 @@
--- Spec: #154
+-- Spec: #154, #223
 -- The UI scenarios' game-event helpers (uitests/button_states.lua), run here
 -- against a stand-in for the simulator's A_Admin that records each call and
 -- event in order. They follow what wow-ui-sim ac893c6 does itself (its
@@ -8,7 +8,8 @@
 
 -- Loads button_states.lua with a recording A_Admin; returns its States, the
 -- log of calls and events, and the stand-in client tables.
-local function load()
+local function load(opts)
+    opts = opts or {}
     local log = {}
     local function record(entry) log[#log + 1] = entry end
     local client = {
@@ -42,12 +43,34 @@ local function load()
             client.class = class
             record("SetPlayerClass " .. class)
         end,
+        -- The simulator matches the exact spell ID (wow-ui-sim ac893c6's remove_buff).
+        RemoveBuff = function(id)
+            record("RemoveBuff " .. id)
+            if client.stubborn then return end
+            for i = #client.auras, 1, -1 do
+                if client.auras[i].spellId == id then table.remove(client.auras, i) end
+            end
+        end,
     }
+    client.auras = {} -- the player's helpful auras, as the simulator seeds them
+    -- A state's setup makes calls no test here is about (the clock, the
+    -- party): they are recorded and ignored.
+    if opts.lenient then
+        setmetatable(admin, { __index = function(_, name)
+            return function(...) record(name .. " " .. select("#", ...)) end
+        end })
+    end
     local env = setmetatable({
         A_Admin = admin,
         C_SpellBook = client.C_SpellBook,
         C_Spell = client.C_Spell,
+        C_UnitAuras = { GetAuraDataByIndex = function(_, i) return client.auras[i] end },
         UnitClass = function() return "x", "X", client.class end,
+        GetTime = function() return 0 end,
+        UnitExists = function() return false end,
+        UnitName = function() return nil end,
+        UnitLevel = function() return 1 end,
+        SlashCmdList = { FRIENDLYFOREVER = function(text) record("slash " .. text) end },
         UnitInRange = function(unit) return unit == "party1" end,
         InCombatLockdown = function() return client.inCombat end,
     }, { __index = _G })
@@ -117,5 +140,38 @@ describe("UI scenarios: the spellbook fixture on wow-ui-sim ac893c6 (#154)", fun
         States.Learn()
         States.Learn()
         assert.are.same({ "LearnSpell 10938", "SetPlayerClass 5", "event SPELLS_CHANGED" }, log)
+    end)
+end)
+
+describe("UI scenarios: the player's seeded buffs on wow-ui-sim ac893c6 (#223)", function()
+    it("takes every Fortitude off the player, the simulator's random 21562 too, and no other buff (white)", function()
+        local States, log, client = load()
+        client.auras = { { spellId = 1459 }, { spellId = 21562 }, { spellId = 10938 }, { spellId = 21564 } }
+        States.NoFortitude()
+        assert.are.same({ { spellId = 1459 } }, client.auras)
+        assert.are.same({ "RemoveBuff 10938", "RemoveBuff 10937", "RemoveBuff 2791", "RemoveBuff 1245",
+            "RemoveBuff 1244", "RemoveBuff 1243", "RemoveBuff 21564", "RemoveBuff 21562" }, log)
+    end)
+
+    it("does nothing when the player wears none (white)", function()
+        local States, _, client = load()
+        client.auras = { { spellId = 1459 } }
+        States.NoFortitude()
+        assert.are.same({ { spellId = 1459 } }, client.auras)
+    end)
+
+    it("fails loudly when a Fortitude stays, so a scenario can't pass or fail by chance (black)", function()
+        local States, _, client = load()
+        client.auras = { { spellId = 1459 }, { spellId = 21562 } }
+        client.stubborn = true
+        assert.has_error(function() States.NoFortitude() end, "the player still wears Fortitude (21562)")
+    end)
+
+    it("is done by the buff mode state's setup, whatever the simulator seeded (white)", function()
+        local States, log, client = load({ lenient = true })
+        client.auras = { { spellId = 21562 }, { spellId = 1459 } }
+        States.GroupMissing.Set()
+        assert.are.same({ { spellId = 1459 } }, client.auras, "no Fortitude is left once the state is set")
+        assert.is_true(table.concat(log, "\n"):find("RemoveBuff 21562", 1, true) ~= nil)
     end)
 end)
