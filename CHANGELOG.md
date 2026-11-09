@@ -1,6 +1,6 @@
 # Changelog
 
-### Unreleased
+## 1.0.1
 
 - **Blessing of Light is gone:** Blizzard removed it, so it is no longer offered, tracked or listed; settings and profiles that mention it still load and keep their values. This corrects the 1.0.0 note. (#237, #225)
 
