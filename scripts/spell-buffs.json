@@ -21,11 +21,18 @@
       { "key": "thorns", "name": "Thorns", "defaultRule": "tanks" }
     ],
     "PALADIN": [
-      { "key": "kings", "name": "Blessing of Kings", "group": ["Greater Blessing of Kings"], "family": "blessing" },
+      { "key": "kings", "name": "Blessing of Kings", "group": ["Greater Blessing of Kings"], "family": "blessing",
+        "groupCast": {"scope": "class", "spells": [{"name": "Greater Blessing of Kings", "reagent": 21177, "equalsRank": 0}]} },
       { "key": "wisdom", "name": "Blessing of Wisdom", "group": ["Greater Blessing of Wisdom"],
+        "groupCast": {"scope": "class", "spells": [
+          {"name": "Greater Blessing of Wisdom", "rank": 2, "reagent": 21177, "equalsRank": 6},
+          {"name": "Greater Blessing of Wisdom", "rank": 1, "reagent": 21177, "equalsRank": 5}]},
         "manaOnly": true, "family": "blessing", "defaultRule": "classes",
         "defaultClasses": ["PALADIN", "HUNTER", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID"] },
       { "key": "might", "name": "Blessing of Might", "group": ["Greater Blessing of Might"], "family": "blessing",
+        "groupCast": {"scope": "class", "spells": [
+          {"name": "Greater Blessing of Might", "rank": 2, "reagent": 21177, "equalsRank": 7},
+          {"name": "Greater Blessing of Might", "rank": 1, "reagent": 21177, "equalsRank": 6}]},
         "defaultRule": "classes", "defaultClasses": ["WARRIOR", "PALADIN", "HUNTER", "ROGUE", "SHAMAN", "DRUID"] }
     ],
     "SHAMAN": [

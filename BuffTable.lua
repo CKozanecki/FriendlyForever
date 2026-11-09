@@ -52,6 +52,12 @@ ns.BuffTable = {
                 ranks = { 20217 },
                 group = { 25898 },
                 family = "blessing",
+                groupCast = {
+                    scope = "class",
+                    spells = {
+                        { id = 25898, reagent = 21177, equals = 20217 },
+                    },
+                },
             },
             {
                 key = "wisdom",
@@ -59,6 +65,13 @@ ns.BuffTable = {
                 ranks = { 25290, 19854, 19853, 19852, 19850, 19742 },
                 group = { 25918, 25894 },
                 family = "blessing",
+                groupCast = {
+                    scope = "class",
+                    spells = {
+                        { id = 25918, reagent = 21177, equals = 25290 },
+                        { id = 25894, reagent = 21177, equals = 19854 },
+                    },
+                },
                 defaultRule = "classes",
                 defaultClasses = {
                     PALADIN = true,
@@ -77,6 +90,13 @@ ns.BuffTable = {
                 ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 },
                 group = { 25916, 25782 },
                 family = "blessing",
+                groupCast = {
+                    scope = "class",
+                    spells = {
+                        { id = 25916, reagent = 21177, equals = 25291 },
+                        { id = 25782, reagent = 21177, equals = 19838 },
+                    },
+                },
                 defaultRule = "classes",
                 defaultClasses = {
                     WARRIOR = true,

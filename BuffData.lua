@@ -10,7 +10,8 @@
 --             highest you know, and any of them on a player means they have it
 --   group     the group versions' IDs (Arcane Brilliance...): they count as having it
 --   groupCast the group version you can cast (GroupCasts.lua, #41): scope
---             "party" (the target's party), and spells, highest rank first,
+--             "party" (the target's party) or "class" (every member of the
+--             target's class in the raid: Greater Blessings), and spells, highest rank first,
 --             each { id, reagent = item ID, equals = the single-target rank
 --             of the same strength }; every id is also in group
 --   blockers  other buffs that do the same job (Unending Breath for Water Breathing): ditto
@@ -71,7 +72,7 @@ end
 -- fallback for messages: the client's own is used when it has it.
 BuffData.REAGENTS = {
     [17020] = "Arcane Powder", [17028] = "Holy Candle", [17029] = "Sacred Candle",
-    [17021] = "Wild Berries", [17026] = "Wild Thornroot",
+    [17021] = "Wild Berries", [17026] = "Wild Thornroot", [21177] = "Symbol of Kings",
 }
 
 -- [spell ID] = buff, for every rank, group version and blocker. A spell

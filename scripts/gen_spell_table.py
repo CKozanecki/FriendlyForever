@@ -141,8 +141,9 @@ def group_cast(key, spec, buff, spells, index, report):
     ID, which the spell data does not cover: it is hand-listed in the buff
     definitions and only range-checked here (#209, #225).
     """
-    if not isinstance(spec, dict) or spec.get("scope") != "party" or not isinstance(spec.get("spells"), list):
-        raise Problem(f"{key}: groupCast needs scope 'party' and a list of spells")
+    if (not isinstance(spec, dict) or spec.get("scope") not in ("party", "class")
+            or not isinstance(spec.get("spells"), list)):
+        raise Problem(f"{key}: groupCast needs scope 'party' or 'class' and a list of spells")
     out = []
     for item in spec["spells"]:
         if not isinstance(item, dict) or not isinstance(item.get("name"), str):
@@ -164,7 +165,7 @@ def group_cast(key, spec, buff, spells, index, report):
             raise Problem(f"{key}: no single rank {equals_rank} to match group cast {found[0]}")
         out.append({"id": found[0], "reagent": reagent, "equals": same[0]})
         report.append(f"FOUND  {key} group cast {found[0]} ({item['name']}), reagent item {reagent} (hand-listed), equals {same[0]}")
-    return {"scope": "party", "spells": out} if out else None
+    return {"scope": spec["scope"], "spells": out} if out else None
 
 
 def build(spells, classes, removed):
@@ -316,7 +317,8 @@ def render(build_id, digest, source_name, classes, absent, removed_ids):
                 spells_text = "\n".join(
                     f"                        {{ id = {c['id']}, reagent = {c['reagent']}, equals = {c['equals']} }},"
                     for c in buff["groupCast"]["spells"])
-                parts.append('groupCast = {\n                    scope = "party",\n                    spells = {\n'
+                parts.append('groupCast = {\n                    scope = ' + lua_string(buff["groupCast"]["scope"])
+                             + ',\n                    spells = {\n'
                              + spells_text + "\n                    },\n                }")
             if "defaultRule" in buff:
                 parts.append(f"defaultRule = {lua_string(buff['defaultRule'])}")
