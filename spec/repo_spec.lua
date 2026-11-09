@@ -2775,8 +2775,23 @@ describe("Release docs", function()
                 assert.is_truthy(text:find("#only-behind-main", 1, true), path .. " doesn't reference the rule")
                 assert.is_falsy(text:find("update branch only.**", 1, true), path .. " restates the rule")
             end
-            local coordinator = wow.readFile(".claude/skills/coordinator/SKILL.md"):gsub("%s+", " ")
-            assert.is_truthy(coordinator:find('"update branch only" or "developer must merge"', 1, true), "coordinator labels")
+            -- Whole sentences, so a changed condition or a changed actor fails (#119).
+            local function has(path, sentence)
+                local text = wow.readFile(path):gsub("%s+", " ")
+                assert.is_truthy(text:find(sentence, 1, true), path .. " lost: " .. sentence)
+            end
+            has("CONTRIBUTING.md", "Unchanged: the developer merges `main`, resolves, and the reviewers confirm the merge and the resolutions.")
+            has(".claude/skills/after-merge/SKILL.md", "If the PR shares no file with the merge and has no conflict, do nothing: the owner clicks Update branch")
+            has(".claude/skills/coordinator/SKILL.md", 'then tell the owner, naming the PR, "update branch only" or "developer must merge"')
+            has(".claude/skills/coordinator/SKILL.md", 'Only for "developer must merge", tell its driver to merge `main` in (the `after-merge` skill).')
+            has(".claude/skills/coordinator/SKILL.md", "only behind `main` (no shared file, no conflict), it is still ready")
+            has(".claude/skills/merge-order/SKILL.md", "only behind `main` (no shared file, no trial-merge conflict) is still ready")
+            has("AGENTS.md", "only behind `main` (no shared file, no conflict) is not for the driver")
+            -- Written once: each label appears exactly once in CONTRIBUTING.md.
+            for _, label in ipairs({ "update branch only.**", "developer must merge.**" }) do
+                local _, count = flat:gsub(label:gsub("%p", "%%%0"), "")
+                assert.are.equal(1, count, "CONTRIBUTING.md has " .. count .. " copies of " .. label)
+            end
             local afterMerge = wow.readFile(".claude/skills/after-merge/SKILL.md"):gsub("%s+", " ")
             assert.is_truthy(afterMerge:find("a conflict was resolved, the reviewers confirm the merge", 1, true), "overlap/conflict still reviewed")
         end)
