@@ -20,6 +20,15 @@
 -- member at most. Anything that can't be read leaves you offered every
 -- buff, as without the split.
 --
+-- Who takes part (the owner's decisions on #70): copies with the split
+-- switched on (Buff Back tab, on by default), while buff mode is on and for
+-- GRACE seconds after it goes off; a copy that isn't says so once ("-").
+-- Copies re-announce every HEARTBEAT seconds; one not heard for SILENT
+-- seconds, or that leaves the raid or goes offline, drops out, and its
+-- share goes back into the split. When there are more players than buffs,
+-- priests, mages and druids holding the same buff split the raid's groups
+-- 1-8; an extra paladin is a backup.
+--
 -- Raids only: in a party, or alone, nothing changes.
 local _, ns = ...
 local Util = ns.Util
@@ -32,12 +41,21 @@ ns.RaidSplit = RaidSplit
 -- what you give, and say it at most once per MIN_GAP seconds.
 RaidSplit.SETTLE = 2
 RaidSplit.MIN_GAP = 10
+-- The owner's choices (#70, 2026-11-09): say it again every HEARTBEAT
+-- seconds in a raid; a copy not heard for SILENT seconds drops out; you take
+-- part for GRACE seconds after buff mode goes off.
+RaidSplit.HEARTBEAT = 60
+RaidSplit.SILENT = 180
+RaidSplit.GRACE = 300
+-- The raid's groups, split between players holding the same buff.
+RaidSplit.GROUPS = 8
 
 local RAID_UNITS = {}
 for i = 1, 40 do RAID_UNITS[i] = "raid" .. i end
 
--- [full name] = { keys = { key, ... } in their order, fixed = { [key] = true } or nil }:
--- what each other copy of your class in this raid last announced.
+-- [full name] = { keys = { key, ... } in their order, fixed = { [key] = true }
+-- or nil, heardAt = GetTime() }: what each other copy of your class in this
+-- raid last announced, and when.
 local peers = {}
 local lastSent        -- the text of our last SHARE ("keys;fixed"), or nil
 local lastSentAt      -- GetTime() it went
@@ -49,7 +67,8 @@ local sendPending = false
 
 -- The deterministic split. players: a list of { name, keys = { key, ... }
 -- in that player's buff order, fixed = { [key] = true } or nil }. Returns
--- [name] = { [key] = true }, every player's share.
+-- [name] = { [key] = true or { [group] = true } }, every player's share: a
+-- buff for the whole raid, or for those groups of it.
 --
 -- 1. A player who set their Blessings by hand holds exactly those, and
 --    takes nothing else.
@@ -97,6 +116,49 @@ function RaidSplit.Split(players)
         end
         if not took then break end
         forward = not forward
+    end
+    -- 3. More players than buffs: a player still holding nothing takes, in
+    --    name order, the buff in their order that the fewest hold, Blessings
+    --    left out (a player keeps one Blessing per paladin: a spare paladin
+    --    is a backup). Then the holders of each such buff split the raid's
+    --    groups in name order: two mages get groups 1-4 and 5-8.
+    local holders = {}
+    for _, p in ipairs(list) do
+        for key in pairs(shares[p.name]) do holders[key] = (holders[key] or 0) + 1 end
+    end
+    local spread = {}
+    for _, p in ipairs(drafting) do
+        if next(shares[p.name]) == nil then
+            local best
+            for _, key in ipairs(p.keys) do
+                local buff = ns.BuffData.ByKey(key)
+                if buff and buff.family ~= "blessing" and (not best or (holders[key] or 0) < (holders[best] or 0)) then
+                    best = key
+                end
+            end
+            if best then
+                shares[p.name][best] = true
+                holders[best] = (holders[best] or 0) + 1
+                spread[best] = true
+            end
+        end
+    end
+    for key in pairs(spread) do
+        local names = {}
+        for _, p in ipairs(list) do
+            if shares[p.name][key] then names[#names + 1] = p.name end
+        end
+        local n = #names
+        for i, name in ipairs(names) do
+            local from, to = math.floor((i - 1) * RaidSplit.GROUPS / n) + 1, math.floor(i * RaidSplit.GROUPS / n)
+            if from > to then
+                shares[name][key] = nil -- more holders than groups: a backup
+            else
+                local groups = {}
+                for g = from, to do groups[g] = true end
+                shares[name][key] = groups
+            end
+        end
     end
     return shares
 end
@@ -152,6 +214,31 @@ local function Roster()
     return out, unreadable
 end
 
+-- Whether a peer's last share is recent enough to count: heard within
+-- SILENT seconds (a clock that went back can't tell: it isn't).
+local function Fresh(entry, now)
+    return now >= entry.heardAt and now - entry.heardAt <= RaidSplit.SILENT
+end
+
+-- Whether the split is switched on (Buff Back tab); damaged reads as on.
+function RaidSplit.Enabled()
+    local value = ns.db and type(ns.db.buffBack) == "table" and ns.db.buffBack.raidSplit
+    if type(value) == "boolean" then return value end
+    return ns.Config.DEFAULTS.buffBack.raidSplit
+end
+
+-- Whether you take part now: buff mode is on, or went off less than GRACE
+-- seconds ago.
+local lastOnAt
+local function TakingPart()
+    local now = GetTime()
+    if ns.BuffMode.IsOn() then
+        lastOnAt = now
+        return true
+    end
+    return lastOnAt ~= nil and now >= lastOnAt and now - lastOnAt < RaidSplit.GRACE
+end
+
 -- Whether name is someone the split may count: in your raid now, of your
 -- class, and online, as the game says. Anything unreadable is a no.
 local function Eligible(roster, name, class)
@@ -172,20 +259,23 @@ local function MyEntry(class)
 end
 
 -- Everyone in the split now (you first), or nil and why there's no split:
--- not in a raid, your class or name can't be read, or nobody else of your
--- class has said they run the addon.
+-- switched off, not in a raid, not taking part, your class or name can't be
+-- read, or nobody else of your class has said lately that they take part.
 local function Players()
+    if not RaidSplit.Enabled() then return nil, "switched off" end
     if not InRaid() then return nil, "not in a raid" end
     local class = MyClass()
     if not class then return nil, "can't read your class" end
     local me = Util.UnitFullName("player")
     if not me then return nil, "can't read your name" end
     if next(ClassKeys(class)) == nil then return nil, "your class has no buffs to share" end
+    if not TakingPart() then return nil, "you take part while buff mode is on" end
     local mine = MyEntry(class)
     local list = { { name = me, keys = mine.keys, fixed = mine.fixed, me = true } }
     local roster = Roster()
+    local now = GetTime()
     for name, entry in pairs(peers) do
-        if name ~= me and Eligible(roster, name, class) then
+        if name ~= me and (#entry.keys > 0 or entry.fixed) and Fresh(entry, now) and Eligible(roster, name, class) then
             list[#list + 1] = { name = name, keys = entry.keys, fixed = entry.fixed }
         end
     end
@@ -224,7 +314,38 @@ end
 function RaidSplit.Covers(buff)
     local mine = RaidSplit.Current()
     if not mine then return true end
-    return mine[buff.key] == true
+    return mine[buff.key] ~= nil
+end
+
+-- The raid group (1-8) unit is in, or nil when it can't be read.
+local function GroupOf(unit)
+    local index = type(unit) == "string" and tonumber(unit:match("^raid(%d+)$"))
+    if not index and unit == "player" then
+        for i, raidUnit in ipairs(RAID_UNITS) do
+            if Read(UnitIsUnit, raidUnit, "player") == true then
+                index = i
+                break
+            end
+        end
+    end
+    if not index then return nil end
+    local _, _, group = Read(GetRaidRosterInfo, index)
+    if type(group) == "number" and group == math.floor(group) and group >= 1 and group <= RaidSplit.GROUPS then
+        return group
+    end
+end
+
+-- Whether buff may go to member ({ unit, ... }) under the split (BuffRules.Allows):
+-- true; or false and why, when your share of it is some of the raid's groups
+-- and theirs isn't one. A group that can't be read is offered (the split
+-- only narrows what it can tell).
+function RaidSplit.CoversMember(buff, member)
+    local mine = RaidSplit.Current()
+    local groups = mine and mine[buff.key]
+    if type(groups) ~= "table" then return true end
+    local group = GroupOf(member.unit)
+    if group == nil or groups[group] then return true end
+    return false, "another copy has their group"
 end
 
 ------------------------------------------------------------------------
@@ -249,10 +370,12 @@ end
 -- announce nothing (not in a raid, the channel is closed, your class
 -- can't be read or has nothing to share).
 local function MyFields()
-    if not InRaid() or not ns.Comm.Ready() then return nil end
+    if not RaidSplit.Enabled() or not InRaid() or not ns.Comm.Ready() then return nil end
     local class = MyClass()
     -- A class with nothing to share (warriors) has nothing to say.
     if not class or next(ClassKeys(class)) == nil then return nil end
+    -- Not taking part: say so ("-"), so your share goes back at once.
+    if not TakingPart() then return "-", "-" end
     local mine = MyEntry(class)
     return KeyText(mine.keys), FixedText(mine.fixed, mine.keys)
 end
@@ -267,7 +390,8 @@ local function SendNow()
     local keys, fixed = MyFields()
     if not keys then return end
     local text = keys .. ";" .. fixed
-    if text == lastSent and not force then return end
+    -- "Not taking part" is said once, however often anyone asks.
+    if text == lastSent and (not force or keys == "-") then return end
     -- The first since you joined (or since a reload) asks the others to
     -- say theirs: they may not have changed, so wouldn't say it otherwise.
     if ns.Comm.SendShare(keys, fixed, lastSent == nil) then
@@ -343,7 +467,7 @@ function RaidSplit.OnShare(sender, keysText, fixedText, asks)
             fixed[key] = true
         end
     end
-    peers[sender] = { keys = keys, fixed = fixed }
+    peers[sender] = { keys = keys, fixed = fixed, heardAt = GetTime() }
     Changed()
     ns.Diag.Log("split", "%s gives %s (by hand: %s)", sender, KeyText(keys), fixedText)
     -- Rate-limited (Announce): a sender asking again and again costs one
@@ -353,11 +477,32 @@ end
 
 -- The roster changed (GROUP_ROSTER_UPDATE): forget everyone who left the
 -- raid, and say what you give once it settles (a new member needs to hear).
+local beatToken, beating = 0, false
+
+-- Every HEARTBEAT seconds while in a raid: say it again (so a silent copy
+-- can be told from a quiet one), or say once that you no longer take part.
+local function Beat(token)
+    if token ~= beatToken then return end
+    if not InRaid() then
+        beating = false
+        return
+    end
+    Changed()
+    RaidSplit.Announce(true)
+    C_Timer.After(RaidSplit.HEARTBEAT, ns.Diag.Wrap(function() Beat(token) end))
+end
+
 function RaidSplit.OnRosterUpdate()
     Changed()
     if not InRaid() then
         peers, lastSent, lastSentAt = {}, nil, nil
+        beatToken, beating = beatToken + 1, false
         return
+    end
+    if not beating then
+        beating = true
+        local token = beatToken
+        C_Timer.After(RaidSplit.HEARTBEAT, ns.Diag.Wrap(function() Beat(token) end))
     end
     local roster, unreadable = Roster()
     if not unreadable then
@@ -374,19 +519,61 @@ function RaidSplit.PeerCount()
     return n
 end
 
+-- A buff's name, and the groups when the share is only some of them.
+local function ShareItem(key, value)
+    local buff = ns.BuffData.ByKey(key)
+    local name = buff and ns.BuffData.SpellName(buff) or key
+    if type(value) ~= "table" then return name end
+    local from, to
+    for g = 1, RaidSplit.GROUPS do
+        if value[g] then
+            from = from or g
+            to = g
+        end
+    end
+    if not from then return name end
+    if from == to then return name .. " (group " .. from .. ")" end
+    return name .. " (groups " .. from .. "-" .. to .. ")"
+end
+
+-- A share as text, in the class's own order of buffs.
+local function ShareList(share)
+    local class = MyClass()
+    local out = {}
+    for _, buff in ipairs(class and ns.BuffData.CLASSES[class] or {}) do
+        if share[buff.key] then out[#out + 1] = ShareItem(buff.key, share[buff.key]) end
+    end
+    return table.concat(out, ", ")
+end
+
+-- "Your share: Divine Spirit", and with others, "; Ann Vale has Fortitude,
+-- Cid Rock has Shadow Protection"; nil when there's no split. An empty
+-- share is a backup's.
+function RaidSplit.ShareText(withOthers)
+    local mine, shares = RaidSplit.Current()
+    if not mine then return nil end
+    local text = "Your share: " .. (next(mine) and ShareList(mine) or "none, you're a backup")
+    if not withOthers then return text end
+    local me = Util.UnitFullName("player")
+    local names = {}
+    for name in pairs(shares) do
+        if name ~= me then names[#names + 1] = name end
+    end
+    table.sort(names)
+    local others = {}
+    for _, name in ipairs(names) do
+        others[#others + 1] = Util.DisplayName(name) .. " has "
+            .. (next(shares[name]) and ShareList(shares[name]) or "nothing (a backup)")
+    end
+    return text .. "; " .. table.concat(others, ", ")
+end
+
 -- For /friendly status.
 function RaidSplit.StatusLine()
-    local mine, shares = RaidSplit.Current()
-    if not mine then return "raid split: none (" .. tostring(shares) .. ")" end
-    local names = {}
-    for name in pairs(shares) do names[#names + 1] = name end
-    table.sort(names)
-    local parts = {}
-    for _, name in ipairs(names) do
-        local keys = {}
-        for key in pairs(shares[name]) do keys[#keys + 1] = key end
-        table.sort(keys)
-        parts[#parts + 1] = Util.DisplayName(name) .. ": " .. (#keys > 0 and table.concat(keys, ", ") or "nothing")
+    local text = RaidSplit.ShareText(true)
+    if not text then
+        local _, why = RaidSplit.Current()
+        return "raid split: none (" .. tostring(why) .. ")"
     end
-    return "raid split: " .. table.concat(parts, "; ")
+    return "raid split: " .. text
 end

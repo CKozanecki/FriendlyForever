@@ -142,6 +142,10 @@ end
 function BuffRules.Allows(buff, member)
     local entry = Entry(buff.key)
     if Named(entry, "never", member.name) then return false, "you set Never for them" end
+    -- The raid buff split (#70): a share of some groups leaves the others to
+    -- other copies, whatever your lists say.
+    local covered, splitWhy = ns.RaidSplit.CoversMember(buff, member)
+    if not covered then return false, splitWhy end
     if Named(entry, "always", member.name) then return true end
     local rule = BuffRules.Rule(buff)
     if rule == "all" then return true end

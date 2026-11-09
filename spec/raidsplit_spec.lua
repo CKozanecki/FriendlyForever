@@ -64,7 +64,9 @@ describe("The raid buff split (#70)", function()
                     state.knownSpells = {}
                     for id in pairs(p.known) do state.knownSpells[id] = true end
                 end })
-            c.class = p.class
+            c.class, c.group = p.class, p.group
+            -- Copies take part while buff mode is on (the owner's decision on #70).
+            if not p.buffModeOff then c.ns.BuffMode.Set(true) end
             clients[#clients + 1] = c
         end
         net = wow.network(clients)
@@ -82,18 +84,22 @@ describe("The raid buff split (#70)", function()
                 if m == c then inIt = true end
             end
             if inIt then
+                local groups = {}
                 for _, m in ipairs(members) do
                     if m ~= c then
                         names[#names + 1] = m.full
-                        classes[#names] = m.class
+                        classes[#names], groups[#names] = m.class, m.group
                     end
                 end
                 for _, o in ipairs(others) do
                     names[#names + 1] = o[1]
-                    classes[#names] = o[2]
+                    classes[#names], groups[#names] = o[2], o[3]
                 end
                 wow.setGroup("raid", names)
-                for i, class in ipairs(classes) do wow.state.units["raid" .. i].class = class end
+                for i, class in ipairs(classes) do
+                    wow.state.units["raid" .. i].class = class
+                    wow.state.units["raid" .. i].subgroup = groups[i]
+                end
             else
                 wow.setGroup(nil)
             end
@@ -200,10 +206,8 @@ describe("The raid buff split (#70)", function()
 
         it("/friendly status names the split", function()
             wow.use(clients[2])
-            local line
-            for _, l in ipairs({ clients[2].ns.RaidSplit.StatusLine() }) do line = l end
-            assert.truthy(line:find("Ann Vale: fortitude", 1, true))
-            assert.truthy(line:find("Bob Lake: spirit", 1, true))
+            assert.equal("raid split: Your share: Divine Spirit; Ann Vale has Power Word: Fortitude, "
+                .. "Cid Rock has Shadow Protection", clients[2].ns.RaidSplit.StatusLine())
         end)
     end)
 
@@ -296,6 +300,7 @@ describe("The raid buff split (#70)", function()
         it("out of the raid there's no split, even before the roster update arrives", function()
             wow.use(clients[1])
             wow.setGroup("party", { "Bob-Lake" })
+            wow.advance(0.1) -- the next frame
             assert.is_nil(share(clients[1]))
         end)
 
@@ -308,6 +313,7 @@ describe("The raid buff split (#70)", function()
                     state.knownSpells = { [FORT] = true, [SPIRIT] = true, [SHADOW] = true }
                 end })
             fresh.class = "PRIEST"
+            fresh.ns.BuffMode.Set(true)
             wow.setGroup("raid", { "Bob-Lake", "Cid-Rock", "Tor-Axe" })
             for i, class in ipairs({ "PRIEST", "PRIEST", "WARRIOR" }) do wow.state.units["raid" .. i].class = class end
             wow.state.networked = true
@@ -328,6 +334,7 @@ describe("The raid buff split (#70)", function()
             for _, c in ipairs({ clients[2], clients[3] }) do
                 wow.use(c)
                 unitOf("Ann-Vale").offline = true
+                wow.advance(0.1) -- the next frame
             end
             assert.equal("fortitude", share(clients[2]))
             assert.equal("shadow,spirit", share(clients[3]))
@@ -437,10 +444,9 @@ describe("The raid buff split (#70)", function()
 
         it("keys that aren't the class's buffs are dropped", function()
             hear("1;SHARE;Pia-Light;intellect,might,battleshout,nonsense;kings;0")
-            -- Pia is in it, but gives nothing of ours: we keep everything.
-            assert.equal("fortitude,shadow,spirit", share(me))
-            local _, all = me.ns.RaidSplit.Current()
-            assert.equal("", keysOf(all["Pia-Light"]))
+            -- Pia is heard, but gives nothing of ours: no split, we keep everything.
+            assert.equal(1, me.ns.RaidSplit.PeerCount())
+            assert.is_nil(share(me))
         end)
 
         it("only Blessings a player says they give count as set by hand", function()
@@ -482,6 +488,13 @@ describe("The raid buff split (#70)", function()
             assert.is_true(count(me.ns, "commFlood") > 0)
         end)
 
+        it("a share heard before the clock went back no longer counts", function()
+            hear("1;SHARE;Pia-Light;fortitude,spirit,shadow;-;0")
+            assert.equal("fortitude", share(me))
+            wow.now = wow.now - 100
+            assert.is_nil(share(me))
+        end)
+
         it("a share never casts, sends chat or changes saved settings", function()
             local casts, chat = #wow.casts, #wow.sent
             local saved = dump(_G.FriendlyForeverDB)
@@ -491,6 +504,334 @@ describe("The raid buff split (#70)", function()
             assert.equal(chat, #wow.sent)
             assert.equal(saved, dump(_G.FriendlyForeverDB))
         end)
+    end)
+
+    describe("the owner's decisions: when a share goes back (white)", function()
+        local function shares()
+            local function sharesSent(c)
+                wow.use(c)
+                local n = 0
+                for _, msg in ipairs(wow.addonSent) do
+                    if msg.text:find(";SHARE;", 1, true) then n = n + 1 end
+                end
+                return n
+            end
+            return sharesSent
+        end
+
+        before_each(function()
+            local order = { "fortitude", "spirit", "shadow" }
+            raid({
+                { name = "Ann", surname = "Vale", class = "PRIEST", known = PRIEST_SPELLS, order = order },
+                { name = "Bob", surname = "Lake", class = "PRIEST", known = PRIEST_SPELLS, order = order },
+                { name = "Cid", surname = "Rock", class = "PRIEST", known = PRIEST_SPELLS, order = order },
+            }, { { "Tor-Axe", "WARRIOR" } })
+            form()
+        end)
+
+        it("copies say their share again every minute, so the split holds as long as they're there", function()
+            local sharesSent = shares()
+            local before = sharesSent(clients[1])
+            wow.advanceAll(net, 600, 1)
+            assert.equal("fortitude", share(clients[1]))
+            assert.equal("spirit", share(clients[2]))
+            assert.equal("shadow", share(clients[3]))
+            local sent = sharesSent(clients[1]) - before
+            assert.is_true(sent >= 9 and sent <= 11, tostring(sent))
+        end)
+
+        it("a player who goes quiet (no word for 3 minutes) has their share picked up by the others", function()
+            net.lose = function(_, sender) return sender == clients[1] end
+            wow.advanceAll(net, 150, 1)
+            assert.equal("spirit", share(clients[2])) -- not yet: 3 minutes
+            wow.advanceAll(net, 60, 1)
+            assert.equal("fortitude", share(clients[2]))
+            assert.equal("shadow,spirit", share(clients[3]))
+        end)
+
+        it("a copy takes part while buff mode is on, and for 5 minutes after it goes off", function()
+            wow.use(clients[1])
+            clients[1].ns.BuffMode.Set(false)
+            wow.advanceAll(net, 240, 1)
+            assert.equal("fortitude", share(clients[1]))
+            assert.equal("spirit", share(clients[2]))
+            wow.advanceAll(net, 130, 1)
+            assert.is_nil(share(clients[1]))
+            assert.equal("fortitude", share(clients[2]))
+            assert.equal("shadow,spirit", share(clients[3]))
+            -- Saying "not taking part" once is enough.
+            local sharesSent = shares()
+            local before = sharesSent(clients[1])
+            wow.advanceAll(net, 300, 1)
+            assert.equal(before, sharesSent(clients[1]))
+            -- Buff mode on again: back in at once.
+            wow.use(clients[1])
+            clients[1].ns.BuffMode.Set(true)
+            wow.advanceAll(net, 15, 0.5)
+            assert.equal("fortitude", share(clients[1]))
+            assert.equal("spirit", share(clients[2]))
+            assert.equal("shadow", share(clients[3]))
+        end)
+
+        it("switched off, a copy is offered everything, says nothing, and the others pick up its share", function()
+            wow.use(clients[1])
+            local w = clients[1].ns.Options.widgets
+            wow.run(w.tabs.buffBack, "OnClick")
+            assert.is_true(w.raidSplit:IsShown())
+            assert.is_true(w.raidSplit:GetChecked())
+            w.raidSplit:SetChecked(false)
+            wow.run(w.raidSplit, "OnClick")
+            assert.is_false(clients[1].ns.db.buffBack.raidSplit)
+            assert.is_nil(share(clients[1]))
+            local sharesSent = shares()
+            local before = sharesSent(clients[1])
+            wow.advanceAll(net, 240, 1)
+            assert.equal(before, sharesSent(clients[1]))
+            assert.equal("fortitude", share(clients[2]))
+            assert.equal("shadow,spirit", share(clients[3]))
+            wow.use(clients[1])
+            assert.truthy(clients[1].ns.RaidSplit.StatusLine():find("switched off", 1, true))
+        end)
+    end)
+
+    describe("the off switch's setting", function()
+        it("is on by default, and a damaged value reads as on (black)", function()
+            local ns = wow.boot()
+            assert.is_true(ns.Config.DEFAULTS.buffBack.raidSplit)
+            assert.is_true(ns.db.buffBack.raidSplit)
+            for _, bad in ipairs({ "yes", 5, {}, 0 }) do
+                ns = wow.boot({ db = { buffBack = { raidSplit = bad } } })
+                assert.is_true(ns.db.buffBack.raidSplit, tostring(bad))
+            end
+            ns = wow.boot({ db = { buffBack = { raidSplit = false } } })
+            assert.is_false(ns.db.buffBack.raidSplit)
+            ns.db.buffBack.raidSplit = "damaged mid-session"
+            assert.is_true(ns.RaidSplit.Enabled())
+        end)
+
+        it("is found by the options search", function()
+            local ns = wow.boot({ before = function(state) state.settingsSearch = true end })
+            local found = false
+            for _, entry in ipairs(ns.OptionsIndex.SETTINGS) do
+                if entry.name == "Share buffs with other copies in raids" then found = true end
+            end
+            assert.is_true(found)
+        end)
+    end)
+
+    describe("more players than buffs (white)", function()
+        it("two mages split the raid's groups 1-4 and 5-8, and each buffs only their own groups", function()
+            raid({
+                { name = "Ann", surname = "Vale", class = "MAGE", known = { [INTELLECT] = true }, group = 1 },
+                { name = "Bob", surname = "Lake", class = "MAGE", known = { [INTELLECT] = true }, group = 5 },
+            }, { { "Pia-Light", "PRIEST", 3 }, { "Zoe-Sage", "PRIEST", 6 }, { "Odd-Group", "PRIEST", 8 } })
+            form()
+            wow.use(clients[1])
+            assert.equal("Your share: Arcane Intellect (groups 1-4)", clients[1].ns.RaidSplit.ShareText(false))
+            local names = {}
+            for _, offer in ipairs(offers(clients[1])) do names[#names + 1] = offer.name end
+            assert.same({ "Pia-Light" }, names)
+            names = {}
+            for _, offer in ipairs(offers(clients[2])) do names[#names + 1] = offer.name end
+            table.sort(names)
+            assert.same({ "Odd-Group", "Zoe-Sage" }, names)
+        end)
+
+        it("a group that can't be read is offered, not left out", function()
+            raid({
+                { name = "Ann", surname = "Vale", class = "MAGE", known = { [INTELLECT] = true }, group = 1 },
+                { name = "Bob", surname = "Lake", class = "MAGE", known = { [INTELLECT] = true }, group = 5 },
+            }, { { "Pia-Light", "PRIEST", 7 } })
+            form()
+            wow.use(clients[1])
+            unitOf("Pia-Light").secrets = { subgroup = true }
+            local names = {}
+            for _, offer in ipairs(offers(clients[1])) do names[#names + 1] = offer.name end
+            assert.same({ "Pia-Light" }, names)
+        end)
+
+        it("a fourth priest shares the buff fewest hold: Fortitude, by groups", function()
+            local order = { "fortitude", "spirit", "shadow" }
+            raid({
+                { name = "Ann", surname = "Vale", class = "PRIEST", known = PRIEST_SPELLS, order = order },
+                { name = "Bob", surname = "Lake", class = "PRIEST", known = PRIEST_SPELLS, order = order },
+                { name = "Cid", surname = "Rock", class = "PRIEST", known = PRIEST_SPELLS, order = order },
+                { name = "Dan", surname = "Moss", class = "PRIEST", known = PRIEST_SPELLS, order = order },
+            })
+            form()
+            wow.use(clients[1])
+            assert.equal("Your share: Power Word: Fortitude (groups 1-4); Bob Lake has Divine Spirit, "
+                .. "Cid Rock has Shadow Protection, Dan Moss has Power Word: Fortitude (groups 5-8)",
+                clients[1].ns.RaidSplit.ShareText(true))
+        end)
+
+        it("a fifth priest takes the buff the fewest hold: Divine Spirit, as Fortitude already has two", function()
+            local order = { "fortitude", "spirit", "shadow" }
+            local p = {}
+            for i, n in ipairs({ { "Ann", "Vale" }, { "Bob", "Lake" }, { "Cid", "Rock" }, { "Dan", "Moss" },
+                { "Eve", "Hill" } }) do
+                p[i] = { name = n[1], surname = n[2], class = "PRIEST", known = PRIEST_SPELLS, order = order }
+            end
+            raid(p)
+            form()
+            wow.use(clients[5])
+            assert.equal("Your share: Divine Spirit (groups 5-8)", clients[5].ns.RaidSplit.ShareText(false))
+            wow.use(clients[2])
+            assert.equal("Your share: Divine Spirit (groups 1-4)", clients[2].ns.RaidSplit.ShareText(false))
+        end)
+
+        it("a fourth paladin is a backup, offered no Blessing, until a share opens", function()
+            local order = { "kings", "wisdom", "might" }
+            local p = {}
+            for i, n in ipairs({ { "Ann", "Vale" }, { "Bob", "Lake" }, { "Cid", "Rock" }, { "Dan", "Moss" } }) do
+                p[i] = { name = n[1], surname = n[2], class = "PALADIN", known = PALADIN_SPELLS, order = order }
+            end
+            raid(p, { { "Tor-Axe", "WARRIOR" } })
+            form()
+            assert.equal("", share(clients[4]))
+            assert.equal(0, #offers(clients[4]))
+            wow.use(clients[4])
+            assert.equal("Your share: none, you're a backup", clients[4].ns.RaidSplit.ShareText(false))
+            form({ clients[2], clients[3], clients[4] })
+            assert.equal("might", share(clients[4]))
+        end)
+    end)
+
+    describe("where it says so (white)", function()
+        before_each(function()
+            local order = { "fortitude", "spirit", "shadow" }
+            raid({
+                { name = "Ann", surname = "Vale", class = "PRIEST", known = PRIEST_SPELLS, order = order },
+                { name = "Bob", surname = "Lake", class = "PRIEST", known = PRIEST_SPELLS, order = order },
+            }, { { "Tor-Axe", "WARRIOR" } })
+            form()
+        end)
+
+        local function tooltip(c)
+            wow.use(c)
+            wow.run(c.ns.BuffButton.Frame(), "OnEnter")
+            local text = {}
+            for _, line in ipairs(_G.GameTooltip.lines or {}) do
+                text[#text + 1] = type(line) == "table" and line.text or line
+            end
+            return table.concat(text, "\n")
+        end
+
+        it("the button's tooltip says your share and who has the rest; its subtitle is unchanged", function()
+            local tip = tooltip(clients[2])
+            assert.truthy(tip:find("Your share: Divine Spirit, Shadow Protection; Ann Vale has Power Word: Fortitude",
+                1, true), tip)
+            wow.use(clients[2])
+            assert.truthy(clients[2].ns.BuffButton.Frame().subtitle:GetText():find("^missing your "))
+        end)
+
+        it("the button's empty text says your share when everyone has it", function()
+            wow.use(clients[1])
+            for _, name in ipairs({ "Tor-Axe", "Bob-Lake" }) do
+                local u = unitOf(name)
+                u.auras, u.auraSources = { FORT }, { "player" }
+            end
+            clients[1].ns.BuffButton.Refresh()
+            local text = clients[1].ns.BuffButton.Frame().subtitle:GetText()
+            assert.truthy(text:find("Your share: Power Word: Fortitude", 1, true), text)
+        end)
+    end)
+
+    describe("chaos (red)", function()
+        it("a storm of joins, leaves, offline players, reorders, overrides and dropped messages settles on one split",
+            function()
+                local random = require("spec.support.random")
+                local ORDERS = {
+                    { "fortitude", "spirit", "shadow" }, { "spirit", "shadow", "fortitude" },
+                    { "shadow", "fortitude", "spirit" }, { "kings", "wisdom", "might" },
+                    { "might", "kings", "wisdom" }, { "wisdom", "might", "kings" },
+                }
+                for _, seed in ipairs({ 1, 7, 42, 2026 }) do
+                    random.seed(seed)
+                    local class = seed % 2 == 0 and "PALADIN" or "PRIEST"
+                    local known = class == "PALADIN" and PALADIN_SPELLS or PRIEST_SPELLS
+                    local base = class == "PALADIN" and 3 or 0
+                    local players = {}
+                    for i, n in ipairs({ { "Ann", "Vale" }, { "Bob", "Lake" }, { "Cid", "Rock" }, { "Dan", "Moss" } }) do
+                        players[i] = { name = n[1], surname = n[2], class = class, known = known,
+                            order = ORDERS[base + 1 + (i % 3)], group = 1 + (i % 8) }
+                    end
+                    raid(players, { { "Tor-Axe", "WARRIOR", 2 } })
+                    local inRaid = { true, true, true, true }
+                    local function members()
+                        local out = {}
+                        for i, c in ipairs(clients) do
+                            if inRaid[i] then out[#out + 1] = c end
+                        end
+                        return out
+                    end
+                    form(members())
+                    for _ = 1, 40 do
+                        local roll = random.random(1, 6)
+                        local i = random.random(1, #clients)
+                        local c = clients[i]
+                        if roll == 1 then
+                            inRaid[i] = not inRaid[i]
+                            form(members())
+                        elseif roll == 2 then
+                            wow.use(c)
+                            local order = ORDERS[base + random.random(1, 3)]
+                            c.ns.db.buffBack.buffOrder = { order[1], order[2], order[3] }
+                            c.ns.BuffButton.Refresh()
+                        elseif roll == 3 and class == "PALADIN" and inRaid[i] then
+                            wow.use(c)
+                            local pick = ({ "kings", "wisdom", "might" })[random.random(1, 3)]
+                            _G.SlashCmdList.FRIENDLYFOREVER(random.random(1, 2) == 1 and ("blessings " .. pick)
+                                or "blessings all")
+                        elseif roll == 4 then
+                            net.lose = function() return random.random(1, 3) == 1 end
+                        else
+                            net.lose = nil
+                        end
+                        wow.advanceAll(net, random.random(1, 20), 1)
+                    end
+                    -- Calm: no more losses, then a few minutes for the
+                    -- heartbeats to carry everything.
+                    net.lose = nil
+                    wow.advanceAll(net, 4 * 60, 1)
+                    local seen
+                    local holder = {}
+                    local splitting = 0
+                    for i, c in ipairs(clients) do
+                        if inRaid[i] then
+                            wow.use(c)
+                            local mine, all = c.ns.RaidSplit.Current()
+                            local text
+                            if mine then
+                                local parts = {}
+                                for name, sh in pairs(all) do parts[#parts + 1] = name .. "=" .. keysOf(sh) end
+                                table.sort(parts)
+                                text = table.concat(parts, ";")
+                            end
+                            -- Worked out independently: who holds each key whole.
+                            if mine then
+                                for key, v in pairs(mine) do
+                                    local fixed = c.ns.BuffRules.RaidBlessingsChosen()
+                                    if v == true and not fixed then
+                                        assert.is_nil(holder[key], "seed " .. seed .. ": two copies hold " .. key)
+                                        holder[key] = c.full
+                                    end
+                                end
+                            end
+                            if text then splitting = splitting + 1 end
+                            seen = seen or text
+                            assert.equal(seen, text, "seed " .. seed)
+                        end
+                    end
+                    -- Everyone in the raid takes part in the split, or nobody does.
+                    local inIt = #members()
+                    assert.equal(inIt >= 2 and inIt or 0, splitting, "seed " .. seed)
+                    for _, c in ipairs(clients) do
+                        wow.use(c)
+                        assert.same({}, wow.errors)
+                    end
+                end
+            end)
     end)
 
     describe("an update that adds RaidSplit.lua (black)", function()
