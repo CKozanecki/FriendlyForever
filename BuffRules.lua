@@ -74,7 +74,7 @@ end
 local function ChosenClasses(buff, entry)
     if entry and type(entry.classes) == "table" then return entry.classes end
     if entry and entry.classes == nil and entry.rule == "classes" then return {} end
-    return buff.defaultClasses or {}
+    return buff and buff.defaultClasses or {}
 end
 
 -- Save the classes ticked now (the default's, if you've chosen none) into
@@ -283,7 +283,9 @@ function BuffRules.Clean(value)
             elseif entry.classes ~= nil and out.rule == "classes" then
                 -- A damaged list reads as the default's (ChosenClasses); a repair must not make it "none".
                 out.classes = {}
-                for class, ticked in pairs(ns.BuffData.ByKey(key).defaultClasses or {}) do
+                -- A key kept known without a buff (BuffTable.absent) has no defaults (#209).
+                local buff = ns.BuffData.ByKey(key)
+                for class, ticked in pairs(buff and buff.defaultClasses or {}) do
                     if ticked == true then out.classes[class] = true end
                 end
             end

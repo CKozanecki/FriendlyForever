@@ -166,6 +166,15 @@ Pull requests between releases add their `CHANGELOG.md` notes under a `### Unrel
 - **What players see** after updating: a new player and the replay from Start here see every step; a player who finished or skipped an older version sees only the steps added since, titled "What's new"; an up-to-date player sees nothing. Finishing or skipping saves the version. Never lower the version: a saved version above it is read as damaged, and the player sees every step once.
 - **Not for every change:** a fix, or a setting players won't miss, needs no step. If a release adds one, say so in the changelog entry.
 
+**When the supported game version changes, re-extract the spell data and re-run the generator, and commit the output** (#209). The buff table (`BuffTable.lua`) is generated, never edited by hand, and the addon looks no spell up while players play. A maintainer or a session does this, never in CI (CI does not download from Blizzard):
+
+1. Extract Forever's spell data with upstream's `wow-cli casc sync-forever-spells` (project Osso/wow-ui-sim). It downloads Blizzard's data, so follow [AGENTS.md](AGENTS.md)'s "External code and tools": pin the commit, read the download and extraction source first and post the review on the issue, build with no secrets, give it network only for the download, run nothing from it in CI. The result must match the SHA-256 upstream records for that build (`docs/specs/forever-spell-data.md`); if the build is new, report its hash and the evidence.
+2. Save the file as `scripts/data/forever-spells.json`.
+3. Run `python3 scripts/gen_spell_table.py --spells scripts/data/forever-spells.json --buffs scripts/spell-buffs.json --out BuffTable.lua`. It prints a report of every buff and spell found or not found, and exits non-zero without writing anything if the data is damaged. Put the report in the PR.
+4. `make check` runs `spec/bufftable_spec.lua`, which checks the committed table is valid and that the generator reproduces it exactly from the committed source. That is all that is checked automatically; the extraction itself is only as good as the review of upstream's code and the hash.
+
+To release:
+
 1. In a PR: bump `## Version` in `FriendlyForever.toc` and rename `### Unreleased` at the top of `CHANGELOG.md` to `## 0.8.0` (add notes there for anything missing). CurseForge shows only that section (`make release-notes` previews it).
 2. After it merges, tag the merge commit and push the tag: `git tag v0.8.0 && git push origin v0.8.0`. Version tags can't be moved or deleted once pushed, so double-check the commit first. The GitHub release isn't made by hand: the workflow makes it in step 3.
 3. The Release workflow's `verify` job checks that the tag is on `main` and matches the TOC, then runs lint and tests with no secrets. After that, the `release` job waits for your approval in the `release` environment, checks that the CurseForge project ID and key are set, and uploads. The packager uploads to CurseForge and creates the GitHub release for the tag, with the same notes and the zip attached. Once the job is green, there's nothing left to do.

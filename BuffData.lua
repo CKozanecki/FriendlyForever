@@ -1,8 +1,8 @@
 -- The buffs each class gives other players on WoW Forever, by spell ID.
 --
--- The IDs are Classic Era's (1.15). Forever may differ (a buff removed, a
--- talent made trainable); that can only mean a buff isn't offered, because a
--- buff whose spell you don't know never is.
+-- The IDs come from BuffTable.lua, generated from Forever's spell data by
+-- scripts/gen_spell_table.py once per game version (#209). A buff whose
+-- spell you don't know is never offered.
 --
 -- Each buff:
 --   key       our name for it (saved settings, buff order)
@@ -14,7 +14,7 @@
 --             target's class in the raid: Greater Blessings), and spells, highest rank first,
 --             each { id, reagent = item ID, equals = the single-target rank
 --             of the same strength }; every id is also in group
---   blockers  other buffs that do the same job (Scroll of Intellect...): ditto
+--   blockers  other buffs that do the same job (Unending Breath for Water Breathing): ditto
 --   manaOnly  only offered to classes that use mana
 --   selfCast  cast on yourself, reaching your party (Battle Shout): never a return
 --   family    buffs of which a player keeps only one of yours (a paladin's
@@ -26,65 +26,20 @@
 --   water     only helps underwater: offered only near water, when the
 --             setting says so (Water.lua, #136)
 local _, ns = ...
+-- BuffTable.lua is a file added in #209: after an update that added it, /reload
+-- runs this file without it. Define nothing, so Core's check asks for a restart.
+if type(ns.BuffTable) ~= "table" then return end
+
 local Util = ns.Util
 
 local BuffData = {}
 ns.BuffData = BuffData
 
-BuffData.CLASSES = {
-    MAGE = {
-        { key = "intellect", ranks = { 10157, 10156, 1461, 1460, 1459 }, group = { 23028 },
-            blockers = { 8096, 8097, 8098, 12176 }, manaOnly = true,
-            groupCast = { scope = "party", spells = { { id = 23028, reagent = 17020, equals = 10157 } } } },
-    },
-    PRIEST = {
-        { key = "fortitude", ranks = { 10938, 10937, 2791, 1245, 1244, 1243 }, group = { 21564, 21562 },
-            blockers = { 8099, 8100, 8101, 12178 },
-            groupCast = { scope = "party", spells = {
-                { id = 21564, reagent = 17029, equals = 10938 }, { id = 21562, reagent = 17028, equals = 10937 } } } },
-        { key = "spirit", ranks = { 27841, 14819, 14818, 14752 }, group = { 27681 },
-            blockers = { 8112, 8113, 8114, 12177 }, manaOnly = true,
-            groupCast = { scope = "party", spells = { { id = 27681, reagent = 17029, equals = 27841 } } } },
-        { key = "shadow", ranks = { 10958, 10957, 976 }, group = { 27683 },
-            groupCast = { scope = "party", spells = { { id = 27683, reagent = 17029, equals = 10958 } } } },
-    },
-    DRUID = {
-        { key = "motw", ranks = { 9885, 9884, 8907, 5234, 6756, 5232, 1126 }, group = { 21850, 21849 },
-            groupCast = { scope = "party", spells = {
-                { id = 21850, reagent = 17026, equals = 9885 }, { id = 21849, reagent = 17021, equals = 9884 } } } },
-        { key = "thorns", ranks = { 9910, 9756, 8914, 1075, 782, 467 }, defaultRule = "tanks" },
-    },
-    PALADIN = {
-        { key = "kings", ranks = { 20217 }, group = { 25898 }, family = "blessing",
-            groupCast = { scope = "class", spells = { { id = 25898, reagent = 21177, equals = 20217 } } } },
-        { key = "wisdom", ranks = { 25290, 19854, 19853, 19852, 19850, 19742 }, group = { 25918, 25894 },
-            groupCast = { scope = "class", spells = {
-                { id = 25918, reagent = 21177, equals = 25290 }, { id = 25894, reagent = 21177, equals = 19854 } } },
-            manaOnly = true, family = "blessing", defaultRule = "classes",
-            defaultClasses = { PALADIN = true, HUNTER = true, PRIEST = true, SHAMAN = true, MAGE = true,
-                WARLOCK = true, DRUID = true } },
-        { key = "might", ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 }, group = { 25916, 25782 },
-            groupCast = { scope = "class", spells = {
-                { id = 25916, reagent = 21177, equals = 25291 }, { id = 25782, reagent = 21177, equals = 19838 } } },
-            family = "blessing", defaultRule = "classes",
-            defaultClasses = { WARRIOR = true, PALADIN = true, HUNTER = true, ROGUE = true, SHAMAN = true,
-                DRUID = true } },
-        { key = "light", ranks = { 19979, 19978, 19977 }, group = { 25890 }, family = "blessing" },
-    },
-    SHAMAN = {
-        -- Does the same job as a warlock's Unending Breath, and the other way
-        -- round (#136).
-        { key = "waterbreathing", ranks = { 131 }, blockers = { 5697 }, water = true },
-    },
-    WARLOCK = {
-        -- 131 is the shaman's Water Breathing: no group version of Unending
-        -- Breath, but it does the same job, so it's a blocker (#135).
-        { key = "breath", ranks = { 5697 }, blockers = { 131 }, water = true },
-    },
-    WARRIOR = {
-        { key = "battleshout", ranks = { 25289, 11551, 11550, 11549, 6192, 5242, 6673 }, selfCast = true },
-    },
-}
+-- The table is generated from Forever's own spell data (BuffTable.lua, #209):
+-- the addon never looks IDs up while you play. A buff whose spell the data
+-- doesn't have, or that the owner excluded (Blessing of Light, #225), is not in it.
+local Table = ns.BuffTable
+BuffData.CLASSES = Table.classes
 
 -- Classes that use mana (unit power is a secret for strangers on Forever,
 -- so the class decides). Druids count: they do in caster form.
@@ -96,6 +51,9 @@ BuffData.MANA_CLASSES = {
 -- never-offer mark may name.
 BuffData.KEYS = {}
 local byKey = {}
+-- Buffs left out of the table keep their keys, so saved settings that name
+-- them still load and keep their values.
+for _, key in ipairs(Table.absent) do BuffData.KEYS[key] = true end
 for _, list in pairs(BuffData.CLASSES) do
     for _, buff in ipairs(list) do
         BuffData.KEYS[buff.key] = true
@@ -108,7 +66,9 @@ function BuffData.ByKey(key)
 end
 
 -- The reagents of the group versions (#41), by item ID. The IDs and names are
--- Classic Era's; Forever's are unconfirmed (#202). The name is only a
+-- Classic Era's; Forever's are unconfirmed (#202, #225). They are hand-listed,
+-- not generated: the spell data has no items (scripts/spell-buffs.json holds
+-- the reagent of each group cast, checked only for range). The name is only a
 -- fallback for messages: the client's own is used when it has it.
 BuffData.REAGENTS = {
     [17020] = "Arcane Powder", [17028] = "Holy Candle", [17029] = "Sacred Candle",
@@ -146,10 +106,13 @@ for _, list in pairs(BuffData.CLASSES) do
     end
 end
 
--- Buffs Blizzard removed before launch (#208): Blessing of Salvation and
--- Mass Salvation. Nothing offers, tracks or thanks for them; an aura with
--- one of these IDs (a stale one) is passed over quietly.
-local REMOVED_SPELL_IDS = { [1038] = true, [25895] = true }
+-- Spells of buffs left out of the game's buffs: Blessing of Salvation and
+-- Mass Salvation, which Blizzard removed before launch (#208), and Blessing of
+-- Light, which the owner believes it removed (#225; the data still has it).
+-- Nothing offers, tracks or thanks for them; an aura with one of these IDs
+-- (a stale one) is passed over quietly.
+local REMOVED_SPELL_IDS = {}
+for _, id in ipairs(Table.removedSpells) do REMOVED_SPELL_IDS[id] = true end
 
 -- Whether spellId is one of a buff the game no longer has. A secret, or
 -- anything that isn't a number, is not.

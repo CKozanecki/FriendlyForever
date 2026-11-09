@@ -1,4 +1,4 @@
--- Spec: #52, #64, #112, #197, #208, #41
+-- Spec: #52, #64, #112, #197, #208, #41, #209
 -- Layout: the buff-back button's text stays inside the button, and on each
 -- options tab the message list follows the last row that tab shows. The
 -- checks work from the simulated client's own anchors and text widths
@@ -316,7 +316,7 @@ describe("Layout", function()
             ns.db.buffBack.buffOrder = { "kings", "might", "wisdom" }
             eachTab("paladin")
             wow.run(w.tabs.buffBack, "OnClick")
-            for row = 1, 4 do
+            for row = 1, 3 do
                 for _ = 1, 4 do
                     wow.run(w.buffRows[row].who, "OnClick")
                     checkTab(("paladin, row %d"):format(row))

@@ -1,4 +1,4 @@
--- Spec: #42
+-- Spec: #42, #209
 -- Top-up timing: in buff mode, a group member's buff with less than the set
 -- time left (default 5 minutes) counts as missing, so the button offers to
 -- top it up. Group members only, never strangers; a time that can't be read
@@ -174,12 +174,6 @@ describe("Top-up timing in buff mode (#42)", function()
             annWears(THORNS_1, 600, 600)
             annWears(GIFT, 60, 3600)
             assert.is_nil(armed(), "Gift of the Wild")
-            boot({ class = "MAGE", known = { [1459] = true, [INTELLECT] = true } })
-            wow.wearBuff("party1", 8096, { duration = HALF_HOUR }) -- a Scroll of Intellect
-            wow.state.units.party1.auraExpires[1] = wow.now + 60
-            assert.is_nil(armed(), "a scroll")
-            wow.advance(60)
-            assert.are.equal("Ann Vale: Arcane Intellect", armed(), "once it's gone")
         end)
 
         it("never offers a buff no longer than the threshold, even near its end", function()

@@ -1624,6 +1624,9 @@ function M.load()
     for _, file in ipairs(files) do
         local chunk = assert(loadfile(M.ROOT .. file))
         chunk(M.ADDON_NAME, ns)
+        -- opts.buffTable (see M.boot): a table to use in place of the
+        -- generated BuffTable.lua, e.g. one whose IDs differ from Classic's (#209).
+        if file == "BuffTable.lua" and M.buffTableOverride then ns.BuffTable = M.buffTableOverride end
     end
     return ns
 end
@@ -1695,6 +1698,7 @@ function M.boot(opts)
     end
     local walkthroughGiven = type(opts.db) == "table" and opts.db.walkthrough or nil
     _G.FriendlyForeverDB = opts.db
+    M.buffTableOverride = opts.buffTable
     local ns = M.load()
     if opts.afterLoad then opts.afterLoad(ns) end
     ns.Messages.random = function() return 1 end
