@@ -72,7 +72,7 @@ Schedule a check-in every 30 minutes (`send_later`, re-armed each time). At each
 - read each tracked PR's state on GitHub, and run "After the owner merges a PR" for any that merged or closed;
 - archive every finished session whose closing summary is in;
 - act on anything new: a notice, a PR newly ready, a session stuck or failed;
-- **compare models** for each session you watch: `get_session`'s `configured_model` against `session_context.model` and `external_metadata.last_served_model` (normalize aliases and context-window suffixes first), and read `list_events` for fallback notices. Report any session served by another family to the owner, with what it was doing; a review it served doesn't count (CLAUDE.md's Models and effort);
+- **compare models** for each session you watch: `get_session`'s `configured_model` against `session_context.model` and `external_metadata.last_served_model` (normalize aliases and context-window suffixes first), and read `list_events` for fallback notices. Include your own session: it must be served by `opus`, because this skill's `model:` covers only the turn it loads in. Report any session served by another family to the owner, with what it was doing; a review it served doesn't count (CLAUDE.md's Models and effort);
 - **check the plan's usage,** if you can see it. When it's low (past CLAUDE.md's 80% gate, or near the 3% reserve), put what's left in the check-in, even if nothing else changed. Give an OK past the gate only as Plan limits allows; otherwise ask the owner;
 - **stay quiet when nothing changed** and usage isn't low: no message to the owner, no comment anywhere. Just re-arm.
 

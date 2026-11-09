@@ -2815,6 +2815,8 @@ describe("Claude sessions' agents, knowledge and skills", function()
         assert.is_truthy(body:find("| The coordinator (`coordinator` skill) | `opus` | session default |", 1, true),
             "the table's coordinator row")
         assert.is_falsy(body:find("trial in progress", 1, true), "no trial cell is left")
+        assert.is_truthy(body:find("the coordinator session itself is started on `opus`", 1, true),
+            "the coordinator session itself runs on opus")
     end)
 
     -- The owner's choice on #182: opus at high effort for both reviewers.
@@ -2886,6 +2888,8 @@ describe("Claude sessions' agents, knowledge and skills", function()
         assert.is_truthy(checkIn:find("- **compare models** for each session you watch: `get_session`'s"
             .. " `configured_model` against `session_context.model` and `external_metadata.last_served_model`",
             1, true), "the model comparison")
+        assert.is_truthy(checkIn:find("Include your own session: it must be served by `opus`", 1, true),
+            "the coordinator checks its own family")
         assert.is_truthy(checkIn:find("Report any session served by another family to the owner", 1, true),
             "the mismatch report")
         assert.is_truthy(checkIn:find("put what's left in the check-in, even if nothing else changed", 1, true),
