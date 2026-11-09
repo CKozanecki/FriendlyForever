@@ -527,7 +527,7 @@ describe("A group cast in the list (#227)", function()
             assert.are.equal(0, #wow.casts, "a click casts nothing")
         end)
 
-        it("goes back to single rows once the group cast is done", function()
+        it("the group row goes once its cast lands", function()
             boot()
             group("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
             wow.pressKey("MOUSEWHEELUP")
@@ -550,6 +550,19 @@ describe("A group cast in the list (#227)", function()
             for _, who in ipairs({ "Bo Fern", "Cid Rock", "Dot Moss" }) do
                 assert.is_truthy(text:find(who .. ": Arcane Intellect", 1, true), who .. " keeps a row")
             end
+        end)
+
+        it("keeps the covered members' rows, and the button armed, when the group cast can't go in a macro", function()
+            boot()
+            local saved = wow.SPELL_NAMES[BRILLIANCE]
+            wow.SPELL_NAMES[BRILLIANCE] = "Arcane; Brilliance"
+            group("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
+            local text = table.concat(rows(), "|")
+            wow.SPELL_NAMES[BRILLIANCE] = saved
+            for _, who in ipairs({ "Bo Fern", "Cid Rock", "Dot Moss" }) do
+                assert.is_truthy(text:find(who .. ": Arcane Intellect", 1, true), who .. " keeps a row: " .. text)
+            end
+            assert.is_truthy(armed():find("Arcane Intellect", 1, true), "the button holds a single buff, not nothing")
         end)
 
         it("is hidden in combat", function()
@@ -587,27 +600,53 @@ describe("A group cast in the list (#227)", function()
     end)
 
     describe("red", function()
-        it("a storm of groups, deaths and clicks keeps one row per player and the button's offer on the list", function()
+        it("a storm of raid groups and clicks lists no covered member singly, one row per player, one mark", function()
             boot()
+            random.seed(227)
+            for _ = 1, 5 do random.random() end -- past the generator's near-zero first draws (#38)
             local names = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed", "Gus-Lane" }
+            local groupRows = 0
             for step = 1, 60 do
                 group("raid", names)
                 for i = 1, #names do wow.state.units["raid" .. i].subgroup = random.random(1, 3) end
                 wow.fire("GROUP_ROSTER_UPDATE")
                 wow.advance(0)
                 if random.random(1, 3) == 1 then click(random.random(1, math.max(1, #rows()))) end
-                local seen = {}
+                -- Worked out from the simulated client's own units: nobody wears Intellect,
+                -- so every member of a group row's subgroup is covered by it.
+                local subgroupOf = {}
+                for i, n in ipairs(names) do subgroupOf[(n:gsub("-", " "))] = wow.state.units["raid" .. i].subgroup end
+                local singles, groups, marks, marked = {}, {}, 0, nil
                 for _, text in ipairs(rows()) do
-                    local who = text:gsub("^> ", ""):match("^(.-):")
-                    assert.is_nil(seen[who], who .. " is listed twice (step " .. step .. ")")
-                    seen[who] = true
+                    local plain = text:gsub("^> ", "")
+                    local n = plain:match("^Group (%d) %(%d+ missing%): ")
+                    if n then groups[#groups + 1] = tonumber(n) else
+                        local who = plain:match("^(.-):")
+                        assert.is_nil(singles[who], who .. " is listed twice (step " .. step .. ")")
+                        singles[who] = true
+                    end
+                    if text:sub(1, 2) == "> " then marks = marks + 1 marked = plain end
+                end
+                groupRows = groupRows + #groups
+                for _, g in ipairs(groups) do
+                    for who in pairs(singles) do
+                        assert.are_not.equal(g, subgroupOf[who], who .. " is covered by Group " .. g .. " (step " .. step .. ")")
+                    end
                 end
                 if #rows() > 0 then
-                    local marks = 0
-                    for _, text in ipairs(rows()) do if text:sub(1, 2) == "> " then marks = marks + 1 end end
                     assert.are.equal(1, marks, "exactly one row is marked")
+                    -- The marked row is what the button holds.
+                    local target = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
+                        :match("/targetexact ([^\n]+)")
+                    local group = marked:match("^Group (%d)")
+                    if group then
+                        assert.are.equal(tonumber(group), subgroupOf[(target:gsub("-", " "))], "a group row's aim is in it")
+                    else
+                        assert.are.equal(marked:match("^(.-):"), (target:gsub("-", " ")))
+                    end
                 end
             end
+            assert.is_true(groupRows > 0, "the storm reached group rows")
             assert.are.same({}, wow.errors)
         end)
     end)
