@@ -604,7 +604,7 @@ jobs:
         run: |
           states="$RUNNER_TEMP/shot-lua"
           mkdir -p "$states"
-          for state in favour buffmode; do
+          for state in favour buffmode bufflist; do
             { cat uitests/button_states.lua; printf '\nFriendlyForeverUIStates.Show("%s")\n' "$state"; } \
               > "$states/$state.lua"
           done
@@ -743,6 +743,8 @@ jobs:
             shoot button-favour --exec-lua @/shot-lua/favour.lua
             # Buff mode, with a party member missing your buff.
             shoot button-buffmode --exec-lua @/shot-lua/buffmode.lua
+            # The list beside the button (#43): a favour and three party members, one with a very long name.
+            shoot button-bufflist --exec-lua @/shot-lua/bufflist.lua
             # The General and Favour Ledger pages, filled with long names and
             # many entries, and the copy window as /friendly export opens it (#52).
             shoot options-general --exec-lua @/shot-lua/page-general.lua
