@@ -79,6 +79,9 @@ local function problems(t)
             local isGroup, isRank = {}, {}
             for _, id in ipairs(buff.group or {}) do isGroup[id] = true end
             for _, id in ipairs(buff.ranks or {}) do isRank[id] = true end
+            if buff.groupCast and buff.groupCast.scope ~= "party" and buff.groupCast.scope ~= "class" then
+                bad(tostring(buff.key) .. ": group cast scope")
+            end
             for _, spell in ipairs(buff.groupCast and buff.groupCast.spells or {}) do
                 if not validId(spell.id) or not isGroup[spell.id] then bad(tostring(buff.key) .. ": group cast ID") end
                 if not validId(spell.reagent) then bad(tostring(buff.key) .. ": group cast reagent") end
@@ -420,6 +423,10 @@ describe("The generated buff table", function()
             assert.are_not.same({}, damaged(function(t) t.classes.DRUID[1].name = nil end), "no name")
             assert.are_not.same({}, damaged(function(t) t.classes.DRUID[1].groupCast.spells[1].id = 1 end),
                 "a group cast that is not a group version")
+            assert.are_not.same({}, damaged(function(t) t.classes.DRUID[1].groupCast.scope = "raid" end),
+                "a group cast scope that is neither party nor class")
+            assert.are_not.same({}, damaged(function(t) t.classes.PALADIN[1].groupCast.scope = "Class" end),
+                "a mistyped scope")
             assert.are_not.same({}, damaged(function(t) t.classes.DRUID[1].groupCast.spells[1].reagent = 1.5 end),
                 "a fractional reagent")
             assert.are_not.same({}, damaged(function(t) t.classes.DRUID[1].groupCast.spells[1].equals = 1 end),
@@ -483,6 +490,20 @@ describe("The generated buff table", function()
             refuses(spells("NaN", '"Thorns"', '"Rank 1"'), "NaN")
             refuses("not json at all", "not JSON")
             refuses("", "empty")
+        end)
+
+        it("refuses a group cast whose scope is neither party nor class (it decides who a cast reaches)", function()
+            write(dir .. "/buffs.json", '{"format":1,"classes":{"DRUID":[{"key":"thorns","name":"Thorns",'
+                .. '"groupCast":{"scope":"SCOPE","spells":[]}}]},"removed":[]}')
+            local template = read(dir .. "/buffs.json")
+            for _, scope in ipairs({ "raid", "Class", "", "all" }) do
+                write(dir .. "/buffs.json", (template:gsub("SCOPE", scope)))
+                refuses(spells(467, '"Thorns"', '"Rank 1"'), "scope " .. scope)
+            end
+            write(dir .. "/buffs.json", (template:gsub("SCOPE", "class")))
+            write(dir .. "/spells.json", spells(467, '"Thorns"', '"Rank 1"'))
+            local code, text = generate(dir .. "/spells.json", dir .. "/buffs.json", dir .. "/out.lua")
+            assert.are.equal(0, code, "class is accepted: " .. text)
         end)
 
         it("refuses a rank shared by two buffs", function()
