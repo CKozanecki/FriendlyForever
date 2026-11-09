@@ -43,9 +43,9 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
    git fetch origin main <branch>
    git merge-base --is-ancestor origin/main origin/<branch>
    ```
-   If it doesn't, it isn't ready: tell its driver to merge `main` in (the `after-merge` skill), and don't report it to the owner yet.
+   If it doesn't and it is only behind `main` (no shared file, no conflict), it is still ready: "update branch only" for the owner (CONTRIBUTING.md's [Only behind `main`](../../CONTRIBUTING.md#only-behind-main), #229). Otherwise it isn't ready: tell its driver to merge `main` in (the `after-merge` skill), and don't report it to the owner yet.
 2. Check CI is green on its head and its description's ready checklist is ticked.
-   After a merge of `main`, check the description's two file lists too (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops)): if you can't confirm that `git diff --name-only <old main>..<new main>` and `git diff --name-only origin/main...HEAD` share no file and the merge was clean, the reviewers must have confirmed it.
+   After a merge of `main`, check the description's two file lists too (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops)): if the owner updated the branch, compare the lists you computed when you told them "update branch only"; if you can't confirm that `git diff --name-only <old main>..<new main>` and `git diff --name-only origin/main...HEAD` share no file and the merge was clean, the reviewers must have confirmed it.
 3. Check there is no open owner question on it: none in its description, and none in its session's transcript that the owner hasn't answered. If there is one, it isn't ready to merge (CONTRIBUTING.md's "Ready for review", #215): tell its driver to wait for the answer, and put the question in the report.
 4. When more than one PR is ready, **trial-merge every pair** and recommend an order (the `merge-order` skill) before reporting.
 

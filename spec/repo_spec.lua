@@ -2764,13 +2764,13 @@ describe("Release docs", function()
             local rule = flat:match("#### Only behind `main` (.-) ## ") or ""
             assert.is_truthy(rule:find("**No file in both lists and no conflict: update branch only.**", 1, true), "update-branch case")
             assert.is_truthy(rule:find("The developer does nothing: no merge, no push, no reviewer re-run.", 1, true))
-            assert.is_truthy(rule:find("counts as met, with both file lists in the description", 1, true))
+            assert.is_truthy(rule:find("counts as met; the coordinator's message to the maintainer, naming the pull request and the two file lists, is the record", 1, true))
             assert.is_truthy(rule:find("**A file in both lists, or any conflict: developer must merge.**", 1, true), "developer case")
             assert.is_truthy(rule:find("the reviewers confirm the merge and the resolutions", 1, true), "reviewers still confirm")
             assert.is_truthy(rule:find("The coordinator tells the maintainer which case each waiting pull request is in", 1, true))
             local ready = flat:match("### Ready for review (.-) #### Only behind") or ""
             assert.is_truthy(ready:find("only behind `main` counts as up to date", 1, true), "ready checklist")
-            for _, path in ipairs({ "AGENTS.md", "CLAUDE.md", ".claude/skills/after-merge/SKILL.md", ".claude/skills/coordinator/SKILL.md" }) do
+            for _, path in ipairs({ "AGENTS.md", "CLAUDE.md", ".claude/skills/after-merge/SKILL.md", ".claude/skills/coordinator/SKILL.md", ".claude/skills/merge-order/SKILL.md" }) do
                 local text = wow.readFile(path):gsub("%s+", " ")
                 assert.is_truthy(text:find("#only-behind-main", 1, true), path .. " doesn't reference the rule")
                 assert.is_falsy(text:find("update branch only.**", 1, true), path .. " restates the rule")

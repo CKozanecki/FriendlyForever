@@ -60,7 +60,7 @@ It is **ready to merge** when, on top of that, every review conversation is reso
 
 When another pull request merges, GitHub marks the next ready one out of date (#229). The maintainer decided on 2026-11-09 that the cheaper fix is for them to click GitHub's **Update branch** button themselves. It depends on the two file lists of the file-disjoint rule in [Review loops](#review-loops):
 
-- **No file in both lists and no conflict: update branch only.** The developer does nothing: no merge, no push, no reviewer re-run. The "up to date with `main`" box counts as met, with both file lists in the description. The maintainer clicks **Update branch**, CI runs on the new head, and they merge when `check` is green.
+- **No file in both lists and no conflict: update branch only.** The developer does nothing: no merge, no push, no reviewer re-run. The "up to date with `main`" box counts as met; the coordinator's message to the maintainer, naming the pull request and the two file lists, is the record. The maintainer clicks **Update branch**, CI runs on the new head, and they merge when `check` is green.
 - **A file in both lists, or any conflict: developer must merge.** Unchanged: the developer merges `main`, resolves, and the reviewers confirm the merge and the resolutions.
 
 The coordinator tells the maintainer which case each waiting pull request is in, naming it, so the maintainer never has to work it out.
