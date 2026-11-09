@@ -638,9 +638,9 @@ describe("A group cast in the list (#227)", function()
                     -- The marked row is what the button holds.
                     local target = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
                         :match("/targetexact ([^\n]+)")
-                    local group = marked:match("^Group (%d)")
-                    if group then
-                        assert.are.equal(tonumber(group), subgroupOf[(target:gsub("-", " "))], "a group row's aim is in it")
+                    local groupNo = marked:match("^Group (%d)")
+                    if groupNo then
+                        assert.are.equal(tonumber(groupNo), subgroupOf[(target:gsub("-", " "))], "a group row's aim is in it")
                     else
                         assert.are.equal(marked:match("^(.-):"), (target:gsub("-", " ")))
                     end
