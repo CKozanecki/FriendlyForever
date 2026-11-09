@@ -11,7 +11,11 @@
 --
 -- Saved in buffBack.whoGets: [buff key] = { rule, classes = { [CLASS] = true },
 -- always = { [name key] = full name }, never = { ... } }. A missing or damaged
--- rule is everyone.
+-- rule is the buff's default (BuffData's defaultRule, else everyone). Chosen
+-- classes work the same way: a saved classes table (even an empty one) is
+-- yours; without one, the buff's defaultClasses apply (#219). A default is saved
+-- only once you choose classes or tick one, so a player who never chose gets any
+-- later change to it.
 local _, ns = ...
 local Util = ns.Util
 
@@ -64,12 +68,38 @@ local function OwnEntry(key)
     return entry
 end
 
--- The rule in force for buff: saved, or everyone.
+-- The classes ticked for buff: your saved ones; none, when you saved
+-- "Chosen classes" and ticked nothing (all it meant before #219); else its
+-- default's (no entry, no rule, or a damaged class list).
+local function ChosenClasses(buff, entry)
+    if entry and type(entry.classes) == "table" then return entry.classes end
+    if entry and entry.classes == nil and entry.rule == "classes" then return {} end
+    return buff.defaultClasses or {}
+end
+
+-- Save the classes ticked now (the default's, if you've chosen none) into
+-- entry, so what you see stays as you chose it.
+local function OwnClasses(key, entry)
+    if type(entry.classes) ~= "table" then
+        local now = ChosenClasses(ns.BuffData.ByKey(key), entry)
+        entry.classes = {}
+        for class, ticked in pairs(now) do
+            if ticked == true then entry.classes[class] = true end
+        end
+    end
+    return entry.classes
+end
+
+function BuffRules.DefaultRule(buff)
+    return buff.defaultRule or "all"
+end
+
+-- The rule in force for buff: saved, or its default.
 function BuffRules.Rule(buff)
     local entry = Entry(buff.key)
     local rule = entry and entry.rule
     if BuffRules.IS_RULE[rule] then return rule end
-    return "all"
+    return BuffRules.DefaultRule(buff)
 end
 
 -- One answer from a game function: the value, and whether it could be read
@@ -117,7 +147,7 @@ function BuffRules.Allows(buff, member)
     if rule == "all" then return true end
     if rule == "classes" then
         if not member.class then return nil, "can't see their class" end
-        local classes = entry and type(entry.classes) == "table" and entry.classes or {}
+        local classes = ChosenClasses(buff, entry)
         if classes[member.class] == true then return true end
         return false, "not a class you chose"
     end
@@ -135,7 +165,10 @@ end
 
 function BuffRules.SetRule(key, rule)
     if not ns.BuffData.KEYS[key] or not BuffRules.IS_RULE[rule] then return end
-    OwnEntry(key).rule = rule
+    local entry = OwnEntry(key)
+    -- Choosing classes keeps the ones shown (the default's), as a saved list.
+    if rule == "classes" then OwnClasses(key, entry) end
+    entry.rule = rule
     ns.BuffButton.Refresh()
 end
 
@@ -149,15 +182,14 @@ function BuffRules.NextRule(buff)
 end
 
 function BuffRules.HasClass(buff, class)
-    local entry = Entry(buff.key)
-    return entry ~= nil and type(entry.classes) == "table" and entry.classes[class] == true
+    return ChosenClasses(buff, Entry(buff.key))[class] == true
 end
 
 function BuffRules.SetClass(key, class, on)
     if not ns.BuffData.KEYS[key] or not BuffRules.IS_CLASS[class] then return end
     local entry = OwnEntry(key)
-    if type(entry.classes) ~= "table" then entry.classes = {} end
-    entry.classes[class] = on and true or nil
+    local classes = OwnClasses(key, entry)
+    classes[class] = on and true or nil
     ns.BuffButton.Refresh()
 end
 
@@ -247,6 +279,12 @@ function BuffRules.Clean(value)
                 out.classes = {}
                 for class, on in pairs(entry.classes) do
                     if BuffRules.IS_CLASS[class] and on == true then out.classes[class] = true end
+                end
+            elseif entry.classes ~= nil and out.rule == "classes" then
+                -- A damaged list reads as the default's (ChosenClasses); a repair must not make it "none".
+                out.classes = {}
+                for class, ticked in pairs(ns.BuffData.ByKey(key).defaultClasses or {}) do
+                    if ticked == true then out.classes[class] = true end
                 end
             end
             for list in pairs(BuffRules.NAME_LISTS) do

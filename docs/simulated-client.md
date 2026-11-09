@@ -14,6 +14,7 @@ A small simulation of the WoW client API, enough to load the addon as the game d
   - `opts.before(state)`: change the client's state before the addon loads;
   - `opts.afterLoad(ns)`: change the addon's code once its files are loaded and before its saved settings are, to test a later release (the walkthrough's steps and version, #169);
   - `opts.noGrace`: stop right after login;
+  - `opts.buffDefaults`: keep who gets Wisdom, Might and Thorns at their defaults (#219: classes and tanks). Without it, boot sets those three to Everyone unless `opts.db` sets them, so specs aren't surprised by a class left out;
   - `opts.buffSelf`: keep buff mode offering your own copy of your buffs (#198). Without it, boot sets `GroupBuffs.SELF_ORDER` to `"off"`, so specs written before #198 count only the group's casts;
   - `opts.autoBuffMode`: keep buff mode's turn-on triggers at their defaults (on, #72). Without it, boot turns them off unless `opts.db` sets them, so specs that join groups or get buffed don't lend a key by accident;
   - `opts.randomStagger`: keep a guild hello's random extra wait random (#38). Without it, it is always the shortest (`GuildHellos.STAGGER_MIN`), so specs know when a hello goes;

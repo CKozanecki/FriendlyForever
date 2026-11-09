@@ -1654,6 +1654,7 @@ end
 -- Fresh client, addon loaded, logged in and past the login grace period.
 -- opts.db: saved variables to start with. opts.noGrace: stop after login.
 -- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
+-- opts.buffDefaults: keep who gets Wisdom, Might and Thorns at their defaults (#219, see below).
 -- opts.buffSelf: keep buff mode offering your own copy of your buffs (#198).
 -- opts.walkthrough: keep a first install's walkthrough (see below).
 -- opts.afterLoad: called with the addon's namespace once its files are
@@ -1692,6 +1693,17 @@ function M.boot(opts)
     if not opts.autoBuffMode then
         for _, field in ipairs(M.TURN_ON_TRIGGERS) do
             if triggersGiven[field] == nil then ns.db.buffBack[field] = false end
+        end
+    end
+    -- Wisdom, Might and Thorns start on class and tank rules (#219), which
+    -- would leave a spec's rogue or priest out of a buff it is checking for
+    -- another reason. Most specs start them at Everyone unless opts.db sets
+    -- them; spec/buffrules_spec.lua covers the defaults (opts.buffDefaults).
+    if not opts.buffDefaults then
+        local given = type(opts.db) == "table" and type(opts.db.buffBack) == "table"
+            and type(opts.db.buffBack.whoGets) == "table" and opts.db.buffBack.whoGets or {}
+        for _, key in ipairs({ "wisdom", "might", "thorns" }) do
+            if given[key] == nil then ns.db.buffBack.whoGets[key] = { rule = "all" } end
         end
     end
     -- Most specs check behaviour, not wording, and were written against the

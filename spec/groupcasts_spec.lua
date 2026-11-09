@@ -339,7 +339,10 @@ describe("Group versions in buff mode (#41)", function()
             wow.state.mods = { shift = true }
             wow.press(button, "RightButton")
             wow.state.mods = {}
-            assert.are.same({}, ns.db.buffBack.whoGets)
+            for key, entry in pairs(ns.db.buffBack.whoGets) do
+                assert.is_nil(entry.never, key .. " has a Never list")
+                assert.is_nil(entry.always, key .. " has an Always list")
+            end
             assert.are.equal("Ann Vale: Arcane Intellect", armed())
         end)
 
