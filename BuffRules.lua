@@ -363,7 +363,8 @@ function BuffRules.HandSetBlessings()
 end
 
 -- Choose the Blessings you cover in this raid: keys is a list of your
--- Blessings' keys, or nil for all of them. Returns true, or false and why.
+-- Blessings' keys, or nil to stop choosing (all of them, or your share of the
+-- raid buff split when there is one, #70). Returns true, or false and why.
 function BuffRules.SetRaidBlessings(keys)
     if not InRaid() then return false, "you're not in a raid" end
     if keys == nil then
@@ -382,7 +383,9 @@ function BuffRules.SetRaidBlessings(keys)
         chosen[key] = true
     end
     if count == 0 then return false, "choose at least one Blessing (or all)" end
-    raidBlessings = count < all and chosen or nil
+    -- Every Blessing you know narrows nothing, unless the raid buff split
+    -- (#70) would narrow it: then it's your choice over the split's.
+    raidBlessings = (count < all or ns.RaidSplit.Current() ~= nil) and chosen or nil
     ns.BuffButton.Refresh()
     return true
 end

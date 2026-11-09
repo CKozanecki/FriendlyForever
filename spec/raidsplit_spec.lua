@@ -271,6 +271,35 @@ describe("The raid buff split (#70)", function()
         end)
     end)
 
+    describe("two paladins: setting every Blessing by hand (white)", function()
+        before_each(function()
+            local order = { "kings", "wisdom", "might" }
+            raid({
+                { name = "Ann", surname = "Vale", class = "PALADIN", known = PALADIN_SPELLS, order = order },
+                { name = "Bob", surname = "Lake", class = "PALADIN", known = PALADIN_SPELLS, order = order },
+            }, { { "Tor-Axe", "WARRIOR" } })
+            form()
+        end)
+
+        it("in a split, choosing all three by hand keeps all three, and the other becomes the backup", function()
+            wow.use(clients[1])
+            _G.SlashCmdList.FRIENDLYFOREVER("blessings")
+            assert.truthy(wow.printed[#wow.printed - 1]:find("your share of the raid split", 1, true))
+            _G.SlashCmdList.FRIENDLYFOREVER("blessings kings wisdom might")
+            assert.is_true(clients[1].ns.BuffRules.RaidBlessingsChosen())
+            assert.equal("kings,might,wisdom", share(clients[1]))
+            wow.advanceAll(net, 15, 0.5)
+            assert.equal("", share(clients[2]))
+            -- "all" stops choosing: back to the split.
+            wow.use(clients[1])
+            _G.SlashCmdList.FRIENDLYFOREVER("blessings all")
+            assert.is_false(clients[1].ns.BuffRules.RaidBlessingsChosen())
+            wow.advanceAll(net, 15, 0.5)
+            assert.equal("kings", share(clients[1]))
+            assert.equal("might,wisdom", share(clients[2]))
+        end)
+    end)
+
     describe("players who leave (white)", function()
         before_each(function()
             local order = { "fortitude", "spirit", "shadow" }
@@ -437,7 +466,8 @@ describe("The raid buff split (#70)", function()
             assert.is_nil(share(me))
             -- The warrior, the stranger and the offline priest passed the
             -- channel's checks and were ignored here; the rest never got here.
-            assert.equal(3, count(me.ns, "splitIgnored"))
+            -- Only the stranger is counted: another class's shares are everyday.
+            assert.equal(1, count(me.ns, "splitIgnored"))
             assert.equal(1, count(me.ns, "commSpoofed"))
             assert.equal(0, me.ns.RaidSplit.PeerCount())
         end)
@@ -547,6 +577,25 @@ describe("The raid buff split (#70)", function()
             wow.advanceAll(net, 60, 1)
             assert.equal("fortitude", share(clients[2]))
             assert.equal("shadow,spirit", share(clients[3]))
+        end)
+
+        it("after a long fight that blocked every message, the split is back within seconds", function()
+            for _, c in ipairs(clients) do
+                wow.use(c)
+                wow.enterCombat()
+            end
+            net.lose = function() return true end
+            wow.advanceAll(net, 300, 1)
+            net.lose = nil
+            assert.is_nil(share(clients[2])) -- everyone has gone quiet
+            for _, c in ipairs(clients) do
+                wow.use(c)
+                wow.leaveCombat()
+            end
+            wow.advanceAll(net, 5, 0.5)
+            assert.equal("fortitude", share(clients[1]))
+            assert.equal("spirit", share(clients[2]))
+            assert.equal("shadow", share(clients[3]))
         end)
 
         it("a copy takes part while buff mode is on, and for 5 minutes after it goes off", function()

@@ -114,6 +114,9 @@ function handlers.ADDON_LOADED(name)
         ns.Options.Refresh() -- the raid Blessing boxes work only in a raid
         ns.Greeter.OnGroupRosterUpdate(...)
     end)
+    -- Addon messages may be blocked in a long fight (docs/forever-facts.md):
+    -- say what you give again as it ends, so the split is back for the rebuff.
+    Register("PLAYER_REGEN_ENABLED", function() ns.RaidSplit.OnCombatEnd() end)
     Register("GUILD_ROSTER_UPDATE", ns.Greeter.OnRosterUpdate)
     Register("PLAYER_GUILD_UPDATE", ns.Greeter.RequestRoster)
     -- The battleground phase first: buffs that arrive as the battle starts
@@ -495,7 +498,9 @@ local function BlessingsCommand(args)
         if R.CoversInRaid(buff) then covered[#covered + 1] = ns.BuffData.SpellName(buff) or buff.key end
     end
     ns.Print("blessings you give in this raid: " .. (#covered > 0 and table.concat(covered, ", ") or "none")
-        .. (R.RaidBlessingsChosen() and "" or " (all: you haven't chosen)"))
+        .. (R.RaidBlessingsChosen() and ""
+            or ns.RaidSplit.Current() and " (your share of the raid split: you haven't chosen)"
+            or " (all: you haven't chosen)"))
     if #words == 0 then
         ns.Print("/friendly blessings all | " .. table.concat(keys, " ") .. " - in a raid, until you leave it")
     end

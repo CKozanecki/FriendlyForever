@@ -450,8 +450,12 @@ end
 function RaidSplit.OnShare(sender, keysText, fixedText, asks)
     local class = MyClass()
     if not class then return end
-    if not Eligible(Roster(), sender, class) then
-        ns.Diag.Count("splitIgnored")
+    local roster = Roster()
+    if not Eligible(roster, sender, class) then
+        -- Another class's shares are everyday raid traffic, and an offline
+        -- sender a race with the roster: only a sender not in your raid at
+        -- all is counted, for /friendly status.
+        if not roster[sender] then ns.Diag.Count("splitIgnored") end
         ns.Diag.Log("split", "ignored a share from %s: not an online %s in your raid", sender, class)
         return
     end
@@ -511,6 +515,12 @@ function RaidSplit.OnRosterUpdate()
         end
     end
     RaidSplit.Announce(true)
+end
+
+-- A fight ended (PLAYER_REGEN_ENABLED). Heartbeats sent in it may have been
+-- blocked, so the others may have stopped counting you: say it again now.
+function RaidSplit.OnCombatEnd()
+    if InRaid() then RaidSplit.Announce(true) end
 end
 
 function RaidSplit.PeerCount()
