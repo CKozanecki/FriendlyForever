@@ -10,7 +10,8 @@
 --             highest you know, and any of them on a player means they have it
 --   group     the group versions' IDs (Arcane Brilliance...): they count as having it
 --   groupCast the group version you can cast (GroupCasts.lua, #41): scope
---             "party" (the target's party), and spells, highest rank first,
+--             "party" (the target's party) or "class" (every member of the
+--             target's class in the raid: Greater Blessings), and spells, highest rank first,
 --             each { id, reagent = item ID, equals = the single-target rank
 --             of the same strength }; every id is also in group
 --   blockers  other buffs that do the same job (Scroll of Intellect...): ditto
@@ -54,12 +55,17 @@ BuffData.CLASSES = {
         { key = "thorns", ranks = { 9910, 9756, 8914, 1075, 782, 467 }, defaultRule = "tanks" },
     },
     PALADIN = {
-        { key = "kings", ranks = { 20217 }, group = { 25898 }, family = "blessing" },
+        { key = "kings", ranks = { 20217 }, group = { 25898 }, family = "blessing",
+            groupCast = { scope = "class", spells = { { id = 25898, reagent = 21177, equals = 20217 } } } },
         { key = "wisdom", ranks = { 25290, 19854, 19853, 19852, 19850, 19742 }, group = { 25918, 25894 },
+            groupCast = { scope = "class", spells = {
+                { id = 25918, reagent = 21177, equals = 25290 }, { id = 25894, reagent = 21177, equals = 19854 } } },
             manaOnly = true, family = "blessing", defaultRule = "classes",
             defaultClasses = { PALADIN = true, HUNTER = true, PRIEST = true, SHAMAN = true, MAGE = true,
                 WARLOCK = true, DRUID = true } },
         { key = "might", ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 }, group = { 25916, 25782 },
+            groupCast = { scope = "class", spells = {
+                { id = 25916, reagent = 21177, equals = 25291 }, { id = 25782, reagent = 21177, equals = 19838 } } },
             family = "blessing", defaultRule = "classes",
             defaultClasses = { WARRIOR = true, PALADIN = true, HUNTER = true, ROGUE = true, SHAMAN = true,
                 DRUID = true } },
@@ -106,7 +112,7 @@ end
 -- fallback for messages: the client's own is used when it has it.
 BuffData.REAGENTS = {
     [17020] = "Arcane Powder", [17028] = "Holy Candle", [17029] = "Sacred Candle",
-    [17021] = "Wild Berries", [17026] = "Wild Thornroot",
+    [17021] = "Wild Berries", [17026] = "Wild Thornroot", [21177] = "Symbol of Kings",
 }
 
 -- [spell ID] = buff, for every rank, group version and blocker. A spell
