@@ -193,6 +193,12 @@ local function NextOffer()
         if not seen[offer.name] and BuffButton.BuildCastMacro(offer.name, offer.spell, true, offer.self) then
             seen[offer.name] = true
             castable[#castable + 1] = offer
+            -- A group cast that is kept is one row for everyone it covers
+            -- (#227): they are not listed again as single buffs. One that is
+            -- dropped above leaves them their own rows.
+            if offer.cast then
+                for _, covered in ipairs(offer.cast.covers) do seen[covered] = true end
+            end
         end
     end
     offerList = castable

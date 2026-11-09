@@ -536,6 +536,22 @@ describe("A group cast in the list (#227)", function()
             assert.are.same({}, rows())
         end)
 
+
+        it("keeps the covered members' rows when the group cast isn't in the list (its aim is owed a favour)", function()
+            boot()
+            slash("buffmode off")
+            wow.addUnit("nameplate1", { name = "Ann", surname = "Vale", class = "MAGE", id = "Ann-Vale" })
+            wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
+            slash("buffmode on")
+            assert.are.equal(1, ns.Offers.Count(), "a favour is owed to Ann")
+            group("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
+            local text = table.concat(rows(), "|")
+            assert.is_truthy(text:find("> Ann Vale: Arcane Intellect", 1, true), text)
+            for _, who in ipairs({ "Bo Fern", "Cid Rock", "Dot Moss" }) do
+                assert.is_truthy(text:find(who .. ": Arcane Intellect", 1, true), who .. " keeps a row")
+            end
+        end)
+
         it("is hidden in combat", function()
             boot()
             group("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })

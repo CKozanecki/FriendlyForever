@@ -231,11 +231,6 @@ function GroupBuffs.Next(out)
         if not listed[offer.name] then
             listed[offer.name] = true
             out[#out + 1] = offer
-            -- A group cast is one row for everyone it covers (#227): they
-            -- are not listed again as single buffs.
-            if offer.cast then
-                for _, covered in ipairs(offer.cast.covers) do listed[covered] = true end
-            end
         end
         return false
     end

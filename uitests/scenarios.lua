@@ -577,7 +577,9 @@ test("the list shows a group cast as one row, and its text stays inside", functi
         end
         Expect(#shown == 1, ("the list has %d rows, not the one group row"):format(#shown))
         local text = shown[1].text:GetText() or ""
-        local want = ("your party (%d missing): %s"):format(#States.GROUP_MEMBERS, States.GROUP_SPELL.name)
+        -- The party and you: the group version covers you too.
+        local covered = #States.GROUP_MEMBERS + 1
+        local want = ("your party (%d missing): %s"):format(covered, States.GROUP_SPELL.name)
         Expect(text == "> " .. want, ("the row reads %q, not %q"):format(text, "> " .. want))
         TextInside(shown[1], shown[1].text, "group row", 1)
         OnScreen(list, "buff list (group cast)")
