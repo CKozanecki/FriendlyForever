@@ -2774,6 +2774,7 @@ describe("Release docs", function()
                 local text = wow.readFile(path):gsub("%s+", " ")
                 assert.is_truthy(text:find("#only-behind-main", 1, true), path .. " doesn't reference the rule")
                 assert.is_falsy(text:find("update branch only.**", 1, true), path .. " restates the rule")
+                assert.is_falsy(text:find("developer must merge.**", 1, true), path .. " restates the rule")
             end
             -- Whole sentences, so a changed condition or a changed actor fails (#119).
             local function has(path, sentence)
@@ -2785,6 +2786,8 @@ describe("Release docs", function()
             has(".claude/skills/coordinator/SKILL.md", 'then tell the owner, naming the PR, "update branch only" or "developer must merge"')
             has(".claude/skills/coordinator/SKILL.md", 'Only for "developer must merge", tell its driver to merge `main` in (the `after-merge` skill).')
             has(".claude/skills/coordinator/SKILL.md", "only behind `main` (no shared file, no conflict), it is still ready")
+            has(".claude/skills/coordinator/SKILL.md", "Otherwise it isn't ready: tell its driver to merge `main` in (the `after-merge` skill), and don't report it to the owner yet.")
+            has(".claude/skills/merge-order/SKILL.md", "Say so, and tell its driver to merge `main` in (the `after-merge` skill). Exception:")
             has(".claude/skills/merge-order/SKILL.md", "only behind `main` (no shared file, no trial-merge conflict) is still ready")
             has("AGENTS.md", "only behind `main` (no shared file, no conflict) is not for the driver")
             -- Written once: each label appears exactly once in CONTRIBUTING.md.
