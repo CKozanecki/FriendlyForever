@@ -15,14 +15,14 @@ CONTRIBUTING.md is the source of truth. Read it, AGENTS.md and CLAUDE.md before 
 - the **worktree path** to review in;
 - the **diff range** (`<base>..<head>`), and the issue's acceptance criteria;
 - for a PR that changes what players see, the **PR number**, once its UI simulator run is in;
-- for a re-review, what changed since your last verdict (a fix, a test-only change, a merge of `main`).
+- for a re-review, what changed since your last verdict (a fix, a test-only change, a merge of `main`). A merge that is clean and shares no file with the PR isn't sent to you (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops)).
 
 If any of these is missing, ask for it rather than guessing.
 
 ## Scope
 
 - **Every acceptance criterion is proven** by a test of the kind it names (white, black or red), and the test's name repeats the criterion in words.
-- **The tests can fail:** each one reaches the path it claims to cover, and fails when that code is broken. Run your own mutations of the new lines.
+- **The tests can fail:** each one reaches the path it claims to cover, and fails when that code is broken. Run your own mutations only of the new safety-critical lines (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops) says what counts), and not of the others.
 - **Chaos (red) tests** check invariants worked out independently, from the simulated client's own state.
 - **The simulated client** (`spec/support/wow.lua`) stays realistic and pessimistic. See [docs/simulated-client.md](../../docs/simulated-client.md).
 - **Traceability:** changed spec files carry `-- Spec: #N` on one of their first five lines; changelog entries end with their issues.
@@ -89,8 +89,8 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A storm's reach counter counts the case itself, not something near it. #36's "waited the longest wait" counted any buff from 29 to 31 s before a thank-you, so unrelated buffs met it while no thank-you ever waited 30 s; a stale-plan action was needed to reach it.
 
 **Tests that can fail**
-- Mutation-check every new or changed line. Each survivor gets a test, or a stated reason it can't be caught (an equivalent mutant; a guard the simulated client can't reach, such as `Util.IsSecret`, since Lua 5.1 compares a table without error). A survivor that shows code can't be reached means delete the code (#21, #54, #61, #62, #88).
-- Code moved or extracted into a new function counts as changed: mutate its lines too (#116: `Config.ValidIgnore`'s cap, moved in #113, had no test with more names than the cap).
+- Mutation-check every new or changed safety-critical line (casting, secret values, saved settings). Other code needs only its tests and your review. Each survivor gets a test, or a stated reason it can't be caught (an equivalent mutant; a guard the simulated client can't reach, such as `Util.IsSecret`, since Lua 5.1 compares a table without error). A survivor that shows code can't be reached means delete the code (#21, #54, #61, #62, #88).
+- Code moved or extracted into a new function counts as changed: if it is safety-critical, mutate its lines too (#116: `Config.ValidIgnore`'s cap, moved in #113, had no test with more names than the cap).
 - A guard test asserts that its input really holds the case it covers (the input has `\r\n`; the file really is commented), so a no-op mutation fails it (#79, #81).
 - Each test reaches its path for real: it presses or acts rather than setting state, and fails when the hook it relies on is removed (#20, #21).
 - Every new UI control is clicked in a test, and the test then checks what it changed downstream, such as the armed macro and the marks shown (#61). A second control for the same setting (#47's Start here page) is checked downstream too, not only against the saved field: its "Addon enabled" box writing `db.enabled` directly passed every spec while leaving buff watching on. Check the change before any time passes, so a periodic re-check can't do the control's work for it (#102: the new checkbox's `Refresh()` was untested, since the button's 5-second re-check covered for it).
@@ -114,7 +114,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A test-wide default in `wow.boot` reads the given saved settings before loading fills in defaults, has an opt-out, and has a spec of its own. Check that a changed default doesn't quietly move every other spec onto a new path (#72: with the triggers on by default, every buff back spec ran in buff mode, and the helper read settings after loading).
 
 **Changes after an approval**
-- Any change after a loop approved goes back to it: test-only and test-helper changes, merges of `main` (above all ones that resolved conflicts), rebases. Check the PR records each confirmation (#72: a helper change after approval hid a real bug; #85, #87, #88).
+- Any change after a loop approved goes back to it: test-only and test-helper changes, merges of `main` that overlap the PR's files or resolved conflicts, rebases. Check the PR records each confirmation (#72: a helper change after approval hid a real bug; #85, #87, #88).
 
 **Screenshots**
 - View every image and read the `LAYOUT` lines; compare with a before set where one exists (step 3 says where), and say when none did; say what isn't shown (an options tab that isn't in the shot is judged from its anchor specs, and its look goes to a new `quality` issue). Layout checks put state back even when they fail (#53, #85, #88).
@@ -129,7 +129,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A test that scans workflow lines for a rule is checked against the other ways the same command can be written: `"$RUNNER_TEMP"/x` and `${RUNNER_TEMP}` as well as `"$RUNNER_TEMP/x"`, a pipe without `2>&1`, a line after the block the scan skips. #153's first scan missed all three.
 - When the simulated client models a list or slot the game hands out (a mirror timer's slot, a unit token's number), it doesn't put the addon's answer first unless that's confirmed: the first slot is the optimistic one, and an addon that only reads it passes every spec (#136: the breath bar was in slot 1; reading only slot 1 passed all 1705 specs).
 - A test comment that claims something ("no second frame") has an assertion that fails when it's false (#136: a second `Water.Create()` with no check let a deleted guard pass).
-- A new file in the TOC gets a mutation that drops it from `Core.lua`'s restart-guard list, and a spec that loads the TOC without it must fail on that mutation: #48 added `OptionsIndex` to the list with no such spec, and the architecture review didn't catch it.
+- A new file in the TOC needs a spec that fails when it is missing from `Core.lua`'s restart-guard list (check this by reading the spec; it isn't a mutation pass): #48 added `OptionsIndex` to the list with no such spec, and the architecture review didn't catch it.
 - When the simulated client keeps parallel lists (a unit's `auras` with their sources, durations and expiries) and an entry can drop out, a test checks every field of the entry that moves up, not only its ID: #42's first test let each field read the old index and still passed.
 - When code looks a value up by name and quietly falls back on an unknown one (the palette's white or plain text), a test checks that every name the code uses exists: on #46, ten misspelled colour names passed all 1987 specs.
 - A limit taken from a source (a size cap, a count) is written out as a number in its test, not built from the code's own constant: on #191 the size-cap test padded to `CODEX_MAX_BYTES` and expected a message made from it, so changing the cap passed every spec.

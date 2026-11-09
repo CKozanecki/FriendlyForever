@@ -12,8 +12,15 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # How many jobs the specs are split across (#218). The matrix below lists
+  # the same shards; spec/repo_spec.lua checks they agree, and the final job
+  # checks every spec file is in exactly one shard.
+  SHARDS: 4
+
 jobs:
-  check:
+  # Lint, package and the release-packager comparison: once, not per shard.
+  lint-package:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,9 +50,6 @@ jobs:
       - name: Lint
         run: make lint TOOLS="$RUNNER_TEMP/lua"
 
-      - name: Test
-        run: make test TOOLS="$RUNNER_TEMP/lua"
-
       - name: Package
         run: make package
 
@@ -70,3 +74,66 @@ jobs:
             dist/*.zip
             .release/*.zip
           include-hidden-files: true
+
+  # The specs, split by file across SHARDS jobs that run side by side
+  # (scripts/test-shards.sh). `make test` still runs them all in one go.
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      # The setup script and its checksums pin the tools, so they key the cache.
+      - name: Cache Lua tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/lua
+          key: lua-tools-${{ runner.os }}-${{ hashFiles('Makefile', 'scripts/dev-setup.sh', 'scripts/dev-setup.lock') }}
+
+      # Always installed: cached Lua still links against readline at run time.
+      - name: Install build dependencies
+        run: sudo apt-get update -q && sudo apt-get install -yq libreadline-dev
+
+      # Always run: from the cache it only checks the install, in seconds.
+      - name: Install Lua 5.1, busted and luacheck
+        run: make setup TOOLS="$RUNNER_TEMP/lua"
+
+      - name: Test (shard ${{ matrix.shard }} of ${{ env.SHARDS }})
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: make test TOOLS="$RUNNER_TEMP/lua" SPECS="$(scripts/test-shards.sh files "$SHARDS" "$SHARD" | tr '\n' ' ')"
+
+  # The one required check on main (the job's name is the check's name): it
+  # passes only when lint and packaging and every test shard passed, and when
+  # no spec file is in no shard or in two. It runs even when a job before it
+  # fails or is cancelled, so the check is reported instead of left pending;
+  # a skipped or failed job never counts as passing.
+  check:
+    needs: [lint-package, test]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Every spec file is in exactly one shard
+        run: scripts/test-shards.sh check "$SHARDS"
+
+      - name: Lint, packaging and every test shard passed
+        env:
+          LINT_PACKAGE: ${{ needs.lint-package.result }}
+          TESTS: ${{ needs.test.result }}
+        run: |
+          echo "lint and package: $LINT_PACKAGE; tests: $TESTS"
+          test "$LINT_PACKAGE" = success
+          test "$TESTS" = success

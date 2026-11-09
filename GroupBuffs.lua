@@ -217,8 +217,23 @@ end
 -- has them; nobody dead, out of reach or unreadable); when that's because
 -- your water buff waits for water, that buff too. Your first buff
 -- goes to everyone missing it before your second buff goes to anyone.
-function GroupBuffs.Next()
+-- With a list (#43), each member the button would offer to is appended to
+-- it once, in the order the button would reach them, with what it would
+-- offer, instead of stopping at the first: the clickable list is made by
+-- these same rules.
+function GroupBuffs.Next(out)
     local units = GroupUnits()
+    local first, listed = nil, {}
+    -- One offer found: the first is returned at once, or with a list kept.
+    local function Found(offer)
+        if not out then return true end
+        first = first or offer
+        if not listed[offer.name] then
+            listed[offer.name] = true
+            out[#out + 1] = offer
+        end
+        return false
+    end
     if #units == 0 then return nil, "you're not in a group", true end
     -- Water breathing waits for water (Water.lua): nothing to do now, and
     -- the buff held back is named (4th value) for buff mode's message.
@@ -282,8 +297,9 @@ function GroupBuffs.Next()
                                 if not outOfRange[member.name] then Why(member, "out of range") end
                                 outOfRange[member.name] = true
                             else
-                                return { name = member.name, buff = buff, spell = spell, group = true,
+                                local offer = { name = member.name, buff = buff, spell = spell, group = true,
                                     self = member.self }
+                                if Found(offer) then return offer end
                             end
                         end
                     end
@@ -308,6 +324,7 @@ function GroupBuffs.Next()
     lastSelfWhy = mine == nil and mineWhy or nil
     local offer = Pass(list)
     if offer then return offer end
+    if first then return first end
     return nil, firstReason or "everyone in your group has your buffs", not open
 end
 

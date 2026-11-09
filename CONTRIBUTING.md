@@ -31,6 +31,13 @@ Every change can be traced from its spec to its code, tests, pull request and re
 
 Pull requests written by an agent (Claude or Codex) go through two review loops before the maintainer's review: a Lua architecture review, then a Lua testing review, each repeated until it approves. Every finding is fixed. Reviewers report only real problems, things that would actually go wrong for the addon, its players or its releases, and never invent issues or stretch for unrealistic edge cases to keep a loop going. "Everything is OK" is a perfectly good review when it's true. Claude runs them with the `lua-architect` and `lua-tester` agents in `.claude/agents/`, which point back here; for a Codex pull request, Claude's coordinating session runs them.
 
+Two cases need less review (#217). An approved review is never repeated; only a change it hasn't seen goes back.
+
+- **A merge that touches none of the PR's files: CI only.** After `main` is merged into a ready PR, the driver compares two lists, taken before the merge: `git diff --name-only <old main>..<new main>` (what the merge brings in) and `git diff --name-only origin/main...HEAD` (the PR's own files). If the merge was clean (no conflict resolved) and the lists share no file, the driver runs `make check`, confirms CI is green, puts both lists in the description and announces the PR ready again. The reviewers don't confirm. If any file is in both lists, or a conflict was resolved, the reviewers confirm the merge and the resolution only, as before.
+- **A docs-only pull request: CI plus one review.** A PR that changes only docs, rules, templates or `--` comments gets CI and one combined review: the `lua-architect` and `lua-tester` files run as a single pass. It has no mutation pass and no second loop. The comments-stripped (compiled listing) check proves no code changed. Any `*.lua` change outside comments, any `*.toc` or `*.xml` change and any workflow file is never docs-only, and a code PR still gets both review loops once.
+
+**Mutation checks are for safety-critical code only (#217).** Safety-critical code is code where a mistake could cast wrongly, mishandle a secret value, or damage saved settings. For those lines the developer changes each one temporarily, confirms a test fails, and restores the file exactly; the testing reviewer doesn't repeat about 20 more. For other code, the tests and the review are enough.
+
 For a pull request that changes what players see, the Lua testing review also looks at its [UI simulator](#ui-simulator) screenshots and layout checks, and decides whether they're right. The maintainer doesn't review screenshots.
 
 ### Ready for review
@@ -40,7 +47,7 @@ A pull request is **ready for review** when all of these hold:
 - CI is green on the latest commit;
 - the description matches the final code;
 - the branch is up to date with `main` and has no conflicts;
-- for pull requests written by an agent (Claude or Codex): both of its review loops (Lua architecture, then Lua testing) have approved, with every finding fixed;
+- for pull requests written by an agent (Claude or Codex): both of its review loops (Lua architecture, then Lua testing) have approved, with every finding fixed (a docs-only pull request needs its one review, and a merge that touches none of its files needs only CI: see [Review loops](#review-loops));
 - it has no open question for the maintainer (#215).
 
 **A pull request with an open question for the maintainer is not ready.** Whoever drives it asks the maintainer first (a session does so through the coordinator) and marks it ready only after the answer is applied. Its description has no "decisions for the maintainer" section when it is ready. A choice the driver made by following the spec is written plainly as a decision taken, not as a question. If the driver is unsure, that is a question, and the pull request waits. The coordinator doesn't call a pull request ready to merge while a question on it is open.
@@ -109,11 +116,13 @@ Claude's cloud sessions get the toolchain from the environment's setup script. T
 
   The environment keeps the installed tools for its later sessions. If the script fails, sessions don't start, and its log names the file and the host. A session that starts without the tools runs `make setup` itself.
 
+CI runs the specs in four parallel shards (`scripts/test-shards.sh` splits the files, the slow ones spread out; `make test` still runs them all, and `make test SPECS="spec/a_spec.lua"` runs some). `check` is the one required job on `main`: it passes only when lint and packaging and every shard did, and when every spec file is in exactly one shard (#218).
+
 CI also builds the zip with the BigWigs packager that releases use, and fails if its files differ from `make package`'s. If that check fails, add the new top-level file to `.pkgmeta`'s `ignore` list, or to the TOC if it should ship.
 
 ## UI simulator
 
-The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://github.com/Osso/wow-ui-sim), a headless WoW client that runs Blizzard's real UI code (#49). It runs on pull requests and on `main` whenever addon code, the TOC, the packaging or `uitests/` changes. It's report only: it never fails CI, and nothing it produces is trusted.
+The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://github.com/Osso/wow-ui-sim), a headless WoW client that runs Blizzard's real UI code (#49). It runs on every pull request and push to `main`, but its `changes` job skips the simulator unless a file that can change what players see was touched (#218): the root Lua files that create frames (`grep -l CreateFrame *.lua`, plus `OptionsIndex.lua`, `Nameplates.lua` and `Colours.lua`, the palette every colour comes from), the TOC, `*.xml`, `Media/`, `uitests/`, `.pkgmeta`, `scripts/package.sh`, `scripts/ui-sim-harness.lua` and the workflow itself; a hand start always runs it. A skipped job counts as passing, and doubt means it runs. It's report only: it never fails CI, and nothing it produces is trusted.
 
 - **What it runs:**
   - **Lua errors** from loading, and the addon's frame tree.
