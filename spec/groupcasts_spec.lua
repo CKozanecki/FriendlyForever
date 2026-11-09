@@ -23,7 +23,7 @@ describe("Group versions in buff mode (#41)", function()
     -- opts.db, opts.members (party names, default Ann, Bo, Cid, Dot).
     local function boot(opts)
         opts = opts or {}
-        ns = wow.boot({ db = opts.db, before = function(state)
+        ns = wow.boot({ db = opts.db, buffSelf = opts.buffSelf, before = function(state)
             state.class = opts.class or "MAGE"
             state.knownSpells = {}
             for _, id in ipairs(opts.known or { INTELLECT, BRILLIANCE }) do state.knownSpells[id] = true end
@@ -43,6 +43,8 @@ describe("Group versions in buff mode (#41)", function()
         ns.BuffButton.Refresh()
         local text = macro()
         if not text then return nil end
+        local self = text:match("/cast %[@player,nodead%] ([^\n]+)")
+        if self then return "me: " .. self end
         return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
     end
 
@@ -75,7 +77,7 @@ describe("Group versions in buff mode (#41)", function()
             local cast = wow.casts[1]
             assert.are.equal(BRILLIANCE, cast.id)
             assert.are.equal("Ann-Vale", cast.target)
-            assert.are.same({ "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" }, cast.covered)
+            assert.are.same({ "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Me" }, cast.covered, "and you, in a party")
             assert.are.equal(4, wow.state.items[ITEM.arcanePowder], "one powder used")
             assert.are.equal("Cast Arcane Brilliance on your party.", button.result:GetText())
             -- Everyone has it now: nothing more is offered, not even singly.
@@ -348,7 +350,7 @@ describe("Group versions in buff mode (#41)", function()
             wow.state.units.party4.outOfRange = true
             ns.BuffButton.Refresh() -- (Dot is no longer a candidate)
             wow.pressKey("MOUSEWHEELUP")
-            assert.are.same({ "Ann-Vale", "Bo-Fern", "Cid-Rock" }, wow.casts[1].covered)
+            assert.are.same({ "Ann-Vale", "Bo-Fern", "Cid-Rock", "Me" }, wow.casts[1].covered)
             wow.state.units.party4.outOfRange = false
             wow.advance(11)
             assert.are.equal("Dot Moss: Arcane Intellect", armed())
@@ -361,6 +363,53 @@ describe("Group versions in buff mode (#41)", function()
             assert.is_nil(ns.BuffData.ForCast(BRILLIANCE), "the single-target lookup is unchanged")
             assert.are.equal(ns.BuffData.ByKey("intellect"), ns.BuffData.ForGroupCast(BRILLIANCE))
             assert.is_nil(ns.BuffData.ForGroupCast(INTELLECT))
+        end)
+    end)
+
+    describe("with you offered the buff too (#204)", function()
+        it("a group version that covers you is offered first, aimed at someone else, and you count in it", function()
+            boot({ buffSelf = true, members = { "Ann-Vale", "Bo-Fern" } })
+            -- Two others and you: three missing.
+            assert.are.equal("Ann Vale: Arcane Brilliance", armed())
+            assert.are.equal("your party (3 missing)", button.title:GetText())
+            wow.pressKey("MOUSEWHEELUP")
+            assert.are.same({ "Ann-Vale", "Bo-Fern", "Me" }, wow.casts[1].covered)
+            -- Everyone, you included, is covered: nothing is left to offer.
+            assert.is_nil(armed())
+        end)
+
+        it("when the group version does not cover you, you come first, then the group", function()
+            boot({ buffSelf = true })
+            raid({ "Ann-Vale", "Bo-Fern", "Cid-Rock" })
+            wow.addUnit("raid4", wow.state.units.player)
+            wow.state.units.player.subgroup = 2
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.are.equal("me: Arcane Intellect", armed(), "you first (#204)")
+            wow.pressKey("MOUSEWHEELUP")
+            wow.gainBuff({ spellId = INTELLECT, sourceUnit = "player" })
+            assert.are.equal("Ann Vale: Arcane Brilliance", armed())
+            assert.are.equal("Group 1 (3 missing)", button.title:GetText())
+            wow.pressKey("MOUSEWHEELUP")
+            for _, id in ipairs(wow.casts[2].covered) do assert.are_not.equal("Me", id) end
+        end)
+
+        it("never aims a group cast at you, even when you are the only one missing", function()
+            boot({ buffSelf = true, members = { "Ann-Vale" } })
+            wow.wearBuff("party1", INTELLECT, { source = "player" })
+            ns.db.buffBack.groupEnough = 1
+            assert.are.equal("me: Arcane Intellect", armed())
+            wow.pressKey("MOUSEWHEELUP")
+            assert.are.equal(INTELLECT, wow.casts[1].id, "the single buff, cast on you")
+        end)
+
+        it("your own rule, flag and higher rank still stop a group cast that covers you", function()
+            boot({ buffSelf = true, class = "PRIEST", known = { FORT_6, FORT_5, PRAYER_FORT_1 },
+                items = { [ITEM.holyCandle] = 5 } })
+            assert.are.equal("Ann Vale: Prayer of Fortitude", armed())
+            wow.state.playerAuras = { { isHelpful = true, spellId = FORT_6, sourceUnit = "player", auraInstanceID = 1,
+                duration = 3600, expirationTime = wow.now + 30 } }
+            local offered = armed()
+            assert.is_truthy(offered:find("Power Word: Fortitude", 1, true), offered)
         end)
     end)
 
@@ -939,6 +988,10 @@ describe("Group versions in buff mode (#41)", function()
                         now[u.id] = { pvp = u.pvp, role = u.role, mainTank = u.mainTank, dead = u.dead,
                             class = u.class, subgroup = u.subgroup, secretPvp = u.secrets and u.secrets.pvp }
                     end
+                    -- You are covered too (in a party; in a raid when you have a slot).
+                    local me = wow.state.units.player
+                    now[me.id] = now[me.id] or { pvp = false, role = me.role, mainTank = me.mainTank,
+                        class = me.class, subgroup = me.subgroup }
                     return now
                 end
 

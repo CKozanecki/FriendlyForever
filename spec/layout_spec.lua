@@ -1,4 +1,4 @@
--- Spec: #52, #64, #112, #197, #41
+-- Spec: #52, #64, #112, #197, #208, #41
 -- Layout: the buff-back button's text stays inside the button, and on each
 -- options tab the message list follows the last row that tab shows. The
 -- checks work from the simulated client's own anchors and text widths
@@ -7,7 +7,7 @@ local wow = require("spec.support.wow")
 
 local MOTW, MOTW_1 = 9885, 1126
 local FORTITUDE, FORTITUDE_1 = 10938, 1243
-local KINGS, MIGHT_1, WISDOM_1, SALVATION = 20217, 19740, 19742, 1038
+local KINGS, MIGHT_1, WISDOM_1 = 20217, 19740, 19742
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
 
@@ -307,26 +307,20 @@ describe("Layout", function()
             assert.are.equal(w.nameplateWarning, select(2, w.msgHeader:GetPoint()))
         end)
 
-        it("follows the last row each tab shows for a paladin, through each Who rule and Revoke choice", function()
-            wow.SPELL_NAMES[SALVATION] = "Blessing of Salvation"
-            finally(function() wow.SPELL_NAMES[SALVATION] = nil end)
+        it("follows the last row each tab shows for a paladin, through each Who rule", function()
             ns = wow.boot({ before = function(state)
                 state.class = "PALADIN"
-                state.knownSpells = { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true, [SALVATION] = true }
+                state.knownSpells = { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true }
             end })
             w = ns.Options.widgets
-            ns.db.buffBack.buffOrder = { "kings", "might", "wisdom", "salvation" }
+            ns.db.buffBack.buffOrder = { "kings", "might", "wisdom" }
             eachTab("paladin")
             wow.run(w.tabs.buffBack, "OnClick")
-            for i = 1, #ns.BuffRules.REVOKE_MODES + 1 do
-                for row = 1, 4 do
-                    for _ = 1, 4 do
-                        wow.run(w.buffRows[row].who, "OnClick")
-                        checkTab(("paladin, revoke %d, row %d"):format(i, row))
-                    end
+            for row = 1, 4 do
+                for _ = 1, 4 do
+                    wow.run(w.buffRows[row].who, "OnClick")
+                    checkTab(("paladin, row %d"):format(row))
                 end
-                ns.Options.CycleRevoke()
-                checkTab("paladin, revoke cycled " .. i)
             end
         end)
 

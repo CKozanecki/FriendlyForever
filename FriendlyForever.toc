@@ -40,6 +40,7 @@ Greeter.lua
 BuffTracker.lua
 Window.lua
 BuffButton.lua
+BuffList.lua
 BuffMode.lua
 GroupBuffs.lua
 GroupCasts.lua

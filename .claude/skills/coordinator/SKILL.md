@@ -33,6 +33,7 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
 - **Starting a session:** pass the `model` parameter, a family alias from CLAUDE.md's Models and effort, and say its effort in the opening prompt. For building that's a trial in progress, see #182: pass the family the owner names for the trial, or leave it out to keep the session default. Never a dated model ID. Check the plan's usage first (CLAUDE.md's Plan limits): a fan-out is long work.
 - **Before telling the owner something is pending, read that session's transcript** (`list_events` with `kinds: ["user", "assistant", "result"]`), not just its status. A status says idle; only the transcript says whether it's waiting on the owner, finished, or stuck, and whether the owner already answered.
 - Relay to the owner in one short list: what's needed, from whom, with the link. Don't relay routine progress.
+- **Questions come first.** Put every question for the owner at the top of the report, one per line, before any list of PRs (#215).
 
 ## A PR announced ready
 
@@ -43,13 +44,15 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
    ```
    If it doesn't, it isn't ready: tell its driver to merge `main` in (the `after-merge` skill), and don't report it to the owner yet.
 2. Check CI is green on its head and its description's ready checklist is ticked.
-3. When more than one PR is ready, **trial-merge every pair** and recommend an order (the `merge-order` skill) before reporting.
+   After a merge of `main`, check the description's two file lists too (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops)): if you can't confirm that `git diff --name-only <old main>..<new main>` and `git diff --name-only origin/main...HEAD` share no file and the merge was clean, the reviewers must have confirmed it.
+3. Check there is no open owner question on it: none in its description, and none in its session's transcript that the owner hasn't answered. If there is one, it isn't ready to merge (CONTRIBUTING.md's "Ready for review", #215): tell its driver to wait for the answer, and put the question in the report.
+4. When more than one PR is ready, **trial-merge every pair** and recommend an order (the `merge-order` skill) before reporting.
 
 ## After the owner merges a PR
 
 **Spotting a merge.** The owner may say so, or may just merge on GitHub. So at every check-in, read each tracked PR's state (`gh api repos/CKozanecki/FriendlyForever/pulls/<n>`, read only). GitHub doesn't notify sessions of merges, and they don't poll (AGENTS.md's "After each merge"); the coordinator tells them.
 
-1. Tell the driver of each other ready PR to merge `main` in (the `after-merge` skill). Name the conflicts the trial merges predicted.
+1. Tell the driver of each other ready PR to merge `main` in (the `after-merge` skill). Name the conflicts the trial merges predicted, and the files the merge changes, so each driver can prove the merge is file-disjoint (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops)).
 2. **Tell the merged PR's session at once, politely** (the owner's standing rule, #172). Don't wait for it to notice. First check whether anything is left for it: the PR says `Refs #<issue>` rather than `Closes`, or its transcript shows more parts of the spec still to come.
    - **Nothing left:** "Your PR #<n> merged. Your work is done: finish per CLAUDE.md's "Finishing" (a closing comment only if one is owed, the done line to me, remove your worktree, cancel check-ins, closing summary)."
    - **Work left:** "Your PR #<n> merged. Carry on with what's left on #<issue>." It keeps working, so don't archive it.

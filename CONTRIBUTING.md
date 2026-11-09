@@ -31,6 +31,13 @@ Every change can be traced from its spec to its code, tests, pull request and re
 
 Pull requests written by an agent (Claude or Codex) go through two review loops before the maintainer's review: a Lua architecture review, then a Lua testing review, each repeated until it approves. Every finding is fixed. Reviewers report only real problems, things that would actually go wrong for the addon, its players or its releases, and never invent issues or stretch for unrealistic edge cases to keep a loop going. "Everything is OK" is a perfectly good review when it's true. Claude runs them with the `lua-architect` and `lua-tester` agents in `.claude/agents/`, which point back here; for a Codex pull request, Claude's coordinating session runs them.
 
+Two cases need less review (#217). An approved review is never repeated; only a change it hasn't seen goes back.
+
+- **A merge that touches none of the PR's files: CI only.** After `main` is merged into a ready PR, the driver compares two lists, taken before the merge: `git diff --name-only <old main>..<new main>` (what the merge brings in) and `git diff --name-only origin/main...HEAD` (the PR's own files). If the merge was clean (no conflict resolved) and the lists share no file, the driver runs `make check`, confirms CI is green, puts both lists in the description and announces the PR ready again. The reviewers don't confirm. If any file is in both lists, or a conflict was resolved, the reviewers confirm the merge and the resolution only, as before.
+- **A docs-only pull request: CI plus one review.** A PR that changes only docs, rules, templates or `--` comments gets CI and one combined review: the `lua-architect` and `lua-tester` files run as a single pass. It has no mutation pass and no second loop. The comments-stripped (compiled listing) check proves no code changed. Any `*.lua` change outside comments, any `*.toc` or `*.xml` change and any workflow file is never docs-only, and a code PR still gets both review loops once.
+
+**Mutation checks are for safety-critical code only (#217).** Safety-critical code is code where a mistake could cast wrongly, mishandle a secret value, or damage saved settings. For those lines the developer changes each one temporarily, confirms a test fails, and restores the file exactly; the testing reviewer doesn't repeat about 20 more. For other code, the tests and the review are enough.
+
 For a pull request that changes what players see, the Lua testing review also looks at its [UI simulator](#ui-simulator) screenshots and layout checks, and decides whether they're right. The maintainer doesn't review screenshots.
 
 ### Ready for review
@@ -40,7 +47,10 @@ A pull request is **ready for review** when all of these hold:
 - CI is green on the latest commit;
 - the description matches the final code;
 - the branch is up to date with `main` and has no conflicts;
-- for pull requests written by an agent (Claude or Codex): both of its review loops (Lua architecture, then Lua testing) have approved, with every finding fixed.
+- for pull requests written by an agent (Claude or Codex): both of its review loops (Lua architecture, then Lua testing) have approved, with every finding fixed (a docs-only pull request needs its one review, and a merge that touches none of its files needs only CI: see [Review loops](#review-loops));
+- it has no open question for the maintainer (#215).
+
+**A pull request with an open question for the maintainer is not ready.** Whoever drives it asks the maintainer first (a session does so through the coordinator) and marks it ready only after the answer is applied. Its description has no "decisions for the maintainer" section when it is ready. A choice the driver made by following the spec is written plainly as a decision taken, not as a question. If the driver is unsure, that is a question, and the pull request waits. The coordinator doesn't call a pull request ready to merge while a question on it is open.
 
 Then whoever drives it marks it ready (GitHub's **Ready for review** button, out of draft) and says so in a comment, so the maintainer never has to ask.
 
@@ -147,6 +157,12 @@ For the launch, [docs/launch-day-runbook.md](docs/launch-day-runbook.md) is the 
 Versions below 1.0.0 are pre-launch: 0.8.0 is the first file on CurseForge and 1.0.0 is the launch. A tag uploads as a normal release; the packager marks a file alpha or beta only when its tag contains that word, and the Release workflow accepts only a tag that is exactly `v` plus the TOC version. No beta route is set up yet.
 
 Pull requests between releases add their `CHANGELOG.md` notes under a `### Unreleased` heading at the top; the release PR renames it to `## x.y.z`.
+
+**Before the release PR, decide whether the walkthrough needs a new step** (#169). The first-install walkthrough (`Walkthrough.lua`) runs once. A feature worth explaining to players who already finished it gets a step in the same PR that adds the feature, or in a PR before the release. It is a deliberate choice, not automatic: most releases add no step, and then nothing changes.
+
+- **Adding a step:** give it `since = <the new version>` and raise `Config.WALKTHROUGH_VERSION` to that number, which is a small integer counted in steps added, not the addon's version. Steps stay in the order they were added; put a new one before the closing "That's it" step. A test in `spec/walkthrough_spec.lua` fails if the version and the steps' `since` numbers disagree. Keep the new step's title to about 35 characters, so "What's new: <title>" fits the window's title line. Update the specs that list the steps and the pages they open (`spec/walkthrough_spec.lua`) in the same PR.
+- **What players see** after updating: a new player and the replay from Start here see every step; a player who finished or skipped an older version sees only the steps added since, titled "What's new"; an up-to-date player sees nothing. Finishing or skipping saves the version. Never lower the version: a saved version above it is read as damaged, and the player sees every step once.
+- **Not for every change:** a fix, or a setting players won't miss, needs no step. If a release adds one, say so in the changelog entry.
 
 1. In a PR: bump `## Version` in `FriendlyForever.toc` and rename `### Unreleased` at the top of `CHANGELOG.md` to `## 0.8.0` (add notes there for anything missing). CurseForge shows only that section (`make release-notes` previews it).
 2. After it merges, tag the merge commit and push the tag: `git tag v0.8.0 && git push origin v0.8.0`. Version tags can't be moved or deleted once pushed, so double-check the commit first. The GitHub release isn't made by hand: the workflow makes it in step 3.

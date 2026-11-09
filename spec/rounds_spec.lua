@@ -1,4 +1,4 @@
--- Spec: #37
+-- Spec: #37, #208
 -- Buff trading stops after one round: every buff of yours the game says went
 -- to a player is remembered, however it was cast, and copies of the addon
 -- mark a returned buff as "this answers yours" over the hidden channel.
@@ -311,12 +311,12 @@ describe("One round each way (#37)", function()
             assert.is_true(owes("Bob-Stone"))
         end)
 
-        it("Revoke isn't a buff: it neither returns a favour nor answers one", function()
+        it("a cast of a removed spell (Salvation's old ID) neither returns a favour nor answers one", function()
             stranger()
             stranger("target")
             buffedBy()
-            ns.BuffButton.OnSpellcastSent("player", "Bob", "Cast-1", wow.REVOKE_ID)
-            ns.BuffButton.OnSpellcastSucceeded("player", "Cast-1", wow.REVOKE_ID)
+            ns.BuffButton.OnSpellcastSent("player", "Bob", "Cast-1", 1038)
+            ns.BuffButton.OnSpellcastSucceeded("player", "Cast-1", 1038)
             assert.is_true(owes("Bob-Stone"))
             assert.is_nil(lastEntry().returned)
         end)

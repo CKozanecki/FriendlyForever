@@ -3,7 +3,7 @@
 -- one you can return and casts on a press; nothing here casts anything.
 --
 -- For each favour the buff is chosen fresh: your class's buffs you know, in
--- order, skipping ones that can't go to a stranger (Battle Shout, Salvation),
+-- order, skipping ones that can't go to a stranger (Battle Shout),
 -- ones their class has no use for (Intellect to a warrior), and ones they
 -- already wear when the game lets us see.
 --
@@ -224,7 +224,7 @@ local function ChooseBuff(favour, myBuffs, held, visible)
     end
     local suitable = 0
     for _, buff in ipairs(myBuffs) do
-        if not buff.selfCast and not buff.groupOnly and ns.BuffData.Useful(buff, favour.class) then
+        if not buff.selfCast and ns.BuffData.Useful(buff, favour.class) then
             suitable = suitable + 1
             -- Unknown (no unit, or hidden in a fight) counts as not wearing it.
             if Offers.Wears(unit, buff) ~= true then return buff end
@@ -234,8 +234,10 @@ local function ChooseBuff(favour, myBuffs, held, visible)
 end
 
 -- What the button should offer now: { name, buff, spell }, or nil and why
--- not. Newest favour first.
-function Offers.Current()
+-- not. Newest favour first. With a list (#43), every favour the button
+-- could offer is appended to it, newest first, instead of stopping at the
+-- first, so the clickable list is made by these same rules.
+function Offers.Current(list)
     if not ns.db or not ns.db.enabled then return nil, "the addon is off" end
     if not ns.db.buffBack.enabled then return nil, "buff back is off" end
     -- No Changed() here: the button is the caller, and would re-enter.
@@ -244,15 +246,22 @@ function Offers.Current()
     -- Water breathing waits for water (Water.lua).
     local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
     local visible = VisiblePlayers()
-    local firstReason
+    local firstReason, first
     for i = #favours, 1, -1 do
         local favour = favours[i]
         local buff, reason = ChooseBuff(favour, myBuffs, held, visible)
         local spell = buff and ns.BuffData.SpellName(buff)
-        if spell then return { name = favour.name, buff = buff, spell = spell } end
-        firstReason = firstReason
-            or (Util.DisplayName(favour.name) .. ": " .. (reason or "the spell's name isn't known"))
+        if spell then
+            local offer = { name = favour.name, buff = buff, spell = spell }
+            if not list then return offer end
+            first = first or offer
+            list[#list + 1] = offer
+        else
+            firstReason = firstReason
+                or (Util.DisplayName(favour.name) .. ": " .. (reason or "the spell's name isn't known"))
+        end
     end
+    if first then return first end
     return nil, firstReason
 end
 
@@ -336,7 +345,7 @@ end
 function Offers.OnCastSent(unit, castTargetName, castGUID, spellId)
     if unit ~= "player" or Util.IsSecret(spellId) or type(spellId) ~= "number" then return end
     local buff = ns.BuffData.ForCast(spellId)
-    if not buff or buff == ns.BuffData.REVOKE then return end
+    if not buff then return end
     local guid, name = ReadableText(castGUID), Offers.CastTarget(castTargetName)
     if not guid or not name then
         ns.Diag.Log("buffBack", "a buff cast by hand: can't tell which player it went to")

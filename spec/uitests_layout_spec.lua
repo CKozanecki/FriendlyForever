@@ -1,4 +1,4 @@
--- Spec: #35, #52, #90, #112, #148, #158, #47, #173
+-- Spec: #35, #52, #90, #112, #148, #158, #47, #173, #208
 -- The UI simulator's layout check (uitests/scenarios.lua), run here against
 -- stand-in regions whose edges, anchors and text sizes each test sets
 -- itself, so the expected answer comes from those numbers and not from the
@@ -594,7 +594,7 @@ describe("UI simulator layout check for an options tab (TabTextInside, #112)", f
 
     -- #158: the simulator has no names for Forever's buffs, so the Buff
     -- Back tab's rows showed the buff keys. A stand-in row, 7 pixels a
-    -- letter, 150 from the panel's edge: the key fits, the longest Forever
+    -- letter, 120 from the panel's edge: the key fits, the longest Forever
     -- name the fixture (uitests/pages.lua) gives doesn't, and fails.
     it("fails a buff row whose Forever name doesn't fit, though its buff key does (black)", function()
         _G.A_Print = function() end
@@ -605,14 +605,14 @@ describe("UI simulator layout check for an options tab (TabTextInside, #112)", f
         for _, buff in ipairs(names) do
             if #buff.name > #longest.name then longest = buff end
         end
-        assert.are.equal("Blessing of Salvation", longest.name)
+        assert.are.equal("Blessing of Wisdom", longest.name)
         local function row(name)
-            local label = "5. " .. name
-            return text(label, 450, 7 * #label)
+            local label = "2. " .. name
+            return text(label, 480, 7 * #label)
         end
         checks.TabTextInside(content({ row(longest.key) }), "Buff Back tab")
         local err = fails(function() checks.TabTextInside(content({ row(longest.name) }), "Buff Back tab") end)
-        assert.truthy(err:find('LAYOUT Buff Back tab "5. Blessing of Salvation": text 450..618, frame 0..600', 1, true),
+        assert.truthy(err:find('LAYOUT Buff Back tab "2. Blessing of Wisdom": text 480..627, frame 0..600', 1, true),
             err)
         assert.truthy(err:find("spills out of its frame", 1, true), err)
     end)

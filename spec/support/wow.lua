@@ -139,6 +139,8 @@ function methods:SetHeight(h) self.height = h end
 function methods:GetWidth() return self.width or 0 end
 function methods:GetCenter() return self.centerX or 0, self.centerY or 0 end
 function methods:GetTop() return self.top end
+function methods:GetRight() return self.right end
+function methods:SetScrollChild(child) self.scrollChild = child end
 function methods:SetVerticalScroll(offset) self.verticalScroll = offset end
 function methods:GetVerticalScroll() return self.verticalScroll or 0 end
 function methods:GetVerticalScrollRange() return self.scrollRange or 0 end
@@ -369,18 +371,14 @@ nameSpell("Blessing of Wisdom", { 25290, 19854, 19853, 19852, 19850, 19742 })
 nameSpell("Unending Breath", { 5697 })
 nameSpell("Water Breathing", { 131 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
--- Forever's Revoke (paladins). Blizzard removed Revoke right before launch
--- (owner, Nov 8; the code is #208's). This ID is the simulation's own,
--- and the addon finds Revoke by name.
-M.REVOKE_ID = 990001
-nameSpell("Revoke", { M.REVOKE_ID })
 
 ------------------------------------------------------------------------
 -- ASSUMPTIONS ABOUT WOW FOREVER. Each is a state setting so specs can try the
 -- alternatives; the defaults are guesses, not facts. The launch test pass
 -- (Nov 4) checked these in game and they worked, except the four IDs on #207
 -- and the Salvation, Mass Salvation and Revoke ones, which Blizzard removed
--- right before launch (#208). The simulation stays as it is, as a record of
+-- right before launch (#208), and the [@player] cast added since (#198),
+-- which is unconfirmed: #213. The simulation stays as it is, as a record of
 -- what it models.
 --   state.targetNameForm  how /target and /targetexact spell a two-part
 --                         name: "space" ("Nikki Shifts", default) or "hyphen"
@@ -388,6 +386,11 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --                         "first" (default), "full" or "none"
 --   state.cvars.ActionButtonUseKeyDown  "1" (default): secure buttons act
 --                         on key down; "0": on key up
+--   /cast [@player] Spell (#198) casts on that unit without changing your
+--                         target; the other conditions ([nodead]) test that unit.
+--                         An empty condition list after the @ is fine. SENT
+--                         names the unit by its first name, as for any target.
+--                         UNCONFIRMED in game: #213 says how to check it.
 --   /cleartarget then /targetexact X leaves your old target as the "last
 --                         target", so /targetlasttarget brings it back (setTarget)
 --   Mouse clicks, like key presses, act on the half the key-down setting
@@ -440,8 +443,7 @@ nameSpell("Revoke", { M.REVOKE_ID })
 --   C_Spell.GetSpellInfo(name) and GetSpellTexture(name) answer only for a
 --                         spell you know (likewise GetSpellInfo(name)), as the
 --                         game's name lookup goes through your spellbook; by
---                         ID it answers for any spell. Revoke has a made-up
---                         ID here (M.REVOKE_ID): Blizzard removed Revoke right before launch (#208).
+--                         ID it answers for any spell.
 --   UnitGroupRolesAssigned and GetPartyAssignment("MAINTANK") both exist and
 --                         answer for group units (unit.role, unit.mainTank;
 --                         Main Tank answers false outside a raid);
@@ -629,6 +631,8 @@ local function groupCovered(target)
             out[#out + 1] = token
         end
     end
+    -- In a party you are one of its members, though not one of its slots.
+    if not inRaid and M.state.groupType ~= nil then out[#out + 1] = "player" end
     table.sort(out)
     return out
 end
@@ -637,8 +641,19 @@ local castCount = 0
 local function cast(args)
     local conds, name = args:match("^%[(.-)%]%s*(.+)$")
     local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
+    -- [@unit] aims the cast at that unit instead of your target, whom the
+    -- other conditions then test (#198; see ASSUMPTIONS). Your target is untouched.
+    local aimed
     if conds then
-        if not conditionsHold(conds, M.state.units.target) then return end
+        local token
+        conds = conds:gsub("@([%w]+)", function(t) token = t return "" end):gsub(",,", ","):gsub("^,", ""):gsub(",$", "")
+        if token then
+            aimed = M.state.units[token]
+            if not aimed then return end -- no such unit: the game casts nothing
+        end
+    end
+    if conds then
+        if not conditionsHold(conds, aimed or M.state.units.target) then return end
         -- The conditions apply to the unit the cast goes to (#84).
         if elsewhere and not conditionsHold(conds, elsewhere) then return end
     else
@@ -650,7 +665,7 @@ local function cast(args)
         return
     end
     -- A helpful spell with no friendly target lands on yourself.
-    local target = M.state.units.target
+    local target = aimed or M.state.units.target
     if not (target and not target.hostile) then target = M.state.units.player end
     local redirected = elsewhere ~= nil and elsewhere.id ~= target.id -- another player, not another token
     if elsewhere then target = elsewhere end
@@ -1639,7 +1654,11 @@ end
 -- Fresh client, addon loaded, logged in and past the login grace period.
 -- opts.db: saved variables to start with. opts.noGrace: stop after login.
 -- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
+-- opts.buffSelf: keep buff mode offering your own copy of your buffs (#198).
 -- opts.walkthrough: keep a first install's walkthrough (see below).
+-- opts.afterLoad: called with the addon's namespace once its files are
+-- loaded, before its saved settings are (a spec for a later release changes
+-- the code here, such as the walkthrough's steps and version, #169).
 function M.boot(opts)
     opts = opts or {}
     M.reset()
@@ -1655,8 +1674,12 @@ function M.boot(opts)
     local walkthroughGiven = type(opts.db) == "table" and opts.db.walkthrough or nil
     _G.FriendlyForeverDB = opts.db
     local ns = M.load()
+    if opts.afterLoad then opts.afterLoad(ns) end
     ns.Messages.random = function() return 1 end
     ns.Flavour.random = function() return 1 end
+    -- Buff mode also buffs you (#198). Specs written before that count the
+    -- group's casts only, so they start with it off; opts.buffSelf keeps it.
+    if not opts.buffSelf then ns.GroupBuffs.SELF_ORDER = "off" end
     -- A guild hello waits the shortest random extra (GuildHellos.STAGGER_MIN,
     -- #38), so specs know when it goes; opts.randomStagger keeps it random.
     if not opts.randomStagger then ns.GuildHellos.random = function() return 0 end end

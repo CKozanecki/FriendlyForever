@@ -164,7 +164,8 @@ end
 -- The group version to offer for buff now, or nil and why not (said on the
 -- button when the single buff is offered instead; nil, nil when group
 -- versions don't apply: off, or the buff has none).
---   members  the group members who may be buffed now (GroupBuffs.Candidates)
+--   members  the group members who may be buffed now (GroupBuffs.Candidates),
+--            and you first when you're offered the buff too (#198)
 --   ctx      { units = the group's unit tokens, inRaid, Needs = function(member)
 --            true if they're missing the buff and may have it, InRange =
 --            function(spell, unit) false if the spell can't reach them }
@@ -243,14 +244,19 @@ function GroupCasts.Offer(buff, members, ctx)
             if blocked then
                 firstWhy = firstWhy or blocked
             else
-                -- Aimed at the first missing member the spell can reach.
+                -- Aimed at the first missing member the spell can reach: never
+                -- at you (a cast aimed at yourself is the single buff's job),
+                -- though the group version covers you too.
                 for _, member in ipairs(g.missing) do
-                    if ctx.InRange(spell.name, member.unit) ~= false then
-                        local names = {}
-                        for i, m in ipairs(g.missing) do names[i] = m.name end
+                    if not member.self and ctx.InRange(spell.name, member.unit) ~= false then
+                        local names, coversSelf = {}, false
+                        for i, m in ipairs(g.missing) do
+                            names[i] = m.name
+                            coversSelf = coversSelf or m.self == true
+                        end
                         return { name = member.name, buff = buff, spell = spell.name, group = true,
                             cast = { key = buff.key .. "\1" .. g.key, label = g.label, count = #g.missing,
-                                covers = names } }
+                                covers = names, coversSelf = coversSelf } }
                     end
                 end
                 firstWhy = firstWhy or "nobody it covers is in range"

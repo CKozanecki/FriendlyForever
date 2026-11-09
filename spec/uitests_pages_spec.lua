@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47
+-- Spec: #52, #112, #158, #47, #169, #208
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -185,19 +185,19 @@ describe("the UI simulator's Buff Back names", function()
         end
     end)
 
-    it("shows each row of the tab with its Forever name, the longest Blessing of Salvation (white)", function()
+    it("shows each row of the tab with its Forever name, the longest Blessing of Wisdom (white)", function()
         local seen
         Pages.WithBuffNames(function() seen = rows() end)
-        assert.are.equal(5, #seen)
+        assert.are.equal(4, #seen)
         for i, buff in ipairs(Pages.BUFF_NAMES) do
             assert.are.equal(i .. ". " .. buff.name, seen[i]:match("^(.-) |c") or seen[i])
         end
-        assert.are.equal("5. Blessing of Salvation", seen[5]:match("^(.-) |c") or seen[5])
+        assert.are.equal("2. Blessing of Wisdom", seen[2]:match("^(.-) |c") or seen[2])
     end)
 
     it("leaves the tab on the buff keys without it, which is what it fixes (white)", function()
         local seen = rows()
-        assert.is_truthy(seen[5]:find("^5%. salvation"), seen[5])
+        assert.is_truthy(seen[4]:find("^4%. light"), seen[4])
     end)
 
     it("passes every other spell, and anything that isn't a spell ID, to the client's own (black)", function()
@@ -209,7 +209,7 @@ describe("the UI simulator's Buff Back names", function()
         local undo = Pages.NameBuffs()
         assert.are.equal("Blessing of Light", _G.C_Spell.GetSpellName(19977))
         assert.are.equal(0, #asked)
-        for _, spell in ipairs({ 10938, 999999, "Blessing of Salvation", 0, -1, 1038.5, true, {} }) do
+        for _, spell in ipairs({ 10938, 999999, "Blessing of Wisdom", 0, -1, 19742.5, true, {} }) do
             assert.are.equal("client's " .. tostring(spell), _G.C_Spell.GetSpellName(spell, "extra"))
             assert.are.same({ spell, "extra" }, asked[#asked])
         end
@@ -231,14 +231,14 @@ describe("the UI simulator's Buff Back names", function()
             assert.are_not.equal(original, _G.C_Spell.GetSpellName)
         end)
         assert.are.equal(original, _G.C_Spell.GetSpellName)
-        assert.is_nil(_G.C_Spell.GetSpellName(1038))
-        assert.is_truthy(rows()[5]:find("^5%. salvation"))
+        assert.is_nil(_G.C_Spell.GetSpellName(19977))
+        assert.is_truthy(rows()[4]:find("^4%. light"))
     end)
 
     it("puts the client's GetSpellName back even when the scenario fails, and raises its error (white)", function()
         for _, failure in ipairs({ "a layout check failed", { reason = "a table" } }) do
             local ok, err = pcall(Pages.WithBuffNames, function()
-                assert.are.equal("Blessing of Salvation", _G.C_Spell.GetSpellName(1038))
+                assert.are.equal("Blessing of Wisdom", _G.C_Spell.GetSpellName(19742))
                 error(failure, 0)
             end)
             assert.is_false(ok)
@@ -249,7 +249,7 @@ describe("the UI simulator's Buff Back names", function()
 
     it("leaves the names in place for the screenshot taken after ShowTab (white)", function()
         Pages.ShowTab("buff-back")
-        assert.are.equal("Blessing of Salvation", _G.C_Spell.GetSpellName(1038))
+        assert.are.equal("Blessing of Wisdom", _G.C_Spell.GetSpellName(19742))
     end)
 end)
 
@@ -291,7 +291,7 @@ describe("the UI simulator's walkthrough steps", function()
         ns.Walkthrough.Start()
         Pages.OpenTab("buff-back")
         assert.is_false(ns.Walkthrough.Frame():IsShown())
-        assert.are.same({ seen = 1, firstRun = false }, ns.db.walkthrough)
+        assert.are.same({ seen = ns.Config.WALKTHROUGH_VERSION, firstRun = false }, ns.db.walkthrough)
         assert.are.equal(ns.Options.StartPage(), Pages.Open("start"))
     end)
 
