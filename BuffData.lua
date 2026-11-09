@@ -14,6 +14,10 @@
 --   selfCast  cast on yourself, reaching your party (Battle Shout): never a return
 --   family    buffs of which a player keeps only one of yours (a paladin's
 --             Blessings): casting another replaces it
+--   defaultRule  who gets it in buff mode until you choose (BuffRules.lua);
+--             everyone when not set
+--   defaultClasses  the classes a "chosen classes" default gives it to,
+--             { CLASS = true }; used until you tick your own (#219)
 --   water     only helps underwater: offered only near water, when the
 --             setting says so (Water.lua, #136)
 local _, ns = ...

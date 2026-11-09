@@ -207,6 +207,17 @@ def build(spells, classes, removed):
                 if not isinstance(spec["family"], str) or not KEY_RE.match(spec["family"]):
                     raise Problem(f"{key}: bad family")
                 buff["family"] = spec["family"]
+            if "defaultRule" in spec:
+                if spec["defaultRule"] not in ("all", "tanks", "notTanks", "classes"):
+                    raise Problem(f"{key}: unknown defaultRule {spec['defaultRule']!r}")
+                buff["defaultRule"] = spec["defaultRule"]
+            if "defaultClasses" in spec:
+                classes_list = spec["defaultClasses"]
+                if (not isinstance(classes_list, list) or not classes_list
+                        or len(set(classes_list)) != len(classes_list)
+                        or not all(isinstance(c, str) and CLASS_RE.match(c) for c in classes_list)):
+                    raise Problem(f"{key}: defaultClasses must be a list of class names, each once")
+                buff["defaultClasses"] = classes_list
             for flag in FLAGS:
                 if spec.get(flag) is True:
                     buff[flag] = True
@@ -263,6 +274,11 @@ def render(build_id, digest, source_name, classes, absent, removed_ids):
                     parts.append(f"{field} = {lua_list(buff[field])}")
             if "family" in buff:
                 parts.append(f"family = {lua_string(buff['family'])}")
+            if "defaultRule" in buff:
+                parts.append(f"defaultRule = {lua_string(buff['defaultRule'])}")
+            if "defaultClasses" in buff:
+                parts.append("defaultClasses = {\n" + "\n".join(
+                    f"                    {c} = true," for c in buff["defaultClasses"]) + "\n                }")
             for flag in FLAGS:
                 if buff.get(flag):
                     parts.append(f"{flag} = true")

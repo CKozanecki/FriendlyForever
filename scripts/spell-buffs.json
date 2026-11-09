@@ -11,13 +11,15 @@
     ],
     "DRUID": [
       { "key": "motw", "name": "Mark of the Wild", "group": ["Gift of the Wild"] },
-      { "key": "thorns", "name": "Thorns" }
+      { "key": "thorns", "name": "Thorns", "defaultRule": "tanks" }
     ],
     "PALADIN": [
       { "key": "kings", "name": "Blessing of Kings", "group": ["Greater Blessing of Kings"], "family": "blessing" },
       { "key": "wisdom", "name": "Blessing of Wisdom", "group": ["Greater Blessing of Wisdom"],
-        "manaOnly": true, "family": "blessing" },
-      { "key": "might", "name": "Blessing of Might", "group": ["Greater Blessing of Might"], "family": "blessing" }
+        "manaOnly": true, "family": "blessing", "defaultRule": "classes",
+        "defaultClasses": ["PALADIN", "HUNTER", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID"] },
+      { "key": "might", "name": "Blessing of Might", "group": ["Greater Blessing of Might"], "family": "blessing",
+        "defaultRule": "classes", "defaultClasses": ["WARRIOR", "PALADIN", "HUNTER", "ROGUE", "SHAMAN", "DRUID"] }
     ],
     "SHAMAN": [
       { "key": "waterbreathing", "name": "Water Breathing", "blockers": ["Unending Breath"], "water": true }

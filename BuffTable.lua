@@ -20,6 +20,7 @@ ns.BuffTable = {
                 key = "thorns",
                 name = "Thorns",
                 ranks = { 9910, 9756, 8914, 1075, 782, 467 },
+                defaultRule = "tanks",
             },
         },
         MAGE = {
@@ -45,6 +46,16 @@ ns.BuffTable = {
                 ranks = { 25290, 19854, 19853, 19852, 19850, 19742 },
                 group = { 25918, 25894 },
                 family = "blessing",
+                defaultRule = "classes",
+                defaultClasses = {
+                    PALADIN = true,
+                    HUNTER = true,
+                    PRIEST = true,
+                    SHAMAN = true,
+                    MAGE = true,
+                    WARLOCK = true,
+                    DRUID = true,
+                },
                 manaOnly = true,
             },
             {
@@ -53,6 +64,15 @@ ns.BuffTable = {
                 ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 },
                 group = { 25916, 25782 },
                 family = "blessing",
+                defaultRule = "classes",
+                defaultClasses = {
+                    WARRIOR = true,
+                    PALADIN = true,
+                    HUNTER = true,
+                    ROGUE = true,
+                    SHAMAN = true,
+                    DRUID = true,
+                },
             },
         },
         PRIEST = {

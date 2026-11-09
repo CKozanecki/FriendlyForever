@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47, #169, #198
+-- Spec: #76, #84, #136, #42, #47, #169, #198, #219
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -334,5 +334,16 @@ describe("The simulated client's [@unit] casts and buff-self default (#198)", fu
     it("boots with buff mode not buffing you, unless buffSelf keeps it", function()
         assert.are.equal("off", boot().GroupBuffs.SELF_ORDER)
         assert.are.equal("first", boot({ buffSelf = true }).GroupBuffs.SELF_ORDER)
+    end)
+
+    it("boots with Wisdom, Might and Thorns at Everyone, unless saved or buffDefaults keeps the defaults (#219)", function()
+        local who = boot().db.buffBack.whoGets
+        for _, key in ipairs({ "wisdom", "might", "thorns" }) do assert.are.equal("all", who[key].rule, key) end
+        local given = boot({ db = { buffBack = { whoGets = { wisdom = { rule = "tanks" } } } } }).db.buffBack.whoGets
+        assert.are.equal("tanks", given.wisdom.rule)
+        assert.are.equal("all", given.might.rule)
+        local kept = boot({ buffDefaults = true }).db.buffBack.whoGets
+        assert.is_nil(kept.wisdom)
+        assert.is_nil(kept.thorns)
     end)
 end)

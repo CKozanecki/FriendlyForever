@@ -122,6 +122,18 @@ describe("The generated buff table", function()
             assert.are.equal(UPSTREAM_SHA, sha256(SOURCE))
         end)
 
+        it("keeps the buff defaults of #219/#221: Thorns tanks only, Wisdom and Might by class", function()
+            local function buff(key) return ns.BuffData.ByKey(key) end
+            assert.are.equal("tanks", buff("thorns").defaultRule)
+            assert.are.equal("classes", buff("wisdom").defaultRule)
+            assert.are.equal("classes", buff("might").defaultRule)
+            assert.are.same({ PALADIN = true, HUNTER = true, PRIEST = true, SHAMAN = true, MAGE = true, WARLOCK = true,
+                DRUID = true }, buff("wisdom").defaultClasses)
+            assert.are.same({ WARRIOR = true, PALADIN = true, HUNTER = true, ROGUE = true, SHAMAN = true, DRUID = true },
+                buff("might").defaultClasses)
+            assert.is_nil(buff("kings").defaultRule)
+        end)
+
         it("is reproduced exactly when the generator runs on the committed source", function()
             local dir = tmpdir()
             local code, text = generate(SOURCE, BUFFS, dir .. "/BuffTable.lua")
