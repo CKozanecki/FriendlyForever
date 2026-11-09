@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #242
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #241, #242
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -452,7 +452,7 @@ describe("UI simulator workflow", function()
             local function sh(command) return os.execute("cd '" .. dir .. "/repo' && ( " .. command .. " ) >/dev/null 2>&1") == 0 end
             local function answer(event, before)
                 local out = io.popen("cd '" .. dir .. "/repo' && : > ../out && GITHUB_OUTPUT='" .. dir .. "/out' EVENT=" .. event
-                    .. " BEFORE='" .. (before or "") .. "' bash ../decide.sh >/dev/null 2>&1; cat ../out"):read("*a")
+                    .. " BEFORE='" .. (before or "") .. "' bash -e ../decide.sh >/dev/null 2>&1; cat ../out"):read("*a")
                 return out:match("ui=(%a+)")
             end
             local change = 0
@@ -512,6 +512,147 @@ describe("UI simulator workflow", function()
             sh("git checkout -q -B main root && echo 2 >> Options.lua && git commit -qam ui && echo 3 >> Greeter.lua && git commit -qam logic")
             assert.are.equal("true", answer("push", rev("root")), "a UI file in the first of two commits was missed")
             assert.are.equal("false", answer("push", rev("HEAD^")), "a logic-only push ran the simulator")
+            os.execute("rm -rf '" .. dir .. "'")
+        end)
+
+        -- #241: a UI file whose change can't change what players see (the TOC's
+        -- version line, comments in a root Lua file) skips the simulator, and
+        -- every doubt still runs it. Each case is a pull request on a
+        -- throw-away repository whose files are written whole.
+        it("skips a TOC version bump and comment-only Lua, and runs for anything else or any doubt (white, black)", function()
+            local script = jobs.changes.text:match("run: |\n(.-)\n\n") or jobs.changes.text:match("run: |\n(.*)$")
+            assert.is_truthy(script and script:find("comments_only", 1, true), "couldn't find the deciding script")
+            -- GitHub runs a step with no shell: key as bash -e, and so does this test.
+            -- Nowhere: a workflow- or job-level defaults: could set one too.
+            assert.is_falsy(withoutComments(text):find("shell:"), "ui-sim.yml names a shell")
+            local dir = io.popen("mktemp -d"):read("*l")
+            local body = io.open(dir .. "/decide.sh", "w")
+            body:write((script:gsub("\n          ", "\n"):gsub("^%s+", "")))
+            body:close()
+            local repo = dir .. "/repo"
+            local function sh(command) return os.execute("cd '" .. repo .. "' && ( " .. command .. " ) >/dev/null 2>&1") == 0 end
+            local function write(files)
+                for name, content in pairs(files) do
+                    if content == false then
+                        sh("git rm -q '" .. name .. "'")
+                    else
+                        os.execute("mkdir -p \"$(dirname '" .. repo .. "/" .. name .. "')\"")
+                        local f = io.open(repo .. "/" .. name, "wb")
+                        f:write(content)
+                        f:close()
+                    end
+                end
+            end
+            local function answer(event, before)
+                local out = io.popen("cd '" .. repo .. "' && : > ../out && GITHUB_OUTPUT='" .. dir .. "/out' EVENT=" .. event
+                    .. " BEFORE='" .. (before or "") .. "' bash -e ../decide.sh >/dev/null 2>&1; cat ../out"):read("*a")
+                return out:match("ui=(%a+)")
+            end
+            local function pullRequest(files)
+                sh("git checkout -q -B base && git reset -q --hard root")
+                sh("git checkout -q -B pr && git reset -q --hard root")
+                write(files)
+                sh("git add -A && git commit -q -m change")
+                sh("git checkout -q base && git merge -q --no-ff -m merge pr")
+                return answer("pull_request")
+            end
+            local toc = "## Interface: 16001\n## Title: Friendly Forever\n## Version: 1.0.1\n\nCore.lua\nBuffData.lua\n"
+            local data = "-- The buffs.\nlocal a = 1 -- one\n\nlocal s = \"x -- y\"\nlocal q = 'q' -- it's\nreturn a\n"
+            os.execute("mkdir '" .. repo .. "'")
+            assert.is_true(sh("git init -q && git config user.email a@b && git config user.name a"))
+            write({ ["FriendlyForever.toc"] = toc, ["BuffData.lua"] = data, ["Options.lua"] = "-- c\nlocal t = 1\n",
+                ["Core.lua"] = "return 1\n", ["Window.lua"] = "local w = 1\r\nreturn w\r\n",
+                ["Bindings.xml"] = "<Bindings>\n<!-- a -->\n</Bindings>\n", ["CHANGELOG.md"] = "## 1.0.1\n",
+                ["uitests/x.lua"] = "-- c\nlocal x\n" })
+            assert.is_true(sh("git add -A && git commit -q -m root && git tag root"))
+            local function edit(source, from, to)
+                local i, j = source:find(from, 1, true)
+                assert.is_truthy(i, "the test's file has no " .. from)
+                return source:sub(1, i - 1) .. to .. source:sub(j + 1)
+            end
+            local bumped = edit(toc, "1.0.1", "1.0.2")
+            local cases = {
+                -- The release PR: the version line and the changelog.
+                { "version bump", { ["FriendlyForever.toc"] = bumped, ["CHANGELOG.md"] = "## 1.0.2\n" }, "false" },
+                { "version bump that also changes every line ending", { ["FriendlyForever.toc"] = bumped:gsub("\n", "\r\n") }, "true" },
+                { "Interface line", { ["FriendlyForever.toc"] = edit(toc, "16001", "16002") }, "true" },
+                { "version and Interface", { ["FriendlyForever.toc"] = edit(bumped, "16001", "16002") }, "true" },
+                { "a file line", { ["FriendlyForever.toc"] = bumped .. "Water.lua\n" }, "true" },
+                { "a file line removed", { ["FriendlyForever.toc"] = edit(bumped, "BuffData.lua\n", "") }, "true" },
+                { "the title", { ["FriendlyForever.toc"] = edit(bumped, "Forever\n", "Forever!\n") }, "true" },
+                { "a line that says Version:", { ["FriendlyForever.toc"] = bumped .. "## Notes: Version: 2\n" }, "true" },
+                -- A carriage return could start a line the game reads as a file.
+                { "a file line behind the version line", { ["FriendlyForever.toc"] = edit(bumped, "1.0.2\n", "1.0.2\rWater.lua\n") }, "true" },
+                -- Comments in a UI Lua file (#239 changed BuffData.lua's).
+                { "a comment line", { ["BuffData.lua"] = edit(data, "The buffs.", "The buffs we know.") }, "false" },
+                { "a comment at the end of a line", { ["BuffData.lua"] = edit(data, "-- one", "-- the first") }, "false" },
+                { "a comment added", { ["BuffData.lua"] = edit(data, "return a", "return a -- done") }, "false" },
+                { "comment and blank lines added", { ["BuffData.lua"] = "\n-- New.\n\n" .. data .. "\n-- End.\n" }, "false" },
+                { "a comment added, Windows line endings", { ["Window.lua"] = "local w = 1 -- w\r\nreturn w\r\n" }, "false" },
+                { "a comment removed", { ["BuffData.lua"] = edit(data, "-- The buffs.\n", "") }, "false" },
+                { "comments in two files and the version",
+                    { ["BuffData.lua"] = edit(data, "-- one", "-- 1"), ["Options.lua"] = "-- d\nlocal t = 1\n",
+                        ["FriendlyForever.toc"] = bumped }, "false" },
+                { "code", { ["BuffData.lua"] = edit(data, "local a = 1", "local a = 2") }, "true" },
+                { "code with a minus", { ["Core.lua"] = "return 1 - 1\n" }, "true" },
+                { "a -- inside a string", { ["BuffData.lua"] = edit(data, "x -- y", "x -- z") }, "true" },
+                { "a comment after a quote", { ["BuffData.lua"] = edit(data, "it's", "it is") }, "true" },
+                { "code commented out", { ["BuffData.lua"] = edit(data, "return a", "-- return a") }, "true" },
+                { "code moved into a comment's line", { ["BuffData.lua"] = edit(data, "-- The buffs.", "local b -- The buffs.") }, "true" },
+                { "indentation", { ["BuffData.lua"] = edit(data, "return a", "  return a") }, "true" },
+                { "comments and code in two files",
+                    { ["BuffData.lua"] = edit(data, "-- one", "-- 1"), ["Options.lua"] = "-- c\nlocal t = 2\n" }, "true" },
+                { "version bump and code", { ["FriendlyForever.toc"] = bumped, ["Core.lua"] = "return 2\n" }, "true" },
+                -- Doubt: long brackets, a line ending in a backslash, a file
+                -- with no other side, a UI Lua file outside the root.
+                { "a long comment", { ["BuffData.lua"] = data .. "--[[ note ]]\n" }, "true" },
+                { "a long string", { ["BuffData.lua"] = data .. "-- [=[ x ]=]\n" }, "true" },
+                { "a backslash at a line's end", { ["BuffData.lua"] = data .. "-- \\\n" }, "true" },
+                -- Lua reads a lone carriage return as a line break, so x = 2 is code.
+                { "a carriage return inside a line", { ["Window.lua"] = "local w = 1 -- w\rw = 2\r\nreturn w\r\n" }, "true" },
+                -- Bash drops a NUL byte from what it reads, which would hide this change.
+                { "a NUL byte", { ["BuffData.lua"] = edit(data, "x -- y", "x -\0- y") }, "true" },
+                { "a deleted UI file", { ["Options.lua"] = false }, "true" },
+                { "a new UI file of comments", { ["Water.lua"] = "-- Water.\n" }, "true" },
+                { "a new TOC", { ["Other.toc"] = "## Version: 1\n" }, "true" },
+                -- Only Lua files are read for comments: any change to XML runs.
+                { "an XML comment", { ["Bindings.xml"] = "<Bindings>\n<!-- b -->\n</Bindings>\n" }, "true" },
+                { "a comment in a scenario", { ["uitests/x.lua"] = "-- d\nlocal x\n" }, "true" },
+            }
+            for _, case in ipairs(cases) do
+                assert.are.equal(case[3], pullRequest(case[2]), case[1])
+            end
+            -- A long bracket in the base fails open too, even when the change is a comment.
+            sh("git checkout -q -B main root")
+            write({ ["Options.lua"] = "local t = 1\n-- [[ c\n" })
+            sh("git commit -qam longbase")
+            local longBase = io.popen("cd '" .. repo .. "' && git rev-parse HEAD"):read("*l")
+            -- Without its long bracket, the old version up to that line reads the same as the new one.
+            write({ ["Options.lua"] = "local t = 1\n-- d\n" })
+            sh("git commit -qam longcomment")
+            assert.are.equal("true", answer("push", longBase), "a long bracket in either version skipped the simulator")
+            -- A NUL byte in the old version only: bash would drop it and read the two the same.
+            sh("git checkout -q -B main root")
+            write({ ["BuffData.lua"] = edit(data, "x -- y", "x -\0- y") })
+            sh("git commit -qam nulbase")
+            local nulBase = io.popen("cd '" .. repo .. "' && git rev-parse HEAD"):read("*l")
+            write({ ["BuffData.lua"] = data })
+            sh("git commit -qam nulgone")
+            assert.are.equal("true", answer("push", nulBase), "a NUL byte in the old version skipped the simulator")
+            -- A carriage return inside the old TOC's version line could hide a file line the bump removes.
+            sh("git checkout -q -B main root")
+            write({ ["FriendlyForever.toc"] = edit(toc, "1.0.1\n", "1.0.1\rWater.lua\n") })
+            sh("git commit -qam crbase")
+            local crBase = io.popen("cd '" .. repo .. "' && git rev-parse HEAD"):read("*l")
+            write({ ["FriendlyForever.toc"] = bumped })
+            sh("git commit -qam crgone")
+            assert.are.equal("true", answer("push", crBase), "a carriage return in the old TOC skipped the simulator")
+            -- A push to main compares with the commit before it.
+            sh("git checkout -q -B main root")
+            write({ ["FriendlyForever.toc"] = bumped, ["BuffData.lua"] = edit(data, "-- one", "-- 1") })
+            sh("git commit -qam release")
+            assert.are.equal("false", answer("push", io.popen("cd '" .. repo .. "' && git rev-parse root"):read("*l")),
+                "a push of a version bump and a comment ran the simulator")
             os.execute("rm -rf '" .. dir .. "'")
         end)
     end)
@@ -1832,6 +1973,177 @@ describe("Release workflow", function()
             end
         end
     end)
+
+    -- #241: verify trusts main's required check on the tagged commit when it
+    -- passed, runs lint and the tests itself when it can't tell, and fails
+    -- when it failed. The job itself is never skipped and never lets a
+    -- failure through.
+    describe("trusts main's required check on the tagged commit (#241)", function()
+        local verify, ciStep, ciIndex
+
+        setup(function()
+            verify = jobWith(order, "make test")
+            ciIndex = indexOf(verify.steps, "id:%s*ci%s")
+            ciStep = ciIndex and verify.steps[ciIndex]
+        end)
+
+        it("keeps verify a required, unskippable job with read-only access (black)", function()
+            assert.is_falsy(verify.keys["if"], "verify can be skipped")
+            assert.is_falsy(verify.keys["continue-on-error"], "verify's failure can be ignored")
+            assert.is_falsy(verify.text:find("continue%-on%-error"), "a verify step's failure can be ignored")
+            local permissions = verify.text:match("\n    permissions:\n(.-)\n    steps:")
+            assert.are.equal("      contents: read\n      actions: read", permissions, "verify's access")
+            assert.is_falsy(verify.text:find("secrets%."), "verify can read secrets")
+            local release = jobWith(order, "BigWigsMods/packager@")
+            assert.is_truthy(release.text:find("\n    needs: verify\n", 1, true), "release doesn't need verify")
+            assert.is_falsy(release.keys["if"], "release has a condition that could run it without verify")
+        end)
+
+        it("checks the tag first, then asks CI, and skips only lint and the tests when CI passed (white, black)", function()
+            local tag = indexOf(verify.steps, "merge%-base %-%-is%-ancestor")
+            assert.is_truthy(ciStep, "verify doesn't ask main's CI")
+            assert.is_true(tag < ciIndex, "the tag is checked after CI is asked")
+            assert.is_falsy(verify.steps[tag].text:find("if:"), "the tag check can be skipped")
+            assert.is_falsy(ciStep.text:find("\n        if:"), "asking CI can be skipped")
+            -- Only the step that asks CI holds the job's read-only token.
+            for i, step in ipairs(verify.steps) do
+                assert.are.equal(i == ciIndex, step.text:find("github.token", 1, true) ~= nil, "step " .. i .. "'s token")
+            end
+            local skippable = 0
+            for i, step in ipairs(verify.steps) do
+                local condition = step.text:match("\n        if:%s*([^\n]*)")
+                if condition then
+                    -- != 'true': an empty answer runs the tests.
+                    assert.are.equal("${{ steps.ci.outputs.passed != 'true' }}", condition, "step " .. i)
+                    assert.is_true(i > ciIndex, "step " .. i .. " is skipped before CI is asked")
+                    skippable = skippable + 1
+                end
+            end
+            assert.are.equal(3, skippable, "expected Python, the build dependencies, and lint and test to be skippable")
+            local tests = indexOf(verify.steps, "make test")
+            assert.is_truthy(verify.steps[tests].text:find("make lint", 1, true), "lint isn't run with the tests")
+            assert.is_truthy(verify.steps[tests].text:find("\n        if:", 1, true), "the tests can't be skipped")
+        end)
+
+        -- ci.yml's required job is found by its name; a renamed or duplicated
+        -- job would leave nothing to trust (and run the tests), never the wrong job.
+        it("reads the check by the name ci.yml gives it (white)", function()
+            local ci = parseWorkflow(".github/workflows/ci.yml")
+            assert.is_truthy(ci.check, "ci.yml has no check job")
+            assert.is_falsy(ci.check.keys.name, "the check job has a display name, so its check isn't called check")
+            assert.is_falsy(ci.check.keys.strategy, "the check job is a matrix, so its check isn't called check")
+            assert.is_truthy(ciStep.text:find('actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&branch=main', 1, true),
+                "verify doesn't ask for main's CI runs on this commit")
+        end)
+
+        -- Runs the step's own script against a fake gh that answers from files.
+        it("passes on success, runs the tests when unsure, and fails on a failed check (white, black)", function()
+            -- GitHub runs a step with no shell: key as bash -e, and so does this test.
+            -- Nowhere: a workflow- or job-level defaults: could set one too.
+            assert.is_falsy(withoutComments(wow.readFile(path)):find("shell:"), "release.yml names a shell")
+            local script = ciStep.text:match("run: |\n(.*)$")
+            assert.is_truthy(script and script:find("set %-u"), "couldn't find the script that asks CI")
+            local dir = io.popen("mktemp -d"):read("*l")
+            local body = io.open(dir .. "/ask.sh", "w")
+            body:write((script:gsub("\n          ", "\n"):gsub("^%s+", "")))
+            body:close()
+            os.execute("mkdir '" .. dir .. "/bin'")
+            local gh = io.open(dir .. "/bin/gh", "w")
+            gh:write("#!/bin/sh\n"
+                .. "echo \"$*\" >> \"$FAKE/calls\"\n"
+                .. "[ \"$1\" = api ] || exit 9\n"
+                .. "case \"$2\" in\n"
+                .. "  repos/o/r/actions/workflows/ci.yml/runs\\?*) f=runs ;;\n"
+                .. "  repos/o/r/actions/runs/*/jobs\\?*) id=${2#repos/o/r/actions/runs/}; f=jobs-${id%%/*} ;;\n"
+                .. "  *) exit 9 ;;\n"
+                .. "esac\n"
+                .. "[ -f \"$FAKE/$f.json\" ] || exit 1\n"
+                .. "cat \"$FAKE/$f.json\"\n")
+            gh:close()
+            os.execute("chmod +x '" .. dir .. "/bin/gh'")
+            local sha = ("a1"):rep(20)
+
+            local function run(fields)
+                local list = {}
+                for k, v in pairs({ id = 7, head_sha = sha, event = "push", head_branch = "main",
+                    path = ".github/workflows/ci.yml", conclusion = "success", repo = "o/r" }) do
+                    if fields[k] == nil then fields[k] = v end
+                end
+                for _, k in ipairs({ "id", "head_sha", "event", "head_branch", "path", "conclusion" }) do
+                    local v = fields[k]
+                    list[#list + 1] = ("%q: %s"):format(k, v == "null" and "null" or type(v) == "number" and v or ("%q"):format(v))
+                end
+                list[#list + 1] = ('"head_repository": {"full_name": %q}'):format(fields.repo)
+                return "{" .. table.concat(list, ", ") .. "}"
+            end
+            local function jobs(status, conclusion, extra)
+                local list = { ('{"name": "lint-package", "status": "completed", "conclusion": "success"}') }
+                if status then
+                    list[#list + 1] = ('{"name": "check", "status": %q, "conclusion": %s}'):format(status,
+                        conclusion and ("%q"):format(conclusion) or "null")
+                end
+                if extra then list[#list + 1] = extra end
+                return '{"jobs": [' .. table.concat(list, ", ") .. "]}"
+            end
+            local function ask(files, env)
+                os.execute("rm -f '" .. dir .. "'/*.json '" .. dir .. "/calls' '" .. dir .. "/out' && touch '" .. dir .. "/out'")
+                for name, content in pairs(files) do
+                    local f = io.open(dir .. "/" .. name .. ".json", "w")
+                    f:write(content)
+                    f:close()
+                end
+                local ok = os.execute("cd '" .. dir .. "' && PATH='" .. dir .. "/bin':\"$PATH\" FAKE='" .. dir .. "' GITHUB_OUTPUT='"
+                    .. dir .. "/out' GITHUB_REPOSITORY=o/r GITHUB_SHA='" .. (env or sha) .. "' bash -e ask.sh >/dev/null 2>&1") == 0
+                local out = io.open(dir .. "/out"):read("*a")
+                return ok and (out:match("^passed=(%a+)\n$") or "no answer") or "failed"
+            end
+            local function runs(...) return '{"workflow_runs": [' .. table.concat({ ... }, ", ") .. "]}" end
+            local cases = {
+                { "success", { runs = runs(run({})), ["jobs-7"] = jobs("completed", "success") }, "true" },
+                { "not finished", { runs = runs(run({ conclusion = "null" })), ["jobs-7"] = jobs("in_progress") }, "false" },
+                { "queued", { runs = runs(run({ conclusion = "null" })), ["jobs-7"] = jobs("queued") }, "false" },
+                { "check not started", { runs = runs(run({ conclusion = "null" })), ["jobs-7"] = jobs() }, "false" },
+                { "failed", { runs = runs(run({ conclusion = "failure" })), ["jobs-7"] = jobs("completed", "failure") }, "failed" },
+                { "no run", { runs = runs() }, "false" },
+                -- A run a newer push to main cancelled reports a failed check; it proves nothing.
+                { "cancelled run", { runs = runs(run({ conclusion = "cancelled" })), ["jobs-7"] = jobs("completed", "failure") }, "false" },
+                { "cancelled check", { runs = runs(run({ conclusion = "cancelled" })), ["jobs-7"] = jobs("completed", "cancelled") }, "false" },
+                { "skipped check", { runs = runs(run({})), ["jobs-7"] = jobs("completed", "skipped") }, "false" },
+                { "timed out", { runs = runs(run({ conclusion = "failure" })), ["jobs-7"] = jobs("completed", "timed_out") }, "false" },
+                -- Only CI's own run from a push to main in this repository, on this commit.
+                { "another commit", { runs = runs(run({ head_sha = ("b2"):rep(20) })), ["jobs-7"] = jobs("completed", "success") }, "false" },
+                { "a pull request", { runs = runs(run({ event = "pull_request" })), ["jobs-7"] = jobs("completed", "success") }, "false" },
+                { "another branch", { runs = runs(run({ head_branch = "pr" })), ["jobs-7"] = jobs("completed", "success") }, "false" },
+                { "another workflow", { runs = runs(run({ path = ".github/workflows/ui-sim.yml" })), ["jobs-7"] = jobs("completed", "success") }, "false" },
+                { "a fork's branch called main", { runs = runs(run({ repo = "fork/r" })), ["jobs-7"] = jobs("completed", "success") }, "false" },
+                { "two jobs called check", { runs = runs(run({})), ["jobs-7"] = jobs("completed", "success",
+                    '{"name": "check", "status": "completed", "conclusion": "success"}') }, "false" },
+                -- Two runs: a failure anywhere stops the release; a pass anywhere else counts.
+                { "a failed and a passed run", { runs = runs(run({ id = 8 }), run({ conclusion = "failure" })),
+                    ["jobs-8"] = jobs("completed", "success"), ["jobs-7"] = jobs("completed", "failure") }, "failed" },
+                { "an unfinished and a passed run", { runs = runs(run({ conclusion = "null" }), run({ id = 8 })),
+                    ["jobs-7"] = jobs("in_progress"), ["jobs-8"] = jobs("completed", "success") }, "true" },
+                -- API trouble or nonsense: run the tests.
+                { "no runs answer", {}, "false" },
+                { "no jobs answer", { runs = runs(run({})) }, "false" },
+                { "runs not JSON", { runs = "<html>" }, "false" },
+                { "jobs not JSON", { runs = runs(run({})), ["jobs-7"] = "<html>" }, "false" },
+                { "an odd run id", { runs = runs(run({ id = '7/../../x' })), ["jobs-7"] = jobs("completed", "success") }, "false" },
+            }
+            for _, case in ipairs(cases) do
+                assert.are.equal(case[3], ask(case[2]), case[1])
+            end
+            -- The question names the commit, the event and the branch.
+            ask({ runs = runs(run({})), ["jobs-7"] = jobs("completed", "success") })
+            local calls = io.open(dir .. "/calls"):read("*a")
+            assert.is_truthy(calls:find("api repos/o/r/actions/workflows/ci.yml/runs?head_sha=" .. sha
+                .. "&event=push&branch=main&per_page=100\n", 1, true), calls)
+            assert.is_truthy(calls:find("api repos/o/r/actions/runs/7/jobs?per_page=100\n", 1, true), calls)
+            -- A run on another commit never counts, whatever the API is asked.
+            assert.are.equal("false", ask({ runs = runs(run({})), ["jobs-7"] = jobs("completed", "success") }, ("b2"):rep(20)))
+            os.execute("rm -rf '" .. dir .. "'")
+        end)
+    end)
 end)
 
 describe("CurseForge packager config", function()
@@ -2423,6 +2735,26 @@ describe("Release docs", function()
             assert.is_truthy(flat:find("The GitHub release isn't made by hand: the workflow makes it", 1, true))
             assert.is_truthy(flat:find("creates the GitHub release for the tag, with the same notes", 1, true))
             assert.is_truthy(flat:find("Once the job is green, there's nothing left to do.", 1, true))
+        end)
+
+        -- #241: merging waits only for the required check, a patch release of
+        -- documentation-only fixes is one pull request, and verify trusts main's
+        -- check. AGENTS.md points agents to both rules.
+        it("CONTRIBUTING.md says merges wait only for the required check and doc-only patch releases are one PR (white)", function()
+            local flat = wow.readFile("CONTRIBUTING.md"):gsub("%s+", " ")
+            local lands = flat:match("## How changes land (.-) ## ") or ""
+            assert.is_truthy(lands:find("A pull request can merge as soon as the required `check` is green", 1, true),
+                "How changes land doesn't say a merge waits only for the required check")
+            assert.is_truthy(lands:find("the report-only jobs (the UI simulator, screenshots, CodeQL) never gate a merge", 1, true),
+                "How changes land doesn't say the report-only jobs never gate a merge")
+            local releasing = flat:match("## Releasing %(maintainer%) (.*)$") or ""
+            assert.is_truthy(releasing:find("A patch release of documentation-only fixes is one pull request", 1, true),
+                "Releasing doesn't say a documentation-only patch release is one pull request")
+            assert.is_truthy(releasing:find("A release with code changes keeps its own release PR", 1, true))
+            assert.is_truthy(releasing:find("if it failed, the release stops", 1, true), "Releasing doesn't say what verify does")
+            local agents = wow.readFile("AGENTS.md"):gsub("%s+", " ")
+            assert.is_truthy(agents:find("a PR can merge once the required `check` is green", 1, true), "AGENTS.md")
+            assert.is_truthy(agents:find("A patch release of documentation-only fixes is one PR with the fix", 1, true), "AGENTS.md")
         end)
     end)
 end)

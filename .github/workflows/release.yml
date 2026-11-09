@@ -6,6 +6,12 @@ name: Release
 #
 # "verify" runs the checks with read-only access and no secrets. Only once it
 # passes does "release" ask for approval, and only the upload step sees the key.
+#
+# The tagged commit is on main, and CI already ran lint and every test on it
+# there: the required `check` job (#241). When that job passed, verify trusts
+# it instead of running the tests again; when it hasn't finished, or no run is
+# found, verify runs lint and the tests itself as before; when it failed,
+# verify fails.
 on:
   push:
     tags:
@@ -17,15 +23,17 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
+    # Read-only. actions: read lets the step below read main's CI run for this
+    # commit; it has to be the Actions API, since only it says which
+    # workflow, event, branch and repository a run came from.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.12"
 
       - name: Check the tag is on main and matches the TOC version
         run: |
@@ -35,10 +43,55 @@ jobs:
           [[ "v$toc" == "$GITHUB_REF_NAME" ]] \
             || { echo "::error::Tag $GITHUB_REF_NAME does not match TOC version $toc"; exit 1; }
 
+      # Counts only CI's own run from a push to main in this repository, on
+      # exactly this commit, and its job named check. Success skips the steps
+      # below; any doubt (no run, not finished, cancelled, an API error) runs
+      # them; a failed check stops the release.
+      - name: Find whether main's required check passed on this commit
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          passed() { echo "passed=$1" >> "$GITHUB_OUTPUT"; echo "$2"; exit 0; }
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&branch=main&per_page=100" < /dev/null) \
+            || passed false "Couldn't read main's CI runs: running the tests"
+          found=$(jq -r --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY" '.workflow_runs[]
+            | select(.head_sha == $sha and .event == "push" and .head_branch == "main"
+              and .path == ".github/workflows/ci.yml" and .head_repository.full_name == $repo)
+            | "\(.id) \(.conclusion)"' <<< "$runs") || passed false "Couldn't read main's CI runs: running the tests"
+          [ -n "$found" ] || passed false "No CI run on main for this commit: running the tests"
+          result=none
+          while read -r id conclusion; do
+            case "$id" in *[!0-9]* | "") passed false "Couldn't read main's CI runs: running the tests" ;; esac
+            jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" < /dev/null) \
+              || passed false "Couldn't read CI run $id's jobs: running the tests"
+            check=$(jq -r '[.jobs[] | select(.name == "check")]
+              | if length == 1 then "\(.[0].status) \(.[0].conclusion)" else "missing" end' <<< "$jobs") \
+              || passed false "Couldn't read CI run $id's jobs: running the tests"
+            case "$check" in
+              "completed success") result=success ;;
+              # A run cancelled by a newer push to main fails its check too; that proves nothing.
+              "completed failure") [ "$conclusion" = cancelled ] \
+                || { echo "::error::main's required check failed on this commit (CI run $id)"; exit 1; } ;;
+            esac
+          done <<< "$found"
+          [ "$result" = success ] && passed true "main's required check passed on this commit: not running the tests again"
+          passed false "main's required check hasn't passed on this commit yet: running the tests"
+
+      # Each step below runs unless the check above passed: an empty answer
+      # (the step above didn't say) runs them.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: ${{ steps.ci.outputs.passed != 'true' }}
+        with:
+          python-version: "3.12"
+
       - name: Install build dependencies
+        if: ${{ steps.ci.outputs.passed != 'true' }}
         run: sudo apt-get update -q && sudo apt-get install -yq libreadline-dev
 
       - name: Lint and test before releasing
+        if: ${{ steps.ci.outputs.passed != 'true' }}
         run: |
           make setup TOOLS="$RUNNER_TEMP/lua"
           make lint TOOLS="$RUNNER_TEMP/lua"

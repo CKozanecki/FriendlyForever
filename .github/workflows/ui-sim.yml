@@ -78,6 +78,16 @@ jobs:
   # art, the packaging inputs, the simulator harness and this workflow. A
   # change to anything else, such as Greeter.lua or GroupBuffs.lua, skips the
   # jobs below; a skipped job counts as passing.
+  #
+  # Two changes to a UI file can't change what players see, so they skip too
+  # (#241): a TOC whose only changed line is `## Version:` (the Interface line
+  # and the file list still count), and a root Lua file whose only changes are
+  # `--` comments and blank lines. Both versions are read with git show and
+  # compared as text; nothing in them runs. A file added, deleted or unreadable
+  # on either side, either side holding a NUL byte, Lua with a long bracket
+  # ([[ or [=, where a -- can be inside a string), a line ending in a backslash
+  # or a carriage return inside a line (Lua reads one as a line break) is
+  # doubt, and runs.
   changes:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -103,12 +113,41 @@ jobs:
           # the base, so the diff is what the pull request changes. A push to
           # main compares with the commit before it.
           if [ "$EVENT" = pull_request ]; then
-            list=$(git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD) || answer true "no diff"
+            base=HEAD^1
           else
             case "$BEFORE" in *[!0-9a-f]* | "" | 0000000000000000000000000000000000000000) answer true "no commit to compare with" ;; esac
-            list=$(git -c core.quotePath=false diff --no-renames --name-only "$BEFORE" HEAD) || answer true "no diff"
+            base=$BEFORE
           fi
+          list=$(git -c core.quotePath=false diff --no-renames --name-only "$base" HEAD) || answer true "no diff"
           [ -n "$list" ] || answer true "no changed files"
+          # Both versions of a file, or a failure when either side has none or
+          # holds a NUL byte, which bash would drop unseen (#241).
+          both() {
+            for side in "$base" HEAD; do
+              [ "$(git show "$side:$1" 2>/dev/null | tr -dc '\000' | wc -c)" -eq 0 ] || return 1
+            done
+            old=$(git show "$base:$1" 2>/dev/null) && new=$(git show "HEAD:$1" 2>/dev/null)
+          }
+          # The same TOC once its ## Version: lines are left out. A carriage
+          # return inside a line could start another line, so it is doubt.
+          version_only() {
+            both "$1" || return 1
+            printf '%s\n%s\n' "$old" "$new" | awk '/\r[^\n]/ { exit 2 }' || return 1
+            [ "$(printf '%s\n' "$old" | grep -v '^## Version:')" = "$(printf '%s\n' "$new" | grep -v '^## Version:')" ]
+          }
+          # Lua without -- comments, blank lines and trailing spaces. A comment
+          # is cut only where no quote comes before it on its line; a long
+          # bracket, a line ending in a backslash or a carriage return inside a
+          # line fails (exit 2).
+          strip_lua() {
+            awk '/\[\[|\[=|\\\r?$|\r[^\n]/ { exit 2 }
+              { sub(/\r$/, ""); i = index($0, "--"); if (i > 0 && substr($0, 1, i - 1) !~ /["'\'']/) $0 = substr($0, 1, i - 1)
+                sub(/[ \t]+$/, ""); if ($0 != "") print }'
+          }
+          comments_only() {
+            both "$1" || return 1
+            a=$(printf '%s\n' "$old" | strip_lua) && b=$(printf '%s\n' "$new" | strip_lua) && [ "$a" = "$b" ]
+          }
           while IFS= read -r file; do
             hit=no
             case "$file" in
@@ -124,10 +163,14 @@ jobs:
                     | Window.lua) hit=yes ;;
                 esac ;;
             esac
-            if [ "$hit" = yes ]; then
-              safe=$(printf '%s' "${file:0:100}" | tr -c 'A-Za-z0-9._/-' '?')
-              answer true "$safe changed"
-            fi
+            [ "$hit" = yes ] || continue
+            safe=$(printf '%s' "${file:0:100}" | tr -c 'A-Za-z0-9._/-' '?')
+            case "$file" in
+              */*) ;;
+              *.toc) version_only "$file" && { echo "$safe: only its version changed"; continue; } ;;
+              *.lua) comments_only "$file" && { echo "$safe: only comments changed"; continue; } ;;
+            esac
+            answer true "$safe changed"
           done <<< "$list"
           answer false "no UI file changed"
 
