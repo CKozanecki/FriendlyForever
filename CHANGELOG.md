@@ -1,5 +1,9 @@
 # Changelog
 
+### Unreleased
+
+- **Top-up timing renews group versions:** in buff mode, Arcane Brilliance, the Prayers, Gift of the Wild and the Greater Blessings running low on your group (less than your top-up time left) are now renewed like single buffs, instead of waiting until they run out. The group version is offered again when enough of the group are low, and otherwise the single buff renews each one. A group version stronger than every rank you know is still left to run out, a group version is still never cast over a higher rank of yours, and a time the game won't show never counts as low. (#206)
+
 ## 1.0.1
 
 - **Blessing of Light is gone:** Blizzard removed it, so it is no longer offered, tracked or listed; settings and profiles that mention it still load and keep their values. This corrects the 1.0.0 note. (#237, #225)

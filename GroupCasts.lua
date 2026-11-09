@@ -118,15 +118,13 @@ local function Roster(units, inRaid, scope)
 end
 
 -- Whether unit wears, from you, a higher rank of buff than `equals` (the
--- single-target rank the group version matches): true, false, or nil when
--- their buffs, or who cast one, can't be read.
+-- single-target rank the group version matches), a group version counting
+-- as the rank it equals (#206): true, false, or nil when their buffs, or who
+-- cast one, can't be read.
 local function WearsHigherRank(unit, buff, equals)
     local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
     if not api then return nil end
-    local equalsAt
-    for at, id in ipairs(buff.ranks) do
-        if id == equals then equalsAt = at end
-    end
+    local equalsAt = ns.BuffData.RankOf(buff, equals)
     if not equalsAt then return nil end
     for i = 1, ns.Offers.MAX_AURAS do
         local ok, aura = pcall(api, unit, i, "HELPFUL")
@@ -134,14 +132,13 @@ local function WearsHigherRank(unit, buff, equals)
         if aura == nil then return false end
         local id = aura.spellId
         if Util.IsSecret(id) then return nil end
-        for at, rank in ipairs(buff.ranks) do
-            if rank == id and at < equalsAt then
-                local source = aura.sourceUnit
-                if source == nil or Util.IsSecret(source) then return nil end
-                local mine = Read(UnitIsUnit, source, "player")
-                if mine == nil then return nil end
-                if mine then return true end
-            end
+        local at = ns.BuffData.RankOf(buff, id)
+        if at and at < equalsAt then
+            local source = aura.sourceUnit
+            if source == nil or Util.IsSecret(source) then return nil end
+            local mine = Read(UnitIsUnit, source, "player")
+            if mine == nil then return nil end
+            if mine then return true end
         end
     end
     return false
