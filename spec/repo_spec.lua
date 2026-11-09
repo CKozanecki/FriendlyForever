@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -435,7 +435,7 @@ describe("UI simulator workflow", function()
             end
             p:close()
             assert.is_true(found >= 8, "expected the files that create frames, found " .. found)
-            for _, file in ipairs({ "OptionsIndex.lua", "Nameplates.lua", "Colours.lua" }) do
+            for _, file in ipairs({ "OptionsIndex.lua", "Nameplates.lua", "Colours.lua", "BuffData.lua", "BuffRules.lua" }) do
                 assert.is_truthy(filter:find(file, 1, true), file .. " is a UI file")
             end
         end)
@@ -476,6 +476,9 @@ describe("UI simulator workflow", function()
                 { { "Greeter.lua", "Options.lua" }, "true" },
                 -- The palette every colour comes from (the architecture review).
                 { { "Colours.lua" }, "true" },
+                -- They decide text the Buff Back tab shows (#226): one case each.
+                { { "BuffData.lua" }, "true" },
+                { { "BuffRules.lua" }, "true" },
                 -- A file that creates frames, added by #43 after this list was written.
                 { { "BuffList.lua" }, "true" },
                 { { "uitests/x.lua" }, "true" },
