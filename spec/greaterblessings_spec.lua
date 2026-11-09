@@ -332,6 +332,10 @@ describe("Greater Blessings in buff mode (#41)", function()
             boot({ known = { KINGS } })
             raid(WARRIORS)
             assert.are.equal("Ann Vale: Blessing of Kings", armed())
+            assert.are.equal("missing your Blessing of Kings", button.subtitle:GetText(), "nothing on the face")
+            wow.run(button, "OnEnter")
+            assert.is_truthy(table.concat(_G.GameTooltip.lines, "\n"):find(
+                "You haven't learned Greater Blessing of Kings: buffing one at a time", 1, true))
         end)
     end)
 
