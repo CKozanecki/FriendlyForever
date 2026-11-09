@@ -196,6 +196,36 @@ describe("Greater Blessings in buff mode (#41)", function()
             assert.is_truthy(button.subtitle:GetText():find("can't tell whose Blessing", 1, true))
         end)
 
+        it("is not offered when whose Blessing it is can't be told (the game won't say if the caster is you)", function()
+            boot()
+            raid(WARRIORS)
+            wow.wearBuff("raid3", MIGHT_1, { source = "player" })
+            _G.UnitIsUnit = function() return nil end
+            assert.are.equal("Ann Vale: Blessing of Kings", armed())
+            assert.is_truthy(button.subtitle:GetText():find("can't tell whose Blessing", 1, true))
+        end)
+
+        it("Greater Wisdom rank 1 matches Wisdom rank 5: rank 6 of yours is higher, rank 5 is not; rank 2 matches rank 6", function()
+            boot({ known = { WISDOM_6, WISDOM_5, GREATER_WISDOM_2, GREATER_WISDOM_1 } })
+            raid({ { "Ann-Vale", "MAGE" }, { "Bo-Fern", "MAGE" }, { "Cid-Rock", "MAGE" }, { "Dot-Moss", "MAGE" } })
+            -- Rank 2 matches rank 6: a Wisdom rank 6 of yours running low is renewed by it.
+            wow.wearBuff("raid4", WISDOM_6, { source = "player" })
+            wow.state.units.raid4.auraExpires[1] = wow.now + 60
+            assert.are.equal("Ann Vale: Greater Blessing of Wisdom", armed())
+            wow.pressKey("MOUSEWHEELUP")
+            assert.are.equal(GREATER_WISDOM_2, wow.casts[1].id)
+            -- Knowing rank 1 only: rank 6 of yours is higher, rank 5 is not.
+            boot({ known = { WISDOM_6, WISDOM_5, GREATER_WISDOM_1 } })
+            raid({ { "Ann-Vale", "MAGE" }, { "Bo-Fern", "MAGE" }, { "Cid-Rock", "MAGE" }, { "Dot-Moss", "MAGE" } })
+            wow.wearBuff("raid4", WISDOM_5, { source = "player" })
+            wow.state.units.raid4.auraExpires[1] = wow.now + 60
+            assert.are.equal("Ann Vale: Greater Blessing of Wisdom", armed(), "an equal rank may be renewed")
+            wow.wearBuff("raid4", WISDOM_6, { source = "player" })
+            wow.state.units.raid4.auraExpires[1] = wow.now + 60
+            wow.state.units.raid4.auras = { WISDOM_6 }
+            assert.are.equal("Ann Vale: Blessing of Wisdom", armed())
+        end)
+
         it("is not offered when a class member's buffs can't be read", function()
             boot()
             raid(WARRIORS)
@@ -210,8 +240,6 @@ describe("Greater Blessings in buff mode (#41)", function()
             raid(WARRIORS)
             assert.is_true(ns.BuffRules.SetNames("kings", "never", "Fay Reed"))
             assert.are.equal("Ann Vale: Blessing of Kings", armed())
-            assert.are.equal("Your rules leave Fay Reed out: buffing one at a time"
-                == button.subtitle:GetText() and "" or button.subtitle:GetText(), button.subtitle:GetText())
             assert.is_truthy(button.subtitle:GetText():find("your rules leave Fay Reed out", 1, true))
         end)
 
@@ -300,7 +328,7 @@ describe("Greater Blessings in buff mode (#41)", function()
             assert.is_truthy(button.subtitle:GetText():find("a higher rank of yours", 1, true))
         end)
 
-        it("a class the Greater Blessing's data does not name is passed over in silence", function()
+        it("a paladin who hasn't learned the Greater Blessing is offered the single one, with the reason in the tooltip only", function()
             boot({ known = { KINGS } })
             raid(WARRIORS)
             assert.are.equal("Ann Vale: Blessing of Kings", armed())

@@ -111,14 +111,8 @@ local function Roster(units, inRaid, scope)
     -- you too: your rules and your own buffs count like anyone's. (In a raid
     -- the game gives you a slot.)
     if not inRaid and not sawMe then
-        local entry = { unit = "player", name = me, isMe = true, group = "party", label = "your party",
+        out[#out + 1] = { unit = "player", name = me, isMe = true, group = "party", label = "your party",
             class = select(2, Read(UnitClass, "player")) }
-        if scope == "class" then
-            local plural = type(entry.class) == "string" and CLASS_PLURAL[entry.class]
-            if not plural then return nil, "can't read a group member's class" end
-            entry.group, entry.label = entry.class, plural
-        end
-        out[#out + 1] = entry
     end
     return out
 end
