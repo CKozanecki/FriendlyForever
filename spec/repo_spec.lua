@@ -2882,7 +2882,7 @@ describe("Claude sessions' agents, knowledge and skills", function()
         end
     end)
 
-    it("the coordinator reports low usage and model mismatches, and starts sessions on a family alias", function()
+    it("the coordinator reports low usage and model mismatches, and starts every session with model set explicitly and named in the prompt", function()
         local text = wow.readFile(".claude/skills/coordinator/SKILL.md")
         local checkIn = text:match("\n## The 30%-minute check%-in\n(.*)$") or ""
         assert.is_truthy(checkIn:find("- **compare models** for each session you watch: `get_session`'s"
@@ -2897,6 +2897,8 @@ describe("Claude sessions' agents, knowledge and skills", function()
         local start = text:match("%- %*%*Starting a session:%*%*[^\n]*") or ""
         assert.is_truthy(start:find("pass the `model` parameter on every session, set explicitly", 1, true),
             "sessions start with model set explicitly")
+        assert.is_truthy(start:find("`sonnet` for a developer, `opus` for security-sensitive and release-workflow"
+            .. " changes, specs and hard bugs (with effort `high`)", 1, true), "the families the table gives")
         assert.is_truthy(start:find("The opening prompt names the model", 1, true), "the prompt names the model")
     end)
 
