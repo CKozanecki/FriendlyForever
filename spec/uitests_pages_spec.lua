@@ -188,7 +188,7 @@ describe("the UI simulator's Buff Back names", function()
     it("shows each row of the tab with its Forever name, the longest Blessing of Wisdom (white)", function()
         local seen
         Pages.WithBuffNames(function() seen = rows() end)
-        assert.are.equal(4, #seen)
+        assert.are.equal(3, #seen)
         for i, buff in ipairs(Pages.BUFF_NAMES) do
             assert.are.equal(i .. ". " .. buff.name, seen[i]:match("^(.-) |c") or seen[i])
         end
@@ -196,8 +196,13 @@ describe("the UI simulator's Buff Back names", function()
     end)
 
     it("leaves the tab on the buff keys without it, which is what it fixes (white)", function()
+        -- The simulator knows none of Forever's buffs; the test client knows
+        -- Might's name, so take it away for this look.
+        local saved = {}
+        for _, id in ipairs(ns.BuffData.ByKey("might").ranks) do saved[id], wow.SPELL_NAMES[id] = wow.SPELL_NAMES[id], nil end
         local seen = rows()
-        assert.is_truthy(seen[4]:find("^4%. light"), seen[4])
+        for id, name in pairs(saved) do wow.SPELL_NAMES[id] = name end
+        assert.is_truthy(seen[3]:find("^3%. might"), seen[3])
     end)
 
     it("passes every other spell, and anything that isn't a spell ID, to the client's own (black)", function()
@@ -207,7 +212,7 @@ describe("the UI simulator's Buff Back names", function()
             return "client's " .. tostring((...))
         end
         local undo = Pages.NameBuffs()
-        assert.are.equal("Blessing of Light", _G.C_Spell.GetSpellName(19977))
+        assert.are.equal("Blessing of Wisdom", _G.C_Spell.GetSpellName(25290))
         assert.are.equal(0, #asked)
         for _, spell in ipairs({ 10938, 999999, "Blessing of Wisdom", 0, -1, 19742.5, true, {} }) do
             assert.are.equal("client's " .. tostring(spell), _G.C_Spell.GetSpellName(spell, "extra"))
@@ -231,8 +236,7 @@ describe("the UI simulator's Buff Back names", function()
             assert.are_not.equal(original, _G.C_Spell.GetSpellName)
         end)
         assert.are.equal(original, _G.C_Spell.GetSpellName)
-        assert.is_nil(_G.C_Spell.GetSpellName(19977))
-        assert.is_truthy(rows()[4]:find("^4%. light"))
+        assert.is_truthy(rows()[3]:find("Blessing of Might", 1, true), "the test client's own name")
     end)
 
     it("puts the client's GetSpellName back even when the scenario fails, and raises its error (white)", function()

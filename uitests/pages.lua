@@ -207,7 +207,6 @@ Pages.BUFF_NAMES = {
     { key = "kings", name = "Blessing of Kings", ranks = { 20217 } },
     { key = "wisdom", name = "Blessing of Wisdom", ranks = { 25290, 19854, 19853, 19852, 19850, 19742 } },
     { key = "might", name = "Blessing of Might", ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 } },
-    { key = "light", name = "Blessing of Light", ranks = { 19979, 19978, 19977 } },
 }
 
 -- Makes C_Spell.GetSpellName answer BUFF_NAMES' ranks, and pass every

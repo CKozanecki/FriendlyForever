@@ -1,15 +1,15 @@
 -- The buffs each class gives other players on WoW Forever, by spell ID.
 --
--- The IDs are Classic Era's (1.15). Forever may differ (a buff removed, a
--- talent made trainable); that can only mean a buff isn't offered, because a
--- buff whose spell you don't know never is.
+-- The IDs come from BuffTable.lua, generated from Forever's spell data by
+-- scripts/gen_spell_table.py once per game version (#209). A buff whose
+-- spell you don't know is never offered.
 --
 -- Each buff:
 --   key       our name for it (saved settings, buff order)
 --   ranks     every rank's spell ID, highest first: "/cast <name>" casts the
 --             highest you know, and any of them on a player means they have it
 --   group     the group versions' IDs (Arcane Brilliance...): they count as having it
---   blockers  other buffs that do the same job (Scroll of Intellect...): ditto
+--   blockers  other buffs that do the same job (Unending Breath for Water Breathing): ditto
 --   manaOnly  only offered to classes that use mana
 --   selfCast  cast on yourself, reaching your party (Battle Shout): never a return
 --   family    buffs of which a player keeps only one of yours (a paladin's
@@ -22,44 +22,11 @@ local Util = ns.Util
 local BuffData = {}
 ns.BuffData = BuffData
 
-BuffData.CLASSES = {
-    MAGE = {
-        { key = "intellect", ranks = { 10157, 10156, 1461, 1460, 1459 }, group = { 23028 },
-            blockers = { 8096, 8097, 8098, 12176 }, manaOnly = true },
-    },
-    PRIEST = {
-        { key = "fortitude", ranks = { 10938, 10937, 2791, 1245, 1244, 1243 }, group = { 21564, 21562 },
-            blockers = { 8099, 8100, 8101, 12178 } },
-        { key = "spirit", ranks = { 27841, 14819, 14818, 14752 }, group = { 27681 },
-            blockers = { 8112, 8113, 8114, 12177 }, manaOnly = true },
-        { key = "shadow", ranks = { 10958, 10957, 976 }, group = { 27683 } },
-    },
-    DRUID = {
-        { key = "motw", ranks = { 9885, 9884, 8907, 5234, 6756, 5232, 1126 }, group = { 21850, 21849 } },
-        { key = "thorns", ranks = { 9910, 9756, 8914, 1075, 782, 467 } },
-    },
-    PALADIN = {
-        { key = "kings", ranks = { 20217 }, group = { 25898 }, family = "blessing" },
-        { key = "wisdom", ranks = { 25290, 19854, 19853, 19852, 19850, 19742 }, group = { 25918, 25894 },
-            manaOnly = true, family = "blessing" },
-        { key = "might", ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 }, group = { 25916, 25782 },
-            family = "blessing" },
-        { key = "light", ranks = { 19979, 19978, 19977 }, group = { 25890 }, family = "blessing" },
-    },
-    SHAMAN = {
-        -- Does the same job as a warlock's Unending Breath, and the other way
-        -- round (#136).
-        { key = "waterbreathing", ranks = { 131 }, blockers = { 5697 }, water = true },
-    },
-    WARLOCK = {
-        -- 131 is the shaman's Water Breathing: no group version of Unending
-        -- Breath, but it does the same job, so it's a blocker (#135).
-        { key = "breath", ranks = { 5697 }, blockers = { 131 }, water = true },
-    },
-    WARRIOR = {
-        { key = "battleshout", ranks = { 25289, 11551, 11550, 11549, 6192, 5242, 6673 }, selfCast = true },
-    },
-}
+-- The table is generated from Forever's own spell data (BuffTable.lua, #209):
+-- the addon never looks IDs up while you play. A buff whose spell the data
+-- doesn't have is simply not in it.
+local Table = ns.BuffTable
+BuffData.CLASSES = Table.classes
 
 -- Classes that use mana (unit power is a secret for strangers on Forever,
 -- so the class decides). Druids count: they do in caster form.
@@ -71,6 +38,9 @@ BuffData.MANA_CLASSES = {
 -- never-offer mark may name.
 BuffData.KEYS = {}
 local byKey = {}
+-- Buffs left out of the table keep their keys, so saved settings that name
+-- them still load and keep their values.
+for _, key in ipairs(Table.absent) do BuffData.KEYS[key] = true end
 for _, list in pairs(BuffData.CLASSES) do
     for _, buff in ipairs(list) do
         BuffData.KEYS[buff.key] = true
@@ -113,7 +83,8 @@ end
 -- Buffs Blizzard removed before launch (#208): Blessing of Salvation and
 -- Mass Salvation. Nothing offers, tracks or thanks for them; an aura with
 -- one of these IDs (a stale one) is passed over quietly.
-local REMOVED_SPELL_IDS = { [1038] = true, [25895] = true }
+local REMOVED_SPELL_IDS = {}
+for _, id in ipairs(Table.removedSpells) do REMOVED_SPELL_IDS[id] = true end
 
 -- Whether spellId is one of a buff the game no longer has. A secret, or
 -- anything that isn't a number, is not.

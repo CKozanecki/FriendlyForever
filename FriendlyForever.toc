@@ -21,6 +21,7 @@ Cooldowns.lua
 Cities.lua
 Ignore.lua
 Ledger.lua
+BuffTable.lua
 BuffData.lua
 Water.lua
 BuffRules.lua

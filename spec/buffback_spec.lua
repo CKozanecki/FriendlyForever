@@ -67,7 +67,7 @@ describe("Buff back", function()
             assert.are.equal("motw", ns.BuffData.ForCast(MOTW).key)
             assert.is_nil(ns.BuffData.ForCast(GIFT), "a group version is never our single cast")
             assert.are.equal("motw", ns.BuffData.ForAura(GIFT).key)
-            assert.are.equal("intellect", ns.BuffData.ForAura(12176).key, "a scroll counts as Intellect")
+            assert.is_nil(ns.BuffData.ForAura(12176), "a scroll is not a buff (#209)")
         end)
 
         it("doesn't offer mana buffs to classes without mana", function()
