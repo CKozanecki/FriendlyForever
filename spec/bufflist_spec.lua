@@ -565,6 +565,26 @@ describe("A group cast in the list (#227)", function()
             assert.is_truthy(armed():find("Arcane Intellect", 1, true), "the button holds a single buff, not nothing")
         end)
 
+        it("shows the longest group rows whole: no code cuts the text, and the list is wide enough for the budget", function()
+            boot()
+            group("party", { "Ann-Vale" })
+            local worst = {
+                { "your party", 4, "Prayer of Shadow Protection" },
+                { "Warlocks", 12, "Greater Blessing of Wisdom" },
+                { "Warriors", 40, "Greater Blessing of Wisdom" },
+            }
+            for _, w in ipairs(worst) do
+                ns.BuffList.Update(button, { { name = "Ann-Vale", spell = w[3], buff = {},
+                    cast = { label = w[1], count = w[2] } } }, "Ann-Vale")
+                local text = ns.BuffList.Rows()[1].text:GetText()
+                assert.are.equal(string.format("> %s (%d missing): %s", w[1], w[2], w[3]), text)
+                -- About 5.1 px a character in the simulator's font, plus the
+                -- scrollbar (22) and the row's insets (8): the real width is
+                -- checked by the UI scenario.
+                assert.is_true(#text * 5.1 + 30 <= ns.BuffList.WIDTH, text .. " fits the list's width")
+            end
+        end)
+
         it("is hidden in combat", function()
             boot()
             group("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })

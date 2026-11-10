@@ -2,7 +2,7 @@
 
 ### Unreleased
 
-- **A group cast is one row in the list:** when the button holds a group version (Arcane Brilliance, a Prayer, Gift of the Wild, a Greater Blessing), the clickable list beside it shows one row for the cast, such as "Group 3 (4 missing): Arcane Brilliance", and no longer lists the members it covers as separate single-buff rows. Members the cast doesn't cover keep their own rows, and a click on a row still makes that row the button's next offer. (#227)
+- **A group cast is one row in the list:** when the button holds a group version (Arcane Brilliance, a Prayer, Gift of the Wild, a Greater Blessing), the clickable list beside it shows one row for the cast, such as "Group 3 (4 missing): Arcane Brilliance", and no longer lists the members it covers as separate single-buff rows. Members the cast doesn't cover keep their own rows, and a click on a row still makes that row the button's next offer. The list is wider (230 to 310) so the longest group rows, such as "your party (4 missing): Prayer of Shadow Protection", show whole instead of being cut. (#227)
 
 ## 1.0.1
 

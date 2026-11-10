@@ -16,7 +16,10 @@ ns.BuffList = BuffList
 
 BuffList.FRAME_NAME = "FriendlyForeverBuffList"
 BuffList.ROW_HEIGHT = 18
-BuffList.WIDTH = 230
+-- 310 holds the longest row whole, such as "> your party (4 missing): Prayer of
+-- Shadow Protection" (53 characters, about 270 wide in the simulator's font,
+-- with the scrollbar and insets on top): a group row is never cut (#227).
+BuffList.WIDTH = 310
 BuffList.VISIBLE_ROWS = 6   -- rows shown before the list scrolls
 BuffList.MAX_ROWS = 60      -- rows kept: 20 favours (Offers.MAX) and a raid of 40 can't exceed it
 
