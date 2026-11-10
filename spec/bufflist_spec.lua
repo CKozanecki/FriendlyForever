@@ -568,20 +568,22 @@ describe("A group cast in the list (#227)", function()
         it("shows the longest group rows whole: no code cuts the text, and the list is wide enough for the budget", function()
             boot()
             group("party", { "Ann-Vale" })
+            -- The width of each, as the UI simulator measured it (run 42749343166).
             local worst = {
-                { "your party", 4, "Prayer of Shadow Protection" },
-                { "Warlocks", 12, "Greater Blessing of Wisdom" },
-                { "Warriors", 40, "Greater Blessing of Wisdom" },
+                { "your party", 4, "Prayer of Shadow Protection", 208 },
+                { "Group 3", 5, "Prayer of Shadow Protection", 223 },
+                { "Warlocks", 12, "Greater Blessing of Wisdom", 230 },
+                { "Warriors", 40, "Greater Blessing of Wisdom", 228 },
             }
             for _, w in ipairs(worst) do
                 ns.BuffList.Update(button, { { name = "Ann-Vale", spell = w[3], buff = {},
                     cast = { label = w[1], count = w[2] } } }, "Ann-Vale")
                 local text = ns.BuffList.Rows()[1].text:GetText()
                 assert.are.equal(string.format("> %s (%d): %s", w[1] == "your party" and "Party" or w[1], w[2], w[3]), text)
-                -- About 5.1 px a character in the simulator's font, plus the
-                -- scrollbar (22) and the row's insets (8): the real width is
-                -- checked by the UI scenario.
-                assert.is_true(#text * 5.1 + 30 <= ns.BuffList.WIDTH, text .. " fits the list's width")
+                -- The measured text, plus the scrollbar (22) and the row's insets (8),
+                -- fits the list (the +1 is the UI scenario's own rule): a narrower
+                -- list cuts this row. The game's own font is checked in game (#214).
+                assert.is_true(w[4] + 30 <= ns.BuffList.WIDTH + 1, text .. " fits the list's width")
             end
         end)
 

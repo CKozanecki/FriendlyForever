@@ -17,8 +17,8 @@ ns.BuffList = BuffList
 BuffList.FRAME_NAME = "FriendlyForeverBuffList"
 BuffList.ROW_HEIGHT = 18
 -- 260 holds the longest row whole, such as "> Warlocks (12): Greater Blessing of
--- Wisdom" (43 characters, about 220 wide in the simulator's font, with the
--- scrollbar and insets on top): a group row is never cut (#227).
+-- Wisdom" (43 characters, 230 wide in the simulator's font, with the scrollbar
+-- and insets on top): there is no room to spare, so don't narrow it (#227).
 BuffList.WIDTH = 260
 BuffList.VISIBLE_ROWS = 6   -- rows shown before the list scrolls
 BuffList.MAX_ROWS = 60      -- rows kept: 20 favours (Offers.MAX) and a raid of 40 can't exceed it
