@@ -491,19 +491,19 @@ describe("A group cast in the list (#227)", function()
         it("shows a party's group cast as one row, not the members it covers", function()
             boot()
             group("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
-            assert.are.same({ "> your party (4 missing): Arcane Brilliance" }, rows())
+            assert.are.same({ "> Party (4): Arcane Brilliance" }, rows())
             assert.are.equal("Ann Vale: Arcane Brilliance", armed())
             assert.are.equal(0, #wow.casts, "listing casts nothing")
         end)
 
-        it("shows a raid subgroup's cast as 'Group 3 (4 missing)', and the rest singly", function()
+        it("shows a raid subgroup's cast as 'Group 3 (4)', and the rest singly", function()
             boot()
             group("raid", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed", "Gus-Lane" })
             for i, g in ipairs({ 1, 3, 3, 3, 3, 1, 1 }) do wow.state.units["raid" .. i].subgroup = g end
             wow.fire("GROUP_ROSTER_UPDATE")
             wow.advance(0)
             assert.are.same({
-                "> Group 3 (4 missing): Arcane Brilliance",
+                "> Group 3 (4): Arcane Brilliance",
                 "Ann Vale: Arcane Intellect",
                 "Fay Reed: Arcane Intellect",
                 "Gus Lane: Arcane Intellect",
@@ -519,11 +519,11 @@ describe("A group cast in the list (#227)", function()
             click(3)
             assert.are.equal("Fay Reed: Arcane Intellect", armed())
             assert.are.equal("Fay Reed", button.title:GetText())
-            assert.are.equal("Group 3 (4 missing): Arcane Brilliance", rows()[1])
+            assert.are.equal("Group 3 (4): Arcane Brilliance", rows()[1])
             click(1)
             assert.are.equal("Bo Fern: Arcane Brilliance", armed())
             assert.are.equal("Group 3 (4 missing)", button.title:GetText())
-            assert.are.equal("> Group 3 (4 missing): Arcane Brilliance", rows()[1])
+            assert.are.equal("> Group 3 (4): Arcane Brilliance", rows()[1])
             assert.are.equal(0, #wow.casts, "a click casts nothing")
         end)
 
@@ -577,7 +577,7 @@ describe("A group cast in the list (#227)", function()
                 ns.BuffList.Update(button, { { name = "Ann-Vale", spell = w[3], buff = {},
                     cast = { label = w[1], count = w[2] } } }, "Ann-Vale")
                 local text = ns.BuffList.Rows()[1].text:GetText()
-                assert.are.equal(string.format("> %s (%d missing): %s", w[1], w[2], w[3]), text)
+                assert.are.equal(string.format("> %s (%d): %s", w[1] == "your party" and "Party" or w[1], w[2], w[3]), text)
                 -- About 5.1 px a character in the simulator's font, plus the
                 -- scrollbar (22) and the row's insets (8): the real width is
                 -- checked by the UI scenario.
@@ -614,7 +614,7 @@ describe("A group cast in the list (#227)", function()
 
         it("shows escape codes in a label as plain text, on one line", function()
             local text = show({ label = "Gr|cffff0000oup\n3", count = 4 })
-            assert.are.equal("> Grcffff0000oup 3 (4 missing): Arcane Brilliance", text)
+            assert.are.equal("> Grcffff0000oup 3 (4): Arcane Brilliance", text)
             assert.is_false(ns.BuffList.Rows()[1].text.wordWrap)
         end)
     end)
@@ -639,7 +639,7 @@ describe("A group cast in the list (#227)", function()
                 local singles, groups, marks, marked = {}, {}, 0, nil
                 for _, text in ipairs(rows()) do
                     local plain = text:gsub("^> ", "")
-                    local n = plain:match("^Group (%d) %(%d+ missing%): ")
+                    local n = plain:match("^Group (%d) %(%d+%): ")
                     if n then groups[#groups + 1] = tonumber(n) else
                         local who = plain:match("^(.-):")
                         assert.is_nil(singles[who], who .. " is listed twice (step " .. step .. ")")

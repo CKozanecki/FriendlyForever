@@ -579,7 +579,7 @@ test("the list shows a group cast as one row, and its text stays inside", functi
         local text = shown[1].text:GetText() or ""
         -- The party and you: the group version covers you too.
         local covered = #States.GROUP_MEMBERS + 1
-        local want = ("your party (%d missing): %s"):format(covered, States.GROUP_SPELL.name)
+        local want = ("Party (%d): %s"):format(covered, States.GROUP_SPELL.name)
         Expect(text == "> " .. want, ("the row reads %q, not %q"):format(text, "> " .. want))
         TextInside(shown[1], shown[1].text, "group row", 1)
         OnScreen(list, "buff list (group cast)")
@@ -589,10 +589,10 @@ test("the list shows a group cast as one row, and its text stays inside", functi
         -- on the row for the check, then put back.
         local region = shown[1].text
         for _, worst in ipairs({
-            "> your party (4 missing): Prayer of Shadow Protection",
-            "> Group 3 (5 missing): Prayer of Shadow Protection",
-            "> Warlocks (12 missing): Greater Blessing of Wisdom",
-            "> Warriors (40 missing): Greater Blessing of Wisdom",
+            "> Party (4): Prayer of Shadow Protection",
+            "> Group 3 (5): Prayer of Shadow Protection",
+            "> Warlocks (12): Greater Blessing of Wisdom",
+            "> Warriors (40): Greater Blessing of Wisdom",
         }) do
             region:SetText(worst)
             TextInside(shown[1], region, "longest group row", 1)

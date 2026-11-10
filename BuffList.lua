@@ -16,10 +16,10 @@ ns.BuffList = BuffList
 
 BuffList.FRAME_NAME = "FriendlyForeverBuffList"
 BuffList.ROW_HEIGHT = 18
--- 310 holds the longest row whole, such as "> your party (4 missing): Prayer of
--- Shadow Protection" (53 characters, about 270 wide in the simulator's font,
--- with the scrollbar and insets on top): a group row is never cut (#227).
-BuffList.WIDTH = 310
+-- 260 holds the longest row whole, such as "> Warlocks (12): Greater Blessing of
+-- Wisdom" (43 characters, about 220 wide in the simulator's font, with the
+-- scrollbar and insets on top): a group row is never cut (#227).
+BuffList.WIDTH = 260
 BuffList.VISIBLE_ROWS = 6   -- rows shown before the list scrolls
 BuffList.MAX_ROWS = 60      -- rows kept: 20 favours (Offers.MAX) and a raid of 40 can't exceed it
 
@@ -30,14 +30,15 @@ local shownOffers = {}   -- the offers the rows show, in order
 -- One row's text: the player's name (or the group a cast reaches), the buff, and a mark on the offer the
 -- button holds now (colour alone isn't enough).
 local function RowText(offer, current)
-    -- A group cast reads as the button's face does (#227): who it reaches,
-    -- how many are missing, then the spell. Anything unreadable is left out
-    -- or shown as plain text, never an error.
+    -- A group cast is one short row (#227): who it reaches, how many are
+    -- missing, then the spell, whole: "Party (4): Prayer of Shadow
+    -- Protection". Anything unreadable falls back to the plain single row.
     local cast = offer.cast
     if type(cast) == "table" and type(cast.count) == "number" and cast.count == cast.count then
-        local label = Util.StripChat(cast.label)
+        local label = Util.StripChat(cast.label):gsub("^your ", "")
+        label = label:sub(1, 1):upper() .. label:sub(2)
         if label ~= "" then
-            return string.format("%s%s (%d missing): %s", current and "> " or "", label,
+            return string.format("%s%s (%d): %s", current and "> " or "", label,
                 math.floor(cast.count), Util.StripChat(offer.spell))
         end
     end
