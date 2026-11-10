@@ -1,4 +1,4 @@
--- Spec: #52, #101
+-- Spec: #52, #101, #236
 -- The favour ledger and the /thank emote: what Buff Thanks remembers and the
 -- other way it can say thank you.
 local wow = require("spec.support.wow")
@@ -195,13 +195,12 @@ describe("Thank emote", function()
         assert.are.equal("message", ns.db.buff.thankStyle)
     end)
 
-    it("/thanks the caster instead of a line, aimed at their unit, on a key press", function()
+    it("/thanks the caster instead of a line, aimed at their unit, with no key press", function()
         ns.db.buff.thankStyle = "emote"
         stranger("nameplate3", "Bob", "Stone")
         wow.gainBuff({ sourceUnit = "nameplate3", name = "Arcane Intellect" })
         wow.advance(ns.db.buff.delay + 0.01)
-        assert.are.equal(0, #wow.emotes, "waits for a key press, like /say")
-        wow.keyDown()
+        assert.are.equal(1, #wow.emotes, "an emote needs no key press (#236)")
         assert.are.equal(0, #wow.sent)
         assert.are.equal(1, #wow.emotes)
         assert.are.equal("THANK", wow.emotes[1].token)
@@ -219,6 +218,45 @@ describe("Thank emote", function()
         assert.are.same({ "Thank you for the Arcane Intellect, Bob!" }, wow.sentTo("SAY"))
         assert.are.equal(1, #wow.emotes)
         assert.are.equal(1, ns.Ledger.Summary().thanked, "one favour, thanked once")
+    end)
+
+    it("sends one /thank for a person's buffs within the cooldown, not one per buff (#236)", function()
+        ns.db.buff.thankStyle = "emote"
+        stranger("target", "Bob", "Stone")
+        wow.gainBuff({ sourceUnit = "target", name = "Arcane Intellect" })
+        wow.advance(ns.db.buff.delay + 0.01)
+        assert.are.equal(1, #wow.emotes)
+        -- Past the exchange's own one-thank-you rule, so only the repeat
+        -- cooldown can stop the second one.
+        wow.advance(ns.Exchange.GAP + 5)
+        assert.are.equal(0, ns.Exchange.Count(), "the exchange is over")
+        wow.gainBuff({ sourceUnit = "target", name = "Dampen Magic" })
+        wow.advance(ns.db.buff.delay + 0.01)
+        assert.are.equal(1, #wow.emotes, "the same person's second buff is inside the cooldown")
+        assert.are.equal("not thanked", ns.db.ledger.entries[2].result)
+    end)
+
+    it("doesn't hold another person's /thank back for someone else's cooldown (#236)", function()
+        ns.db.buff.thankStyle = "emote"
+        stranger("target", "Bob", "Stone")
+        wow.gainBuff({ sourceUnit = "target", name = "Arcane Intellect" })
+        wow.advance(ns.db.buff.delay + 0.01)
+        stranger("target", "Ann", "Vale")
+        wow.gainBuff({ sourceUnit = "target", name = "Dampen Magic" })
+        wow.advance(ns.db.buff.delay + 0.01)
+        assert.are.equal(2, #wow.emotes)
+    end)
+
+    it("thanks the same person again once the cooldown has passed (#236)", function()
+        ns.db.buff.thankStyle = "emote"
+        stranger("target", "Bob", "Stone")
+        wow.gainBuff({ sourceUnit = "target", name = "Arcane Intellect" })
+        wow.advance(ns.db.buff.delay + 0.01)
+        assert.are.equal(1, #wow.emotes)
+        wow.advance(ns.db.buff.repeatCooldown + 1)
+        wow.gainBuff({ sourceUnit = "target", name = "Dampen Magic" })
+        wow.advance(ns.db.buff.delay + 0.01)
+        assert.are.equal(2, #wow.emotes)
     end)
 
     it("makes a plain /thank when the unit is now someone else", function()

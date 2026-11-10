@@ -1,4 +1,4 @@
--- Spec: #101, #36
+-- Spec: #101, #36, #236
 -- "Thank them with" and "If that can't reach them": every combination for a
 -- named caster, an unnamed one and a failed whisper; the buff-back line;
 -- old settings, profiles and settings lines; and a chaos storm.
@@ -77,7 +77,8 @@ describe("Thank them with, and if that can't reach them (#101)", function()
         both = { say = { NAMED_SAY }, whisper = {}, emote = { "THANK at target" } },
     }
     local NAMED_HOW = {
-        message = "in /say", whisper = "by whisper", emote = "with /thank", both = "in /say and with /thank",
+        -- "both": the emote goes first now, as it needs no key press (#236).
+        message = "in /say", whisper = "by whisper", emote = "with /thank", both = "with /thank and in /say",
     }
     local UNNAMED = {
         say = { say = { FRIEND_SAY }, whisper = {}, emote = {} },
