@@ -1,4 +1,4 @@
--- Spec: #35
+-- Spec: #35, #236
 local wow = require("spec.support.wow")
 
 describe("ChatQueue", function()
@@ -91,6 +91,19 @@ describe("ChatQueue", function()
         wow.state.inInstance = true
         push("SAY", "thanks")
         assert.are.same({ "thanks" }, wow.sentTo("SAY"))
+    end)
+
+    it("sends an emote outdoors with no key press, even while /say waits (#236)", function()
+        push("SAY", "thanks")
+        assert.is_true(Q.IsWaitingForHardware())
+        wow.advance(Q.MIN_INTERVAL)
+        Q.Push({ channel = "EMOTE", emote = "THANK", label = "thanks" })
+        assert.are.equal(1, #wow.emotes)
+        assert.are.equal("THANK", wow.emotes[1].token)
+        assert.are.equal(0, #wow.sentTo("SAY"), "/say still waits for its key press")
+        assert.is_false(Q.NeedsHardwareEvent("EMOTE"))
+        assert.is_true(Q.NeedsHardwareEvent("SAY"))
+        assert.is_true(Q.NeedsHardwareEvent("YELL"))
     end)
 
     it("lets other channels through while /say waits", function()

@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #241, #242
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -2755,6 +2755,48 @@ describe("Release docs", function()
             local agents = wow.readFile("AGENTS.md"):gsub("%s+", " ")
             assert.is_truthy(agents:find("a PR can merge once the required `check` is green", 1, true), "AGENTS.md")
             assert.is_truthy(agents:find("A patch release of documentation-only fixes is one PR with the fix", 1, true), "AGENTS.md")
+        end)
+
+        -- #229: a ready PR only behind main is updated by the owner; overlap or a
+        -- conflict still goes to the developer and the reviewers.
+        it("the Update branch rule is written once in CONTRIBUTING.md and only referenced elsewhere (white, black)", function()
+            local flat = wow.readFile("CONTRIBUTING.md"):gsub("%s+", " ")
+            local rule = flat:match("#### Only behind `main` (.-) ## ") or ""
+            assert.is_truthy(rule:find("**No file in both lists and no conflict: update branch only.**", 1, true), "update-branch case")
+            assert.is_truthy(rule:find("The developer does nothing: no merge, no push, no reviewer re-run.", 1, true))
+            assert.is_truthy(rule:find("counts as met; the coordinator's message to the maintainer, naming the pull request and the two file lists, is the record", 1, true))
+            assert.is_truthy(rule:find("**A file in both lists, or any conflict: developer must merge.**", 1, true), "developer case")
+            assert.is_truthy(rule:find("the reviewers confirm the merge and the resolutions", 1, true), "reviewers still confirm")
+            assert.is_truthy(rule:find("The coordinator tells the maintainer which case each waiting pull request is in", 1, true))
+            local ready = flat:match("### Ready for review (.-) #### Only behind") or ""
+            assert.is_truthy(ready:find("only behind `main` counts as up to date", 1, true), "ready checklist")
+            for _, path in ipairs({ "AGENTS.md", "CLAUDE.md", ".claude/skills/after-merge/SKILL.md", ".claude/skills/coordinator/SKILL.md", ".claude/skills/merge-order/SKILL.md" }) do
+                local text = wow.readFile(path):gsub("%s+", " ")
+                assert.is_truthy(text:find("#only-behind-main", 1, true), path .. " doesn't reference the rule")
+                assert.is_falsy(text:find("update branch only.**", 1, true), path .. " restates the rule")
+                assert.is_falsy(text:find("developer must merge.**", 1, true), path .. " restates the rule")
+            end
+            -- Whole sentences, so a changed condition or a changed actor fails (#119).
+            local function has(path, sentence)
+                local text = wow.readFile(path):gsub("%s+", " ")
+                assert.is_truthy(text:find(sentence, 1, true), path .. " lost: " .. sentence)
+            end
+            has("CONTRIBUTING.md", "Unchanged: the developer merges `main`, resolves, and the reviewers confirm the merge and the resolutions.")
+            has(".claude/skills/after-merge/SKILL.md", "If the PR shares no file with the merge and has no conflict, do nothing: the owner clicks Update branch")
+            has(".claude/skills/coordinator/SKILL.md", 'then tell the owner, naming the PR, "update branch only" or "developer must merge"')
+            has(".claude/skills/coordinator/SKILL.md", 'Only for "developer must merge", tell its driver to merge `main` in (the `after-merge` skill).')
+            has(".claude/skills/coordinator/SKILL.md", "only behind `main` (no shared file, no conflict), it is still ready")
+            has(".claude/skills/coordinator/SKILL.md", "Otherwise it isn't ready: tell its driver to merge `main` in (the `after-merge` skill), and don't report it to the owner yet.")
+            has(".claude/skills/merge-order/SKILL.md", "Say so, and tell its driver to merge `main` in (the `after-merge` skill). Exception:")
+            has(".claude/skills/merge-order/SKILL.md", "only behind `main` (no shared file, no trial-merge conflict) is still ready")
+            has("AGENTS.md", "only behind `main` (no shared file, no conflict) is not for the driver")
+            -- Written once: each label appears exactly once in CONTRIBUTING.md.
+            for _, label in ipairs({ "update branch only.**", "developer must merge.**" }) do
+                local _, count = flat:gsub(label:gsub("%p", "%%%0"), "")
+                assert.are.equal(1, count, "CONTRIBUTING.md has " .. count .. " copies of " .. label)
+            end
+            local afterMerge = wow.readFile(".claude/skills/after-merge/SKILL.md"):gsub("%s+", " ")
+            assert.is_truthy(afterMerge:find("a conflict was resolved, the reviewers confirm the merge", 1, true), "overlap/conflict still reviewed")
         end)
     end)
 end)

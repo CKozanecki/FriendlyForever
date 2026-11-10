@@ -21,7 +21,7 @@ git fetch origin main <branch> ...
 git merge-base --is-ancestor origin/main origin/<branch> && echo "contains main"
 ```
 
-A PR that doesn't contain the latest `main` isn't ready (CONTRIBUTING's "up to date with `main`"). Say so, and tell its driver to merge `main` in (the `after-merge` skill).
+A PR that doesn't contain the latest `main` isn't ready (CONTRIBUTING's "up to date with `main`"). Say so, and tell its driver to merge `main` in (the `after-merge` skill). Exception: a PR only behind `main` (no shared file, no trial-merge conflict) is still ready and is "update branch only" for the owner (CONTRIBUTING.md's [Only behind `main`](../../../CONTRIBUTING.md#only-behind-main), #229).
 
 ## 3. Trial-merge every pair
 

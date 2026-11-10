@@ -544,8 +544,8 @@ end
 -- Thanks' "Thank them with" choice says (#101): in /say (also for "a line and an emote"),
 -- whispered to them, or, for the emote, a plain /thank aimed at them (or at
 -- everyone around, if the game shows them under no unit). It goes under the
--- same rules as a thank-you: ChatQueue sends a /say line or an emote on your
--- next key press, and drops it if it waits too long, or if the setting is
+-- same rules as a thank-you: ChatQueue sends a /say line on your next key
+-- press (a whisper or an emote goes at once), and drops it if it waits too long, or if the setting is
 -- turned off or they're ignored meanwhile.
 local function SayLineFor(press)
     if ns.db.buffBack.sayLine ~= true then return end

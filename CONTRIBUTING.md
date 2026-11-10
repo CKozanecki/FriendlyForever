@@ -46,7 +46,7 @@ A pull request is **ready for review** when all of these hold:
 
 - CI is green on the latest commit;
 - the description matches the final code;
-- the branch is up to date with `main` and has no conflicts;
+- the branch is up to date with `main` and has no conflicts (a branch that is only behind `main` counts as up to date: see [Only behind `main`](#only-behind-main));
 - for pull requests written by an agent (Claude or Codex): both of its review loops (Lua architecture, then Lua testing) have approved, with every finding fixed (a docs-only pull request needs its one review, and a merge that touches none of its files needs only CI: see [Review loops](#review-loops));
 - it has no open question for the maintainer (#215).
 
@@ -55,6 +55,15 @@ A pull request is **ready for review** when all of these hold:
 Then whoever drives it marks it ready (GitHub's **Ready for review** button, out of draft) and says so in a comment, so the maintainer never has to ask.
 
 It is **ready to merge** when, on top of that, every review conversation is resolved.
+
+#### Only behind `main`
+
+When another pull request merges, GitHub marks the next ready one out of date (#229). The maintainer decided on 2026-11-09 that the cheaper fix is for them to click GitHub's **Update branch** button themselves. It depends on the two file lists of the file-disjoint rule in [Review loops](#review-loops):
+
+- **No file in both lists and no conflict: update branch only.** The developer does nothing: no merge, no push, no reviewer re-run. The "up to date with `main`" box counts as met; the coordinator's message to the maintainer, naming the pull request and the two file lists, is the record. The maintainer clicks **Update branch**, CI runs on the new head, and they merge when `check` is green.
+- **A file in both lists, or any conflict: developer must merge.** Unchanged: the developer merges `main`, resolves, and the reviewers confirm the merge and the resolutions.
+
+The coordinator tells the maintainer which case each waiting pull request is in, naming it, so the maintainer never has to work it out.
 
 ## Local setup
 
