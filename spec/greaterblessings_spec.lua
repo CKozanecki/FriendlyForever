@@ -1,4 +1,4 @@
--- Spec: #41
+-- Spec: #41, #233
 -- Greater Blessings in buff mode (Kings, Wisdom, Might): in a raid, a
 -- paladin is offered the Greater Blessing for a class when enough of that
 -- class are missing the Blessing, they all can have it under your rules, and
@@ -133,6 +133,32 @@ describe("Greater Blessings in buff mode (#41)", function()
             wow.pressKey("MOUSEWHEELUP")
             assert.are.equal(GREATER_MIGHT_2, wow.casts[2].id)
         end)
+
+        -- #233: a paladin who knows both Greater ranks casts the higher one, and
+        -- the data lists them highest first (BuffData takes the first known).
+        local RANK_CASES = {
+            { key = "kings", name = "Kings", class = "WARRIOR", highest = { 25898 },
+                known = { KINGS, GREATER_KINGS } },
+            { key = "wisdom", name = "Wisdom", class = "MAGE", highest = { GREATER_WISDOM_2, GREATER_WISDOM_1 },
+                known = { WISDOM_6, WISDOM_5, GREATER_WISDOM_1, GREATER_WISDOM_2 } },
+            { key = "might", name = "Might", class = "WARRIOR", highest = { GREATER_MIGHT_2, GREATER_MIGHT_1 },
+                known = { MIGHT_7, MIGHT_6, GREATER_MIGHT_1, GREATER_MIGHT_2 } },
+        }
+        for _, case in ipairs(RANK_CASES) do
+            it("Greater Blessing of " .. case.name .. ": the data lists the ranks highest first, and the highest known is cast", function()
+                boot({ known = case.known })
+                local buff = ns.BuffData.ByKey(case.key)
+                assert.are.equal(#case.highest, #buff.groupCast.spells)
+                for i, id in ipairs(case.highest) do
+                    assert.are.equal(id, buff.groupCast.spells[i].id, "groupCast rank " .. i)
+                    assert.are.equal(id, buff.group[i], "group rank " .. i)
+                end
+                raid({ { "Ann-Vale", case.class }, { "Bo-Fern", case.class }, { "Cid-Rock", case.class } })
+                assert.are.equal("Ann Vale: Greater Blessing of " .. case.name, armed())
+                wow.pressKey("MOUSEWHEELUP")
+                assert.are.equal(case.highest[1], wow.casts[1].id)
+            end)
+        end
 
         it("follows 'Use group versions' and a Blessing of yours that is the same one is renewed", function()
             boot()
