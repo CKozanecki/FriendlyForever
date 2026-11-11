@@ -452,12 +452,16 @@ end
 Options.AUTO_SWITCHES = { "autoOnJoin", "autoOnDeath", "autoOnBuffed", "autoOffPull", "autoOffDone" }
 -- Their labels, which the walkthrough (Walkthrough.lua) repeats.
 Options.AUTO_TEXT = {
-    autoOnJoin = "with my group (in a dungeon or raid, or nearby)",
+    autoOnJoin = "with my group",
     autoOnDeath = "after a death in my group",
     autoOnBuffed = "when a stranger buffs me",
     autoOffPull = "at the first pull",
     autoOffDone = "when everyone has my buffs",
 }
+
+Options.AUTO_JOIN_TIP = "In a dungeon or raid with your group: it waits until everyone is in and has "
+    .. "your buffs, or the first pull. Out in the world: when you join a group with another member "
+    .. "close by (about 40 yards), for 2 minutes after joining."
 
 local function FillAuto(shown)
     widgets.autoHeader:SetShown(shown)
@@ -859,6 +863,8 @@ function Options.Create()
     end
     widgets.autoHeader = Label(content, "Buff mode turns on by itself:", "GameFontNormalSmall")
     local onJoin = AutoBox("autoOnJoin")
+    -- The short label leaves room on its row; the detail is on the mouse-over (#256).
+    Tooltip(onJoin, Options.AUTO_JOIN_TIP)
     onJoin:SetPoint("TOPLEFT", widgets.autoHeader, "BOTTOMLEFT", -4, -2)
     local onDeath = AutoBox("autoOnDeath")
     onDeath:SetPoint("LEFT", onJoin.label, "RIGHT", 16, 0)

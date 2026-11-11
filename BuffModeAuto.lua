@@ -19,8 +19,8 @@
 --   a timeout, whichever comes first.
 -- Turned on in a dungeon or raid, it waits for everyone (#256): it stays on
 -- until every member is in there with you and has your buffs, or until the
--- first pull, whichever comes first. The timeout doesn't apply inside; it
--- starts when you leave. A member who is offline, out of sight, or whose
+-- first pull, whichever comes first. The timeout doesn't apply inside until
+-- then; it starts at the first pull or when you leave. A member who is offline, out of sight, or whose
 -- name or whereabouts can't be read isn't in.
 --
 -- Nothing turns on in a fight: a trigger that fires in one waits for it to
@@ -271,6 +271,13 @@ function Auto.OnCombatStart()
     deathSeen, pendingWhy, pendingInside = false, nil, nil
     if Cfg().autoOffPull == true and ns.BuffMode.IsAuto() then
         ns.BuffMode.EndForFight("the fight started")
+    end
+    -- Waiting for everyone lasts up to the first pull (#256). Buff mode
+    -- the pull didn't end ("at the first pull" unticked) follows the usual
+    -- rules from here, timeout included.
+    if insideWait then
+        insideWait = false
+        if ns.BuffMode.IsAuto() then StartTimeout() end
     end
 end
 

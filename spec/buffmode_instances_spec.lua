@@ -307,6 +307,45 @@ describe("Buff mode in a dungeon or raid (#256)", function()
             assert.is_true(printedHas("buff mode off (the fight started)."))
         end)
 
+        it("with \"at the first pull\" off, the pull ends the wait: the timeout runs from then", function()
+            groupElsewhere()
+            ns.db.buffBack.autoOffPull = false
+            wow.zoneIn("party1") -- in, and not buffed yet (no press)
+            wow.state.units.party2.offline = true -- dropped at the entrance: never in
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            wow.advance(20 * 60)
+            assert.is_true(ns.BuffMode.IsAuto(), "waiting: no timeout before the pull")
+            wow.enterCombat()
+            wow.leaveCombat()
+            assert.is_true(ns.BuffMode.IsAuto(), "the pull doesn't end it with its switch off")
+            wow.advance(5 * 60 - 1)
+            assert.is_true(ns.BuffMode.IsAuto())
+            wow.advance(1)
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_true(printedHas("buff mode off (5 minutes passed)."))
+        end)
+
+        it("after the first pull (its switch off), \"everyone has your buffs\" no longer waits for someone outside", function()
+            groupElsewhere()
+            ns.db.buffBack.autoOffPull = false
+            wow.zoneIn("party1")
+            wow.state.units.party2.offline = true
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            wow.enterCombat()
+            wow.leaveCombat()
+            assert.are.equal(1, scrollAll())
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_true(printedHas("buff mode off (everyone has your buffs)."))
+        end)
+
+        it("its switch says on the mouse-over when it applies", function()
+            local box = ns.Options.widgets.auto.autoOnJoin
+            assert.are.equal("with my group", box.label:GetText())
+            assert.are.equal(ns.Options.AUTO_JOIN_TIP, box.tooltip)
+            assert.is_truthy(box.tooltip:find("dungeon or raid", 1, true))
+            assert.is_truthy(box.tooltip:find("40 yards", 1, true))
+        end)
+
         it("leaving the dungeon starts the timeout from then", function()
             groupElsewhere()
             wow.zoneIn("party1") -- with you, and not buffed yet
