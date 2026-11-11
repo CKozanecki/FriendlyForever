@@ -13,6 +13,8 @@ Only the driver of a PR does this to it. If it isn't your PR, message its driver
 
 When the owner or the coordinator says a PR has merged. GitHub doesn't notify sessions of merges, and the coordinator watches for them (#172), so don't poll for them yourself.
 
+Only for a PR that needs a developer. If the PR shares no file with the merge and has no conflict, do nothing: the owner clicks Update branch (CONTRIBUTING.md's [Only behind `main`](../../../CONTRIBUTING.md#only-behind-main), #229).
+
 ## Steps
 
 1. **Merge, don't rebase.** In your own worktree:

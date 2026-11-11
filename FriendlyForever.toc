@@ -33,6 +33,7 @@ RateLimit.lua
 ChatQueue.lua
 Comm.lua
 Exchange.lua
+RaidSplit.lua
 Receipts.lua
 GuildHellos.lua
 Parser.lua

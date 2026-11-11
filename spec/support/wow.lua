@@ -404,7 +404,8 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --   Mouse clicks, like key presses, act on the half the key-down setting
 --                         picks (Blizzard's 10.x template may act on the up half
 --                         for mouse clicks; the addon re-arms on both halves)
---   Text emotes need a key press outdoors, like /say (see PerformEmote).
+--   Text emotes need no key press (owner, in game, 2026-11-09: #236); only
+--                         /say and /yell do (see PerformEmote).
 --   state.errorBeforeFailed  a refused cast's error text (UI_ERROR_MESSAGE)
 --                         comes before UNIT_SPELLCAST_FAILED instead of after
 --                         (default false); the addon accepts either order
@@ -1378,19 +1379,14 @@ function M.reset()
             return M.state.mapId
         end,
     }
-    -- Text emotes: recorded in M.emotes. Like /say, they need a key press
-    -- outdoors (an assumption the addon also makes, to be safe).
+    -- Text emotes: recorded in M.emotes. Unlike /say they need no key press
+    -- (owner, in game, 2026-11-09: #236), so none is ever blocked.
     M.emotes = {}
     local function PerformEmote(token, target)
         local record = { token = token, target = target, time = M.now }
-        if not M.state.inInstance and not M.hardware then
-            M.blockedEmotes[#M.blockedEmotes + 1] = record
-            return true
-        end
         M.emotes[#M.emotes + 1] = record
         return false
     end
-    M.blockedEmotes = {}
     _G.C_ChatInfo.PerformEmote = PerformEmote
 
     -- Spells: state.knownSpells[id] = true for spells in my spellbook.

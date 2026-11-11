@@ -1,4 +1,4 @@
--- Spec: #68, #76, #208
+-- Spec: #68, #76, #208, #70
 -- My Blessings in this raid (paladins): choose which of your Blessings you
 -- give in the raid you're in, so two paladins don't both give Kings. The
 -- choice is never saved and is forgotten once you're out of the raid.
@@ -222,7 +222,10 @@ describe("My Blessings in this raid", function()
         it("isn't saved", function()
             group("raid", { "Ann-Vale" })
             ns.BuffRules.SetRaidBlessings({ "might" })
-            for key in pairs(ns.db.buffBack) do assert.is_falsy(key:lower():find("raid", 1, true), key) end
+            -- raidSplit is the raid buff split's switch (#70), not this choice.
+            for key in pairs(ns.db.buffBack) do
+                if key ~= "raidSplit" then assert.is_falsy(key:lower():find("raid", 1, true), key) end
+            end
         end)
 
         it("is shown and changed on the Buff Back tab", function()
