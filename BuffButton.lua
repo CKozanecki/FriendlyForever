@@ -185,6 +185,9 @@ local function NextOffer()
     if ns.BuffMode.LentKey() then
         local _
         _, groupReason = ns.GroupBuffs.Next(list)
+        -- In a raid split (#70), say what's yours ("Your share: Divine Spirit").
+        local share = groupReason and ns.RaidSplit.ShareText(false)
+        if share then groupReason = groupReason .. ". " .. share end
     end
     -- One offer per player: the first, which is the one the button would
     -- make (a player owed a favour who is also in your group appears in both).
@@ -273,6 +276,8 @@ function BuffButton.Refresh()
     if not button then return end
     ns.BuffMode.Apply()
     ns.GroupBuffs.Prune()
+    -- Your buffs or settings may have changed what you give in a raid.
+    ns.RaidSplit.Check()
     ArmButton()
     ns.BuffModeAuto.Check()
     if ns.Offers.Count() > 0 or shownResult or ns.BuffMode.LentKey() then ScheduleRecheck() end
@@ -707,6 +712,9 @@ local function ShowTooltip(self)
     local subtitle = button.subtitle:GetText()
     local r, g, b = ns.Colours.RGB("title")
     if subtitle and subtitle ~= "" then GameTooltip:AddLine(subtitle, r, g, b, true) end
+    -- The raid buff split (#70): yours, and who has the rest.
+    local share = ns.BuffMode.LentKey() and ns.RaidSplit.ShareText(true)
+    if share then GameTooltip:AddLine(share, r, g, b, true) end
     -- Why not the group version, when that isn't worth the button's face.
     if armedOffer and armedOffer.hint then GameTooltip:AddLine(armedOffer.hint, r, g, b, true) end
     if armedOffer then
