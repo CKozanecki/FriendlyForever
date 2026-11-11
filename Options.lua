@@ -452,7 +452,7 @@ end
 Options.AUTO_SWITCHES = { "autoOnJoin", "autoOnDeath", "autoOnBuffed", "autoOffPull", "autoOffDone" }
 -- Their labels, which the walkthrough (Walkthrough.lua) repeats.
 Options.AUTO_TEXT = {
-    autoOnJoin = "when I join a group",
+    autoOnJoin = "with my group (in a dungeon or raid, or nearby)",
     autoOnDeath = "after a death in my group",
     autoOnBuffed = "when a stranger buffs me",
     autoOffPull = "at the first pull",
