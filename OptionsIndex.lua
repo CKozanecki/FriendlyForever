@@ -79,7 +79,7 @@ OptionsIndex.SETTINGS = {
     { name = "Blessings I give in this raid", page = BUFF_BACK, keywords = "paladin blessing blessings raid buff",
         controls = { "who.raidBlessings" } },
     { name = "Buff mode turns on by itself", page = BUFF_BACK,
-        keywords = "buff mode automatic auto group join death stranger",
+        keywords = "buff mode automatic auto group join dungeon raid instance nearby death stranger",
         controls = { "auto.autoOnJoin", "auto.autoOnDeath", "auto.autoOnBuffed" } },
     { name = "Buff mode turns off again", page = BUFF_BACK, keywords = "buff mode automatic auto pull minutes",
         controls = { "auto.autoOffPull", "auto.autoOffDone", "steppers.autoOffMinutes" } },

@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41
+-- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -182,6 +182,60 @@ describe("The simulated client", function()
             assert.is_false(_G.IsInInstance())
             name, kind = _G.GetInstanceInfo()
             assert.are.same({ "Eastern Kingdoms", "none" }, { name, kind })
+        end)
+    end)
+
+    describe("dungeons, raids and members elsewhere (#256, white)", function()
+        local heard
+        before_each(function()
+            heard = 0
+            local f = _G.CreateFrame("Frame")
+            for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "ZONE_CHANGED_NEW_AREA", "UNIT_FLAGS" }) do f:RegisterEvent(e) end
+            f:SetScript("OnEvent", function() heard = heard + 1 end)
+            wow.setGroup("party", { "Ann-Vale" })
+        end)
+
+        local function reads(unit)
+            local inRange, checked = _G.UnitInRange(unit)
+            return { _G.UnitIsConnected(unit), _G.UnitIsVisible(unit), inRange, checked }
+        end
+
+        it("enterDungeon takes IsInInstance's kind (a dungeon by default), and enterRaid is a raid", function()
+            wow.enterDungeon(36, "The Deadmines")
+            assert.are.same({ true, "party" }, { _G.IsInInstance() })
+            wow.leaveDungeon()
+            wow.enterRaid(409, "Molten Core")
+            assert.are.same({ true, "raid" }, { _G.IsInInstance() })
+            wow.leaveDungeon()
+            wow.enterDungeon(nil, nil, "arena")
+            assert.are.same({ true, "arena" }, { _G.IsInInstance() })
+            wow.leaveDungeon()
+            assert.are.same({ false, "none" }, { _G.IsInInstance() })
+        end)
+
+        it("zoneOut hides a member with an unchecked range, zoneIn brings them back, and neither fires an event", function()
+            assert.are.same({ true, true, true, true }, reads("party1"))
+            wow.zoneOut("party1")
+            assert.are.same({ true, false, false, false }, reads("party1"))
+            wow.zoneIn("party1")
+            assert.are.same({ true, true, true, true }, reads("party1"))
+            assert.are.equal(0, heard)
+        end)
+
+        it("secrets.hidden, .offline and .range make those answers secrets; inInstanceSecret does IsInInstance's", function()
+            local u = wow.state.units.party1
+            u.secrets = { hidden = true, offline = true, range = true }
+            assert.is_true(_G.issecretvalue(_G.UnitIsVisible("party1")))
+            assert.is_true(_G.issecretvalue(_G.UnitIsConnected("party1")))
+            local inRange, checked = _G.UnitInRange("party1")
+            assert.is_true(_G.issecretvalue(inRange))
+            assert.is_true(_G.issecretvalue(checked))
+            assert.are.equal("Ann", _G.UnitName("party1"), "the name stays readable")
+            wow.enterDungeon(36, "The Deadmines")
+            wow.state.inInstanceSecret = true
+            local inside, kind = _G.IsInInstance()
+            assert.is_true(_G.issecretvalue(inside))
+            assert.is_true(_G.issecretvalue(kind))
         end)
     end)
 
