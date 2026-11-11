@@ -229,18 +229,44 @@ describe("Buff mode in a dungeon or raid (#256)", function()
             assert.is_false(ns.BuffMode.IsOn(), "the open-world rule doesn't apply inside")
         end)
 
-        it("a range the game won't give, or gives as a secret, isn't close", function()
-            wow.setGroup("party", { "Ann-Vale" })
-            wow.state.units.party1.rangeUnknown = true
+        -- Cid is out of range and missing your buffs, so there is something
+        -- to do: only the range read decides whether Ann counts as close.
+        local function joinWithAnn(setUp)
+            wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+            wow.state.units.party2.outOfRange = true
+            setUp(wow.state.units.party1)
             wow.fire("GROUP_ROSTER_UPDATE")
-            assert.is_false(ns.BuffMode.IsOn())
-            wow.setGroup(nil, {})
-            wow.fire("GROUP_ROSTER_UPDATE")
-            wow.setGroup("party", { "Ann-Vale" })
-            wow.state.unitsRestricted = true
-            wow.fire("GROUP_ROSTER_UPDATE")
+        end
+
+        it("a range the game won't check isn't close", function()
+            joinWithAnn(function(ann) ann.rangeUnknown = true end)
             assert.is_false(ns.BuffMode.IsOn())
             assert.are.same({}, wow.errors)
+        end)
+
+        it("a range the game gives as a secret isn't close (her name still readable)", function()
+            joinWithAnn(function(ann) ann.secrets = { range = true } end)
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("the same group with Ann's range readable does turn on (the two tests above reach the range)", function()
+            joinWithAnn(function() end)
+            assert.is_true(ns.BuffMode.IsAuto())
+        end)
+
+        it("in a raid joined out in the world, your own raid slot isn't someone close by", function()
+            wow.setGroup("raid", { "Ann-Vale", "Cid-Rock" })
+            -- The game gives you a raid slot too (#255): the same unit as "player".
+            wow.addUnit("raid3", wow.state.units.player)
+            assert.is_true(UnitIsUnit("raid3", "player"))
+            wow.state.units.raid1.outOfRange = true
+            wow.state.units.raid2.outOfRange = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_false(ns.BuffMode.IsOn())
+            wow.state.units.raid1.outOfRange = nil
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(ns.BuffMode.IsAuto(), "Ann comes close")
         end)
     end)
 
@@ -285,8 +311,9 @@ describe("Buff mode in a dungeon or raid (#256)", function()
 
         it("in a raid, waits for every raid member", function()
             groupElsewhere({ "Ann-Vale", "Cid-Rock", "Dot-Fern" }, "raid")
-            -- The game gives you a raid slot too (#255).
-            wow.addUnit("raid4", { name = "Me", surname = "Realm", id = wow.state.playerName or "Me-Realm" })
+            -- The game gives you a raid slot too (#255): the same unit as "player".
+            wow.addUnit("raid4", wow.state.units.player)
+            assert.is_true(UnitIsUnit("raid4", "player"))
             wow.zoneIn("raid1")
             wow.zoneIn("raid2")
             wow.enterRaid(409, "Molten Core")
@@ -441,14 +468,12 @@ describe("Buff mode in a dungeon or raid (#256)", function()
                 wow.zoneIn(token)
                 wow.state.units[token].auras = { MOTW }
             end
-            ns.db.buffBack.autoOnJoin = true
-            slash("buffmode on") -- yours, so it stays; then make it a trigger's below
-            slash("buffmode off")
             wow.state.unitsRestricted = true
             wow.enterDungeon(DEADMINES, "The Deadmines")
             wow.fire("GROUP_ROSTER_UPDATE")
-            if ns.BuffMode.IsOn() then assert.is_true(ns.BuffMode.IsAuto()) end
-            -- Whatever it did, it never says everyone is in.
+            wow.advance(ns.BuffButton.RECHECK_SECONDS)
+            -- Nobody can be read, so nobody is in: it turns on and stays on.
+            assert.is_true(ns.BuffMode.IsAuto())
             assert.is_false(printedHas("everyone is here"))
             assert.are.same({}, wow.errors)
         end)
@@ -483,8 +508,12 @@ describe("Buff mode in a dungeon or raid (#256)", function()
             boot()
             local everyone = { "Ann-Vale", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
             groupElsewhere({ "Ann-Vale", "Cid-Rock" })
+            -- A short timeout, so a storm can outlast it inside: a timeout
+            -- that wrongly ran there would turn buff mode off early.
+            ns.db.buffBack.autoOffMinutes = 1
             local pulled = false
-            local reachedInside, endedDone = 0, 0
+            local reachedInside, endedDone, outlasted = 0, 0, 0
+            local autoSince -- when buff mode last became the trigger's
             local function party()
                 local out = {}
                 for i = 1, 4 do if wow.state.units["party" .. i] then out[#out + 1] = "party" .. i end end
@@ -550,19 +579,28 @@ describe("Buff mode in a dungeon or raid (#256)", function()
                     end
                 end
                 assert.are.same({}, wow.errors, where)
+                if ns.BuffMode.IsAuto() then
+                    autoSince = autoSince or wow.now
+                    if wow.state.inInstance and not pulled and wow.now - autoSince > 60 then
+                        outlasted = outlasted + 1
+                    end
+                else
+                    autoSince = nil
+                end
             end
-            return reachedInside, endedDone
+            return reachedInside, endedDone, outlasted
         end
 
         it("members joining, leaving, zoning in and out and going offline never turn it off early", function()
-            local inside, done = 0, 0
+            local inside, done, outlasted = 0, 0, 0
             for seed = 1, 12 do
-                local a, b = storm(seed)
-                inside, done = inside + a, done + b
+                local a, b, c = storm(seed)
+                inside, done, outlasted = inside + a, done + b, outlasted + c
             end
             -- The storms must reach the cases that count.
             assert.is_true(inside > 50, "waited inside " .. inside .. " times")
             assert.is_true(done > 0, "ended with everyone in and buffed " .. done .. " times")
+            assert.is_true(outlasted > 0, "stayed on inside past the timeout " .. outlasted .. " times")
         end)
     end)
 end)

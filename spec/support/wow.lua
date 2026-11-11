@@ -471,7 +471,8 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         Zoning fires no event here. Whether Forever reads a
 --                         member outside the instance this way: #257.
 --                         IsInInstance() answers secrets while
---                         state.inInstanceSecret is set.
+--                         state.inInstanceSecret is set; unit.secrets.range
+--                         makes UnitInRange's answers secrets.
 --   state.castLatency     seconds before the server answers a cast
 --                         (SUCCEEDED or FAILED and its error text); 0 (default)
 --                         answers inside the press. SENT is always at once.
@@ -1439,11 +1440,14 @@ function M.reset()
     end)
     -- Group members: unit fields outOfRange (true: out of range), rangeUnknown
     -- (the game can't tell), offline and hidden (not in sight / not visible).
+    -- unit.secrets.range makes UnitInRange's answers secrets (#256).
     _G.UnitInRange = function(unit)
         local u = M.state.units[unit]
         if not u then return false, false end
         if u.rangeUnknown then return false, false end
-        if M.state.unitsRestricted then return M.secret(not u.outOfRange), M.secret(true) end
+        if M.state.unitsRestricted or (u.secrets and u.secrets.range) then
+            return M.secret(not u.outOfRange), M.secret(true)
+        end
         return not u.outOfRange, true
     end
     -- Group roles: unit.role ("TANK", "HEALER", "DAMAGER"; "NONE" when
