@@ -421,8 +421,66 @@ States.ListFilled = {
     end,
 }
 
+-- The list (#43) with a group cast in it (#227): in buff mode, a party of
+-- three missing Fortitude, and the player knows Prayer of Fortitude and
+-- carries its reagent, so the button holds the group version and the list
+-- shows it as one row. The simulator has no Forever data, so the group
+-- spell's name and the reagent count are answered here, as Learn does for
+-- the single buff, and put back by Undo.
+States.GROUP_SPELL = { id = 21564, name = "Prayer of Fortitude", reagent = 17029 }
+States.GROUP_MEMBERS = { States.GROUPMATE, "Cedric Vane", "Dagny Rask" }
+local groupSaved
+States.ListGroupCast = {
+    Set = function()
+        States.PassLoginGrace()
+        States.Learn()
+        local items = _G.C_Item
+        groupSaved = { name = C_Spell.GetSpellName, count = _G.GetItemCount,
+            citem = items and items.GetItemCount, range = C_Spell.IsSpellInRange }
+        local name, range = C_Spell.GetSpellName, C_Spell.IsSpellInRange
+        C_Spell.GetSpellName = function(spell, ...)
+            if spell == States.GROUP_SPELL.id or spell == States.GROUP_SPELL.name then
+                return States.GROUP_SPELL.name
+            end
+            return name(spell, ...)
+        end
+        C_Spell.IsSpellInRange = function(spell, unit, ...)
+            if spell == States.GROUP_SPELL.id or spell == States.GROUP_SPELL.name then
+                return UnitInRange(unit) and true or false
+            end
+            return range(spell, unit, ...)
+        end
+        local count = _G.GetItemCount
+        _G.GetItemCount = function(item, ...)
+            if item == States.GROUP_SPELL.reagent then return 5 end
+            if count then return count(item, ...) end
+        end
+        if items then items.GetItemCount = nil end
+        Admin("LearnSpell", States.GROUP_SPELL.id)
+        States.Fire("SPELLS_CHANGED")
+        States.NoFortitude()
+        States.PartyOf(States.GROUP_MEMBERS)
+        Command("buffmode on")
+    end,
+    Undo = function()
+        if InCombatLockdown() then States.Combat(false) end
+        Command("buffmode off")
+        States.RestoreParty()
+        Admin("UnlearnSpell", States.GROUP_SPELL.id)
+        if groupSaved then
+            C_Spell.GetSpellName, _G.GetItemCount = groupSaved.name, groupSaved.count
+            C_Spell.IsSpellInRange = groupSaved.range
+            if _G.C_Item then _G.C_Item.GetItemCount = groupSaved.citem end
+            groupSaved = nil
+        end
+        States.Unlearn()
+        States.Advance(States.RESULT_SECONDS)
+    end,
+}
+
 -- For the screenshot job: set a state up and leave it.
-local SHOWN = { favour = States.Favour, buffmode = States.GroupMissing, bufflist = States.ListFilled }
+local SHOWN = { favour = States.Favour, buffmode = States.GroupMissing, bufflist = States.ListFilled,
+    buffgroup = States.ListGroupCast }
 function States.Show(name)
     local state = SHOWN[name]
     if not state then error("no button state called " .. tostring(name)) end
