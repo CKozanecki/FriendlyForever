@@ -78,6 +78,10 @@ local justGiven = {} -- [name .. "\1" .. buff key] = GetTime()
 local skipped = {}   -- [name] = GetTime() you right-clicked them
 local heldBack = {}  -- [name] = GetTime() the game refused a cast to them
 local lastSelfWhy        -- why you were last left out of the offers (said once in debug)
+-- While GroupBuffs.Missing asks (#272): any copy of a buff counts as worn
+-- (running low, or anyone's), and only a member close by and known to be
+-- online can be missing one.
+local presentOnly = false
 -- The dungeon-or-raid round (#256), or nil: { started = GetTime(), given =
 -- { [name .. "\1" .. buff key] = true }, inStep = { [buff key] = { buff,
 -- at, by } } (the newest member's buff it left alone as in step), order = {
@@ -227,6 +231,8 @@ local function Wears(member, buff, units)
         local id = aura.spellId
         if Util.IsSecret(id) then return nil, "can't see their buffs" end
         if ns.BuffData.Covers(buff, id) then
+            -- Any copy at all is worn when only a missing buff counts (#272).
+            if presentOnly then return true end
             -- Running low, it's renewed (top-up, #42), but never over a
             -- caster that can't be read (#256).
             local renews
@@ -336,6 +342,16 @@ local function Candidates(units)
             elseif not seen[name] then
                 seen[name] = true
                 local why = CantBuff(unit, iAmFlagged)
+                -- Missing (#272): only someone close by (the game's ~40-yard
+                -- group range) and known to be online; a range or connection
+                -- the game won't give isn't.
+                if presentOnly and not why then
+                    if Read(UnitIsConnected, unit) ~= true then
+                        why = "can't tell whether they're online"
+                    elseif Read(UnitInRange, unit) ~= true then
+                        why = "not close by"
+                    end
+                end
                 if Recently(skipped[name], GroupBuffs.SKIP_SECONDS) then
                     why = "skipped for now (you right-clicked them)"
                 elseif Recently(heldBack[name], GroupBuffs.HELD_BACK_SECONDS) then
@@ -435,7 +451,9 @@ function GroupBuffs.Next(out)
                 unreadable[member.name] = true
                 Why(member, wearsWhy)
             elseif wears then
-                justGiven[key] = nil
+                -- A buff only running low is worn here: your top-up cast
+                -- still counts as just given (#272).
+                if not presentOnly then justGiven[key] = nil end
             elseif allowed == nil then
                 -- The rules can't tell (an unreadable role or class):
                 -- said, and not settled, only for a member missing it.
@@ -519,6 +537,22 @@ function GroupBuffs.Next(out)
     if offer then return offer end
     if first then return first end
     return nil, firstReason or "everyone in your group has your buffs", not open
+end
+
+-- The members missing a buff of yours outright (#272), in the order the
+-- button would reach them: { name, buff, ... } as Next lists them. Missing
+-- means no copy at all, whoever cast it: never cast, or fully faded, and
+-- not merely running low. Next's rules hold (your Buff Back rules, the raid
+-- split, water, the one-Blessing rule), and a member counts only when close
+-- by, online and readable: one whose buffs, name, connection or range can't
+-- be read is never missing one. Nothing here casts.
+function GroupBuffs.Missing()
+    local list = {}
+    presentOnly = true
+    local ok, err = pcall(GroupBuffs.Next, list)
+    presentOnly = false
+    if not ok then error(err, 0) end
+    return list
 end
 
 -- Your buff reached them (the game said so).

@@ -1666,7 +1666,7 @@ function M.load()
 end
 
 -- Buff mode's turn-on triggers, which boot switches off for most specs.
-M.TURN_ON_TRIGGERS = { "autoOnJoin", "autoOnDeath", "autoOnBuffed" }
+M.TURN_ON_TRIGGERS = { "autoOnJoin", "autoOnDeath", "autoOnBuffed", "autoOnMissing" }
 
 -- The Settings panel's search (state.settingsSearch, see ASSUMPTIONS): vertical
 -- pages, whose headings M.searchSettings finds by their search tags.
