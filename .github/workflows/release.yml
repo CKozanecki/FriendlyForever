@@ -43,6 +43,12 @@ jobs:
           [[ "v$toc" == "$GITHUB_REF_NAME" ]] \
             || { echo "::error::Tag $GITHUB_REF_NAME does not match TOC version $toc"; exit 1; }
 
+      # A note still in changes/ (or under ### Unreleased) would be left out
+      # of the release notes: the release PR gathers them (#261). Never
+      # skipped: it runs in seconds and needs no tools.
+      - name: Check every changelog note was gathered into this version
+        run: make release-notes RELEASE=1
+
       # Counts only CI's own run from a push to main in this repository, on
       # exactly this commit, and its job named check. Success skips the steps
       # below; any doubt (no run, not finished, cancelled, an API error) runs
@@ -119,7 +125,7 @@ jobs:
             || { echo "::error::FriendlyForever.toc has no ## X-Curse-Project-ID"; exit 1; }
 
       - name: Write this version's release notes
-        run: make release-notes
+        run: make release-notes RELEASE=1
 
       - name: Package and upload
         uses: BigWigsMods/packager@e50a250f8705041e40f2fa1ddcb280a686d65aa0 # v2.6.1
