@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256
+-- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #274
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -6,6 +6,40 @@ local MOTW, MOTW_1 = 9885, 1126
 local MACRO = "/targetexact Ann Stone\n/cast [help,nodead] Mark of the Wild"
 
 describe("The simulated client", function()
+    describe("hiding and button text (#274, white)", function()
+        it("Hide runs OnHide for a shown frame and the shown frames below it, and for no hidden one", function()
+            local ran = {}
+            local parent = CreateFrame("Frame")
+            local child, hiddenChild = CreateFrame("Frame", nil, parent), CreateFrame("Frame", nil, parent)
+            for name, f in pairs({ parent = parent, child = child, hiddenChild = hiddenChild }) do
+                f:SetScript("OnHide", function() ran[#ran + 1] = name end)
+            end
+            hiddenChild:Hide()
+            ran = {}
+            parent:Hide()
+            table.sort(ran)
+            assert.are.same({ "child", "parent" }, ran)
+            ran = {}
+            parent:Hide()
+            parent:SetShown(false)
+            assert.are.same({}, ran)
+        end)
+
+        it("a button's text line shows the button's text, and LockHighlight records itself", function()
+            local button = CreateFrame("Button", nil, UIParent, "UIPanelButtonTemplate")
+            button:SetText("one")
+            local line = button:GetFontString()
+            assert.are.equal("one", line:GetText())
+            button:SetText("two")
+            assert.are.equal("two", line:GetText())
+            assert.are.equal(line, button:GetFontString())
+            button:LockHighlight()
+            assert.is_true(button.highlightLocked)
+            button:UnlockHighlight()
+            assert.is_false(button.highlightLocked)
+        end)
+    end)
+
     -- A druid who knows Mark of the Wild, near Ann-Stone (not flagged for PvP)
     -- and Dot-Stone (flagged).
     before_each(function()
