@@ -1190,9 +1190,8 @@ describe("Greetings", function()
             online("Nikki-Shifts")
             wow.advance(120)
             assert.are.same({}, wow.errors)
-            for _, text in ipairs(wow.sentTo("GUILD")) do
-                assert.is_nil(text:find("secret", 1, true))
-            end
+            assert.are.same({}, wow.sentTo("GUILD"))
+            assert.are.equal(0, #wow.sent)
         end)
 
         it("Preview random on the options tabs names the whole name for guild lines only", function()
