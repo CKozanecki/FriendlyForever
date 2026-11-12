@@ -147,9 +147,16 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
             assert.is_false(ns.BuffMode.IsOn())
         end)
 
-        it("is switched on the Buff Back tab, on by default", function()
+        it("is switched on the Buff Back tab, on by default, and says on the mouse-over when it applies", function()
             assert.is_true(ns.db.buffBack.autoOnMissing)
-            ns.db.buffBack.autoOnMissing = false
+            local box = ns.Options.widgets.auto.autoOnMissing
+            assert.are.equal("when someone's missing my buffs", box.label:GetText())
+            assert.are.equal(ns.Options.AUTO_MISSING_TIP, box.tooltip)
+            assert.is_truthy(box.tooltip:find("40 yards", 1, true))
+            assert.is_truthy(box.tooltip:find("not just running low", 1, true))
+            box:SetChecked(false)
+            wow.run(box, "OnClick")
+            assert.is_false(ns.db.buffBack.autoOnMissing, "unticking it switches the trigger off")
             joinCovered()
             look()
             strip("party1")

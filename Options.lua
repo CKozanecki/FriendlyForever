@@ -449,12 +449,13 @@ local function ShowStepper(stepper, shown)
 end
 
 -- The Buff Back tab's rows for when buff mode turns on and off by itself.
-Options.AUTO_SWITCHES = { "autoOnJoin", "autoOnDeath", "autoOnBuffed", "autoOffPull", "autoOffDone" }
+Options.AUTO_SWITCHES = { "autoOnJoin", "autoOnDeath", "autoOnBuffed", "autoOnMissing", "autoOffPull", "autoOffDone" }
 -- Their labels, which the walkthrough (Walkthrough.lua) repeats.
 Options.AUTO_TEXT = {
     autoOnJoin = "with my group",
     autoOnDeath = "after a death in my group",
     autoOnBuffed = "when a stranger buffs me",
+    autoOnMissing = "when someone's missing my buffs",
     autoOffPull = "at the first pull",
     autoOffDone = "when everyone has my buffs",
 }
@@ -462,6 +463,10 @@ Options.AUTO_TEXT = {
 Options.AUTO_JOIN_TIP = "In a dungeon or raid with your group: it waits until everyone is in and has "
     .. "your buffs, or the first pull. Out in the world: when you join a group with another member "
     .. "close by (about 40 yards), for 2 minutes after joining."
+
+Options.AUTO_MISSING_TIP = "In any group, out of combat: when someone close by (about 40 yards), you "
+    .. "included, has none of a buff you give: never cast, or faded away (not just running low). "
+    .. "Looked at as a fight ends, and every few seconds."
 
 local function FillAuto(shown)
     widgets.autoHeader:SetShown(shown)
@@ -870,8 +875,12 @@ function Options.Create()
     onDeath:SetPoint("LEFT", onJoin.label, "RIGHT", 16, 0)
     local onBuffed = AutoBox("autoOnBuffed")
     onBuffed:SetPoint("LEFT", onDeath.label, "RIGHT", 16, 0)
+    -- A row of its own: the three above fill theirs at 1024 x 768 (#272).
+    local onMissing = AutoBox("autoOnMissing")
+    Tooltip(onMissing, Options.AUTO_MISSING_TIP)
+    onMissing:SetPoint("TOPLEFT", onJoin, "BOTTOMLEFT", 0, -2)
     widgets.autoOffHeader = Label(content, "...and off again (only when it turned itself on):", "GameFontNormalSmall")
-    widgets.autoOffHeader:SetPoint("TOPLEFT", onJoin, "BOTTOMLEFT", 4, -6)
+    widgets.autoOffHeader:SetPoint("TOPLEFT", onMissing, "BOTTOMLEFT", 4, -6)
     local offPull = AutoBox("autoOffPull")
     offPull:SetPoint("TOPLEFT", widgets.autoOffHeader, "BOTTOMLEFT", -4, -2)
     local offDone = AutoBox("autoOffDone")
