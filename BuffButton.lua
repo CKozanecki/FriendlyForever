@@ -39,7 +39,7 @@ BuffButton.FADE_STEP_SECONDS = 0.1
 BuffButton.MACRO_MAX_LENGTH = 255
 BuffButton.PLACEHOLDER_ICON = "Interface\\Icons\\Spell_Nature_Regeneration"
 -- The button's size. Its second line (why it's empty, or what it offers)
--- wraps, never cut short (#270): the button grows down to hold every line.
+-- wraps, never cut short (#270): the button grows to hold every line, from its saved anchor point (centred by default).
 BuffButton.WIDTH = 220
 BuffButton.MIN_HEIGHT = 44
 BuffButton.TEXT_LEFT = 46        -- the text starts right of the icon (4 + 36 + 6)
@@ -967,7 +967,7 @@ function BuffButton.Create()
     button.icon:SetPoint("TOPLEFT", 4, -4)
     -- The name and the favour span the room right of the icon. The name is
     -- one line: the game cuts a name that doesn't fit with "...". The line
-    -- below wraps, and the button grows down to hold it (#270).
+    -- below wraps, and the button grows to hold it, from its saved anchor point (#270).
     button.title = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     button.title:SetPoint("TOPLEFT", button.icon, "TOPRIGHT", 6, -2)
     button.title:SetPoint("TOPRIGHT", button, "TOPRIGHT", -6, -6)
