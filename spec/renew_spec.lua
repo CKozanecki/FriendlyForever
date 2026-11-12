@@ -214,6 +214,10 @@ describe("Renewing a worn buff on buff back (#269)", function()
             assert.are.equal("Thorns", offered(), "not numbers")
             u.auraDurations[1], u.auraExpires[1] = 0 / 0, wow.now + 5
             assert.are.equal("Thorns", offered(), "NaN")
+            u.auraDurations[1], u.auraExpires[1] = HALF_HOUR, 0
+            assert.are.equal("Thorns", offered(), "a full time, but an expiry of 0: never runs out")
+            u.auraDurations[1], u.auraExpires[1] = HALF_HOUR, 0 / 0
+            assert.are.equal("Thorns", offered(), "a NaN expiry")
         end)
     end)
 
@@ -278,6 +282,10 @@ describe("Renewing a worn buff on buff back (#269)", function()
     describe("chaos (red)", function()
         -- Random worn buffs, times and settings. The expected offer is worked
         -- out from the simulated client's own state, never by asking Offers.
+        -- How often each outcome came up, across the seeds: each must be
+        -- reached, or the storm checks nothing there.
+        local reached
+
         local function storm(seed, knowsTop)
             local known = { [MOTW_1] = true, [THORNS_1] = true }
             if knowsTop then known[MOTW] = true end
@@ -293,6 +301,10 @@ describe("Renewing a worn buff on buff back (#269)", function()
                 local spell = ({ MOTW, MOTW_1, GIFT })[random.random(3)]
                 local duration = ({ HALF_HOUR, 3600, 0 })[random.random(3)]
                 local left = random.random(1, math.max(duration, 1))
+                -- Sometimes nearly fresh, where only a share over 90 would renew it.
+                if duration > 0 and random.random(4) == 1 then
+                    left = random.random(math.ceil(duration * 0.9), duration - 1)
+                end
                 bobWears(spell, left, duration)
                 if duration == 0 then u.auraExpires[1] = 0 end
                 local secret = random.random(4) == 1
@@ -305,6 +317,18 @@ describe("Renewing a worn buff on buff back (#269)", function()
                 local readable = not secret and duration > 0
                 local wornOff = readable and replaceable and left < duration * share / 100
                 local expected = wornOff and "Mark of the Wild" or "Thorns"
+                local under = duration > 0 and left < duration * share / 100
+                local outcome = wornOff and "renewed"
+                    or (duration == 0 and "never runs out")
+                    or (under and secret and replaceable and "secret, worn off")
+                    or (under and not replaceable and "worn off, not replaceable")
+                    or (readable and replaceable and "over the share")
+                    or "other"
+                reached[outcome] = (reached[outcome] or 0) + 1
+                if type(setting) == "number" and setting > 90 and readable and replaceable
+                    and left >= duration * 0.9 and left < duration then
+                    reached["over 90, held to 90"] = (reached["over 90, held to 90"] or 0) + 1
+                end
 
                 local ok, offer = pcall(ns.Offers.Current)
                 assert.is_true(ok, tostring(offer))
@@ -317,7 +341,12 @@ describe("Renewing a worn buff on buff back (#269)", function()
         end
 
         it("offers your buff exactly when theirs is worn off and replaceable, over many random cases", function()
+            reached = {}
             for seed = 1, 4 do storm(seed, seed % 2 == 0) end
+            for _, outcome in ipairs({ "renewed", "never runs out", "secret, worn off", "worn off, not replaceable",
+                "over the share", "over 90, held to 90" }) do
+                assert.is_true((reached[outcome] or 0) > 0, "the storm never reached: " .. outcome)
+            end
         end)
     end)
 end)
