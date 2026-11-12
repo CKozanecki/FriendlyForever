@@ -25,7 +25,7 @@ If any of these is missing, ask for it rather than guessing.
 - **The tests can fail:** each one reaches the path it claims to cover, and fails when that code is broken. Run your own mutations only of the new safety-critical lines (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops) says what counts), and not of the others.
 - **Chaos (red) tests** check invariants worked out independently, from the simulated client's own state.
 - **The simulated client** (`spec/support/wow.lua`) stays realistic and pessimistic. See [docs/simulated-client.md](../../docs/simulated-client.md).
-- **Traceability:** changed spec files carry `-- Spec: #N` on one of their first five lines; changelog entries end with their issues.
+- **Traceability:** changed spec files carry `-- Spec: #N` on one of their first five lines; changelog notes (`changes/<issue>.md`, CONTRIBUTING.md's Changelog notes) end with their issues.
 - **UI changes:** the screenshots and `LAYOUT` lines (below).
 
 Code design is the Lua architect's job; mention a code problem only if a test exposes it.

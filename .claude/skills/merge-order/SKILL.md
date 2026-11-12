@@ -33,7 +33,7 @@ git merge-tree --write-tree origin/<a> origin/<b>   # exit code 1 means a confli
 
 For each conflicting pair, record the files and what the conflict is. Common ones:
 - `-- Spec:` headers on line 1 of the same spec file (#85/#87, #92/#93): keep both issue numbers.
-- Bullets under `### Unreleased` in `CHANGELOG.md`: keep both.
+- Bullets under `### Unreleased` in `CHANGELOG.md`, from a PR opened before changelog fragments (#261): keep both, and the driver moves theirs to a fragment (CONTRIBUTING.md's [Changelog notes](../../../CONTRIBUTING.md#changelog-notes)). Fragments in `changes/` never conflict.
 - `spec/repo_spec.lua`, `AGENTS.md` and `CLAUDE.md`, which many PRs touch.
 
 For a clean pair with overlapping files, say what overlaps, since a clean textual merge can still break (two PRs changing the same behaviour). Where practical, run `make check` on the merged tree of the pairs that overlap.

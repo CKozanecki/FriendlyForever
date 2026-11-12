@@ -23,7 +23,7 @@ Only for a PR that needs a developer. If the PR shares no file with the merge an
    git merge origin/main
    ```
    Never force-push. (A branch that must be rebased is pushed under a new name, per AGENTS.md.)
-2. **Resolve conflicts** keeping both sides' intent: `-- Spec:` headers get both issue numbers, `### Unreleased` keeps both bullets. If both sides changed the same logic and either choice loses behaviour, ask the other PR's driver.
+2. **Resolve conflicts** keeping both sides' intent: `-- Spec:` headers get both issue numbers. If the PR still has a line under `### Unreleased`, move it to a fragment now (CONTRIBUTING.md's [Changelog notes](../../../CONTRIBUTING.md#changelog-notes)); fragments never conflict. If both sides changed the same logic and either choice loses behaviour, ask the other PR's driver.
 3. **`make check`** on the merged tree, after `git add` of anything new.
 4. **Prove whether the merge is file-disjoint** (CONTRIBUTING.md's [Review loops](../../../CONTRIBUTING.md#review-loops)). Before step 1, save `git diff --name-only origin/main...HEAD` (the PR's files). After it, run `git diff --name-only <old main>..<new main>`. If step 2 had no conflicts and no file is in both lists, run `make check`, confirm CI is green, put both lists in the description and skip to step 5: the reviewers don't confirm.
    If a file is in both lists, or a conflict was resolved, the reviewers confirm the merge and the resolution only: architecture then testing, using the `lua-architect` and `lua-tester` agents. Give them the merge commit's range (`<old head>..<merge commit>`) and say what conflicted. Where a file overlaps, a clean merge still goes back to them, since the merged code can interact with yours (#85, #88, #93 recorded each confirmation).

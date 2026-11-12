@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -165,6 +165,69 @@ end)
 
 describe("CI workflow", function()
     local path = ".github/workflows/ci.yml"
+
+    -- #261: a pull request that changes the TOC version is a release PR, and
+    -- its notes must hold every changelog note. Runs the step's own script in
+    -- a scratch repository with the real Makefile and release-notes.sh.
+    describe("a release PR's notes leave no changelog note behind (#261)", function()
+        local script
+
+        setup(function()
+            local job = jobWith(select(2, parseWorkflow(path)), "make release%-notes")
+            local step = job.steps[indexOf(job.steps, "make release%-notes")]
+            assert.is_truthy(step.text:find("BASE: ${{ github.event.pull_request.base.sha || github.event.before }}", 1, true),
+                "the step doesn't compare with the pull request's base")
+            script = step.text:match("run: |\n(.*)$"):gsub("\n          ", "\n"):gsub("^%s+", "")
+        end)
+
+        -- Commits a TOC at version `from`, then one at `to` with the given
+        -- fragments, and runs the step against the first as its base.
+        local function step(from, to, fragments, base)
+            local dir = io.popen("mktemp -d"):read("*l")
+            local root = wow.ROOT:sub(1, 1) == "/" and wow.ROOT or (io.popen("pwd"):read("*l") .. "/" .. wow.ROOT)
+            local body = io.open(dir .. "/step.sh", "wb")
+            body:write(script)
+            body:close()
+            local setup = table.concat({
+                "set -e", "cd '" .. dir .. "'", "mkdir repo scripts", "cd repo", "git init -q .",
+                "git config user.email t@example.invalid", "git config user.name t",
+                "cp '" .. root .. "Makefile' . && mkdir scripts && cp '" .. root .. "scripts/release-notes.sh' scripts/",
+                "printf '# Changelog\\n\\n## " .. from .. "\\n\\n- x (#1)\\n' > CHANGELOG.md",
+                "printf '## Version: " .. from .. "\\n' > FriendlyForever.toc",
+                "git add -A && git commit -qm base",
+                "printf '## Version: " .. to .. "\\n' > FriendlyForever.toc",
+                "mkdir -p changes",
+            }, "\n")
+            for _, name in ipairs(fragments) do
+                setup = setup .. "\nprintf -- '- y (#5)\\n' > changes/" .. name
+            end
+            setup = setup .. "\ngit add -A && git commit -qm head\n"
+            setup = setup .. "BASE=" .. (base or "$(git rev-parse HEAD~1)") .. " bash -e ../step.sh\n"
+            local p = io.popen("bash -c '" .. setup:gsub("'", "'\\''") .. "' 2>&1; echo rc=$?")
+            local out = p:read("*a")
+            p:close()
+            os.execute("rm -rf '" .. dir .. "'")
+            return out, tonumber(out:match("rc=(%d+)\n$"))
+        end
+
+        it("fails when the TOC version changes and a fragment is left (black)", function()
+            local out, code = step("1.0.0", "1.1.0", { "5.md" })
+            assert.are_not.equal(0, code, out)
+            assert.is_truthy(out:find("make changelog", 1, true), out)
+        end)
+
+        it("passes a release PR that gathered everything (white)", function()
+            local out, code = step("1.0.0", "1.1.0", {})
+            assert.are.equal(0, code, out)
+        end)
+
+        it("passes an ordinary PR with a fragment, and a push with no known base (white)", function()
+            local out, code = step("1.0.0", "1.0.0", { "5.md" })
+            assert.are.equal(0, code, out)
+            out, code = step("1.0.0", "1.1.0", { "5.md" }, "0000000000000000000000000000000000000000")
+            assert.are.equal(0, code, out)
+        end)
+    end)
 
     it("checks pull requests with lint, tests and packaging", function()
         local ci = wow.readFile(path)
@@ -1925,6 +1988,25 @@ describe("Release workflow", function()
     local order
 
     setup(function() order = select(2, parseWorkflow(path)) end)
+
+    -- #261: a note still waiting in changes/ (or under ### Unreleased) would
+    -- be left out of the release notes. verify checks it before asking CI, so
+    -- the #241 fast path never skips it, and the upload writes its notes the
+    -- same way.
+    it("refuses a release that left a changelog note ungathered, on the fast path too (white, black)", function()
+        local verify = jobWith(order, "make test")
+        local check = indexOf(verify.steps, "make release%-notes RELEASE=1")
+        local ask = indexOf(verify.steps, "id:%s*ci%s")
+        assert.is_truthy(check, "verify doesn't check every changelog note was gathered")
+        assert.is_true(check < ask, "the gathered check comes after asking CI")
+        assert.is_falsy(verify.steps[check].text:find("if:", 1, true), "the gathered check can be skipped")
+        local release = jobWith(order, "BigWigsMods/packager@")
+        local notes = indexOf(release.steps, "make release%-notes")
+        assert.is_truthy(release.steps[notes].text:find("make release-notes RELEASE=1\n", 1, true),
+            "the uploaded notes don't check every note was gathered")
+        assert.is_truthy(wow.readFile("Makefile"):find("./scripts/release-notes.sh $(if $(RELEASE),--release)", 1, true),
+            "make release-notes RELEASE=1 doesn't pass --release")
+    end)
 
     it("defaults to read-only access", function()
         assert.is_truthy(wow.readFile(path):find("\npermissions:\n  contents: read\n", 1, true))
