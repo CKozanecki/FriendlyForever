@@ -1,4 +1,4 @@
--- Spec: #42, #209
+-- Spec: #42, #209, #206
 -- Top-up timing: in buff mode, a group member's buff with less than the set
 -- time left (default 5 minutes) counts as missing, so the button offers to
 -- top it up. Group members only, never strangers; a time that can't be read
@@ -165,15 +165,18 @@ describe("Top-up timing in buff mode (#42)", function()
     end)
 
     describe("what it leaves alone (white)", function()
-        it("leaves a higher rank than yours, a group version or a blocker to run out", function()
+        it("leaves a higher rank than yours, or a group version stronger than it, to run out", function()
             boot({ known = { [MOTW_1] = true, [THORNS_1] = true } })
             annWears(THORNS_1, 600, 600)
             annWears(MOTW, 60)
             assert.is_nil(armed(), "a higher rank than you know")
+            annWears(GIFT, 60, 3600)
+            assert.is_nil(armed(), "Gift of the Wild, as strong as the top rank")
+            -- A group version as strong as a rank you know is renewed (#206).
             boot()
             annWears(THORNS_1, 600, 600)
             annWears(GIFT, 60, 3600)
-            assert.is_nil(armed(), "Gift of the Wild")
+            assert.are.equal("Ann Vale: Mark of the Wild", armed(), "Gift of the Wild, renewed")
         end)
 
         it("never offers a buff no longer than the threshold, even near its end", function()
@@ -317,13 +320,14 @@ describe("Top-up timing in buff mode (#42)", function()
         local COVERS = { [MOTW] = true, [MOTW_1] = true, [GIFT] = true }
 
         -- Whether the client's own state says Ann may be offered Mark of the
-        -- Wild: no live Mark at all, or every live one is a rank you know
-        -- with readable times, longer than the threshold, and less of it left.
+        -- Wild: no live Mark at all, or every live one is a rank you know (Gift
+        -- counting as the top rank, #206) with readable times, longer than the
+        -- threshold, and less of it left.
         local function mayOffer(u, threshold)
             for i, id in ipairs(u.auras or {}) do
                 if COVERS[id] and not wow.auraExpired(u, i) then
                     local duration, expires = u.auraDurations and u.auraDurations[i], u.auraExpires and u.auraExpires[i]
-                    if threshold <= 0 or id == GIFT then return false end
+                    if threshold <= 0 then return false end
                     if u.secrets and u.secrets.auraTimes then return false end
                     if type(duration) ~= "number" or type(expires) ~= "number" then return false end
                     if duration ~= duration or expires ~= expires then return false end
@@ -335,7 +339,7 @@ describe("Top-up timing in buff mode (#42)", function()
 
         it("time running out and clock changes never cause errors or a top-up the state forbids", function()
             -- topUps: casts over a live Mark; held: steps near its end that
-            -- the state forbids (secret or junk times, Gift, a short buff, 0).
+            -- the state forbids (secret or junk times, a short buff, 0).
             local topUps, held = 0, 0
             for _, seed in ipairs({ 3, 42, 99, 512, 2026, 7777 }) do
                 random.seed(seed)

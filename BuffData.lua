@@ -97,6 +97,20 @@ for _, list in pairs(BuffData.CLASSES) do
         for _, spell in ipairs(buff.groupCast and buff.groupCast.spells or {}) do byGroupCastId[spell.id] = buff end
     end
 end
+-- [buff] = { [spell ID] = place in buff.ranks, 1 the highest }: each rank at
+-- its own place, and each group version you can cast at the place of the
+-- single rank of the same strength (#206).
+local rankAt = {}
+for _, list in pairs(BuffData.CLASSES) do
+    for _, buff in ipairs(list) do
+        local at = {}
+        for i, id in ipairs(buff.ranks) do at[id] = i end
+        for _, spell in ipairs(buff.groupCast and buff.groupCast.spells or {}) do
+            at[spell.id] = at[spell.equals]
+        end
+        rankAt[buff] = at
+    end
+end
 for _, list in pairs(BuffData.CLASSES) do
     for _, buff in ipairs(list) do
         for _, id in ipairs(buff.ranks) do
@@ -211,16 +225,27 @@ function BuffData.ForGroupCast(spellId)
     return byGroupCastId[spellId]
 end
 
+-- How strong spellId is as buff: its place in buff.ranks (1 the highest),
+-- a group version you can cast counting as the single rank it equals (#206),
+-- or nil for anything else (a blocker, a group version with no single rank
+-- of its strength, another buff, a secret).
+function BuffData.RankOf(buff, spellId)
+    local at = rankAt[buff]
+    -- A secret mustn't be used as a table key (the game raises an error).
+    if at == nil or Util.IsSecret(spellId) then return nil end
+    return at[spellId]
+end
+
 -- Whether your cast of buff can replace spellId on a player, to top it up
--- (#42): spellId is one of buff's ranks, and you know that rank or a higher
--- one. A group version, a blocker or a rank above yours is left to run out:
--- the game may refuse a weaker cast over it.
+-- (#42): spellId is one of buff's ranks, or a group version you can cast
+-- (#206), and you know a single rank at least as strong. A blocker or
+-- anything stronger than every rank you know is left to run out: the game
+-- may refuse a weaker cast over it.
 function BuffData.CanReplace(buff, spellId)
-    if Util.IsSecret(spellId) then return false end
-    local known = false
-    for _, id in ipairs(buff.ranks) do
-        known = known or Known(id)
-        if id == spellId then return known end
+    local at = BuffData.RankOf(buff, spellId)
+    if at == nil then return false end
+    for i = 1, at do
+        if Known(buff.ranks[i]) then return true end
     end
     return false
 end
