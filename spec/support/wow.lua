@@ -75,7 +75,7 @@ local function guardProtected(frame, what)
     if frame.protected and M.state.inCombat then error(what .. " on a protected frame in combat") end
 end
 function methods:Show() guardProtected(self, "Show"); self.shown = true end
--- Hiding a shown frame runs its OnHide, and that of every shown frame below
+-- Hiding a shown frame runs its OnHide, and that of every visible frame below
 -- it (#274; see ASSUMPTIONS). Showing runs no OnShow here: the panels fill
 -- themselves through their own calls, as these specs always did.
 local function setShown(self, on)
@@ -621,7 +621,7 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         find the name on its own next check. What Forever's
 --                         UnitName returns for a member still loading is
 --                         confirmed in game at launch.
---   Hide runs OnHide for the frame and every shown frame below it, as the
+--   Hide runs OnHide for the frame and every visible frame below it, as the
 --                         game does when a shown frame is hidden (#274). The
 --                         options dropdown closes its list that way. A frame
 --                         already hidden runs nothing. Show runs no OnShow
