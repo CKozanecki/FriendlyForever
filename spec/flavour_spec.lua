@@ -1,4 +1,4 @@
--- Spec: #52
+-- Spec: #52, #281
 -- Flavour placeholders and the shipped message lines that use them.
 local wow = require("spec.support.wow")
 
@@ -346,7 +346,7 @@ describe("Flavour", function()
             choose(1, 1, 1, 1)
             wow.systemMessage("|Hplayer:Thrall-Hellscream|h[Thrall-Hellscream]|h has come online.")
             wow.advance(10)
-            assert.are.same({ "Throm-ka, Thrall! For the Horde!" }, wow.sentTo("GUILD"))
+            assert.are.same({ "Throm-ka, Thrall Hellscream! For the Horde!" }, wow.sentTo("GUILD"))
         end)
 
         it("a guild greeting can name their class, from the roster", function()
@@ -355,7 +355,7 @@ describe("Flavour", function()
             ns.db.guildLogin.messages = { "Welcome back, mighty {class} {name}!" }
             wow.systemMessage("|Hplayer:Thrall-Hellscream|h[Thrall-Hellscream]|h has come online.")
             wow.advance(10)
-            assert.are.same({ "Welcome back, mighty warrior Thrall!" }, wow.sentTo("GUILD"))
+            assert.are.same({ "Welcome back, mighty warrior Thrall Hellscream!" }, wow.sentTo("GUILD"))
         end)
 
         it("a buff thank-you can name the caster's class", function()

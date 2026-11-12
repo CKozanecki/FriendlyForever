@@ -1,4 +1,4 @@
--- Spec: #80, #35, #38, #196
+-- Spec: #80, #35, #38, #196, #281
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
@@ -1133,5 +1133,52 @@ describe("Greetings", function()
         ns.db.guildLogin.enabled = false
         wow.advance(10)
         assert.are.equal(0, #wow.sent)
+    end)
+
+    -- #281: guild greetings name the whole name; other types are unchanged.
+    describe("guild greetings use the whole name (#281)", function()
+        local function rebootWith(roster)
+            ns = wow.boot({ before = function(state) state.guildRoster = roster end })
+            wow.fire("GUILD_ROSTER_UPDATE")
+            ns.db.guildLogin.messages = { "Hi {name}!" }
+            ns.db.guildJoin.messages = { "Welcome {name} ({fullname})!" }
+        end
+
+        it("names First Surname in the login hello", function()
+            rebootWith({ "Nikki-Shifts" })
+            online("Nikki-Shifts")
+            wow.advance(helloWait() + 1)
+            assert.are.same({ "Hi Nikki Shifts!" }, wow.sentTo("GUILD"))
+        end)
+
+        it("names First Surname in the guild welcome", function()
+            rebootWith({})
+            wow.systemMessage("Nikki Shifts has joined the guild.")
+            wow.advance(ns.db.guildJoin.delay + 0.1)
+            assert.are.same({ "Welcome Nikki Shifts (Nikki Shifts)!" }, wow.sentTo("GUILD"))
+        end)
+
+        it("keeps a first name given alone", function()
+            rebootWith({})
+            wow.systemMessage("Varian has joined the guild.")
+            wow.advance(ns.db.guildJoin.delay + 0.1)
+            assert.are.same({ "Welcome Varian (Varian)!" }, wow.sentTo("GUILD"))
+        end)
+
+        it("keeps a long whole name inside the 255-byte limit", function()
+            rebootWith({})
+            local long = string.rep("a", 12) .. " " .. string.rep("b", 12)
+            ns.db.guildJoin.messages = { string.rep("x", 200) .. " {name} {fullname}" }
+            wow.systemMessage(long .. " has joined the guild.")
+            wow.advance(ns.db.guildJoin.delay + 0.1)
+            for _, text in ipairs(wow.sentTo("GUILD")) do
+                assert.is_true(#text <= 255)
+            end
+        end)
+
+        it("leaves the party welcome on the first name", function()
+            ns.db.partyJoin.messages = { "Hi {name}!" }
+            assert.are.equal("Nikki", ns.Util.NameVars("Nikki-Shifts").name)
+        end)
     end)
 end)
