@@ -190,6 +190,9 @@ function methods:SetMaxLines(n) self.maxLines = n end
 function methods:GetMaxLines() return self.maxLines or 0 end
 -- The width of a text line's whole text (see M.CHAR_WIDTH).
 function methods:GetStringWidth() return M.textWidth(self.text, self.font) end
+-- A text line's font, by the name of one of the game's font objects (#256).
+function methods:SetFontObject(font) self.font = font end
+function methods:GetFontObject() return self.font end
 function methods:CreateTexture() return M.newFrame("Texture", nil, self) end
 function methods:AddLine(text) self.lines = self.lines or {}; self.lines[#self.lines + 1] = text end
 -- Giving a tooltip an owner starts it afresh, as in the game.

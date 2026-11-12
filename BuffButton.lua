@@ -61,7 +61,7 @@ local lastResultText = "nothing pressed yet"
 local notArmedReason      -- why the button is empty, for /friendly buffback
 local recheckScheduled = false
 local chosenName          -- the player a row of the list was clicked for: the next offer if still offered (#43)
-local alreadyDone         -- the "Already done by" note showing (#256): { title, spell, icon, shownAt, round }
+local alreadyDone         -- the "Already done by" note showing (#256): { title, spell, icon, shownAt, round, over }
 local offerList = {}      -- everyone the button would offer to now, in order (BuffList.lua shows it)
 
 ------------------------------------------------------------------------
@@ -127,6 +127,8 @@ end
 local function SetLabels(title, subtitle)
     button.title:SetText(title or "")
     button.subtitle:SetText(subtitle or "")
+    -- The title's own font, unless the "Already done" note is showing (#256).
+    button.title:SetFontObject("GameFontNormal")
     -- Full strength, unless the "Already done" note is fading (#256).
     button.title:SetAlpha(1)
     button.subtitle:SetAlpha(1)
@@ -258,22 +260,29 @@ local function ShowAlreadyDone()
         -- The first name, as the owner's "Already done by Ann": the whole
         -- name is cut short on the button (#264's testing review).
         local by = note.by and Util.FirstName(note.by) or "a group member"
-        alreadyDone = { title = "Already done by " .. by, spell = ns.BuffData.SpellName(note.buff) or "",
+        local shown = { title = "Already done by " .. by, spell = ns.BuffData.SpellName(note.buff) or "",
             icon = ns.BuffData.Icon(note.buff), shownAt = GetTime(), round = ns.GroupBuffs.Round() }
-        ns.Diag.Log("buffMode", "%s: already done by %s", alreadyDone.spell, by)
+        alreadyDone = shown
+        ns.Diag.Log("buffMode", "%s: already done by %s", shown.spell, by)
         C_Timer.After(BuffButton.FADE_STEP_SECONDS, ns.Diag.Wrap(FadeAlreadyDone))
-        -- Then the next buff you need.
-        C_Timer.After(BuffButton.ALREADY_DONE_SECONDS, ns.Diag.Wrap(BuffButton.Refresh))
+        -- Then the next buff you need. Its own timer ends it: comparing the
+        -- clock's difference with the time can fall short by a rounding error.
+        C_Timer.After(BuffButton.ALREADY_DONE_SECONDS, ns.Diag.Wrap(function()
+            shown.over = true
+            BuffButton.Refresh()
+        end))
     end
     local elapsed = GetTime() - alreadyDone.shownAt
     -- Shown long enough, buff mode over, or its round over (you left, or a pull).
-    if elapsed >= BuffButton.ALREADY_DONE_SECONDS or not ns.BuffMode.LentKey()
+    if alreadyDone.over or not ns.BuffMode.LentKey()
         or alreadyDone.round ~= ns.GroupBuffs.Round() then
         alreadyDone = nil
         return ShowAlreadyDone()
     end
     Empty("already done")
     SetLabels(ns.Colours.Text("bad", alreadyDone.title), alreadyDone.spell)
+    -- The smaller font of the line below, so a long first name fits (#264).
+    button.title:SetFontObject("GameFontNormalSmall")
     local alpha = AlreadyDoneAlpha(elapsed)
     button.title:SetAlpha(alpha)
     button.subtitle:SetAlpha(alpha)

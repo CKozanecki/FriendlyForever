@@ -480,12 +480,14 @@ States.ListGroupCast = {
 
 -- "Already done by" (#256, the owner's rule 2): in buff mode you enter a
 -- dungeon with your party; Brenna wears Cedric's Fortitude, put up a minute
--- ago, in step, so the button shows "Already done by Cedric" in red for
+-- ago, in step, so the button shows "Already done by Bartholomeus" in red for
 -- 2 seconds, empty, before the next buff you need. The simulator has no
 -- dungeon to enter and can't put a party member's buff on with a caster and
 -- times, so while the state is set IsInInstance answers a dungeon and
 -- Brenna's first aura is that Fortitude; Undo puts both back.
-States.DONE_BY = "Cedric Vane"
+-- A first name as long as the game allows (12 letters), so the scenario
+-- shows the longest note fits.
+States.DONE_BY = "Bartholomeus Vane"
 local doneSaved
 States.AlreadyDone = {
     Set = function()
