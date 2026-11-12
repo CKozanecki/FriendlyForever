@@ -28,6 +28,12 @@ BuffButton.ERROR_ANSWER_SECONDS = 0.5  -- the game's error text this soon after 
 BuffButton.MAX_PRESSES_WATCHED = 5     -- presses waiting for an answer at once (keys mashed)
 BuffButton.RESULT_SHOWN_SECONDS = 4    -- how long "Returned ..." stays under the button
 BuffButton.RECHECK_SECONDS = 5         -- how often favours are re-checked while any are owed
+-- "Already done by Ann" (#256, the owner): a buff another member put up in
+-- step as you entered shows this long, in red, with the button empty, then
+-- the next buff you need. It fades out over its last ALREADY_DONE_FADE seconds.
+BuffButton.ALREADY_DONE_SECONDS = 2
+BuffButton.ALREADY_DONE_FADE = 0.5
+BuffButton.FADE_STEP_SECONDS = 0.1
 -- Macros are kept within 255 characters, the game's macro editor limit (the
 -- secure attribute's own limit isn't documented, so we stay inside this one).
 BuffButton.MACRO_MAX_LENGTH = 255
@@ -55,6 +61,7 @@ local lastResultText = "nothing pressed yet"
 local notArmedReason      -- why the button is empty, for /friendly buffback
 local recheckScheduled = false
 local chosenName          -- the player a row of the list was clicked for: the next offer if still offered (#43)
+local alreadyDone         -- the "Already done by" note showing (#256): { title, spell, icon, shownAt, round }
 local offerList = {}      -- everyone the button would offer to now, in order (BuffList.lua shows it)
 
 ------------------------------------------------------------------------
@@ -120,6 +127,9 @@ end
 local function SetLabels(title, subtitle)
     button.title:SetText(title or "")
     button.subtitle:SetText(subtitle or "")
+    -- Full strength, unless the "Already done" note is fading (#256).
+    button.title:SetAlpha(1)
+    button.subtitle:SetAlpha(1)
 end
 
 -- Whether a result is still being shown under the button (and show it).
@@ -220,6 +230,56 @@ local function NextOffer()
     return nil, reason .. "; " .. groupReason
 end
 
+-- How strongly the "Already done" note shows: 1, then down to 0 over its
+-- last ALREADY_DONE_FADE seconds.
+local function AlreadyDoneAlpha(elapsed)
+    local left = BuffButton.ALREADY_DONE_SECONDS - elapsed
+    if left >= BuffButton.ALREADY_DONE_FADE then return 1 end
+    return math.max(0, left / BuffButton.ALREADY_DONE_FADE)
+end
+
+-- Fade the note a step at a time while it shows: only its alpha changes.
+local function FadeAlreadyDone()
+    if not alreadyDone or not button then return end
+    local alpha = AlreadyDoneAlpha(GetTime() - alreadyDone.shownAt)
+    button.title:SetAlpha(alpha)
+    button.subtitle:SetAlpha(alpha)
+    if alpha > 0 then C_Timer.After(BuffButton.FADE_STEP_SECONDS, ns.Diag.Wrap(FadeAlreadyDone)) end
+end
+
+-- A buff another member put up in step as you entered (#256, rule 2): once
+-- per buff each round, the button shows "Already done by Ann" in red for
+-- ALREADY_DONE_SECONDS, empty (a press does nothing), then moves on. The
+-- list beside it is hidden meanwhile. True while it shows.
+local function ShowAlreadyDone()
+    if not alreadyDone then
+        local note = ns.BuffMode.LentKey() and ns.GroupBuffs.TakeInStepNote()
+        if not note then return false end
+        local by = note.by and Util.DisplayName(note.by) or "a group member"
+        alreadyDone = { title = "Already done by " .. by, spell = ns.BuffData.SpellName(note.buff) or "",
+            icon = ns.BuffData.Icon(note.buff), shownAt = GetTime(), round = ns.GroupBuffs.Round() }
+        ns.Diag.Log("buffMode", "%s: already done by %s", alreadyDone.spell, by)
+        C_Timer.After(BuffButton.FADE_STEP_SECONDS, ns.Diag.Wrap(FadeAlreadyDone))
+        -- Then the next buff you need.
+        C_Timer.After(BuffButton.ALREADY_DONE_SECONDS, ns.Diag.Wrap(BuffButton.Refresh))
+    end
+    local elapsed = GetTime() - alreadyDone.shownAt
+    -- Shown long enough, buff mode over, or its round over (you left, or a pull).
+    if elapsed >= BuffButton.ALREADY_DONE_SECONDS or not ns.BuffMode.LentKey()
+        or alreadyDone.round ~= ns.GroupBuffs.Round() then
+        alreadyDone = nil
+        return ShowAlreadyDone()
+    end
+    Empty("already done")
+    SetLabels(ns.Colours.Text("bad", alreadyDone.title), alreadyDone.spell)
+    local alpha = AlreadyDoneAlpha(elapsed)
+    button.title:SetAlpha(alpha)
+    button.subtitle:SetAlpha(alpha)
+    button.icon:SetTexture(alreadyDone.icon or BuffButton.PLACEHOLDER_ICON)
+    button:SetShown(true)
+    return true
+end
+
 -- Write the newest favour you can return onto the button, or empty it.
 -- Out of combat only: the game locks secure buttons in a fight.
 local function ArmButton()
@@ -238,6 +298,8 @@ local function ArmButton()
         return Empty("you're in a capital city: favours show once you leave", false)
     end
     local offer, reason = NextOffer()
+    -- NextOffer has just read the group: a buff left alone as in step shows first.
+    if ShowAlreadyDone() then return end
     if not offer then return Empty(reason, showingResult) end
     ns.BuffList.Update(button, offerList, offer.name)
 

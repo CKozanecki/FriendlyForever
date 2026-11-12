@@ -648,7 +648,7 @@ jobs:
         run: |
           states="$RUNNER_TEMP/shot-lua"
           mkdir -p "$states"
-          for state in favour buffmode bufflist buffgroup; do
+          for state in favour buffmode bufflist buffgroup alreadydone; do
             { cat uitests/button_states.lua; printf '\nFriendlyForeverUIStates.Show("%s")\n' "$state"; } \
               > "$states/$state.lua"
           done
@@ -791,6 +791,8 @@ jobs:
             shoot button-bufflist --exec-lua @/shot-lua/bufflist.lua
             # A group cast in the list (#227): one row for the party, not one per member.
             shoot button-buffgroup --exec-lua @/shot-lua/buffgroup.lua
+            # "Already done by" (#256): a buff another member put up in step as you entered, in red.
+            shoot button-alreadydone --exec-lua @/shot-lua/alreadydone.lua
             # The General and Favour Ledger pages, filled with long names and
             # many entries, and the copy window as /friendly export opens it (#52).
             shoot options-general --exec-lua @/shot-lua/page-general.lua

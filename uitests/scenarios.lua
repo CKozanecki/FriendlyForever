@@ -565,6 +565,28 @@ test("the list beside the button shows who is offered, a click picks the next, a
     end)
 end)
 
+-- "Already done by" (#256, the owner's rule 2): on entering, a buff another
+-- member put up in step shows in red, the button empty and the list hidden,
+-- inside the button, then fades and moves on to the next buff you need.
+test("the button says a buff is already done, in red, then moves on", function()
+    InState("already done", FriendlyForeverUIStates.AlreadyDone, function(button, States)
+        local title = button and button.title:GetText() or ""
+        Expect(title:find("Already done by " .. States.DONE_BY, 1, true) ~= nil,
+            ("the button reads %q, not \"Already done by %s\""):format(title, States.DONE_BY))
+        Expect(title:find("|cffff6e86", 1, true) ~= nil, "the note isn't in the palette's red (bad)")
+        Expect(States.Macro() == nil, "the button holds a macro while the note shows")
+        local list = _G.FriendlyForeverBuffList
+        Expect(not (list and list:IsShown()), "the list is up while the note shows")
+        TextInside(button, button.title, "already-done title", 1)
+        TextInside(button, button.subtitle, "already-done spell", 1)
+        OnScreen(button, "button (already done)")
+        report("LAYOUT already done: " .. title .. " / " .. (button.subtitle:GetText() or ""))
+        States.Advance(2)
+        Expect(States.Macro() ~= nil, "after 2 seconds the button doesn't hold the next buff")
+        Expect(not (button.title:GetText() or ""):find("Already done", 1, true), "the note is still up")
+    end)
+end)
+
 -- A group cast is one row in the list (#227): who it reaches, how many are
 -- missing, and the spell; the members it covers have no rows of their own.
 test("the list shows a group cast as one row, and its text stays inside", function()

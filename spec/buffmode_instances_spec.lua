@@ -146,8 +146,9 @@ describe("Buff mode in a dungeon or raid (#256)", function()
             groupElsewhere()
             for _, token in ipairs({ "party1", "party2" }) do
                 wow.zoneIn(token)
-                marked(token, "player")
+                wow.wearBuff(token, MOTW, { source = "player" })
             end
+            wow.advance(10 * 60) -- put up 10 minutes before you enter: out of step (#256, the owner)
             wow.enterDungeon(DEADMINES, "The Deadmines")
             assert.is_true(ns.BuffMode.IsAuto())
             assert.are.equal(2, scrollAll())

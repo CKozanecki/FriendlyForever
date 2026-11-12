@@ -174,6 +174,9 @@ local function InsideWithGroup()
     if inside and Cfg().autoOnJoin == true then
         TurnOn("you're in a " .. kind .. " with your group", true)
     end
+    -- The round changes what the button offers: show it now (its "Already
+    -- done by" note too), not at the next recheck.
+    if inside then ns.BuffButton.Refresh() end
     return inside
 end
 

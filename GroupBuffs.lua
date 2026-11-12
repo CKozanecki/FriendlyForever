@@ -43,7 +43,8 @@
 -- entered is offered again once, so everyone's timer is fresh; one put up
 -- since then is already in step and left be. When it was put up comes from
 -- the aura's own times; a time that can't be read is never recast over.
--- Outside the round a member's buff is left alone until it runs low (top-up). Never over anything stronger than a rank you know
+-- Outside the round a member's buff is left alone until it runs low (top-up).
+-- Never over anything stronger than a rank you know
 -- (BuffData.CanReplace: #41's rule, and the game would refuse it), and the
 -- one-Blessing rule stands. In a raid, the raid buff split (#70) still
 -- decides which buffs are yours to give.
@@ -77,7 +78,11 @@ local justGiven = {} -- [name .. "\1" .. buff key] = GetTime()
 local skipped = {}   -- [name] = GetTime() you right-clicked them
 local heldBack = {}  -- [name] = GetTime() the game refused a cast to them
 local lastSelfWhy        -- why you were last left out of the offers (said once in debug)
-local round              -- the dungeon-or-raid round (#256): { started = GetTime(), given = { [name .. "\1" .. buff key] = true } }; nil: none
+-- The dungeon-or-raid round (#256), or nil: { started = GetTime(), given =
+-- { [name .. "\1" .. buff key] = true }, inStep = { [buff key] = { buff,
+-- at, by } } (the newest member's buff it left alone as in step), order = {
+-- buff keys as first noted }, shown = { [buff key] = true } }.
+local round
 
 -- In the round, a buff put up less than this long before you entered (or
 -- since) is in step with everyone's and isn't recast (#256, the owner).
@@ -179,6 +184,21 @@ local function RoundRecasts(name, buff, aura)
     return at ~= nil and at < round.started - GroupBuffs.SYNCED_SECONDS
 end
 
+-- A member's buff the round leaves alone because it's in step (#256, rule 2):
+-- remember the newest per buff and who cast it, for the button's "Already
+-- done by" note. Not one whose time can't be read, nor one old enough that
+-- only an earlier cast this round kept it.
+local function NoteInStep(buff, aura)
+    if not round then return end
+    local at = AppliedAt(aura)
+    if at == nil or at < round.started - GroupBuffs.SYNCED_SECONDS then return end
+    local seen = round.inStep[buff.key]
+    if seen and seen.at >= at then return end
+    if not seen then round.order[#round.order + 1] = buff.key end
+    -- The caster's name, if the game gives it (a readable token here).
+    round.inStep[buff.key] = { buff = buff, at = at, by = Util.UnitFullName(aura.sourceUnit) }
+end
+
 -- Whether your cast of buff would renew aura (readable, covering buff) on
 -- member rather than leave it be (#256): true when someone outside the group
 -- put it up, or the round recasts it (yours or a member's, old enough);
@@ -189,7 +209,9 @@ local function Renews(member, buff, aura, units)
     local who = CasterOf(aura.sourceUnit, units)
     if who == nil then return nil end
     if who == "outside" then return true end
-    return RoundRecasts(member.name, buff, aura)
+    local recasts = RoundRecasts(member.name, buff, aura)
+    if not recasts and who == "group" then NoteInStep(buff, aura) end
+    return recasts
 end
 
 -- Whether member wears buff so that nothing is left to give: true, false
@@ -515,9 +537,28 @@ function GroupBuffs.NoteRoundCast(name, buff)
     if round then round.given[name .. "\1" .. buff.key] = true end
 end
 
-function GroupBuffs.StartRound() round = { started = GetTime(), given = {} } end
+function GroupBuffs.StartRound()
+    round = { started = GetTime(), given = {}, inStep = {}, order = {}, shown = {} }
+end
+
+-- The next buff the round left alone as in step and hasn't shown yet (#256,
+-- rule 2: once per buff each time you enter): { buff, by = the caster's
+-- full name or nil }, or nil. Taking it marks it shown.
+function GroupBuffs.TakeInStepNote()
+    if not round then return nil end
+    for _, key in ipairs(round.order) do
+        if not round.shown[key] then
+            round.shown[key] = true
+            local seen = round.inStep[key]
+            return { buff = seen.buff, by = seen.by }
+        end
+    end
+end
 function GroupBuffs.EndRound() round = nil end
 function GroupBuffs.InRound() return round ~= nil end
+-- The current round itself, to tell one round from the next (a note shown
+-- for one ends with it), or nil.
+function GroupBuffs.Round() return round end
 
 -- The game refused a cast to them (out of range or sight): try the others
 -- first for a moment.
