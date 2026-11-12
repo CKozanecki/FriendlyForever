@@ -293,7 +293,7 @@ describe("What buff mode recasts (#256)", function()
         end)
 
         it("shows the skipped buff in red for 2 seconds, empty, then the next buff you need", function()
-            assert.are.equal(ns.Colours.Text("bad", "Already done by Cid Rock"), button.title:GetText())
+            assert.are.equal(ns.Colours.Text("bad", "Already done by Cid"), button.title:GetText(), "the first name")
             assert.are.equal("Mark of the Wild", button.subtitle:GetText())
             assert.is_true(button:IsShown())
             assert.is_nil(macro(), "a press while it shows does nothing")
@@ -332,7 +332,7 @@ describe("What buff mode recasts (#256)", function()
             wow.advance(30)
             wow.wearBuff("party2", MOTW, { source = "party1" }) -- Ann's, newer than Cid's on Ann
             wow.enterDungeon(DEADMINES, "The Deadmines")
-            assert.are.equal(ns.Colours.Text("bad", "Already done by Ann Vale"), button.title:GetText())
+            assert.are.equal(ns.Colours.Text("bad", "Already done by Ann"), button.title:GetText())
         end)
 
         it("says \"a group member\" when the caster's name can't be read", function()
@@ -369,6 +369,29 @@ describe("What buff mode recasts (#256)", function()
             assert.is_falsy((button.title:GetText() or ""):find("Already done", 1, true))
         end)
 
+        it("buff mode turned off while it shows: the button goes, note and all (the owner: only in buff mode)", function()
+            assert.is_truthy(button.title:GetText():find("Already done by", 1, true))
+            slash("buffmode off")
+            ns.BuffButton.Refresh()
+            assert.is_false(button:IsShown())
+        end)
+
+        it("the round counts a press as given even when its buff shows up late (more than 10 seconds)", function()
+            wow.leaveDungeon()
+            wow.advance(600) -- every Mark here is old now: out of step
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            ns.BuffButton.Refresh()
+            local first = ns.GroupBuffs.Next().name
+            wow.pressKey("MOUSEWHEELUP") -- cast, but its aura doesn't show yet
+            wow.advance(ns.GroupBuffs.JUST_GIVEN_SECONDS + 1)
+            for _ = 1, 5 do
+                local offer = ns.GroupBuffs.Next()
+                assert.are_not.equal(first, offer and offer.name, "offered again before its buff showed")
+                if not offer then break end
+                press()
+            end
+        end)
+
         it("unlocking the button to move it during the note leaves its labels at full strength", function()
             _G.SlashCmdList.FRIENDLYFOREVER("move")
             wow.advance(ns.BuffButton.ALREADY_DONE_SECONDS + 1)
@@ -393,6 +416,53 @@ describe("What buff mode recasts (#256)", function()
             wow.enterDungeon(DEADMINES, "The Deadmines")
             ns.BuffButton.Refresh()
             assert.is_falsy((button.title:GetText() or ""):find("Already done", 1, true))
+        end)
+    end)
+
+    describe("\"Already done by\": only in buff mode, once per buff (white, the owner)", function()
+        local FORT, SHADOW = 10938, 10958
+
+        it("with nothing for you to do on entering, nothing appears and no key is borrowed", function()
+            ns = wow.boot({ autoBuffMode = true, before = function(state)
+                state.class = "DRUID"
+                state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
+            end })
+            local button = ns.BuffButton.Frame()
+            wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+            wow.wearBuff("party1", MOTW, { source = "party2" })
+            wow.wearBuff("party2", MOTW, { source = "party1" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_false(ns.BuffMode.IsOn(), "nothing to do out in the world either")
+            wow.advance(60)
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_nil(ns.BuffMode.LentKey())
+            assert.is_false(button:IsShown())
+        end)
+
+        it("names each skipped buff in turn, then the next buff you need", function()
+            ns = wow.boot({ before = function(state)
+                state.class = "PRIEST"
+                state.knownSpells = { [FORT] = true, [SHADOW] = true }
+            end })
+            ns.db.buffBack.buffOrder = { "fortitude", "shadow" }
+            slash("buffmode on")
+            local button = ns.BuffButton.Frame()
+            group("party", { "Ann-Vale", "Cid-Rock", "Dot-Fern" })
+            for _, id in ipairs({ FORT, SHADOW }) do
+                wow.wearBuff("party1", id, { source = "party2" })
+                wow.wearBuff("party2", id, { source = "party1" })
+            end
+            wow.advance(60)
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            local seen = {}
+            for _ = 1, 3 do
+                seen[#seen + 1] = (button.subtitle:GetText() or "") .. " / "
+                    .. ((button.title:GetText() or ""):find("Already done", 1, true) and "note" or "offer")
+                wow.advance(ns.BuffButton.ALREADY_DONE_SECONDS)
+            end
+            assert.are.same({ "Power Word: Fortitude / note", "Shadow Protection / note",
+                "missing your Power Word: Fortitude / offer" }, seen)
         end)
     end)
 

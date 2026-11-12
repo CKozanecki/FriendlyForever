@@ -480,7 +480,7 @@ States.ListGroupCast = {
 
 -- "Already done by" (#256, the owner's rule 2): in buff mode you enter a
 -- dungeon with your party; Brenna wears Cedric's Fortitude, put up a minute
--- ago, in step, so the button shows "Already done by Cedric Vane" in red for
+-- ago, in step, so the button shows "Already done by Cedric" in red for
 -- 2 seconds, empty, before the next buff you need. The simulator has no
 -- dungeon to enter and can't put a party member's buff on with a caster and
 -- times, so while the state is set IsInInstance answers a dungeon and

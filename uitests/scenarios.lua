@@ -571,13 +571,16 @@ end)
 test("the button says a buff is already done, in red, then moves on", function()
     InState("already done", FriendlyForeverUIStates.AlreadyDone, function(button, States)
         local title = button and button.title:GetText() or ""
-        Expect(title:find("Already done by " .. States.DONE_BY, 1, true) ~= nil,
-            ("the button reads %q, not \"Already done by %s\""):format(title, States.DONE_BY))
+        local first = States.DONE_BY:match("^%S+")
+        Expect(title:find("Already done by " .. first, 1, true) ~= nil,
+            ("the button reads %q, not \"Already done by %s\""):format(title, first))
         Expect(title:find("|cffff6e86", 1, true) ~= nil, "the note isn't in the palette's red (bad)")
         Expect(States.Macro() == nil, "the button holds a macro while the note shows")
         local list = _G.FriendlyForeverBuffList
         Expect(not (list and list:IsShown()), "the list is up while the note shows")
-        TextInside(button, button.title, "already-done title", 1)
+        -- The name is the point of the note: it must not be cut short.
+        local titleLine = TextInside(button, button.title, "already-done title", 1)
+        Expect(not titleLine:find("cut short", 1, true), titleLine .. ": the note's title is cut short")
         TextInside(button, button.subtitle, "already-done spell", 1)
         OnScreen(button, "button (already done)")
         report("LAYOUT already done: " .. title .. " / " .. (button.subtitle:GetText() or ""))

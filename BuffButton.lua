@@ -255,7 +255,9 @@ local function ShowAlreadyDone()
     if not alreadyDone then
         local note = ns.BuffMode.LentKey() and ns.GroupBuffs.TakeInStepNote()
         if not note then return false end
-        local by = note.by and Util.DisplayName(note.by) or "a group member"
+        -- The first name, as the owner's "Already done by Ann": the whole
+        -- name is cut short on the button (#264's testing review).
+        local by = note.by and Util.FirstName(note.by) or "a group member"
         alreadyDone = { title = "Already done by " .. by, spell = ns.BuffData.SpellName(note.buff) or "",
             icon = ns.BuffData.Icon(note.buff), shownAt = GetTime(), round = ns.GroupBuffs.Round() }
         ns.Diag.Log("buffMode", "%s: already done by %s", alreadyDone.spell, by)
