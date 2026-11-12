@@ -61,12 +61,11 @@ Something you find that isn't this PR's job is not a finding against it: list it
 
 Checks that caught real bugs in past reviews. Each cites where it came from. Add to this list when a review finds a lesson rather than a one-off (CONTRIBUTING.md's rule on keeping these files current).
 
-
-**Settings pages**
-
-- A page filled from its `OnShow` is hidden when created. A frame that is already visible fires no `OnShow` when the Settings window takes it in, and a shown frame with no parent counts as visible (#267).
 **Running checks**
 - Run confirmation checks one review loop at a time, or in separate worktrees: two `make check` runs in one worktree share `dist/` and can give a false failure (#178, #172, #176).
+
+**Settings pages**
+- A shown frame with no parent counts as visible (the owner confirmed it in game), and our pages have no parent until the Settings window adopts them, so hide each page when it is created and check a parent before filling it. A page filled from its `OnShow` also needs to be hidden first: whether a frame already visible fires `OnShow` on the first take-in is unconfirmed (#267).
 
 **Secure buttons and combat**
 - Secure attributes and override bindings change only out of combat. What must stop for a fight stops in `PLAYER_REGEN_DISABLED`, while the game still allows it; requests during a fight wait until it ends, and so does an addon loaded mid-fight by a `/reload` (#21, #62: the key chooser stayed live into a fight and could swallow an ability key).
