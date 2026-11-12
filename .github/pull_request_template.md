@@ -19,7 +19,7 @@ Closes #
 
 ## Release
 
-- [ ] User-visible change: added a line under `### Unreleased` in `CHANGELOG.md`, ending with its issue(s), e.g. `(#123)` or `(#27, #52)`
+- [ ] User-visible change: added its note as `changes/<issue>.md`, one bullet ending with its issue(s), e.g. `(#123)` or `(#27, #52)` ([Changelog notes](https://github.com/CKozanecki/FriendlyForever/blob/main/CONTRIBUTING.md#changelog-notes)); `CHANGELOG.md` itself is changed only by a release PR
 - [ ] No new globals, saved-variable fields or chat output that bypasses `ChatQueue`
 
 ## Ready for review

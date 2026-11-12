@@ -207,7 +207,7 @@ CI (`.github/workflows/ci.yml`) runs all three on every pull request and every p
 
 Pushing a version tag runs `.github/workflows/release.yml`, which builds with the BigWigs packager, uploads to CurseForge and creates the GitHub release. 0.8.0 was the first file on CurseForge and 1.0.0 is the launch release. [CONTRIBUTING.md](CONTRIBUTING.md#releasing-maintainer) has the full steps; in short:
 
-1. In a pull request, bump `## Version` in `FriendlyForever.toc` and turn the top of `CHANGELOG.md` into a matching `## <version>` section, as CONTRIBUTING describes (the tests check they agree). That section becomes the CurseForge release notes.
+1. In a pull request, bump `## Version` in `FriendlyForever.toc` and gather the waiting notes in `changes/` into a matching `## <version>` section at the top of `CHANGELOG.md` with `make changelog VERSION=<version>`, as CONTRIBUTING describes (the tests check they agree). That section becomes the CurseForge release notes.
 2. After it merges, tag the merge commit and push only that tag: `git tag vX.Y.Z && git push origin vX.Y.Z` (not `--tags`). Version tags can't be moved or deleted once pushed.
 3. The workflow checks that the tag is on `main` and matches the TOC version, then runs lint and tests with no secrets. Only then does the upload job wait for approval in the `release` environment. The CurseForge API token is the secret `CF_API_KEY` in that environment, and the TOC needs `## X-Curse-Project-ID`.
 

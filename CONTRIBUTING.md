@@ -24,8 +24,19 @@ Every change can be traced from its spec to its code, tests, pull request and re
   - **red:** chaos (random storms, damaged state) never crashes the addon, and anything damaged heals itself.
 - **Pull requests** say `Closes #<issue>` for each spec they complete (one keyword per issue: `Closes #1, closes #2`) and copy its acceptance criteria into the description as a checklist, ticked as they're met. The maintainer ticks them on the issue when merging.
 - **Tests:** a spec file written or changed for an issue says so in a comment on one of its first five lines, in exactly this form: `-- Spec: #27` (or `-- Spec: #27, #52`). A repo test checks the form. Test names repeat the acceptance criteria in words; reviewers check that.
-- **Changelog** entries are bullets, one per change, and end with the issues they come from: `(#27)`, or `(#27, #52)` for several. Notes about the whole release are bullets too and carry every issue that caused them. Text that isn't a bullet isn't checked. A repo test checks every entry under `### Unreleased`, and every entry of the released version once it's past 0.6.0. The release notes on CurseForge leave the tags out.
+- **Changelog** entries are bullets, one per change, and end with the issues they come from: `(#27)`, or `(#27, #52)` for several. A pull request adds its note as a file of its own, never in `CHANGELOG.md`: [Changelog notes](#changelog-notes) below. The release notes on CurseForge leave the tags out.
 - **Releases:** the Release workflow creates the GitHub release for each tag. Its notes are that version's changelog section without the issue tags, the same notes CurseForge shows. The changelog's tags trace each entry to its issues, and squash-merge titles trace each commit to its pull request.
+
+### Changelog notes
+
+Each pull request with a change players (or the release) should hear about writes its note as a file of its own, so two pull requests never edit the same lines (#261). This is the one place the rule is written; everything else links here.
+
+- **The file:** `changes/<issue>.md`, holding the one bullet the change would have had in `CHANGELOG.md`: a bold lead, the text, and its issues at the end, `(#<issue>)`, which must include the issue in the name. A second pull request on the same issue uses `changes/<issue>-<word>.md`, such as `changes/256-part2.md`. One bullet per file; it may wrap, and may have indented sub-bullets, but no blank lines or headings.
+- **Checked by `make check`:** every file in `changes/` must be named that way and be such a bullet. An empty file, a bullet without its issue, or any other file there fails with a message naming the file.
+- **The release PR gathers them** with `make changelog VERSION=x.y.z` (preview first with `make changelog-preview VERSION=x.y.z`, which changes nothing). It writes the new `## x.y.z` section at the top of `CHANGELOG.md`: any bullets still under `### Unreleased`, as written, then each fragment's bullet by issue number. It deletes the fragments, and changes nothing if any of them is wrong. Notes about the whole release (such as "This version adds files") are then added to that section by hand.
+- **Nothing is left out:** `make release-notes RELEASE=1` fails while a note waits in `changes/` or under `### Unreleased`. CI runs it on a pull request that changes the TOC version, and the Release workflow runs it before anything else is approved.
+- **Moving over:** bullets under `### Unreleased` on `main` when this rule arrived stay valid and are gathered with the fragments. A pull request that still has an Unreleased line moves it to a fragment the next time it merges `main`.
+- **Old releases:** a repo test checks the tags of every entry of the released version once it's past 0.6.0, and of any bullet under `### Unreleased`.
 
 ### Review loops
 
@@ -167,9 +178,9 @@ The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://g
 
 0.8.0 was the first file on CurseForge and 1.0.0 is the launch release. A tag uploads as a normal release; the packager marks a file alpha or beta only when its tag contains that word, and the Release workflow accepts only a tag that is exactly `v` plus the TOC version. No beta route is set up yet.
 
-**A patch release of documentation-only fixes is one pull request** (#241). When everything a patch release carries is documentation, comment or changelog fixes, the pull request with the fix also bumps the TOC version and renames the changelog heading, so the checks run once, not twice. A release with code changes keeps its own release PR.
+**A patch release of documentation-only fixes is one pull request** (#241). When everything a patch release carries is documentation, comment or changelog fixes, the pull request with the fix also bumps the TOC version and gathers the changelog notes ([Changelog notes](#changelog-notes)), so the checks run once, not twice. A release with code changes keeps its own release PR.
 
-Pull requests between releases add their `CHANGELOG.md` notes under a `### Unreleased` heading at the top; the release PR renames it to `## x.y.z`.
+Pull requests between releases add their notes as `changes/<issue>.md` files; the release PR gathers them into `## x.y.z` ([Changelog notes](#changelog-notes)).
 
 **Before the release PR, decide whether the walkthrough needs a new step** (#169). The first-install walkthrough (`Walkthrough.lua`) runs once. A feature worth explaining to players who already finished it gets a step in the same PR that adds the feature, or in a PR before the release. It is a deliberate choice, not automatic: most releases add no step, and then nothing changes.
 
@@ -186,6 +197,6 @@ Pull requests between releases add their `CHANGELOG.md` notes under a `### Unrel
 
 To release:
 
-1. In a PR: bump `## Version` in `FriendlyForever.toc` and rename `### Unreleased` at the top of `CHANGELOG.md` to `## x.y.z` (add notes there for anything missing). CurseForge shows only that section (`make release-notes` previews it).
+1. In a PR: bump `## Version` in `FriendlyForever.toc`, run `make changelog-preview VERSION=x.y.z` and then `make changelog VERSION=x.y.z` to gather the notes into `## x.y.z` at the top of `CHANGELOG.md` ([Changelog notes](#changelog-notes)), and add notes there for anything missing. CurseForge shows only that section (`make release-notes RELEASE=1` previews it, and fails if a note was left behind).
 2. After it merges, tag the merge commit and push the tag: `git tag vx.y.z && git push origin vx.y.z`. Version tags can't be moved or deleted once pushed, so double-check the commit first. The GitHub release isn't made by hand: the workflow makes it in step 3.
 3. The Release workflow's `verify` job checks that the tag is on `main` and matches the TOC, with read-only access and no secrets. Then it asks GitHub whether `main`'s required `check` passed on that exact commit (#241): if it did, lint and the tests already ran there and aren't run again; if that run hasn't finished, or there is none, `verify` runs lint and the tests itself, as before; if it failed, the release stops (re-run `main`'s failed CI jobs on that commit, then re-run the Release workflow). After that, the `release` job waits for your approval in the `release` environment, checks that the CurseForge project ID and key are set, and uploads. The packager uploads to CurseForge and creates the GitHub release for the tag, with the same notes and the zip attached. Once the job is green, there's nothing left to do.

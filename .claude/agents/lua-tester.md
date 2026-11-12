@@ -25,7 +25,7 @@ If any of these is missing, ask for it rather than guessing.
 - **The tests can fail:** each one reaches the path it claims to cover, and fails when that code is broken. Run your own mutations only of the new safety-critical lines (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops) says what counts), and not of the others.
 - **Chaos (red) tests** check invariants worked out independently, from the simulated client's own state.
 - **The simulated client** (`spec/support/wow.lua`) stays realistic and pessimistic. See [docs/simulated-client.md](../../docs/simulated-client.md).
-- **Traceability:** changed spec files carry `-- Spec: #N` on one of their first five lines; changelog entries end with their issues.
+- **Traceability:** changed spec files carry `-- Spec: #N` on one of their first five lines; changelog notes (`changes/<issue>.md`, CONTRIBUTING.md's Changelog notes) end with their issues.
 - **UI changes:** the screenshots and `LAYOUT` lines (below).
 
 Code design is the Lua architect's job; mention a code problem only if a test exposes it.
@@ -142,3 +142,5 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - When a change reorders what a test steps through, check that the case the test is named for still happens: #249's "both" regression test and the held-/thank exchange test both lost their mutation catch.
 - A chaos storm whose criterion depends on time (a timeout, a window) must be able to outlast that time between the events that reset it, and count that it did: on #258 the storm only advanced up to 120 s while entering and leaving often, so it never stayed inside 300 s and a timeout wrongly running in the dungeon passed every seed. Shorten the setting in the storm, and assert a reach counter.
 - A guard against a secret value needs a test where only that value is secret: on #258 the "range given as a secret" test used `unitsRestricted`, which made the names secret too, so the range read was never reached. If the simulated client can't make that one value secret, add a per-unit `secrets.<field>` for it.
+- A test that reads the repository's own changing state (the real changelog, `changes/`, the TOC) must also pass in the state the next release leaves: nothing waiting, no `### Unreleased`, a new version. On #262 two specs needed a fragment to exist and one forbade the word "Unreleased" in the notes, so the release PR would have failed `make check`. Act out the release in a scratch copy (bump the TOC, `make changelog`) and run the suite.
+- A workflow step that reads git history (a base commit, a tag) needs a spec pinning its job's `fetch-depth: 0`: a scratch-repo test has full history and never sees a shallow checkout's fallback. On #262, removing it let a release PR's check be skipped with every spec green.

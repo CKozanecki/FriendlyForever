@@ -163,6 +163,139 @@ function Changelog.SpecComment(line)
     return issues and Changelog.TagIssues(" (" .. issues .. ")") or false
 end
 
+-- Changelog fragments (#261). Between releases each pull request adds its
+-- note as a file of its own, changes/<issue>.md (a second PR on the same
+-- issue: changes/<issue>-<word>.md), instead of a line under "### Unreleased",
+-- so two PRs never edit the same lines. The release PR gathers them into the
+-- new "## x.y.z" section (scripts/changelog-gather.lua) and deletes them.
+
+-- The issue number a fragment's file name gives ("256" for "256-part2.md"),
+-- or nil when the name isn't a fragment's.
+function Changelog.FragmentIssue(name)
+    if type(name) ~= "string" then return nil end
+    local issue = name:match("^([1-9]%d*)%.md$") or name:match("^([1-9]%d*)%-[a-z0-9][a-z0-9-]*%.md$")
+    return tonumber(issue)
+end
+
+-- What is wrong with a fragment, as a message for the developer, or nil when
+-- it is fine. text is the file's contents, nil when it couldn't be read. A
+-- fragment is one changelog entry: one top-level "- " bullet (it may wrap and
+-- have indented sub-bullets), tagged as every entry is, with the tag naming
+-- the file's issue.
+function Changelog.FragmentProblem(name, text)
+    local where = "changes/" .. tostring(name)
+    local issue = Changelog.FragmentIssue(name)
+    if not issue then
+        return where .. ": not a fragment; name it changes/<issue>.md (or <issue>-<word>.md), holding one bullet"
+    end
+    if type(text) ~= "string" then return where .. ": can't be read as a file" end
+    local lines = Changelog.Lines(text)
+    while lines[1] and not lines[1]:match("%S") do table.remove(lines, 1) end
+    while lines[#lines] and not lines[#lines]:match("%S") do table.remove(lines) end
+    if #lines == 0 then return where .. ": empty; it needs one bullet ending with its issue, e.g. (#" .. issue .. ")" end
+    if not lines[1]:match("^%- %S") then return where .. ": must start with a bullet, \"- \"" end
+    for _, line in ipairs(lines) do
+        if not line:match("%S") then return where .. ": a blank line splits it; it holds one bullet" end
+        if line:match("^ ? ? ?#+[ \t]") or line:match("^ ? ? ?#+$") then
+            return where .. ": no headings; it holds one bullet"
+        end
+    end
+    local entries = Changelog.Entries(lines)
+    if #entries ~= 1 then return where .. ": holds " .. #entries .. " bullets; one change, one fragment" end
+    local tagged = Changelog.TagIssues(entries[1].text)
+    if not tagged or not Changelog.TagIssues(entries[1].last) then
+        return where .. ": the bullet must end with its issue(s), e.g. (#" .. issue .. ") or (#" .. issue .. ", #52)"
+    end
+    for _, number in ipairs(tagged) do
+        if number == issue then return nil end
+    end
+    return where .. ": its tag must include #" .. issue .. ", the issue in its name"
+end
+
+-- The fragments in gathering order: by issue number, then by name.
+function Changelog.SortFragments(fragments)
+    local sorted = {}
+    for i, fragment in ipairs(fragments) do sorted[i] = fragment end
+    table.sort(sorted, function(a, b)
+        local x, y = Changelog.FragmentIssue(a.name) or math.huge, Changelog.FragmentIssue(b.name) or math.huge
+        if x ~= y then return x < y end
+        return a.name < b.name
+    end)
+    return sorted
+end
+
+-- The changelog with a new "## <version>" section at the top: the bullets
+-- left under "### Unreleased" (which goes), as written, then each fragment's
+-- bullet in gathering order. fragments is a list of { name, text }. Returns
+-- the new text, or nil and a message (every problem found, one per line).
+function Changelog.Gather(text, version, fragments)
+    local problems = {}
+    if type(version) ~= "string" or not version:match("^%d+%.%d+%.%d+$") then
+        problems[#problems + 1] = "the version must look like 1.2.3, not " .. tostring(version)
+    end
+    for _, fragment in ipairs(fragments or {}) do
+        problems[#problems + 1] = Changelog.FragmentProblem(fragment.name, fragment.text)
+    end
+    local lines = Changelog.Lines(text)
+    if type(text) ~= "string" or text == "" then problems[#problems + 1] = "the changelog is empty" end
+    if Changelog.CountHeading(text, "### Unreleased") > 1 then
+        problems[#problems + 1] = "the changelog has more than one ### Unreleased heading; merge them first"
+    end
+    local newest
+    for _, line in ipairs(lines) do
+        local heading = Heading(line)
+        if heading and heading:match("^## ") then newest = heading:sub(4); break end
+    end
+    if #problems == 0 and newest and not Changelog.IsLater(version, newest) then
+        problems[#problems + 1] = ("%s must come after the newest release in the changelog, %s"):format(version, newest)
+    end
+    local leftover = {}
+    local unreleased = Changelog.Section(text, "### Unreleased") or {}
+    for _, line in ipairs(unreleased) do leftover[#leftover + 1] = line end
+    while leftover[1] and not leftover[1]:match("%S") do table.remove(leftover, 1) end
+    while leftover[#leftover] and not leftover[#leftover]:match("%S") do table.remove(leftover) end
+    local section = {}
+    for _, line in ipairs(leftover) do section[#section + 1] = line end
+    for _, fragment in ipairs(Changelog.SortFragments(fragments or {})) do
+        for _, line in ipairs(Changelog.Lines(fragment.text)) do
+            if line:match("%S") then section[#section + 1] = (line:gsub("%s+$", "")) end
+        end
+    end
+    if #section == 0 then problems[#problems + 1] = "nothing to release: no fragments and no ### Unreleased bullets" end
+    if #problems > 0 then return nil, table.concat(problems, "\n") end
+
+    -- Everything above the first section stays; the Unreleased section is
+    -- replaced; the new section goes before the newest release.
+    local out, placed, skipping = {}, false, false
+    local function place()
+        out[#out + 1] = "## " .. version
+        out[#out + 1] = ""
+        for _, line in ipairs(section) do out[#out + 1] = line end
+        out[#out + 1] = ""
+        placed = true
+    end
+    for _, line in ipairs(lines) do
+        local heading = Heading(line)
+        if skipping and StartsSection(line) then skipping = false end
+        if not placed and heading == "### Unreleased" then
+            place()
+            skipping = true
+        elseif not placed and heading and heading:match("^## ") then
+            place()
+            out[#out + 1] = line
+        elseif not skipping then
+            out[#out + 1] = line
+        end
+    end
+    if not placed then
+        if out[#out] == "" then table.remove(out) end
+        out[#out + 1] = ""
+        place()
+    end
+    while out[#out] == "" do table.remove(out) end
+    return table.concat(out, "\n") .. "\n"
+end
+
 -- Whether version a ("1.7.0") comes after version b.
 function Changelog.IsLater(a, b)
     if type(a) ~= "string" or type(b) ~= "string" then return false end

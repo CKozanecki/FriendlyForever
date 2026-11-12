@@ -23,6 +23,7 @@ jobs:
   lint-package:
     runs-on: ubuntu-24.04
     steps:
+      # The whole history: the release notes step reads the base commit's TOC (#261).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -55,8 +56,22 @@ jobs:
 
       # Build the zip the way a release does (no upload, no secrets) and check
       # it holds the same files as scripts/package.sh's.
+      #
+      # A pull request that changes the TOC version is a release PR: it must
+      # have gathered every changelog note into the new version (#261), or
+      # its notes would leave them out. Other PRs only preview the notes.
       - name: Write this version's release notes
-        run: make release-notes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          toc_at() { git show "$1:FriendlyForever.toc" 2>/dev/null | sed -n 's/^## Version:[[:space:]]*\([^[:space:]]*\).*/\1/p'; }
+          before="$(toc_at "$BASE" || true)"
+          if [ -n "$before" ] && [ "$before" != "$(toc_at HEAD)" ]; then
+            echo "The TOC version changes from $before: checking every changelog note was gathered"
+            make release-notes RELEASE=1
+          else
+            make release-notes
+          fi
 
       - name: Build with the release packager
         uses: BigWigsMods/packager@e50a250f8705041e40f2fa1ddcb280a686d65aa0 # v2.6.1

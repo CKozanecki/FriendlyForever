@@ -81,9 +81,10 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 
 - **Branches:** name each one `<product>/<issue>-<what-it-does>`, with the prefix of the product driving it: `claude/` or `codex/`. Make a new one per PR from the latest `main`.
 - **Commit trailers:** each commit names the product that wrote it, in its last lines. Claude Code's carry `Claude-Session: <session link>`; Codex's carry `Agent: codex <model as served>`, and never a `Claude-Session:` line.
-- **Easy to miss** (#75 missed both):
+- **Easy to miss** (#75 missed the first two):
   - `Closes #<issue>` with the criteria checklist;
-  - [marking the PR ready yourself](CONTRIBUTING.md#ready-for-review), with a comment.
+  - [marking the PR ready yourself](CONTRIBUTING.md#ready-for-review), with a comment;
+  - a user-visible change's note as `changes/<issue>.md`, never a line in `CHANGELOG.md` ([Changelog notes](CONTRIBUTING.md#changelog-notes), #261).
 - **No open question when ready** (#215): a PR with an open question for the owner is not ready. Ask first, and mark it ready only after the answer is applied (CONTRIBUTING.md's "Ready for review").
 - **Merging and patch releases** (#241): a PR can merge once the required `check` is green; nobody waits for the report-only jobs. A patch release of documentation-only fixes is one PR with the fix (CONTRIBUTING.md's "How changes land" and "Releasing").
 - **Part of a spec:** say `Refs #<issue>`, list which acceptance criteria the PR covers, and name the parts still to come. Only the PR that completes the spec says `Closes`. #73 and #74 did this for #68.
