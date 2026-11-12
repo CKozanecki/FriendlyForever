@@ -120,28 +120,48 @@ describe("A held /say goes on a buff-button press (#271)", function()
         bindWheel()
         ns.db.linesPerMinute = 100
         random.seed(271)
+        local function says() return #wow.sentTo("SAY") end
+        -- What the storm reached, checked below so it can't quietly stop reaching it.
+        local reach = { pressReleased = 0, codeClickWhileHeld = 0 }
         for _ = 1, 400 do
             local roll = random.random(1, 8)
+            local outdoorsHeld = not wow.state.inInstance and Q.IsWaitingForHardware()
+            local before = says()
             if roll == 1 then holdSay("line")
-            elseif roll == 2 then wow.press(button, random.random(1, 2) == 1 and "LeftButton" or "RightButton")
-            elseif roll == 3 then wow.wheel(1)
+            elseif roll == 2 or roll == 3 then
+                if roll == 2 then
+                    wow.press(button, random.random(1, 2) == 1 and "LeftButton" or "RightButton")
+                else
+                    wow.wheel(1)
+                end
+                if outdoorsHeld and says() > before then reach.pressReleased = reach.pressReleased + 1 end
             elseif roll == 4 then wow.keyDown("W")
-            elseif roll == 5 then button:Click("LeftButton"); wow.run(button, "PostClick", "LeftButton", false)
+            elseif roll == 5 then
+                button:Click("LeftButton")
+                wow.run(button, "PostClick", "LeftButton", false)
+                if outdoorsHeld then
+                    reach.codeClickWhileHeld = reach.codeClickWhileHeld + 1
+                    assert.are.equal(before, says(), "a click from code sent a held line")
+                end
             elseif roll == 6 then wow.state.inInstance = not wow.state.inInstance
             else wow.advance(random.random(0, 30) / 10) end
         end
         -- The simulated client records any /say attempted outdoors without a
         -- hardware event as blocked: none was.
         assert.are.equal(0, #wow.blocked)
-        assert.is_true(#wow.sentTo("SAY") > 0, "the storm did send /say on presses")
-        -- And a press still releases what is left, one line each.
+        assert.is_true(reach.pressReleased > 0, "a button press or the wheel released a held line")
+        assert.is_true(reach.codeClickWhileHeld > 0, "a click from code came while a line was held")
+        -- After the storm, a press still releases a fresh held line, exactly one.
         wow.state.inInstance = false
-        local before = #wow.sentTo("SAY")
-        while Q.Count() > 0 do
-            wow.advance(Q.MIN_INTERVAL + 0.1)
-            wow.wheel(1)
-        end
-        assert.is_true(#wow.sentTo("SAY") >= before)
+        wow.advance(Q.MAX_AGE + Q.RETRY_DELAY + 1) -- whatever the storm left has expired
+        assert.are.equal(0, Q.Count())
+        holdSay("after")
+        holdSay("after2")
+        wow.advance(Q.MIN_INTERVAL + 0.1)
+        local before = says()
+        wow.wheel(1)
+        assert.are.equal(before + 1, says())
+        assert.are.equal("after", wow.sentTo("SAY")[says()])
         assert.are.equal(0, #wow.blocked)
     end)
 end)
