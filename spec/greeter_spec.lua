@@ -1176,6 +1176,21 @@ describe("Greetings", function()
             end
         end)
 
+        it("previews show the same names as the real send", function()
+            assert.are.equal("Nikki Shifts", ns.Config.NameVars("guildLogin", "Nikki-Shifts").name)
+            assert.are.equal("Nikki Shifts", ns.Config.NameVars("guildJoin", "Nikki-Shifts").name)
+            assert.are.equal("Nikki", ns.Config.NameVars("partyJoin", "Nikki-Shifts").name)
+            assert.are.equal("Nikki", ns.Config.NameVars("buff", "Nikki-Shifts").name)
+            rebootWith({})
+            ns.db.guildLogin.messages = { "Hi {name}!" }
+            _G.SlashCmdList.FRIENDLYFOREVER("test")
+            local seen = false
+            for _, line in ipairs(wow.printed) do
+                if tostring(line):find("Hi Nikki Shifts!", 1, true) then seen = true end
+            end
+            assert.is_true(seen)
+        end)
+
         it("leaves the party welcome on the first name", function()
             ns.db.partyJoin.messages = { "Hi {name}!" }
             assert.are.equal("Nikki", ns.Util.NameVars("Nikki-Shifts").name)

@@ -100,18 +100,9 @@ local function NotIgnored(name)
     end
 end
 
--- A guild greeting names the player by their whole name: many players use
--- their first name as a title (owner, #281). {name} and {fullname} are both
--- "First Surname"; a first name alone stays as it is.
-local function GuildVars(name)
-    local vars = Util.NameVars(name)
-    vars.name = vars.fullname
-    return vars
-end
-
 -- {name}, {fullname} and, when the roster says, {class}.
 local function MemberVars(name)
-    local vars = GuildVars(name)
+    local vars = ns.Config.NameVars("guildLogin", name)
     if type(members[name]) == "string" then vars.class = members[name] end
     return vars
 end
@@ -586,7 +577,7 @@ function Greeter.OnSystemMessage(msg)
         if Ignored("guildJoin", name) then return end
         if ns.Announcer.Schedule("guildJoin", name, {
             channel = GuildChannel, isValid = NotIgnored(name),
-            vars = function() return GuildVars(name) end,
+            vars = function() return ns.Config.NameVars("guildJoin", name) end,
         }) then
             RememberWelcomed(name)
         end
