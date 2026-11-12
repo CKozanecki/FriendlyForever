@@ -124,11 +124,15 @@ local function SetSecureMacro(macroText)
     appliedMacroText = macroText
 end
 
-local function SetLabels(title, subtitle)
+-- small: the title in the line below's smaller font (the "Already done"
+-- note, #256, so a long first name fits). The font goes first: a font
+-- object can bring its own colour and alignment, so the text and left
+-- alignment are set after it (#264's testing review).
+local function SetLabels(title, subtitle, small)
+    button.title:SetFontObject(small and "GameFontNormalSmall" or "GameFontNormal")
+    button.title:SetJustifyH("LEFT")
     button.title:SetText(title or "")
     button.subtitle:SetText(subtitle or "")
-    -- The title's own font, unless the "Already done" note is showing (#256).
-    button.title:SetFontObject("GameFontNormal")
     -- Full strength, unless the "Already done" note is fading (#256).
     button.title:SetAlpha(1)
     button.subtitle:SetAlpha(1)
@@ -283,9 +287,7 @@ local function ShowAlreadyDone()
         return ShowAlreadyDone()
     end
     Empty("already done")
-    SetLabels(ns.Colours.Text("bad", alreadyDone.title), alreadyDone.spell)
-    -- The smaller font of the line below, so a long first name fits (#264).
-    button.title:SetFontObject("GameFontNormalSmall")
+    SetLabels(ns.Colours.Text("bad", alreadyDone.title), alreadyDone.spell, true)
     local alpha = AlreadyDoneAlpha(elapsed)
     button.title:SetAlpha(alpha)
     button.subtitle:SetAlpha(alpha)

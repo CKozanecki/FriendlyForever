@@ -575,6 +575,10 @@ test("the button says a buff is already done, in red, then moves on", function()
         Expect(title:find("Already done by " .. first, 1, true) ~= nil,
             ("the button reads %q, not \"Already done by %s\""):format(title, first))
         Expect(title:find("|cffff6e86", 1, true) ~= nil, "the note isn't in the palette's red (bad)")
+        -- Left-aligned like the line below it, after its smaller font (#264).
+        local justify = button.title.GetJustifyH and button.title:GetJustifyH()
+        Expect(justify == nil or justify == "LEFT",
+            ("the note's title is aligned %s, not LEFT"):format(tostring(justify)))
         Expect(States.Macro() == nil, "the button holds a macro while the note shows")
         local list = _G.FriendlyForeverBuffList
         Expect(not (list and list:IsShown()), "the list is up while the note shows")
