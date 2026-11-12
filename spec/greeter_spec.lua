@@ -1166,14 +1166,50 @@ describe("Greetings", function()
         end)
 
         it("keeps a long whole name inside the 255-byte limit", function()
-            rebootWith({})
+            rebootWith({ "Aaaaaaaaaaaa-Bbbbbbbbbbbb" })
             local long = string.rep("a", 12) .. " " .. string.rep("b", 12)
-            ns.db.guildJoin.messages = { string.rep("x", 200) .. " {name} {fullname}" }
+            local filler = string.rep("x", 230)
+            ns.db.guildJoin.messages = { filler .. " {name} {fullname}" }
+            ns.db.guildLogin.messages = { filler .. " {name} {fullname}" }
             wow.systemMessage(long .. " has joined the guild.")
             wow.advance(ns.db.guildJoin.delay + 0.1)
-            for _, text in ipairs(wow.sentTo("GUILD")) do
-                assert.is_true(#text <= 255)
+            online("Aaaaaaaaaaaa-Bbbbbbbbbbbb")
+            wow.advance(helloWait() + ns.Greeter.WELCOME_QUIET + 1)
+            local sent = wow.sentTo("GUILD")
+            assert.is_true(#sent >= 1)
+            for _, text in ipairs(sent) do
+                assert.is_true(#text <= 255, #text)
+                assert.is_true(#(filler .. " " .. long .. " " .. long) > 255) -- it really had to be cut
             end
+        end)
+
+        it("sends nothing and never errors for a secret (unreadable) name", function()
+            rebootWith({ wow.secret("Nikki-Shifts"), "Ann-Vale" })
+            wow.systemMessage(wow.secret("Nikki Shifts has joined the guild."))
+            wow.systemMessage(wow.secret("Ann Vale has come online."))
+            online("Nikki-Shifts")
+            wow.advance(120)
+            assert.are.same({}, wow.errors)
+            for _, text in ipairs(wow.sentTo("GUILD")) do
+                assert.is_nil(text:find("secret", 1, true))
+            end
+        end)
+
+        it("Preview random on the options tabs names the whole name for guild lines only", function()
+            rebootWith({})
+            local w = ns.Options.widgets
+            wow.state.units.player.name, wow.state.units.player.surname = "Nikki", "Shifts"
+            local me = ns.Util.UnitFullName("player")
+            assert.are.equal("Nikki-Shifts", me)
+            local first, whole = ns.Util.FirstName(me), ns.Util.DisplayName(me)
+            ns.db.guildLogin.messages = { "Hi {name}!" }
+            ns.db.partyJoin.messages = { "Hi {name}!" }
+            wow.run(w.tabs.guildLogin, "OnClick")
+            wow.run(w.preview, "OnClick")
+            assert.is_truthy(tostring(wow.printed[#wow.printed]):find("Hi " .. whole .. "!", 1, true))
+            wow.run(w.tabs.partyJoin, "OnClick")
+            wow.run(w.preview, "OnClick")
+            assert.is_truthy(tostring(wow.printed[#wow.printed]):find("Hi " .. first .. "!", 1, true))
         end)
 
         it("previews show the same names as the real send", function()
@@ -1192,8 +1228,12 @@ describe("Greetings", function()
         end)
 
         it("leaves the party welcome on the first name", function()
+            rebootWith({})
             ns.db.partyJoin.messages = { "Hi {name}!" }
-            assert.are.equal("Nikki", ns.Util.NameVars("Nikki-Shifts").name)
+            wow.setGroup("party", { "Nikki-Shifts" })
+            wow.systemMessage("Nikki Shifts joins the party.")
+            wow.advance(10)
+            assert.are.same({ "Hi Nikki!" }, wow.sentTo("PARTY"))
         end)
     end)
 end)
