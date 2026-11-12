@@ -287,7 +287,7 @@ test("the buff-back button's text stays inside it (unlocked, the longest hint)",
         assertNotNil(button)
         assertTrue(FriendlyForeverDB.buffBack.unlocked)
         TextInside(button, button.title, "button title", 1)
-        TextInside(button, button.subtitle, "button hint", 1)
+        TextInside(button, button.subtitle, "button hint")
     end)
 end)
 
@@ -471,7 +471,8 @@ local function ExpectEmpty(States, when)
     Expect(not States.Button():IsShown(), when .. ": the button is up")
 end
 
--- The last argument to TextInside, 1: each button line stays on one line.
+-- The last argument to TextInside, 1: the name stays on one line. The line
+-- below it may wrap: the button grows to hold it, never cutting it (#270).
 test("with a favour owed, the button names the player and the buff, and its text stays inside it", function()
     InState("favour", FriendlyForeverUIStates.Favour, function(button, States)
         Expect(select(2, UnitClass("player")) == "PRIEST", "the player isn't a Priest")
@@ -483,7 +484,7 @@ test("with a favour owed, the button names the player and the buff, and its text
         Expect((States.Macro() or ""):find("/cast [help,nodead] " .. States.SPELL.name, 1, true) ~= nil,
             "the macro doesn't cast " .. States.SPELL.name)
         TextInside(button, button.title, "favour title", 1)
-        TextInside(button, button.subtitle, "favour hint", 1)
+        TextInside(button, button.subtitle, "favour hint")
         OnScreen(button, "buff-back button (favour)")
     end)
 end)
@@ -502,7 +503,7 @@ test("in buff mode, you are offered first, then a party member missing your buff
         Expect((States.Macro() or ""):find("/cast [@player,nodead] " .. States.SPELL.name, 1, true) ~= nil,
             "the macro doesn't cast " .. States.SPELL.name .. " on you")
         TextInside(button, button.title, "buff mode (you first) title", 1)
-        TextInside(button, button.subtitle, "buff mode (you first) hint", 1)
+        TextInside(button, button.subtitle, "buff mode (you first) hint")
         OnScreen(button, "buff-back button (buff mode, you first)")
         -- A click on the party member's row in the list makes her the next offer.
         local list = _G.FriendlyForeverBuffList
@@ -518,7 +519,7 @@ test("in buff mode, you are offered first, then a party member missing your buff
             "the hint doesn't offer " .. States.SPELL.name)
         Expect(States.MacroTarget() == States.GROUPMATE, "the macro doesn't target " .. States.GROUPMATE)
         TextInside(button, button.title, "buff mode title", 1)
-        TextInside(button, button.subtitle, "buff mode hint", 1)
+        TextInside(button, button.subtitle, "buff mode hint")
         OnScreen(button, "buff-back button (buff mode)")
     end)
 end)
@@ -585,12 +586,29 @@ test("the button says a buff is already done, in red, then moves on", function()
         -- The name is the point of the note: it must not be cut short.
         local titleLine = TextInside(button, button.title, "already-done title", 1)
         Expect(not titleLine:find("cut short", 1, true), titleLine .. ": the note's title is cut short")
-        TextInside(button, button.subtitle, "already-done spell", 1)
+        TextInside(button, button.subtitle, "already-done spell")
         OnScreen(button, "button (already done)")
         report("LAYOUT already done: " .. title .. " / " .. (button.subtitle:GetText() or ""))
         States.Advance(2)
         Expect(States.Macro() ~= nil, "after 2 seconds the button doesn't hold the next buff")
         Expect(not (button.title:GetText() or ""):find("Already done", 1, true), "the note is still up")
+    end)
+end)
+
+-- The longest reason the button shows (#270): whole, wrapped inside the
+-- button, never cut short, at every size.
+test("the longest reason the button shows wraps whole inside it", function()
+    InState("longest reason", FriendlyForeverUIStates.LongReason, function(button, States)
+        Expect(button:IsShown(), "the button isn't up in buff mode")
+        Expect(States.Macro() == nil, "the button holds a macro")
+        local reason = button.subtitle:GetText() or ""
+        Expect(reason:find("can't see whether they're flagged for PvP (target them, or show friendly nameplates)",
+            1, true) ~= nil, ("the reason reads %q, not the longest"):format(reason))
+        local line = TextInside(button, button.subtitle, "longest reason")
+        Expect(not line:find("cut short", 1, true), line .. ": the reason is cut short")
+        TextInside(button, button.title, "longest reason title", 1)
+        OnScreen(button, "buff-back button (longest reason)")
+        report("LAYOUT longest reason: " .. reason)
     end)
 end)
 

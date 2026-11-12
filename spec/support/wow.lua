@@ -133,10 +133,12 @@ function methods:Click(mouseButton)
     if self.enabled and self.scripts.OnClick then self.scripts.OnClick(self, mouseButton or "LeftButton") end
 end
 function methods:IsEnabled() return self.enabled end
-function methods:SetSize(w, h) self.width, self.height = w, h end
-function methods:SetWidth(w) self.width = w end
-function methods:SetHeight(h) self.height = h end
+-- A protected frame's size is locked in combat too (#270).
+function methods:SetSize(w, h) guardProtected(self, "SetSize"); self.width, self.height = w, h end
+function methods:SetWidth(w) guardProtected(self, "SetWidth"); self.width = w end
+function methods:SetHeight(h) guardProtected(self, "SetHeight"); self.height = h end
 function methods:GetWidth() return self.width or 0 end
+function methods:GetHeight() return self.height or 0 end
 function methods:GetCenter() return self.centerX or 0, self.centerY or 0 end
 function methods:GetTop() return self.top end
 function methods:GetRight() return self.right end
@@ -208,6 +210,14 @@ function methods:SetOwner(owner) self.owner, self.lines = owner, {} end
 M.CHAR_WIDTH = {
     GameFontNormal = 7, GameFontHighlight = 7, GameFontNormalLarge = 9,
     GameFontNormalSmall = 6, GameFontHighlightSmall = 6,
+}
+
+-- A line of text is this many pixels tall in each font (#270): the game's
+-- fonts are about 10 to 12 pixels for the small ones, so these are at the
+-- tall end. Real heights: see ASSUMPTIONS.
+M.LINE_HEIGHT = {
+    GameFontNormal = 14, GameFontHighlight = 14, GameFontNormalLarge = 17,
+    GameFontNormalSmall = 12, GameFontHighlightSmall = 12,
 }
 
 local function plainText(text)
@@ -496,6 +506,13 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         "…". Pinned on one side, it grows to fit its text.
 --                         Widths come from M.CHAR_WIDTH (a little wide on
 --                         purpose); real fonts: confirmed in game at launch.
+--                         A line of text is M.LINE_HEIGHT tall for its font
+--                         (#270), as tall as the buff button allows for one;
+--                         the game's line heights and how far its wrapped
+--                         text reaches: to check in game, #277.
+--   A protected frame's size (SetSize, SetWidth, SetHeight) is locked in
+--                         combat, like showing it (the game's rule for
+--                         secure frames).
 --   Addon messages (#32): C_ChatInfo.RegisterAddonMessagePrefix and
 --                         SendAddonMessage answer with the 10.2.7+ result codes
 --                         (Enum.*Result). The game's throttle is a burst of 10
