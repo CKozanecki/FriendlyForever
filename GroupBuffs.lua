@@ -29,6 +29,25 @@
 -- stronger than a rank you know (#206; BuffData.CanReplace), and only when
 -- the game shows how long it has left: a time that can't be read (secret,
 -- missing) means it isn't missing. Strangers (buff back) are never topped up.
+--
+-- Whose buff it is (#256). A buff someone outside your group put up doesn't
+-- count: yours is offered over it, so every member's buff is yours, on your
+-- timer. A buff a group member put up is left alone. The game names a group
+-- member's caster, so a caster it doesn't name (sourceUnit nil) is someone
+-- outside the group (the owner's decision). A caster it gives as a secret
+-- can't be read: that buff is never cast over, and the member isn't done.
+-- In the round that starts as you enter a dungeon or raid with your group
+-- (GroupBuffs.StartRound, from BuffModeAuto.lua) and ends at the first pull
+-- or when you leave, "whoever buffs first" (the owner, 2026-11-12): a buff
+-- of yours or another member's put up more than SYNCED_SECONDS before you
+-- entered is offered again once, so everyone's timer is fresh; one put up
+-- since then is already in step and left be. When it was put up comes from
+-- the aura's own times; a time that can't be read is never recast over.
+-- Outside the round a member's buff is left alone until it runs low (top-up).
+-- Never over anything stronger than a rank you know
+-- (BuffData.CanReplace: #41's rule, and the game would refuse it), and the
+-- one-Blessing rule stands. In a raid, the raid buff split (#70) still
+-- decides which buffs are yours to give.
 local _, ns = ...
 local Util = ns.Util
 local Read = Util.ReadGameValues
@@ -59,6 +78,15 @@ local justGiven = {} -- [name .. "\1" .. buff key] = GetTime()
 local skipped = {}   -- [name] = GetTime() you right-clicked them
 local heldBack = {}  -- [name] = GetTime() the game refused a cast to them
 local lastSelfWhy        -- why you were last left out of the offers (said once in debug)
+-- The dungeon-or-raid round (#256), or nil: { started = GetTime(), given =
+-- { [name .. "\1" .. buff key] = true }, inStep = { [buff key] = { buff,
+-- at, by } } (the newest member's buff it left alone as in step), order = {
+-- buff keys as first noted }, shown = { [buff key] = true } }.
+local round
+
+-- In the round, a buff put up less than this long before you entered (or
+-- since) is in step with everyone's and isn't recast (#256, the owner).
+GroupBuffs.SYNCED_SECONDS = 300
 
 -- The slots to look through: raid1..40 in a raid (one of them is you),
 -- party1..4 in a party. Empty when you're in no group.
@@ -113,11 +141,144 @@ local function RunningLow(aura, buff)
     return ns.BuffData.CanReplace(buff, aura.spellId)
 end
 
--- Whether they wear a buff of this family that you cast: true, false, or nil
--- when the game won't say (their buffs, or who cast one, can't be read).
--- A Blessing of yours that you've since left to others in this raid doesn't
--- count, so the one you switched to replaces it; nor does offered running
--- low, which a cast of offered renews.
+-- Who put up an aura with this caster (#256): "you", "group" (another
+-- member), "outside" (not in your group, or a caster the game doesn't name),
+-- or nil when it can't be read.
+local function CasterOf(source, units)
+    if source == nil then return "outside" end
+    local me = Util.CastByYou(source)
+    if me == nil then return nil end
+    if me then return "you" end
+    -- The game names a group member (or their pet) by a group token...
+    if source:find("^party%d+$") or source:find("^raid%d+$") or source:find("^partypet%d+$")
+        or source:find("^raidpet%d+$") then
+        return "group"
+    end
+    -- ...or by another token that is one (a nameplate, your target).
+    for _, unit in ipairs(units) do
+        local same = Read(UnitIsUnit, source, unit)
+        if same == nil then return nil end
+        if same then return "group" end
+    end
+    return "outside"
+end
+
+-- When aura was put up (GetTime() clock), from its own times, or nil when
+-- they can't be read or it never runs out. Secrets are never compared.
+local function AppliedAt(aura)
+    local duration, expires = aura.duration, aura.expirationTime
+    if Util.IsSecret(duration) or Util.IsSecret(expires) then return nil end
+    if type(duration) ~= "number" or type(expires) ~= "number" then return nil end
+    -- Each test is true only for a real number, so NaN is a no.
+    if not (duration > 0 and expires > 0) then return nil end
+    return expires - duration
+end
+
+-- Whether the round recasts aura (yours or a group member's, covering buff)
+-- on the member called name: put up more than SYNCED_SECONDS before the
+-- round began, and not given to them yet this round. A time that can't be
+-- read: no.
+local function RoundRecasts(name, buff, aura)
+    if not round or round.given[name .. "\1" .. buff.key] then return false end
+    local at = AppliedAt(aura)
+    return at ~= nil and at < round.started - GroupBuffs.SYNCED_SECONDS
+end
+
+-- A member's buff the round leaves alone because it's in step (#256, rule 2):
+-- remember the newest per buff and who cast it, for the button's "Already
+-- done by" note. Not one whose time can't be read, nor one old enough that
+-- only an earlier cast this round kept it.
+local function NoteInStep(buff, aura)
+    if not round then return end
+    local at = AppliedAt(aura)
+    if at == nil or at < round.started - GroupBuffs.SYNCED_SECONDS then return end
+    local seen = round.inStep[buff.key]
+    if seen and seen.at >= at then return end
+    if not seen then round.order[#round.order + 1] = buff.key end
+    -- The caster's name, if the game gives it (a readable token here).
+    round.inStep[buff.key] = { buff = buff, at = at, by = Util.UnitFullName(aura.sourceUnit) }
+end
+
+-- Whether your cast of buff would renew aura (readable, covering buff) on
+-- member rather than leave it be (#256): true when someone outside the group
+-- put it up, or the round recasts it (yours or a member's, old enough);
+-- false otherwise, and for anything stronger than a rank you know; nil when
+-- who cast it can't be read.
+local function Renews(member, buff, aura, units)
+    if not ns.BuffData.CanReplace(buff, aura.spellId) then return false end
+    local who = CasterOf(aura.sourceUnit, units)
+    if who == nil then return nil end
+    if who == "outside" then return true end
+    local recasts = RoundRecasts(member.name, buff, aura)
+    if not recasts and who == "group" then NoteInStep(buff, aura) end
+    return recasts
+end
+
+-- Whether member wears buff so that nothing is left to give: true, false
+-- (missing it, running low, or wearing one your cast renews), or nil when
+-- their buffs, or who cast the one that counts, can't be read; then why.
+local function Wears(member, buff, units)
+    local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    if not api then return nil, "can't see their buffs" end
+    for i = 1, ns.Offers.MAX_AURAS do
+        local ok, aura = pcall(api, member.unit, i, "HELPFUL")
+        if not ok or Util.IsSecret(aura) then return nil, "can't see their buffs" end
+        if aura == nil then return false end
+        local id = aura.spellId
+        if Util.IsSecret(id) then return nil, "can't see their buffs" end
+        if ns.BuffData.Covers(buff, id) then
+            -- Running low, it's renewed (top-up, #42), but never over a
+            -- caster that can't be read (#256).
+            local renews
+            if RunningLow(aura, buff) then
+                renews = CasterOf(aura.sourceUnit, units) ~= nil or nil
+            else
+                renews = Renews(member, buff, aura, units)
+            end
+            if renews == nil then return nil, "can't tell who cast their buff" end
+            if not renews then return true end
+        end
+    end
+    return false
+end
+
+-- Why a group version of buff mustn't cover this member (#256), or nil: it
+-- would replace a buff of theirs whose caster can't be read, or another
+-- member's that isn't running low (and the round doesn't recast), or they
+-- wear buffs that can't be read at all. A group version covers everyone in its
+-- party, subgroup or class, not only those missing the buff.
+local function CoverBlocked(entry, buff, units, equals)
+    -- Only a buff the cast would replace counts: one no stronger than the
+    -- single rank the group version equals. The game keeps a stronger one.
+    local equalsAt = ns.BuffData.RankOf(buff, equals)
+    local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    local who = entry.isMe and "your" or ((entry.name and Util.DisplayName(entry.name) or "a group member") .. "'s")
+    if not api then return "can't see " .. who .. " buffs" end
+    for i = 1, ns.Offers.MAX_AURAS do
+        local ok, aura = pcall(api, entry.unit, i, "HELPFUL")
+        if not ok or Util.IsSecret(aura) then return "can't see " .. who .. " buffs" end
+        if aura == nil then return nil end
+        local id = aura.spellId
+        if Util.IsSecret(id) then return "can't see " .. who .. " buffs" end
+        local at = ns.BuffData.RankOf(buff, id)
+        if ns.BuffData.Covers(buff, id) and not (at and equalsAt and at < equalsAt) then
+            local caster = CasterOf(aura.sourceUnit, units)
+            if caster == nil then return "can't tell who cast " .. who .. " buff" end
+            -- Another member's buff is theirs until it runs low, or the
+            -- round recasts it (#256, the owner).
+            if caster == "group" and not RunningLow(aura, buff)
+                and not (entry.name and RoundRecasts(entry.name, buff, aura)) then
+                return who .. " buff is another group member's"
+            end
+        end
+    end
+end
+
+-- Whether they wear another buff of this family (another Blessing) that you
+-- cast: true, false, or nil when the game won't say (their buffs, or who
+-- cast one, can't be read). A Blessing of yours that you've since left to
+-- others in this raid doesn't count, so the one you switched to replaces it.
+-- offered itself is Wears's to judge (running low, or renewed: #256).
 local function WearsMyFamily(unit, family, offered)
     local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
     if not api then return nil end
@@ -128,11 +289,8 @@ local function WearsMyFamily(unit, family, offered)
         local id = aura.spellId
         if Util.IsSecret(id) then return nil end
         local buff = ns.BuffData.ForAura(id)
-        if buff and buff.family == family and ns.BuffRules.CoversInRaid(buff)
-            and not RunningLow(aura, offered) then
-            local source = aura.sourceUnit
-            if source == nil or Util.IsSecret(source) then return nil end
-            local mine = Read(UnitIsUnit, source, "player")
+        if buff and buff.family == family and buff.key ~= offered.key and ns.BuffRules.CoversInRaid(buff) then
+            local mine = Util.CastByYou(aura.sourceUnit)
             if mine == nil then return nil end
             if mine then return true end
         end
@@ -271,11 +429,11 @@ function GroupBuffs.Next(out)
             allowed, ruleWhy = ns.BuffRules.Allows(buff, member)
         end
         if allowed ~= false then
-            local wears = ns.Offers.Wears(member.unit, buff, RunningLow)
+            local wears, wearsWhy = Wears(member, buff, units)
             local key = member.name .. "\1" .. buff.key
             if wears == nil then
                 unreadable[member.name] = true
-                Why(member, "can't see their buffs")
+                Why(member, wearsWhy)
             elseif wears then
                 justGiven[key] = nil
             elseif allowed == nil then
@@ -314,6 +472,7 @@ function GroupBuffs.Next(out)
             local note, quiet
             if spell then
                 groupCtx.Needs = function(member) return Needs(buff, member) end
+                groupCtx.Blocked = function(entry, equals) return CoverBlocked(entry, buff, units, equals) end
                 local groupOffer
                 groupOffer, note, quiet = ns.GroupCasts.Offer(buff, list, groupCtx)
                 if groupOffer then
@@ -365,7 +524,46 @@ end
 -- Your buff reached them (the game said so).
 function GroupBuffs.NoteGiven(name, buff)
     justGiven[name .. "\1" .. buff.key] = GetTime()
+    if round then round.given[name .. "\1" .. buff.key] = true end
 end
+
+-- Your press of a group buff went out but the game didn't say whom it
+-- reached (BuffButton): the round counts it as given all the same, so the
+-- same member isn't offered it on every press until the pull (#256). At
+-- worst those it was for (everyone a group version covered) keep their
+-- earlier buff, yours or another member's.
+function GroupBuffs.NoteRoundCast(name, buff)
+    if round then round.given[name .. "\1" .. buff.key] = true end
+end
+
+-- The dungeon-or-raid round (#256): from entering one with your group until
+-- the first pull or leaving, "whoever buffs first" (the owner): a buff of
+-- yours or another member's put up more than SYNCED_SECONDS before you
+-- entered is offered once more; one put up since is in step and left alone
+-- (and named once on the button, rule 2); one whose time can't be read is
+-- never recast over.
+function GroupBuffs.StartRound()
+    round = { started = GetTime(), given = {}, inStep = {}, order = {}, shown = {} }
+end
+
+-- The next buff the round left alone as in step and hasn't shown yet (#256,
+-- rule 2: once per buff each time you enter): { buff, by = the caster's
+-- full name or nil }, or nil. Taking it marks it shown.
+function GroupBuffs.TakeInStepNote()
+    if not round then return nil end
+    for _, key in ipairs(round.order) do
+        if not round.shown[key] then
+            round.shown[key] = true
+            local seen = round.inStep[key]
+            return { buff = seen.buff, by = seen.by }
+        end
+    end
+end
+function GroupBuffs.EndRound() round = nil end
+function GroupBuffs.InRound() return round ~= nil end
+-- The current round itself, to tell one round from the next (a note shown
+-- for one ends with it), or nil.
+function GroupBuffs.Round() return round end
 
 -- The game refused a cast to them (out of range or sight): try the others
 -- first for a moment.

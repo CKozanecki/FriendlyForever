@@ -190,6 +190,9 @@ function methods:SetMaxLines(n) self.maxLines = n end
 function methods:GetMaxLines() return self.maxLines or 0 end
 -- The width of a text line's whole text (see M.CHAR_WIDTH).
 function methods:GetStringWidth() return M.textWidth(self.text, self.font) end
+-- A text line's font, by the name of one of the game's font objects (#256).
+function methods:SetFontObject(font) self.font = font end
+function methods:GetFontObject() return self.font end
 function methods:CreateTexture() return M.newFrame("Texture", nil, self) end
 function methods:AddLine(text) self.lines = self.lines or {}; self.lines[#self.lines + 1] = text end
 -- Giving a tooltip an owner starts it afresh, as in the game.
@@ -461,6 +464,14 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         fields outOfRange, rangeUnknown); in a raid, setGroup
 --                         leaves your own raid slot out (the game puts you in
 --                         one), so specs add it when they need it.
+--   Who cast a group member's buff (#256): unit.auraSources[i] is the
+--                         caster's unit token. Unset, wow.boot reads it as
+--                         "player" (yours): the game names a group member's
+--                         caster (confirmed in game at launch) and most specs
+--                         mean "they have yours". false means the game names
+--                         no caster, which the addon takes as someone outside
+--                         the group (the owner's decision on #256);
+--                         opts.unnamedCasters makes every unset one so.
 --   Members elsewhere (#256): a member outside the instance you're in (or in
 --                         another zone) reads as not visible (UnitIsVisible
 --                         false) with an unchecked range (UnitInRange false,
@@ -1560,8 +1571,13 @@ function M.reset()
                 until seen == index
                 local id = u.auras[i]
                 if M.state.unitsRestricted or (u.secrets and u.secrets.auras) then return M.secret({ spellId = id }) end
-                -- spec.auraSources[i]: the unit token of who cast it, if the game says.
-                local aura = { spellId = id, isHelpful = true, sourceUnit = u.auraSources and u.auraSources[i] }
+                -- spec.auraSources[i]: the unit token of who cast it, if the game says;
+                -- false: the game names no caster. Unset: state.auraSourceDefault
+                -- (wow.boot makes it "player", #256), or no caster.
+                local source = u.auraSources and u.auraSources[i]
+                if source == nil then source = M.state.auraSourceDefault end
+                if source == false then source = nil end
+                local aura = { spellId = id, isHelpful = true, sourceUnit = source }
                 -- Its times (#42): unset stays nil; secret per unit.
                 local duration = u.auraDurations and u.auraDurations[i]
                 local expires = u.auraExpires and u.auraExpires[i]
@@ -1705,6 +1721,12 @@ end
 function M.boot(opts)
     opts = opts or {}
     M.reset()
+    -- A group member's buff with no caster set reads as yours (#256): the
+    -- game names a group member's caster, and most specs put up a buff to
+    -- say "they have yours". A caster the game doesn't name now means someone
+    -- outside the group, whose buff buff mode recasts over, so specs say so
+    -- with auraSources[i] = false, or opts.unnamedCasters for every buff.
+    if not opts.unnamedCasters then M.state.auraSourceDefault = "player" end
     if opts.before then opts.before(M.state) end
     if M.state.settingsSearch then M.addSettingsSearch(M.state.settingsSearch ~= "noTags") end
     -- Which turn-on triggers the given settings set, read before loading

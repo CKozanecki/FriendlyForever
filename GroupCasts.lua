@@ -138,9 +138,7 @@ local function WearsHigherRank(unit, buff, equals, anyone)
         local at = ns.BuffData.RankOf(buff, id)
         if at and at < equalsAt then
             if anyone then return true end
-            local source = aura.sourceUnit
-            if source == nil or Util.IsSecret(source) then return nil end
-            local mine = Read(UnitIsUnit, source, "player")
+            local mine = Util.CastByYou(aura.sourceUnit)
             if mine == nil then return nil end
             if mine then return true end
         end
@@ -163,9 +161,7 @@ local function WearsOtherBlessing(unit, buff)
         if Util.IsSecret(id) then return nil end
         local other = ns.BuffData.ForAura(id)
         if other and other.family == buff.family and other.key ~= buff.key then
-            local source = aura.sourceUnit
-            if source == nil or Util.IsSecret(source) then return nil end
-            local mine = Read(UnitIsUnit, source, "player")
+            local mine = Util.CastByYou(aura.sourceUnit)
             if mine == nil then return nil end
             if mine then return other end
         end
@@ -194,7 +190,7 @@ end
 
 -- Why the group version can't go to this group, or nil if it can: every
 -- member it would cover has to pass.
-local function WhyNot(buff, spell, members, iAmFlagged)
+local function WhyNot(buff, spell, members, iAmFlagged, ctx)
     for _, m in ipairs(members) do
         local who = m.isMe and "you" or m.name and Util.DisplayName(m.name) or "a group member"
         if Read(UnitIsConnected, m.unit) ~= false then
@@ -222,6 +218,10 @@ local function WhyNot(buff, spell, members, iAmFlagged)
         local higher = WearsHigherRank(m.unit, buff, spell.equals)
         if higher == nil then return "can't tell whose buff " .. who .. " wears" end
         if higher then return Cap(who) .. (m.isMe and " wear" or " wears") .. " a higher rank of yours" end
+        -- A buff of theirs it would replace that isn't for buff mode to
+        -- cast over (#256: GroupBuffs says whose).
+        local kept = ctx and ctx.Blocked and ctx.Blocked(m, spell.equals)
+        if kept then return Cap(kept) end
     end
 end
 
@@ -232,7 +232,9 @@ end
 --            and you first when you're offered the buff too (#198)
 --   ctx      { units = the group's unit tokens, inRaid, Needs = function(member)
 --            true if they're missing the buff and may have it, InRange =
---            function(spell, unit) false if the spell can't reach them }
+--            function(spell, unit) false if the spell can't reach them,
+--            Blocked = function(entry, equals) why the cast (as strong as
+--            the single rank `equals`) mustn't cover that member (#256), or nil }
 -- The reason comes with a third value, true for one worth only a line in the
 -- button's tooltip, not its face (a group version you haven't learned, which
 -- stays true for a long time).
@@ -312,7 +314,7 @@ function GroupCasts.Offer(buff, members, ctx)
         if Recently(skipped[buff.key .. "\1" .. g.key], GroupCasts.SKIP_SECONDS) then
             firstWhy = firstWhy or ("You skipped " .. g.label)
         else
-            local blocked = WhyNot(buff, spell, g.members, iAmFlagged) or Weaker(buff, spell, g.missing)
+            local blocked = WhyNot(buff, spell, g.members, iAmFlagged, ctx) or Weaker(buff, spell, g.missing)
             if blocked then
                 firstWhy = firstWhy or blocked
             else

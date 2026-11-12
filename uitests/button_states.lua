@@ -478,9 +478,56 @@ States.ListGroupCast = {
     end,
 }
 
+-- "Already done by" (#256, the owner's rule 2): in buff mode you enter a
+-- dungeon with your party; Brenna wears Cedric's Fortitude, put up a minute
+-- ago, in step, so the button shows "Already done by Bartholomeus" in red for
+-- 2 seconds, empty, before the next buff you need. The simulator has no
+-- dungeon to enter and can't put a party member's buff on with a caster and
+-- times, so while the state is set IsInInstance answers a dungeon and
+-- Brenna's first aura is that Fortitude; Undo puts both back.
+-- A first name as long as the game allows (12 letters), so the scenario
+-- shows the longest note fits.
+States.DONE_BY = "Bartholomeus Vane"
+local doneSaved
+States.AlreadyDone = {
+    Set = function()
+        States.PassLoginGrace()
+        States.Learn()
+        States.NoFortitude()
+        States.PartyOf({ States.GROUPMATE, States.DONE_BY })
+        Command("buffmode on")
+        local auras = _G.C_UnitAuras
+        doneSaved = { inInstance = _G.IsInInstance, aura = auras.GetAuraDataByIndex }
+        local aura = auras.GetAuraDataByIndex
+        _G.IsInInstance = function() return true, "party" end
+        auras.GetAuraDataByIndex = function(unit, index, filter, ...)
+            if unit == "party1" then
+                if index ~= 1 then return nil end
+                return { spellId = States.SPELL.id, name = States.SPELL.name, isHelpful = true,
+                    sourceUnit = "party2", duration = 3600, expirationTime = GetTime() + 3540 }
+            end
+            return aura(unit, index, filter, ...)
+        end
+        -- A loading screen into the dungeon.
+        States.Fire("PLAYER_ENTERING_WORLD", false, false)
+    end,
+    Undo = function()
+        if InCombatLockdown() then States.Combat(false) end
+        if doneSaved then
+            _G.IsInInstance, _G.C_UnitAuras.GetAuraDataByIndex = doneSaved.inInstance, doneSaved.aura
+            doneSaved = nil
+        end
+        States.Fire("PLAYER_ENTERING_WORLD", false, false) -- back out
+        Command("buffmode off")
+        States.RestoreParty()
+        States.Unlearn()
+        States.Advance(States.RESULT_SECONDS)
+    end,
+}
+
 -- For the screenshot job: set a state up and leave it.
 local SHOWN = { favour = States.Favour, buffmode = States.GroupMissing, bufflist = States.ListFilled,
-    buffgroup = States.ListGroupCast }
+    buffgroup = States.ListGroupCast, alreadydone = States.AlreadyDone }
 function States.Show(name)
     local state = SHOWN[name]
     if not state then error("no button state called " .. tostring(name)) end

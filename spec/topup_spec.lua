@@ -1,4 +1,4 @@
--- Spec: #42, #209, #206
+-- Spec: #42, #209, #206, #256
 -- Top-up timing: in buff mode, a group member's buff with less than the set
 -- time left (default 5 minutes) counts as missing, so the button offers to
 -- top it up. Group members only, never strangers; a time that can't be read
@@ -234,15 +234,17 @@ describe("Top-up timing in buff mode (#42)", function()
             assert.are.same({}, wow.errors)
         end)
 
-        it("renews a Blessing whose caster is secret (the same Blessing only refreshes), never another", function()
+        it("never renews a buff whose caster is secret, running low or not, nor puts another Blessing over it (#256)",
+            function()
             boot({ class = "PALADIN", known = { [KINGS] = true, [MIGHT_1] = true } })
             ns.db.buffBack.buffOrder = { "might", "kings" }
             wow.wearBuff("party1", KINGS, { duration = 3600, source = wow.secret("player") })
             wow.state.units.party1.auraExpires[1] = wow.now + 60
-            assert.are.equal("Ann Vale: Blessing of Kings", armed())
+            assert.is_nil(armed(), "running low: still never cast over a caster that can't be read")
+            assert.is_truthy(button.subtitle:GetText():find("^Ann Vale: can't tell who"), button.subtitle:GetText())
             wow.state.units.party1.auraExpires[1] = wow.now + 600
             assert.is_nil(armed(), "with time left: whose it is can't be told, so no Might over it")
-            assert.are.equal("Ann Vale: can't tell whose Blessing they have", button.subtitle:GetText())
+            assert.is_truthy(button.subtitle:GetText():find("^Ann Vale: can't tell who"), button.subtitle:GetText())
             assert.are.same({}, wow.errors)
         end)
 
