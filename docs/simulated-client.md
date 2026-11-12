@@ -18,6 +18,7 @@ A small simulation of the WoW client API, enough to load the addon as the game d
   - `opts.buffSelf`: keep buff mode offering your own copy of your buffs (#198). Without it, boot sets `GroupBuffs.SELF_ORDER` to `"off"`, so specs written before #198 count only the group's casts;
   - `opts.autoBuffMode`: keep buff mode's turn-on triggers at their defaults (on, #72). Without it, boot turns them off unless `opts.db` sets them, so specs that join groups or get buffed don't lend a key by accident;
   - `opts.randomStagger`: keep a guild hello's random extra wait random (#38). Without it, it is always the shortest (`GuildHellos.STAGGER_MIN`), so specs know when a hello goes;
+  - `opts.settingsClosed`: keep the settings pages unopened, as in the game until the player opens them (#267). Without it, boot has the Settings window adopt every page (`wow.adoptSettingsPages()`) so specs that read the pages' text see them filled. `Settings.OpenToCategory` adopts, shows and fills one page, running its `OnShow` only if it was hidden; the addon hides its pages when it creates them;
   - `opts.shippedLines`: keep the shipped message lines. Without it, types still on the shipped defaults use the fixed casual lines, since most specs check behaviour rather than wording.
 - **State:** `wow.reset()` builds `wow.state` (guild, group, instance, lockdown, combat, units, auras, spells, CVars, clock) and the record tables tests check against:
   - `wow.sent`: chat lines the game accepted; `wow.blocked`: lines it refused;

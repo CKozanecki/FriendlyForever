@@ -574,13 +574,20 @@ end
 
 local FillStart, FillGeneral, FillLedger
 
+-- A page the player can see. The game counts a shown frame with no parent
+-- as visible, and our pages have none until the Settings window adopts them,
+-- so IsVisible alone is true for a page nobody has opened (#267).
+local function IsOpen(page)
+    return page ~= nil and page:GetParent() ~= nil and page:IsVisible()
+end
+
 -- Settings changes (CVAR_UPDATE, slash commands, the minimap button) call
 -- this while the panel may be closed; OnShow fills it when it opens.
 function Options.Refresh()
-    if panel and panel:IsVisible() then Fill() end
-    if startPage and startPage:IsVisible() then FillStart() end
-    if generalPage and generalPage:IsVisible() then FillGeneral() end
-    if ledgerPage and ledgerPage:IsVisible() then FillLedger() end
+    if IsOpen(panel) then Fill() end
+    if IsOpen(startPage) then FillStart() end
+    if IsOpen(generalPage) then FillGeneral() end
+    if IsOpen(ledgerPage) then FillLedger() end
 end
 
 -- Fill the panel whenever it is shown, and once more on the next frame:
@@ -621,6 +628,10 @@ function Options.Create()
     if panel then return end
     panel = CreateFrame("Frame", "FriendlyForeverOptionsPanel")
     panel.name = ns.TITLE
+    -- Hidden until the Settings window shows it: a frame created shown fires
+    -- no OnShow when the window takes it in, and counts as visible with no
+    -- parent (#267).
+    panel:Hide()
 
     -- Everything sits in a scrolling area so no row is cut off on small screens.
     local scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
@@ -1009,6 +1020,7 @@ local function SubPage(name, title, frameName)
     local page = CreateFrame("Frame", frameName)
     page.name = name
     page.parent = ns.TITLE
+    page:Hide() -- as the main panel (#267)
     local heading = Label(page, ns.TITLE .. ": " .. title, "GameFontNormalLarge")
     heading:SetPoint("TOPLEFT", 16, -16)
     page.heading = heading
