@@ -402,7 +402,7 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         window adopts them. The addon hides each page when
 --                         it creates it, so none fires OnShow until the window
 --                         shows it (a frame already visible fires none: not
---                         confirmed for the first take-in, #267 review).
+--                         confirmed for the first take-in: #289).
 --                         Settings.OpenToCategory here adopts the page
 --                         (parent = wow.settings.window), shows it, runs its
 --                         OnShow if it was hidden, and hides the page shown
