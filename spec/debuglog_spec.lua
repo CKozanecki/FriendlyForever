@@ -77,6 +77,12 @@ describe("The debug log keeps decisions, not repeats (#268)", function()
             wow.gainBuff({ sourceUnit = "target", name = "Fort" })
             assert.are.equal(1, count("Fort"))
         end)
+
+        it("a groupmate's buff keeps its skip line", function()
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.gainBuff({ sourceUnit = "party1", name = "Fort", spellId = 1243 })
+            assert.are.equal(1, count("is you, your pet, your group"))
+        end)
     end)
 
     describe("buff mode (white)", function()
