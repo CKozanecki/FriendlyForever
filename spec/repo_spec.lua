@@ -210,6 +210,28 @@ describe("CI workflow", function()
             return out, tonumber(out:match("rc=(%d+)\n$"))
         end
 
+        -- The step reads the base commit's TOC; a shallow checkout can't, and
+        -- would quietly skip the check (#262's testing review).
+        it("runs in a job that checks out the whole history, so the base can be read (black)", function()
+            local job = jobWith(select(2, parseWorkflow(path)), "make release%-notes")
+            local checkout = job.steps[indexOf(job.steps, "actions/checkout@")]
+            assert.is_truthy(checkout and checkout.text:find("\n%s*fetch%-depth: 0\n"),
+                job.name .. "'s checkout is shallow: the release PR check can't read the base TOC")
+        end)
+
+        -- The amended criterion (owner, 2026-11-12): the PR template's tick box
+        -- is the check that a user-visible PR has a note, so its whole line is pinned.
+        it("the PR template asks a user-visible change for its changes/<issue>.md (black)", function()
+            local template = wow.readFile(".github/pull_request_template.md")
+            local line = template:match("\n(%- %[ %] User%-visible change:[^\n]*)\n")
+            assert.are.equal("- [ ] User-visible change: added its note as `changes/<issue>.md`, one bullet ending with its "
+                .. "issue(s), e.g. `(#123)` or `(#27, #52)` ([Changelog notes](https://github.com/CKozanecki/FriendlyForever/"
+                .. "blob/main/CONTRIBUTING.md#changelog-notes)); `CHANGELOG.md` itself is changed only by a release PR", line)
+            assert.is_nil(template:find("### Unreleased", 1, true), "the template still asks for an Unreleased line")
+            assert.is_truthy(wow.readFile("CONTRIBUTING.md"):find("\n### Changelog notes\n", 1, true),
+                "the template links to a Changelog notes section that isn't there")
+        end)
+
         it("fails when the TOC version changes and a fragment is left (black)", function()
             local out, code = step("1.0.0", "1.1.0", { "5.md" })
             assert.are_not.equal(0, code, out)

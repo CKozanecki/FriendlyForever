@@ -23,6 +23,7 @@ jobs:
   lint-package:
     runs-on: ubuntu-24.04
     steps:
+      # The whole history: the release notes step reads the base commit's TOC (#261).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
