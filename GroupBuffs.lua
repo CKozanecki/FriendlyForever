@@ -176,13 +176,40 @@ local function Wears(member, buff, units)
         if aura == nil then return false end
         local id = aura.spellId
         if Util.IsSecret(id) then return nil, "can't see their buffs" end
-        if ns.BuffData.Covers(buff, id) and not RunningLow(aura, buff) then
-            local renews = Renews(member, buff, aura, units)
+        if ns.BuffData.Covers(buff, id) then
+            -- Running low, it's renewed (top-up, #42), but never over a
+            -- caster that can't be read (#256).
+            local renews
+            if RunningLow(aura, buff) then
+                renews = CasterOf(aura.sourceUnit, units) ~= nil or nil
+            else
+                renews = Renews(member, buff, aura, units)
+            end
             if renews == nil then return nil, "can't tell who cast their buff" end
             if not renews then return true end
         end
     end
     return false
+end
+
+-- Why a group version of buff mustn't cover this member (#256), or nil: it
+-- would replace a buff of theirs whose caster can't be read, or they wear
+-- buffs that can't be read at all. A group version covers everyone in its
+-- party, subgroup or class, not only those missing the buff.
+local function CoverBlocked(entry, buff, units)
+    local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    local who = entry.isMe and "your" or ((entry.name and Util.DisplayName(entry.name) or "a group member") .. "'s")
+    if not api then return "can't see " .. who .. " buffs" end
+    for i = 1, ns.Offers.MAX_AURAS do
+        local ok, aura = pcall(api, entry.unit, i, "HELPFUL")
+        if not ok or Util.IsSecret(aura) then return "can't see " .. who .. " buffs" end
+        if aura == nil then return nil end
+        local id = aura.spellId
+        if Util.IsSecret(id) then return "can't see " .. who .. " buffs" end
+        if ns.BuffData.Covers(buff, id) and CasterOf(aura.sourceUnit, units) == nil then
+            return "can't tell who cast " .. who .. " buff"
+        end
+    end
 end
 
 -- Whether they wear another buff of this family (another Blessing) that you
@@ -383,6 +410,7 @@ function GroupBuffs.Next(out)
             local note, quiet
             if spell then
                 groupCtx.Needs = function(member) return Needs(buff, member) end
+                groupCtx.Blocked = function(entry) return CoverBlocked(entry, buff, units) end
                 local groupOffer
                 groupOffer, note, quiet = ns.GroupCasts.Offer(buff, list, groupCtx)
                 if groupOffer then
@@ -439,6 +467,14 @@ end
 
 -- The dungeon-or-raid round (#256): from entering one with your group until
 -- the first pull or leaving, your own earlier buffs are offered once more.
+-- Your press of a group buff went out but the game didn't say whom it
+-- reached (BuffButton): the round counts it as given all the same, so the
+-- same member isn't offered it on every press until the pull (#256). At
+-- worst one member keeps their earlier buff of yours.
+function GroupBuffs.NoteRoundCast(name, buff)
+    if round then round[name .. "\1" .. buff.key] = true end
+end
+
 function GroupBuffs.StartRound() round = {} end
 function GroupBuffs.EndRound() round = nil end
 function GroupBuffs.InRound() return round ~= nil end

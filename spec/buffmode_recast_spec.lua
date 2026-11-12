@@ -224,6 +224,65 @@ describe("What buff mode recasts (#256)", function()
         end)
     end)
 
+    describe("group versions (black)", function()
+        local INTELLECT, BRILLIANCE = 10157, 23028
+
+        -- A mage with Arcane Intellect, Arcane Brilliance and its powder, in a party of 4.
+        local function mage()
+            ns = wow.boot({ before = function(state)
+                state.class = "MAGE"
+                state.knownSpells = { [INTELLECT] = true, [BRILLIANCE] = true }
+                state.items = { [wow.ITEM.arcanePowder] = 5 }
+            end })
+            slash("buffmode on")
+            group("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
+        end
+
+        it("Arcane Brilliance goes out when the others are missing it and Ann's Intellect is a stranger's", function()
+            mage()
+            wow.wearBuff("party1", INTELLECT, { source = false })
+            local offer = ns.GroupBuffs.Next()
+            assert.is_truthy(offer.cast, "the group version, over the stranger's")
+        end)
+
+        it("isn't offered while someone it would cover wears a buff whose caster can't be read", function()
+            mage()
+            wow.wearBuff("party1", INTELLECT, { source = wow.secret("nameplate1") })
+            local offer = ns.GroupBuffs.Next()
+            assert.is_nil(offer.cast, "single buffs instead")
+            assert.are_not.equal("Ann-Vale", offer.name, "and never on Ann")
+            assert.are.equal("Can't tell who cast Ann Vale's buff: buffing one at a time", offer.note or offer.hint)
+            assert.are.same({}, wow.errors)
+        end)
+    end)
+
+    describe("the round when the game doesn't say whom a cast reached (black)", function()
+        it("counts your press as given, so the next press moves on (UNIT_SPELLCAST_SENT names nobody)", function()
+            ns = wow.boot({ buffSelf = true, before = function(state)
+                state.class = "DRUID"
+                state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
+                state.sentTargetForm = "none"
+            end })
+            slash("buffmode on")
+            group()
+            wow.gainBuff({ sourceUnit = "player", name = "Mark of the Wild", spellId = MOTW })
+            wow.wearBuff("party1", MOTW, { source = "player" })
+            wow.wearBuff("party2", MOTW, { source = "player" })
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            local targets = {}
+            for _ = 1, 3 do
+                local before = #wow.casts
+                wow.pressKey("MOUSEWHEELUP")
+                local cast = wow.casts[before + 1]
+                targets[#targets + 1] = cast and cast.target or "-"
+            end
+            assert.are.equal(3, #targets)
+            local mine = 0
+            for _, t in ipairs(targets) do if t ~= "Ann-Vale" and t ~= "Cid-Rock" then mine = mine + 1 end end
+            assert.are.equal(1, mine, "you once, then the others: " .. table.concat(targets, ", "))
+        end)
+    end)
+
     describe("what it can't read (black)", function()
         before_each(function() boot() group() end)
 

@@ -596,6 +596,12 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
     -- castTargetName is only ever the intended player's (OnSpellcastSent).
     local reachedThem = press.castTargetName and BuffButton.IsIntendedPlayer(press.castTargetName, press.name)
     if reachedThem == nil then
+        -- The dungeon-or-raid round (#256) counts it as given anyway.
+        if press.cast then
+            for _, covered in ipairs(press.cast.covers) do ns.GroupBuffs.NoteRoundCast(covered, press.buff) end
+        elseif press.group then
+            ns.GroupBuffs.NoteRoundCast(press.name, press.buff)
+        end
         ShowResult("Cast " .. press.spell .. ", but the game didn't say it reached " .. who .. ".")
     elseif press.cast then
         -- A group version reached the target's party: everyone it covered
