@@ -14,7 +14,7 @@ The rules every agent session follows, whatever the product, are in AGENTS.md, i
   - to report only real defects, each with file:line and a concrete failure scenario;
   - to restore every mutation and leave `git status` clean;
   - to end with APPROVED or CHANGES REQUESTED.
-- **Skills:** procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `merge-order` and `coordinator` (running several sessions for the owner). They carry out the rules in AGENTS.md's "Several sessions at once" and "Coordinating sessions" below; where they differ, those rules win.
+- **Skills:** procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `merge-order` and `coordinator` (running several sessions for the owner). They carry out the rules in AGENTS.md's "Several sessions at once" and "Coordinating sessions" below; where they differ, those rules win. A PR that is only behind `main` is not theirs to merge: CONTRIBUTING.md's [Only behind `main`](CONTRIBUTING.md#only-behind-main) (#229).
 - **Knowledge files:** AGENTS.md's "Shared knowledge" lists them: [`docs/forever-facts.md`](docs/forever-facts.md), [`docs/simulated-client.md`](docs/simulated-client.md), [`docs/ui-simulator.md`](docs/ui-simulator.md), [`docs/visual-style.md`](docs/visual-style.md) and [`docs/agent-facts.md`](docs/agent-facts.md).
 
 ## Coordinating sessions

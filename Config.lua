@@ -182,6 +182,9 @@ Config.DEFAULTS = {
         -- groupEnough members they'd cover are missing the buff.
         groupVersions = true,
         groupEnough = 3,
+        -- The raid buff split (RaidSplit.lua, #70): share out your class's
+        -- buffs with other copies in a raid. On by default (owner, #70).
+        raidSplit = true,
         -- Battlegrounds (Battleground.lua): buff before the gates open. Off,
         -- the preparation phase is as quiet as the battle.
         bgPrepBuff = true,
@@ -261,6 +264,7 @@ Config.FIELD_VALIDATORS = {
     topUpMinutes = Limited("topUpMinutes"),
     groupVersions = Bool,
     groupEnough = Limited("groupEnough"),
+    raidSplit = Bool,
     bgPrepBuff = Bool,
     breathNearWater = Bool,
     unlocked = Bool,

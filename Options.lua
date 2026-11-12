@@ -82,6 +82,12 @@ local function Tooltip(frame, text)
     frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
+Options.RAID_SPLIT_TOOLTIP = "In a raid, copies of Friendly Forever share out the buffs their class has "
+    .. "in common, so three priests give Fortitude, Spirit and Shadow Protection between them. Buff mode then "
+    .. "offers you only your share; the button's tooltip says what it is. Players of a class who outnumber "
+    .. "its buffs split the raid's groups (a spare paladin waits as a backup). You take part while buff mode "
+    .. "is on, and for 5 minutes after. Off: you're offered everything, and within 3 minutes other copies stop "
+    .. "counting on you."
 Options.GROUP_VERSIONS_TOOLTIP = "In buff mode, offer the group version of a buff (Arcane Brilliance, "
     .. "Prayer of Fortitude, Prayer of Spirit, Prayer of Shadow Protection, Gift of the Wild) "
     .. "when you know it, carry its reagent, and enough of the party it covers (in a raid, the subgroup) "
@@ -446,12 +452,16 @@ end
 Options.AUTO_SWITCHES = { "autoOnJoin", "autoOnDeath", "autoOnBuffed", "autoOffPull", "autoOffDone" }
 -- Their labels, which the walkthrough (Walkthrough.lua) repeats.
 Options.AUTO_TEXT = {
-    autoOnJoin = "when I join a group",
+    autoOnJoin = "with my group",
     autoOnDeath = "after a death in my group",
     autoOnBuffed = "when a stranger buffs me",
     autoOffPull = "at the first pull",
     autoOffDone = "when everyone has my buffs",
 }
+
+Options.AUTO_JOIN_TIP = "In a dungeon or raid with your group: it waits until everyone is in and has "
+    .. "your buffs, or the first pull. Out in the world: when you join a group with another member "
+    .. "close by (about 40 yards), for 2 minutes after joining."
 
 local function FillAuto(shown)
     widgets.autoHeader:SetShown(shown)
@@ -468,6 +478,8 @@ local function FillAuto(shown)
     if shown then widgets.groupVersions:SetChecked(ns.db.buffBack.groupVersions == true) end
     ShowStepper(widgets.steppers.groupEnough, shown)
     if shown then FillBox(widgets.steppers.groupEnough.box, tostring(ns.db.buffBack.groupEnough)) end
+    widgets.raidSplit:SetShown(shown)
+    if shown then widgets.raidSplit:SetChecked(ns.RaidSplit.Enabled()) end
     widgets.bgHeader:SetShown(shown)
     widgets.bgPrepBuff:SetShown(shown)
     if shown then widgets.bgPrepBuff:SetChecked(ns.db.buffBack.bgPrepBuff == true) end
@@ -851,6 +863,8 @@ function Options.Create()
     end
     widgets.autoHeader = Label(content, "Buff mode turns on by itself:", "GameFontNormalSmall")
     local onJoin = AutoBox("autoOnJoin")
+    -- The short label leaves room on its row; the detail is on the mouse-over (#256).
+    Tooltip(onJoin, Options.AUTO_JOIN_TIP)
     onJoin:SetPoint("TOPLEFT", widgets.autoHeader, "BOTTOMLEFT", -4, -2)
     local onDeath = AutoBox("autoOnDeath")
     onDeath:SetPoint("LEFT", onJoin.label, "RIGHT", 16, 0)
@@ -880,11 +894,18 @@ function Options.Create()
     local enough = Stepper(content, "...when at least this many are missing the buff:", "groupEnough")
     enough.label:SetPoint("TOPLEFT", widgets.groupVersions, "BOTTOMLEFT", 4, -8)
     widgets.steppers.groupEnough = enough
+    -- The raid buff split (RaidSplit.lua, #70).
+    widgets.raidSplit = Checkbox(content, "Share buffs with other copies in raids", function(on)
+        ns.db.buffBack.raidSplit = on
+        ns.BuffButton.Refresh()
+    end)
+    widgets.raidSplit:SetPoint("TOPLEFT", enough.label, "BOTTOMLEFT", -4, -10)
+    Tooltip(widgets.raidSplit, Options.RAID_SPLIT_TOOLTIP)
 
     -- Battlegrounds (Battleground.lua): after the gates open the addon is
     -- quiet whatever this says; this is about the preparation phase.
     widgets.bgHeader = Label(content, "Battlegrounds (quiet once the battle starts):", "GameFontNormalSmall")
-    widgets.bgHeader:SetPoint("TOPLEFT", enough.label, "BOTTOMLEFT", 0, -14)
+    widgets.bgHeader:SetPoint("TOPLEFT", widgets.raidSplit, "BOTTOMLEFT", 4, -10)
     widgets.bgPrepBuff = Checkbox(content, "Buff in the preparation phase", function(on)
         ns.db.buffBack.bgPrepBuff = on
         ns.Battleground.Update()
@@ -958,7 +979,7 @@ function Options.Create()
 
     local note = Label(content, "Buff thanks in /say: the game only allows /say after a key press, so they wait "
         .. "and go out on your next key press (or type /friendly say). Whispers need no key press. "
-        .. "A /thank emote waits for a key press too.",
+        .. "A /thank emote needs no key press and goes out at once.",
         "GameFontDisableSmall")
     note:SetPoint("TOPLEFT", flavour, "BOTTOMLEFT", 0, -10)
     note:SetPoint("RIGHT", content, "RIGHT", -24, 0)

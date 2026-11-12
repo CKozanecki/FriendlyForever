@@ -70,7 +70,7 @@ function handlers.ADDON_LOADED(name)
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
         "BuffTable", "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
         "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "OptionsIndex", "Colours", "Walkthrough",
-        "BuffList", "GroupCasts" }) do
+        "BuffList", "GroupCasts", "RaidSplit" }) do
         if ns[module] == nil then
             local text = "this update added files. Restart the game (not /reload) to finish updating."
             ns.Print(ns.Colours and ns.Colours.Text("bad", text) or text)
@@ -99,6 +99,8 @@ function handlers.ADDON_LOADED(name)
             ns.Greeter.OnEnteringWorld()
             ns.Greeter.RequestRoster()
             ns.Walkthrough.OnLogin()
+            -- After a reload in a raid, say what you give and hear the others'.
+            ns.RaidSplit.OnRosterUpdate()
         end
     end)
     Register("CHAT_MSG_SYSTEM", ns.Greeter.OnSystemMessage)
@@ -107,9 +109,14 @@ function handlers.ADDON_LOADED(name)
         -- Forget this raid's Blessings as you leave it, so they can't carry
         -- into the next raid (BuffRules.lua).
         ns.BuffRules.CheckRaid()
+        -- Who shares out the raid's buffs (RaidSplit.lua, #70).
+        ns.RaidSplit.OnRosterUpdate()
         ns.Options.Refresh() -- the raid Blessing boxes work only in a raid
         ns.Greeter.OnGroupRosterUpdate(...)
     end)
+    -- Addon messages may be blocked in a long fight (docs/forever-facts.md):
+    -- say what you give again as it ends, so the split is back for the rebuff.
+    Register("PLAYER_REGEN_ENABLED", function() ns.RaidSplit.OnCombatEnd() end)
     Register("GUILD_ROSTER_UPDATE", ns.Greeter.OnRosterUpdate)
     Register("PLAYER_GUILD_UPDATE", ns.Greeter.RequestRoster)
     -- The battleground phase first: buffs that arrive as the battle starts
@@ -232,6 +239,7 @@ local function StatusLines()
         .. "%d unknown type, %d wrong route, %d spoofed, %d flooding", c("commUnreadable"), c("commOversized"),
         c("commMalformed"), c("commWrongVersion"), c("commUnknownType"), c("commWrongRoute"), c("commSpoofed"),
         c("commFlood")))
+    add(string.format("%s; %d shares ignored", ns.RaidSplit.StatusLine(), c("splitIgnored")))
     add(string.format("Lua errors in this addon: %d%s", c("luaErrors"),
         ns.Diag.lastError and (" (last: " .. ns.Diag.lastError .. ")") or ""))
     add(string.format("APIs: SendChatMessage %s, chat lockdown check %s, aura query %s, secret check %s, emote %s",
@@ -490,7 +498,9 @@ local function BlessingsCommand(args)
         if R.CoversInRaid(buff) then covered[#covered + 1] = ns.BuffData.SpellName(buff) or buff.key end
     end
     ns.Print("blessings you give in this raid: " .. (#covered > 0 and table.concat(covered, ", ") or "none")
-        .. (R.RaidBlessingsChosen() and "" or " (all: you haven't chosen)"))
+        .. (R.RaidBlessingsChosen() and ""
+            or ns.RaidSplit.Current() and " (your share of the raid split: you haven't chosen)"
+            or " (all: you haven't chosen)"))
     if #words == 0 then
         ns.Print("/friendly blessings all | " .. table.concat(keys, " ") .. " - in a raid, until you leave it")
     end

@@ -43,9 +43,9 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
    git fetch origin main <branch>
    git merge-base --is-ancestor origin/main origin/<branch>
    ```
-   If it doesn't, it isn't ready: tell its driver to merge `main` in (the `after-merge` skill), and don't report it to the owner yet.
+   If it doesn't and it is only behind `main` (no shared file, no conflict), it is still ready: "update branch only" for the owner (CONTRIBUTING.md's [Only behind `main`](../../CONTRIBUTING.md#only-behind-main), #229). Otherwise it isn't ready: tell its driver to merge `main` in (the `after-merge` skill), and don't report it to the owner yet.
 2. Check CI is green on its head and its description's ready checklist is ticked.
-   After a merge of `main`, check the description's two file lists too (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops)): if you can't confirm that `git diff --name-only <old main>..<new main>` and `git diff --name-only origin/main...HEAD` share no file and the merge was clean, the reviewers must have confirmed it.
+   After a merge of `main`, check the description's two file lists too (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops)): if the owner updated the branch, compare the lists you computed when you told them "update branch only"; if you can't confirm that `git diff --name-only <old main>..<new main>` and `git diff --name-only origin/main...HEAD` share no file and the merge was clean, the reviewers must have confirmed it.
 3. Check there is no open owner question on it: none in its description, and none in its session's transcript that the owner hasn't answered. If there is one, it isn't ready to merge (CONTRIBUTING.md's "Ready for review", #215): tell its driver to wait for the answer, and put the question in the report.
 4. When more than one PR is ready, **trial-merge every pair** and recommend an order (the `merge-order` skill) before reporting.
 
@@ -53,7 +53,7 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
 
 **Spotting a merge.** The owner may say so, or may just merge on GitHub. So at every check-in, read each tracked PR's state (`gh api repos/CKozanecki/FriendlyForever/pulls/<n>`, read only). GitHub doesn't notify sessions of merges, and they don't poll (AGENTS.md's "After each merge"); the coordinator tells them.
 
-1. Tell the driver of each other ready PR to merge `main` in (the `after-merge` skill). Name the conflicts the trial merges predicted, and the files the merge changes, so each driver can prove the merge is file-disjoint (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops)).
+1. For each other ready PR, compare the merge's files with the PR's files and the trial merge's conflicts, then tell the owner, naming the PR, "update branch only" or "developer must merge" (CONTRIBUTING.md's [Only behind `main`](../../CONTRIBUTING.md#only-behind-main), #229). Only for "developer must merge", tell its driver to merge `main` in (the `after-merge` skill). Name the conflicts the trial merges predicted, and the files the merge changes, so each driver can prove the merge is file-disjoint (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops)).
 2. **Tell the merged PR's session at once, politely** (the owner's standing rule, #172). Don't wait for it to notice. First check whether anything is left for it: the PR says `Refs #<issue>` rather than `Closes`, or its transcript shows more parts of the spec still to come.
    - **Nothing left:** "Your PR #<n> merged. Your work is done: finish per CLAUDE.md's "Finishing" (a closing comment only if one is owed, the done line to me, remove your worktree, cancel check-ins, closing summary)."
    - **Work left:** "Your PR #<n> merged. Carry on with what's left on #<issue>." It keeps working, so don't archive it.

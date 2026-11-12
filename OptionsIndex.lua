@@ -79,7 +79,7 @@ OptionsIndex.SETTINGS = {
     { name = "Blessings I give in this raid", page = BUFF_BACK, keywords = "paladin blessing blessings raid buff",
         controls = { "who.raidBlessings" } },
     { name = "Buff mode turns on by itself", page = BUFF_BACK,
-        keywords = "buff mode automatic auto group join death stranger",
+        keywords = "buff mode automatic auto group join dungeon raid instance nearby death stranger",
         controls = { "auto.autoOnJoin", "auto.autoOnDeath", "auto.autoOnBuffed" } },
     { name = "Buff mode turns off again", page = BUFF_BACK, keywords = "buff mode automatic auto pull minutes",
         controls = { "auto.autoOffPull", "auto.autoOffDone", "steppers.autoOffMinutes" } },
@@ -90,6 +90,9 @@ OptionsIndex.SETTINGS = {
         keywords = "buff mode group version arcane brilliance prayer fortitude spirit shadow gift wild party raid "
             .. "reagent",
         controls = { "groupVersions", "steppers.groupEnough" } },
+    { name = "Share buffs with other copies in raids", page = BUFF_BACK,
+        keywords = "buff mode raid split share priest paladin mage druid blessing other copies",
+        controls = { "raidSplit" } },
     { name = "Buff in the preparation phase", page = BUFF_BACK, keywords = "buff battleground battlegrounds bg pvp",
         controls = { "bgPrepBuff" } },
     { name = "Water breathing: only near water", page = BUFF_BACK,

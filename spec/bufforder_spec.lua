@@ -1,4 +1,4 @@
--- Spec: #31, #71, #76, #136, #42, #46, #208, #41, #209
+-- Spec: #31, #71, #76, #136, #42, #46, #208, #41, #209, #70
 -- Buff order and the never-offer list: which of your buffs the button offers
 -- first, and which it never offers.
 local wow = require("spec.support.wow")
@@ -193,7 +193,8 @@ describe("Buff order and never offer", function()
                 "then top-up timing (#42)")
             assert.are.equal(w.steppers.topUpMinutes.label, select(2, w.groupVersions:GetPoint()), "then group versions (#41)")
             assert.are.equal(w.groupVersions, select(2, w.steppers.groupEnough.label:GetPoint()), "and their threshold")
-            assert.are.equal(w.steppers.groupEnough.label, select(2, w.bgHeader:GetPoint()), "then battlegrounds")
+            assert.are.equal(w.steppers.groupEnough.label, select(2, w.raidSplit:GetPoint()), "then the raid split (#70)")
+            assert.are.equal(w.raidSplit, select(2, w.bgHeader:GetPoint()), "then battlegrounds")
             assert.are.equal(w.bgPrepBuff, select(2, w.waterHeader:GetPoint()), "then water breathing (#136)")
             assert.are.equal(w.waterHeader, select(2, w.breathNearWater:GetPoint()), "under its own heading")
             assert.are.equal(w.breathNearWater, select(2, w.msgHeader:GetPoint()), "then the lines")

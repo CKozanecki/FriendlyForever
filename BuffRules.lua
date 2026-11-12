@@ -142,6 +142,10 @@ end
 function BuffRules.Allows(buff, member)
     local entry = Entry(buff.key)
     if Named(entry, "never", member.name) then return false, "you set Never for them" end
+    -- The raid buff split (#70): a share of some groups leaves the others to
+    -- other copies, whatever your lists say.
+    local covered, splitWhy = ns.RaidSplit.CoversMember(buff, member)
+    if not covered then return false, splitWhy end
     if Named(entry, "always", member.name) then return true end
     local rule = BuffRules.Rule(buff)
     if rule == "all" then return true end
@@ -337,16 +341,30 @@ function BuffRules.MyBlessings()
     return out
 end
 
--- Whether you cover buff in this raid: every buff that isn't a Blessing,
--- and every Blessing until you choose.
+-- Whether you cover buff in this raid: the Blessings you chose, once you
+-- have; otherwise your share of the raid buff split (RaidSplit.lua, #70),
+-- which is every buff when there's no split (not in a raid, or no other
+-- copy of your class in it).
 function BuffRules.CoversInRaid(buff)
     BuffRules.CheckRaid()
-    if not raidBlessings or buff.family ~= "blessing" then return true end
-    return raidBlessings[buff.key] == true
+    if raidBlessings and buff.family == "blessing" then return raidBlessings[buff.key] == true end
+    return ns.RaidSplit.Covers(buff)
+end
+
+-- The Blessings you chose for this raid, as a copy ([key] = true), or nil
+-- when you haven't (the split then decides). Announced to the other copies
+-- of your class in the raid (RaidSplit.lua).
+function BuffRules.HandSetBlessings()
+    BuffRules.CheckRaid()
+    if not raidBlessings then return nil end
+    local out = {}
+    for key in pairs(raidBlessings) do out[key] = true end
+    return out
 end
 
 -- Choose the Blessings you cover in this raid: keys is a list of your
--- Blessings' keys, or nil for all of them. Returns true, or false and why.
+-- Blessings' keys, or nil to stop choosing (all of them, or your share of the
+-- raid buff split when there is one, #70). Returns true, or false and why.
 function BuffRules.SetRaidBlessings(keys)
     if not InRaid() then return false, "you're not in a raid" end
     if keys == nil then
@@ -365,7 +383,9 @@ function BuffRules.SetRaidBlessings(keys)
         chosen[key] = true
     end
     if count == 0 then return false, "choose at least one Blessing (or all)" end
-    raidBlessings = count < all and chosen or nil
+    -- Every Blessing you know narrows nothing, unless the raid buff split
+    -- (#70) would narrow it: then it's your choice over the split's.
+    raidBlessings = (count < all or ns.RaidSplit.Current() ~= nil) and chosen or nil
     ns.BuffButton.Refresh()
     return true
 end

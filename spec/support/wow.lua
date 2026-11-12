@@ -404,7 +404,8 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --   Mouse clicks, like key presses, act on the half the key-down setting
 --                         picks (Blizzard's 10.x template may act on the up half
 --                         for mouse clicks; the addon re-arms on both halves)
---   Text emotes need a key press outdoors, like /say (see PerformEmote).
+--   Text emotes need no key press (owner, in game, 2026-11-09: #236); only
+--                         /say and /yell do (see PerformEmote).
 --   state.errorBeforeFailed  a refused cast's error text (UI_ERROR_MESSAGE)
 --                         comes before UNIT_SPELLCAST_FAILED instead of after
 --                         (default false); the addon accepts either order
@@ -460,6 +461,18 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         fields outOfRange, rangeUnknown); in a raid, setGroup
 --                         leaves your own raid slot out (the game puts you in
 --                         one), so specs add it when they need it.
+--   Members elsewhere (#256): a member outside the instance you're in (or in
+--                         another zone) reads as not visible (UnitIsVisible
+--                         false) with an unchecked range (UnitInRange false,
+--                         false): M.zoneOut, M.zoneIn. A member inside but
+--                         farther than the game shows units also reads as not
+--                         visible, so the addon can't tell the two apart; it
+--                         counts neither as in (the pessimistic reading).
+--                         Zoning fires no event here. Whether Forever reads a
+--                         member outside the instance this way: #257.
+--                         IsInInstance() answers secrets while
+--                         state.inInstanceSecret is set; unit.secrets.range
+--                         makes UnitInRange's answers secrets.
 --   state.castLatency     seconds before the server answers a cast
 --                         (SUCCEEDED or FAILED and its error text); 0 (default)
 --                         answers inside the press. SENT is always at once.
@@ -1245,7 +1258,11 @@ function M.reset()
         return u ~= nil and M.state.leader ~= nil and u.id == M.state.leader
     end)
     -- state.instanceType: "pvp" for a battleground (default "party").
-    _G.IsInInstance = function() return M.state.inInstance, M.state.inInstance and (M.state.instanceType or "party") or "none" end
+    _G.IsInInstance = function()
+        local inside, kind = M.state.inInstance, M.state.inInstance and (M.state.instanceType or "party") or "none"
+        if M.state.inInstanceSecret then return M.secret(inside == true), M.secret(kind) end
+        return inside, kind
+    end
     _G.InCombatLockdown = function() return M.state.inCombat end
     -- state.bgWinner: who won, once the battleground has ended (nil before).
     _G.GetBattlefieldWinner = function() return M.state.bgWinner end
@@ -1378,19 +1395,14 @@ function M.reset()
             return M.state.mapId
         end,
     }
-    -- Text emotes: recorded in M.emotes. Like /say, they need a key press
-    -- outdoors (an assumption the addon also makes, to be safe).
+    -- Text emotes: recorded in M.emotes. Unlike /say they need no key press
+    -- (owner, in game, 2026-11-09: #236), so none is ever blocked.
     M.emotes = {}
     local function PerformEmote(token, target)
         local record = { token = token, target = target, time = M.now }
-        if not M.state.inInstance and not M.hardware then
-            M.blockedEmotes[#M.blockedEmotes + 1] = record
-            return true
-        end
         M.emotes[#M.emotes + 1] = record
         return false
     end
-    M.blockedEmotes = {}
     _G.C_ChatInfo.PerformEmote = PerformEmote
 
     -- Spells: state.knownSpells[id] = true for spells in my spellbook.
@@ -1428,11 +1440,14 @@ function M.reset()
     end)
     -- Group members: unit fields outOfRange (true: out of range), rangeUnknown
     -- (the game can't tell), offline and hidden (not in sight / not visible).
+    -- unit.secrets.range makes UnitInRange's answers secrets (#256).
     _G.UnitInRange = function(unit)
         local u = M.state.units[unit]
         if not u then return false, false end
         if u.rangeUnknown then return false, false end
-        if M.state.unitsRestricted then return M.secret(not u.outOfRange), M.secret(true) end
+        if M.state.unitsRestricted or (u.secrets and u.secrets.range) then
+            return M.secret(not u.outOfRange), M.secret(true)
+        end
         return not u.outOfRange, true
     end
     -- Group roles: unit.role ("TANK", "HEALER", "DAMAGER"; "NONE" when
@@ -1454,12 +1469,15 @@ function M.reset()
         if M.state.unitsRestricted or (u.secrets and u.secrets.mainTank) then return M.secret(is) end
         return is
     end
+    -- unit.secrets.offline / .hidden make that answer a secret (#256).
     _G.UnitIsConnected = restricted(function(unit)
         local u = M.state.units[unit]
+        if u and u.secrets and u.secrets.offline then return M.secret(not u.offline) end
         return u ~= nil and not u.offline
     end)
     _G.UnitIsVisible = restricted(function(unit)
         local u = M.state.units[unit]
+        if u and u.secrets and u.secrets.hidden then return M.secret(not u.hidden) end
         return u ~= nil and not u.hidden
     end)
     -- Everyone in your group, you included (0 when you're in none).
@@ -1924,10 +1942,29 @@ end
 
 -- Zone into a dungeon: inInstance, with this instance ID and name (either
 -- may be nil). Fires PLAYER_ENTERING_WORLD, as a loading screen does.
-function M.enterDungeon(id, name)
-    M.state.inInstance, M.state.instanceType = true, "party"
+-- kind: IsInInstance's second answer ("party" by default; "raid", "arena").
+function M.enterDungeon(id, name, kind)
+    M.state.inInstance, M.state.instanceType = true, kind or "party"
     M.state.instanceId, M.state.instanceName = id, name
     M.fire("PLAYER_ENTERING_WORLD", false, false)
+end
+
+function M.enterRaid(id, name)
+    M.enterDungeon(id, name, "raid")
+end
+
+-- A group member somewhere else (#256): in another zone, or outside the
+-- instance you're in. The game doesn't show them (UnitIsVisible false) and
+-- can't check their range. Zoning fires no event the addon can rely on, so
+-- these fire none; zoneIn brings them back in sight and range.
+function M.zoneOut(token)
+    local u = M.state.units[token]
+    u.hidden, u.rangeUnknown = true, true
+end
+
+function M.zoneIn(token)
+    local u = M.state.units[token]
+    u.hidden, u.rangeUnknown = nil, nil
 end
 
 function M.leaveDungeon()
