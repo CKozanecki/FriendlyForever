@@ -83,8 +83,15 @@ local function setShown(self, on)
     self.shown = on
     if was and not on then
         if self.scripts.OnHide then self.scripts.OnHide(self) end
+        -- Every shown frame below it, at any depth (its parents shown or not
+        -- is decided by the frame itself: a hidden one runs nothing).
         for _, f in ipairs(M.frames) do
-            if f.parent == self and f.shown and f.scripts.OnHide then f.scripts.OnHide(f) end
+            local p, below = f.parent, false
+            while type(p) == "table" do
+                if p == self then below = true break end
+                p = p.parent
+            end
+            if below and f.shown and f.scripts.OnHide then f.scripts.OnHide(f) end
         end
     end
 end

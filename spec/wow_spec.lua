@@ -25,6 +25,15 @@ describe("The simulated client", function()
             assert.are.same({}, ran)
         end)
 
+        it("Hide reaches frames at any depth below, not only the children", function()
+            local ran = 0
+            local top = CreateFrame("Frame")
+            local deep = CreateFrame("Frame", nil, CreateFrame("Frame", nil, top))
+            deep:SetScript("OnHide", function() ran = ran + 1 end)
+            top:Hide()
+            assert.are.equal(1, ran)
+        end)
+
         it("a button's text line shows the button's text, and LockHighlight records itself", function()
             local button = CreateFrame("Button", nil, UIParent, "UIPanelButtonTemplate")
             button:SetText("one")
