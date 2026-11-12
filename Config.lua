@@ -34,6 +34,7 @@ Config.LIMITS = {
     repeatCooldown = { min = 0, max = 3600 },  -- seconds
     unknownName    = { maxBytes = 24 },
     owedMinutes    = { min = 1, max = 60 },  -- how long a favour stays on the buff-back button
+    renewPercent   = { min = 0, max = 90 },  -- buff back renews your buff on them under this % of its time left (#269)
     autoOffMinutes = { min = 0, max = 30 },  -- buff mode a trigger turned on ends after this (0: never)
     topUpMinutes   = { min = 0, max = 15 },  -- a group member's buff with less left counts as missing (0: never)
     groupEnough    = { min = 1, max = 40 },  -- members missing a buff before its group version is offered (#41)
@@ -156,6 +157,10 @@ Config.DEFAULTS = {
         enabled = true,
         sayLine = false,
         owedMinutes = 10,
+        -- Buff back (Offers.lua, #269): your buff they already wear, with
+        -- under this percent of its full time left, counts as missing, so
+        -- you renew it. 0: only once it's gone.
+        renewPercent = 70,
         unlocked = false,
         -- Show the button in capital cities (Cities.lua); buff mode always does.
         showInCities = false,
@@ -275,6 +280,7 @@ Config.FIELD_VALIDATORS = {
     delay = Limited("delay"),
     repeatCooldown = Limited("repeatCooldown"),
     owedMinutes = Limited("owedMinutes"),
+    renewPercent = Limited("renewPercent"),
     maxGreeters = Limited("maxGreeters"),
     thankStyle = function(value, default) return Config.THANK_STYLES[value] and value or default end,
     fallback = function(value, default) return Config.FALLBACKS[value] and value or default end,

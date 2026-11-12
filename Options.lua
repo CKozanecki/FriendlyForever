@@ -127,8 +127,9 @@ end
 -- settings defaults to ns.db[currentType]. Does nothing on a type without
 -- that field (its stepper is hidden there). font: the label's, if not the
 -- usual one.
-local function Stepper(parent, text, field, settings, font)
+local function Stepper(parent, text, field, settings, font, step)
     local limits = Config.LIMITS[field]
+    step = step or 1
     local s = {}
     settings = settings or function() return ns.db[currentType] end
 
@@ -149,14 +150,14 @@ local function Stepper(parent, text, field, settings, font)
     end
 
     s.label = Label(parent, text, font)
-    s.minus = Button(parent, "-", 24, function() Step(-1) end)
+    s.minus = Button(parent, "-", 24, function() Step(-step) end)
     s.minus:SetPoint("LEFT", s.label, "RIGHT", 8, 0)
     s.box = TextBox(parent, 44, 4)
     s.box:SetNumeric(true)
     s.box:SetJustifyH("CENTER")
     s.box:SetPoint("LEFT", s.minus, "RIGHT", 8, 0)
     s.box:SetScript("OnEditFocusLost", function(self) Set(tonumber(self:GetText())) end)
-    s.plus = Button(parent, "+", 24, function() Step(1) end)
+    s.plus = Button(parent, "+", 24, function() Step(step) end)
     s.plus:SetPoint("LEFT", s.box, "RIGHT", 4, 0)
     return s
 end
@@ -171,7 +172,8 @@ end
 -- before a tab switch or reset gives the boxes new contents.
 local function ClearEditFocus()
     local boxes = { widgets.steppers.delay.box, widgets.steppers.repeatCooldown.box,
-        widgets.steppers.owedMinutes.box, widgets.steppers.topUpMinutes.box, widgets.steppers.groupEnough.box,
+        widgets.steppers.owedMinutes.box, widgets.steppers.renewPercent.box,
+        widgets.steppers.topUpMinutes.box, widgets.steppers.groupEnough.box,
         widgets.steppers.maxGreeters.box,
         widgets.unknownName }
     for _, edit in ipairs(widgets.edits) do boxes[#boxes + 1] = edit end
@@ -518,7 +520,9 @@ local function Fill()
     widgets.buffModeKey:SetShown(isBuffBack)
     if not widgets.keyCapture.active then widgets.buffModeKey:SetText(KeyButtonText()) end
     ShowStepper(widgets.steppers.owedMinutes, isBuffBack)
+    ShowStepper(widgets.steppers.renewPercent, isBuffBack)
     if isBuffBack then
+        FillBox(widgets.steppers.renewPercent.box, tostring(cfg.renewPercent))
         widgets.sayLine:SetChecked(cfg.sayLine)
         widgets.showInCities:SetChecked(cfg.showInCities)
         FillBox(widgets.steppers.owedMinutes.box, tostring(cfg.owedMinutes))
@@ -722,6 +726,11 @@ function Options.Create()
             ns.BuffButton.Refresh()
         end)
     widgets.showInCities:SetPoint("TOPLEFT", widgets.sayLine, "BOTTOMLEFT", 0, -4)
+    -- Renewing your buff they already wear, partly worn off (Offers.lua, #269).
+    local renew = Stepper(content, "Renew my buff when theirs has under (% left, 0 = never):", "renewPercent",
+        nil, nil, 5)
+    renew.label:SetPoint("TOPLEFT", widgets.showInCities, "BOTTOMLEFT", 4, -8)
+    widgets.steppers.renewPercent = renew
 
     -- Row 4: thank them with a line in /say, a whisper, a /thank emote, or a
     -- line and an emote (click to cycle).
@@ -774,7 +783,7 @@ function Options.Create()
     -- Buff Back tab only, in the buff tab's rows 4 to 6: the buff order, one
     -- row per buff of your class (the most any class has).
     widgets.buffOrderHeader = Label(content, "", "GameFontNormalSmall")
-    widgets.buffOrderHeader:SetPoint("TOPLEFT", widgets.showInCities, "BOTTOMLEFT", 4, -10)
+    widgets.buffOrderHeader:SetPoint("TOPLEFT", renew.label, "BOTTOMLEFT", 0, -14)
     local most = 0
     for _, list in pairs(ns.BuffData.CLASSES) do most = math.max(most, #list) end
     widgets.buffRows = {}
