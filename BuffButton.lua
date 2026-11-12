@@ -287,6 +287,7 @@ local function ArmButton()
     ShowMode()
     local showingResult = ShowRecentResult()
     if ns.db.buffBack.unlocked then
+        alreadyDone = nil -- its fade mustn't dim the move labels
         Empty("the button is unlocked for moving", true)
         SetLabels("Buff back", "Drag, then /friendly move")
         button.icon:SetTexture(BuffButton.PLACEHOLDER_ICON)

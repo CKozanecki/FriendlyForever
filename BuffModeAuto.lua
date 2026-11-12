@@ -165,9 +165,10 @@ local function TurnOn(why, inside)
 end
 
 -- Being in a dungeon or raid with your group (#256), if that trigger is on.
--- Entering also starts the round in which your own earlier buffs are
--- offered once more (GroupBuffs.StartRound), whatever the switch says: it
--- changes what buff mode offers, not when it turns on.
+-- Entering also starts the round (GroupBuffs.StartRound: a buff, yours or
+-- another member's, put up over 5 minutes before you entered is offered
+-- once more), whatever the switch says: it changes what buff mode offers,
+-- not when it turns on.
 local function InsideWithGroup()
     local inside, kind = InDungeonOrRaid()
     if inside then ns.GroupBuffs.StartRound() end

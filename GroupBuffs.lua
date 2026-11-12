@@ -527,16 +527,21 @@ function GroupBuffs.NoteGiven(name, buff)
     if round then round.given[name .. "\1" .. buff.key] = true end
 end
 
--- The dungeon-or-raid round (#256): from entering one with your group until
--- the first pull or leaving, your own earlier buffs are offered once more.
 -- Your press of a group buff went out but the game didn't say whom it
 -- reached (BuffButton): the round counts it as given all the same, so the
 -- same member isn't offered it on every press until the pull (#256). At
--- worst one member keeps their earlier buff of yours.
+-- worst those it was for (everyone a group version covered) keep their
+-- earlier buff, yours or another member's.
 function GroupBuffs.NoteRoundCast(name, buff)
     if round then round.given[name .. "\1" .. buff.key] = true end
 end
 
+-- The dungeon-or-raid round (#256): from entering one with your group until
+-- the first pull or leaving, "whoever buffs first" (the owner): a buff of
+-- yours or another member's put up more than SYNCED_SECONDS before you
+-- entered is offered once more; one put up since is in step and left alone
+-- (and named once on the button, rule 2); one whose time can't be read is
+-- never recast over.
 function GroupBuffs.StartRound()
     round = { started = GetTime(), given = {}, inStep = {}, order = {}, shown = {} }
 end
