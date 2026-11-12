@@ -793,7 +793,7 @@ jobs:
             shoot button-buffgroup --exec-lua @/shot-lua/buffgroup.lua
             # "Already done by" (#256): a buff another member put up in step as you entered, in red.
             shoot button-alreadydone --exec-lua @/shot-lua/alreadydone.lua
-            # The longest reason the button shows (#270): wrapped whole, the button grown to hold it.
+            # A long reason the button shows (#270): wrapped whole, the button grown to hold it.
             shoot button-longreason --exec-lua @/shot-lua/longreason.lua
             # The General and Favour Ledger pages, filled with long names and
             # many entries, and the copy window as /friendly export opens it (#52).

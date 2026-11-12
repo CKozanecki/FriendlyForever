@@ -316,14 +316,27 @@ describe("Buff back when the player you owe has left (#270)", function()
         -- Players come and go, step in and out of range and buff you, at
         -- random. Whenever the button holds a macro, the player it targets is
         -- shown by some unit the game names, within your buff's range; the
-        -- check reads only the simulated client's state.
+        -- check reads only the simulated client's state. Counters show the
+        -- storm reaches what it guards: an armed player leaving, the button
+        -- moving on, and a player offered again once back.
         it("never arms the button for a player who has left, and never casts without a press", function()
             random.seed(270)
             local function int(m, n) return random.random(m, n) end
             local people = { { "Bob", "Stone" }, { "Cid", "Rock" }, { "Dee", "Vale" }, { "Eve", "Moss" } }
             local tokens = { "nameplate1", "nameplate2", "nameplate3", "target", "mouseover" }
             local presses = 0
+            local armedSteps, leftWhileArmed, movedOn, offeredAgain = 0, 0, 0, 0
+            local wasAway = {} -- [shown name] = true: armed once, then left
+            -- Whether the game shows this player (shown name) within range now.
+            local function reachable(name)
+                for _, t in ipairs(tokens) do
+                    local u = wow.state.units[t]
+                    if u and u.name .. " " .. u.surname == name and not u.outOfSpellRange then return true end
+                end
+                return false
+            end
             for _ = 1, 600 do
+                local armedBefore = macroTarget()
                 local roll = int(1, 10)
                 local token = tokens[int(1, #tokens)]
                 if roll <= 3 then
@@ -339,21 +352,29 @@ describe("Buff back when the player you owe has left (#270)", function()
                     wow.press(button)
                     presses = presses + 1
                 end
+                local left = armedBefore and not reachable(armedBefore)
                 wow.advance(int(0, 4))
                 ns.BuffButton.Refresh()
                 local target = macroTarget()
+                if left then
+                    leftWhileArmed = leftWhileArmed + 1
+                    wasAway[armedBefore] = true
+                    if target ~= armedBefore then movedOn = movedOn + 1 end
+                end
                 if target then
-                    local reachable = false
-                    for _, t in ipairs(tokens) do
-                        local u = wow.state.units[t]
-                        if u and u.name .. " " .. u.surname == target and not u.outOfSpellRange then
-                            reachable = true
-                        end
+                    armedSteps = armedSteps + 1
+                    assert.is_true(reachable(target), target .. " is armed but has left")
+                    if wasAway[target] and target ~= armedBefore then
+                        offeredAgain = offeredAgain + 1
+                        wasAway[target] = nil
                     end
-                    assert.is_true(reachable, target .. " is armed but has left")
                 end
                 assert.is_true(#wow.casts <= presses, "a cast without a press")
             end
+            assert.is_true(armedSteps > 0, "the storm never armed the button")
+            assert.is_true(leftWhileArmed > 0, "no armed player ever left")
+            assert.is_true(movedOn > 0, "the button never moved on from a player who left")
+            assert.is_true(offeredAgain > 0, "no player was offered again once back")
         end)
     end)
 
@@ -468,11 +489,15 @@ describe("Buff back when the player you owe has left (#270)", function()
             assert.are.equal(ns.BuffButton.MIN_HEIGHT, ns.BuffButton.HeightFor(fs))
         end)
 
-        it("keeps its size through a fight, and fits its text again after (black)", function()
+        it("keeps its size in a fight, even through a late fight-start event, and fits its text after (black)", function()
             boot({ class = "PRIEST", known = { [FORTITUDE_1] = true, [FORTITUDE] = true } })
             slash("buffmode on")
-            wow.enterCombat() -- the button empties, and its size is locked
+            wow.enterCombat() -- the button empties as the fight starts, then its size is locked
+            local height = button:GetHeight()
+            -- A late copy of the fight's start (#154), in the lockdown.
+            assert.has_no.errors(function() wow.fire("PLAYER_REGEN_DISABLED") end)
             assert.has_no.errors(function() recheck() end)
+            assert.are.equal(height, button:GetHeight())
             wow.leaveCombat()
             recheck()
             assertWhole(button.subtitle)

@@ -525,8 +525,8 @@ States.AlreadyDone = {
     end,
 }
 
--- The longest reason the button shows (#270): buff mode, alone, and a
--- favour owed to a player with a long name whose PvP flag the game won't
+-- A long reason the button shows (#270; the specs try every length): buff
+-- mode, alone, and a favour owed to a player with a long name whose PvP flag the game won't
 -- read (UnitIsPVP answers nothing for anyone but you while this is set):
 -- "<name>: can't see whether they're flagged for PvP (target them, or show
 -- friendly nameplates); you're not in a group". Undo puts UnitIsPVP back,

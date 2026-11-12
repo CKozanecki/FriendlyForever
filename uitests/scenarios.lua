@@ -595,20 +595,20 @@ test("the button says a buff is already done, in red, then moves on", function()
     end)
 end)
 
--- The longest reason the button shows (#270): whole, wrapped inside the
--- button, never cut short, at every size.
-test("the longest reason the button shows wraps whole inside it", function()
-    InState("longest reason", FriendlyForeverUIStates.LongReason, function(button, States)
+-- A long reason the button shows (#270): whole, wrapped inside the button,
+-- never cut short, at every size. The specs try every length.
+test("a long reason the button shows wraps whole inside it", function()
+    InState("long reason", FriendlyForeverUIStates.LongReason, function(button, States)
         Expect(button:IsShown(), "the button isn't up in buff mode")
         Expect(States.Macro() == nil, "the button holds a macro")
         local reason = button.subtitle:GetText() or ""
         Expect(reason:find("can't see whether they're flagged for PvP (target them, or show friendly nameplates)",
-            1, true) ~= nil, ("the reason reads %q, not the longest"):format(reason))
-        local line = TextInside(button, button.subtitle, "longest reason")
+            1, true) ~= nil, ("the reason reads %q, not the long one"):format(reason))
+        local line = TextInside(button, button.subtitle, "long reason")
         Expect(not line:find("cut short", 1, true), line .. ": the reason is cut short")
-        TextInside(button, button.title, "longest reason title", 1)
-        OnScreen(button, "buff-back button (longest reason)")
-        report("LAYOUT longest reason: " .. reason)
+        TextInside(button, button.title, "long reason title", 1)
+        OnScreen(button, "buff-back button (long reason)")
+        report("LAYOUT long reason: " .. reason)
     end)
 end)
 
