@@ -167,11 +167,22 @@ local function TimesOf(aura)
     return duration, expires - GetTime()
 end
 
+-- Whether spellId is one of buff's own single ranks (not a group version).
+local function IsSingleRank(buff, spellId)
+    for _, id in ipairs(buff.ranks) do
+        if id == spellId then return true end
+    end
+    return false
+end
+
 -- Whether aura (readable, wearing buff) is partly worn off for buff back
 -- (#269): under the renew setting's share of its full time left, and a rank
--- your cast can replace (never over a stronger one: #41, #206, #253). A time
--- that can't be read is never worn off.
+-- your cast can replace (never over a stronger one: #41, #206, #253). Only a
+-- single rank: a group version lasts longer than your single cast, so
+-- renewing it would leave them with less time. A time that can't be read is
+-- never worn off.
 local function WornOff(aura, buff)
+    if not IsSingleRank(buff, aura.spellId) then return false end
     local duration, left = TimesOf(aura)
     if not duration then return false end
     if left >= duration * RenewShare() then return false end

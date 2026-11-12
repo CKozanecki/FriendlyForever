@@ -144,10 +144,12 @@ describe("Renewing a worn buff on buff back (#269)", function()
             assert.are.equal("Thorns", offered())
         end)
 
-        it("renews over a worn Gift of the Wild as strong as your Mark (#206)", function()
+        it("leaves a worn Gift of the Wild alone: your shorter Mark would leave them less time", function()
             bobBuffsYou()
+            bobWears(GIFT, 40 * 60, 3600)
+            assert.are.equal("Thorns", offered(), "40 of its 60 minutes: a 30-minute Mark would shorten it")
             bobWears(GIFT, 60, 3600)
-            assert.are.equal("Mark of the Wild", offered())
+            assert.are.equal("Thorns", offered(), "even nearly gone, it runs out first")
         end)
 
         it("counts their buff as worn when any copy of it isn't worn off", function()
@@ -298,8 +300,8 @@ describe("Renewing a worn buff on buff back (#269)", function()
 
                 local share = type(setting) == "number" and math.max(0, math.min(90, math.floor(setting))) or 70
                 -- Your rank 1 replaces only rank 1; the top rank replaces
-                -- any, and the Gift of the same strength (#206).
-                local replaceable = spell == MOTW_1 or knowsTop
+                -- either single rank. A Gift is never renewed with a Mark.
+                local replaceable = spell == MOTW_1 or (spell == MOTW and knowsTop)
                 local readable = not secret and duration > 0
                 local wornOff = readable and replaceable and left < duration * share / 100
                 local expected = wornOff and "Mark of the Wild" or "Thorns"

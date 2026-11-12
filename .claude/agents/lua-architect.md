@@ -87,6 +87,9 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A per-player addon message is sent only to players the feature can use it for. Group members are never thanked, so a plan whispered to each one you buff would fill Comm's 8-place send queue in a raid and push out a stranger's `ANSWER` (#36).
 - Holding a message before it is queued restarts the queue's age limit. A limit meant to count from the event (a /say thank-you's 30 s from when it was due) is passed on with its start time (`Announcer`'s `ageFrom`), or a held /say goes out a minute late (#36).
 
+**Renewing a worn buff**
+- "Same strength" isn't "same length". A renewal threshold measured as a share of the worn aura's own duration can swap a group version (Gift of the Wild, an hour) for a single cast that lasts less (Mark, 30 minutes), leaving the player less time. `CanReplace` counts a group version as its single rank (#206), so a rule that renews by share must also check the worn spell is a single rank. Top-up (#42) escapes this only because its threshold is an absolute time, shorter than any fresh cast (#269, PR #278).
+
 **Saved settings and imports**
 - Every saved or imported field has its own validator, and a spec checks every default has one. Unknown keys, infinite numbers, duplicates and wrong types are dropped, sizes capped. Imports are parsed as data with size, depth and count limits, and an export never exceeds what import reads (#20, #21, #61, #73: `Serialize.MAX_DEPTH`).
 - New fields go into profiles and export, old saves load unchanged, and a value damaged mid-session reads as its safe default when used. One feature's damaged settings can't break another tab, and self-repair doesn't touch live state (#21, #61, #67, #74, #88).
