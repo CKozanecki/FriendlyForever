@@ -43,9 +43,20 @@ describe("Options refreshes", function()
             watch()
         end)
 
-        it("a page has no parent, though the game calls it visible (white)", function()
-            assert.is_nil(_G.FriendlyForeverOptionsPanel:GetParent())
-            assert.is_true(_G.FriendlyForeverOptionsPanel:IsVisible())
+        it("a page has no parent and is hidden until the window shows it (white)", function()
+            for _, page in ipairs({ _G.FriendlyForeverOptionsPanel, ns.Options.StartPage(), ns.Options.Pages() }) do
+                assert.is_nil(page:GetParent())
+                assert.is_false(page:IsVisible())
+            end
+        end)
+
+        it("the game calls a shown frame with no parent visible, so only a parent check keeps a shown page quiet (black)", function()
+            local page = ns.Options.StartPage()
+            page:Show()
+            assert.is_true(page:IsVisible())
+            counts.start = 0
+            refreshes()
+            assert.are.equal(0, counts.start)
         end)
 
         it("fills no page and logs no filled line on a setting change (black)", function()

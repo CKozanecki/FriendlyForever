@@ -61,6 +61,10 @@ Something you find that isn't this PR's job is not a finding against it: list it
 
 Checks that caught real bugs in past reviews. Each cites where it came from. Add to this list when a review finds a lesson rather than a one-off (CONTRIBUTING.md's rule on keeping these files current).
 
+
+**Settings pages**
+
+- A page filled from its `OnShow` is hidden when created. A frame that is already visible fires no `OnShow` when the Settings window takes it in, and a shown frame with no parent counts as visible (#267).
 **Running checks**
 - Run confirmation checks one review loop at a time, or in separate worktrees: two `make check` runs in one worktree share `dist/` and can give a false failure (#178, #172, #176).
 

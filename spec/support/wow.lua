@@ -399,9 +399,14 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --   Settings pages (#267, confirmed in game by the owner, 1.1.0): a shown frame
 --                         with no parent counts as visible (IsVisible true),
 --                         and our pages have no parent until the Settings
---                         window adopts them. Settings.OpenToCategory here
---                         does that (parent = wow.settings.window, shown,
---                         OnShow run) and hides the page shown before.
+--                         window adopts them. The addon hides each page when
+--                         it creates it, so none fires OnShow until the window
+--                         shows it (a frame already visible fires none: not
+--                         confirmed for the first take-in, #267 review).
+--                         Settings.OpenToCategory here adopts the page
+--                         (parent = wow.settings.window), shows it, runs its
+--                         OnShow if it was hidden, and hides the page shown
+--                         before.
 --   state.targetNameForm  how /target and /targetexact spell a two-part
 --                         name: "space" ("Nikki Shifts", default) or "hyphen"
 --   state.sentTargetForm  what UNIT_SPELLCAST_SENT gives as the target:
@@ -1645,10 +1650,12 @@ function M.reset()
             M.settings.window = M.settings.window or M.newFrame("Frame", "SettingsPanel")
             M.settings.window.shown = true
             if M.settings.page and M.settings.page ~= page then M.settings.page.shown = false end
+            local wasVisible = page:IsVisible()
             page.parent = M.settings.window
             page.shown = true
             M.settings.page = page
-            if page.scripts.OnShow then page.scripts.OnShow(page) end
+            -- OnShow runs only when the page goes from hidden to visible.
+            if not wasVisible and page.scripts.OnShow then page.scripts.OnShow(page) end
         end,
     }
     _G.CreateSettingsListSectionHeaderInitializer = nil
@@ -1855,7 +1862,10 @@ function M.adoptSettingsPages()
     M.settings.window = M.settings.window or M.newFrame("Frame", "SettingsPanel")
     M.settings.window.shown = true
     local function adopt(entry)
-        if entry.panel then entry.panel.parent = M.settings.window end
+        if entry.panel then
+            entry.panel.parent = M.settings.window
+            entry.panel.shown = true
+        end
     end
     for _, c in ipairs(M.settings.categories) do adopt(c) end
     for _, c in ipairs(M.settings.subcategories) do adopt(c) end

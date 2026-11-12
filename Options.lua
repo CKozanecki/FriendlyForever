@@ -628,6 +628,10 @@ function Options.Create()
     if panel then return end
     panel = CreateFrame("Frame", "FriendlyForeverOptionsPanel")
     panel.name = ns.TITLE
+    -- Hidden until the Settings window shows it: a frame created shown fires
+    -- no OnShow when the window takes it in, and counts as visible with no
+    -- parent (#267).
+    panel:Hide()
 
     -- Everything sits in a scrolling area so no row is cut off on small screens.
     local scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
@@ -1016,6 +1020,7 @@ local function SubPage(name, title, frameName)
     local page = CreateFrame("Frame", frameName)
     page.name = name
     page.parent = ns.TITLE
+    page:Hide() -- as the main panel (#267)
     local heading = Label(page, ns.TITLE .. ": " .. title, "GameFontNormalLarge")
     heading:SetPoint("TOPLEFT", 16, -16)
     page.heading = heading
