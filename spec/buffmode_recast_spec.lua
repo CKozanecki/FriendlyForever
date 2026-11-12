@@ -399,6 +399,14 @@ describe("What buff mode recasts (#256)", function()
             assert.is_false(button:IsShown())
         end)
 
+        it("its words go when it ends, even when buff mode ends with nothing to replace them", function()
+            assert.is_truthy(button.title:GetText():find("Already done by", 1, true))
+            slash("buffmode off")
+            ns.BuffButton.Refresh()
+            assert.are.equal("", button.title:GetText())
+            assert.are.equal("", button.subtitle:GetText())
+        end)
+
         it("the round counts a press as given even when its buff shows up late (more than 10 seconds)", function()
             wow.leaveDungeon()
             wow.advance(600) -- every Mark here is old now: out of step

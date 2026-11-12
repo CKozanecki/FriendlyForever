@@ -277,6 +277,9 @@ local function ShowAlreadyDone()
     if alreadyDone.over or not ns.BuffMode.LentKey()
         or alreadyDone.round ~= ns.GroupBuffs.Round() then
         alreadyDone = nil
+        -- Its words go with it, even where nothing replaces them (the
+        -- button kept up only for a result line).
+        SetLabels("", "")
         return ShowAlreadyDone()
     end
     Empty("already done")
