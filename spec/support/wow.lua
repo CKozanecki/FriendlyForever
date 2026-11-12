@@ -87,6 +87,11 @@ function methods:RegisterForClicks(...) self.clicks = { ... } end
 function methods:SetAlpha(a) self.alpha = a end
 function methods:GetAlpha() return self.alpha or 1 end
 function methods:IsShown() return self.shown end
+-- The parent frame, or nil. (A string in .parent is the old options API's
+-- parent category name, not a frame.)
+function methods:GetParent()
+    if type(self.parent) == "table" then return self.parent end
+end
 -- Visible = shown, and every parent shown too. (A string in .parent is the
 -- old options API's parent category name, not a frame.)
 function methods:IsVisible()
@@ -391,6 +396,12 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 -- right before launch (#208), and the [@player] cast added since (#198),
 -- which is unconfirmed: #213. The simulation stays as it is, as a record of
 -- what it models.
+--   Settings pages (#267, confirmed in game by the owner, 1.1.0): a shown frame
+--                         with no parent counts as visible (IsVisible true),
+--                         and our pages have no parent until the Settings
+--                         window adopts them. Settings.OpenToCategory here
+--                         does that (parent = wow.settings.window, shown,
+--                         OnShow run) and hides the page shown before.
 --   state.targetNameForm  how /target and /targetexact spell a two-part
 --                         name: "space" ("Nikki Shifts", default) or "hyphen"
 --   state.sentTargetForm  what UNIT_SPELLCAST_SENT gives as the target:
@@ -1617,7 +1628,28 @@ function M.reset()
             M.settings.subcategories[#M.settings.subcategories + 1] = sub
             return sub
         end,
-        OpenToCategory = function(id) M.settings.opened = id end,
+        -- Opening adopts the page into the Settings window and shows it, as
+        -- the game does (#267, see ASSUMPTIONS): until then a page has no
+        -- parent. The page's OnShow runs, as Show does in the game.
+        OpenToCategory = function(id)
+            M.settings.opened = id
+            local target
+            for _, c in ipairs(M.settings.categories) do
+                if c:GetID() == id then target = c end
+            end
+            for _, c in ipairs(M.settings.subcategories) do
+                if c:GetID() == id then target = c end
+            end
+            local page = target and target.panel
+            if not page then return end
+            M.settings.window = M.settings.window or M.newFrame("Frame", "SettingsPanel")
+            M.settings.window.shown = true
+            if M.settings.page and M.settings.page ~= page then M.settings.page.shown = false end
+            page.parent = M.settings.window
+            page.shown = true
+            M.settings.page = page
+            if page.scripts.OnShow then page.scripts.OnShow(page) end
+        end,
     }
     _G.CreateSettingsListSectionHeaderInitializer = nil
     -- The addon drop-down under the minimap. state.noCompartment: this client has none.
@@ -1713,6 +1745,8 @@ end
 -- opts.db: saved variables to start with. opts.noGrace: stop after login.
 -- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
 -- opts.buffDefaults: keep who gets Wisdom, Might and Thorns at their defaults (#219, see below).
+-- opts.settingsClosed: keep the settings pages unopened, as in the game until
+-- the player opens them (#267, see below).
 -- opts.buffSelf: keep buff mode offering your own copy of your buffs (#198).
 -- opts.walkthrough: keep a first install's walkthrough (see below).
 -- opts.afterLoad: called with the addon's namespace once its files are
@@ -1803,7 +1837,28 @@ function M.boot(opts)
     end
     M.fire("PLAYER_ENTERING_WORLD", true, false)
     if not opts.noGrace then M.advance(ns.Announcer.LOGIN_GRACE) end
+    -- A page nobody has opened has no parent and, parentless, counts as
+    -- visible (#267), but the addon fills only pages the player is looking
+    -- at. Most specs check what the settings show, so they start with every
+    -- page adopted by the Settings window, as when it's open. Pass
+    -- opts.settingsClosed for the game's state before the first open.
+    if not opts.settingsClosed then
+        M.adoptSettingsPages()
+        ns.Options.Refresh()
+    end
     return ns
+end
+
+-- Every page the addon registered, put in the Settings window and shown
+-- (the game shows only one at a time: Settings.OpenToCategory does that).
+function M.adoptSettingsPages()
+    M.settings.window = M.settings.window or M.newFrame("Frame", "SettingsPanel")
+    M.settings.window.shown = true
+    local function adopt(entry)
+        if entry.panel then entry.panel.parent = M.settings.window end
+    end
+    for _, c in ipairs(M.settings.categories) do adopt(c) end
+    for _, c in ipairs(M.settings.subcategories) do adopt(c) end
 end
 
 ------------------------------------------------------------------------
