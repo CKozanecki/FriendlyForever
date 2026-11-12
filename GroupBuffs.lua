@@ -38,8 +38,12 @@
 -- can't be read: that buff is never cast over, and the member isn't done.
 -- In the round that starts as you enter a dungeon or raid with your group
 -- (GroupBuffs.StartRound, from BuffModeAuto.lua) and ends at the first pull
--- or when you leave, your own earlier buffs are offered again once too, so
--- the timers line up. Never over anything stronger than a rank you know
+-- or when you leave, "whoever buffs first" (the owner, 2026-11-12): a buff
+-- of yours or another member's put up more than SYNCED_SECONDS before you
+-- entered is offered again once, so everyone's timer is fresh; one put up
+-- since then is already in step and left be. When it was put up comes from
+-- the aura's own times; a time that can't be read is never recast over.
+-- Outside the round a member's buff is left alone until it runs low (top-up). Never over anything stronger than a rank you know
 -- (BuffData.CanReplace: #41's rule, and the game would refuse it), and the
 -- one-Blessing rule stands. In a raid, the raid buff split (#70) still
 -- decides which buffs are yours to give.
@@ -73,7 +77,11 @@ local justGiven = {} -- [name .. "\1" .. buff key] = GetTime()
 local skipped = {}   -- [name] = GetTime() you right-clicked them
 local heldBack = {}  -- [name] = GetTime() the game refused a cast to them
 local lastSelfWhy        -- why you were last left out of the offers (said once in debug)
-local round              -- the dungeon-or-raid round (#256): [name .. "\1" .. buff key] = true once given; nil: none
+local round              -- the dungeon-or-raid round (#256): { started = GetTime(), given = { [name .. "\1" .. buff key] = true } }; nil: none
+
+-- In the round, a buff put up less than this long before you entered (or
+-- since) is in step with everyone's and isn't recast (#256, the owner).
+GroupBuffs.SYNCED_SECONDS = 300
 
 -- The slots to look through: raid1..40 in a raid (one of them is you),
 -- party1..4 in a party. Empty when you're in no group.
@@ -150,18 +158,38 @@ local function CasterOf(source, units)
     return "outside"
 end
 
+-- When aura was put up (GetTime() clock), from its own times, or nil when
+-- they can't be read or it never runs out. Secrets are never compared.
+local function AppliedAt(aura)
+    local duration, expires = aura.duration, aura.expirationTime
+    if Util.IsSecret(duration) or Util.IsSecret(expires) then return nil end
+    if type(duration) ~= "number" or type(expires) ~= "number" then return nil end
+    -- Each test is true only for a real number, so NaN is a no.
+    if not (duration > 0 and expires > 0) then return nil end
+    return expires - duration
+end
+
+-- Whether the round recasts aura (yours or a group member's, covering buff)
+-- on the member called name: put up more than SYNCED_SECONDS before the
+-- round began, and not given to them yet this round. A time that can't be
+-- read: no.
+local function RoundRecasts(name, buff, aura)
+    if not round or round.given[name .. "\1" .. buff.key] then return false end
+    local at = AppliedAt(aura)
+    return at ~= nil and at < round.started - GroupBuffs.SYNCED_SECONDS
+end
+
 -- Whether your cast of buff would renew aura (readable, covering buff) on
 -- member rather than leave it be (#256): true when someone outside the group
--- put it up, or it's your own and this round hasn't given it to them yet;
--- false for a group member's, or anything stronger than a rank you know;
--- nil when who cast it can't be read.
+-- put it up, or the round recasts it (yours or a member's, old enough);
+-- false otherwise, and for anything stronger than a rank you know; nil when
+-- who cast it can't be read.
 local function Renews(member, buff, aura, units)
     if not ns.BuffData.CanReplace(buff, aura.spellId) then return false end
     local who = CasterOf(aura.sourceUnit, units)
     if who == nil then return nil end
     if who == "outside" then return true end
-    if who == "you" then return round ~= nil and not round[member.name .. "\1" .. buff.key] end
-    return false
+    return RoundRecasts(member.name, buff, aura)
 end
 
 -- Whether member wears buff so that nothing is left to give: true, false
@@ -193,10 +221,14 @@ local function Wears(member, buff, units)
 end
 
 -- Why a group version of buff mustn't cover this member (#256), or nil: it
--- would replace a buff of theirs whose caster can't be read, or they wear
--- buffs that can't be read at all. A group version covers everyone in its
+-- would replace a buff of theirs whose caster can't be read, or another
+-- member's that isn't running low (and the round doesn't recast), or they
+-- wear buffs that can't be read at all. A group version covers everyone in its
 -- party, subgroup or class, not only those missing the buff.
-local function CoverBlocked(entry, buff, units)
+local function CoverBlocked(entry, buff, units, equals)
+    -- Only a buff the cast would replace counts: one no stronger than the
+    -- single rank the group version equals. The game keeps a stronger one.
+    local equalsAt = ns.BuffData.RankOf(buff, equals)
     local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
     local who = entry.isMe and "your" or ((entry.name and Util.DisplayName(entry.name) or "a group member") .. "'s")
     if not api then return "can't see " .. who .. " buffs" end
@@ -206,8 +238,16 @@ local function CoverBlocked(entry, buff, units)
         if aura == nil then return nil end
         local id = aura.spellId
         if Util.IsSecret(id) then return "can't see " .. who .. " buffs" end
-        if ns.BuffData.Covers(buff, id) and CasterOf(aura.sourceUnit, units) == nil then
-            return "can't tell who cast " .. who .. " buff"
+        local at = ns.BuffData.RankOf(buff, id)
+        if ns.BuffData.Covers(buff, id) and not (at and equalsAt and at < equalsAt) then
+            local caster = CasterOf(aura.sourceUnit, units)
+            if caster == nil then return "can't tell who cast " .. who .. " buff" end
+            -- Another member's buff is theirs until it runs low, or the
+            -- round recasts it (#256, the owner).
+            if caster == "group" and not RunningLow(aura, buff)
+                and not (entry.name and RoundRecasts(entry.name, buff, aura)) then
+                return who .. " buff is another group member's"
+            end
         end
     end
 end
@@ -410,7 +450,7 @@ function GroupBuffs.Next(out)
             local note, quiet
             if spell then
                 groupCtx.Needs = function(member) return Needs(buff, member) end
-                groupCtx.Blocked = function(entry) return CoverBlocked(entry, buff, units) end
+                groupCtx.Blocked = function(entry, equals) return CoverBlocked(entry, buff, units, equals) end
                 local groupOffer
                 groupOffer, note, quiet = ns.GroupCasts.Offer(buff, list, groupCtx)
                 if groupOffer then
@@ -462,7 +502,7 @@ end
 -- Your buff reached them (the game said so).
 function GroupBuffs.NoteGiven(name, buff)
     justGiven[name .. "\1" .. buff.key] = GetTime()
-    if round then round[name .. "\1" .. buff.key] = true end
+    if round then round.given[name .. "\1" .. buff.key] = true end
 end
 
 -- The dungeon-or-raid round (#256): from entering one with your group until
@@ -472,10 +512,10 @@ end
 -- same member isn't offered it on every press until the pull (#256). At
 -- worst one member keeps their earlier buff of yours.
 function GroupBuffs.NoteRoundCast(name, buff)
-    if round then round[name .. "\1" .. buff.key] = true end
+    if round then round.given[name .. "\1" .. buff.key] = true end
 end
 
-function GroupBuffs.StartRound() round = {} end
+function GroupBuffs.StartRound() round = { started = GetTime(), given = {} } end
 function GroupBuffs.EndRound() round = nil end
 function GroupBuffs.InRound() return round ~= nil end
 

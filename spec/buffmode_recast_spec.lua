@@ -113,12 +113,15 @@ describe("What buff mode recasts (#256)", function()
         end)
     end)
 
-    describe("your own buffs, once, on entering a dungeon or raid (white)", function()
+    describe("on entering a dungeon or raid: whoever buffs first (white)", function()
+        -- Your Marks, put up 10 minutes before you enter: out of step.
+        local LONG_AGO, LATELY = 600, 120
         before_each(function()
             boot()
             group()
             wow.wearBuff("party1", MOTW, { source = "player" })
             wow.wearBuff("party2", MOTW, { source = "player" })
+            wow.advance(LONG_AGO)
         end)
 
         it("offers each member your buff once more, so the timers line up, then not again", function()
@@ -138,6 +141,7 @@ describe("What buff mode recasts (#256)", function()
             wow.setGroup("raid", { "Ann-Vale", "Cid-Rock" })
             wow.addUnit("raid3", wow.state.units.player) -- your own raid slot (#255)
             wow.wearBuff("raid1", MOTW, { source = "player" })
+            wow.advance(LONG_AGO)
             wow.fire("GROUP_ROSTER_UPDATE")
             wow.enterRaid(409, "Molten Core")
             assert.are.equal("Ann-Vale", press().target)
@@ -177,11 +181,65 @@ describe("What buff mode recasts (#256)", function()
             assert.is_false(ns.GroupBuffs.InRound())
         end)
 
-        it("a group member's buff is left alone in the round too", function()
-            wow.wearBuff("party2", MOTW, { source = "party1" })
+        it("a buff another member put up within 5 minutes before you entered is in step: left alone", function()
+            wow.advance(ns.GroupBuffs.SYNCED_SECONDS - LATELY)
+            wow.wearBuff("party2", MOTW, { source = "party1" }) -- Ann's, 2 minutes before you enter
+            wow.advance(LATELY)
             wow.enterDungeon(DEADMINES, "The Deadmines")
+            assert.are.equal("Ann-Vale", press().target, "yours on Ann, 10 minutes old: recast")
+            assert.is_nil(press(), "Cid wears Ann's, still in step")
+        end)
+
+        it("a buff another member put up more than 5 minutes before you entered is recast once", function()
+            wow.wearBuff("party2", MOTW, { source = "party1" })
+            wow.advance(LONG_AGO)
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            local given = {}
+            for _ = 1, 4 do
+                local cast = press()
+                if not cast then break end
+                given[#given + 1] = cast.target
+            end
+            assert.are.same({ "Ann-Vale", "Cid-Rock" }, given)
+        end)
+
+        it("your own buff put up within 5 minutes before you entered is in step too", function()
+            wow.wearBuff("party1", MOTW, { source = "player" })
+            wow.wearBuff("party2", MOTW, { source = "player" })
+            wow.advance(LATELY)
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            assert.is_nil(next())
+        end)
+
+        it("measures from when you entered: a buff in step then stays in step", function()
+            wow.wearBuff("party1", MOTW, { source = "party2" })
+            wow.wearBuff("party2", MOTW, { source = "party1" })
+            wow.advance(LATELY)
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            wow.advance(10 * 60)
+            assert.is_nil(next(), "12 minutes old now, but in step with the others when you entered")
+        end)
+
+        it("never recasts over a buff whose time can't be read", function()
+            wow.state.units.party1.auraDurations[1] = nil
+            wow.state.units.party2.auraExpires[1] = wow.secret(wow.now + 100)
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            assert.is_nil(next())
+            local _, _, settled = ns.GroupBuffs.Next()
+            assert.is_true(settled, "a time that can't be read counts as having it")
+            assert.are.same({}, wow.errors)
+        end)
+    end)
+
+    describe("after entering: another member's buff is theirs until it runs low (white)", function()
+        before_each(function() boot() group() end)
+
+        it("is left alone with time left, then renewed by top-up when it runs low", function()
+            wow.wearBuff("party1", MOTW, { source = "party2", duration = 3600 })
+            wow.wearBuff("party2", MOTW, { source = "player", duration = 3600 })
+            assert.is_nil(next())
+            wow.state.units.party1.auraExpires[1] = wow.now + 60 -- under the 5-minute top-up time
             assert.are.equal("Ann-Vale", press().target)
-            assert.is_nil(press(), "Cid wears Ann's")
         end)
     end)
 
@@ -202,6 +260,7 @@ describe("What buff mode recasts (#256)", function()
         it("recasts your own Blessing once in the round, never switching it to another", function()
             wow.wearBuff("party1", MIGHT_1, { source = "player" })
             wow.wearBuff("party2", MIGHT_1, { source = "player" })
+            wow.advance(600)
             wow.enterDungeon(DEADMINES, "The Deadmines")
             local cast = press()
             assert.are.equal("Ann-Vale", cast.target)
@@ -254,6 +313,17 @@ describe("What buff mode recasts (#256)", function()
             assert.are.equal("Can't tell who cast Ann Vale's buff: buffing one at a time", offer.note or offer.hint)
             assert.are.same({}, wow.errors)
         end)
+
+        it("isn't offered while someone it would cover wears another member's buff with time left (the owner)", function()
+            mage()
+            wow.wearBuff("party1", INTELLECT, { source = "party2", duration = 3600 })
+            local offer = ns.GroupBuffs.Next()
+            assert.is_nil(offer.cast, "single buffs instead")
+            assert.are_not.equal("Ann-Vale", offer.name)
+            assert.are.equal("Ann Vale's buff is another group member's: buffing one at a time", offer.note or offer.hint)
+            wow.state.units.party1.auraExpires[1] = wow.now + 60 -- running low
+            assert.is_truthy(ns.GroupBuffs.Next().cast, "running low: the group version renews it")
+        end)
     end)
 
     describe("the round when the game doesn't say whom a cast reached (black)", function()
@@ -265,9 +335,11 @@ describe("What buff mode recasts (#256)", function()
             end })
             slash("buffmode on")
             group()
-            wow.gainBuff({ sourceUnit = "player", name = "Mark of the Wild", spellId = MOTW })
+            wow.gainBuff({ sourceUnit = "player", name = "Mark of the Wild", spellId = MOTW,
+                duration = 3600, expirationTime = wow.now + 3600 })
             wow.wearBuff("party1", MOTW, { source = "player" })
             wow.wearBuff("party2", MOTW, { source = "player" })
+            wow.advance(600)
             wow.enterDungeon(DEADMINES, "The Deadmines")
             local targets = {}
             for _ = 1, 3 do
@@ -361,18 +433,30 @@ describe("What buff mode recasts (#256)", function()
     end)
 
     describe("chaos (red)", function()
-        -- Whether a cast of Mark on this unit table would go over a buff the
-        -- client's own state says a group member put up, or one whose caster
-        -- is a secret, or one stronger than you know: worked out from the
-        -- simulated client's state, not the addon's.
+        -- Why a cast of Mark on this unit table would break the owner's rules,
+        -- or nil, worked out from the simulated client's own state and the
+        -- storm's own record of the round (when you entered, whom it gave
+        -- to), never from the addon's:
+        --   never over a secret caster, nor a rank stronger than you know;
+        --   a group member's buff, or yours, only when it's running low
+        --   (top-up: an hour-long buff with under 5 minutes left), or in the
+        --   round when it was put up over 5 minutes before you entered, with
+        --   a time that can be read, and the round hasn't given it yet.
         local MEMBERS = { "Ann-Vale", "Cid-Rock", "Dot-Fern" }
-        local function forbidden(u, known)
+        local TOP_UP = 5 * 60
+        local function forbidden(u, known, round)
             for i, id in ipairs(u.auras or {}) do
                 if (id == MOTW or id == MOTW_1) and not wow.auraExpired(u, i) then
                     local src = u.auraSources and u.auraSources[i]
+                    if src == nil then src = "player" end -- the simulated client's default
                     if type(src) == "table" then return "a secret caster" end
-                    if type(src) == "string" and src:find("^party%d") then return "a group member's buff" end
                     if not known[id] then return "a stronger rank than you know" end
+                    if src == "player" or (type(src) == "string" and src:find("^party%d")) then
+                        local duration, expires = u.auraDurations[i], u.auraExpires[i]
+                        local low = duration > TOP_UP and expires - wow.now < TOP_UP
+                        local old = round and not round.given[u.id] and expires - duration < round.started - TOP_UP
+                        if not (low or old) then return "a group member's (or your) buff in step" end
+                    end
                 end
             end
         end
@@ -383,6 +467,7 @@ describe("What buff mode recasts (#256)", function()
             boot({ known = known })
             group("party", MEMBERS)
             local recastOver, rounds = 0, 0
+            local round -- the storm's own record: { started, given = { [id] = true } }
             local sources = { "player", "party1", "party2", "party3", false, "nameplate1", "secret" }
             wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", id = "Bob-Stone" })
             local actions = {
@@ -399,10 +484,16 @@ describe("What buff mode recasts (#256)", function()
                     if u then u.auras, u.auraSources = {}, {} end
                 end,
                 function()
-                    if wow.state.inInstance then wow.leaveDungeon() else wow.enterDungeon(DEADMINES, "x") end
-                    if ns.GroupBuffs.InRound() then rounds = rounds + 1 end
+                    if wow.state.inInstance then
+                        wow.leaveDungeon()
+                        round = nil
+                    else
+                        wow.enterDungeon(DEADMINES, "x")
+                        round = { started = wow.now, given = {} }
+                        rounds = rounds + 1
+                    end
                 end,
-                function() wow.enterCombat() wow.leaveCombat() end,
+                function() wow.enterCombat() wow.leaveCombat() round = nil end,
                 function() wow.advance(random.random(1, 900)) end,
                 function() -- someone joins or leaves (the same members, a new order)
                     local names = {}
@@ -421,14 +512,17 @@ describe("What buff mode recasts (#256)", function()
                     local offer = ns.GroupBuffs.Next()
                     local target = offer and tokenOf(offer.name)
                     local u = target and wow.state.units[target]
-                    local why = u and forbidden(u, known)
+                    local why = u and forbidden(u, known, round)
+                    local had = false
+                    for i, id in ipairs(u and u.auras or {}) do
+                        had = had or ((id == MOTW or id == MOTW_1) and not wow.auraExpired(u, i))
+                    end
                     local before = #wow.casts
                     local cast = press()
                     if cast and u and cast.target == u.id then
                         assert.is_nil(why, where .. ": cast over " .. tostring(why))
-                        for _, id in ipairs(u.auras or {}) do
-                            if id == MOTW or id == MOTW_1 then recastOver = recastOver + 1 break end
-                        end
+                        if had then recastOver = recastOver + 1 end
+                        if round then round.given[u.id] = true end
                     end
                     assert.is_true(#wow.casts <= before + 1, where .. ": more than one cast for one press")
                 else
@@ -444,7 +538,7 @@ describe("What buff mode recasts (#256)", function()
         it("buffs from members, strangers, unnamed and secret casters: never over a member's, a secret's or a stronger one",
             function()
                 local over, rounds = 0, 0
-                for seed = 1, 10 do
+                for seed = 1, 40 do
                     local a, b = storm(seed)
                     over, rounds = over + a, rounds + b
                 end

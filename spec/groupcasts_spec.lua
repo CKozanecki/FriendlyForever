@@ -1,4 +1,4 @@
--- Spec: #41
+-- Spec: #41, #256
 -- Group versions in buff mode: Arcane Brilliance, the Prayers and Gift of the
 -- Wild are offered before the single buff when you know them, carry the
 -- reagent, and enough of the party (in a raid, the subgroup) is missing the
@@ -553,8 +553,8 @@ describe("Group versions in buff mode (#41)", function()
             wow.state.units.party4.auraSources[1] = "party1"
             wow.state.units.party4.auras = { FORT_6 }
             assert.are.equal("Ann Vale: Prayer of Fortitude", armed())
-            -- Whose it is can't be told: single buffs.
-            wow.state.units.party4.auraSources[1] = nil
+            -- Whose it is can't be told (a secret caster): single buffs.
+            wow.state.units.party4.auraSources[1] = wow.secret("party1")
             assert.are.equal("Ann Vale: Power Word: Fortitude", armed())
         end)
 

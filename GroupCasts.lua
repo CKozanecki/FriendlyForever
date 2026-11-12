@@ -220,7 +220,7 @@ local function WhyNot(buff, spell, members, iAmFlagged, ctx)
         if higher then return Cap(who) .. (m.isMe and " wear" or " wears") .. " a higher rank of yours" end
         -- A buff of theirs it would replace that isn't for buff mode to
         -- cast over (#256: GroupBuffs says whose).
-        local kept = ctx and ctx.Blocked and ctx.Blocked(m)
+        local kept = ctx and ctx.Blocked and ctx.Blocked(m, spell.equals)
         if kept then return Cap(kept) end
     end
 end
@@ -233,8 +233,8 @@ end
 --   ctx      { units = the group's unit tokens, inRaid, Needs = function(member)
 --            true if they're missing the buff and may have it, InRange =
 --            function(spell, unit) false if the spell can't reach them,
---            Blocked = function(entry) why the cast mustn't cover that
---            member (#256), or nil }
+--            Blocked = function(entry, equals) why the cast (as strong as
+--            the single rank `equals`) mustn't cover that member (#256), or nil }
 -- The reason comes with a third value, true for one worth only a line in the
 -- button's tooltip, not its face (a group version you haven't learned, which
 -- stays true for a long time).
