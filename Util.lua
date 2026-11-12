@@ -156,6 +156,17 @@ function Util.ReadGameValues(fn, ...)
     return a, b, c
 end
 
+-- Whether you put up a buff whose caster the game gives as source (an
+-- aura's sourceUnit): true, false, or nil when that can't be read. A caster
+-- the game doesn't name (nil) is someone outside your group, not you (the
+-- owner's decision on #256: the game names a group member's caster). A
+-- secret is never compared.
+function Util.CastByYou(source)
+    if source == nil then return false end
+    if Util.IsSecret(source) or type(source) ~= "string" then return nil end
+    return Util.ReadGameValues(UnitIsUnit, source, "player")
+end
+
 -- A unit's class, only while the unit is still the expected player (unit
 -- tokens such as nameplates are reused): the name players read ("Mage") and
 -- the file name ("MAGE"), each nil when unknown.

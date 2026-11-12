@@ -138,9 +138,7 @@ local function WearsHigherRank(unit, buff, equals, anyone)
         local at = ns.BuffData.RankOf(buff, id)
         if at and at < equalsAt then
             if anyone then return true end
-            local source = aura.sourceUnit
-            if source == nil or Util.IsSecret(source) then return nil end
-            local mine = Read(UnitIsUnit, source, "player")
+            local mine = Util.CastByYou(aura.sourceUnit)
             if mine == nil then return nil end
             if mine then return true end
         end
@@ -163,9 +161,7 @@ local function WearsOtherBlessing(unit, buff)
         if Util.IsSecret(id) then return nil end
         local other = ns.BuffData.ForAura(id)
         if other and other.family == buff.family and other.key ~= buff.key then
-            local source = aura.sourceUnit
-            if source == nil or Util.IsSecret(source) then return nil end
-            local mine = Read(UnitIsUnit, source, "player")
+            local mine = Util.CastByYou(aura.sourceUnit)
             if mine == nil then return nil end
             if mine then return other end
         end

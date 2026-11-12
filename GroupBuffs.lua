@@ -29,6 +29,20 @@
 -- stronger than a rank you know (#206; BuffData.CanReplace), and only when
 -- the game shows how long it has left: a time that can't be read (secret,
 -- missing) means it isn't missing. Strangers (buff back) are never topped up.
+--
+-- Whose buff it is (#256). A buff someone outside your group put up doesn't
+-- count: yours is offered over it, so every member's buff is yours, on your
+-- timer. A buff a group member put up is left alone. The game names a group
+-- member's caster, so a caster it doesn't name (sourceUnit nil) is someone
+-- outside the group (the owner's decision). A caster it gives as a secret
+-- can't be read: that buff is never cast over, and the member isn't done.
+-- In the round that starts as you enter a dungeon or raid with your group
+-- (GroupBuffs.StartRound, from BuffModeAuto.lua) and ends at the first pull
+-- or when you leave, your own earlier buffs are offered again once too, so
+-- the timers line up. Never over anything stronger than a rank you know
+-- (BuffData.CanReplace: #41's rule, and the game would refuse it), and the
+-- one-Blessing rule stands. In a raid, the raid buff split (#70) still
+-- decides which buffs are yours to give.
 local _, ns = ...
 local Util = ns.Util
 local Read = Util.ReadGameValues
@@ -59,6 +73,7 @@ local justGiven = {} -- [name .. "\1" .. buff key] = GetTime()
 local skipped = {}   -- [name] = GetTime() you right-clicked them
 local heldBack = {}  -- [name] = GetTime() the game refused a cast to them
 local lastSelfWhy        -- why you were last left out of the offers (said once in debug)
+local round              -- the dungeon-or-raid round (#256): [name .. "\1" .. buff key] = true once given; nil: none
 
 -- The slots to look through: raid1..40 in a raid (one of them is you),
 -- party1..4 in a party. Empty when you're in no group.
@@ -113,11 +128,68 @@ local function RunningLow(aura, buff)
     return ns.BuffData.CanReplace(buff, aura.spellId)
 end
 
--- Whether they wear a buff of this family that you cast: true, false, or nil
--- when the game won't say (their buffs, or who cast one, can't be read).
--- A Blessing of yours that you've since left to others in this raid doesn't
--- count, so the one you switched to replaces it; nor does offered running
--- low, which a cast of offered renews.
+-- Who put up an aura with this caster (#256): "you", "group" (another
+-- member), "outside" (not in your group, or a caster the game doesn't name),
+-- or nil when it can't be read.
+local function CasterOf(source, units)
+    if source == nil then return "outside" end
+    local me = Util.CastByYou(source)
+    if me == nil then return nil end
+    if me then return "you" end
+    -- The game names a group member (or their pet) by a group token...
+    if source:find("^party%d+$") or source:find("^raid%d+$") or source:find("^partypet%d+$")
+        or source:find("^raidpet%d+$") then
+        return "group"
+    end
+    -- ...or by another token that is one (a nameplate, your target).
+    for _, unit in ipairs(units) do
+        local same = Read(UnitIsUnit, source, unit)
+        if same == nil then return nil end
+        if same then return "group" end
+    end
+    return "outside"
+end
+
+-- Whether your cast of buff would renew aura (readable, covering buff) on
+-- member rather than leave it be (#256): true when someone outside the group
+-- put it up, or it's your own and this round hasn't given it to them yet;
+-- false for a group member's, or anything stronger than a rank you know;
+-- nil when who cast it can't be read.
+local function Renews(member, buff, aura, units)
+    if not ns.BuffData.CanReplace(buff, aura.spellId) then return false end
+    local who = CasterOf(aura.sourceUnit, units)
+    if who == nil then return nil end
+    if who == "outside" then return true end
+    if who == "you" then return round ~= nil and not round[member.name .. "\1" .. buff.key] end
+    return false
+end
+
+-- Whether member wears buff so that nothing is left to give: true, false
+-- (missing it, running low, or wearing one your cast renews), or nil when
+-- their buffs, or who cast the one that counts, can't be read; then why.
+local function Wears(member, buff, units)
+    local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    if not api then return nil, "can't see their buffs" end
+    for i = 1, ns.Offers.MAX_AURAS do
+        local ok, aura = pcall(api, member.unit, i, "HELPFUL")
+        if not ok or Util.IsSecret(aura) then return nil, "can't see their buffs" end
+        if aura == nil then return false end
+        local id = aura.spellId
+        if Util.IsSecret(id) then return nil, "can't see their buffs" end
+        if ns.BuffData.Covers(buff, id) and not RunningLow(aura, buff) then
+            local renews = Renews(member, buff, aura, units)
+            if renews == nil then return nil, "can't tell who cast their buff" end
+            if not renews then return true end
+        end
+    end
+    return false
+end
+
+-- Whether they wear another buff of this family (another Blessing) that you
+-- cast: true, false, or nil when the game won't say (their buffs, or who
+-- cast one, can't be read). A Blessing of yours that you've since left to
+-- others in this raid doesn't count, so the one you switched to replaces it.
+-- offered itself is Wears's to judge (running low, or renewed: #256).
 local function WearsMyFamily(unit, family, offered)
     local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
     if not api then return nil end
@@ -128,11 +200,8 @@ local function WearsMyFamily(unit, family, offered)
         local id = aura.spellId
         if Util.IsSecret(id) then return nil end
         local buff = ns.BuffData.ForAura(id)
-        if buff and buff.family == family and ns.BuffRules.CoversInRaid(buff)
-            and not RunningLow(aura, offered) then
-            local source = aura.sourceUnit
-            if source == nil or Util.IsSecret(source) then return nil end
-            local mine = Read(UnitIsUnit, source, "player")
+        if buff and buff.family == family and buff.key ~= offered.key and ns.BuffRules.CoversInRaid(buff) then
+            local mine = Util.CastByYou(aura.sourceUnit)
             if mine == nil then return nil end
             if mine then return true end
         end
@@ -271,11 +340,11 @@ function GroupBuffs.Next(out)
             allowed, ruleWhy = ns.BuffRules.Allows(buff, member)
         end
         if allowed ~= false then
-            local wears = ns.Offers.Wears(member.unit, buff, RunningLow)
+            local wears, wearsWhy = Wears(member, buff, units)
             local key = member.name .. "\1" .. buff.key
             if wears == nil then
                 unreadable[member.name] = true
-                Why(member, "can't see their buffs")
+                Why(member, wearsWhy)
             elseif wears then
                 justGiven[key] = nil
             elseif allowed == nil then
@@ -365,7 +434,14 @@ end
 -- Your buff reached them (the game said so).
 function GroupBuffs.NoteGiven(name, buff)
     justGiven[name .. "\1" .. buff.key] = GetTime()
+    if round then round[name .. "\1" .. buff.key] = true end
 end
+
+-- The dungeon-or-raid round (#256): from entering one with your group until
+-- the first pull or leaving, your own earlier buffs are offered once more.
+function GroupBuffs.StartRound() round = {} end
+function GroupBuffs.EndRound() round = nil end
+function GroupBuffs.InRound() return round ~= nil end
 
 -- The game refused a cast to them (out of range or sight): try the others
 -- first for a moment.

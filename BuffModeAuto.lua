@@ -165,8 +165,12 @@ local function TurnOn(why, inside)
 end
 
 -- Being in a dungeon or raid with your group (#256), if that trigger is on.
+-- Entering also starts the round in which your own earlier buffs are
+-- offered once more (GroupBuffs.StartRound), whatever the switch says: it
+-- changes what buff mode offers, not when it turns on.
 local function InsideWithGroup()
     local inside, kind = InDungeonOrRaid()
+    if inside then ns.GroupBuffs.StartRound() end
     if inside and Cfg().autoOnJoin == true then
         TurnOn("you're in a " .. kind .. " with your group", true)
     end
@@ -238,6 +242,7 @@ function Auto.OnRosterUpdate()
         JoinedNearby()
     elseif not nowIn then
         pulled, deathSeen, joinedAt = false, false, nil
+        ns.GroupBuffs.EndRound()
     end
     inGroup = nowIn
 end
@@ -251,6 +256,7 @@ function Auto.OnEnteringWorld(isLogin, isReload)
         if InGroup() then
             if InsideWithGroup() then return end
         end
+        ns.GroupBuffs.EndRound()
         if insideWait and not InDungeonOrRaid() then
             insideWait = false
             if ns.BuffMode.IsAuto() then StartTimeout() end
@@ -260,6 +266,7 @@ function Auto.OnEnteringWorld(isLogin, isReload)
     ready = true
     inGroup = InGroup()
     pulled, deathSeen, pendingWhy, pendingInside, insideWait, joinedAt = false, false, nil, nil, false, nil
+    ns.GroupBuffs.EndRound()
     NoteWhoIsDead()
 end
 
@@ -267,6 +274,7 @@ end
 -- same event, so buff mode ends without refreshing it (EndForFight).
 function Auto.OnCombatStart()
     fighting = true
+    ns.GroupBuffs.EndRound() -- the round lasts up to the first pull (#256)
     if inGroup then pulled = true end
     deathSeen, pendingWhy, pendingInside = false, nil, nil
     if Cfg().autoOffPull == true and ns.BuffMode.IsAuto() then

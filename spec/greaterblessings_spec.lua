@@ -1,4 +1,4 @@
--- Spec: #41, #233
+-- Spec: #41, #233, #256
 -- Greater Blessings in buff mode (Kings, Wisdom, Might): in a raid, a
 -- paladin is offered the Greater Blessing for a class when enough of that
 -- class are missing the Blessing, they all can have it under your rules, and
@@ -217,9 +217,16 @@ describe("Greater Blessings in buff mode (#41)", function()
         it("is not offered when whose Blessing it is can't be told", function()
             boot()
             raid(WARRIORS)
-            wow.wearBuff("raid3", MIGHT_1, { source = nil })
+            wow.wearBuff("raid3", MIGHT_1, { source = wow.secret("raid1") }) -- a caster given as a secret
             assert.are.equal("Ann Vale: Blessing of Kings", armed())
             assert.is_truthy(button.subtitle:GetText():find("can't tell whose Blessing", 1, true))
+        end)
+
+        it("a Blessing whose caster the game doesn't name is someone else's, not yours (#256)", function()
+            boot()
+            raid(WARRIORS)
+            wow.wearBuff("raid3", MIGHT_1, { source = false })
+            assert.are.equal("Ann Vale: Greater Blessing of Kings", armed())
         end)
 
         it("is not offered when whose Blessing it is can't be told (the game won't say if the caster is you)", function()

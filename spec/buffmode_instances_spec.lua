@@ -68,6 +68,14 @@ describe("Buff mode in a dungeon or raid (#256)", function()
         ns.db.buffBack.autoOnJoin = true
     end
 
+    -- Mark of the Wild on token, put up by `by` (a unit token; false: the game
+    -- names no caster). The other member's Mark is a group member's buff,
+    -- which buff mode leaves alone (#256).
+    local function marked(token, by)
+        wow.state.units[token].auras, wow.state.units[token].auraSources = { MOTW }, { by }
+    end
+    local OTHER = { party1 = "party2", party2 = "party1" }
+
     before_each(function() boot() end)
 
     describe("turning on (white)", function()
@@ -124,14 +132,26 @@ describe("Buff mode in a dungeon or raid (#256)", function()
             assert.is_false(ns.BuffMode.IsOn())
         end)
 
-        it("doesn't lend a key when everyone is already in and has your buffs", function()
+        it("doesn't lend a key when everyone is in and wears a group member's buff", function()
             groupElsewhere()
             for _, token in ipairs({ "party1", "party2" }) do
                 wow.zoneIn(token)
-                wow.state.units[token].auras = { MOTW }
+                marked(token, OTHER[token])
             end
             wow.enterDungeon(DEADMINES, "The Deadmines")
             assert.is_false(ns.BuffMode.IsOn())
+        end)
+
+        it("turns on even when everyone is in with your earlier buffs: each gets yours once more", function()
+            groupElsewhere()
+            for _, token in ipairs({ "party1", "party2" }) do
+                wow.zoneIn(token)
+                marked(token, "player")
+            end
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            assert.is_true(ns.BuffMode.IsAuto())
+            assert.are.equal(2, scrollAll())
+            assert.is_false(ns.BuffMode.IsOn(), "everyone has this round's buff")
         end)
 
         it("turns on even when everyone inside has your buffs, while someone is still outside", function()
@@ -287,9 +307,9 @@ describe("Buff mode in a dungeon or raid (#256)", function()
             assert.is_true(printedHas("buff mode off (everyone is here and has your buffs)."))
         end)
 
-        it("stays on for a member who comes in already wearing your buffs only once they're in", function()
+        it("stays on for a member who comes in with a group member's buff only until they're in", function()
             groupElsewhere()
-            wow.state.units.party2.auras = { MOTW }
+            marked("party2", "party1")
             wow.zoneIn("party1")
             wow.enterDungeon(DEADMINES, "The Deadmines")
             scrollAll()
@@ -447,7 +467,7 @@ describe("Buff mode in a dungeon or raid (#256)", function()
                 groupElsewhere()
                 for _, token in ipairs({ "party1", "party2" }) do
                     wow.zoneIn(token)
-                    wow.state.units[token].auras = { MOTW }
+                    marked(token, OTHER[token])
                 end
                 wow.enterDungeon(DEADMINES, "The Deadmines") -- nothing to do: stays off
                 assert.is_false(ns.BuffMode.IsOn())
