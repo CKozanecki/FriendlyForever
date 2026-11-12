@@ -109,7 +109,10 @@ describe("Changelog fragments (#261)", function()
 
         it("gathers the real changelog and fragments as the old rename plus each fragment", function()
             local text = wow.readFile("CHANGELOG.md")
+            -- A made-up fragment as well, so this holds after a release, when
+            -- nothing is waiting (#262's architecture review).
             local fragments = Gather.ReadFragments(ROOT .. "changes")
+            fragments[#fragments + 1] = { name = "999999.md", text = "- **Made up:** a note. (#999999)\n" }
             local version = "99.0.0"
             local gathered, problem = Changelog.Gather(text, version, fragments)
             assert.is_truthy(gathered, problem)
@@ -198,7 +201,9 @@ describe("Changelog fragments (#261)", function()
         it("the real fragments all reach the notes once gathered", function()
             local dir = tempDir()
             os.execute("cp '" .. ROOT .. "CHANGELOG.md' '" .. dir .. "/' && cp -R '" .. ROOT .. "changes' '" .. dir
-                .. "/changes' 2>/dev/null")
+                .. "/changes' 2>/dev/null; mkdir -p '" .. dir .. "/changes'")
+            -- A made-up fragment too, so this holds when nothing is waiting.
+            write(dir .. "/changes/999999.md", "- **Made up:** a note. (#999999)\n")
             local fragments = Gather.ReadFragments(dir .. "/changes")
             local code, _, err = main({ "99.0.0", dir .. "/CHANGELOG.md", dir .. "/changes" })
             local out, notesCode = sh("./scripts/release-notes.sh --release '" .. dir .. "/CHANGELOG.md' '" .. dir
@@ -207,6 +212,7 @@ describe("Changelog fragments (#261)", function()
             os.execute("rm -rf '" .. dir .. "'")
             assert.are.equal(0, code, err)
             assert.are.equal(0, notesCode, out)
+            assert.is_true(#fragments >= 1)
             for _, fragment in ipairs(fragments) do
                 local entry = Changelog.Entries(Changelog.Lines(fragment.text))[1]
                 local first = Changelog.WithoutTag(Changelog.Lines(fragment.text)[1])

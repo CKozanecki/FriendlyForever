@@ -2598,7 +2598,10 @@ describe("Release scripts", function()
     it("release notes leave out the Unreleased section", function()
         local _, code = run("./scripts/release-notes.sh")
         assert.are.equal(0, code)
-        assert.is_nil(wow.readFile("RELEASE_NOTES.md"):find("Unreleased", 1, true))
+        -- The heading, not the word: a released note may name it (#261's own does).
+        for _, line in ipairs(require("spec.support.changelog").Lines(wow.readFile("RELEASE_NOTES.md"))) do
+            assert.is_nil(line:match("^%s*#+%s*Unreleased"), "the notes hold an Unreleased heading: " .. line)
+        end
     end)
 
     -- package.sh moves a finished zip into place, so the zip is
