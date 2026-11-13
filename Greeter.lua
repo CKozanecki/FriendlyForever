@@ -244,7 +244,12 @@ local function Greet(name)
             if again then return false, again end
             return true
         end,
-        onDone = function(sent) if sent then RememberHello(name) end end,
+        -- Our hello, or another copy's for this login (we stayed quiet
+        -- because the most copies had already announced): either way the
+        -- member was greeted, so the window starts.
+        onDone = function(sent)
+            if sent or (ns.GuildHellos.Heard(name) or 0) > 0 then RememberHello(name) end
+        end,
         delay = ns.db.guildLogin.delay + ns.GuildHellos.Stagger(),
         hold = function(go, line, drop) ns.GuildHellos.Hold(name, line, go, drop) end,
     })

@@ -193,6 +193,21 @@ describe("Guild hellos (#38)", function()
             assert.are.equal(4, skipped)
         end)
 
+        it("a relog within 30 minutes gets no new hello from copies that stayed quiet either (#290)", function()
+            local clients, net = Guild(3, 1) -- one greets, two stay quiet
+            LogIn(clients, LOGIN)
+            wow.advanceAll(net, 40, 0.1)
+            assert.are.equal(1, #Hellos(clients))
+            wow.advanceAll(net, 300, 5) -- past the repeat cooldown, inside 30 minutes
+            LogIn(clients, LOGIN)
+            wow.advanceAll(net, 40, 0.1)
+            assert.are.equal(1, #Hellos(clients), "no copy greets the relog")
+            wow.advanceAll(net, clients[1].ns.Greeter.HELLO_QUIET + 1, 30)
+            LogIn(clients, LOGIN)
+            wow.advanceAll(net, 40, 0.1)
+            assert.are.equal(2, #Hellos(clients), "a login after 30 minutes greets as usual")
+        end)
+
         it("greets with the random wait only when the channel is closed", function()
             local clients, net = Guild(3, 1)
             for _, c in ipairs(clients) do
