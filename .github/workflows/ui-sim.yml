@@ -663,6 +663,9 @@ jobs:
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowTab("%s")\n' "$tab"; } \
               > "$states/tab-$tab.lua"
           done
+          # The Buff Back tab scrolled to its lower rows, from "Use group versions" down (#254).
+          { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowTabLower("buff-back")\n'; } \
+            > "$states/tab-buff-back-lower.lua"
           # The walkthrough at each step shot, taken again from Start here (#47).
           for step in $WALKTHROUGH_STEPS; do
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowWalkthrough("%s")\n' "$step"; } \
@@ -777,6 +780,8 @@ jobs:
             for tab in $OPTIONS_TABS; do
               shoot "options-$tab" --exec-lua "@/shot-lua/tab-$tab.lua"
             done
+            # The Buff Back tab scrolled to "Use group versions" (#254): the rows below the turn-on triggers.
+            shoot options-buff-back-lower --exec-lua "@/shot-lua/tab-buff-back-lower.lua"
             # The Buff Thanks tab (#101), with the longest "Thank them with" choice.
             shoot options-buff --exec-lua "if FriendlyForeverWalkthrough and FriendlyForeverWalkthrough:IsShown() then FriendlyForeverWalkthrough.skip:Click() end; FriendlyForeverDB.buff.thankStyle = 'both'; SlashCmdList.FRIENDLYFOREVER(''); for _, f in ipairs({ FriendlyForeverOptionsPanel:GetChildren() }) do local c = f.GetScrollChild and f:GetScrollChild(); for _, b in ipairs(c and { c:GetChildren() } or {}) do if b.GetText and b:GetText() == 'Buff Thanks' then b:GetScript('OnClick')(b) end end end"
             # The General page (#35): it doesn't scroll, so everything must fit.

@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47, #169, #208, #209
+-- Spec: #52, #112, #158, #47, #169, #208, #209, #254
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -251,6 +251,53 @@ describe("the UI simulator's Buff Back names", function()
         end
     end)
 
+    -- The workflow's staging commands, run as it runs them (comments dropped)
+    -- in a scratch folder, and its shoot line read without comments: the
+    -- lower script is written next to the tab scripts, each of which is
+    -- left as it was, and the lower shot is taken in shoot_all, so at
+    -- both sizes.
+    it("stages the lower script beside the tab scripts, leaving each of theirs as it was, and shoots it at both sizes (white and black, #254)", function()
+        local workflow = wow.readFile(".github/workflows/ui-sim.yml"):gsub("\n%s*#[^\n]*", "")
+        local tabs = workflow:match("\n%s*OPTIONS_TABS: ([^\n]-)%s*\n")
+        local loop = workflow:match("\n(%s*for tab in %$OPTIONS_TABS; do\n.-\n%s*done)\n")
+        local lower = workflow:match("\n(%s*{ cat uitests/pages%.lua; printf '\\nFriendlyForeverUIPages%.ShowTabLower%(\"buff%-back\"%)\\n'; } \\\n%s*> \"%$states/tab%-buff%-back%-lower%.lua\")\n")
+        assert.is_truthy(tabs and loop and lower, "the tab list, the tab loop or the lower script's command is missing")
+        local dir = os.tmpname()
+        os.remove(dir)
+        assert.is_true(os.execute("mkdir -p '" .. dir .. "'") == 0)
+        local f = assert(io.open(dir .. "/run.sh", "w"))
+        f:write("set -eu\nstates='" .. dir .. "/out'\nmkdir -p \"$states\"\nOPTIONS_TABS='" .. tabs .. "'\n"
+            .. loop .. "\n" .. lower .. "\n")
+        f:close()
+        local ok = os.execute("bash '" .. dir .. "/run.sh'")
+        local pages = wow.readFile("uitests/pages.lua")
+        local listed = io.popen("ls '" .. dir .. "/out'"):read("*a")
+        local function written(name)
+            local file = io.open(dir .. "/out/" .. name)
+            local text = file and file:read("*a")
+            if file then file:close() end
+            return text
+        end
+        local lowerText = written("tab-buff-back-lower.lua")
+        local backText = written("tab-buff-back.lua")
+        os.execute("rm -rf '" .. dir .. "'")
+        assert.are.equal(0, ok)
+        assert.are.equal(#Pages.TABS + 1, select(2, listed:gsub("[^\n]+", "")), "files written: " .. listed)
+        assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowTabLower("buff-back")\n', lowerText)
+        assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowTab("buff-back")\n', backText)
+        -- Inside shoot_all, so both passes (and their suffixes) take it.
+        local all = workflow:match("shoot_all%(%) {\n(.-)\n%s*}\n%s*for size in")
+        assert.is_truthy(all and all:find('\n%s*shoot options%-buff%-back%-lower %-%-exec%-lua "@/shot%-lua/tab%-buff%-back%-lower%.lua"\n'))
+    end)
+
+    it("answers no panel to scroll with a message, not a Lua error (black, #254)", function()
+        _G.FriendlyForeverOptionsPanel = nil
+        local ok, undo, why = pcall(Pages.ScrollToRow, Pages.LOWER_ROW)
+        assert.is_true(ok)
+        assert.is_nil(undo)
+        assert.is_truthy(why)
+    end)
+
     it("leaves the names in place for the screenshot taken after ShowTab (white)", function()
         Pages.ShowTab("buff-back")
         assert.are.equal("Blessing of Wisdom", _G.C_Spell.GetSpellName(19742))
@@ -284,6 +331,78 @@ describe("the UI simulator's walkthrough steps", function()
             assert.is_truthy(step.name:find("^[a-z][a-z-]*$"), step.name)
         end
         assert.are.equal("buffBack", ns.Options.CurrentType(), "the last step shot is on the Buff Back tab")
+    end)
+
+    -- The simulated client has no child lists, layout or ranges: this gives
+    -- the options panel a scroll frame holding the real group versions check
+    -- box, 700 px down a 2000 px child, in a 600 px view.
+    local function Layout()
+        local scroll = ns.Options.widgets.scroll
+        local content = ns.Options.widgets.content
+        local row = ns.Options.widgets.groupVersions
+        scroll.scrollRange = 1500
+        scroll.GetHeight = function() return 600 end
+        scroll.GetScrollChild = function() return content end
+        content.GetHeight = function() return 2000 end
+        content.GetTop = function() return 1000 end
+        content.GetChildren = function() return row end
+        content.GetRegions = function() return end
+        row.GetTop = function() return 1000 - 700 end
+        _G.FriendlyForeverOptionsPanel.GetChildren = function() return scroll end
+        return scroll, row
+    end
+
+    it("scrolls the Buff Back tab to its group versions row for the lower shot, and the undo puts the scroll back (white, #254)", function()
+        ns.Options.OpenTab("buffBack")
+        local scroll = Layout()
+        scroll:SetVerticalScroll(40)
+        local undo = Pages.ScrollToRow(Pages.LOWER_ROW)
+        assert.are.equal(700 - 12, scroll:GetVerticalScroll())
+        undo()
+        assert.are.equal(40, scroll:GetVerticalScroll())
+    end)
+
+    it("doesn't scroll again on the next frame once the scroll was put back (white, #254)", function()
+        ns.Options.OpenTab("buffBack")
+        local scroll = Layout()
+        local later = {}
+        _G.C_Timer = { After = function(_, fn) later[#later + 1] = fn end }
+        scroll:SetVerticalScroll(40)
+        local undo = Pages.ScrollToRow(Pages.LOWER_ROW)
+        undo()
+        for _, fn in ipairs(later) do fn() end
+        assert.are.equal(#later > 0, true, "the frame-later scroll was queued")
+        assert.are.equal(40, scroll:GetVerticalScroll())
+    end)
+
+    it("keeps the offset inside the child less the view, and inside the range (black, #254)", function()
+        ns.Options.OpenTab("buffBack")
+        local scroll, row = Layout()
+        row.GetTop = function() return 1000 - 1900 end
+        Pages.ScrollToRow(Pages.LOWER_ROW)
+        assert.are.equal(1400, scroll:GetVerticalScroll(), "the child's 2000 less the view's 600")
+        scroll.scrollRange = 900
+        Pages.ScrollToRow(Pages.LOWER_ROW)
+        assert.are.equal(900, scroll:GetVerticalScroll(), "the range, where it is smaller")
+    end)
+
+    it("names no row it can't find, with a message and no Lua error (black, #254)", function()
+        ns.Options.OpenTab("buffBack")
+        Layout()
+        local ok, undo, why = pcall(Pages.ScrollToRow, "No such row")
+        assert.is_true(ok)
+        assert.is_nil(undo)
+        assert.is_truthy(why)
+        assert.are.equal(why, printed[#printed])
+    end)
+
+    it("shows the lower Buff Back tab from the tab's own script, with the buffs named (white, #254)", function()
+        ns.Options.OpenTab("buffBack")
+        local scroll = Layout()
+        local undo = Pages.ShowTabLower("buff-back")
+        assert.is_function(undo)
+        assert.are.equal(700 - 12, scroll:GetVerticalScroll())
+        assert.are.equal("Blessing of Wisdom", _G.C_Spell.GetSpellName(19742))
     end)
 
     it("skips the walkthrough a new install opened, by its button, before showing a page or tab", function()

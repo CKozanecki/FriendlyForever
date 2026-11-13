@@ -242,6 +242,93 @@ function Pages.ShowTab(name)
     Pages.OpenTab(name)
 end
 
+-- The options panel's scroll frame (the one holding the tab's rows), or nil.
+local function PanelScroll()
+    local panel = _G[Pages.PANEL]
+    if type(panel) ~= "table" then return nil end
+    for _, child in ipairs({ panel:GetChildren() }) do
+        if child.GetScrollChild and child:GetScrollChild() then return child end
+    end
+end
+
+-- Lays each region and child of content out again, in order (the same trick
+-- as Settle in uitests/scenarios.lua): the simulator lays out only 16 links
+-- of an anchor chain when something moves, so a row deep in the Buff Back
+-- tab reads a stale place until then (docs/ui-simulator.md).
+local function Settle(content)
+    local function Again(region)
+        local points = {}
+        for i = 1, (region.GetNumPoints and region:GetNumPoints() or 0) do points[i] = { region:GetPoint(i) } end
+        if #points == 0 then return end
+        region:ClearAllPoints()
+        for _, p in ipairs(points) do region:SetPoint(unpack(p, 1, 5)) end
+        if region.GetTop then region:GetTop() end
+    end
+    for _ = 1, 2 do
+        for _, region in ipairs({ content:GetRegions() }) do Again(region) end
+        for _, child in ipairs({ content:GetChildren() }) do Again(child) end
+    end
+end
+
+-- The row of content (a check box, by the start of its label's text), or nil.
+local function FindRow(content, text)
+    for _, child in ipairs({ content:GetChildren() }) do
+        local label = child.label
+        if label and label.GetText and (label:GetText() or ""):find(text, 1, true) == 1 then return child end
+    end
+end
+
+-- Scrolls the options panel so the row whose text starts with rowText sits
+-- near the top of its view (#254), as Options.lua's ScrollTo does for the
+-- walkthrough, and returns a function that puts the scroll back where it was.
+-- The offset is also kept inside the range and inside the child's height
+-- less the view's: the simulator's range can overshoot (2060 for a 1970 px
+-- child in a 593 px view, which draws nothing). It is set again a frame
+-- later, once the panel has laid the tab's rows out. Returns nothing, and
+-- why, if there is no panel or row to scroll to.
+function Pages.ScrollToRow(rowText)
+    local scroll = PanelScroll()
+    local content = scroll and scroll:GetScrollChild()
+    local row = content and FindRow(content, rowText)
+    if not row then
+        local why = "the options panel has no row \"" .. tostring(rowText) .. "\" to scroll to"
+        report(why)
+        return nil, why
+    end
+    local before = scroll:GetVerticalScroll()
+    local undone = false
+    local function place()
+        if undone then return end
+        Settle(content)
+        local top, at = content:GetTop(), row:GetTop()
+        local offset = (type(top) == "number" and type(at) == "number") and math.max(0, top - at - 12) or 0
+        local range = scroll:GetVerticalScrollRange()
+        if type(range) == "number" then offset = math.min(offset, range) end
+        local ch, vh = content:GetHeight(), scroll:GetHeight()
+        if type(ch) == "number" and type(vh) == "number" and ch > vh then offset = math.min(offset, ch - vh) end
+        scroll:SetVerticalScroll(offset)
+    end
+    place()
+    if C_Timer and C_Timer.After then C_Timer.After(0, place) end
+    -- Also cancels the scroll set for the next frame, if it hasn't come yet.
+    return function()
+        undone = true
+        scroll:SetVerticalScroll(before)
+    end
+end
+
+-- The row the lower shot starts at: the group versions check box, the first
+-- of the rows below the buff order and the turn-on triggers (#254).
+Pages.LOWER_ROW = "Use group versions"
+
+-- For the screenshot job: a tab with its lower rows in view (#254), from the
+-- group versions row down. Like ShowTab, it leaves the panel as it is for
+-- the shot.
+function Pages.ShowTabLower(name)
+    Pages.ShowTab(name)
+    return Pages.ScrollToRow(Pages.LOWER_ROW)
+end
+
 -- The walkthrough's steps the screenshots show (#47), each named by a
 -- word in its title: the first, and buff mode's key and triggers, which
 -- the walkthrough must reach.
