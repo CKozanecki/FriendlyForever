@@ -318,18 +318,20 @@ describe("Greetings", function()
             random.seed(290)
             ns.db.guildLogin.repeatCooldown = 0 -- only the 30 minute window is left to stop them
             local names = { "Thrall", "Jaina" }
-            local blocked = 0 -- logins the window stopped
+            local blocked, queuedDrops = 0, 0 -- logins the window stopped; queued hellos it dropped
             ns.Diag.Log = function(_, fmt, ...)
                 local line = string.format(fmt, ...)
                 if line:find("not sending for %a+: greeted") then blocked = blocked + 1 end
+                if line:find("dropped guildLogin for %a+: no longer wanted: greeted") then queuedDrops = queuedDrops + 1 end
             end
             for _ = 1, 400 do
                 -- sometimes the hidden channel is closed, so doubled logins reach the queue
                 wow.state.inInstance = random.random() < 0.4
-                online(names[random.random(#names)])
-                if random.random() < 0.3 then
-                    wow.advance(random.random() * 20) -- a quick relog, while the first hello still waits
-                    online(names[random.random(#names)])
+                local who = names[random.random(#names)]
+                online(who)
+                if random.random() < 0.5 then
+                    wow.advance(random.random() * helloWait()) -- the same member again, while the first hello waits
+                    online(who)
                 end
                 wow.advance(random.random() * 400)
             end
@@ -349,6 +351,7 @@ describe("Greetings", function()
             end
             assert.is_true(hellos > 2, "the storm should still produce hellos after each window")
             assert.is_true(blocked > 5, "logins the window stopped: " .. blocked)
+            assert.is_true(queuedDrops > 0, "queued hellos the window dropped: " .. queuedDrops)
         end)
 
         it("a repeat cooldown over 30 minutes still holds: no hello at 31 minutes, one at 46", function()
