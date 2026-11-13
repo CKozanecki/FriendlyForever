@@ -89,6 +89,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 
 - A per-player addon message is sent only to players the feature can use it for. Group members are never thanked, so a plan whispered to each one you buff would fill Comm's 8-place send queue in a raid and push out a stranger's `ANSWER` (#36).
 - Holding a message before it is queued restarts the queue's age limit. A limit meant to count from the event (a /say thank-you's 30 s from when it was due) is passed on with its start time (`Announcer`'s `ageFrom`), or a held /say goes out a minute late (#36).
+- A trigger that fires on something *new* (a buff newly gone, a member newly missing) remembers what it saw last. Check what it does with what it didn't see this time: on #272 the first version forgot every member left out of a look (out of range, skipped, unreadable), so one walking back into range counted as a new fade and turned buff mode on again after the player turned it off. It also tracked only the first missing buff per member, because it reused a list deduplicated by name. Forget an entry only on positive evidence (seen covered, gone from the group).
 
 **Saved settings and imports**
 - Every saved or imported field has its own validator, and a spec checks every default has one. Unknown keys, infinite numbers, duplicates and wrong types are dropped, sizes capped. Imports are parsed as data with size, depth and count limits, and an export never exceeds what import reads (#20, #21, #61, #73: `Serialize.MAX_DEPTH`).
