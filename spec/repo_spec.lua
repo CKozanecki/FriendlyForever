@@ -957,12 +957,23 @@ describe("UI simulator workflow", function()
         end
         local ENV = { RENDER_BASE = "debian@sha256:0", SPELL_DATA_HOSTS = "us.version.battle.net level3.ssl.blizzard.com" }
 
-        it("writes a proxy filter of exactly the listed hosts, and nothing but port 443 (white)", function()
+        -- What these settings do was tried against tinyproxy 1.11.1 (Debian
+        -- bookworm's), by this PR's driver and its architecture review:
+        -- with FilterURLs the filter reads "host:port" for a CONNECT and the
+        -- whole URL for a plain request, so "^host:443$" passes only an
+        -- HTTPS tunnel to that host. Without FilterURLs it read the host
+        -- alone, and plain HTTP to a listed host passed on any port.
+        it("writes a proxy filter of exactly the listed hosts on port 443, read against the whole request (white)", function()
             local r = runStep(ENV)
             assert.is_true(r.ok, r.log)
-            assert.are.equal("^us\\.version\\.battle\\.net$\n^level3\\.ssl\\.blizzard\\.com$\n", r.filter)
-            for _, line in ipairs({ "ConnectPort 443", "FilterDefaultDeny Yes", "FilterType ere", 'Filter "/proxy/filter"' }) do
+            assert.are.equal("^us\\.version\\.battle\\.net:443$\n^level3\\.ssl\\.blizzard\\.com:443$\n", r.filter)
+            for _, line in ipairs({ "ConnectPort 443", "FilterDefaultDeny Yes", "FilterType ere", "FilterURLs On",
+                'Filter "/proxy/filter"' }) do
                 assert.is_truthy(("\n" .. r.conf):find("\n" .. line .. "\n", 1, true), "the proxy's settings lack " .. line)
+            end
+            -- Every filter line is one host, anchored at both ends, with its port.
+            for line in r.filter:gmatch("[^\n]+") do
+                assert.is_truthy(line:find("^%^[a-z0-9%.\\%-]+:443%$$"), "a filter line isn't a host on port 443: " .. line)
             end
             assert.are.equal(1, select(2, r.conf:gsub("ConnectPort", "")), "the proxy allows another port")
             assert.is_falsy(r.conf:find("Upstream", 1, true) or r.conf:find("Allow", 1, true), "the proxy has settings nobody reviewed")

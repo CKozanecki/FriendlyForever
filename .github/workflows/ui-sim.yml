@@ -20,8 +20,9 @@ name: UI simulator
 #   - the one that downloads Forever's spell data with the simulator's own
 #     tool (#160, the owner's decision). Its container sits on a network
 #     with no route out. It reaches only a proxy, which lets through only
-#     the hosts in SPELL_DATA_HOSTS, on port 443. What it writes must match
-#     SPELL_DATA_SHA256, or the step fails and nothing is staged.
+#     HTTPS tunnels to the hosts in SPELL_DATA_HOSTS, on port 443. What it
+#     writes must match SPELL_DATA_SHA256, or the job stops before anything
+#     is cached, uploaded or run.
 # - We don't use the project's own Action: it pulls a moving tag, mounts
 #   the repository read-write and puts an input into a shell command
 #   unquoted.
@@ -364,8 +365,9 @@ jobs:
       # - its container is on a Docker network made with --internal, which
       #   has no route out and answers no outside name;
       # - the only thing it can reach there is a proxy (tinyproxy, Debian's,
-      #   on the pinned base), which refuses every host but SPELL_DATA_HOSTS
-      #   and every port but 443;
+      #   on the pinned base), which refuses everything but an HTTPS tunnel
+      #   to a host in SPELL_DATA_HOSTS on port 443: no other host, no other
+      #   port and no plain HTTP;
       # - it gets the tool read-only and one empty folder to write, and has
       #   no capabilities and no secrets.
       # What it wrote is then checked by the step after this one. The proxy's
@@ -380,16 +382,22 @@ jobs:
           test ! -L "$cli"
           mkdir -p "$RUNNER_TEMP/spell-cli" "$RUNNER_TEMP/spell-proxy" "$RUNNER_TEMP/spell-out"
           cp -P "$cli" "$RUNNER_TEMP/spell-cli/wow-cli"
-          # The proxy's settings: nothing but the listed hosts, by exact
-          # name, and CONNECT to port 443 only.
+          # The proxy's settings: nothing but a CONNECT (an HTTPS tunnel) to
+          # a listed host, by exact name, on port 443. FilterURLs makes the
+          # filter read the whole request target, "host:443" for a CONNECT
+          # and "http://..." for a plain request, so each filter line names
+          # the host with its port and no plain request can match one.
+          # Without it the filter reads the host alone, and plain HTTP to a
+          # listed host passes on any port (#314's architecture review; both
+          # tried against tinyproxy 1.11.1, Debian bookworm's).
           printf '%s\n' 'Port 8888' 'Listen 0.0.0.0' 'Timeout 60' 'MaxClients 20' 'ConnectPort 443' \
-            'FilterDefaultDeny Yes' 'FilterType ere' 'Filter "/proxy/filter"' 'LogLevel Connect' \
+            'FilterDefaultDeny Yes' 'FilterType ere' 'FilterURLs On' 'Filter "/proxy/filter"' 'LogLevel Connect' \
             > "$RUNNER_TEMP/spell-proxy/tinyproxy.conf"
           # Read as words, never as file patterns: a * must be refused, not matched.
           read -ra hosts <<< "$SPELL_DATA_HOSTS"
           for host in "${hosts[@]}"; do
             case "$host" in "" | *[!a-z0-9.-]*) echo "not a plain host name in SPELL_DATA_HOSTS"; exit 1 ;; esac
-            printf '^%s$\n' "${host//./\\.}"
+            printf '^%s:443$\n' "${host//./\\.}"
           done > "$RUNNER_TEMP/spell-proxy/filter"
           test -s "$RUNNER_TEMP/spell-proxy/filter"
           chmod -R a-w "$RUNNER_TEMP/spell-cli" "$RUNNER_TEMP/spell-proxy"
