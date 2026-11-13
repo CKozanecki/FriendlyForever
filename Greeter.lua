@@ -167,6 +167,60 @@ local function TakeWelcome(name)
     return true
 end
 
+-- A member who logs straight back in after a disconnect isn't greeted again
+-- (owner's decision on #290): a login hello is remembered for this many
+-- seconds, from the moment it was sent. Kept in memory only, so a /reload
+-- forgets it. Keyed by the full name parsed from the login line, always a string.
+Greeter.HELLO_QUIET = 1800
+Greeter.MAX_HELLOED = 200
+
+local helloed = {} -- [full name] = GetTime() our last login hello to them went out
+local helloedCount = 0
+
+-- Seconds since the last hello to this name, or nil when it is over, never
+-- was, or its time stamp is from the future (the clock went backwards).
+local function HelloAge(name)
+    local t = helloed[name]
+    if not t then return nil end
+    local age = GetTime() - t
+    if age >= 0 and age < Greeter.HELLO_QUIET then return age end
+    return nil
+end
+
+local function RememberHello(name)
+    if not helloed[name] then
+        if helloedCount >= Greeter.MAX_HELLOED then
+            local oldest, oldestT
+            for n, t in pairs(helloed) do
+                if not HelloAge(n) then
+                    helloed[n] = nil
+                    helloedCount = helloedCount - 1
+                elseif not oldestT or t < oldestT then
+                    oldest, oldestT = n, t
+                end
+            end
+            if helloedCount >= Greeter.MAX_HELLOED and oldest then
+                helloed[oldest] = nil
+                helloedCount = helloedCount - 1
+            end
+        end
+        helloedCount = helloedCount + 1
+    end
+    helloed[name] = GetTime()
+end
+
+function Greeter.HelloedCount()
+    return helloedCount
+end
+
+local function RecentHelloWhy(name)
+    local age = HelloAge(name)
+    if age then
+        return string.format("greeted %d minutes %d seconds ago, within the last %d minutes",
+            math.floor(age / 60), math.floor(age % 60), Greeter.HELLO_QUIET / 60)
+    end
+end
+
 -- Every copy in the guild greets, a random while apart and with different
 -- lines, and at most a few of them (GuildHellos.lua, #38).
 local function Greet(name)
@@ -175,14 +229,22 @@ local function Greet(name)
         ns.Diag.Log("guildLogin", "not sending for %s: just welcomed to the guild, one arrival", name)
         return
     end
+    local recent = RecentHelloWhy(name)
+    if recent then
+        ns.Diag.Log("guildLogin", "not sending for %s: %s", name, recent)
+        return
+    end
     ns.Announcer.Schedule("guildLogin", name, {
         channel = GuildChannel, vars = function() return MemberVars(name) end,
         isValid = function()
             local ok, why = NotIgnored(name)()
             if not ok then return false, why end
             if TakeWelcome(name) then return false, "just welcomed to the guild, one arrival" end
+            local again = RecentHelloWhy(name)
+            if again then return false, again end
             return true
         end,
+        onDone = function(sent) if sent then RememberHello(name) end end,
         delay = ns.db.guildLogin.delay + ns.GuildHellos.Stagger(),
         hold = function(go, line, drop) ns.GuildHellos.Hold(name, line, go, drop) end,
     })

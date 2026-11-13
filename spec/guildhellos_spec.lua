@@ -1,4 +1,4 @@
--- Spec: #38, #197
+-- Spec: #38, #197, #290
 -- Guild hellos: every copy in the guild greets a guildmate who logs in, a
 -- random while apart, with different lines, and at most K of them.
 local wow = require("spec.support.wow")
@@ -655,6 +655,7 @@ describe("Guild hellos (#38)", function()
                 wow.use(c)
                 c.ns.db.guildLogin.repeatCooldown = 0
             end
+            wow.advanceAll(net, clients[1].ns.Greeter.HELLO_QUIET + 1, 30) -- past the 30 minute no-regreet window (#290)
             LogIn(clients, LOGIN)
             wow.advanceAll(net, 40, 0.1)
             local by = {}

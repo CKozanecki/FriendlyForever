@@ -1,4 +1,4 @@
--- Spec: #80, #35, #38, #196
+-- Spec: #80, #35, #38, #196, #290
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
@@ -173,19 +173,118 @@ describe("Greetings", function()
             online("Thrall")
             wow.advance(5)
             assert.are.equal(1, #wow.sent)
-            wow.advance(10)
+        end)
+
+        it("doesn't re-greet a member whose hello was within the last 30 minutes", function()
             online("Thrall")
-            wow.advance(5)
+            wow.advance(helloWait() + 1)
+            assert.are.equal(1, #wow.sent)
+            local sentAt = wow.now
+            wow.advance(600) -- past the repeat cooldown, inside 30 minutes
+            online("Thrall")
+            wow.advance(helloWait() + 1)
+            assert.are.equal(1, #wow.sent)
+            -- the window counts from the hello, not from the later login
+            wow.advance(ns.Greeter.HELLO_QUIET - (wow.now - sentAt) + 1)
+            online("Thrall")
+            wow.advance(helloWait() + 1)
             assert.are.equal(2, #wow.sent)
+        end)
+
+        it("says in the debug log how long ago the last hello was", function()
+            local lines = {}
+            ns.Diag.Log = function(_, fmt, ...) lines[#lines + 1] = string.format(fmt, ...) end
+            online("Thrall")
+            wow.advance(helloWait() + 1)
+            wow.advance(600)
+            online("Thrall")
+            local said = false
+            for _, l in ipairs(lines) do
+                if l:find("not sending for Thrall: greeted", 1, true) and l:find("minutes", 1, true) then said = true end
+            end
+            assert.is_true(said)
+        end)
+
+        it("doesn't hold back other members' hellos", function()
+            online("Thrall")
+            wow.advance(helloWait() + 1)
+            online("Jaina")
+            wow.advance(helloWait() + 1)
+            assert.are.equal(2, #wow.sentTo("GUILD"))
+        end)
+
+        it("drops a second hello queued before the first went out", function()
+            ns.db.guildLogin.repeatCooldown = 0
+            online("Thrall")
+            wow.advance(3)
+            online("Thrall") -- both are waiting; only one may go
+            wow.advance(helloWait() + 30)
+            assert.are.equal(1, #wow.sentTo("GUILD"))
+        end)
+
+        it("drops a second hello waiting beside the first when the hidden channel is closed", function()
+            ns.db.guildLogin.repeatCooldown = 0
+            wow.state.inInstance = true -- the channel is closed: no announcement tells the copies apart
+            online("Thrall")
+            wow.advance(3)
+            online("Thrall") -- both wait out their delays; the later one must not follow the first
+            wow.advance(helloWait() + 30)
+            local n = 0
+            for _, text in ipairs(wow.sentTo("GUILD")) do
+                if text:find("Thrall has logged in", 1, true) then n = n + 1 end
+            end
+            assert.are.equal(1, n)
+        end)
+
+        it("a hello that never went out starts no window", function()
+            ns.db.guildLogin.enabled = false
+            online("Thrall")
+            wow.advance(helloWait() + 1)
+            ns.db.guildLogin.enabled = true
+            online("Thrall")
+            wow.advance(helloWait() + 1)
+            assert.are.equal(1, #wow.sent)
+        end)
+
+        it("never errors on a name it can't read and never stores a secret as one", function()
+            assert.has_no.errors(function() ns.Greeter.OnSystemMessage(wow.secret("Thrall has come online.")) end)
+            assert.has_no.errors(function() ns.Greeter.OnSystemMessage(nil) end)
+            wow.advance(helloWait() + 1)
+            assert.are.equal(0, ns.Greeter.HelloedCount())
+            assert.are.equal(0, #wow.sent)
+        end)
+
+        it("a storm of disconnects and logins never sends a member two hellos within 30 minutes", function()
+            random.seed(290)
+            ns.db.guildLogin.repeatCooldown = 0 -- only the 30 minute window is left to stop them
+            local names = { "Thrall", "Jaina" }
+            for _ = 1, 400 do
+                online(names[random.random(#names)])
+                wow.advance(random.random() * 400)
+            end
+            wow.advance(helloWait() + 1)
+            -- worked out from what the simulated client was sent, not from the addon's records
+            local last, hellos = {}, 0
+            for _, m in ipairs(wow.sent) do
+                local who = m.text:match("^(%a+) has logged in")
+                if who then
+                    hellos = hellos + 1
+                    if last[who] then
+                        assert.is_true(m.time - last[who] >= ns.Greeter.HELLO_QUIET, who .. " greeted twice in 30 minutes")
+                    end
+                    last[who] = m.time
+                end
+            end
+            assert.is_true(hellos > 2, "the storm should still produce hellos after each window")
         end)
 
         it("respects a custom repeat cooldown", function()
             ns.db.guildLogin.repeatCooldown = 0
             online("Thrall")
-            wow.advance(5)
-            online("Thrall")
-            wow.advance(5)
-            assert.are.equal(2, #wow.sent)
+            wow.advance(helloWait() + 1)
+            online("Thrall") -- the 30 minute window still holds
+            wow.advance(helloWait() + 1)
+            assert.are.equal(1, #wow.sent)
         end)
 
         it("doesn't greet me", function()
