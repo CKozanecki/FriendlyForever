@@ -903,6 +903,7 @@ describe("Group versions in buff mode (#41)", function()
                 -- The one slot whose existence the game won't give (#302), or
                 -- nil: a member is still there, and a group cast covers them.
                 local hiddenSlot
+                local strangers = 0 -- how many slot scenarios this seed has staged
                 local realExists = _G.UnitExists
                 _G.UnitExists = function(unit)
                     if unit == hiddenSlot then return wow.secret(true) end
@@ -998,12 +999,30 @@ describe("Group versions in buff mode (#41)", function()
                 local function scenario(kind)
                     hiddenSlot = nil
                     local names = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed" }
+                    if kind == "slot" then
+                        -- Six members the storm has never met, so none of them
+                        -- was right-clicked or buffed a moment ago: the addon
+                        -- remembers both by name, and the client's state
+                        -- wouldn't show it.
+                        strangers = strangers + 1
+                        local tag = string.char(64 + math.ceil(strangers / 26), 97 + (strangers - 1) % 26)
+                        for i, first in ipairs({ "Kit", "Lee", "Mo", "Nan", "Oz", "Pip" }) do
+                            names[i] = first .. "-" .. tag
+                        end
+                    end
                     wow.setGroup("raid", names)
                     inGroup = {}
                     for _, n in ipairs(names) do inGroup[n] = true end
                     for i = 1, #names do
                         local u = wow.state.units["raid" .. i]
                         u.subgroup = i <= 3 and 1 or 2
+                        if kind == "slot" then
+                            -- Four in subgroup 3: three of them lack Fortitude
+                            -- whichever slot is hidden. Subgroups 3 and 4 exist
+                            -- only while a slot is hidden, when no group cast
+                            -- is armed, so a right-click never skips them.
+                            u.subgroup = i <= 4 and 3 or 4
+                        end
                     end
                     wow.state.pvp = false
                     wow.state.items[ITEM.holyCandle] = 3
@@ -1079,14 +1098,18 @@ describe("Group versions in buff mode (#41)", function()
                 -- subgroup (or the party) where at least the threshold of
                 -- members who can be buffed lack Fortitude, and exactly one
                 -- thing would make a group cast harmful. Returns the hazard
-                -- names of such groups, or an empty list.
+                -- names of such groups, or an empty list. While a slot is
+                -- hidden (#302) the one thing is that slot: the hazard is
+                -- "slot" when the rest of the hidden member's group, read as
+                -- a roster that took the slot for empty would read it, has
+                -- enough lacking and nothing else in the way.
                 local function hazards(iAmFlagged, rule)
                     local found = {}
                     if wow.state.inCombat or ns.BuffMode.LentKey() == nil then return found end
-                    if not ns.db.buffBack.groupVersions or wow.state.itemsSecret or wow.state.rosterSecret
-                        or hiddenSlot then
+                    if not ns.db.buffBack.groupVersions or wow.state.itemsSecret or wow.state.rosterSecret then
                         return found
                     end
+                    local hidden = hiddenSlot and wow.state.units[hiddenSlot]
                     if (wow.state.items[ITEM.holyCandle] or 0) < 1 then return found end
                     local inRaid = wow.state.groupType == "raid"
                     local byGroup = {}
@@ -1096,8 +1119,12 @@ describe("Group versions in buff mode (#41)", function()
                         byGroup[key] = byGroup[key] or {}
                         table.insert(byGroup[key], u)
                     end
-                    for _, members in pairs(byGroup) do
+                    for _, inGroupKey in pairs(byGroup) do
                         local lacking, flag, tank, rank, unclear = 0, false, false, false, false
+                        local members, holdsHidden = {}, false
+                        for _, u in ipairs(inGroupKey) do
+                            if u == hidden then holdsHidden = true else members[#members + 1] = u end
+                        end
                         for _, u in ipairs(members) do
                             local has, mine = false, false
                             for at, id in ipairs(u.auras or {}) do
@@ -1115,7 +1142,13 @@ describe("Group versions in buff mode (#41)", function()
                             if u.role == "TANK" then tank = true end
                             if mine then rank = true end
                         end
-                        if not unclear and lacking >= (ns.db.buffBack.groupEnough or 3) then
+                        if hiddenSlot then
+                            if holdsHidden and not unclear and lacking >= (ns.db.buffBack.groupEnough or 3)
+                                and not flag and not rank
+                                and (rule == "all" or (rule == "notTanks" and not tank)) then
+                                found[#found + 1] = "slot"
+                            end
+                        elseif not unclear and lacking >= (ns.db.buffBack.groupEnough or 3) then
                             if flag and not tank and not rank then found[#found + 1] = "flag" end
                             if rule == "notTanks" and tank and not flag and not rank then found[#found + 1] = "rule" end
                             if rank and not flag and not (rule == "notTanks" and tank) then
@@ -1142,6 +1175,14 @@ describe("Group versions in buff mode (#41)", function()
                     return now
                 end
 
+                -- Each hazard reached, for the storm's reach counters.
+                local function count(found)
+                    for _, kind in ipairs(found) do
+                        reached[kind] = reached[kind] + 1
+                        perSeed[kind] = (perSeed[kind] or 0) + 1
+                    end
+                end
+
                 for step = 1, 600 do
                     local before = #wow.casts
                     local was = snapshot()
@@ -1157,16 +1198,13 @@ describe("Group versions in buff mode (#41)", function()
                         ns.db.buffBack.groupVersions = true
                         scenario(staged)
                         ns.BuffButton.Refresh()
+                        -- The slot hazard is counted before the press that
+                        -- tests it: the single buff the press gives can leave
+                        -- too few lacking for it to be found afterwards.
+                        if staged == "slot" then count(hazards(wow.state.pvp, currentRule())) end
                         local from = #wow.casts
                         wow.pressKey("MOUSEWHEELUP")
                         check(step, from, snapshot(), wow.state.pvp, currentRule())
-                        -- The slot hazard is reached when the press still cast:
-                        -- a single buff to a member who can be read (check
-                        -- above has failed any group cast).
-                        if staged == "slot" and #wow.casts > from then
-                            reached.slot = reached.slot + 1
-                            perSeed.slot = (perSeed.slot or 0) + 1
-                        end
                         before = #wow.casts
                     else
                         actions[random.random(#actions)]()
@@ -1177,10 +1215,11 @@ describe("Group versions in buff mode (#41)", function()
                     local now = snapshot()
                     local found = hazards(wow.state.pvp, currentRule())
                     if #found > 0 then
-                        for _, kind in ipairs(found) do
-                            reached[kind] = reached[kind] + 1
-                            perSeed[kind] = (perSeed[kind] or 0) + 1
-                        end
+                        -- A slot hazard is counted only as staged, above. Later
+                        -- a member the storm right-clicked or just buffed may
+                        -- no longer be offered the buff, which the client's
+                        -- state doesn't show; the press is still checked.
+                        if not hiddenSlot then count(found) end
                         local from = #wow.casts
                         ns.BuffButton.Refresh()
                         wow.pressKey("MOUSEWHEELUP")
