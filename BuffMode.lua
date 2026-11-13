@@ -104,6 +104,7 @@ function BuffMode.Apply()
         ns.Print("buff mode off: the addon or Buff Back is switched off.")
     elseif wanted and ns.Battleground.Quiet() then
         wanted, auto = false, false
+        ns.Diag.Log("buffMode", "turned off: %s", ns.Battleground.QuietReason())
         ns.Print("buff mode off: " .. ns.Battleground.QuietReason() .. ".")
     end
     if not wanted or not ns.BuffButton.Frame() then return HandBack() end

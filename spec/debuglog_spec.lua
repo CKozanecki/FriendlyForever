@@ -1,4 +1,4 @@
--- Spec: #268
+-- Spec: #268, #294
 -- The debug log holds decisions, not repeats, so an hour in a dungeon fits.
 local wow = require("spec.support.wow")
 
@@ -104,6 +104,60 @@ describe("The debug log keeps decisions, not repeats (#268)", function()
             _G.SlashCmdList.FRIENDLYFOREVER("buffmode")
             wow.enterCombat()
             assert.are.equal(0, count("auto turned"))
+        end)
+    end)
+
+    describe("locked aura update payloads (white, #294)", function()
+        local function locked() wow.fire("UNIT_AURA", "player", wow.secret({})) end
+
+        it("logs the first of a run, then a count when the next readable update comes", function()
+            for _ = 1, 50 do locked() end
+            assert.are.equal(1, count("payload is locked"))
+            assert.are.equal(0, count("more locked"))
+            wow.fire("UNIT_AURA", "player", { isFullUpdate = false })
+            assert.are.equal(1, count("49 more locked aura update payloads skipped"))
+            locked()
+            assert.are.equal(2, count("payload is locked"))
+        end)
+
+        it("logs the count when the fight ends, and none for a single update", function()
+            wow.enterCombat()
+            for _ = 1, 5 do locked() end
+            wow.leaveCombat()
+            assert.are.equal(1, count("4 more locked"))
+            locked()
+            wow.fire("UNIT_AURA", "player", { isFullUpdate = false })
+            assert.are.equal(1, count("4 more locked"))
+            assert.are.equal(0, count("0 more locked"))
+        end)
+
+        it("a combat storm leaves the decisions in the log (red)", function()
+            wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            for fight = 1, 20 do
+                wow.enterCombat()
+                for _ = 1, 150 do locked() end
+                wow.leaveCombat()
+                wow.addUnit("target", { name = "Bob-Brightwood" })
+                wow.gainBuff({ sourceUnit = "target", name = "Fort " .. fight })
+            end
+            assert.is_true(#ns.db.diagLog < ns.Diag.MAX_LOG, "the log never filled: " .. #ns.db.diagLog)
+            assert.are.equal(20, count("payload is locked"))
+            assert.are.equal(20, count("149 more locked"))
+            for fight = 1, 20 do assert.are.equal(1, count("Fort " .. fight .. " ")) end
+            assert.are.same({}, wow.errors)
+        end)
+    end)
+
+    describe("battleground-quiet turn-off (white, #294)", function()
+        it("logs one line with its reason", function()
+            wow.enterBattleground({ "Ann-Vale", "Cid-Rock" })
+            assert.is_true(ns.BuffMode.IsOn())
+            ns.db.diagLog = {}
+            ns.db.buffBack.bgPrepBuff = false
+            ns.BuffMode.Apply()
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.are.equal(1, count("turned off: buffing in a battleground's preparation phase is off"))
         end)
     end)
 
