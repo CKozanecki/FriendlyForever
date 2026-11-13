@@ -116,7 +116,10 @@ function handlers.ADDON_LOADED(name)
     end)
     -- Addon messages may be blocked in a long fight (docs/forever-facts.md):
     -- say what you give again as it ends, so the split is back for the rebuff.
-    Register("PLAYER_REGEN_ENABLED", function() ns.RaidSplit.OnCombatEnd() end)
+    Register("PLAYER_REGEN_ENABLED", function()
+        ns.RaidSplit.OnCombatEnd()
+        ns.BuffTracker.FlushRestricted() -- the log line for the fight's skipped aura updates (#268)
+    end)
     Register("GUILD_ROSTER_UPDATE", ns.Greeter.OnRosterUpdate)
     Register("PLAYER_GUILD_UPDATE", ns.Greeter.RequestRoster)
     -- The battleground phase first: buffs that arrive as the battle starts

@@ -18,6 +18,7 @@ A small simulation of the WoW client API, enough to load the addon as the game d
   - `opts.buffSelf`: keep buff mode offering your own copy of your buffs (#198). Without it, boot sets `GroupBuffs.SELF_ORDER` to `"off"`, so specs written before #198 count only the group's casts;
   - `opts.autoBuffMode`: keep buff mode's turn-on triggers at their defaults (on, #72). Without it, boot turns them off unless `opts.db` sets them, so specs that join groups or get buffed don't lend a key by accident;
   - `opts.randomStagger`: keep a guild hello's random extra wait random (#38). Without it, it is always the shortest (`GuildHellos.STAGGER_MIN`), so specs know when a hello goes;
+  - `opts.settingsClosed`: keep the settings pages unopened, as in the game until the player opens them (#267). Without it, boot has the Settings window adopt every page (`wow.adoptSettingsPages()`) so specs that read the pages' text see them filled. `Settings.OpenToCategory` adopts, shows and fills one page, running its `OnShow` only if it was hidden; the addon hides its pages when it creates them;
   - `opts.shippedLines`: keep the shipped message lines. Without it, types still on the shipped defaults use the fixed casual lines, since most specs check behaviour rather than wording.
 - **State:** `wow.reset()` builds `wow.state` (guild, group, instance, lockdown, combat, units, auras, spells, CVars, clock) and the record tables tests check against:
   - `wow.sent`: chat lines the game accepted; `wow.blocked`: lines it refused;
@@ -55,7 +56,7 @@ These mirror real restrictions the addon must live with. Each one makes the clie
 
 ## The ASSUMPTIONS block
 
-The block headed `ASSUMPTIONS ABOUT WOW FOREVER` near the top of `wow.lua` lists every behaviour that is a guess rather than a known fact. Each is a `state` setting where possible, so specs can try the alternatives. Examples: how `/targetexact` spells a two-part name (`state.targetNameForm`), what `UNIT_SPELLCAST_SENT` gives as the target, key-down versus key-up casting, the order of a refused cast's error and its `UNIT_SPELLCAST_FAILED`, `state.castLandsOn`, which role APIs exist, how battlegrounds signal their preparation phase (#71), and a group member whose name is still loading (`unit.nameLoading`: `UnitName` gives `UNKNOWNOBJECT`, the surname still comes, and no event fires when it loads; #99).
+The block headed `ASSUMPTIONS ABOUT WOW FOREVER` near the top of `wow.lua` lists every behaviour that is a guess rather than a known fact. Each is a `state` setting where possible, so specs can try the alternatives. Examples: how `/targetexact` spells a two-part name (`state.targetNameForm`), what `UNIT_SPELLCAST_SENT` gives as the target, key-down versus key-up casting, a shown frame's OnHide when it is hidden (#274), the order of a refused cast's error and its `UNIT_SPELLCAST_FAILED`, `state.castLandsOn`, which role APIs exist, how battlegrounds signal their preparation phase (#71), and a group member whose name is still loading (`unit.nameLoading`: `UnitName` gives `UNKNOWNOBJECT`, the surname still comes, and no event fires when it loads; #99).
 
 ## Extending it
 
