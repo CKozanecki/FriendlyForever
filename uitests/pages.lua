@@ -276,7 +276,15 @@ end
 -- bottom (#254). Like ShowTab, it leaves the panel as it is for the shot.
 function Pages.ShowTabLower(name)
     Pages.ShowTab(name)
-    return Pages.ScrollToBottom()
+    local undo = Pages.ScrollToBottom()
+    local sc = PanelScroll()
+    if sc then
+        local fs = UIParent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        fs:SetPoint("TOP", UIParent, "TOP", 0, -60)
+        local c = sc:GetScrollChild()
+        fs:SetText(("DIAG off %s range %s child h %s view h %s"):format(tostring(sc:GetVerticalScroll()), tostring(sc:GetVerticalScrollRange()), tostring(c:GetHeight()), tostring(sc:GetHeight())))
+    end
+    return undo
 end
 
 -- The walkthrough's steps the screenshots show (#47), each named by a
