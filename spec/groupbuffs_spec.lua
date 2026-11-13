@@ -1,4 +1,4 @@
--- Spec: #30, #76, #99, #208
+-- Spec: #30, #76, #99, #208, #259
 -- Buff mode buffs group members missing your buffs, one per press, with the
 -- same safety rules as buff back.
 local wow = require("spec.support.wow")
@@ -369,6 +369,80 @@ describe("Buffing your group in buff mode", function()
         it("skips members whose name or buffs can't be read", function()
             only({ secrets = { name = true } }, "a group member's name can't be read")
             only({ secrets = { auras = true }, auras = { 1459 } }, "Ann Vale: can't see their buffs")
+        end)
+
+        -- #259: a slot whose existence can't be read was passed over as
+        -- empty, so "everyone has your buffs" could settle with nobody read.
+        it("with unit reads restricted, is never settled and offers nothing, wherever you come in (#259)", function()
+            for _, order in ipairs({ "off", "first", "last" }) do
+                for _, kind in ipairs({ "party", "raid" }) do
+                    local where = order .. ", " .. kind
+                    boot()
+                    ns.GroupBuffs.SELF_ORDER = order
+                    wow.setGroup(kind, { "Ann-Vale", "Cid-Rock" })
+                    for _, u in pairs(wow.state.units) do u.auras = { MOTW, THORNS_1 } end
+                    wow.gainBuff({ spellId = MOTW, sourceUnit = "player" })
+                    wow.gainBuff({ spellId = THORNS_1, sourceUnit = "player" })
+                    wow.fire("GROUP_ROSTER_UPDATE")
+                    wow.advance(0)
+                    -- Readable, everyone has your buffs: settled.
+                    local offer, _, settled = ns.GroupBuffs.Next()
+                    assert.is_nil(offer, where)
+                    assert.is_true(settled, where .. ": readable, and everyone has them")
+                    -- Restricted, the same group is never settled.
+                    wow.state.unitsRestricted = true
+                    local list = {}
+                    offer, _, settled = ns.GroupBuffs.Next(list)
+                    assert.is_nil(offer, where)
+                    assert.are.same({}, list, where .. ": nothing offered")
+                    assert.are_not.equal(true, settled, where .. ": settled with nobody read")
+                    ns.BuffButton.Refresh()
+                    assert.is_nil(macro(), where)
+                    assert.are.same({}, wow.errors, where)
+                end
+            end
+        end)
+
+        it("counts a slot whose existence alone can't be read as a member who can't be read (#259)", function()
+            -- The game answers with a secret, or not at all, for party2 only.
+            for _, answer in ipairs({ "secret", "error" }) do
+                boot()
+                ns.GroupBuffs.SELF_ORDER = "first"
+                party({ "Ann-Vale", "Cid-Rock" })
+                wow.gainBuff({ spellId = MOTW, sourceUnit = "player" })
+                wow.gainBuff({ spellId = THORNS_1, sourceUnit = "player" })
+                wow.state.units.party1.auras = { MOTW, THORNS_1 }
+                local real = _G.UnitExists
+                _G.UnitExists = function(unit)
+                    if unit ~= "party2" then return real(unit) end
+                    if answer == "error" then error("blocked") end
+                    return wow.secret(true)
+                end
+                local list = {}
+                local offer, why, settled = ns.GroupBuffs.Next(list)
+                assert.is_nil(offer, answer .. ": nothing offered to Cid, who is missing them")
+                assert.are.same({}, list, answer)
+                assert.are.equal("a group member can't be read", why, answer)
+                assert.are_not.equal(true, settled, answer)
+                ns.BuffButton.Refresh()
+                assert.is_nil(macro(), answer)
+                assert.are.equal("a group member can't be read", button.subtitle:GetText(), answer)
+                -- Members who can be read are still offered theirs.
+                wow.state.units.party1.auras = {}
+                offer = ns.GroupBuffs.Next()
+                assert.are.equal("Ann-Vale", offer and offer.name, answer)
+                -- Once the game says the slot is empty, it's settled again.
+                wow.state.units.party1.auras = { MOTW, THORNS_1 }
+                _G.UnitExists = function(unit)
+                    if unit == "party2" then return false end
+                    return real(unit)
+                end
+                offer, why, settled = ns.GroupBuffs.Next()
+                assert.is_nil(offer, answer)
+                assert.are.equal("everyone in your group has your buffs", why, answer)
+                assert.is_true(settled, answer)
+                assert.are.same({}, wow.errors, answer)
+            end
         end)
 
         it("moves on to the next member past one it can't buff", function()

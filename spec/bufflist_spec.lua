@@ -1,4 +1,4 @@
--- Spec: #43, #227
+-- Spec: #43, #227, #252
 -- The clickable list beside the buff button: everyone the button would offer
 -- to, and the buff for each; a click makes that player the next offer.
 local wow = require("spec.support.wow")
@@ -559,9 +559,11 @@ describe("A group cast in the list (#227)", function()
             group("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
             local text = table.concat(rows(), "|")
             wow.SPELL_NAMES[BRILLIANCE] = saved
-            for _, who in ipairs({ "Bo Fern", "Cid Rock", "Dot Moss" }) do
+            -- The group cast's aim is covered too: it keeps its own row (#252).
+            for _, who in ipairs({ "Ann Vale", "Bo Fern", "Cid Rock", "Dot Moss" }) do
                 assert.is_truthy(text:find(who .. ": Arcane Intellect", 1, true), who .. " keeps a row: " .. text)
             end
+            assert.is_nil(text:find("Party (", 1, true), "no group row: its macro can't be built")
             assert.is_truthy(armed():find("Arcane Intellect", 1, true), "the button holds a single buff, not nothing")
         end)
 
@@ -596,6 +598,35 @@ describe("A group cast in the list (#227)", function()
     end)
 
     describe("black", function()
+        it("a group cast whose macro can't be built leaves its aim, and every member it covered, with their own single rows", function()
+            boot()
+            local saved = wow.SPELL_NAMES[BRILLIANCE]
+            wow.SPELL_NAMES[BRILLIANCE] = "Arcane; Brilliance"
+            group("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
+            local text = table.concat(rows(), "|")
+            -- Click another member's row, then the aim's: each arms their own single buff.
+            local function clickRow(who)
+                for k, row in ipairs(rows()) do
+                    if row:find(who, 1, true) then click(k) return true end
+                end
+                return false
+            end
+            local clickedDot = clickRow("Dot Moss")
+            local armedDot = armed()
+            local clickedAnn = clickRow("Ann Vale")
+            local armedAnn = armed()
+            local casts = #wow.casts
+            -- Put the name back before any assertion, so a failure can't leak into other tests.
+            wow.SPELL_NAMES[BRILLIANCE] = saved
+            for _, who in ipairs({ "Ann Vale", "Bo Fern", "Cid Rock", "Dot Moss" }) do
+                assert.is_truthy(text:find(who .. ": Arcane Intellect", 1, true), who .. " has a single row: " .. text)
+            end
+            assert.is_true(clickedDot and clickedAnn, "both rows were there to click")
+            assert.are.equal("Dot Moss: Arcane Intellect", armedDot)
+            assert.are.equal("Ann Vale: Arcane Intellect", armedAnn)
+            assert.are.equal(0, casts, "a click casts nothing")
+        end)
+
         local function show(cast)
             boot()
             group("party", { "Ann-Vale" })

@@ -1,4 +1,4 @@
--- Spec: #29, #71, #76, #99, #268, #272
+-- Spec: #29, #71, #76, #99, #259, #268, #272
 -- When buff mode turns on and off by itself.
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
@@ -509,6 +509,54 @@ describe("Buff mode turning on and off by itself", function()
     end)
 
     describe("what it can't see (black)", function()
+        -- #259: group slots whose existence reads as secret were passed over
+        -- as empty, so "everyone has your buffs" ended it with nobody read.
+        it("isn't ended by 'everyone has your buffs' while unit reads are restricted; the timeout still ends it (#259)", function()
+            for _, order in ipairs({ "off", "first" }) do
+                boot()
+                ns.GroupBuffs.SELF_ORDER = order
+                ns.db.buffBack.autoOnJoin = true
+                join()
+                assert.is_true(ns.BuffMode.IsAuto(), order .. ": the join turned it on")
+                for _, token in ipairs({ "party1", "party2" }) do wow.state.units[token].auras = { MOTW } end
+                wow.gainBuff({ spellId = MOTW, sourceUnit = "player" })
+                wow.state.unitsRestricted = true
+                wow.fire("GROUP_ROSTER_UPDATE")
+                wow.advance(60)
+                ns.BuffButton.Refresh()
+                assert.is_true(ns.BuffMode.IsAuto(), order .. ": nobody read, so not 'everyone has your buffs'")
+                assert.is_false(printedHas("everyone has your buffs"), order)
+                wow.advance(5 * 60)
+                assert.is_false(ns.BuffMode.IsOn(), order .. ": the timeout ends it")
+                assert.are.same({}, wow.errors, order)
+            end
+        end)
+
+        it("isn't ended by 'everyone has your buffs' while one slot's existence can't be read (#259)", function()
+            ns.GroupBuffs.SELF_ORDER = "first"
+            ns.db.buffBack.autoOnJoin = true
+            join()
+            assert.is_true(ns.BuffMode.IsAuto())
+            wow.state.units.party1.auras = { MOTW }
+            wow.gainBuff({ spellId = MOTW, sourceUnit = "player" })
+            local real = _G.UnitExists
+            -- party2 (Cid, still missing Mark) reads as a secret slot.
+            _G.UnitExists = function(unit)
+                if unit == "party2" then return wow.secret(true) end
+                return real(unit)
+            end
+            ns.BuffButton.Refresh()
+            assert.is_true(ns.BuffMode.IsAuto(), "Cid can't be read: not done")
+            assert.is_false(printedHas("everyone has your buffs"))
+            -- Readable again and buffed: it ends as usual.
+            _G.UnitExists = real
+            wow.state.units.party2.auras = { MOTW }
+            ns.BuffButton.Refresh()
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_true(printedHas("buff mode off (everyone has your buffs)."))
+            assert.are.same({}, wow.errors)
+        end)
+
         it("never assumes everyone is buffed when someone's buffs can't be read; the timeout still ends it", function()
             ns.db.buffBack.autoOnJoin = true
             wow.setGroup("party", { "Ann-Vale" })
