@@ -115,7 +115,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 **The simulated client**
 - New behaviour is realistic, pessimistic when unsure, in the ASSUMPTIONS block, and if it is an unconfirmed game fact, with a new `quality` issue that says how to check it in game (#21, #60, #62, #88, #197).
 - Redirects and side paths (`state.castLandsOn`) apply the game's rules where the cast lands: macro conditions, PvP flags (#84: 18 storm seeds failed; #87: redirected PvP flags were filed by unit table instead of player).
-- When a test fails or flakes, check whether the simulated client is the cause before blaming the addon. Model fixes get tests of their own; other model gaps are filed as issues (#87 filed #84 and #89; #85 filed #90).
+- When a test fails or flakes, check whether the simulated client is the cause before blaming the addon. Model fixes and new model behaviour get tests of their own in `spec/wow_spec.lua`; other model gaps are filed as issues (#87 filed #84 and #89; #85 filed #90; on #270 the combat lock on a protected frame's size and `M.LINE_HEIGHT` came without tests at first).
 - A test-wide default in `wow.boot` reads the given saved settings before loading fills in defaults, has an opt-out, and has a spec of its own. Check that a changed default doesn't quietly move every other spec onto a new path (#72: with the triggers on by default, every buff back spec ran in buff mode, and the helper read settings after loading).
 
 **Changes after an approval**

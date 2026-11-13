@@ -18,6 +18,12 @@
 --
 -- Favours are kept in memory only: a /reload or logout forgets them.
 --
+-- Someone who has left (#270, the owner's decision): a favour whose player
+-- the game doesn't show right now, or whom the game says your buff can't
+-- reach, doesn't hold the button. The next favour is offered, or the button
+-- hides. The favour is kept, and offered again once they're back, within
+-- the owed time.
+--
 -- One round each way (#37): every buff of yours the game says went to a
 -- player (UNIT_SPELLCAST_SENT names them), from the button or cast by hand,
 -- is remembered. Their buff back within RETURNED_RECENTLY answers yours, so
@@ -261,10 +267,19 @@ local function Expire(now)
     return any
 end
 
--- The buff to give this favour, or nil and why not.
+-- Whether the game says your buff can't reach them (out of range).
+local function OutOfReach(buff, unit)
+    local spell = buff and ns.BuffData.SpellName(buff)
+    return spell ~= nil and Util.InSpellRange(spell, unit) == false
+end
+
+-- The buff to give this favour, or nil and why not. away is true, with no
+-- reason, when they've left (#270): the game doesn't show them, or says
+-- your buff can't reach them.
 local function ChooseBuff(favour, myBuffs, held, visible)
     local unit, flagged = Observe(favour, visible)
-    if unit and Read(UnitIsDeadOrGhost, unit) == true then return nil, "they're dead" end
+    if not unit or OutOfReach(myBuffs[1], unit) then return nil, nil, true end
+    if Read(UnitIsDeadOrGhost, unit) == true then return nil, "they're dead" end
     if Read(UnitIsPVP, "player") ~= true then
         if flagged then return nil, "they're flagged for PvP and you aren't" end
         if flagged == nil then
@@ -280,9 +295,12 @@ local function ChooseBuff(favour, myBuffs, held, visible)
     for _, buff in ipairs(myBuffs) do
         if not buff.selfCast and ns.BuffData.Useful(buff, favour.class) then
             suitable = suitable + 1
-            -- Unknown (no unit, or hidden in a fight) counts as not wearing it.
+            -- Unknown (hidden in a fight) counts as not wearing it.
             local wears, aura = Offers.Wears(unit, buff, WornOff)
-            if wears ~= true then return buff end
+            if wears ~= true then
+                if OutOfReach(buff, unit) then return nil, nil, true end
+                return buff
+            end
             -- Said once per favour and buff: the button re-arms often.
             favour.skipLogged = favour.skipLogged or {}
             if not favour.skipLogged[buff.key] then
@@ -300,7 +318,9 @@ end
 -- What the button should offer now: { name, buff, spell }, or nil and why
 -- not. Newest favour first. With a list (#43), every favour the button
 -- could offer is appended to it, newest first, instead of stopping at the
--- first, so the clickable list is made by these same rules.
+-- first, so the clickable list is made by these same rules. A favour whose
+-- player has left gives no reason (#270); when every favour is so, the
+-- third value is true: nothing owed is worth the button's face.
 function Offers.Current(list)
     if not ns.db or not ns.db.enabled then return nil, "the addon is off" end
     if not ns.db.buffBack.enabled then return nil, "buff back is off" end
@@ -313,19 +333,20 @@ function Offers.Current(list)
     local firstReason, first
     for i = #favours, 1, -1 do
         local favour = favours[i]
-        local buff, reason = ChooseBuff(favour, myBuffs, held, visible)
+        local buff, reason, away = ChooseBuff(favour, myBuffs, held, visible)
         local spell = buff and ns.BuffData.SpellName(buff)
         if spell then
             local offer = { name = favour.name, buff = buff, spell = spell }
             if not list then return offer end
             first = first or offer
             list[#list + 1] = offer
-        else
+        elseif not away then
             firstReason = firstReason
                 or (Util.DisplayName(favour.name) .. ": " .. (reason or "the spell's name isn't known"))
         end
     end
     if first then return first end
+    if not firstReason then return nil, "everyone you owe is out of sight or out of range", true end
     return nil, firstReason
 end
 

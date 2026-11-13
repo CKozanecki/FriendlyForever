@@ -110,12 +110,7 @@ local function Unreachable(unit)
 end
 
 -- false when the game says the spell can't reach them; nil when it won't say.
-local function InSpellRange(spell, unit)
-    local inRange = Read(C_Spell and C_Spell.IsSpellInRange, spell, unit)
-    if inRange == nil then inRange = Read(IsSpellInRange, spell, unit) end
-    if inRange == false or inRange == 0 then return false end
-    if inRange == true or inRange == 1 then return true end
-end
+local InSpellRange = Util.InSpellRange
 
 -- Your top-up time in seconds (0: never), read defensively: settings
 -- damaged mid-session mustn't stop the button.
