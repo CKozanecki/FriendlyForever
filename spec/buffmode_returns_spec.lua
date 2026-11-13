@@ -35,6 +35,7 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
             autoBuffMode = true, buffSelf = opts.buffSelf, before = function(state)
                 state.class = "DRUID"
                 state.knownSpells = known
+                if opts.before then opts.before(state) end
             end })
     end
 
@@ -225,12 +226,25 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
             assert.is_true(printedHas("(Cid Rock is missing your Mark of the Wild)"))
         end)
 
-        it("doesn't turn on after a login or reload with someone already missing one", function()
-            wow.setGroup("party", { "Ann-Vale" })
-            wow.fire("GROUP_ROSTER_UPDATE")
-            boot()
+        it("after a login or reload in a group, only notes who is missing one; a fade after that turns it on", function()
+            boot({ before = function()
+                -- The roster arrives as the login finishes, as it does in the game.
+                local f = CreateFrame("Frame")
+                f:RegisterEvent("PLAYER_ENTERING_WORLD")
+                f:SetScript("OnEvent", function()
+                    wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+                    wow.wearBuff("party2", MOTW, { source = "player" }) -- Ann has none
+                    wow.fire("GROUP_ROSTER_UPDATE")
+                end)
+            end })
+            assert.is_true(_G.IsInGroup(), "logged in with the group")
             for _ = 1, 3 do look() end
             assert.is_false(ns.BuffMode.IsOn(), "buff mode is off after a login")
+            -- No roster change from here on: the looks started at the login go on.
+            strip("party2")
+            look()
+            assert.is_true(ns.BuffMode.IsAuto())
+            assert.is_true(printedHas("(Cid Rock is missing your Mark of the Wild)"))
         end)
     end)
 
@@ -328,6 +342,54 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
             wow.fire("GROUP_ROSTER_UPDATE")
             look()
             assert.is_true(ns.BuffMode.IsAuto())
+        end)
+    end)
+
+    describe("in a raid (white)", function()
+        local NAMES = { "Ann-Vale", "Cid-Rock", "Dot-Fern", "Eve-Moss", "Fay-Dale", "Gil-Rush", "Hal-Pike" }
+
+        -- A raid of eight (you have a slot of your own), all wearing your
+        -- Mark, in a raid instance.
+        local function raidCovered()
+            wow.setGroup("raid", NAMES)
+            for i = 1, #NAMES do wow.wearBuff("raid" .. i, MOTW, { source = "player" }) end
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.enterRaid(409, "Molten Core")
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "everyone is covered")
+        end
+
+        it("a buff fading from a raid member, in a raid instance, turns it on", function()
+            raidCovered()
+            strip("raid6")
+            look()
+            assert.is_true(ns.BuffMode.IsAuto())
+            assert.is_true(printedHas("(Gil Rush is missing your Mark of the Wild)"))
+        end)
+
+        it("a raid member coming back into range after you turned it off isn't a new fade", function()
+            raidCovered()
+            strip("raid6")
+            look()
+            slash("buffmode off")
+            wow.state.units.raid6.outOfRange = true
+            for _ = 1, 3 do look() end
+            wow.state.units.raid6.outOfRange = nil
+            for _ = 1, 3 do look() end
+            assert.is_false(ns.BuffMode.IsOn())
+        end)
+    end)
+
+    describe("the walkthrough (white)", function()
+        it("lists the switch, and says first that buff mode never casts by itself", function()
+            local text
+            for _, info in ipairs(ns.Walkthrough.STEPS) do
+                if info.title == "Buff mode: when it turns on and off" then text = info.text() end
+            end
+            assert.is_truthy(text:find("  when someone's missing my buffs: ", 1, true))
+            local casts = text:find("It never casts by itself: you still press the key for each buff.", 1, true)
+            assert.is_truthy(casts)
+            assert.is_true(casts < text:find("Turns on:", 1, true), "above the list, so it stays in view")
         end)
     end)
 
@@ -484,35 +546,47 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
     end)
 
     describe("chaos (red tests)", function()
-        -- Whether the client's own state shows a member close by, online,
+        -- Whether the client's own state shows this member close by, online,
         -- readable and alive, without any Mark: a reason this trigger may
         -- turn buff mode on. Worked out from the client, never the addon.
-        local function someoneMissing()
-            for i = 1, 4 do
-                local u = wow.state.units["party" .. i]
-                local secrets = u and u.secrets or {}
-                if u and not u.offline and not u.dead and not u.outOfRange and not u.rangeUnknown
-                    and not u.hidden and not secrets.name and not secrets.offline and not secrets.range then
-                    -- Hidden buffs can't be read, but a member wearing none
-                    -- at all is shown plainly as wearing none.
-                    local wearing, worn = false, 0
-                    for j, id in ipairs(u.auras or {}) do
-                        if not wow.auraExpired(u, j) then
-                            worn = worn + 1
-                            if MARKS[id] then wearing = true end
-                        end
-                    end
-                    if not wearing and not (secrets.auras and worn > 0) then return true end
+        local function plainlyMissing(u)
+            local secrets = u and u.secrets or {}
+            if not u or u.offline or u.dead or u.outOfRange or u.rangeUnknown or u.hidden
+                or secrets.name or secrets.offline or secrets.range then
+                return false
+            end
+            -- Hidden buffs can't be read, but a member wearing none at all
+            -- is shown plainly as wearing none.
+            local wearing, worn = false, 0
+            for j, id in ipairs(u.auras or {}) do
+                if not wow.auraExpired(u, j) then
+                    worn = worn + 1
+                    if MARKS[id] then wearing = true end
                 end
             end
-            return false
+            return not wearing and not (secrets.auras and worn > 0)
+        end
+
+        -- The party slot of the member a chat line names ("Ann Vale").
+        local function unitNamed(display)
+            for i = 1, 4 do
+                local u = wow.state.units["party" .. i]
+                if u and u.id == display:gsub(" ", "-") then return u end
+            end
         end
 
         local function storm(seed)
             random.seed(seed)
             boot()
-            local turnedOn = 0
+            local count = { fightEnded = 0, faded = 0, refused = 0, inRaid = 0, clear = 0, clearRaid = 0 }
             local everyone = { "Ann-Vale", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
+            local function slots()
+                local out = {}
+                for i = 1, 4 do
+                    if wow.state.units["party" .. i] then out[#out + 1] = "party" .. i end
+                end
+                return out
+            end
             local actions = {
                 function()
                     local names = {}
@@ -552,17 +626,80 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
                 end,
                 function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
                 function()
-                    local kind = ({ "none", "party", "arena", "pvp" })[random.random(4)]
+                    local kind = ({ "none", "party", "raid", "raid", "arena", "pvp" })[random.random(6)]
                     wow.state.inInstance = kind ~= "none" or nil
                     wow.state.instanceType = kind ~= "none" and kind or nil
                 end,
                 function() wow.state.inInstanceSecret = random.random() < 0.2 or nil end,
                 function() wow.advance(random.random() * 12) end,
                 function() slash("buffmode off") end,
+                function() slash("buffmode off") end,
                 function() ns.db.buffBack.autoOnMissing = ({ true, true, false, "yes", {}, 1 })[random.random(6)] end,
                 function() ns.db.buffBack.topUpMinutes = ({ 0, 1, 5, -3, "x", 1 / 0 })[random.random(6)] end,
+                -- A clear case: everyone else covered and readable, one member
+                -- plainly without a Mark, in a random kind of place. A fight's
+                -- end, or the fade itself, turns it on exactly where it may:
+                -- never in an arena or battleground.
+                function()
+                    local tokens = slots()
+                    -- In a fight, left for the fight's own step: ending it here
+                    -- would be a turn-on the state below no longer explains.
+                    if #tokens == 0 or wow.state.inCombat then return end
+                    local kind = ({ "none", "party", "raid", "arena", "pvp" })[random.random(5)]
+                    wow.state.inInstance = kind ~= "none" or nil
+                    wow.state.instanceType = kind ~= "none" and kind or nil
+                    wow.state.inInstanceSecret = nil
+                    ns.db.buffBack.autoOnMissing = true
+                    for _, token in ipairs(tokens) do
+                        local u = wow.state.units[token]
+                        u.offline, u.dead, u.outOfRange, u.rangeUnknown, u.hidden, u.secrets = nil, nil, nil, nil, nil, nil
+                        wow.wearBuff(token, MOTW, { source = "player", duration = 600 })
+                    end
+                    slash("buffmode off")
+                    local bare = wow.state.units[tokens[random.random(#tokens)]]
+                    if random.random() < 0.5 then
+                        bare.auras = {}
+                        wow.enterCombat()
+                        wow.leaveCombat()
+                    else
+                        look() -- everyone noted as covered, then a buff fades
+                        bare.auras = {}
+                        look()
+                    end
+                    local may = kind == "none" or kind == "party" or kind == "raid"
+                    assert.are.equal(may, ns.BuffMode.IsAuto(), ("seed %d: a clear case in %s"):format(seed, kind))
+                    count.clear = count.clear + 1
+                    if kind == "raid" then count.clearRaid = count.clearRaid + 1 end
+                end,
+                -- A refusal: everyone else plainly covered, and the one
+                -- member without a Mark hidden behind a single thing the game
+                -- won't say. Neither a fight's end nor a look turns it on.
+                function()
+                    local tokens = slots()
+                    -- In a fight, left for the fight's own step: ending it here
+                    -- would be a turn-on the state below no longer explains.
+                    if #tokens == 0 or wow.state.inCombat then return end
+                    wow.state.inInstance, wow.state.instanceType, wow.state.inInstanceSecret = nil, nil, nil
+                    ns.db.buffBack.autoOnMissing = true
+                    for _, token in ipairs(tokens) do
+                        local u = wow.state.units[token]
+                        u.offline, u.dead, u.outOfRange, u.rangeUnknown, u.hidden, u.secrets = nil, nil, nil, nil, nil, nil
+                        wow.wearBuff(token, MOTW, { source = "player", duration = 600 })
+                    end
+                    local u = wow.state.units[tokens[random.random(#tokens)]]
+                    local kind = ({ "auras", "offline", "name", "range" })[random.random(4)]
+                    u.auras = kind == "auras" and { INTELLECT } or {}
+                    u.secrets = { [kind] = true }
+                    slash("buffmode off")
+                    wow.enterCombat()
+                    wow.leaveCombat()
+                    look()
+                    assert.is_false(ns.BuffMode.IsOn(), ("seed %d: turned on for a member whose %s can't be read")
+                        :format(seed, kind))
+                    count.refused = count.refused + 1
+                end,
             }
-            for step = 1, 400 do
+            for step = 1, 600 do
                 local where = ("seed %d, step %d"):format(seed, step)
                 local wasOn = ns.BuffMode.IsOn()
                 local printed = #wow.printed
@@ -572,13 +709,19 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
                     why = why or wow.printed[i]:match("buff mode on %((.-)%)")
                 end
                 if not wasOn and ns.BuffMode.IsAuto() and why and why:find("missing your", 1, true) then
-                    turnedOn = turnedOn + 1
+                    local fightEnded = why:find("^the fight ended and ") ~= nil
+                    local key = fightEnded and "fightEnded" or "faded"
+                    count[key] = count[key] + 1
                     assert.is_false(wow.state.inCombat == true, where .. ": turned on in a fight")
                     local kind = wow.state.inInstance and (wow.state.instanceType or "party") or "none"
-                    assert.is_true(kind == "none" or kind == "party", where .. ": turned on in " .. kind)
+                    assert.is_true(kind == "none" or kind == "party" or kind == "raid", where .. ": turned on in " .. kind)
+                    if kind == "raid" then count.inRaid = count.inRaid + 1 end
                     assert.is_nil(wow.state.inInstanceSecret, where .. ": turned on where it can't tell")
                     assert.is_true(ns.db.buffBack.autoOnMissing == true, where .. ": turned on while switched off")
-                    assert.is_true(someoneMissing(), where .. ": turned on with nobody missing a buff")
+                    -- The member the line names, checked against the client.
+                    local named = why:gsub("^the fight ended and ", ""):match("^(.-) is missing your")
+                    assert.is_not_nil(named, where .. ": " .. why)
+                    assert.is_true(plainlyMissing(unitNamed(named)), where .. ": " .. named .. " isn't missing a Mark")
                 end
                 assert.are.same({}, wow.casts, where .. ": something cast without a press")
             end
@@ -595,13 +738,20 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
             wow.enterCombat()
             wow.leaveCombat()
             assert.is_true(ns.BuffMode.IsAuto(), "seed " .. seed .. ": works again after the storm")
-            return turnedOn
+            return count
         end
 
-        it("never turns on in a fight, an arena or battleground, or with nobody plainly missing a buff; never casts", function()
-            local turnedOn = 0
-            for _, seed in ipairs({ 7, 272, 1312, 4096, 2026 }) do turnedOn = turnedOn + storm(seed) end
-            assert.is_true(turnedOn > 10, "turned on by a missing buff: " .. turnedOn)
+        it("never turns on in a fight, an arena or battleground, for a member who isn't plainly missing a buff, "
+            .. "or for one the game won't show; never casts", function()
+            local total = { fightEnded = 0, faded = 0, refused = 0, inRaid = 0, clear = 0, clearRaid = 0 }
+            for _, seed in ipairs({ 7, 272, 1312, 4096, 2026 }) do
+                for key, n in pairs(storm(seed)) do total[key] = total[key] + n end
+            end
+            assert.is_true(total.fightEnded > 20, "turned on as a fight ended: " .. total.fightEnded)
+            assert.is_true(total.faded > 15, "turned on by a fade between fights: " .. total.faded)
+            assert.is_true(total.refused > 50, "refusals checked: " .. total.refused)
+            assert.is_true(total.inRaid > 8, "turned on in a raid instance: " .. total.inRaid)
+            assert.is_true(total.clear > 50, "clear cases checked: " .. total.clear)
         end)
     end)
 end)

@@ -1,4 +1,4 @@
--- Spec: #29, #71, #76, #99, #268
+-- Spec: #29, #71, #76, #99, #268, #272
 -- When buff mode turns on and off by itself.
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
