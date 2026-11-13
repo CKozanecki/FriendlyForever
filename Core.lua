@@ -541,6 +541,7 @@ local commands = {
             local template = ns.Messages.Preview(ns.db[msgType].messages)
             local vars = {}
             for k, v in pairs(SAMPLE_VARS) do vars[k] = v end
+            vars.name = ns.Config.NameVars(msgType, "Nikki-Shifts").name
             local text = template and ns.Util.Render(template, ns.Flavour.Vars(vars)) or "(no messages)"
             ns.Print(ns.Config.TYPE_INFO[msgType].label .. ": " .. text)
         end

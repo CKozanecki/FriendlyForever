@@ -102,7 +102,7 @@ end
 
 -- {name}, {fullname} and, when the roster says, {class}.
 local function MemberVars(name)
-    local vars = Util.NameVars(name)
+    local vars = ns.Config.NameVars("guildLogin", name)
     if type(members[name]) == "string" then vars.class = members[name] end
     return vars
 end
@@ -582,7 +582,10 @@ function Greeter.OnSystemMessage(msg)
     elseif kind == "guildJoin" then
         members[name] = members[name] or true
         if Ignored("guildJoin", name) then return end
-        if ns.Announcer.Schedule("guildJoin", name, { channel = GuildChannel, isValid = NotIgnored(name) }) then
+        if ns.Announcer.Schedule("guildJoin", name, {
+            channel = GuildChannel, isValid = NotIgnored(name),
+            vars = function() return ns.Config.NameVars("guildJoin", name) end,
+        }) then
             RememberWelcomed(name)
         end
     elseif kind == "partyJoin" then

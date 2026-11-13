@@ -1,4 +1,4 @@
--- Spec: #52
+-- Spec: #52, #281
 -- Phase 1 under damage and chaos: the ignore list, snooze, profiles,
 -- export/import with undo and the favour ledger, damaged mid-session (black)
 -- and in seeded random storms (red). Mid-session damage stands for another
@@ -69,7 +69,7 @@ describe("Phase 1 settings damaged mid-session (black)", function()
             useEverything()
             assert.are.same({}, wow.errors, tostring(damage))
             assert.are.same({}, ns.db.ignore, "repaired, empty: the names can't be read")
-            assert.are.same({ "GL Ann" }, wow.sentTo("GUILD"), "greeting still works")
+            assert.are.same({ "GL Ann Vale" }, wow.sentTo("GUILD"), "greeting still works")
         end
     end)
 
@@ -104,7 +104,7 @@ describe("Phase 1 settings damaged mid-session (black)", function()
             ns.db.snoozeUntil = damage
             useEverything()
             assert.are.same({}, wow.errors, tostring(damage))
-            assert.are.same({ "GL Ann" }, wow.sentTo("GUILD"), tostring(damage))
+            assert.are.same({ "GL Ann Vale" }, wow.sentTo("GUILD"), tostring(damage))
             assert.is_nil(ns.db.snoozeUntil, tostring(damage))
         end
     end)
@@ -117,7 +117,7 @@ describe("Phase 1 settings damaged mid-session (black)", function()
             wow.advance(ns.Config.SNOOZE_MAX_SECONDS + 1)
             online("Ann-Vale")
             wow.advance(30)
-            assert.are.same({ "GL Ann" }, wow.sentTo("GUILD"), tostring(damage))
+            assert.are.same({ "GL Ann Vale" }, wow.sentTo("GUILD"), tostring(damage))
         end
     end)
 
@@ -582,7 +582,7 @@ describe("Phase 1 chaos (red tests)", function()
                 local sentAt = wow.state.clock + (record.time - 1000)
                 assert.is_false(snoozeEnds and sentAt < snoozeEnds, at .. ": sent while snoozed: " .. record.text)
                 assert.is_false(not enabledBefore and not m.enabled, at .. ": sent while off: " .. record.text)
-                local kind, first = record.text:match("^(%u%u) (%a+)$")
+                local kind, first = record.text:match("^(%u%u) (%a+)[ %a]*$")
                 local who = first and BY_FIRST[first]
                 if who then
                     assert.is_false(ignoredBefore[who] == true and m.ignored[who] == true,
