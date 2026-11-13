@@ -262,7 +262,7 @@ describe("the UI simulator's Buff Back names", function()
 
     it("answers no panel to scroll with a message, not a Lua error (black, #254)", function()
         _G.FriendlyForeverOptionsPanel = nil
-        local ok, undo, why = pcall(Pages.ScrollToBottom)
+        local ok, undo, why = pcall(Pages.ScrollToRow, Pages.LOWER_ROW)
         assert.is_true(ok)
         assert.is_nil(undo)
         assert.is_truthy(why)
@@ -303,32 +303,62 @@ describe("the UI simulator's walkthrough steps", function()
         assert.are.equal("buffBack", ns.Options.CurrentType(), "the last step shot is on the Buff Back tab")
     end)
 
-    it("scrolls the Buff Back tab to the bottom for its lower shot, and the undo puts the scroll back (white, #254)", function()
-        -- The simulated panel has no tab buttons to click: open the tab as the walkthrough does.
-        ns.Options.OpenTab("buffBack")
+    -- The simulated client has no child lists, layout or ranges: this gives
+    -- the options panel a scroll frame holding the real group versions check
+    -- box, 700 px down a 2000 px child, in a 600 px view.
+    local function Layout()
         local scroll = ns.Options.widgets.scroll
-        scroll:SetVerticalScroll(0)
-        -- The simulated client has no child lists or layout: give the panel its scroll frame, and the frame a range.
-        scroll.scrollRange = 300
-        scroll.GetScrollChild = function() return ns.Options.widgets.content end
+        local content = ns.Options.widgets.content
+        local row = ns.Options.widgets.groupVersions
+        scroll.scrollRange = 1500
+        scroll.GetHeight = function() return 600 end
+        scroll.GetScrollChild = function() return content end
+        content.GetHeight = function() return 2000 end
+        content.GetTop = function() return 1000 end
+        content.GetChildren = function() return row end
+        content.GetRegions = function() return end
+        row.GetTop = function() return 1000 - 700 end
         _G.FriendlyForeverOptionsPanel.GetChildren = function() return scroll end
-        local undo = Pages.ScrollToBottom()
-        local range = scroll:GetVerticalScrollRange()
-        assert.are.equal(300, range)
-        assert.are.equal(range, scroll:GetVerticalScroll())
+        return scroll, row
+    end
+
+    it("scrolls the Buff Back tab to its group versions row for the lower shot, and the undo puts the scroll back (white, #254)", function()
+        ns.Options.OpenTab("buffBack")
+        local scroll = Layout()
+        scroll:SetVerticalScroll(40)
+        local undo = Pages.ScrollToRow(Pages.LOWER_ROW)
+        assert.are.equal(700 - 12, scroll:GetVerticalScroll())
         undo()
-        assert.are.equal(0, scroll:GetVerticalScroll())
+        assert.are.equal(40, scroll:GetVerticalScroll())
+    end)
+
+    it("keeps the offset inside the child less the view, and inside the range (black, #254)", function()
+        ns.Options.OpenTab("buffBack")
+        local scroll, row = Layout()
+        row.GetTop = function() return 1000 - 1900 end
+        Pages.ScrollToRow(Pages.LOWER_ROW)
+        assert.are.equal(1400, scroll:GetVerticalScroll(), "the child's 2000 less the view's 600")
+        scroll.scrollRange = 900
+        Pages.ScrollToRow(Pages.LOWER_ROW)
+        assert.are.equal(900, scroll:GetVerticalScroll(), "the range, where it is smaller")
+    end)
+
+    it("names no row it can't find, with a message and no Lua error (black, #254)", function()
+        ns.Options.OpenTab("buffBack")
+        Layout()
+        local ok, undo, why = pcall(Pages.ScrollToRow, "No such row")
+        assert.is_true(ok)
+        assert.is_nil(undo)
+        assert.is_truthy(why)
+        assert.are.equal(why, printed[#printed])
     end)
 
     it("shows the lower Buff Back tab from the tab's own script, with the buffs named (white, #254)", function()
-        _G.A_Print = function() end -- OpenTab's message: the simulated panel has no tab buttons
-        local scroll = ns.Options.widgets.scroll
-        scroll.scrollRange = 300
-        scroll.GetScrollChild = function() return ns.Options.widgets.content end
-        _G.FriendlyForeverOptionsPanel.GetChildren = function() return scroll end
+        ns.Options.OpenTab("buffBack")
+        local scroll = Layout()
         local undo = Pages.ShowTabLower("buff-back")
         assert.is_function(undo)
-        assert.are.equal(300, scroll:GetVerticalScroll())
+        assert.are.equal(700 - 12, scroll:GetVerticalScroll())
         assert.are.equal("Blessing of Wisdom", _G.C_Spell.GetSpellName(19742))
     end)
 
