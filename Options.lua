@@ -31,7 +31,7 @@ Options.START_HEIGHT = 560
 Options.LEDGER_PAGE = "FriendlyForeverLedgerPage"
 
 -- How to thank someone who buffs you, and what to do when that can't reach
--- them (#101), in the order each button cycles.
+-- them (#101), in the order each dropdown lists them (#274).
 Options.THANK_STYLES = { "message", "whisper", "emote", "both" }
 Options.THANK_STYLE_TEXT = {
     message = "a line in /say",
@@ -47,14 +47,6 @@ Options.FALLBACK_TEXT = {
     none = "do nothing",
 }
 
--- The next entry after current in list (the first, after the last or an unknown one).
-local function NextIn(list, current)
-    for i, value in ipairs(list) do
-        if value == current then return list[i % #list + 1] end
-    end
-    return list[1]
-end
-
 local function Label(parent, text, font)
     local fs = parent:CreateFontString(nil, "ARTWORK", font or "GameFontHighlight")
     fs:SetText(text)
@@ -68,6 +60,63 @@ local function Button(parent, text, width, onClick)
     b:SetText(text)
     b:SetScript("OnClick", onClick)
     return b
+end
+
+-- A dropdown listing every choice (#274). It is built from the same buttons
+-- as the rest of the options, so it works wherever they do: the game's own
+-- dropdown menus are left out, as they are known to taint other UI. The
+-- button shows the current choice and opens the list below it; picking a row
+-- (or clicking anywhere else, or hiding the button) closes it. order lists
+-- the saved values, texts says how each reads. get() returns the saved
+-- value (anything damaged reads as the first, the default); pick(value)
+-- saves the chosen one.
+local ARROW = "Interface\\Buttons\\Arrow-Down-Up"
+local function Dropdown(parent, order, texts, width, get, pick)
+    local dd = Button(parent, texts[order[1]], width, nil)
+    local text = dd:GetFontString()
+    text:ClearAllPoints()
+    text:SetPoint("LEFT", dd, "LEFT", 8, 0)
+    text:SetPoint("RIGHT", dd, "RIGHT", -22, 0)
+    text:SetJustifyH("LEFT")
+    local arrow = dd:CreateTexture(nil, "OVERLAY")
+    arrow:SetTexture(ARROW)
+    arrow:SetSize(14, 14)
+    arrow:SetPoint("RIGHT", dd, "RIGHT", -6, 0)
+
+    local list = CreateFrame("Frame", nil, dd)
+    list:SetFrameStrata("DIALOG")
+    list:SetPoint("TOPLEFT", dd, "BOTTOMLEFT", 0, -2)
+    list:SetSize(width, 22 * #order)
+    list:Hide()
+    -- Behind the rows (made first): a click anywhere else closes the list.
+    local catcher = CreateFrame("Button", nil, list)
+    catcher:SetAllPoints(UIParent)
+    catcher:EnableMouse(true)
+    catcher:SetScript("OnClick", function() list:Hide() end)
+    list.catcher = catcher
+    dd.list, dd.rows = list, {}
+    for i, value in ipairs(order) do
+        local row = Button(list, texts[value], width, function()
+            list:Hide()
+            pick(value)
+        end)
+        row:SetPoint("TOPLEFT", list, "TOPLEFT", 0, -22 * (i - 1))
+        row.value = value
+        dd.rows[i] = row
+    end
+
+    -- The current choice on the button, and marked in the list.
+    function dd.Fill()
+        local current = get()
+        if texts[current] == nil then current = order[1] end
+        dd:SetText(texts[current])
+        for _, row in ipairs(dd.rows) do
+            if row.value == current then row:LockHighlight() else row:UnlockHighlight() end
+        end
+    end
+    dd:SetScript("OnClick", function() list:SetShown(not list:IsShown()) end)
+    dd:SetScript("OnHide", function() list:Hide() end)
+    return dd
 end
 
 -- Words shown when the mouse is over frame (kept on it as frame.tooltip).
@@ -538,8 +587,8 @@ local function Fill()
     if isBuff then
         widgets.listNames:SetChecked(cfg.listBuffNames)
         widgets.receipts:SetChecked(cfg.receipts)
-        widgets.thankStyle:SetText(Options.THANK_STYLE_TEXT[cfg.thankStyle])
-        widgets.fallback:SetText(Options.FALLBACK_TEXT[cfg.fallback])
+        widgets.thankStyle.Fill()
+        widgets.fallback.Fill()
         widgets.quiet:SetChecked(cfg.quietInCities)
         FillBox(widgets.unknownName, cfg.unknownName)
     end
@@ -735,23 +784,27 @@ function Options.Create()
     widgets.showInCities:SetPoint("TOPLEFT", widgets.sayLine, "BOTTOMLEFT", 0, -4)
 
     -- Row 4: thank them with a line in /say, a whisper, a /thank emote, or a
-    -- line and an emote (click to cycle).
+    -- line and an emote (a dropdown, #274).
     widgets.thankStyleLabel = Label(content, "Thank them with:")
     widgets.thankStyleLabel:SetPoint("TOPLEFT", widgets.listNames, "BOTTOMLEFT", 4, -10)
-    widgets.thankStyle = Button(content, Options.THANK_STYLE_TEXT.message, 220, function()
-        ns.db.buff.thankStyle = NextIn(Options.THANK_STYLES, ns.db.buff.thankStyle)
-        Options.Refresh()
-    end)
+    widgets.thankStyle = Dropdown(content, Options.THANK_STYLES, Options.THANK_STYLE_TEXT, 220,
+        function() return ns.db.buff.thankStyle end,
+        function(value)
+            ns.db.buff.thankStyle = value
+            Options.Refresh()
+        end)
     widgets.thankStyle:SetPoint("LEFT", widgets.thankStyleLabel, "RIGHT", 10, 0)
 
     -- Row 5: if that can't reach them (no name, or the whisper fails): a
     -- line in /say calling them the name in the box, a /thank, or nothing.
     widgets.fallbackLabel = Label(content, "If that can't reach them:")
     widgets.fallbackLabel:SetPoint("TOPLEFT", widgets.thankStyleLabel, "BOTTOMLEFT", 0, -16)
-    widgets.fallback = Button(content, Options.FALLBACK_TEXT.say, 160, function()
-        ns.db.buff.fallback = NextIn(Options.FALLBACKS, ns.db.buff.fallback)
-        Options.Refresh()
-    end)
+    widgets.fallback = Dropdown(content, Options.FALLBACKS, Options.FALLBACK_TEXT, 160,
+        function() return ns.db.buff.fallback end,
+        function(value)
+            ns.db.buff.fallback = value
+            Options.Refresh()
+        end)
     widgets.fallback:SetPoint("LEFT", widgets.fallbackLabel, "RIGHT", 10, 0)
     widgets.unknownName = TextBox(content, 100, Config.LIMITS.unknownName.maxBytes)
     widgets.unknownName:SetPoint("LEFT", widgets.fallback, "RIGHT", 10, 0)
