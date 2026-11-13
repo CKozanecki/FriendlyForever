@@ -85,7 +85,12 @@ describe("Level-up congratulations", function()
 
     describe("when it stays quiet", function()
         it("sends nothing for your own level-up", function()
-            party(nil, { 10, 20 })
+            -- Your own name also sits in a slot, so only "never track yourself" can keep this quiet.
+            party({ "Alex-Roberts", "Udders-Healz", "Me-Self" }, { 10, 20, 10 })
+            wow.addUnit("player", { name = "Me", surname = "Self", id = "Me-Self", level = 10 })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.fire("UNIT_LEVEL", "player")
+            wow.state.units.player.level = 11 -- the real level-up
             wow.fire("UNIT_LEVEL", "player")
             ns.LevelUps.OnUnitLevel("player")
             wow.advance(10)
@@ -351,6 +356,7 @@ describe("Level-up congratulations", function()
             random.seed(273)
             local names = { "Alex-Roberts", "Udders-Healz", "Bob-Smith", "Cid-Jones" }
             local checked, lastAt = 0, {}
+            local reached = { raid = 0, pvp = 0, afk = 0 }
             -- Checked against the client's own state, a second at a time, so
             -- the state that held when a line went out is the one read here.
             local function step(seconds)
@@ -385,6 +391,12 @@ describe("Level-up congratulations", function()
                     wow.setGroup(kind, members)
                     for i = 1, count do
                         wow.state.units[(kind == "raid" and "raid" or "party") .. i].level = random.random(1, 60)
+                        if kind == "raid" then
+                            -- In the game a raid's subgroup still answers to party1-4.
+                            local first, last = members[i]:match("^([^%-]+)%-(.+)$")
+                            wow.addUnit("party" .. i, { name = first, surname = last, id = members[i],
+                                level = random.random(1, 60) })
+                        end
                     end
                     wow.fire("GROUP_ROSTER_UPDATE")
                 elseif roll == 2 then
@@ -396,6 +408,12 @@ describe("Level-up congratulations", function()
                     local slot = "party" .. random.random(4)
                     if wow.state.units[slot] then
                         wow.levelUp(slot, random.random(1, 61))
+                        local s2 = wow.state
+                        if s2.groupType == "raid" then reached.raid = reached.raid + 1 end
+                        if s2.inInstance and (s2.instanceType == "pvp" or s2.instanceType == "arena") then
+                            reached.pvp = reached.pvp + 1
+                        end
+                        if s2.afk then reached.afk = reached.afk + 1 end
                     else
                         wow.fire("UNIT_LEVEL", slot)
                     end
@@ -404,6 +422,27 @@ describe("Level-up congratulations", function()
             end
             step(60)
             assert.is_true(checked > 0, "the storm never sent anything, so it proved nothing")
+            -- It must also have reached the quiet cases it checks.
+            assert.is_true(reached.raid > 0, "no level-up reached the storm's raid")
+            assert.is_true(reached.pvp > 0, "no level-up reached the storm's battleground or arena")
+            assert.is_true(reached.afk > 0, "no level-up reached the storm while AFK")
+        end)
+    end)
+
+    describe("a reload in a party (white)", function()
+        it("congratulates a member's first level-up even with no roster update after the reload", function()
+            ns = wow.boot({ before = function(state)
+                state.isLeader = true
+                wow.setGroup("party", { "Alex-Roberts", "Udders-Healz" })
+                wow.state.units.party1.level = 10
+                wow.state.units.party2.level = 20
+            end })
+            ns.db.levelUp.messages = { ns.CasualMessages.levelUp[1] }
+            wow.fire("PLAYER_ENTERING_WORLD", false, true) -- a /reload, and no GROUP_ROSTER_UPDATE
+            wow.advance(ns.Announcer.LOGIN_GRACE)
+            wow.levelUp("party1", 11)
+            wow.advance(10)
+            assert.are.same({ "Congrats, Alex!" }, sentLines())
         end)
     end)
 
