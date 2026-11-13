@@ -1,4 +1,4 @@
--- Spec: #42, #209, #206, #256
+-- Spec: #42, #209, #206, #256, #269
 -- Top-up timing: in buff mode, a group member's buff with less than the set
 -- time left (default 5 minutes) counts as missing, so the button offers to
 -- top it up. Group members only, never strangers; a time that can't be read
@@ -196,6 +196,8 @@ describe("Top-up timing in buff mode (#42)", function()
 
         it("never tops up a stranger: buff back is unchanged", function()
             boot({ buffMode = false, party = {} })
+            -- Buff back's own renewal (#269) off, so only top-up timing could reach him.
+            ns.db.buffBack.renewPercent = 0
             wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", class = "WARRIOR", id = "Bob-Stone" })
             wow.wearBuff("nameplate1", MOTW, { duration = HALF_HOUR, source = "player" })
             wow.state.units.nameplate1.auraExpires[1] = wow.now + 30

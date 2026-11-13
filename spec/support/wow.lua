@@ -75,8 +75,28 @@ local function guardProtected(frame, what)
     if frame.protected and M.state.inCombat then error(what .. " on a protected frame in combat") end
 end
 function methods:Show() guardProtected(self, "Show"); self.shown = true end
-function methods:Hide() guardProtected(self, "Hide"); self.shown = false end
-function methods:SetShown(on) guardProtected(self, "SetShown"); self.shown = on and true or false end
+-- Hiding a shown frame runs its OnHide, and that of every visible frame below
+-- it (#274; see ASSUMPTIONS). Showing runs no OnShow here: the panels fill
+-- themselves through their own calls, as these specs always did.
+local function setShown(self, on)
+    local was = self.shown
+    self.shown = on
+    if was and not on then
+        if self.scripts.OnHide then self.scripts.OnHide(self) end
+        -- Every shown frame below it, at any depth (its parents shown or not
+        -- is decided by the frame itself: a hidden one runs nothing).
+        for _, f in ipairs(M.frames) do
+            local p, below = f.parent, false
+            while type(p) == "table" do
+                if p == self then below = true break end
+                p = p.parent
+            end
+            if below and f.shown and f.scripts.OnHide then f.scripts.OnHide(f) end
+        end
+    end
+end
+function methods:Hide() guardProtected(self, "Hide"); setShown(self, false) end
+function methods:SetShown(on) guardProtected(self, "SetShown"); setShown(self, on and true or false) end
 function methods:SetAttribute(key, value)
     guardProtected(self, "SetAttribute")
     self.attributes = self.attributes or {}
@@ -87,6 +107,11 @@ function methods:RegisterForClicks(...) self.clicks = { ... } end
 function methods:SetAlpha(a) self.alpha = a end
 function methods:GetAlpha() return self.alpha or 1 end
 function methods:IsShown() return self.shown end
+-- The parent frame, or nil. (A string in .parent is the old options API's
+-- parent category name, not a frame.)
+function methods:GetParent()
+    if type(self.parent) == "table" then return self.parent end
+end
 -- Visible = shown, and every parent shown too. (A string in .parent is the
 -- old options API's parent category name, not a frame.)
 function methods:IsVisible()
@@ -102,8 +127,19 @@ end
 -- which for the ASCII the specs use is the same.
 function methods:SetMaxLetters(n) self.maxLetters = n end
 function methods:GetMaxLetters() return self.maxLetters or 0 end
+-- A button's text line, as the button templates have: created on first use,
+-- and always showing the button's text (#274).
+function methods:GetFontString()
+    if self.kind ~= "Button" and self.kind ~= "CheckButton" then return nil end
+    if not self.fontString then
+        self.fontString = M.newFrame("FontString", nil, self)
+        self.fontString.text = self.text
+    end
+    return self.fontString
+end
 function methods:SetText(text)
     self.text = tostring(text)
+    if self.fontString then self.fontString.text = self.text end
     if self.maxLetters and self.maxLetters > 0 then self.text = self.text:sub(1, self.maxLetters) end
     self.cursor = #self.text -- the game moves an edit box's cursor to the end
 end
@@ -124,6 +160,9 @@ function methods:ClearFocus()
     if self.scripts.OnEditFocusLost then self.scripts.OnEditFocusLost(self) end
 end
 function methods:GetText() return self.text end
+-- LockHighlight keeps a button looking hovered (#274).
+function methods:LockHighlight() self.highlightLocked = true end
+function methods:UnlockHighlight() self.highlightLocked = false end
 function methods:SetChecked(on) self.checked = on and true or false end
 function methods:GetChecked() return self.checked end
 function methods:SetEnabled(on) self.enabled = on and true or false end
@@ -133,10 +172,12 @@ function methods:Click(mouseButton)
     if self.enabled and self.scripts.OnClick then self.scripts.OnClick(self, mouseButton or "LeftButton") end
 end
 function methods:IsEnabled() return self.enabled end
-function methods:SetSize(w, h) self.width, self.height = w, h end
-function methods:SetWidth(w) self.width = w end
-function methods:SetHeight(h) self.height = h end
+-- A protected frame's size is locked in combat too (#270).
+function methods:SetSize(w, h) guardProtected(self, "SetSize"); self.width, self.height = w, h end
+function methods:SetWidth(w) guardProtected(self, "SetWidth"); self.width = w end
+function methods:SetHeight(h) guardProtected(self, "SetHeight"); self.height = h end
 function methods:GetWidth() return self.width or 0 end
+function methods:GetHeight() return self.height or 0 end
 function methods:GetCenter() return self.centerX or 0, self.centerY or 0 end
 function methods:GetTop() return self.top end
 function methods:GetRight() return self.right end
@@ -208,6 +249,14 @@ function methods:SetOwner(owner) self.owner, self.lines = owner, {} end
 M.CHAR_WIDTH = {
     GameFontNormal = 7, GameFontHighlight = 7, GameFontNormalLarge = 9,
     GameFontNormalSmall = 6, GameFontHighlightSmall = 6,
+}
+
+-- A line of text is this many pixels tall in each font (#270): the game's
+-- fonts are about 10 to 12 pixels for the small ones, so these are at the
+-- tall end. Real heights: see ASSUMPTIONS.
+M.LINE_HEIGHT = {
+    GameFontNormal = 14, GameFontHighlight = 14, GameFontNormalLarge = 17,
+    GameFontNormalSmall = 12, GameFontHighlightSmall = 12,
 }
 
 local function plainText(text)
@@ -391,6 +440,17 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 -- right before launch (#208), and the [@player] cast added since (#198),
 -- which is unconfirmed: #213. The simulation stays as it is, as a record of
 -- what it models.
+--   Settings pages (#267, confirmed in game by the owner, 1.1.0): a shown frame
+--                         with no parent counts as visible (IsVisible true),
+--                         and our pages have no parent until the Settings
+--                         window adopts them. The addon hides each page when
+--                         it creates it, so none fires OnShow until the window
+--                         shows it (a frame already visible fires none: not
+--                         confirmed for the first take-in: #289).
+--                         Settings.OpenToCategory here adopts the page
+--                         (parent = wow.settings.window), shows it, runs its
+--                         OnShow if it was hidden, and hides the page shown
+--                         before.
 --   state.targetNameForm  how /target and /targetexact spell a two-part
 --                         name: "space" ("Nikki Shifts", default) or "hyphen"
 --   state.sentTargetForm  what UNIT_SPELLCAST_SENT gives as the target:
@@ -409,6 +469,11 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         for mouse clicks; the addon re-arms on both halves)
 --   Text emotes need no key press (owner, in game, 2026-11-09: #236); only
 --                         /say and /yell do (see PerformEmote).
+--   A press of a button (M.press, and so a key or the wheel bound to it) is
+--                         one hardware event, its PreClick and PostClick
+--                         included: /say may go from either half (#271).
+--                         A click from code (Button:Click) is none.
+--                         UNCONFIRMED in game: #275 says how to check it.
 --   state.errorBeforeFailed  a refused cast's error text (UI_ERROR_MESSAGE)
 --                         comes before UNIT_SPELLCAST_FAILED instead of after
 --                         (default false); the addon accepts either order
@@ -443,6 +508,12 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         likewise for its group role and Main Tank assignment;
 --                         auraTimes for its buffs' duration and expirationTime
 --                         alone (the buffs themselves readable).
+--   Level-ups (#273): UNIT_LEVEL is assumed to fire for party1..4 with that
+--                         unit token when a member levels up (unit.level is
+--                         what UnitLevel answers). Not yet confirmed in game:
+--                         see quality issue #291. The test
+--                         helper wow.levelUp(token, level) sets the level and
+--                         fires it; unit.secrets.level makes UnitLevel a secret.
 --   A group member's buff times (#42): unit.auraDurations[i] and
 --                         unit.auraExpires[i] (GetTime() clock; 0: never runs
 --                         out) give aura i's duration and expirationTime. Unset,
@@ -496,6 +567,13 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         "…". Pinned on one side, it grows to fit its text.
 --                         Widths come from M.CHAR_WIDTH (a little wide on
 --                         purpose); real fonts: confirmed in game at launch.
+--                         A line of text is M.LINE_HEIGHT tall for its font
+--                         (#270), as tall as the buff button allows for one;
+--                         the game's line heights and how far its wrapped
+--                         text reaches: to check in game, #277.
+--   A protected frame's size (SetSize, SetWidth, SetHeight) is locked in
+--                         combat, like showing it (the game's rule for
+--                         secure frames).
 --   Addon messages (#32): C_ChatInfo.RegisterAddonMessagePrefix and
 --                         SendAddonMessage answer with the 10.2.7+ result codes
 --                         (Enum.*Result). The game's throttle is a burst of 10
@@ -587,6 +665,18 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         find the name on its own next check. What Forever's
 --                         UnitName returns for a member still loading is
 --                         confirmed in game at launch.
+--   Hide runs OnHide for the frame and every visible frame below it, as the
+--                         game does when a shown frame is hidden (#274). The
+--                         options dropdown closes its list that way. A frame
+--                         already hidden runs nothing. Show runs no OnShow
+--                         here. A button's text line (GetFontString, as the
+--                         button templates have) mirrors its text, and
+--                         LockHighlight records itself (highlightLocked);
+--                         both are standard template behaviour. The
+--                         dropdown's arrow, Interface\Buttons\Arrow-Down-Up,
+--                         is a texture the client has had since Classic
+--                         Era; its look is not checked here: #283
+--                         asks for one look in game.
 --   state.settingsSearch  the Settings panel's search (#48): nil (default,
 --                         the pessimistic choice) is a client without
 --                         Settings.RegisterVerticalLayoutSubcategory or
@@ -1220,6 +1310,9 @@ function M.reset()
     _G.UnitFullName = function(unit) return unitField(unit, "name"), unitField(unit, "surname") end
     _G.GetUnitName = function(unit) return unitField(unit, "name") end
     _G.UnitIsPlayer = function(unit) return unitField(unit, "isPlayer") end
+    -- unit.level (#273): what UnitLevel answers for that unit; nobody has one
+    -- until a test gives it. unit.secrets.level makes it a secret.
+    _G.UnitLevel = function(unit) return unitField(unit, "level") end
     _G.UnitIsUnit = restricted(function(a, b)
         local ua, ub = resolveUnit(a), resolveUnit(b)
         local same = ua ~= nil and ub ~= nil and ua.id == ub.id
@@ -1617,7 +1710,30 @@ function M.reset()
             M.settings.subcategories[#M.settings.subcategories + 1] = sub
             return sub
         end,
-        OpenToCategory = function(id) M.settings.opened = id end,
+        -- Opening adopts the page into the Settings window and shows it, as
+        -- the game does (#267, see ASSUMPTIONS): until then a page has no
+        -- parent. The page's OnShow runs, as Show does in the game.
+        OpenToCategory = function(id)
+            M.settings.opened = id
+            local target
+            for _, c in ipairs(M.settings.categories) do
+                if c:GetID() == id then target = c end
+            end
+            for _, c in ipairs(M.settings.subcategories) do
+                if c:GetID() == id then target = c end
+            end
+            local page = target and target.panel
+            if not page then return end
+            M.settings.window = M.settings.window or M.newFrame("Frame", "SettingsPanel")
+            M.settings.window.shown = true
+            if M.settings.page and M.settings.page ~= page then M.settings.page.shown = false end
+            local wasVisible = page:IsVisible()
+            page.parent = M.settings.window
+            page.shown = true
+            M.settings.page = page
+            -- OnShow runs only when the page goes from hidden to visible.
+            if not wasVisible and page.scripts.OnShow then page.scripts.OnShow(page) end
+        end,
     }
     _G.CreateSettingsListSectionHeaderInitializer = nil
     -- The addon drop-down under the minimap. state.noCompartment: this client has none.
@@ -1713,6 +1829,8 @@ end
 -- opts.db: saved variables to start with. opts.noGrace: stop after login.
 -- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
 -- opts.buffDefaults: keep who gets Wisdom, Might and Thorns at their defaults (#219, see below).
+-- opts.settingsClosed: keep the settings pages unopened, as in the game until
+-- the player opens them (#267, see below).
 -- opts.buffSelf: keep buff mode offering your own copy of your buffs (#198).
 -- opts.walkthrough: keep a first install's walkthrough (see below).
 -- opts.afterLoad: called with the addon's namespace once its files are
@@ -1803,7 +1921,31 @@ function M.boot(opts)
     end
     M.fire("PLAYER_ENTERING_WORLD", true, false)
     if not opts.noGrace then M.advance(ns.Announcer.LOGIN_GRACE) end
+    -- A page nobody has opened has no parent and, parentless, counts as
+    -- visible (#267), but the addon fills only pages the player is looking
+    -- at. Most specs check what the settings show, so they start with every
+    -- page adopted by the Settings window, as when it's open. Pass
+    -- opts.settingsClosed for the game's state before the first open.
+    if not opts.settingsClosed then
+        M.adoptSettingsPages()
+        ns.Options.Refresh()
+    end
     return ns
+end
+
+-- Every page the addon registered, put in the Settings window and shown
+-- (the game shows only one at a time: Settings.OpenToCategory does that).
+function M.adoptSettingsPages()
+    M.settings.window = M.settings.window or M.newFrame("Frame", "SettingsPanel")
+    M.settings.window.shown = true
+    local function adopt(entry)
+        if entry.panel then
+            entry.panel.parent = M.settings.window
+            entry.panel.shown = true
+        end
+    end
+    for _, c in ipairs(M.settings.categories) do adopt(c) end
+    for _, c in ipairs(M.settings.subcategories) do adopt(c) end
 end
 
 ------------------------------------------------------------------------
@@ -1837,6 +1979,14 @@ M.ELWYNN = 1429
 function M.setMap(id, opts)
     M.state.mapId = id
     if not (opts and opts.silent) then M.fire("ZONE_CHANGED_NEW_AREA") end
+end
+
+-- A group member reaches level (#273): their level changes, then UNIT_LEVEL
+-- fires for their unit token, as assumed above.
+function M.levelUp(token, level)
+    local u = assert(M.state.units[token], "no unit " .. tostring(token))
+    u.level = level
+    M.fire("UNIT_LEVEL", token)
 end
 
 function M.systemMessage(text)

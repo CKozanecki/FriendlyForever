@@ -1,4 +1,4 @@
--- Spec: #52, #58, #80, #101, #112, #47
+-- Spec: #52, #58, #80, #101, #112, #47, #274
 -- The options added with 0.8.0: thank style, loading a line set, and the
 -- General and Favour Ledger pages.
 local wow = require("spec.support.wow")
@@ -27,21 +27,18 @@ describe("Options", function()
     end)
 
     describe("message tabs", function()
-        it("cycles how buff thanks are given, shown on the buff tab only", function()
+        it("lets the player pick how buff thanks are given, on the buff tab only", function()
             wow.run(w.tabs.guildLogin, "OnClick")
             assert.is_false(w.thankStyle:IsShown())
             wow.run(w.tabs.buff, "OnClick")
             assert.is_true(w.thankStyle:IsShown())
             assert.are.equal(ns.Options.THANK_STYLE_TEXT.message, w.thankStyle:GetText())
-            wow.run(w.thankStyle, "OnClick")
-            assert.are.equal("whisper", ns.db.buff.thankStyle)
-            wow.run(w.thankStyle, "OnClick")
-            assert.are.equal("emote", ns.db.buff.thankStyle)
-            assert.are.equal(ns.Options.THANK_STYLE_TEXT.emote, w.thankStyle:GetText())
-            wow.run(w.thankStyle, "OnClick")
-            assert.are.equal("both", ns.db.buff.thankStyle)
-            wow.run(w.thankStyle, "OnClick")
-            assert.are.equal("message", ns.db.buff.thankStyle)
+            for i, value in ipairs(ns.Options.THANK_STYLES) do
+                wow.run(w.thankStyle, "OnClick")
+                wow.run(w.thankStyle.rows[i], "OnClick")
+                assert.are.equal(value, ns.db.buff.thankStyle)
+                assert.are.equal(ns.Options.THANK_STYLE_TEXT[value], w.thankStyle:GetText())
+            end
         end)
 
         -- The tabs' rows are on the panel's scrolling content, which takes

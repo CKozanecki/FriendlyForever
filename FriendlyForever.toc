@@ -39,6 +39,7 @@ GuildHellos.lua
 Parser.lua
 Announcer.lua
 Greeter.lua
+LevelUps.lua
 BuffTracker.lua
 Window.lua
 BuffButton.lua

@@ -525,9 +525,49 @@ States.AlreadyDone = {
     end,
 }
 
+-- A long reason the button shows (#270; the specs try every length): buff
+-- mode, alone, and a favour owed to a player with a long name whose PvP flag the game won't
+-- read (UnitIsPVP answers nothing for anyone but you while this is set):
+-- "<name>: can't see whether they're flagged for PvP (target them, or show
+-- friendly nameplates); you're not in a group". Undo puts UnitIsPVP back,
+-- which arms the favour, and lets it go with a right-click.
+States.LONGSTRANGER = "Wolfgangamad Featherstonx"
+local savedPVP
+States.LongReason = {
+    Set = function()
+        States.PassLoginGrace()
+        States.Learn()
+        States.Party(nil)
+        savedPVP = savedPVP or { fn = _G.UnitIsPVP }
+        local real = savedPVP.fn
+        _G.UnitIsPVP = function(unit, ...)
+            if unit == "player" and real then return real(unit, ...) end
+            return nil
+        end
+        States.Target(States.LONGSTRANGER)
+        States.BuffedBy("target")
+        Command("buffmode on")
+    end,
+    Undo = function()
+        if InCombatLockdown() then States.Combat(false) end
+        if savedPVP then
+            _G.UnitIsPVP = savedPVP.fn
+            savedPVP = nil
+        end
+        Command("buffmode off") -- re-arms the button, now the flag can be read
+        local button = States.Button()
+        if button and States.MacroTarget() == States.LONGSTRANGER then button:Click("RightButton") end
+        States.RestoreParty()
+        States.Unbuff()
+        States.Target(nil)
+        States.Unlearn()
+        States.Advance(States.RESULT_SECONDS)
+    end,
+}
+
 -- For the screenshot job: set a state up and leave it.
 local SHOWN = { favour = States.Favour, buffmode = States.GroupMissing, bufflist = States.ListFilled,
-    buffgroup = States.ListGroupCast, alreadydone = States.AlreadyDone }
+    buffgroup = States.ListGroupCast, alreadydone = States.AlreadyDone, longreason = States.LongReason }
 function States.Show(name)
     local state = SHOWN[name]
     if not state then error("no button state called " .. tostring(name)) end

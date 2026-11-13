@@ -34,6 +34,7 @@ Config.LIMITS = {
     repeatCooldown = { min = 0, max = 3600 },  -- seconds
     unknownName    = { maxBytes = 24 },
     owedMinutes    = { min = 1, max = 60 },  -- how long a favour stays on the buff-back button
+    renewPercent   = { min = 0, max = 90 },  -- buff back renews your buff on them under this % of its time left (#269)
     autoOffMinutes = { min = 0, max = 30 },  -- buff mode a trigger turned on ends after this (0: never)
     topUpMinutes   = { min = 0, max = 15 },  -- a group member's buff with less left counts as missing (0: never)
     groupEnough    = { min = 1, max = 40 },  -- members missing a buff before its group version is offered (#41)
@@ -42,13 +43,26 @@ Config.LIMITS = {
 }
 
 -- Order of message types (also the order of the options tabs).
-Config.TYPES = { "guildLogin", "buff", "guildJoin", "partyJoin", "partyHello", "partyHelloAgain", "buffBack" }
+Config.TYPES = { "guildLogin", "buff", "guildJoin", "partyJoin", "partyHello", "partyHelloAgain", "levelUp",
+    "buffBack" }
+
+-- The name placeholders for a message type's player: guild greetings name
+-- the whole name in {name} too, since many players use their first name as
+-- a title (owner, #281); every other type keeps {name} as the first name.
+function Config.NameVars(msgType, fullName)
+    local vars = ns.Util.NameVars(fullName)
+    local info = Config.TYPE_INFO[msgType]
+    if info and info.wholeName then vars.name = vars.fullname end
+    return vars
+end
 
 Config.TYPE_INFO = {
     guildLogin = {
         label   = "Guild Login",
         channel = "Guild chat",
-        help    = "Greets guild members when they come online. Placeholders: {name} (first name), {fullname}",
+        help    = "Greets guild members when they come online. "
+            .. "Placeholders: {name} and {fullname}, both the whole name",
+        wholeName = true,
     },
     buff = {
         label   = "Buff Thanks",
@@ -58,7 +72,8 @@ Config.TYPE_INFO = {
     guildJoin = {
         label   = "Guild Join",
         channel = "Guild chat",
-        help    = "Welcomes new members who join the guild. Placeholders: {name} (first name), {fullname}",
+        help    = "Welcomes new members who join the guild. Placeholders: {name} and {fullname}, both the whole name",
+        wholeName = true,
     },
     partyJoin = {
         label   = "Party Join",
@@ -75,6 +90,12 @@ Config.TYPE_INFO = {
         label   = "Hello Again",
         channel = "Party chat",
         help    = "Said instead of Party Hello when you rejoin a group (same leader) this session.",
+    },
+    levelUp = {
+        label   = "Level Up",
+        channel = "Party chat",
+        help    = "Congratulates a party member who levels up (not in raids, battlegrounds or arenas). "
+            .. "Placeholders: {name} (first name), {fullname}",
     },
     -- Queued only once a buff-back is confirmed (each favour is returned once),
     -- so it has no delay or repeat cooldown of its own.
@@ -150,12 +171,24 @@ Config.DEFAULTS = {
         repeatCooldown = 30,
         messages = DefaultMessages.partyHelloAgain,
     },
+    -- Congratulates a party member who levels up (LevelUps.lua, #273). The
+    -- repeat cooldown is per player: a second level-up inside it is skipped.
+    levelUp = {
+        enabled = true,
+        delay = 3,
+        repeatCooldown = 60,
+        messages = DefaultMessages.levelUp,
+    },
     -- enabled: offer to buff back (show the button). sayLine: say a line once
     -- the buff lands. No delay or repeat cooldown: one line per favour returned.
     buffBack = {
         enabled = true,
         sayLine = false,
         owedMinutes = 10,
+        -- Buff back (Offers.lua, #269): your buff they already wear, with
+        -- under this percent of its full time left, counts as missing, so
+        -- you renew it. 0: only once it's gone.
+        renewPercent = 70,
         unlocked = false,
         -- Show the button in capital cities (Cities.lua); buff mode always does.
         showInCities = false,
@@ -275,6 +308,7 @@ Config.FIELD_VALIDATORS = {
     delay = Limited("delay"),
     repeatCooldown = Limited("repeatCooldown"),
     owedMinutes = Limited("owedMinutes"),
+    renewPercent = Limited("renewPercent"),
     maxGreeters = Limited("maxGreeters"),
     thankStyle = function(value, default) return Config.THANK_STYLES[value] and value or default end,
     fallback = function(value, default) return Config.FALLBACKS[value] and value or default end,

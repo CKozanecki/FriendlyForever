@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256
+-- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -6,6 +6,49 @@ local MOTW, MOTW_1 = 9885, 1126
 local MACRO = "/targetexact Ann Stone\n/cast [help,nodead] Mark of the Wild"
 
 describe("The simulated client", function()
+    describe("hiding and button text (#274, white)", function()
+        it("Hide runs OnHide for a shown frame and the shown frames below it, and for no hidden one", function()
+            local ran = {}
+            local parent = CreateFrame("Frame")
+            local child, hiddenChild = CreateFrame("Frame", nil, parent), CreateFrame("Frame", nil, parent)
+            for name, f in pairs({ parent = parent, child = child, hiddenChild = hiddenChild }) do
+                f:SetScript("OnHide", function() ran[#ran + 1] = name end)
+            end
+            hiddenChild:Hide()
+            ran = {}
+            parent:Hide()
+            table.sort(ran)
+            assert.are.same({ "child", "parent" }, ran)
+            ran = {}
+            parent:Hide()
+            parent:SetShown(false)
+            assert.are.same({}, ran)
+        end)
+
+        it("Hide reaches frames at any depth below, not only the children", function()
+            local ran = 0
+            local top = CreateFrame("Frame")
+            local deep = CreateFrame("Frame", nil, CreateFrame("Frame", nil, top))
+            deep:SetScript("OnHide", function() ran = ran + 1 end)
+            top:Hide()
+            assert.are.equal(1, ran)
+        end)
+
+        it("a button's text line shows the button's text, and LockHighlight records itself", function()
+            local button = CreateFrame("Button", nil, UIParent, "UIPanelButtonTemplate")
+            button:SetText("one")
+            local line = button:GetFontString()
+            assert.are.equal("one", line:GetText())
+            button:SetText("two")
+            assert.are.equal("two", line:GetText())
+            assert.are.equal(line, button:GetFontString())
+            button:LockHighlight()
+            assert.is_true(button.highlightLocked)
+            button:UnlockHighlight()
+            assert.is_false(button.highlightLocked)
+        end)
+    end)
+
     -- A druid who knows Mark of the Wild, near Ann-Stone (not flagged for PvP)
     -- and Dot-Stone (flagged).
     before_each(function()
@@ -567,5 +610,55 @@ describe("The simulated client's group versions (#41)", function()
         wow.setGroup(nil, {})
         wow.advance(2)
         assert.are.same({}, wow.errors)
+    end)
+end)
+
+describe("The simulated client's frame sizes and line heights (#270)", function()
+    before_each(function() wow.boot() end)
+
+    local function secure() return _G.CreateFrame("Button", nil, _G.UIParent, "SecureActionButtonTemplate") end
+    local function plain() return _G.CreateFrame("Frame", nil, _G.UIParent) end
+    local SETTERS = {
+        SetSize = function(f) f:SetSize(100, 60) end,
+        SetWidth = function(f) f:SetWidth(100) end,
+        SetHeight = function(f) f:SetHeight(60) end,
+    }
+
+    it("refuses each size change to a protected frame in combat (black)", function()
+        local frame = secure()
+        wow.enterCombat()
+        for name, set in pairs(SETTERS) do
+            assert.has_error(function() set(frame) end, name .. " on a protected frame in combat", name)
+        end
+        wow.leaveCombat()
+    end)
+
+    it("allows them out of combat, and on a frame that isn't protected in combat (white)", function()
+        local frame, other = secure(), plain()
+        for name, set in pairs(SETTERS) do
+            assert.has_no.errors(function() set(frame) end, name)
+        end
+        wow.enterCombat()
+        for name, set in pairs(SETTERS) do
+            assert.has_no.errors(function() set(other) end, name)
+        end
+        wow.leaveCombat()
+    end)
+
+    it("reads back the height SetHeight or SetSize set, and 0 before either (white)", function()
+        local frame = plain()
+        assert.are.equal(0, frame:GetHeight())
+        frame:SetHeight(37)
+        assert.are.equal(37, frame:GetHeight())
+        frame:SetSize(10, 52)
+        assert.are.equal(52, frame:GetHeight())
+        assert.are.equal(10, frame:GetWidth())
+    end)
+
+    it("gives every font with a width a line height, at least as tall as the font is wide (white)", function()
+        for font, width in pairs(wow.CHAR_WIDTH) do
+            assert.is_number(wow.LINE_HEIGHT[font], font)
+            assert.is_true(wow.LINE_HEIGHT[font] >= width, font)
+        end
     end)
 end)

@@ -145,6 +145,7 @@ Pages.TABS = {
     { name = "party-join", label = "Party Join" },
     { name = "party-hello", label = "Party Hello" },
     { name = "hello-again", label = "Hello Again" },
+    { name = "level-up", label = "Level Up" },
     { name = "buff-back", label = "Buff Back" },
 }
 Pages.PANEL = "FriendlyForeverOptionsPanel"
