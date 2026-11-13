@@ -443,6 +443,12 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         likewise for its group role and Main Tank assignment;
 --                         auraTimes for its buffs' duration and expirationTime
 --                         alone (the buffs themselves readable).
+--   Level-ups (#273): UNIT_LEVEL is assumed to fire for party1..4 with that
+--                         unit token when a member levels up (unit.level is
+--                         what UnitLevel answers). Not yet confirmed in game:
+--                         see the quality issue filed with #273. The test
+--                         helper wow.levelUp(token, level) sets the level and
+--                         fires it; unit.secrets.level makes UnitLevel a secret.
 --   A group member's buff times (#42): unit.auraDurations[i] and
 --                         unit.auraExpires[i] (GetTime() clock; 0: never runs
 --                         out) give aura i's duration and expirationTime. Unset,
@@ -1220,6 +1226,9 @@ function M.reset()
     _G.UnitFullName = function(unit) return unitField(unit, "name"), unitField(unit, "surname") end
     _G.GetUnitName = function(unit) return unitField(unit, "name") end
     _G.UnitIsPlayer = function(unit) return unitField(unit, "isPlayer") end
+    -- unit.level (#273): what UnitLevel answers for that unit; nobody has one
+    -- until a test gives it. unit.secrets.level makes it a secret.
+    _G.UnitLevel = function(unit) return unitField(unit, "level") end
     _G.UnitIsUnit = restricted(function(a, b)
         local ua, ub = resolveUnit(a), resolveUnit(b)
         local same = ua ~= nil and ub ~= nil and ua.id == ub.id
@@ -1837,6 +1846,14 @@ M.ELWYNN = 1429
 function M.setMap(id, opts)
     M.state.mapId = id
     if not (opts and opts.silent) then M.fire("ZONE_CHANGED_NEW_AREA") end
+end
+
+-- A group member reaches level (#273): their level changes, then UNIT_LEVEL
+-- fires for their unit token, as assumed above.
+function M.levelUp(token, level)
+    local u = assert(M.state.units[token], "no unit " .. tostring(token))
+    u.level = level
+    M.fire("UNIT_LEVEL", token)
 end
 
 function M.systemMessage(text)

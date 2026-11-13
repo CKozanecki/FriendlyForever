@@ -51,10 +51,10 @@ function ns.RefreshEvents()
     end
 end
 
-local function Register(event, handler, unit)
+local function Register(event, handler, ...)
     handlers[event] = handler
-    if unit then
-        frame:RegisterUnitEvent(event, unit)
+    if (...) then
+        frame:RegisterUnitEvent(event, ...)
     else
         frame:RegisterEvent(event)
     end
@@ -70,7 +70,7 @@ function handlers.ADDON_LOADED(name)
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
         "BuffTable", "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
         "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "OptionsIndex", "Colours", "Walkthrough",
-        "BuffList", "GroupCasts", "RaidSplit" }) do
+        "BuffList", "GroupCasts", "RaidSplit", "LevelUps" }) do
         if ns[module] == nil then
             local text = "this update added files. Restart the game (not /reload) to finish updating."
             ns.Print(ns.Colours and ns.Colours.Text("bad", text) or text)
@@ -97,6 +97,7 @@ function handlers.ADDON_LOADED(name)
             ns.Profiles.OnLogin()
             ns.Announcer.OnEnteringWorld()
             ns.Greeter.OnEnteringWorld()
+            ns.LevelUps.OnGroupRosterUpdate()
             ns.Greeter.RequestRoster()
             ns.Walkthrough.OnLogin()
             -- After a reload in a raid, say what you give and hear the others'.
@@ -113,7 +114,11 @@ function handlers.ADDON_LOADED(name)
         ns.RaidSplit.OnRosterUpdate()
         ns.Options.Refresh() -- the raid Blessing boxes work only in a raid
         ns.Greeter.OnGroupRosterUpdate(...)
+        ns.LevelUps.OnGroupRosterUpdate()
     end)
+    -- A party member's level-up (LevelUps.lua, #273): party slots only, so
+    -- your own never reaches it.
+    Register("UNIT_LEVEL", ns.LevelUps.OnUnitLevel, "party1", "party2", "party3", "party4")
     -- Addon messages may be blocked in a long fight (docs/forever-facts.md):
     -- say what you give again as it ends, so the split is back for the rebuff.
     Register("PLAYER_REGEN_ENABLED", function() ns.RaidSplit.OnCombatEnd() end)

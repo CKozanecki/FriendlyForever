@@ -10,6 +10,7 @@ ns.Options = Options
 
 -- Room for the Buff Back tab's buff list, who gets each, and buff mode rows above its lines.
 Options.CONTENT_HEIGHT = 1940
+Options.TABS_PER_ROW = 4
 
 local panel, category, startPage, generalPage, ledgerPage
 local currentType = Config.TYPES[1]
@@ -643,20 +644,26 @@ function Options.Create()
     local labelWidth = widgets.skipAFK.label:GetStringWidth() or 0
     widgets.skipAFK:SetPoint("RIGHT", widgets.master, "LEFT", -(labelWidth + 16), 0)
 
-    local prev
-    for _, msgType in ipairs(Config.TYPES) do
+    -- Tabs wrap after Options.TABS_PER_ROW, so eight of them still fit the
+    -- panel's width (#273). The header hangs from the last row.
+    local prev, rowStart
+    for i, msgType in ipairs(Config.TYPES) do
         local tab = Button(content, Config.TYPE_INFO[msgType].label, 84, function() Options.SelectType(msgType) end)
-        if prev then
-            tab:SetPoint("LEFT", prev, "RIGHT", 6, 0)
-        else
+        if i == 1 then
             tab:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -14)
+            rowStart = tab
+        elseif (i - 1) % Options.TABS_PER_ROW == 0 then
+            tab:SetPoint("TOPLEFT", rowStart, "BOTTOMLEFT", 0, -4)
+            rowStart = tab
+        else
+            tab:SetPoint("LEFT", prev, "RIGHT", 6, 0)
         end
         widgets.tabs[msgType] = tab
         prev = tab
     end
 
     widgets.header = Label(content, "", "GameFontNormal")
-    widgets.header:SetPoint("TOPLEFT", widgets.tabs[Config.TYPES[1]], "BOTTOMLEFT", 0, -16)
+    widgets.header:SetPoint("TOPLEFT", rowStart, "BOTTOMLEFT", 0, -16)
     -- Wraps at the panel's right edge: the Buff Back tab's runs wider than
     -- the panel (#112). The rows below hang from it, so they move down.
     widgets.help = Label(content, "", "GameFontHighlightSmall")

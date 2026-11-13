@@ -42,7 +42,8 @@ Config.LIMITS = {
 }
 
 -- Order of message types (also the order of the options tabs).
-Config.TYPES = { "guildLogin", "buff", "guildJoin", "partyJoin", "partyHello", "partyHelloAgain", "buffBack" }
+Config.TYPES = { "guildLogin", "buff", "guildJoin", "partyJoin", "partyHello", "partyHelloAgain", "levelUp",
+    "buffBack" }
 
 Config.TYPE_INFO = {
     guildLogin = {
@@ -75,6 +76,12 @@ Config.TYPE_INFO = {
         label   = "Hello Again",
         channel = "Party chat",
         help    = "Said instead of Party Hello when you rejoin a group (same leader) this session.",
+    },
+    levelUp = {
+        label   = "Level Up",
+        channel = "Party chat",
+        help    = "Congratulates a party member who levels up (not in raids, battlegrounds or arenas). "
+            .. "Placeholders: {name} (first name), {fullname}",
     },
     -- Queued only once a buff-back is confirmed (each favour is returned once),
     -- so it has no delay or repeat cooldown of its own.
@@ -149,6 +156,14 @@ Config.DEFAULTS = {
         delay = 3,
         repeatCooldown = 30,
         messages = DefaultMessages.partyHelloAgain,
+    },
+    -- Congratulates a party member who levels up (LevelUps.lua, #273). The
+    -- repeat cooldown is per player: a second level-up inside it is skipped.
+    levelUp = {
+        enabled = true,
+        delay = 3,
+        repeatCooldown = 60,
+        messages = DefaultMessages.levelUp,
     },
     -- enabled: offer to buff back (show the button). sayLine: say a line once
     -- the buff lands. No delay or repeat cooldown: one line per favour returned.
