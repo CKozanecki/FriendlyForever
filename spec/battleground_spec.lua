@@ -1,4 +1,4 @@
--- Spec: #71, #32
+-- Spec: #71, #32, #290
 -- Battlegrounds: buffing in the preparation phase, then quiet until you
 -- leave or the battleground ends.
 local wow = require("spec.support.wow")
@@ -27,7 +27,7 @@ describe("Battlegrounds", function()
         ns = wow.boot({ db = db, autoBuffMode = true, before = function(state)
             state.class = "DRUID"
             state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
-            state.guildRoster = { "Thrall" }
+            state.guildRoster = { "Thrall", "Jaina", "Varian", "Anduin", "Sylvanas", "Rexxar" }
         end })
         wow.fire("GUILD_ROSTER_UPDATE")
         for _, msgType in ipairs(ns.Config.TYPES) do
@@ -43,8 +43,12 @@ describe("Battlegrounds", function()
         wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
     end
 
-    local function guildmateLogsIn()
-        wow.systemMessage("|Hplayer:Thrall|h[Thrall]|h has come online.")
+    -- Several guildmates, so the chaos run's hellos aren't all held back by
+    -- the 30 minute no-regreet window for one name (#290).
+    local GUILDMATES = { "Thrall", "Jaina", "Varian", "Anduin", "Sylvanas", "Rexxar" }
+    local function guildmateLogsIn(name)
+        name = name or "Thrall"
+        wow.systemMessage("|Hplayer:" .. name .. "|h[" .. name .. "]|h has come online.")
     end
 
     local function nonGuildLines()
@@ -671,7 +675,7 @@ describe("Battlegrounds", function()
                         end
                     end,
                     strangerBuffs,
-                    guildmateLogsIn,
+                    function() guildmateLogsIn(GUILDMATES[random.random(#GUILDMATES)]) end,
                     function() wow.systemMessage("Gus has joined the instance group.") end,
                     scroll,
                     function() if not wow.state.inCombat then wow.press(button) end end,
