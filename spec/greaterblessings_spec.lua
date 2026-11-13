@@ -1,4 +1,4 @@
--- Spec: #41, #233, #256
+-- Spec: #41, #233, #256, #302
 -- Greater Blessings in buff mode (Kings, Wisdom, Might): in a raid, a
 -- paladin is offered the Greater Blessing for a class when enough of that
 -- class are missing the Blessing, they all can have it under your rules, and
@@ -324,6 +324,41 @@ describe("Greater Blessings in buff mode (#41)", function()
             wow.state.pvp = true
             wow.state.units.raid6.pvp = true
             assert.are.equal("Ann Vale: Greater Blessing of Kings", armed(), "flagged yourself: nothing to lose")
+        end)
+
+        -- #302: a slot whose existence can't be read was left out of the
+        -- roster as empty, so the Greater Blessing covered a member of the
+        -- class nothing had checked.
+        it("is not offered when a raid slot's existence can't be read, even to a flagged member behind it (#302)", function()
+            for _, answer in ipairs({ "secret", "nothing", "error" }) do
+                boot()
+                raid(WARRIORS)
+                assert.are.equal("Ann Vale: Greater Blessing of Kings", armed(), answer .. ": readable, as before")
+                wow.state.units.raid6.pvp = true
+                local real = _G.UnitExists
+                _G.UnitExists = function(unit)
+                    if unit ~= "raid6" then return real(unit) end
+                    if answer == "error" then error("blocked") end
+                    if answer == "nothing" then return nil end
+                    return wow.secret(true)
+                end
+                assert.are.equal("Ann Vale: Blessing of Kings", armed(), answer)
+                assert.are.equal("can't read a group member: buffing one at a time", button.subtitle:GetText(), answer)
+                -- The five who can be read get the single Blessing; Fay nothing.
+                for _, name in ipairs({ "Ann Vale", "Bo Fern", "Cid Rock", "Dot Moss", "Eve Hill" }) do
+                    assert.are.equal(name .. ": Blessing of Kings", armed(), answer)
+                    wow.pressKey("MOUSEWHEELUP")
+                end
+                assert.is_nil(armed(), answer)
+                assert.are.equal(5, #wow.casts, answer)
+                for _, cast in ipairs(wow.casts) do
+                    assert.are.equal(KINGS, cast.id, answer)
+                    assert.is_nil(cast.covered, answer)
+                    assert.are_not.equal("Fay-Reed", cast.target, answer)
+                end
+                assert.are.same({}, wow.flaggedBy, answer .. ": you were never flagged")
+                assert.are.same({}, wow.errors, answer)
+            end
         end)
 
         it("is not offered when a raid member's class can't be read", function()
