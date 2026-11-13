@@ -11,8 +11,10 @@
 -- back for a moment, so the next press goes to the next member.
 --
 -- A paladin keeps one Blessing on each player: a member wearing one of yours
--- has theirs, and isn't offered another (it would replace it). A member whose name, flag or buffs can't be
--- read is skipped too, and the button says why. Your rules for who gets
+-- has theirs, and isn't offered another (it would replace it). A member whose name or buffs can't be
+-- read is skipped too, and the button says why; so is one whose flag can't
+-- be read, unless flagged members may be buffed (FlaggedMayBeBuffed: nobody's
+-- flag is asked for then). Your rules for who gets
 -- each buff (tanks only, chosen classes, named players: BuffRules.lua) apply
 -- here, and only here. Group buffs never say a line and are never thanked.
 --
