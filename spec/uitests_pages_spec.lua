@@ -251,13 +251,43 @@ describe("the UI simulator's Buff Back names", function()
         end
     end)
 
-    it("has the screenshot job take options-buff-back-lower at both sizes, from its own script (white, #254)", function()
-        local workflow = wow.readFile(".github/workflows/ui-sim.yml")
-        assert.is_truthy(workflow:find('FriendlyForeverUIPages%.ShowTabLower%("buff%-back"%)', 1))
-        assert.is_truthy(workflow:find('> "$states/tab%-buff%-back%-lower%.lua"', 1))
+    -- The workflow's staging commands, run as it runs them (comments dropped)
+    -- in a scratch folder, and its shoot line read without comments: the
+    -- lower script is written next to the tab scripts, each of which is
+    -- left as it was, and the lower shot is taken in shoot_all, so at
+    -- both sizes.
+    it("stages the lower script beside the tab scripts, leaving each of theirs as it was, and shoots it at both sizes (white and black, #254)", function()
+        local workflow = wow.readFile(".github/workflows/ui-sim.yml"):gsub("\n%s*#[^\n]*", "")
+        local tabs = workflow:match("\n%s*OPTIONS_TABS: ([^\n]-)%s*\n")
+        local loop = workflow:match("\n(%s*for tab in %$OPTIONS_TABS; do\n.-\n%s*done)\n")
+        local lower = workflow:match("\n(%s*{ cat uitests/pages%.lua; printf '\\nFriendlyForeverUIPages%.ShowTabLower%(\"buff%-back\"%)\\n'; } \\\n%s*> \"%$states/tab%-buff%-back%-lower%.lua\")\n")
+        assert.is_truthy(tabs and loop and lower, "the tab list, the tab loop or the lower script's command is missing")
+        local dir = os.tmpname()
+        os.remove(dir)
+        assert.is_true(os.execute("mkdir -p '" .. dir .. "'") == 0)
+        local f = assert(io.open(dir .. "/run.sh", "w"))
+        f:write("set -eu\nstates='" .. dir .. "/out'\nmkdir -p \"$states\"\nOPTIONS_TABS='" .. tabs .. "'\n"
+            .. loop .. "\n" .. lower .. "\n")
+        f:close()
+        local ok = os.execute("bash '" .. dir .. "/run.sh'")
+        local pages = wow.readFile("uitests/pages.lua")
+        local listed = io.popen("ls '" .. dir .. "/out'"):read("*a")
+        local function written(name)
+            local file = io.open(dir .. "/out/" .. name)
+            local text = file and file:read("*a")
+            if file then file:close() end
+            return text
+        end
+        local lowerText = written("tab-buff-back-lower.lua")
+        local backText = written("tab-buff-back.lua")
+        os.execute("rm -rf '" .. dir .. "'")
+        assert.are.equal(0, ok)
+        assert.are.equal(#Pages.TABS + 1, select(2, listed:gsub("[^\n]+", "")), "files written: " .. listed)
+        assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowTabLower("buff-back")\n', lowerText)
+        assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowTab("buff-back")\n', backText)
         -- Inside shoot_all, so both passes (and their suffixes) take it.
         local all = workflow:match("shoot_all%(%) {\n(.-)\n%s*}\n%s*for size in")
-        assert.is_truthy(all and all:find('shoot options%-buff%-back%-lower %-%-exec%-lua "@/shot%-lua/tab%-buff%-back%-lower%.lua"'))
+        assert.is_truthy(all and all:find('\n%s*shoot options%-buff%-back%-lower %-%-exec%-lua "@/shot%-lua/tab%-buff%-back%-lower%.lua"\n'))
     end)
 
     it("answers no panel to scroll with a message, not a Lua error (black, #254)", function()
