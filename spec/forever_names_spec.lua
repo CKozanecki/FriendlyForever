@@ -101,7 +101,7 @@ describe("Forever first name + surname", function()
             wow.systemMessage("|Hplayer:" .. link .. "|h[" .. (shown or link) .. "]|h has come online.")
         end
 
-        it("greets a member by first name, matched on the full name", function()
+        it("greets a member by the whole name, matched on the full name", function()
             online("Thrall-Stormcaller", "Thrall Stormcaller")
             wow.advance(10)
             assert.are.same({ "Thrall Stormcaller has logged in. Quick, everyone look busy." }, wow.sentTo("GUILD"))

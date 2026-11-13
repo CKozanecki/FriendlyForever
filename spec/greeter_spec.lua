@@ -1218,12 +1218,17 @@ describe("Greetings", function()
             assert.are.equal("Nikki", ns.Config.NameVars("buff", "Nikki-Shifts").name)
             rebootWith({})
             ns.db.guildLogin.messages = { "Hi {name}!" }
+            ns.db.partyJoin.messages = { "Hi {name}!" }
             _G.SlashCmdList.FRIENDLYFOREVER("test")
-            local seen = false
+            local guild, party = false, false
             for _, line in ipairs(wow.printed) do
-                if tostring(line):find("Hi Nikki Shifts!", 1, true) then seen = true end
+                local text = tostring(line)
+                if text:find("Hi Nikki Shifts!", 1, true) and text:find("Guild Login", 1, true) then guild = true end
+                if text:find("Party Join: Hi Nikki!", 1, true) then party = true end
+                assert.is_nil(text:find("Party Join: Hi Nikki Shifts!", 1, true))
             end
-            assert.is_true(seen)
+            assert.is_true(guild)
+            assert.is_true(party)
         end)
 
         it("leaves the party welcome on the first name", function()
