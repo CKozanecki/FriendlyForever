@@ -369,7 +369,7 @@ local function EndsInside(panel, region, label)
     check(right <= panelRight + 1, line .. ": past the edge of the options")
 end
 
--- The texts each button cycles through, in Options.THANK_STYLES' and
+-- The texts each dropdown lists, in Options.THANK_STYLES' and
 -- Options.FALLBACKS' order.
 local THANK_WITH = { "a line in /say", "a whisper", "a /thank emote", "a line in /say and an emote" }
 local CANT_REACH = { "say it in /say as", "/thank instead", "do nothing" }
@@ -382,9 +382,10 @@ local function ShowingOneOf(content, texts)
     end
 end
 
--- Each button goes once round all its choices, so it ends where it began:
--- nothing is left changed, even when a check fails part way.
-test("the Buff Thanks tab's two choices stay inside the options, whichever is chosen (#101)", function()
+-- Each dropdown is opened, and every choice in its list is checked and picked
+-- in turn, then the first is picked again and the list closed: nothing is left
+-- changed, even when a check fails part way (#274).
+test("the Buff Thanks tab's two dropdowns list every choice inside the options (#101, #274)", function()
     local panel, content = OpenTab("Buff Thanks")
     local styleLabel = WithText(content, "Thank them with:")
     local fallbackLabel = WithText(content, "If that can't reach them:")
@@ -393,21 +394,42 @@ test("the Buff Thanks tab's two choices stay inside the options, whichever is ch
     TextInside(panel, styleLabel, "Thank them with label", 1)
     TextInside(panel, fallbackLabel, "If that can't reach them label", 1)
     local failures = {}
-    local function Round(button, count, name, extra)
-        for _ = 1, count do
-            local label = name .. ": " .. tostring(button:GetText())
-            local ok, err = pcall(function()
-                TextInside(button, button:GetFontString(), label, 1)
-                EndsInside(panel, button, label)
-                if extra then extra() end
+    local function Fail(err) failures[#failures + 1] = tostring(err) end
+    local function Round(dropdown, texts, name, extra)
+        local ok, err = pcall(function()
+            check(dropdown.list and dropdown.rows and #dropdown.rows == #texts,
+                name .. " isn't a dropdown with " .. #texts .. " choices")
+            dropdown:GetScript("OnClick")(dropdown)
+            check(dropdown.list:IsShown(), name .. "'s list didn't open")
+        end)
+        if not ok then Fail(err) return end
+        for i, row in ipairs(dropdown.rows) do
+            local label = name .. ": " .. tostring(row:GetText())
+            local rowOk, rowErr = pcall(function()
+                check(row:GetText() == texts[i], label .. " isn't choice " .. i .. " (" .. texts[i] .. ")")
+                TextInside(row, row:GetFontString(), label, 1)
+                EndsInside(panel, row, label)
             end)
-            if not ok then failures[#failures + 1] = tostring(err) end
-            button:GetScript("OnClick")(button)
+            if not rowOk then Fail(rowErr) end
+        end
+        for i = #dropdown.rows, 1, -1 do
+            if dropdown.list:IsShown() == false then dropdown:GetScript("OnClick")(dropdown) end
+            local row = dropdown.rows[i]
+            row:GetScript("OnClick")(row)
+            local pickedOk, pickedErr = pcall(function()
+                check(dropdown:GetText() == texts[i], name .. " shows " .. tostring(dropdown:GetText())
+                    .. " after picking " .. texts[i])
+                check(not dropdown.list:IsShown(), name .. "'s list stayed open after a pick")
+                TextInside(dropdown, dropdown:GetFontString(), name .. ": " .. texts[i], 1)
+                EndsInside(panel, dropdown, name .. ": " .. texts[i])
+                if extra then extra(i) end
+            end)
+            if not pickedOk then Fail(pickedErr) end
         end
     end
-    Round(style, #THANK_WITH, "Thank them with")
-    Round(fallback, #CANT_REACH, "If that can't reach them", function()
-        if fallback:GetText() ~= CANT_REACH[1] then return end
+    Round(style, THANK_WITH, "Thank them with")
+    Round(fallback, CANT_REACH, "If that can't reach them", function(i)
+        if i ~= 1 then return end
         local box
         for _, child in ipairs({ content:GetChildren() }) do
             if child.GetObjectType and child:GetObjectType() == "EditBox" and child:IsShown()
@@ -1168,6 +1190,54 @@ test("the Buff Back tab's top-up row stays inside the options, between its neigh
         check(aboveBottom and labelTop and labelBottom and belowTop, "the rows' edges can't be read here")
         local line = ("LAYOUT top-up row: %.0f..%.0f, below buff mode's minutes (bottom %.0f), above battlegrounds"
             .. " (top %.0f)"):format(labelBottom, labelTop, aboveBottom, belowTop)
+        report(line)
+        check(labelTop <= aboveBottom + 1 and belowTop <= labelBottom + 1, line .. ": out of order or overlapping")
+    end)
+    OpenTab("Guild Login")
+    if not ok then error(err, 0) end
+end)
+
+-- The Buff Back tab's renew row (#269): its label and stepper on one line
+-- inside the options, between the capital-city option and the buff order,
+-- overlapping neither.
+local RENEW_LABEL = "Renew my buff when theirs has under (% left, 0 = never):"
+
+test("the Buff Back tab's renew row stays inside the options, between its neighbours (#269)", function()
+    local panel, content = OpenTab("Buff Back")
+    local ok, err = pcall(function()
+        Settle(content)
+        -- A checkbox's label is the checkbox's own region, not the content's.
+        local above
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child.label and child.label.GetText
+                and child.label:GetText() == "Show the button in capital cities (buff mode always shows it)" then
+                above = child.label
+            end
+        end
+        local label = WithText(content, RENEW_LABEL)
+        local below = WithText(content, "Buff order (first that suits them is offered):")
+            or WithText(content, "Your class has no buffs to offer.")
+        check(above and label and below, "the renew row or its neighbours aren't on the Buff Back tab")
+        TextInside(content, label, "renew label", 1)
+        -- Its "+": the one on the label's line, right of it.
+        local labelTop, labelBottom = Edges(label, "GetTop", "GetBottom")
+        local _, labelRight = Edges(label, "GetLeft", "GetRight")
+        local plus
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child:IsVisible() and child.GetText and child:GetText() == "+" then
+                local top, bottom = Edges(child, "GetTop", "GetBottom")
+                local left = Edges(child, "GetLeft", "GetRight")
+                if top and labelTop and left and labelRight and left > labelRight
+                    and math.abs((top + bottom) / 2 - (labelTop + labelBottom) / 2) < 12 then plus = child end
+            end
+        end
+        check(plus ~= nil, "the renew row's + button isn't beside its label")
+        EndsInside(panel, plus, "renew + button")
+        local aboveBottom = select(2, Edges(above, "GetTop", "GetBottom"))
+        local belowTop = Edges(below, "GetTop", "GetBottom")
+        check(aboveBottom and labelTop and labelBottom and belowTop, "the rows' edges can't be read here")
+        local line = ("LAYOUT renew row: %.0f..%.0f, below the capital-city option (bottom %.0f), above the buff"
+            .. " order (top %.0f)"):format(labelBottom, labelTop, aboveBottom, belowTop)
         report(line)
         check(labelTop <= aboveBottom + 1 and belowTop <= labelBottom + 1, line .. ": out of order or overlapping")
     end)

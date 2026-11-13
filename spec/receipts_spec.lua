@@ -1,4 +1,4 @@
--- Spec: #138, #208
+-- Spec: #138, #208, #271
 -- Buff receipts: when your buff lands on a player outside your group, your
 -- copy whispers theirs a hidden RECEIPT, used only to name the caster of a
 -- buff whose caster the game wouldn't name.
@@ -794,6 +794,7 @@ describe("Buff receipts (#138)", function()
                         assert.is_true(n <= (landed[target] or 0), where .. ": more receipts than casts to " .. target)
                     end
                     assert.are.same({}, wow.errors, where)
+                    assert.are.equal(0, #wow.blocked, where .. ": no /say tried without a press")
                     assert.are.equal(0, count(c.ns, "luaErrors"), where)
                 end
                 for _, c in ipairs(clients) do
@@ -803,14 +804,23 @@ describe("Buff receipts (#138)", function()
                     local arrived = landedOn(c)
                     for i = (seen[c] or 0) + 1, #sent do
                         local m = sent[i]
-                        assert.are.equal("WHISPER", m.channel, where .. ": only whispered thank-yous")
+                        -- Whispered thank-yous, or the "friend" line in /say for a caster no
+                        -- whisper can reach (#101), which a buff-button press releases (#271).
+                        local friend = m.channel == "SAY"
+                        if friend then
+                            assert.is_truthy(m.text:match("^Thanks friend: "), where .. ": only a friend line in /say: " .. m.text)
+                        else
+                            assert.are.equal("WHISPER", m.channel, where .. ": only whispered thank-yous")
+                        end
                         local buffs = listed(m.text)
                         assert.is_true(#buffs > 0, where .. ": a thank-you listing its buffs: " .. m.text)
                         for _, spell in ipairs(buffs) do
                             local ok = false
                             for _, l in ipairs(arrived) do
                                 if not ok and l.spell == spell and l.at <= m.time and m.time - l.at <= bound then
-                                    if m.target ~= LIAR then
+                                    if friend then
+                                        ok = true -- it landed on them; the caster went unnamed
+                                    elseif m.target ~= LIAR then
                                         ok = l.from == m.target
                                     else
                                         -- One of Cid's receipts, of this buff's key, from up to

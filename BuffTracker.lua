@@ -497,6 +497,13 @@ local function HandleAddedAura(aura, now)
     end
     local caster, reason, unit, unnamed = FindCaster(aura, spellId, now)
     local buffKey = spellName or spellId or ReadAuraId(aura) or "?"
+    -- Your own auras (forms, self buffs) are never anyone's favour: counted,
+    -- not logged, so they don't fill the log (#268).
+    if not caster and not unnamed and type(aura.sourceUnit) == "string" and not Util.IsSecret(aura.sourceUnit)
+        and aura.sourceUnit == "player" then
+        ns.Diag.Count("ownAuras")
+        return
+    end
     -- One of our buffs from someone the game won't name: their copy may
     -- send a receipt naming them (#138). Until then, or without one, it is
     -- what it would have been.
@@ -539,6 +546,19 @@ local function ScanBuffs(onNew)
     return current
 end
 
+-- The restricted-update line is logged once, for the first of a run; the
+-- rest are only counted, and the count is logged when the run ends: at the
+-- fight's end, or at the next update the addon can read (#268).
+local restrictedRun = 0
+
+function BuffTracker.FlushRestricted()
+    local more = restrictedRun - 1
+    restrictedRun = 0
+    if more > 0 then
+        ns.Diag.Log("buff", "%d more restricted aura updates skipped in that run", more)
+    end
+end
+
 function BuffTracker.OnPlayerAura(updateInfo)
     if not ns.db then return end
     if Util.IsSecret(updateInfo) or type(updateInfo) ~= "table" then
@@ -553,9 +573,11 @@ function BuffTracker.OnPlayerAura(updateInfo)
     local removed, s3 = Util.Readable(updateInfo.removedAuraInstanceIDs)
     if s1 or s2 or s3 then
         ns.Diag.Count("restrictedAuraUpdates")
-        ns.Diag.Log("buff", "aura update is restricted (combat?); skipped")
+        restrictedRun = restrictedRun + 1
+        if restrictedRun == 1 then ns.Diag.Log("buff", "aura update is restricted (combat?); skipped") end
         return
     end
+    if restrictedRun > 0 then BuffTracker.FlushRestricted() end
 
     -- A battle under way: buffs you get aren't thanked or owed (Battleground.lua),
     -- but are still noted as known, so they aren't new once you leave.

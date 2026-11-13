@@ -110,6 +110,8 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A check on docs reads the part the reader acts on, not the whole section: a host listed in a table elsewhere doesn't prove it's in the allowlist the owner copies (#103).
 - A helper that counts a /say or emote thank-you presses a key before `BuffTracker.SAY_MAX_AGE` runs out, and one test expects a non-zero count, so the count is shown to be live (#138: `story()` pressed after 40 s, so its "friend" count was always 0).
 
+- A compound guard (`a and b`) needs a case where each half alone decides. A test setting both halves bad at once can't fail when one half is dropped. On #269 the "never runs out" test set both duration and expiry to 0, so dropping `expires > 0` survived. With it gone, a buff with a full duration and an expiry of 0 would read as worn off and be renewed on every press (PR #278).
+
 **The simulated client**
 - New behaviour is realistic, pessimistic when unsure, in the ASSUMPTIONS block, and if it is an unconfirmed game fact, with a new `quality` issue that says how to check it in game (#21, #60, #62, #88, #197).
 - Redirects and side paths (`state.castLandsOn`) apply the game's rules where the cast lands: macro conditions, PvP flags (#84: 18 storm seeds failed; #87: redirected PvP flags were filed by unit table instead of player).

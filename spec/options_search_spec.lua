@@ -1,4 +1,4 @@
--- Spec: #48, #47, #208
+-- Spec: #48, #47, #208, #274
 -- Finding a setting: /friendly find <word>, the game's Settings search where
 -- the client has one, and the one table both read (OptionsIndex.lua).
 local wow = require("spec.support.wow")
@@ -73,7 +73,10 @@ describe("Finding a setting (#48)", function()
                 [ns.Options.StartPage()] = true }
             local missing = {}
             for _, frame in ipairs(wow.frames) do
-                if CONTROL_KINDS[frame.kind] and OnAPage(frame, pages) then
+                -- A dropdown's rows and click-away catcher (#274) belong to
+                -- the dropdown, which the table names; its list has `catcher`.
+                local inDropdown = frame.parent and frame.parent.catcher
+                if CONTROL_KINDS[frame.kind] and OnAPage(frame, pages) and not inDropdown then
                     local path = paths[frame]
                     local tab = false
                     for _, t in pairs(ns.Options.widgets.tabs) do tab = tab or t == frame end

@@ -102,7 +102,7 @@ end
 
 -- {name}, {fullname} and, when the roster says, {class}.
 local function MemberVars(name)
-    local vars = Util.NameVars(name)
+    local vars = ns.Config.NameVars("guildLogin", name)
     if type(members[name]) == "string" then vars.class = members[name] end
     return vars
 end
@@ -238,6 +238,8 @@ function Greeter.PendingCount()
     return pendingCount
 end
 
+local loggedMembers -- the count the last logged roster line gave (#268)
+
 function Greeter.OnRosterUpdate()
     members = {}
     if IsInGuild() then
@@ -252,7 +254,12 @@ function Greeter.OnRosterUpdate()
     end
 
     ns.Diag.Count("rosterUpdates")
-    ns.Diag.Log("guild", "roster update: %s members known", Greeter.MemberCount())
+    -- Logged only when the count changes: updates come in bursts (#268).
+    local count = Greeter.MemberCount()
+    if count ~= loggedMembers then
+        loggedMembers = count
+        ns.Diag.Log("guild", "roster update: %s members known", count)
+    end
 
     ExpirePending()
     for name in pairs(pendingOnline) do
@@ -575,7 +582,10 @@ function Greeter.OnSystemMessage(msg)
     elseif kind == "guildJoin" then
         members[name] = members[name] or true
         if Ignored("guildJoin", name) then return end
-        if ns.Announcer.Schedule("guildJoin", name, { channel = GuildChannel, isValid = NotIgnored(name) }) then
+        if ns.Announcer.Schedule("guildJoin", name, {
+            channel = GuildChannel, isValid = NotIgnored(name),
+            vars = function() return ns.Config.NameVars("guildJoin", name) end,
+        }) then
             RememberWelcomed(name)
         end
     elseif kind == "partyJoin" then

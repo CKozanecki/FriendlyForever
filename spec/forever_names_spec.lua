@@ -1,4 +1,4 @@
--- Spec: #101, #196
+-- Spec: #101, #196, #281
 -- WoW Forever names are a first name plus a mandatory surname, and the pair
 -- is the player's identity. These tests use names in both shapes the client
 -- may report them: "First-Surname" in one string, or the first name with the
@@ -101,10 +101,10 @@ describe("Forever first name + surname", function()
             wow.systemMessage("|Hplayer:" .. link .. "|h[" .. (shown or link) .. "]|h has come online.")
         end
 
-        it("greets a member by first name, matched on the full name", function()
+        it("greets a member by the whole name, matched on the full name", function()
             online("Thrall-Stormcaller", "Thrall Stormcaller")
             wow.advance(10)
-            assert.are.same({ "Thrall has logged in. Quick, everyone look busy." }, wow.sentTo("GUILD"))
+            assert.are.same({ "Thrall Stormcaller has logged in. Quick, everyone look busy." }, wow.sentTo("GUILD"))
         end)
 
         it("keeps members with the same first name apart", function()
@@ -128,12 +128,12 @@ describe("Forever first name + surname", function()
             online("Jaina-Proudmoore")
             wow.advance(10)
             -- Their login right after joining stays quiet (#196)...
-            assert.are.same({ "Welcome to the guild, Jaina! We're glad to have you." }, wow.sentTo("GUILD"))
+            assert.are.same({ "Welcome to the guild, Jaina Proudmoore! We're glad to have you." }, wow.sentTo("GUILD"))
             -- ...and a login once the quiet window is over is greeted.
             wow.advance(ns.Greeter.WELCOME_QUIET)
             online("Jaina-Proudmoore")
             wow.advance(30)
-            assert.are.same({ "Welcome to the guild, Jaina! We're glad to have you.", "Jaina has logged in. Quick, everyone look busy." },
+            assert.are.same({ "Welcome to the guild, Jaina Proudmoore! We're glad to have you.", "Jaina Proudmoore has logged in. Quick, everyone look busy." },
                 wow.sentTo("GUILD"))
         end)
 

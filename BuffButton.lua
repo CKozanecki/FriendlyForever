@@ -577,6 +577,13 @@ end
 -- a while (once, as the button comes up). Shift+right-click on a group
 -- member's buff puts them on that buff's Never list (BuffRules.lua).
 local function OnPostClick(_, mouseButton, isDown)
+    -- The down half of a press of the button, by any binding (the mouse
+    -- wheel too) or mouse button, is the player's hardware event: a /say
+    -- held for one goes now (#271; see ChatQueue.OnHardwareEvent). Only the
+    -- down half: a click from code (Button:Click) arrives as an up half, and
+    -- nothing in the addon clicks this button. After the secure action, so
+    -- the cast never waits on chat.
+    if isDown == true then ns.ChatQueue.OnHardwareEvent() end
     if mouseButton ~= "RightButton" or isDown == true or not armedOffer then return end
     -- Kept: changing a Never list re-arms the button.
     local offer = armedOffer

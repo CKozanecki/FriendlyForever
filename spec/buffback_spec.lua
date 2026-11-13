@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270
+-- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -1435,7 +1435,7 @@ describe("Buff back", function()
             ns.db.guildJoin.messages = { "Welcome {name}" }
             wow.systemMessage("Ann-Vale has joined the guild.")
             wow.advance(10)
-            assert.are.same({ "Welcome Ann" }, wow.sentTo("GUILD"), "the rest of the addon started")
+            assert.are.same({ "Welcome Ann Vale" }, wow.sentTo("GUILD"), "the rest of the addon started")
             stranger()
             buffedBy()
             wow.leaveCombat()

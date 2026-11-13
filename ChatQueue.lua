@@ -5,8 +5,9 @@
 --     are dropped, everything else waits for room,
 --   * bounds how much can be waiting and how long it may wait,
 --   * holds messages while the game's chat lockdown is active,
---   * holds /say outside instances until a hardware event (key press),
---     which the game requires for that channel (text emotes such as /thank
+--   * holds /say outside instances until a hardware event (a key press, or a
+--     press of the buff button on any binding: #271), which the game
+--     requires for that channel (text emotes such as /thank
 --     need no key press and go out at once: #236),
 --   * re-checks each message is still wanted right before sending,
 --   * drops automatic messages that come due while you're AFK (an option).
@@ -354,6 +355,9 @@ function ChatQueue.IsKeyboardReady()
     return keyboardReady
 end
 
+-- Called only inside a hardware event: a key press (keyFrame, below), a
+-- press of the buff button (its PostClick, BuffButton.lua: #271) or
+-- /friendly say. Never from a timer or a game event.
 function ChatQueue.OnHardwareEvent()
     if waitingForHardware then ChatQueue.Pump(true) end
 end
