@@ -1,4 +1,4 @@
--- Spec: #43, #227, #252
+-- Spec: #43, #227, #252, #305
 -- The clickable list beside the buff button: everyone the button would offer
 -- to, and the buff for each; a click makes that player the next offer.
 local wow = require("spec.support.wow")
@@ -700,6 +700,126 @@ describe("A group cast in the list (#227)", function()
                 end
             end
             assert.is_true(groupRows > 0, "the storm reached group rows")
+            assert.are.same({}, wow.errors)
+        end)
+    end)
+end)
+
+describe("Two group casts aimed at the same player (#305)", function()
+    local ns, button
+    local FORT, PRAYER_FORT = 10938, 21564
+    local SPIRIT, PRAYER_SPIRIT = 27841, 27681
+
+    local function boot()
+        ns = wow.boot({ before = function(state)
+            state.class = "PRIEST"
+            state.knownSpells = { [FORT] = true, [PRAYER_FORT] = true, [SPIRIT] = true, [PRAYER_SPIRIT] = true }
+            state.items = { [wow.ITEM.sacredCandle] = 5 }
+        end })
+        button = ns.BuffButton.Frame()
+        slash("buffmode on")
+    end
+
+    -- A party of mages: each is missing both Fortitude and Divine Spirit.
+    local function party()
+        wow.setGroup("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
+        for i = 1, 4 do wow.state.units["party" .. i].class = "MAGE" end
+        wow.fire("GROUP_ROSTER_UPDATE")
+        wow.advance(0)
+    end
+
+    local function rows()
+        local out = {}
+        local frame = ns.BuffList.Frame()
+        if not frame or not frame:IsShown() then return out end
+        for _, row in ipairs(ns.BuffList.Rows()) do
+            if row:IsShown() then out[#out + 1] = row.text:GetText() end
+        end
+        return out
+    end
+
+    local function armed()
+        local text = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
+        if not text then return nil end
+        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
+    end
+
+    -- Both Fortitude spells (the group version and the single buff) can't go
+    -- in a macro, so the button drops every Fortitude offer, Ann's included.
+    local function unsafeFortitude()
+        local saved = { [PRAYER_FORT] = wow.SPELL_NAMES[PRAYER_FORT], [FORT] = wow.SPELL_NAMES[FORT] }
+        wow.SPELL_NAMES[PRAYER_FORT] = "Prayer; of Fortitude"
+        wow.SPELL_NAMES[FORT] = "Power; Word: Fortitude"
+        return function() for id, name in pairs(saved) do wow.SPELL_NAMES[id] = name end end
+    end
+
+    local function click(i) ns.BuffList.Rows()[i].scripts.OnClick(ns.BuffList.Rows()[i]) end
+
+    describe("white", function()
+        it("lists each group cast aimed at a player as an entry of its own, from the button's own rules", function()
+            boot()
+            party()
+            local list = {}
+            ns.GroupBuffs.Next(list)
+            local groups = {}
+            for _, offer in ipairs(list) do
+                if offer.cast then groups[#groups + 1] = offer.name .. ": " .. offer.spell end
+            end
+            assert.are.same({ "Ann-Vale: Prayer of Fortitude", "Ann-Vale: Prayer of Spirit" }, groups)
+        end)
+
+        -- Buff mode's "missing your buff" trigger reads the same rules (#272):
+        -- there each member and buff is one entry, a group offer and its aim's
+        -- single offer alike, so a second buff gone missing still counts.
+        it("leaves Missing one entry for each member and buff, the group offers' aims included", function()
+            boot()
+            party()
+            local list = ns.GroupBuffs.Missing()
+            local seen, count = {}, 0
+            for _, offer in ipairs(list) do
+                local key = offer.name .. ": " .. offer.buff.key
+                assert.is_nil(seen[key], key .. " is listed twice")
+                seen[key] = true
+                count = count + 1
+            end
+            for _, who in ipairs({ "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" }) do
+                for _, key in ipairs({ "fortitude", "spirit" }) do
+                    assert.is_true(seen[who .. ": " .. key], who .. " is missing " .. key)
+                end
+            end
+            assert.are.equal(8, count)
+        end)
+
+        it("still keeps one row per player, the first group cast, which hides the singles it covers", function()
+            boot()
+            party()
+            assert.are.same({ "> Party (4): Prayer of Fortitude" }, rows())
+            assert.are.equal("Ann Vale: Prayer of Fortitude", armed())
+            assert.are.equal(0, #wow.casts, "listing casts nothing")
+        end)
+    end)
+
+    describe("black", function()
+        it("when the first of two group casts aimed at the same player can't go in a macro, the second still gets its row", function()
+            boot()
+            local restore = unsafeFortitude()
+            party()
+            local listed = rows()
+            local armedFirst = armed()
+            local clicked = #listed > 0
+            if clicked then click(1) end
+            local armedClicked = armed()
+            local castsBefore = #wow.casts
+            wow.pressKey("MOUSEWHEELUP")
+            local cast = wow.casts[1]
+            -- Put the names back before any assertion, so a failure can't leak into other tests.
+            restore()
+            assert.are.same({ "> Party (4): Prayer of Spirit" }, listed, "Ann's second group cast has its row, covering everyone")
+            assert.are.equal("Ann Vale: Prayer of Spirit", armedFirst)
+            assert.is_true(clicked, "the row was there to click")
+            assert.are.equal("Ann Vale: Prayer of Spirit", armedClicked)
+            assert.are.equal(0, castsBefore, "listing and clicking cast nothing")
+            assert.are.equal(PRAYER_SPIRIT, cast and cast.id, "the button's press casts it")
             assert.are.same({}, wow.errors)
         end)
     end)

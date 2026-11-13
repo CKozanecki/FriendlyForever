@@ -398,8 +398,9 @@ end
 -- With a list (#43), each member the button would offer to is appended to
 -- it once, in the order the button would reach them, with what it would
 -- offer, instead of stopping at the first: the clickable list is made by
--- these same rules. A group offer is an entry of its own beside its aim's
--- single offer (#252); the button keeps one of the two (BuffButton.lua).
+-- these same rules. A group offer is an entry of its own, by its aim and
+-- buff, beside its aim's single offer (#252) and any other group offer aimed
+-- at them (#305); the button keeps one row per player (BuffButton.lua).
 function GroupBuffs.Next(out)
     local units = GroupUnits()
     local first, listed = nil, {}
@@ -407,13 +408,13 @@ function GroupBuffs.Next(out)
     local function Found(offer)
         if not out then return true end
         first = first or offer
-        -- Missing lists each buff a member lacks; the button's list, each member once
-        -- (a group offer apart from their single offer, below).
-        -- A group offer is its own entry: its aim keeps their single row too, for
-        -- when the button drops the group cast (its macro can't be built, #252).
-        -- Missing lists each pair once, so there the two are one entry.
-        local id = presentOnly and (offer.name .. "\1" .. offer.buff.key) or offer.name
-        if offer.cast and not presentOnly then id = id .. "\1group" end
+        -- Missing lists each buff a member lacks; the button's list, each member's
+        -- single offer once, and each group offer by its aim and buff: its aim keeps
+        -- their single row too, for when the button drops the group cast (its macro
+        -- can't be built, #252), and a second group cast aimed at them keeps its
+        -- own, for when the first is dropped (#305). In Missing a group offer and
+        -- its aim's single offer are one entry, the pair.
+        local id = (presentOnly or offer.cast) and (offer.name .. "\1" .. offer.buff.key) or offer.name
         if not listed[id] then
             listed[id] = true
             out[#out + 1] = offer
