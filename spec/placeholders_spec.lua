@@ -221,6 +221,25 @@ describe("Placeholders fill whatever their case (#319)", function()
             assert.are.same({ "For you, Bob: Mark of the Wild!" }, sent().say)
         end)
 
+        -- No buff path today sends without its vars (BuffTracker and BuffButton
+        -- all set opts.vars), but the issue names this path as a cause: if one
+        -- ever does, the name-only vars still never leave {buff} in chat.
+        it("a buff thank-you queued without its vars still fills {buff}", function()
+            boot("whisper")
+            ns.Announcer.Schedule("buff", "Bob-Stone", { channel = "WHISPER", target = "Bob-Stone" })
+            drain()
+            assert.are.same({ "Bob-Stone: Thanks for the buff, Bob (Bob Stone)!" }, sent().whisper)
+        end)
+
+        it("a held thank-you that swaps in another line, queued without its vars, still fills {buff}", function()
+            boot("whisper")
+            ns.db.buff.messages = { "First {buff}", "Second: {BUFF} for {Name}" }
+            ns.Announcer.Schedule("buff", "Bob-Stone", { channel = "WHISPER", target = "Bob-Stone",
+                hold = function(go) go(2) end })
+            drain()
+            assert.are.same({ "Bob-Stone: Second: buff for Bob" }, sent().whisper)
+        end)
+
         it("the options preview and /friendly test show the line as it would be sent", function()
             boot("message")
             ns.db.buff.messages = { "Thanks for the {Buff}, {NAME}!" }
