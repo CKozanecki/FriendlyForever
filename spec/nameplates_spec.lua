@@ -1,4 +1,4 @@
--- Spec: #101, #46
+-- Spec: #101, #46, #274
 local wow = require("spec.support.wow")
 
 describe("Friendly nameplates", function()
@@ -149,7 +149,7 @@ describe("/say fallback setting", function()
         assert.is_true(w.fallback:IsShown())
         assert.are.equal(ns.Options.FALLBACK_TEXT.say, w.fallback:GetText())
         wow.run(w.fallback, "OnClick")
-        wow.run(w.fallback, "OnClick")
+        wow.run(w.fallback.rows[3], "OnClick")
         assert.are.equal("none", ns.db.buff.fallback)
         wow.run(w.tabs.partyJoin, "OnClick")
         assert.is_false(w.fallback:IsShown())

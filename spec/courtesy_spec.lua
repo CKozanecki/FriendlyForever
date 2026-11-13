@@ -1,4 +1,4 @@
--- Spec: #52
+-- Spec: #52, #281
 -- The ignore list and snooze: two ways to keep the addon quiet.
 local wow = require("spec.support.wow")
 
@@ -86,7 +86,7 @@ describe("Ignore list", function()
         wow.systemMessage("|Hplayer:Bob-Stone|h[Bob-Stone]|h has come online.")
         wow.systemMessage("|Hplayer:Ann-Vale|h[Ann-Vale]|h has come online.")
         wow.advance(10)
-        assert.are.same({ "Hello Ann" }, wow.sentTo("GUILD"))
+        assert.are.same({ "Hello Ann Vale" }, wow.sentTo("GUILD"))
     end)
 
     it("doesn't welcome an ignored player to the guild", function()
@@ -137,7 +137,7 @@ describe("Snooze", function()
         assert.are.equal(0, #wow.sent)
         wow.advance(15 * 60)
         join("Ann-Vale")
-        assert.are.same({ "Welcome Ann" }, wow.sentTo("GUILD"))
+        assert.are.same({ "Welcome Ann Vale" }, wow.sentTo("GUILD"))
     end)
 
     it("takes a number of minutes, and 'off' wakes it early", function()
@@ -147,7 +147,7 @@ describe("Snooze", function()
         assert.are.equal(0, #wow.sent)
         slash("snooze off")
         join("Ann-Vale")
-        assert.are.same({ "Welcome Ann" }, wow.sentTo("GUILD"))
+        assert.are.same({ "Welcome Ann Vale" }, wow.sentTo("GUILD"))
     end)
 
     it("caps a snooze at a day", function()
@@ -164,7 +164,7 @@ describe("Snooze", function()
         slash("snooze")
         wow.state.lockdown = false
         wow.advance(5)
-        assert.are.same({ "Welcome Bob" }, wow.sentTo("GUILD"))
+        assert.are.same({ "Welcome Bob Stone" }, wow.sentTo("GUILD"))
     end)
 
     it("holds across a reload (it is wall-clock time)", function()

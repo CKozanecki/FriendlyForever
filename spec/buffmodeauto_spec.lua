@@ -1,10 +1,17 @@
--- Spec: #29, #71, #76, #99
+-- Spec: #29, #71, #76, #99, #268
 -- When buff mode turns on and off by itself.
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
 local MOTW, MOTW_1 = 9885, 1126
 local INTELLECT = 10157
+
+local function logHas(ns, fragment)
+    for _, line in ipairs(ns.db.diagLog) do
+        if line:find(fragment, 1, true) then return true end
+    end
+    return false
+end
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
 
@@ -278,6 +285,37 @@ describe("Buff mode turning on and off by itself", function()
             wow.run(w.tabs.buff, "OnClick")
             assert.is_false(w.auto.autoOnJoin:IsShown())
             assert.is_false(w.steppers.autoOffMinutes.box:IsShown())
+        end)
+    end)
+
+    describe("the debug log (#268)", function()
+        before_each(function()
+            ns.db.buffBack.autoOnJoin = true
+            ns.db.debug = true
+            ns.db.diagLog = {}
+        end)
+
+        it("logs a turn-on only when buff mode really came on", function()
+            ns.db.buffBack.enabled = false
+            join()
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_false(logHas(ns, "auto turned on"))
+        end)
+
+        it("logs the turn-off when everyone has your buffs", function()
+            join()
+            assert.is_true(logHas(ns, "auto turned on: you joined a group"))
+            scroll()
+            scroll()
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_true(logHas(ns, "auto turned off: everyone has your buffs"))
+        end)
+
+        it("logs the turn-off at the timeout, with the minutes", function()
+            join()
+            wow.advance(5 * 60 + 1)
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_true(logHas(ns, "auto turned off: 5 minutes passed"))
         end)
     end)
 

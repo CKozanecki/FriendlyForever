@@ -38,6 +38,15 @@ BuffButton.FADE_STEP_SECONDS = 0.1
 -- secure attribute's own limit isn't documented, so we stay inside this one).
 BuffButton.MACRO_MAX_LENGTH = 255
 BuffButton.PLACEHOLDER_ICON = "Interface\\Icons\\Spell_Nature_Regeneration"
+-- The button's size. Its second line (why it's empty, or what it offers)
+-- wraps, never cut short (#270): the button grows to hold every line, from its saved anchor point (centred by default).
+BuffButton.WIDTH = 220
+BuffButton.MIN_HEIGHT = 44
+BuffButton.TEXT_LEFT = 46        -- the text starts right of the icon (4 + 36 + 6)
+BuffButton.TEXT_RIGHT = 6
+BuffButton.SUBTITLE_TOP = 24     -- the second line starts this far below the top
+BuffButton.SUBTITLE_LINE_HEIGHT = 12 -- at least as tall as a line of its font
+BuffButton.BOTTOM_PAD = 6
 
 -- Attribute names of Blizzard's SecureActionButtonTemplate
 -- (https://warcraft.wiki.gg/wiki/SecureActionButtonTemplate). "*" matches any
@@ -124,6 +133,42 @@ local function SetSecureMacro(macroText)
     appliedMacroText = macroText
 end
 
+-- One of a text line's measures (GetStringWidth, GetStringHeight), if the
+-- client gives it as a readable number.
+local function MeasureText(fs, method)
+    local fn = fs[method]
+    if type(fn) ~= "function" then return nil end
+    local ok, value = pcall(fn, fs)
+    if not ok or Util.IsSecret(value) or type(value) ~= "number" then return nil end
+    return value
+end
+
+-- The height that holds every line of the second line's text (#270). The
+-- lines are counted from the text's whole width at the room it wraps in,
+-- each as tall as SUBTITLE_LINE_HEIGHT or the game's own line, if taller;
+-- and the height the game says it draws, where it says: the larger wins, so
+-- a line the game wraps early still fits.
+function BuffButton.HeightFor(subtitle)
+    local room = BuffButton.WIDTH - BuffButton.TEXT_LEFT - BuffButton.TEXT_RIGHT
+    local drawn = MeasureText(subtitle, "GetStringHeight")
+    local lineHeight = BuffButton.SUBTITLE_LINE_HEIGHT
+    if drawn then
+        local lines = MeasureText(subtitle, "GetNumLines")
+        lineHeight = math.max(lineHeight, drawn / math.max(lines or 1, 1))
+    end
+    local height = math.ceil((MeasureText(subtitle, "GetStringWidth") or 0) / room) * lineHeight
+    if drawn and drawn > height then height = drawn end
+    return math.max(BuffButton.MIN_HEIGHT, math.ceil(BuffButton.SUBTITLE_TOP + height + BuffButton.BOTTOM_PAD))
+end
+
+-- Grow or shrink the button to its text. Secure buttons can't change size
+-- in a fight; the next re-arm after it fits them.
+local function FitHeight()
+    if InCombatLockdown() then return end
+    local height = BuffButton.HeightFor(button.subtitle)
+    if button:GetHeight() ~= height then button:SetHeight(height) end
+end
+
 -- small: the title in the line below's smaller font (the "Already done"
 -- note, #256, so a long first name fits). The font goes first: a font
 -- object can bring its own colour and alignment, so the text and left
@@ -133,6 +178,7 @@ local function SetLabels(title, subtitle, small)
     button.title:SetJustifyH("LEFT")
     button.title:SetText(title or "")
     button.subtitle:SetText(subtitle or "")
+    FitHeight()
     -- Full strength, unless the "Already done" note is fading (#256).
     button.title:SetAlpha(1)
     button.subtitle:SetAlpha(1)
@@ -190,11 +236,11 @@ end
 -- out of it, as the button could not cast it.
 local function NextOffer()
     local list = {}
-    local reason, groupReason
+    local reason, groupReason, everyoneLeft
     -- Nothing owed: skip the spellbook and aura reads entirely.
     if ns.Offers.Count() > 0 then
         local _
-        _, reason = ns.Offers.Current(list)
+        _, reason, everyoneLeft = ns.Offers.Current(list)
     else
         reason = "nobody is owed a buff"
     end
@@ -232,7 +278,8 @@ local function NextOffer()
     if pick then return pick end
     if #list > 0 then return nil, "the name or spell can't be put in a macro safely" end
     if not ns.BuffMode.LentKey() then return nil, reason end
-    if ns.Offers.Count() == 0 then return nil, groupReason end
+    -- Favours whose players have left don't hold the button (#270).
+    if ns.Offers.Count() == 0 or everyoneLeft then return nil, groupReason end
     return nil, reason .. "; " .. groupReason
 end
 
@@ -530,6 +577,13 @@ end
 -- a while (once, as the button comes up). Shift+right-click on a group
 -- member's buff puts them on that buff's Never list (BuffRules.lua).
 local function OnPostClick(_, mouseButton, isDown)
+    -- The down half of a press of the button, by any binding (the mouse
+    -- wheel too) or mouse button, is the player's hardware event: a /say
+    -- held for one goes now (#271; see ChatQueue.OnHardwareEvent). Only the
+    -- down half: a click from code (Button:Click) arrives as an up half, and
+    -- nothing in the addon clicks this button. After the secure action, so
+    -- the cast never waits on chat.
+    if isDown == true then ns.ChatQueue.OnHardwareEvent() end
     if mouseButton ~= "RightButton" or isDown == true or not armedOffer then return end
     -- Kept: changing a Never list re-arms the button.
     local offer = armedOffer
@@ -798,8 +852,7 @@ end
 local function ShowTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_TOP")
     GameTooltip:AddLine(ns.TITLE .. ": buff back")
-    -- The button cuts a long line short (a reason it's empty):
-    -- here it is in full.
+    -- The button's second line, in full (it wraps on the button too, #270).
     local subtitle = button.subtitle:GetText()
     local r, g, b = ns.Colours.RGB("title")
     if subtitle and subtitle ~= "" then GameTooltip:AddLine(subtitle, r, g, b, true) end
@@ -891,7 +944,7 @@ function BuffButton.Create()
         return
     end
     button = CreateFrame("Button", BuffButton.FRAME_NAME, UIParent, "SecureActionButtonTemplate")
-    button:SetSize(220, 44)
+    button:SetSize(BuffButton.WIDTH, BuffButton.MIN_HEIGHT)
     local position = ns.db.buffBack.position
     button:SetPoint(position.point, UIParent, position.point, position.x, position.y)
     button:SetFrameStrata("MEDIUM")
@@ -918,19 +971,21 @@ function BuffButton.Create()
     background:SetColorTexture(ns.Colours.RGBA("shade"))
     button.icon = button:CreateTexture(nil, "ARTWORK")
     button.icon:SetSize(36, 36)
-    button.icon:SetPoint("LEFT", 4, 0)
-    -- The name and the favour span the room right of the icon, one line each:
-    -- the game cuts text that doesn't fit with "...", whatever the font.
+    button.icon:SetPoint("TOPLEFT", 4, -4)
+    -- The name and the favour span the room right of the icon. The name is
+    -- one line: the game cuts a name that doesn't fit with "...". The line
+    -- below wraps, and the button grows to hold it, from its saved anchor point (#270).
     button.title = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     button.title:SetPoint("TOPLEFT", button.icon, "TOPRIGHT", 6, -2)
     button.title:SetPoint("TOPRIGHT", button, "TOPRIGHT", -6, -6)
     button.title:SetJustifyH("LEFT")
     button.title:SetWordWrap(false)
     button.subtitle = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    button.subtitle:SetPoint("BOTTOMLEFT", button.icon, "BOTTOMRIGHT", 6, 2)
-    button.subtitle:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -6, 6)
+    button.subtitle:SetPoint("TOPLEFT", button, "TOPLEFT", BuffButton.TEXT_LEFT, -BuffButton.SUBTITLE_TOP)
+    button.subtitle:SetPoint("TOPRIGHT", button, "TOPRIGHT", -BuffButton.TEXT_RIGHT, -BuffButton.SUBTITLE_TOP)
     button.subtitle:SetJustifyH("LEFT")
-    button.subtitle:SetWordWrap(false)
+    button.subtitle:SetJustifyV("TOP")
+    button.subtitle:SetWordWrap(true)
     button.result = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     button.result:SetPoint("TOP", button, "BOTTOM", 0, -2)
     button.mode = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")

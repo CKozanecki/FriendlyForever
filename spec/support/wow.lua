@@ -75,8 +75,28 @@ local function guardProtected(frame, what)
     if frame.protected and M.state.inCombat then error(what .. " on a protected frame in combat") end
 end
 function methods:Show() guardProtected(self, "Show"); self.shown = true end
-function methods:Hide() guardProtected(self, "Hide"); self.shown = false end
-function methods:SetShown(on) guardProtected(self, "SetShown"); self.shown = on and true or false end
+-- Hiding a shown frame runs its OnHide, and that of every visible frame below
+-- it (#274; see ASSUMPTIONS). Showing runs no OnShow here: the panels fill
+-- themselves through their own calls, as these specs always did.
+local function setShown(self, on)
+    local was = self.shown
+    self.shown = on
+    if was and not on then
+        if self.scripts.OnHide then self.scripts.OnHide(self) end
+        -- Every shown frame below it, at any depth (its parents shown or not
+        -- is decided by the frame itself: a hidden one runs nothing).
+        for _, f in ipairs(M.frames) do
+            local p, below = f.parent, false
+            while type(p) == "table" do
+                if p == self then below = true break end
+                p = p.parent
+            end
+            if below and f.shown and f.scripts.OnHide then f.scripts.OnHide(f) end
+        end
+    end
+end
+function methods:Hide() guardProtected(self, "Hide"); setShown(self, false) end
+function methods:SetShown(on) guardProtected(self, "SetShown"); setShown(self, on and true or false) end
 function methods:SetAttribute(key, value)
     guardProtected(self, "SetAttribute")
     self.attributes = self.attributes or {}
@@ -107,8 +127,19 @@ end
 -- which for the ASCII the specs use is the same.
 function methods:SetMaxLetters(n) self.maxLetters = n end
 function methods:GetMaxLetters() return self.maxLetters or 0 end
+-- A button's text line, as the button templates have: created on first use,
+-- and always showing the button's text (#274).
+function methods:GetFontString()
+    if self.kind ~= "Button" and self.kind ~= "CheckButton" then return nil end
+    if not self.fontString then
+        self.fontString = M.newFrame("FontString", nil, self)
+        self.fontString.text = self.text
+    end
+    return self.fontString
+end
 function methods:SetText(text)
     self.text = tostring(text)
+    if self.fontString then self.fontString.text = self.text end
     if self.maxLetters and self.maxLetters > 0 then self.text = self.text:sub(1, self.maxLetters) end
     self.cursor = #self.text -- the game moves an edit box's cursor to the end
 end
@@ -129,6 +160,9 @@ function methods:ClearFocus()
     if self.scripts.OnEditFocusLost then self.scripts.OnEditFocusLost(self) end
 end
 function methods:GetText() return self.text end
+-- LockHighlight keeps a button looking hovered (#274).
+function methods:LockHighlight() self.highlightLocked = true end
+function methods:UnlockHighlight() self.highlightLocked = false end
 function methods:SetChecked(on) self.checked = on and true or false end
 function methods:GetChecked() return self.checked end
 function methods:SetEnabled(on) self.enabled = on and true or false end
@@ -138,10 +172,12 @@ function methods:Click(mouseButton)
     if self.enabled and self.scripts.OnClick then self.scripts.OnClick(self, mouseButton or "LeftButton") end
 end
 function methods:IsEnabled() return self.enabled end
-function methods:SetSize(w, h) self.width, self.height = w, h end
-function methods:SetWidth(w) self.width = w end
-function methods:SetHeight(h) self.height = h end
+-- A protected frame's size is locked in combat too (#270).
+function methods:SetSize(w, h) guardProtected(self, "SetSize"); self.width, self.height = w, h end
+function methods:SetWidth(w) guardProtected(self, "SetWidth"); self.width = w end
+function methods:SetHeight(h) guardProtected(self, "SetHeight"); self.height = h end
 function methods:GetWidth() return self.width or 0 end
+function methods:GetHeight() return self.height or 0 end
 function methods:GetCenter() return self.centerX or 0, self.centerY or 0 end
 function methods:GetTop() return self.top end
 function methods:GetRight() return self.right end
@@ -213,6 +249,14 @@ function methods:SetOwner(owner) self.owner, self.lines = owner, {} end
 M.CHAR_WIDTH = {
     GameFontNormal = 7, GameFontHighlight = 7, GameFontNormalLarge = 9,
     GameFontNormalSmall = 6, GameFontHighlightSmall = 6,
+}
+
+-- A line of text is this many pixels tall in each font (#270): the game's
+-- fonts are about 10 to 12 pixels for the small ones, so these are at the
+-- tall end. Real heights: see ASSUMPTIONS.
+M.LINE_HEIGHT = {
+    GameFontNormal = 14, GameFontHighlight = 14, GameFontNormalLarge = 17,
+    GameFontNormalSmall = 12, GameFontHighlightSmall = 12,
 }
 
 local function plainText(text)
@@ -425,6 +469,11 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         for mouse clicks; the addon re-arms on both halves)
 --   Text emotes need no key press (owner, in game, 2026-11-09: #236); only
 --                         /say and /yell do (see PerformEmote).
+--   A press of a button (M.press, and so a key or the wheel bound to it) is
+--                         one hardware event, its PreClick and PostClick
+--                         included: /say may go from either half (#271).
+--                         A click from code (Button:Click) is none.
+--                         UNCONFIRMED in game: #275 says how to check it.
 --   state.errorBeforeFailed  a refused cast's error text (UI_ERROR_MESSAGE)
 --                         comes before UNIT_SPELLCAST_FAILED instead of after
 --                         (default false); the addon accepts either order
@@ -518,6 +567,13 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         "…". Pinned on one side, it grows to fit its text.
 --                         Widths come from M.CHAR_WIDTH (a little wide on
 --                         purpose); real fonts: confirmed in game at launch.
+--                         A line of text is M.LINE_HEIGHT tall for its font
+--                         (#270), as tall as the buff button allows for one;
+--                         the game's line heights and how far its wrapped
+--                         text reaches: to check in game, #277.
+--   A protected frame's size (SetSize, SetWidth, SetHeight) is locked in
+--                         combat, like showing it (the game's rule for
+--                         secure frames).
 --   Addon messages (#32): C_ChatInfo.RegisterAddonMessagePrefix and
 --                         SendAddonMessage answer with the 10.2.7+ result codes
 --                         (Enum.*Result). The game's throttle is a burst of 10
@@ -609,6 +665,18 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         find the name on its own next check. What Forever's
 --                         UnitName returns for a member still loading is
 --                         confirmed in game at launch.
+--   Hide runs OnHide for the frame and every visible frame below it, as the
+--                         game does when a shown frame is hidden (#274). The
+--                         options dropdown closes its list that way. A frame
+--                         already hidden runs nothing. Show runs no OnShow
+--                         here. A button's text line (GetFontString, as the
+--                         button templates have) mirrors its text, and
+--                         LockHighlight records itself (highlightLocked);
+--                         both are standard template behaviour. The
+--                         dropdown's arrow, Interface\Buttons\Arrow-Down-Up,
+--                         is a texture the client has had since Classic
+--                         Era; its look is not checked here: #283
+--                         asks for one look in game.
 --   state.settingsSearch  the Settings panel's search (#48): nil (default,
 --                         the pessimistic choice) is a client without
 --                         Settings.RegisterVerticalLayoutSubcategory or
