@@ -283,8 +283,7 @@ end
 -- bottom (#254). Like ShowTab, it leaves the panel as it is for the shot.
 function Pages.ShowTabLower(name)
     Pages.ShowTab(name)
-    local undo = Pages.ScrollToBottom()
-    return undo
+    return Pages.ScrollToBottom()
 end
 
 -- The walkthrough's steps the screenshots show (#47), each named by a
