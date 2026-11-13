@@ -1007,7 +1007,7 @@ function Options.Create()
 
     widgets.preview = Button(content, "Preview random", 130, function()
         local template = ns.Messages.Preview(ns.db[currentType].messages)
-        local vars = ns.Util.NameVars(ns.Util.UnitFullName("player") or "Nikki-Shifts")
+        local vars = ns.Config.NameVars(currentType, ns.Util.UnitFullName("player") or "Nikki-Shifts")
         vars.buff = "Power Word: Fortitude and Arcane Intellect"
         local text = template and ns.Util.Render(template, ns.Flavour.Vars(vars))
         ns.Print(text or "(no messages)")
