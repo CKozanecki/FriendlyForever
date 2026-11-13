@@ -1232,8 +1232,10 @@ describe("UI simulator workflow", function()
         end)
 
         it("pins a real hash for the spell data, and checks it before the row check reads the file (black)", function()
-            local pinned = text:match("\n%s*SPELL_DATA_SHA256: (%S+)\n")
-            assert.is_truthy(pinned and #pinned == 64 and not pinned:find("[^0-9a-f]"), "SPELL_DATA_SHA256 isn't a SHA-256")
+            -- In quotes: YAML reads an unquoted value of digits as a number (the
+            -- placeholder of zeros reached the first run as 0).
+            local pinned = text:match('\n%s*SPELL_DATA_SHA256: "(%x+)"\n')
+            assert.is_truthy(pinned and #pinned == 64 and not pinned:find("[^0-9a-f]"), "SPELL_DATA_SHA256 isn't a quoted SHA-256")
             assert.are_not.equal(("0"):rep(64), pinned, "SPELL_DATA_SHA256 is still the placeholder")
             local check
             for _, step in ipairs(build.steps) do

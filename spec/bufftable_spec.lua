@@ -4,8 +4,8 @@
 -- IDs up while you play. This spec checks the committed table is valid, that
 -- the generator reproduces it exactly from the committed source file, that the
 -- generator refuses damaged data and writes nothing, and that saved settings
--- naming a buff that is not in the table still load. CI does not download from
--- Blizzard: the extraction itself is run by hand (CONTRIBUTING.md, Releasing).
+-- naming a buff that is not in the table still load. CI never makes this
+-- file: the extraction itself is run by hand (CONTRIBUTING.md, Releasing).
 local wow = require("spec.support.wow")
 
 local ROOT = wow.ROOT

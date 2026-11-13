@@ -84,7 +84,10 @@ env:
   # what it must write. The simulator's own code checks every downloaded
   # chunk against keys pinned in its source before decoding it.
   SPELL_DATA_HOSTS: us.version.battle.net level3.ssl.blizzard.com us.cdn.blizzard.com kr.cdn.blizzard.com
-  SPELL_DATA_SHA256: 0000000000000000000000000000000000000000000000000000000000000000
+  # Taken from this workflow's first run on #314, after #160's review of the
+  # download code; the row check below ties it to our committed copy. In
+  # quotes: YAML would read a hash of digits as a number.
+  SPELL_DATA_SHA256: "baafb9369a8214a5d793fba12cadec875f7f4a0c4ff8e569d6faac21b2bcac7b"
   RENDER_BASE: debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 # bookworm-slim
 
 jobs:

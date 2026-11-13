@@ -63,6 +63,179 @@ local function AnyContains(lines, fragment)
     return false
 end
 
+-- What the simulator does by itself, as FACT lines in the report (#160). Each
+-- is a quirk docs/ui-simulator.md records, or something the fixtures in
+-- button_states.lua and pages.lua answer for it. When the simulator's pin
+-- moves, these lines say which still hold, in the run itself. It comes
+-- first, so it sees the simulator as it starts, and puts back what it
+-- changes. Nothing here can fail the run: a probe that errors says so.
+test("reports what the simulator does by itself (docs/ui-simulator.md)", function()
+    local function fact(name, fn)
+        local ok, value = pcall(fn)
+        report(("FACT sim %s: %s"):format(name, ok and tostring(value) or ("error: " .. tostring(value))))
+    end
+    local States, Pages = FriendlyForeverUIStates, FriendlyForeverUIPages
+    local spell = States.SPELL
+
+    fact("client", function()
+        local version, build, _, interface = GetBuildInfo()
+        return ("%s (%s), interface %s"):format(tostring(version), tostring(build), tostring(interface))
+    end)
+    fact("screen", function()
+        return ("%.0fx%.0f units, UIParent scale %.3f"):format(GetScreenWidth(), GetScreenHeight(), UIParent:GetScale())
+    end)
+    fact("starts in a group of", function() return GetNumGroupMembers() end)
+    fact("the player", function()
+        local _, class = UnitClass("player")
+        return ("%s, level %s"):format(tostring(class), tostring(UnitLevel("player")))
+    end)
+    fact("the player's starting buffs", function()
+        local ids = {}
+        for i = 1, 255 do
+            local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
+            if not aura then break end
+            ids[#ids + 1] = tostring(aura.spellId)
+        end
+        table.sort(ids)
+        return #ids .. " (" .. table.concat(ids, " ") .. ")"
+    end)
+    fact("the map the player is on", function() return C_Map.GetBestMapForUnit("player") end)
+
+    -- Forever's buffs by name: every rank the Buff Back tab can show.
+    fact("names our buffs' ranks", function()
+        local named, total, wrong = 0, 0, {}
+        for _, buff in ipairs(Pages.BUFF_NAMES) do
+            for _, id in ipairs(buff.ranks) do
+                total = total + 1
+                local name = C_Spell.GetSpellName(id)
+                if name == buff.name then
+                    named = named + 1
+                elseif #wrong < 5 then
+                    wrong[#wrong + 1] = id .. "=" .. tostring(name)
+                end
+            end
+        end
+        return ("%d of %d%s"):format(named, total, #wrong > 0 and (", not: " .. table.concat(wrong, " ")) or "")
+    end)
+    fact("names the fixture's buff", function() return C_Spell.GetSpellName(spell.id) end)
+    fact("the fixture's buff, before it's learned", function()
+        return ("known %s, in the spellbook %s, in range of the player %s"):format(tostring(IsSpellKnown(spell.id)),
+            tostring(C_SpellBook.IsSpellInSpellBook(spell.id)), tostring(C_Spell.IsSpellInRange(spell.id, "player")))
+    end)
+    fact("the fixture's buff, once learned", function()
+        A_Admin.LearnSpell(spell.id)
+        local ok, text = pcall(function()
+            local inRange = C_Spell.IsSpellInRange
+            local line = "known %s, in the spellbook %s, in range of the player by ID %s and by name %s, of party1 %s"
+            return line:format(
+                tostring(IsSpellKnown(spell.id)), tostring(C_SpellBook.IsSpellInSpellBook(spell.id)),
+                tostring(inRange(spell.id, "player")), tostring(inRange(spell.name, "player")),
+                tostring(inRange(spell.id, "party1")))
+        end)
+        A_Admin.UnlearnSpell(spell.id)
+        if not ok then error(text, 0) end
+        return text
+    end)
+
+    -- A buff from someone else: does the aura name its caster?
+    fact("a buff added with the caster party1 names its source as", function()
+        A_Admin.AddBuff(spell.id, spell.name, "135987", 3600, 1, "party1")
+        local source
+        for i = 1, 255 do
+            local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
+            if not aura then break end
+            if aura.spellId == spell.id then source = tostring(aura.sourceUnit) end
+        end
+        A_Admin.RemoveBuff(spell.id)
+        return source or "no such aura"
+    end)
+
+    -- A fight starting: is PLAYER_REGEN_DISABLED before the lockdown, as in the game?
+    fact("PLAYER_REGEN_DISABLED arrives", function()
+        local seen = {}
+        local frame = CreateFrame("Frame")
+        frame:RegisterEvent("PLAYER_REGEN_DISABLED")
+        frame:SetScript("OnEvent", function()
+            seen[#seen + 1] = InCombatLockdown() and "in the lockdown" or "before the lockdown"
+        end)
+        local ok, err = pcall(A_Admin.SetInCombat, true)
+        pcall(A_Admin.SetInCombat, false)
+        frame:UnregisterAllEvents()
+        frame:SetScript("OnEvent", nil)
+        if not ok then error(err, 0) end
+        return #seen == 0 and "never" or table.concat(seen, ", then ")
+    end)
+
+    -- Layout: a chain of anchors longer than 16, a scrolled child, a scroll
+    -- range, a line pinned to two frames, and the height of small text.
+    fact("a chain of 20 anchors follows a move of its first", function()
+        local first = CreateFrame("Frame", nil, UIParent)
+        first:SetSize(10, 10)
+        first:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
+        local last = first
+        for _ = 2, 20 do
+            local link = CreateFrame("Frame", nil, UIParent)
+            link:SetSize(10, 10)
+            link:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, 0)
+            last = link
+        end
+        local before = last:GetTop()
+        first:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, -100)
+        local moved = before - last:GetTop()
+        first:Hide()
+        return ("the last moved %.0f of 100"):format(moved)
+    end)
+    fact("a scroll frame scrolled by 50", function()
+        local scroll = CreateFrame("ScrollFrame", nil, UIParent)
+        scroll:SetSize(200, 593)
+        scroll:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
+        local child = CreateFrame("Frame", nil, scroll)
+        child:SetSize(200, 1970)
+        scroll:SetScrollChild(child)
+        local row = child:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -300)
+        row:SetText("row")
+        local before, range = row:GetTop(), scroll:GetVerticalScrollRange()
+        scroll:SetVerticalScroll(50)
+        local moved = row:GetTop() - before
+        scroll:Hide()
+        return ("moves its child's text %.0f of 50; the range of a 1970 child in a 593 view is %.0f (1377)"):format(
+            moved, range)
+    end)
+    fact("a long line pinned to two frames 100 apart", function()
+        local left = CreateFrame("Frame", nil, UIParent)
+        left:SetSize(10, 10)
+        left:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 100, -100)
+        local right = CreateFrame("Frame", nil, UIParent)
+        right:SetSize(10, 10)
+        right:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 200, -100)
+        local line = left:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        line:SetPoint("LEFT", left, "RIGHT", 0, 0)
+        line:SetPoint("RIGHT", right, "LEFT", 0, 0)
+        line:SetText("one two three four five six seven eight nine ten eleven twelve")
+        local lines, width = line:GetNumLines(), line:GetWidth()
+        left:Hide()
+        right:Hide()
+        return ("is %s line(s), %.0f wide"):format(tostring(lines), width)
+    end)
+    fact("small text wrapped onto lines", function()
+        local holder = CreateFrame("Frame", nil, UIParent)
+        holder:SetSize(120, 10)
+        holder:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 300, -100)
+        local text = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        text:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, 0)
+        text:SetWidth(120)
+        text:SetText("one two three four five six seven eight nine ten eleven twelve")
+        local lines, height = text:GetNumLines(), text:GetStringHeight()
+        holder:Hide()
+        return ("%s lines, %.1f high, %.1f a line"):format(tostring(lines), height, height / math.max(lines or 1, 1))
+    end)
+    fact("C_VoiceChat.GetAvailableOutputDevices exists", function()
+        return C_VoiceChat ~= nil and C_VoiceChat.GetAvailableOutputDevices ~= nil
+    end)
+    assertTrue(true)
+end)
+
 -- The simulator starts with no saved settings, a new install (#47): the
 -- addon is off and its walkthrough open at its first step, and skipping it
 -- turns the addon on. It is skipped even when a check fails, so the rest of
