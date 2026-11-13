@@ -1051,7 +1051,8 @@ function Options.Create()
     flavour:SetWordWrap(true)
 
     local note = Label(content, "Buff thanks in /say: the game only allows /say after a key press, so they wait "
-        .. "and go out on your next key press (or type /friendly say). Whispers need no key press. "
+        .. "and go out on your next key press or buff-back button press (or type /friendly say). "
+        .. "Whispers need no key press. "
         .. "A /thank emote needs no key press and goes out at once.",
         "GameFontDisableSmall")
     note:SetPoint("TOPLEFT", flavour, "BOTTOMLEFT", 0, -10)

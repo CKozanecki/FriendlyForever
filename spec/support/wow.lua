@@ -459,6 +459,11 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         for mouse clicks; the addon re-arms on both halves)
 --   Text emotes need no key press (owner, in game, 2026-11-09: #236); only
 --                         /say and /yell do (see PerformEmote).
+--   A press of a button (M.press, and so a key or the wheel bound to it) is
+--                         one hardware event, its PreClick and PostClick
+--                         included: /say may go from either half (#271).
+--                         A click from code (Button:Click) is none.
+--                         UNCONFIRMED in game: #275 says how to check it.
 --   state.errorBeforeFailed  a refused cast's error text (UI_ERROR_MESSAGE)
 --                         comes before UNIT_SPELLCAST_FAILED instead of after
 --                         (default false); the addon accepts either order
