@@ -563,7 +563,7 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --   Casts on members out of reach (#260): a cast on a unit that is hidden (out
 --                         of sight, or zoneOut) fails with "Target not in line
 --                         of sight", and one on a unit marked outOfRange with
---                         "Out of range." (M.LINE_OF_SIGHT_ERROR,
+--                         "Out of range." (also outOfSpellRange; M.LINE_OF_SIGHT_ERROR,
 --                         M.OUT_OF_RANGE_ERROR), as castFailures does; the game
 --                         refuses both, though its exact wording is unconfirmed.
 --                         A spell-range check (C_Spell.IsSpellInRange) answers
@@ -862,7 +862,7 @@ local function cast(args)
     -- Hidden wins: a member you can't see is out of sight whatever their range.
     if not failure and target ~= M.state.units.player then
         if target.hidden then failure = M.LINE_OF_SIGHT_ERROR
-        elseif target.outOfRange then failure = M.OUT_OF_RANGE_ERROR end
+        elseif target.outOfRange or target.outOfSpellRange then failure = M.OUT_OF_RANGE_ERROR end
     end
     -- A group version (#41) uses a reagent and covers the target's party.
     local reagent = M.GROUP_CASTS[id]
@@ -1307,7 +1307,7 @@ function M.reset()
         units = {}, cursorX = 0, cursorY = 0,
         playerAuras = {}, aurasRestricted = false,
         today = "2026-10-26", clock = 1793000000,
-        knownSpells = {}, castFailures = {}, items = {}, mySubgroup = 1, targetNameForm = "space", sentTargetForm = "first",
+        knownSpells = {}, castFailures = {}, items = {}, targetNameForm = "space", sentTargetForm = "first",
         -- overrides: [key] = { owner, button, mouseButton, priority } (SetOverrideBindingClick).
         -- bindings: [key] = the key's own binding action. mods: modifier keys held now.
         overrides = {}, bindings = {}, mods = {},
@@ -2044,7 +2044,8 @@ function M.setGroup(groupType, names, raidSized, opts)
     -- as "player", so a spec sets your subgroup with state.units.player.subgroup
     -- (1 unless set). opts.noPlayer leaves the slot out. Party units never
     -- include you.
-    if prefix == "raid" and M.state.groupType ~= nil and not (opts and opts.noPlayer) then
+    -- A full raid of 40 has no slot left for you.
+    if prefix == "raid" and M.state.groupType ~= nil and count < 40 and not (opts and opts.noPlayer) then
         M.state.units["raid" .. (count + 1)] = M.state.units.player
     end
 end
@@ -2283,14 +2284,19 @@ end
 -- A /reload (or, with login, a relog) where you are, as PLAYER_ENTERING_WORLD
 -- says it: the game's state (auras, group, instance) stays. The battleground
 -- phase is read afresh on every PLAYER_ENTERING_WORLD, as after a real reload.
-function M.reloadInPlace(login)
+function M.reloadInPlace(login, opts)
     -- A real reload throws away the Lua state, and every pending C_Timer
     -- callback of the addon with it (#296). The game's own timers stay.
-    local kept = {}
-    for _, t in ipairs(M.timers) do
-        if t.game then kept[#kept + 1] = t end
+    -- opts.keepTimers: leave them, for a chaos step that reloads over and over
+    -- and keeps the addon's state, whose "timer scheduled" flags a real reload
+    -- clears with the timers; dropping only the timers would wedge those loops.
+    if not (opts and opts.keepTimers) then
+        local kept = {}
+        for _, t in ipairs(M.timers) do
+            if t.game then kept[#kept + 1] = t end
+        end
+        M.timers = kept
     end
-    M.timers = kept
     M.fire("PLAYER_ENTERING_WORLD", login == true, login ~= true)
 end
 

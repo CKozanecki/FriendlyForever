@@ -760,6 +760,15 @@ describe("The simulated client's fidelity fixes (#255, #260, #265, #296)", funct
             assert.are.equal("Interrupted", wow.casts[2].failed)
         end)
 
+        it("a cast on a member the spell can't reach (outOfSpellRange) is refused too (white)", function()
+            bootRaid()
+            wow.state.knownSpells[1459] = true
+            wow.state.units.raid1.outOfSpellRange = true
+            castOn("Ann Vale")
+            assert.are.equal(wow.OUT_OF_RANGE_ERROR, wow.casts[1].failed)
+            assert.are.equal(0, #wow.landed)
+        end)
+
         it("the spell range check never says true for a zoned out member, and false for one out of range (white)", function()
             bootRaid()
             assert.is_true(C_Spell.IsSpellInRange(10157, "raid1"))
@@ -805,6 +814,19 @@ describe("The simulated client's fidelity fixes (#255, #260, #265, #296)", funct
             C_Timer.After(5, function() fired[#fired + 1] = "after" end)
             wow.advance(60)
             assert.are.same({ "after" }, fired)
+        end)
+
+        it("keepTimers leaves the addon's timers, and a full raid of 40 has no slot for you (black)", function()
+            wow.boot()
+            local fired = 0
+            C_Timer.After(5, function() fired = fired + 1 end)
+            wow.reloadInPlace(false, { keepTimers = true })
+            wow.advance(10)
+            assert.are.equal(1, fired)
+            local names = {}
+            for i = 1, 40 do names[i] = "P" .. i .. "-Realm" end
+            wow.setGroup("raid", names)
+            assert.is_nil(wow.state.units.raid41)
         end)
 
         it("the game's own timers (a refilling breath bar, an echoed addon message) survive a reload (black)", function()

@@ -659,7 +659,9 @@ describe("Battlegrounds", function()
                     function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
                     function()
                         -- A reload or relog: the timer is forgotten unless it's sent again.
-                        wow.reloadInPlace(random.random() < 0.3)
+                        -- keepTimers (#296): this storm keeps the addon's state, so dropping
+                        -- the timers would stop its repeating checks for the rest of the run.
+                        wow.reloadInPlace(random.random() < 0.3, { keepTimers = true })
                         if inBG then distrusted, timerEnd = true, nil end
                     end,
                     function()
