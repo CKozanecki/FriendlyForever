@@ -446,7 +446,7 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --   Level-ups (#273): UNIT_LEVEL is assumed to fire for party1..4 with that
 --                         unit token when a member levels up (unit.level is
 --                         what UnitLevel answers). Not yet confirmed in game:
---                         see the quality issue filed with #273. The test
+--                         see quality issue #291. The test
 --                         helper wow.levelUp(token, level) sets the level and
 --                         fires it; unit.secrets.level makes UnitLevel a secret.
 --   A group member's buff times (#42): unit.auraDurations[i] and

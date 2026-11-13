@@ -31,6 +31,14 @@ describe("Level-up congratulations", function()
             assert.are.same({ "Congrats, Alex!" }, sentLines())
         end)
 
+        it("congratulates members in every party slot, not only the first two", function()
+            party({ "Alex-Roberts", "Udders-Healz", "Bob-Smith", "Cid-Jones" }, { 10, 20, 30, 40 })
+            wow.levelUp("party3", 31)
+            wow.levelUp("party4", 41)
+            wow.advance(10)
+            assert.are.same({ "Congrats, Bob!", "Congrats, Cid!" }, sentLines())
+        end)
+
         it("names the member who levelled, not the others", function()
             party(nil, { 10, 20 })
             wow.levelUp("party2", 21)
@@ -396,6 +404,22 @@ describe("Level-up congratulations", function()
             end
             step(60)
             assert.is_true(checked > 0, "the storm never sent anything, so it proved nothing")
+        end)
+    end)
+
+    describe("an update that adds LevelUps.lua (black)", function()
+        it("asks for a restart, not erroring, after only a /reload", function()
+            wow.reset()
+            local loaded = {}
+            local _, files = wow.parseToc()
+            for _, file in ipairs(files) do
+                if file ~= "LevelUps.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+            end
+            wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+            wow.fire("PLAYER_ENTERING_WORLD", true, false)
+            wow.advance(20)
+            assert.are.same({}, wow.errors)
+            assert.truthy(table.concat(wow.printed, "\n"):find("Restart the game (not /reload)", 1, true))
         end)
     end)
 end)

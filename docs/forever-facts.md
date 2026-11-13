@@ -82,7 +82,7 @@ From #68 (beta build 70425, mid-October 2026; [Paladin deep dive](https://www.wo
 
 ## Level-ups
 
-- **A party member's level-up** (#273): the addon listens for `UNIT_LEVEL` on `party1` to `party4` and congratulates only when `UnitLevel` rises above the level it last saw for that player, because the event also fires with no change. It never reads your own, a raid's, a battleground's or an arena's. Source: the retail and Classic Era API ([UNIT_LEVEL](https://warcraft.wiki.gg/wiki/UNIT_LEVEL), [UnitLevel](https://warcraft.wiki.gg/wiki/API_UnitLevel)). **Unconfirmed on Forever**: [#291](https://github.com/CKozanecki/FriendlyForever/issues/291) says how to check it in game. Dungeon-finder (instance) groups count as parties (owner's decision, #273).
+- **A party member's level-up** (#273): the addon listens for `UNIT_LEVEL` (a plain event: `RegisterUnitEvent` may keep only two units) and acts only on `party1` to `party4`. It congratulates only when `UnitLevel` rises above the level it last saw for that player, because the event also fires with no change. It never congratulates in a raid, battleground or arena, or for your own level-up. Source: the retail and Classic Era API ([UNIT_LEVEL](https://warcraft.wiki.gg/wiki/UNIT_LEVEL), [UnitLevel](https://warcraft.wiki.gg/wiki/API_UnitLevel)). **Unconfirmed on Forever**: [#291](https://github.com/CKozanecki/FriendlyForever/issues/291) says how to check it in game. Dungeon-finder (instance) groups count as parties (owner's decision, #273).
 
 ## Battlegrounds
 

@@ -9,7 +9,7 @@ local Options = {}
 ns.Options = Options
 
 -- Room for the Buff Back tab's buff list, who gets each, and buff mode rows above its lines.
-Options.CONTENT_HEIGHT = 1940
+Options.CONTENT_HEIGHT = 1970 -- 1940 plus the second row of tabs (#273)
 Options.TABS_PER_ROW = 4
 
 local panel, category, startPage, generalPage, ledgerPage

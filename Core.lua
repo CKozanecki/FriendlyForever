@@ -51,10 +51,10 @@ function ns.RefreshEvents()
     end
 end
 
-local function Register(event, handler, ...)
+local function Register(event, handler, unit)
     handlers[event] = handler
-    if (...) then
-        frame:RegisterUnitEvent(event, ...)
+    if unit then
+        frame:RegisterUnitEvent(event, unit)
     else
         frame:RegisterEvent(event)
     end
@@ -116,9 +116,10 @@ function handlers.ADDON_LOADED(name)
         ns.Greeter.OnGroupRosterUpdate(...)
         ns.LevelUps.OnGroupRosterUpdate()
     end)
-    -- A party member's level-up (LevelUps.lua, #273): party slots only, so
-    -- your own never reaches it.
-    Register("UNIT_LEVEL", ns.LevelUps.OnUnitLevel, "party1", "party2", "party3", "party4")
+    -- A party member's level-up (LevelUps.lua, #273). A plain event, not a
+    -- unit event: RegisterUnitEvent may keep only two units, and the handler
+    -- drops every token but party1 to party4 itself.
+    Register("UNIT_LEVEL", ns.LevelUps.OnUnitLevel)
     -- Addon messages may be blocked in a long fight (docs/forever-facts.md):
     -- say what you give again as it ends, so the split is back for the rebuff.
     Register("PLAYER_REGEN_ENABLED", function() ns.RaidSplit.OnCombatEnd() end)
