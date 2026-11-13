@@ -39,6 +39,25 @@ local function report(line)
     printLine(line)
 end
 
+-- Every action the client blocks or forbids an addon while the scenarios
+-- run, as "<event> <addon> <action>", counted: the last scenario reports
+-- them (#160). The simulator's Forever profile prints "Interface action
+-- failed because of an AddOn" in chat when /friendly opens the options, and
+-- this says who it blames and for what. Nothing here in spec/'s stand-in.
+local blockedActions, blockedOrder = {}, {}
+if type(CreateFrame) == "function" then
+    pcall(function()
+        local watcher = CreateFrame("Frame")
+        watcher:RegisterEvent("ADDON_ACTION_BLOCKED")
+        watcher:RegisterEvent("ADDON_ACTION_FORBIDDEN")
+        watcher:SetScript("OnEvent", function(_, event, addon, action)
+            local what = ("%s %s %s"):format(tostring(event), tostring(addon), tostring(action))
+            if not blockedActions[what] then blockedOrder[#blockedOrder + 1] = what end
+            blockedActions[what] = (blockedActions[what] or 0) + 1
+        end)
+    end)
+end
+
 -- Fails the test with message, unlike assertTrue, which drops its message.
 local function check(ok, message)
     if not ok then error(message, 3) end
@@ -166,8 +185,11 @@ test("reports what the simulator does by itself (docs/ui-simulator.md)", functio
         return #seen == 0 and "never" or table.concat(seen, ", then ")
     end)
 
-    -- Layout: a chain of anchors longer than 16, a scrolled child, a scroll
-    -- range, a line pinned to two frames, and the height of small text.
+    -- Layout: a chain of anchors longer than 16, a line pinned to two
+    -- frames, and the height of small text. Scrolling isn't asked here: a
+    -- scroll frame made and read in one frame has no range yet, so the
+    -- answer would mean nothing. The walkthrough's row-in-view LAYOUT line
+    -- says how a scrolled row reads.
     fact("a chain of 20 anchors follows a move of its first", function()
         local first = CreateFrame("Frame", nil, UIParent)
         first:SetSize(10, 10)
@@ -184,23 +206,6 @@ test("reports what the simulator does by itself (docs/ui-simulator.md)", functio
         local moved = before - last:GetTop()
         first:Hide()
         return ("the last moved %.0f of 100"):format(moved)
-    end)
-    fact("a scroll frame scrolled by 50", function()
-        local scroll = CreateFrame("ScrollFrame", nil, UIParent)
-        scroll:SetSize(200, 593)
-        scroll:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
-        local child = CreateFrame("Frame", nil, scroll)
-        child:SetSize(200, 1970)
-        scroll:SetScrollChild(child)
-        local row = child:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -300)
-        row:SetText("row")
-        local before, range = row:GetTop(), scroll:GetVerticalScrollRange()
-        scroll:SetVerticalScroll(50)
-        local moved = row:GetTop() - before
-        scroll:Hide()
-        return ("moves its child's text %.0f of 50; the range of a 1970 child in a 593 view is %.0f (1377)"):format(
-            moved, range)
     end)
     fact("a long line pinned to two frames 100 apart", function()
         local left = CreateFrame("Frame", nil, UIParent)
@@ -278,7 +283,12 @@ test("/friendly selftest runs against the real UI", function()
 end)
 
 test("the options panel is made and opens without errors", function()
+    local before = #blockedOrder
     SlashCmdList.FRIENDLYFOREVER("")
+    -- What the client blocked as /friendly opened the panel, if it says so
+    -- at once (the last scenario lists the whole run's).
+    report("FACT sim /friendly opening the options: " .. (#blockedOrder > before
+        and table.concat(blockedOrder, "; ", before + 1) or "no action blocked at once"))
     local panel = _G.FriendlyForeverOptionsPanel
     assertNotNil(panel)
     assertTrue(panel:GetWidth() > 0)
@@ -1595,6 +1605,18 @@ end)
 -- against regions whose edges it sets itself, and the Buff Thanks tab's
 -- choices, which spec/thankwith_spec.lua checks against the options. The
 -- simulator ignores what a test file returns.
+-- The actions the client blocked or forbade during the whole run (#160),
+-- one FACT line each with how often, or one line saying none. A line naming
+-- FriendlyForever is the addon's own call being refused, which a player
+-- would see in game: read it.
+test("reports the actions the client blocked while the scenarios ran", function()
+    if #blockedOrder == 0 then report("FACT sim blocked actions: none") end
+    for _, what in ipairs(blockedOrder) do
+        report(("FACT sim blocked action: %s (%d time(s))"):format(what, blockedActions[what]))
+    end
+    assertTrue(true)
+end)
+
 return { TextInside = TextInside, PushedDownInside = PushedDownInside, TabTextInside = TabTextInside,
     OnScreen = OnScreen, Settle = Settle, RowsInOrder = RowsInOrder, AcrossInside = AcrossInside,
     RowInView = RowInView, THANK_WITH = THANK_WITH, CANT_REACH = CANT_REACH }
