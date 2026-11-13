@@ -263,9 +263,16 @@ function Pages.ScrollToBottom()
         return nil, why
     end
     local before = scroll:GetVerticalScroll()
+    -- The simulator's range can overshoot (2060 for a 1970 px child in a
+    -- 593 px view, which draws nothing), so the offset is the child's height
+    -- less the view's where the client gives them, and never past the range.
     local function bottom()
         local range = scroll:GetVerticalScrollRange()
-        scroll:SetVerticalScroll(type(range) == "number" and range or 0)
+        range = type(range) == "number" and range or 0
+        local child = scroll:GetScrollChild()
+        local ch, vh = child and child:GetHeight(), scroll:GetHeight()
+        if type(ch) == "number" and type(vh) == "number" and ch > vh then range = math.min(range, ch - vh) end
+        scroll:SetVerticalScroll(range)
     end
     bottom()
     if C_Timer and C_Timer.After then C_Timer.After(0, bottom) end
