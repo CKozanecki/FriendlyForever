@@ -621,7 +621,7 @@ jobs:
       # The options panel's tabs, one shot each (#112): uitests/pages.lua's
       # Pages.TABS names, in the panel's order (spec/uitests_pages_spec.lua
       # checks they match).
-      OPTIONS_TABS: guild-login buff-thanks guild-join party-join party-hello hello-again buff-back
+      OPTIONS_TABS: guild-login buff-thanks guild-join party-join party-hello hello-again level-up buff-back
       # The walkthrough's steps shot (#47): uitests/pages.lua's
       # Pages.WALKTHROUGH_STEPS names (spec/uitests_pages_spec.lua checks
       # they match).

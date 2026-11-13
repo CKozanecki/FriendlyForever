@@ -1,4 +1,4 @@
--- Spec: #52, #80, #101, #47
+-- Spec: #52, #80, #101, #47, #273
 local wow = require("spec.support.wow")
 
 describe("Config", function()
@@ -29,7 +29,7 @@ describe("Config", function()
     it("takes its default messages from Defaults.lua, same types and line counts as before the move", function()
         local ns = wow.load()
         local expected = { guildLogin = 30, buff = 30, guildJoin = 30, partyJoin = 30, partyHello = 30, partyHelloAgain = 30,
-            buffBack = 30 }
+            levelUp = 30, buffBack = 30 }
         local fromDefaults, fromFile = {}, {}
         -- Config.DEFAULTS also holds general settings, so go by Config.TYPES.
         for _, msgType in ipairs(ns.Config.TYPES) do
@@ -48,6 +48,7 @@ describe("Config", function()
         local db = Config.Load(nil)
         for _, msgType in ipairs(Config.TYPES) do
             local expected = msgType:find("^partyHello") and 30 or 180
+            if msgType == "levelUp" then expected = 60 end -- per player (#273)
             if Config.TYPE_INFO[msgType].noTiming then expected = nil end -- said by your own press
             assert.are.equal(expected, db[msgType].repeatCooldown, msgType)
         end

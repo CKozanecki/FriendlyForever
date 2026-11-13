@@ -18,11 +18,12 @@ The chat messages:
 | Player joins your group (not in battlegrounds; joins a few seconds apart share one line, which lists them all; in a raid, only the leader welcomes, at most once every 30 seconds) | Party or raid chat | `{name}`, `{fullname}` |
 | You join someone else's group | Party or raid chat | none |
 | You rejoin a group (same leader) this session | Party or raid chat | none |
+| A party member levels up (not in raids, battlegrounds or arenas) | Party chat (instance chat in a dungeon-finder group) | `{name}`, `{fullname}` |
 | Your buff from the buff back button reaches them, with its line switched on (off by default) | Say | `{name}`, `{fullname}`, `{buff}` |
 
 `{name}` is the first name ("Nikki") and `{fullname}` the whole name ("Nikki Shifts"). In the two guild greetings (login hello and welcome), `{name}` is the whole name too, as many players use their first name as a title. Forever characters always have a surname. The addon identifies players by their full name, so two people called Nikki are never mixed up.
 
-Each message type except Buff Back has its own on/off switch, a delay, a "don't repeat to the same player" cooldown (default 3 minutes; for the two hellos it's per group leader and 30 seconds) and 30 editable messages. Buff Back's line has its own switch and 30 lines but no delay or cooldown: it's said once for each favour you return. Lines are used in a shuffled rotation: every line comes up once before any repeats, a new round never starts with the line that just ended the last one, and the rotation carries over across reloads and logins.
+Each message type except Buff Back has its own on/off switch, a delay, a "don't repeat to the same player" cooldown (default 3 minutes; for the two hellos it's per group leader and 30 seconds, and for Level Up 60 seconds) and 30 editable messages. Buff Back's line has its own switch and 30 lines but no delay or cooldown: it's said once for each favour you return. Lines are used in a shuffled rotation: every line comes up once before any repeats, a new round never starts with the line that just ended the last one, and the rotation carries over across reloads and logins.
 
 ## Flavour
 
