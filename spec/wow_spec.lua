@@ -847,7 +847,7 @@ describe("The simulated client's fidelity fixes (#255, #260, #265, #296)", funct
             assert.are.equal(1, heard.roster, "the queued roster update still arrives")
         end)
 
-        it("the game's own timers (a refilling breath bar, an echoed addon message) survive a reload (black)", function()
+        it("the game's own timers (a refilling breath bar) survive a reload (black)", function()
             wow.boot()
             wow.dive()
             wow.surface()
