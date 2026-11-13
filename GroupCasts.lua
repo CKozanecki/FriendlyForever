@@ -75,7 +75,8 @@ end
 
 -- Everyone in your group with the group a cast would cover them in: { unit,
 -- name, class, group = key, label }, you included (a group version covers
--- you too), or nil and why when it can't be told. A party-wide version
+-- you too), or nil and why when it can't be told: a slot that can't be read
+-- as holding someone or empty leaves everyone unknown. A party-wide version
 -- (scope "party"): in a party everyone is one group; in a raid a member's
 -- subgroup is GetRaidRosterInfo's, and one that can't be read for anyone
 -- leaves every subgroup unknown. A class-wide one (scope "class"): a
@@ -85,7 +86,14 @@ local function Roster(units, inRaid, scope)
     local me = Util.UnitFullName("player")
     local sawMe = false
     for i, unit in ipairs(units) do
-        if Read(UnitExists, unit) == true then
+        -- Only a slot the game says is empty is left out (#302). One whose
+        -- existence can't be read (a secret, or no answer) may hold a member
+        -- the cast would cover with nothing here having checked them: their
+        -- PvP flag, your rules, the buffs they wear. Nobody can be told to
+        -- be covered safely, so every group is unknown.
+        local exists = Read(UnitExists, unit)
+        if exists ~= true and exists ~= false then return nil, "can't read a group member" end
+        if exists then
             local name = Util.UnitFullName(unit)
             local isMe = (name ~= nil and name == me) or Read(UnitIsUnit, unit, "player") == true
             sawMe = sawMe or isMe

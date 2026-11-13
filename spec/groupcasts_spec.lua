@@ -1,4 +1,4 @@
--- Spec: #41, #256
+-- Spec: #41, #256, #302
 -- Group versions in buff mode: Arcane Brilliance, the Prayers and Gift of the
 -- Wild are offered before the single buff when you know them, carry the
 -- reagent, and enough of the party (in a raid, the subgroup) is missing the
@@ -583,6 +583,128 @@ describe("Group versions in buff mode (#41)", function()
             assert.are.equal("Ann Vale: Arcane Intellect", armed())
         end)
 
+        -- #302: a slot whose existence can't be read was left out of the
+        -- roster as empty, so a group version covered a member nothing had
+        -- checked. The game answers for one slot alone with a secret, with
+        -- nothing, or not at all; "empty" is a readable false.
+        local function answerFor(token, answer)
+            local real = _G.UnitExists
+            _G.UnitExists = function(unit)
+                if unit ~= token then return real(unit) end
+                if answer == "error" then error("blocked") end
+                if answer == "nothing" then return nil end
+                if answer == "empty" then return false end
+                return wow.secret(answer == "secret true")
+            end
+            return function() _G.UnitExists = real end
+        end
+        local UNREADABLE = { "secret true", "secret false", "nothing", "error" }
+
+        -- Presses until nothing is armed, and returns what was armed each time.
+        local function pressThrough()
+            local seen = {}
+            for _ = 1, 10 do
+                local now = armed()
+                if not now then break end
+                seen[#seen + 1] = now
+                wow.pressKey("MOUSEWHEELUP")
+            end
+            return seen
+        end
+
+        it("a slot whose existence can't be read stops it: single buffs go to the members who can be read (#302)", function()
+            for _, answer in ipairs(UNREADABLE) do
+                boot()
+                assert.are.equal("Ann Vale: Arcane Brilliance", armed(), answer .. ": readable, as before")
+                local readable = answerFor("party4", answer)
+                assert.are.equal("Ann Vale: Arcane Intellect", armed(), answer)
+                assert.are.equal("can't read a group member: buffing one at a time", button.subtitle:GetText(), answer)
+                -- Once the game says the slot is empty, or it can be read
+                -- again, the group version is offered as before.
+                readable()
+                local occupied = answerFor("party4", "empty")
+                assert.are.equal("Ann Vale: Arcane Brilliance", armed(), answer .. ": a slot the game says is empty")
+                assert.are.equal("your party (3 missing)", button.title:GetText(), answer)
+                occupied()
+                assert.are.equal("Ann Vale: Arcane Brilliance", armed(), answer .. ": readable again")
+                assert.are.equal("your party (4 missing)", button.title:GetText(), answer)
+                -- Unreadable: Ann, Bo and Cid get the single buff, Dot nothing.
+                answerFor("party4", answer)
+                assert.are.same({ "Ann Vale: Arcane Intellect", "Bo Fern: Arcane Intellect",
+                    "Cid Rock: Arcane Intellect" }, pressThrough(), answer)
+                assert.are.equal(3, #wow.casts, answer)
+                for i, target in ipairs({ "Ann-Vale", "Bo-Fern", "Cid-Rock" }) do
+                    assert.are.equal(INTELLECT, wow.casts[i].id, answer)
+                    assert.are.equal(target, wow.casts[i].target, answer)
+                    assert.is_nil(wow.casts[i].covered, answer .. ": a single buff covers nobody else")
+                end
+                assert.are.equal("a group member can't be read", button.subtitle:GetText(), answer)
+                assert.is_nil(wow.state.units.party4.auras, answer .. ": Dot was given nothing")
+                assert.are.same({}, wow.errors, answer)
+            end
+        end)
+
+        it("a member flagged for PvP whose slot can't be read is never covered by a group version (#302)", function()
+            for _, answer in ipairs(UNREADABLE) do
+                boot()
+                wow.state.units.party4.pvp = true
+                answerFor("party4", answer)
+                assert.are.same({ "Ann Vale: Arcane Intellect", "Bo Fern: Arcane Intellect",
+                    "Cid Rock: Arcane Intellect" }, pressThrough(), answer)
+                for _, cast in ipairs(wow.casts) do
+                    assert.are.equal(INTELLECT, cast.id, answer)
+                    assert.is_nil(cast.covered, answer)
+                    assert.are_not.equal("Dot-Moss", cast.target, answer)
+                end
+                assert.are.same({}, wow.flaggedBy, answer .. ": you were never flagged")
+                assert.is_false(wow.state.pvp == true, answer)
+                assert.are.same({}, wow.errors, answer)
+            end
+        end)
+
+        it("another member's buff on a member whose slot can't be read is never replaced by a group version (#302)", function()
+            boot()
+            -- Dot wears Ann's Intellect, not running low: the others lack it.
+            wow.wearBuff("party4", INTELLECT, { source = "party1" })
+            assert.are.equal("Ann Vale: Arcane Intellect", armed())
+            assert.are.equal("Dot Moss's buff is another group member's: buffing one at a time",
+                button.subtitle:GetText(), "readable: #256's rule keeps it")
+            answerFor("party4", "secret true")
+            assert.are.same({ "Ann Vale: Arcane Intellect", "Bo Fern: Arcane Intellect",
+                "Cid Rock: Arcane Intellect" }, pressThrough())
+            for _, cast in ipairs(wow.casts) do assert.is_nil(cast.covered) end
+            assert.are.same({ INTELLECT }, wow.state.units.party4.auras)
+            assert.are.same({ "party1" }, wow.state.units.party4.auraSources, "still Ann's")
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("in a raid, a slot that can't be read stops every subgroup's group version: its subgroup can't be told (#302)", function()
+            local names = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed" }
+            -- raid6 is Fay, in the other subgroup; raid7 holds nobody the
+            -- client knows of, but the game won't say so.
+            for _, token in ipairs({ "raid6", "raid7" }) do
+                for _, answer in ipairs(UNREADABLE) do
+                    local where = token .. ", " .. answer
+                    boot()
+                    raid(names)
+                    for i = 4, 6 do wow.state.units["raid" .. i].subgroup = 2 end
+                    assert.are.equal("Ann Vale: Arcane Brilliance", armed(), where .. ": readable, as before")
+                    assert.are.equal("Group 1 (3 missing)", button.title:GetText(), where)
+                    answerFor(token, answer)
+                    assert.are.equal("Ann Vale: Arcane Intellect", armed(), where)
+                    assert.are.equal("can't read a group member: buffing one at a time",
+                        button.subtitle:GetText(), where)
+                    local seen = pressThrough()
+                    assert.are.equal(token == "raid6" and 5 or 6, #seen, where .. ": the readable members, singly")
+                    for _, cast in ipairs(wow.casts) do
+                        assert.are.equal(INTELLECT, cast.id, where)
+                        assert.is_nil(cast.covered, where)
+                    end
+                    assert.are.same({}, wow.errors, where)
+                end
+            end
+        end)
+
         it("a dead member's PvP flag counts too: they may be up by the time the cast goes out", function()
             boot()
             wow.state.units.party4.dead = true
@@ -769,7 +891,8 @@ describe("Group versions in buff mode (#41)", function()
                 "Hal-Pine", "Ivy-Cole", "Jon-Dale" }
             local FORTS = { [FORT_6] = true, [FORT_5] = true, [PRAYER_FORT_1] = true, [PRAYER_FORT_2] = true }
             local group, singles = 0, 0
-            local reached = { flag = 0, rule = 0, rank = 0 }
+            local reached = { flag = 0, rule = 0, rank = 0, slot = 0 }
+            local SLOT = {} -- a snapshot's key for the slot that couldn't be read
             for _, seed in ipairs({ 3, 19, 77, 410, 2026, 9001 }) do
                 random.seed(seed)
                 local perSeed = {}
@@ -777,8 +900,17 @@ describe("Group versions in buff mode (#41)", function()
                 boot({ class = "PRIEST", known = { FORT_6, FORT_5, PRAYER_FORT_1 },
                     items = { [ITEM.holyCandle] = 6 } })
                 wow.state.groupBuffSeconds = 30 -- buffs run out, so there is always something missing
+                -- The one slot whose existence the game won't give (#302), or
+                -- nil: a member is still there, and a group cast covers them.
+                local hiddenSlot
+                local realExists = _G.UnitExists
+                _G.UnitExists = function(unit)
+                    if unit == hiddenSlot then return wow.secret(true) end
+                    return realExists(unit)
+                end
                 local inGroup = {}
                 local function roster()
+                    hiddenSlot = nil
                     local names = {}
                     for _, n in ipairs(everyone) do
                         if random.random() < 0.7 then names[#names + 1] = n end
@@ -864,6 +996,7 @@ describe("Group versions in buff mode (#41)", function()
                 -- exactly one thing in the way. The press that follows (the
                 -- hazard check below) must not cast the group version.
                 local function scenario(kind)
+                    hiddenSlot = nil
                     local names = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed" }
                     wow.setGroup("raid", names)
                     inGroup = {}
@@ -879,8 +1012,14 @@ describe("Group versions in buff mode (#41)", function()
                     ns.db.buffBack.groupEnough = 2
                     ns.db.buffBack.whoGets = {}
                     wow.fire("GROUP_ROSTER_UPDATE")
-                    local u = wow.state.units["raid" .. random.random(3)]
-                    if kind == "flag" then
+                    local token = "raid" .. random.random(3)
+                    local u = wow.state.units[token]
+                    if kind == "slot" then
+                        -- The game won't say whether their slot holds anyone,
+                        -- and half the time they are flagged for PvP as well.
+                        hiddenSlot = token
+                        u.pvp = random.random() < 0.5
+                    elseif kind == "flag" then
                         u.pvp = true
                     elseif kind == "secret" then
                         u.secrets = { pvp = true }
@@ -901,6 +1040,9 @@ describe("Group versions in buff mode (#41)", function()
                         assert.is_falsy(cast.targetDead, where .. ", dead")
                         if cast.covered then
                             group = group + 1
+                            -- Never with a slot that couldn't be read (#302):
+                            -- whoever is in it would be covered unchecked.
+                            assert.is_nil(was[SLOT], where .. ", with a slot whose existence couldn't be read")
                             if not cast.failed then
                                 for _, id in ipairs(cast.covered) do
                                     local m = was[id]
@@ -941,7 +1083,8 @@ describe("Group versions in buff mode (#41)", function()
                 local function hazards(iAmFlagged, rule)
                     local found = {}
                     if wow.state.inCombat or ns.BuffMode.LentKey() == nil then return found end
-                    if not ns.db.buffBack.groupVersions or wow.state.itemsSecret or wow.state.rosterSecret then
+                    if not ns.db.buffBack.groupVersions or wow.state.itemsSecret or wow.state.rosterSecret
+                        or hiddenSlot then
                         return found
                     end
                     if (wow.state.items[ITEM.holyCandle] or 0) < 1 then return found end
@@ -995,6 +1138,7 @@ describe("Group versions in buff mode (#41)", function()
                     local me = wow.state.units.player
                     now[me.id] = now[me.id] or { pvp = false, role = me.role, mainTank = me.mainTank,
                         class = me.class, subgroup = me.subgroup }
+                    now[SLOT] = hiddenSlot
                     return now
                 end
 
@@ -1007,13 +1151,22 @@ describe("Group versions in buff mode (#41)", function()
                         return rules and rules.fortitude and rules.fortitude.rule or "all"
                     end
                     local rule = currentRule()
-                    if step % 15 == 0 then
+                    local staged = step % 15 == 0 and ({ "flag", "rule", "rank", "secret" })[step / 15 % 4 + 1]
+                        or step % 30 == 7 and "slot"
+                    if staged then
                         ns.db.buffBack.groupVersions = true
-                        scenario(({ "flag", "rule", "rank", "secret" })[step / 15 % 4 + 1])
+                        scenario(staged)
                         ns.BuffButton.Refresh()
                         local from = #wow.casts
                         wow.pressKey("MOUSEWHEELUP")
                         check(step, from, snapshot(), wow.state.pvp, currentRule())
+                        -- The slot hazard is reached when the press still cast:
+                        -- a single buff to a member who can be read (check
+                        -- above has failed any group cast).
+                        if staged == "slot" and #wow.casts > from then
+                            reached.slot = reached.slot + 1
+                            perSeed.slot = (perSeed.slot or 0) + 1
+                        end
                         before = #wow.casts
                     else
                         actions[random.random(#actions)]()
@@ -1035,7 +1188,7 @@ describe("Group versions in buff mode (#41)", function()
                     end
                 end
                 assert.are.same({}, wow.errors, "seed " .. seed)
-                for _, kind in ipairs({ "flag", "rule", "rank" }) do
+                for _, kind in ipairs({ "flag", "rule", "rank", "slot" }) do
                     assert.is_true((perSeed[kind] or 0) >= 3, ("seed %d reached the %s hazard %d times"):format(
                         seed, kind, perSeed[kind] or 0))
                 end
