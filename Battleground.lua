@@ -123,7 +123,10 @@ function Battleground.Update()
         if quiet then
             local why = Battleground.QuietReason()
             ns.Diag.Log("battleground", "quiet: %s", why)
-            if ns.BuffMode.IsOn() then ns.BuffMode.Set(false, { why = why }) end
+            if ns.BuffMode.IsOn() then
+                ns.BuffMode.Set(false, { why = why })
+                ns.Diag.Log("buffMode", "turned off: %s", why)
+            end
         else
             ns.Diag.Log("battleground", "buffing and lines as normal")
         end

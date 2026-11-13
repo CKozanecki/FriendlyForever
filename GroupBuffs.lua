@@ -323,7 +323,7 @@ end
 
 -- The members who may be buffed now, in group order: { unit, name, class },
 -- the first reason one was left out, and whether one left out may still
--- need a buff (OPEN_REASONS, or a name that can't be read).
+-- need a buff (OPEN_REASONS, or a slot or name that can't be read).
 local function Candidates(units)
     local me = Util.UnitFullName("player")
     local iAmFlagged = Read(UnitIsPVP, "player") == true
@@ -331,8 +331,15 @@ local function Candidates(units)
     for _, unit in ipairs(units) do
         local name = Util.UnitFullName(unit)
         local isMe = (name ~= nil and name == me) or Read(UnitIsUnit, unit, "player") == true
-        if Read(UnitExists, unit) == true and not isMe then
-            if not name then
+        -- Only a slot the game says is empty is passed over (#259). One whose
+        -- existence can't be read (a secret, or no answer) is a member who
+        -- can't be read: never offered a buff, and never done.
+        local exists = Read(UnitExists, unit)
+        if exists ~= false and not isMe then
+            if exists ~= true then
+                firstReason = firstReason or "a group member can't be read"
+                open = true
+            elseif not name then
                 firstReason = firstReason or "a group member's name can't be read"
                 open = true
             elseif not seen[name] then
@@ -391,7 +398,8 @@ end
 -- With a list (#43), each member the button would offer to is appended to
 -- it once, in the order the button would reach them, with what it would
 -- offer, instead of stopping at the first: the clickable list is made by
--- these same rules.
+-- these same rules. A group offer is an entry of its own beside its aim's
+-- single offer (#252); the button keeps one of the two (BuffButton.lua).
 function GroupBuffs.Next(out)
     local units = GroupUnits()
     local first, listed = nil, {}
@@ -399,8 +407,13 @@ function GroupBuffs.Next(out)
     local function Found(offer)
         if not out then return true end
         first = first or offer
-        -- Missing lists each buff a member lacks; the button's list, each member once.
+        -- Missing lists each buff a member lacks; the button's list, each member once
+        -- (a group offer apart from their single offer, below).
+        -- A group offer is its own entry: its aim keeps their single row too, for
+        -- when the button drops the group cast (its macro can't be built, #252).
+        -- Missing lists each pair once, so there the two are one entry.
         local id = presentOnly and (offer.name .. "\1" .. offer.buff.key) or offer.name
+        if offer.cast and not presentOnly then id = id .. "\1group" end
         if not listed[id] then
             listed[id] = true
             out[#out + 1] = offer

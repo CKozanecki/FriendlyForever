@@ -79,6 +79,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 
 **Unreadable and secret values**
 - An unreadable or secret value (role, aura caster, name, PvP flag, range, battleground phase) means don't act, and say why. It never means "settled" or "everyone has your buffs", and members who are excluded or already buffed must not hold settling back (#63, #67, #73, #74, #88).
+- A game read compared with `== true` (`Read(UnitExists, unit) == true`) turns an answer that can't be read into "no": a group slot that can't be read becomes an empty one and drops out of every check after it. Only a readable `false` means no; anything else is unreadable. On #259, `GroupBuffs`' `Candidates` settled "everyone has your buffs" with nobody read; #302 found the same read letting a group version cover a member nothing had checked. Look for the pattern wherever a slot or unit is walked.
 - A number read from the game is checked for NaN (`x ~= x`) as well as its type before it is formatted, compared or used as a key. `type(nan) == "number"`, so a type check alone lets it through (#102: an unreadable map ID showed as "map -nan" in `/friendly status`).
 
 **State and events**

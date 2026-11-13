@@ -549,7 +549,9 @@ end
 -- The restricted-update line is logged once, for the first of a run; the
 -- rest are only counted, and the count is logged when the run ends: at the
 -- fight's end, or at the next update the addon can read (#268).
+-- The "payload is locked" line is folded the same way, with its own run (#294).
 local restrictedRun = 0
+local lockedRun = 0
 
 function BuffTracker.FlushRestricted()
     local more = restrictedRun - 1
@@ -557,12 +559,18 @@ function BuffTracker.FlushRestricted()
     if more > 0 then
         ns.Diag.Log("buff", "%d more restricted aura updates skipped in that run", more)
     end
+    local moreLocked = lockedRun - 1
+    lockedRun = 0
+    if moreLocked > 0 then
+        ns.Diag.Log("buff", "%d more locked aura update payloads skipped in that run", moreLocked)
+    end
 end
 
 function BuffTracker.OnPlayerAura(updateInfo)
     if not ns.db then return end
     if Util.IsSecret(updateInfo) or type(updateInfo) ~= "table" then
-        ns.Diag.Log("buff", "aura update payload is locked (restricted); skipped")
+        lockedRun = lockedRun + 1
+        if lockedRun == 1 then ns.Diag.Log("buff", "aura update payload is locked (restricted); skipped") end
         return
     end
 
@@ -577,7 +585,7 @@ function BuffTracker.OnPlayerAura(updateInfo)
         if restrictedRun == 1 then ns.Diag.Log("buff", "aura update is restricted (combat?); skipped") end
         return
     end
-    if restrictedRun > 0 then BuffTracker.FlushRestricted() end
+    if restrictedRun > 0 or lockedRun > 0 then BuffTracker.FlushRestricted() end
 
     -- A battle under way: buffs you get aren't thanked or owed (Battleground.lua),
     -- but are still noted as known, so they aren't new once you leave.
