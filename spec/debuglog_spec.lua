@@ -150,13 +150,32 @@ describe("The debug log keeps decisions, not repeats (#268)", function()
     end)
 
     describe("battleground-quiet turn-off (white, #294)", function()
-        it("logs one line with its reason", function()
+        it("logs one line with its reason when the gates open", function()
+            wow.enterBattleground({ "Ann-Vale", "Cid-Rock" })
+            assert.is_true(ns.BuffMode.IsOn())
+            ns.db.diagLog = {}
+            wow.openGates()
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.are.equal(1, count("turned off: the battle has started"))
+        end)
+
+        it("logs one line when the preparation-phase setting is switched off", function()
             wow.enterBattleground({ "Ann-Vale", "Cid-Rock" })
             assert.is_true(ns.BuffMode.IsOn())
             ns.db.diagLog = {}
             ns.db.buffBack.bgPrepBuff = false
+            ns.Battleground.Update()
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.are.equal(1, count("turned off: buffing in a battleground's preparation phase is off"))
+        end)
+
+        it("logs one line when Apply sees the quiet phase first", function()
+            wow.enterBattleground({ "Ann-Vale", "Cid-Rock" })
+            ns.db.diagLog = {}
+            ns.db.buffBack.bgPrepBuff = false
             ns.BuffMode.Apply()
             assert.is_false(ns.BuffMode.IsOn())
+            ns.Battleground.Update()
             assert.are.equal(1, count("turned off: buffing in a battleground's preparation phase is off"))
         end)
     end)
