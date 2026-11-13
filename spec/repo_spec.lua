@@ -3348,6 +3348,23 @@ describe("Claude sessions' agents, knowledge and skills", function()
         end
     end)
 
+    -- #318: a reviewer can't observe its effort, so the record is the configured one.
+    it("CLAUDE.md has reviewers launched with effort high and records effort as configured (#318)", function()
+        local claude = wow.readFile("CLAUDE.md")
+        assert.is_truthy(claude:find("- **Launching a reviewer:** pass `effort: high` in the Agent call", 1, true),
+            "the launch rule")
+        assert.is_truthy(claude:find("- **Effort is recorded as configured, not as reported (#318).**", 1, true),
+            "the effort record rule")
+        assert.is_truthy(claude:find("never a number or level a reviewer reports about itself", 1, true),
+            "no self-reports")
+        for _, name in ipairs(AGENTS) do
+            local output = section(wow.readFile(".claude/agents/" .. name .. ".md"), "Output")
+            assert.is_truthy(output:find("Don't report an effort level", 1, true), name .. " reports no effort")
+        end
+        assert.is_truthy(wow.readFile(".github/pull_request_template.md"):find("never a reviewer's own report of it",
+            1, true), "the PR template")
+    end)
+
     it("CLAUDE.md's plan-limits rule names the account spending limit as the only sure stop", function()
         local text = wow.readFile("CLAUDE.md")
         local body = text:match("\n## Plan limits\n(.-)\n## ") or ""
