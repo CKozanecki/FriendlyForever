@@ -280,7 +280,7 @@ function Pages.ShowTabLower(name)
     local sc = PanelScroll()
     if sc then
         local fs = UIParent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        fs:SetPoint("TOP", UIParent, "TOP", 0, -60)
+        fs:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 4, -2); fs:SetFontObject("GameFontNormalSmall"); fs:SetDrawLayer("OVERLAY", 7)
         local c = sc:GetScrollChild()
         fs:SetText(("DIAG off %s range %s child h %s view h %s"):format(tostring(sc:GetVerticalScroll()), tostring(sc:GetVerticalScrollRange()), tostring(c:GetHeight()), tostring(sc:GetHeight())))
     end
