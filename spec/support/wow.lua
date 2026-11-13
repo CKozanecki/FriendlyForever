@@ -231,9 +231,16 @@ function methods:SetMaxLines(n) self.maxLines = n end
 function methods:GetMaxLines() return self.maxLines or 0 end
 -- The width of a text line's whole text (see M.CHAR_WIDTH).
 function methods:GetStringWidth() return M.textWidth(self.text, self.font) end
--- A text line's font, by the name of one of the game's font objects (#256).
-function methods:SetFontObject(font) self.font = font end
-function methods:GetFontObject() return self.font end
+-- A text line's font (#256, #265). The game's FontInstance:SetFontObject takes
+-- a Font object or the name of one, and an unknown name is an error;
+-- GetFontObject gives the Font object. self.font stays the font's name, which
+-- the layout tables below are keyed by.
+function methods:SetFontObject(font)
+    if type(font) == "table" and type(font.GetName) == "function" then font = font:GetName() end
+    assert(type(font) == "string" and M.FONTS[font], "SetFontObject: unknown font " .. tostring(font))
+    self.font = font
+end
+function methods:GetFontObject() return self.font and M.font(self.font) end
 function methods:CreateTexture() return M.newFrame("Texture", nil, self) end
 function methods:AddLine(text) self.lines = self.lines or {}; self.lines[#self.lines + 1] = text end
 -- Giving a tooltip an owner starts it afresh, as in the game.
@@ -258,6 +265,18 @@ M.LINE_HEIGHT = {
     GameFontNormal = 14, GameFontHighlight = 14, GameFontNormalLarge = 17,
     GameFontNormalSmall = 12, GameFontHighlightSmall = 12,
 }
+
+-- The game's font objects the simulation knows (#265): each name is a global
+-- Font in the game. M.font(name) gives one object per name, a table with
+-- GetName(), as the game's Font does.
+M.FONTS = { ChatFontNormal = true }
+for name in pairs(M.CHAR_WIDTH) do M.FONTS[name] = true end
+local fontObjects = {}
+function M.font(name)
+    assert(M.FONTS[name], "unknown font " .. tostring(name))
+    if not fontObjects[name] then fontObjects[name] = { GetName = function() return name end } end
+    return fontObjects[name]
+end
 
 local function plainText(text)
     return (tostring(text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("||", "|"))
@@ -533,8 +552,40 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         which of them Forever has was confirmed in game at launch.
 --   UnitInRange(unit) answers inRange, checkedRange for group units (unit
 --                         fields outOfRange, rangeUnknown); in a raid, setGroup
---                         leaves your own raid slot out (the game puts you in
---                         one), so specs add it when they need it.
+--                         gives you your own raid slot (#255: the game puts you
+--                         in one) as raidN+1, the same unit table as "player",
+--                         so a spec sets your subgroup with
+--                         state.units.player.subgroup (1 unless set), and
+--                         setGroup(..., opts) with opts.noPlayer leaves it out.
+--                         Where the game puts you among the raidN slots is
+--                         unconfirmed (#307); the last slot is a guess, and
+--                         addon code must not rely on it.
+--   Casts on members out of reach (#260): a cast on a unit that is hidden (out
+--                         of sight, or zoneOut) fails with "Target not in line
+--                         of sight", and one on a unit marked outOfRange with
+--                         "Out of range." (also outOfSpellRange; M.LINE_OF_SIGHT_ERROR,
+--                         M.OUT_OF_RANGE_ERROR), as castFailures does; the game
+--                         refuses both, though its exact wording is unconfirmed
+--                         (#307).
+--                         A spell-range check (C_Spell.IsSpellInRange) answers
+--                         nil for a hidden unit and false for one outOfRange.
+--                         Pessimistic: the real game may let a cast near the
+--                         range's edge land.
+--   Fonts (#265): the game's FontInstance:SetFontObject takes a Font object or
+--                         its name, and an unknown name is an error;
+--                         GetFontObject gives the Font object, a table with
+--                         GetName(). wow.FONTS lists the names the simulation
+--                         knows; wow.font(name) gives the object (one per name).
+--   reloadInPlace (#296): a real /reload throws away the Lua state, and every
+--                         pending C_Timer callback with it. reloadInPlace drops
+--                         the addon's timers, and keeps the simulated game's own
+--                         (replies, rosters arriving, the breath bar, addon
+--                         message echoes: M.gameAfter). It does NOT reset the
+--                         addon's Lua state, which a real reload does, so an
+--                         addon flag such as "my timer is running" stays set
+--                         with its timer gone. A faithful reload test uses a
+--                         fresh copy (wow.newClient, or wow.boot with the
+--                         roster arriving at PLAYER_ENTERING_WORLD).
 --   Who cast a group member's buff (#256): unit.auraSources[i] is the
 --                         caster's unit token. Unset, wow.boot reads it as
 --                         "player" (yours): the game names a group member's
@@ -772,6 +823,9 @@ local function groupCovered(target, byClass)
     return out
 end
 
+M.OUT_OF_RANGE_ERROR = "Out of range."
+M.LINE_OF_SIGHT_ERROR = "Target not in line of sight"
+
 local castCount = 0
 local function cast(args)
     local conds, name = args:match("^%[(.-)%]%s*(.+)$")
@@ -805,6 +859,12 @@ local function cast(args)
     local redirected = elsewhere ~= nil and elsewhere.id ~= target.id -- another player, not another token
     if elsewhere then target = elsewhere end
     local failure = M.state.castFailures[target.id]
+    -- The game refuses a cast on someone out of range or out of sight (#260).
+    -- Hidden wins: a member you can't see is out of sight whatever their range.
+    if not failure and target ~= M.state.units.player then
+        if target.hidden then failure = M.LINE_OF_SIGHT_ERROR
+        elseif target.outOfRange or target.outOfSpellRange then failure = M.OUT_OF_RANGE_ERROR end
+    end
     -- A group version (#41) uses a reagent and covers the target's party.
     local reagent = M.GROUP_CASTS[id]
     if reagent and (M.state.items[reagent] or 0) < 1 then failure = failure or "Missing reagent" end
@@ -894,14 +954,14 @@ local function cast(args)
                 end
             end
             -- state.auraDelay: their buffs show only this many seconds later.
-            if (M.state.auraDelay or 0) > 0 then _G.C_Timer.After(M.state.auraDelay, wear) else wear() end
+            if (M.state.auraDelay or 0) > 0 then M.gameAfter(M.state.auraDelay, wear) else wear() end
         end
         M.landed[#M.landed + 1] = { spell = name, id = id, target = target.id, at = M.now }
         M.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, id)
     end
     local latency = M.state.castLatency or 0
     if latency > 0 then
-        _G.C_Timer.After(latency, answer)
+        M.gameAfter(latency, answer)
     else
         answer()
     end
@@ -1011,6 +1071,12 @@ end
 ------------------------------------------------------------------------
 -- Time
 ------------------------------------------------------------------------
+
+-- A timer the simulated game itself runs (a server's answer, a roster arriving),
+-- not the addon's: it survives reloadInPlace (#296).
+function M.gameAfter(delay, fn)
+    M.timers[#M.timers + 1] = { at = M.now + delay, fn = fn, game = true }
+end
 
 function M.advance(seconds)
     local target = M.now + seconds
@@ -1125,7 +1191,7 @@ local function SendAddonMessage(prefix, text, chatType, target)
     if chatType ~= "WHISPER" and not M.state.networked then
         local name, surname = _G.UnitName("player")
         local sender = surname and surname ~= "" and (name .. "-" .. surname) or name
-        M.timers[#M.timers + 1] = { at = M.now + M.ADDON_ECHO_DELAY, echo = true, fn = function()
+        M.timers[#M.timers + 1] = { at = M.now + M.ADDON_ECHO_DELAY, echo = true, game = true, fn = function()
             if M.addonPrefixes[prefix] then
                 M.fire("CHAT_MSG_ADDON", prefix, text, chatType, sender, "", 0, 0, "", 0)
             end
@@ -1209,7 +1275,7 @@ end
 -- A roster update that arrives after `delay` seconds. Queue several with
 -- different delays to deliver them out of order.
 function M.queueRosterUpdate(names, delay)
-    _G.C_Timer.After(delay, function() M.rosterUpdate(names) end)
+    M.gameAfter(delay, function() M.rosterUpdate(names) end)
 end
 
 ------------------------------------------------------------------------
@@ -1242,7 +1308,7 @@ function M.reset()
         units = {}, cursorX = 0, cursorY = 0,
         playerAuras = {}, aurasRestricted = false,
         today = "2026-10-26", clock = 1793000000,
-        knownSpells = {}, castFailures = {}, items = {}, mySubgroup = 1, targetNameForm = "space", sentTargetForm = "first",
+        knownSpells = {}, castFailures = {}, items = {}, targetNameForm = "space", sentTargetForm = "first",
         -- overrides: [key] = { owner, button, mouseButton, priority } (SetOverrideBindingClick).
         -- bindings: [key] = the key's own binding action. mods: modifier keys held now.
         overrides = {}, bindings = {}, mods = {},
@@ -1417,7 +1483,7 @@ function M.reset()
         GuildRoster = function()
             M.rosterRequests = M.rosterRequests + 1
             local delay = M.state.rosterReplyDelay
-            if delay then _G.C_Timer.After(delay, function() M.fire("GUILD_ROSTER_UPDATE") end) end
+            if delay then M.gameAfter(delay, function() M.fire("GUILD_ROSTER_UPDATE") end) end
         end,
     }
     -- state.afk: whether I'm AFK. Secret while units are restricted.
@@ -1446,7 +1512,9 @@ function M.reset()
         return race, race, unit == "player" and M.state.raceId or nil
     end
     _G.UnitClass = function(unit)
-        local class = unit == "player" and M.state.class or unitField(unit, "class")
+        -- Your own raid slot (#255) is you: your class is the client's.
+        local me = unit == "player" or (M.state.units[unit] ~= nil and M.state.units[unit] == M.state.units.player)
+        local class = me and M.state.class or unitField(unit, "class")
         if class == nil then return nil end
         if M.state.unitsRestricted and unit ~= "player" then return class, class end
         return CLASS_NAMES[class] or class, class
@@ -1532,7 +1600,9 @@ function M.reset()
         IsSpellInRange = function(_, unit)
             local u = M.state.units[unit]
             if not u or u.spellRangeUnknown then return nil end
-            return not u.outOfSpellRange
+            -- Someone out of sight (zoneOut) can't be checked; never "in range" (#260).
+            if u.hidden then return nil end
+            return not (u.outOfSpellRange or u.outOfRange)
         end,
     }
     _G.C_SpellBook = {
@@ -1956,7 +2026,7 @@ end
 -- raid1..40) slots, with UnitName returning first name and surname apart.
 -- names are full names ("Sorum-Md"). groupType: "party", "raid", "instance".
 -- raidSized: an instance group in raid slots, as battlegrounds are.
-function M.setGroup(groupType, names, raidSized)
+function M.setGroup(groupType, names, raidSized, opts)
     for token in pairs(M.state.units) do
         if token:find("^party%d") or token:find("^raid%d") then M.state.units[token] = nil end
     end
@@ -1964,10 +2034,20 @@ function M.setGroup(groupType, names, raidSized)
     M.state.raidSized = raidSized == true
     M.state.groupMembers = {}
     local prefix = (groupType == "raid" or M.state.raidSized) and "raid" or "party"
+    local count = 0
     for i, full in ipairs(names or {}) do
         local first, last = full:match("^([^%-]+)%-(.+)$")
         M.state.groupMembers[full] = true
         M.addUnit(prefix .. i, { name = first or full, surname = last, id = full })
+        count = i
+    end
+    -- In a raid you are one of the raidN units too (#255), the same unit table
+    -- as "player", so a spec sets your subgroup with state.units.player.subgroup
+    -- (1 unless set). opts.noPlayer leaves the slot out. Party units never
+    -- include you.
+    -- A full raid of 40 has no slot left for you.
+    if prefix == "raid" and M.state.groupType ~= nil and count < 40 and not (opts and opts.noPlayer) then
+        M.state.units["raid" .. (count + 1)] = M.state.units.player
     end
 end
 
@@ -2091,7 +2171,7 @@ function M.surface()
     M.state.breath = "refilling"
     breathRun = breathRun + 1
     local run = breathRun
-    M.timers[#M.timers + 1] = { at = M.now + M.BREATH_REFILL_SECONDS, fn = function()
+    M.timers[#M.timers + 1] = { at = M.now + M.BREATH_REFILL_SECONDS, game = true, fn = function()
         if breathRun ~= run or M.state.breath ~= "refilling" then return end
         M.state.breath = nil
         M.state.breathStoppedAt = M.now
@@ -2205,7 +2285,19 @@ end
 -- A /reload (or, with login, a relog) where you are, as PLAYER_ENTERING_WORLD
 -- says it: the game's state (auras, group, instance) stays. The battleground
 -- phase is read afresh on every PLAYER_ENTERING_WORLD, as after a real reload.
-function M.reloadInPlace(login)
+function M.reloadInPlace(login, opts)
+    -- A real reload throws away the Lua state, and every pending C_Timer
+    -- callback of the addon with it (#296). The game's own timers stay.
+    -- opts.keepTimers: leave them, for a chaos step that reloads over and over
+    -- and keeps the addon's state, whose "timer scheduled" flags a real reload
+    -- clears with the timers; dropping only the timers would wedge those loops.
+    if not (opts and opts.keepTimers) then
+        local kept = {}
+        for _, t in ipairs(M.timers) do
+            if t.game then kept[#kept + 1] = t end
+        end
+        M.timers = kept
+    end
     M.fire("PLAYER_ENTERING_WORLD", login == true, login ~= true)
 end
 
