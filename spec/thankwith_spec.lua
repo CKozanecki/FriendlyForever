@@ -1,4 +1,4 @@
--- Spec: #101, #36, #236
+-- Spec: #101, #36, #236, #274
 -- "Thank them with" and "If that can't reach them": every combination for a
 -- named caster, an unnamed one and a failed whisper; the buff-back line;
 -- old settings, profiles and settings lines; and a chaos storm.
@@ -264,30 +264,77 @@ describe("Thank them with, and if that can't reach them (#101)", function()
             assert.are.equal("friend", w.unknownName:GetText())
         end)
 
-        it("cycles Thank them with through its four choices", function()
-            wow.run(w.tabs.buff, "OnClick")
-            local seen = {}
-            for _ = 1, 4 do
-                wow.run(w.thankStyle, "OnClick")
-                seen[#seen + 1] = ns.db.buff.thankStyle .. "=" .. w.thankStyle:GetText()
+        -- A dropdown's rows in order, as "value=text", and the one marked.
+        local function rows(dropdown)
+            local out, marked = {}, nil
+            for i, row in ipairs(dropdown.rows) do
+                out[i] = row.value .. "=" .. row:GetText()
+                if row.highlightLocked then marked = row.value end
             end
-            assert.are.same({ "whisper=a whisper", "emote=a /thank emote", "both=a line in /say and an emote",
-                "message=a line in /say" }, seen)
+            return out, marked
+        end
+
+        it("Thank them with is a dropdown listing its four choices, closed until clicked (#274)", function()
+            wow.run(w.tabs.buff, "OnClick")
+            assert.is_false(w.thankStyle.list:IsShown())
+            wow.run(w.thankStyle, "OnClick")
+            assert.is_true(w.thankStyle.list:IsVisible())
+            local listed, marked = rows(w.thankStyle)
+            assert.are.same({ "message=a line in /say", "whisper=a whisper", "emote=a /thank emote",
+                "both=a line in /say and an emote" }, listed)
+            assert.are.equal("message", marked)
+            wow.run(w.thankStyle, "OnClick")
+            assert.is_false(w.thankStyle.list:IsShown())
         end)
 
-        it("cycles the fallback through its three choices, with the name box only for /say", function()
+        it("choosing one of Thank them with's choices saves it, shows it and closes the list (#274)", function()
+            wow.run(w.tabs.buff, "OnClick")
+            for _, row in ipairs({ 3, 2, 4, 1 }) do
+                wow.run(w.thankStyle, "OnClick")
+                local picked = w.thankStyle.rows[row]
+                wow.run(picked, "OnClick")
+                assert.are.equal(picked.value, ns.db.buff.thankStyle)
+                assert.are.equal(ns.Options.THANK_STYLE_TEXT[picked.value], w.thankStyle:GetText())
+                assert.is_false(w.thankStyle.list:IsShown())
+                wow.run(w.thankStyle, "OnClick")
+                local _, marked = rows(w.thankStyle)
+                assert.are.equal(picked.value, marked)
+                wow.run(w.thankStyle, "OnClick")
+            end
+        end)
+
+        it("the fallback is a dropdown too: three choices, the name box only for /say (#274)", function()
             wow.run(w.tabs.buff, "OnClick")
             wow.run(w.fallback, "OnClick")
+            assert.are.same({ "say=say it in /say as", "emote=/thank instead", "none=do nothing" }, (rows(w.fallback)))
+            wow.run(w.fallback.rows[2], "OnClick")
             assert.are.equal("emote", ns.db.buff.fallback)
             assert.are.equal("/thank instead", w.fallback:GetText())
             assert.is_false(w.unknownName:IsShown())
             wow.run(w.fallback, "OnClick")
+            wow.run(w.fallback.rows[3], "OnClick")
             assert.are.equal("none", ns.db.buff.fallback)
             assert.are.equal("do nothing", w.fallback:GetText())
             assert.is_false(w.unknownName:IsShown())
             wow.run(w.fallback, "OnClick")
+            wow.run(w.fallback.rows[1], "OnClick")
             assert.are.equal("say", ns.db.buff.fallback)
             assert.is_true(w.unknownName:IsShown())
+        end)
+
+        it("a list left open closes when the tab changes, and when the click lands elsewhere (#274, black)", function()
+            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.thankStyle, "OnClick")
+            wow.run(w.tabs.guildLogin, "OnClick")
+            assert.is_false(w.thankStyle.list:IsShown())
+            wow.run(w.tabs.buff, "OnClick")
+            assert.is_false(w.thankStyle.list:IsVisible())
+            wow.run(w.fallback, "OnClick")
+            assert.is_true(w.fallback.list:IsVisible())
+            ns.db.buff.fallback = "none"
+            wow.run(w.fallback.list.catcher, "OnClick")
+            assert.is_false(w.fallback.list:IsShown())
+            assert.are.equal("none", ns.db.buff.fallback)
         end)
 
         it("the UI simulator's scenario cycles through the same texts as the options", function()
@@ -302,13 +349,19 @@ describe("Thank them with, and if that can't reach them (#101)", function()
             assert.are.same(cantReach, scenarios.CANT_REACH)
         end)
 
-        it("a damaged choice cycles back to the first", function()
+        it("a damaged saved choice reads as the default, on the button and in the list (#274, red)", function()
             wow.run(w.tabs.buff, "OnClick")
-            ns.db.buff.thankStyle, ns.db.buff.fallback = "dance", "shout"
-            wow.run(w.thankStyle, "OnClick")
-            wow.run(w.fallback, "OnClick")
-            assert.are.equal("message", ns.db.buff.thankStyle)
-            assert.are.equal("say", ns.db.buff.fallback)
+            for _, bad in ipairs({ "dance", 3, true, {}, false }) do
+                ns.db.buff.thankStyle, ns.db.buff.fallback = bad, bad
+                ns.Options.Refresh()
+                assert.are.equal("a line in /say", w.thankStyle:GetText())
+                assert.are.equal("say it in /say as", w.fallback:GetText())
+                wow.run(w.thankStyle, "OnClick")
+                local _, marked = rows(w.thankStyle)
+                assert.are.equal("message", marked)
+                wow.run(w.thankStyle, "OnClick")
+            end
+            assert.are.same({}, wow.errors)
         end)
     end)
 
