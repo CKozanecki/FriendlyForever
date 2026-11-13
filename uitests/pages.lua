@@ -5,8 +5,9 @@
 -- --exec-lua. So this file only defines things, and calls no test().
 --
 -- The main panel's tabs (#112) too: FriendlyForeverUIPages.ShowTab("<tab>")
--- opens the panel and clicks that tab's button, as a player would, with the
--- Buff Back tab's buffs named as on Forever (NameBuffs, #158).
+-- opens the panel and clicks that tab's button, as a player would. The Buff
+-- Back tab's buffs carry their Forever names, which the simulator has itself
+-- (UnnamedBuff checks it does, #158, #160).
 --
 -- The simulator loads the test files in name order, so this one comes before
 -- scenarios.lua and FriendlyForeverUIPages is there when they run.
@@ -199,46 +200,40 @@ function Pages.OpenTab(name)
     return button:GetParent(), tab
 end
 
--- The Buff Back tab's buffs by their Forever names (#158). The simulator's
--- spell data is retail's, with none of Forever's buffs (docs/ui-simulator.md),
--- so without these the tab shows the buff keys ("wisdom"), much shorter
--- than what a player reads. The ranks are BuffData.lua's PALADIN ranks,
--- which spec/uitests_pages_spec.lua checks.
+-- The Buff Back tab's buffs by their Forever names (#158). The simulator
+-- plays Forever with Forever's spell data (wow-ui-sim 936d5f5, #160), so it
+-- names them itself; until then a fixture here answered for it, and without
+-- one the tab showed the buff keys ("wisdom"), much shorter than what a
+-- player reads. This list is what the tab must show: UnnamedBuff checks the
+-- simulator against it. The ranks are BuffData.lua's PALADIN ranks, which
+-- spec/uitests_pages_spec.lua checks.
 Pages.BUFF_NAMES = {
     { key = "kings", name = "Blessing of Kings", ranks = { 20217 } },
     { key = "wisdom", name = "Blessing of Wisdom", ranks = { 25290, 19854, 19853, 19852, 19850, 19742 } },
     { key = "might", name = "Blessing of Might", ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 } },
 }
 
--- Makes C_Spell.GetSpellName answer BUFF_NAMES' ranks, and pass every
--- other spell on to the simulator's own. Returns a function that puts the
--- original back.
-function Pages.NameBuffs()
-    local names = {}
+-- The first rank in BUFF_NAMES the client doesn't give its Forever name, as
+-- a message, or nil when it names them all. A simulator that lost Forever's
+-- spell data would show the tab's rows as buff keys again, and the tab's
+-- layout checks would pass on text far shorter than a player reads (#158):
+-- the tab scenarios fail on this message instead.
+function Pages.UnnamedBuff()
+    local getName = type(C_Spell) == "table" and C_Spell.GetSpellName or nil
     for _, buff in ipairs(Pages.BUFF_NAMES) do
-        for _, id in ipairs(buff.ranks) do names[id] = buff.name end
+        for _, id in ipairs(buff.ranks) do
+            local ok, name = pcall(function() return getName(id) end)
+            if not ok or name ~= buff.name then
+                return ("the client names spell %d %s, not \"%s\""):format(id, ok and type(name) == "string"
+                    and ("\"" .. name .. "\"") or "nothing", buff.name)
+            end
+        end
     end
-    local original = C_Spell.GetSpellName
-    C_Spell.GetSpellName = function(spell, ...)
-        if names[spell] then return names[spell] end
-        if original then return original(spell, ...) end
-    end
-    return function() C_Spell.GetSpellName = original end
+    return nil
 end
 
--- Runs fn with the buffs named (NameBuffs), and puts the original back
--- afterwards, even when fn fails, raising fn's error then.
-function Pages.WithBuffNames(fn)
-    local undo = Pages.NameBuffs()
-    local ok, err = pcall(fn)
-    undo()
-    if not ok then error(err, 0) end
-end
-
--- For the screenshot job: show one tab, the Buff Back tab with its buffs'
--- Forever names. The names stay, like the tab, for the shot taken after.
+-- For the screenshot job: show one tab.
 function Pages.ShowTab(name)
-    Pages.NameBuffs()
     Pages.OpenTab(name)
 end
 

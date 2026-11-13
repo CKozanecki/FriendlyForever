@@ -1,10 +1,12 @@
--- Spec: #154, #223, #209
+-- Spec: #154, #223, #209, #160
 -- The UI scenarios' game-event helpers (uitests/button_states.lua), run here
 -- against a stand-in for the simulator's A_Admin that records each call and
--- event in order. They follow what wow-ui-sim ac893c6 does itself (its
--- admin.rs and admin_party_target_helpers.rs): SetTarget, ClearTarget and
--- SetInCombat fire their own events, after the state change, and LearnSpell
--- fills the spellbook. The scenarios themselves run only in the simulator.
+-- event in order. They follow what wow-ui-sim does itself (its admin.rs and
+-- admin_party_target_helpers.rs, the same at 936d5f5 as at ac893c6):
+-- SetTarget, ClearTarget and SetInCombat fire their own events, after the
+-- state change, and LearnSpell fills the spellbook. Since 936d5f5's Forever
+-- profile it also names Forever's buffs and answers their range (#160). The
+-- scenarios themselves run only in the simulator.
 
 -- Loads button_states.lua with a recording A_Admin; returns its States, the
 -- log of calls and events, and the stand-in client tables.
@@ -43,7 +45,7 @@ local function load(opts)
             client.class = class
             record("SetPlayerClass " .. class)
         end,
-        -- The simulator matches the exact spell ID (wow-ui-sim ac893c6's remove_buff).
+        -- The simulator matches the exact spell ID (wow-ui-sim's remove_buff).
         RemoveBuff = function(id)
             record("RemoveBuff " .. id)
             if client.stubborn then return end
@@ -80,7 +82,7 @@ local function load(opts)
     return env.FriendlyForeverUIStates, log, client
 end
 
-describe("UI scenarios: game events on wow-ui-sim ac893c6 (#154)", function()
+describe("UI scenarios: game events on wow-ui-sim (#154)", function()
     it("targets and clears the target, leaving PLAYER_TARGET_CHANGED to the simulator (white)", function()
         local States, log = load()
         States.Target("Aria Lindqvist")
@@ -104,7 +106,7 @@ describe("UI scenarios: game events on wow-ui-sim ac893c6 (#154)", function()
     end)
 end)
 
-describe("UI scenarios: the spellbook fixture on wow-ui-sim ac893c6 (#154)", function()
+describe("UI scenarios: the spellbook fixture on wow-ui-sim (#154, #160)", function()
     it("teaches the buff with LearnSpell, as a Priest, then says the spells changed (white)", function()
         local States, log, client = load()
         States.Learn()
@@ -113,17 +115,39 @@ describe("UI scenarios: the spellbook fixture on wow-ui-sim ac893c6 (#154)", fun
             "the spellbook is the simulator's own now")
     end)
 
-    it("answers the buff's name and range, which the simulator has no data for, and passes other spells on (white)", function()
+    -- #160: the Forever profile has Forever's spell data, so the fixture no
+    -- longer answers for the simulator: what a scenario reads is its own.
+    it("leaves the buff's name and range to the simulator, for the buff and every other spell (white)", function()
         local States, _, client = load()
         States.Learn()
-        assert.are.equal("Power Word: Fortitude", client.C_Spell.GetSpellName(10938))
-        assert.is_true(client.C_Spell.IsSpellInRange("Power Word: Fortitude", "party1"))
-        assert.is_false(client.C_Spell.IsSpellInRange(10938, "party2"))
+        assert.are.equal(client.originals.GetSpellName, client.C_Spell.GetSpellName)
+        assert.are.equal(client.originals.IsSpellInRange, client.C_Spell.IsSpellInRange)
+        assert.are.equal("simulator's GetSpellName", client.C_Spell.GetSpellName(10938))
+        assert.are.equal("simulator's IsSpellInRange", client.C_Spell.IsSpellInRange("Power Word: Fortitude", "party1"))
         assert.are.equal("simulator's GetSpellName", client.C_Spell.GetSpellName(1243))
-        assert.are.equal("simulator's IsSpellInRange", client.C_Spell.IsSpellInRange(1243, "party1"))
     end)
 
-    it("puts everything back on Unlearn: the spell, the class and the functions (white)", function()
+    it("leaves the group spell's name and range to the simulator too, and answers only its reagent count (white)", function()
+        local States, _, client = load({ lenient = true })
+        -- The fixture answers the game's global, which the stand-in lacks.
+        local before = _G.GetItemCount
+        local counted = function() return 0 end
+        _G.GetItemCount = counted
+        local ok, err = pcall(function()
+            States.ListGroupCast.Set()
+            assert.are.equal(client.originals.GetSpellName, client.C_Spell.GetSpellName)
+            assert.are.equal(client.originals.IsSpellInRange, client.C_Spell.IsSpellInRange)
+            assert.are.equal(5, _G.GetItemCount(States.GROUP_SPELL.reagent), "the reagent the group cast needs")
+            assert.are.equal(0, _G.GetItemCount(17020), "any other item is the simulator's to count")
+            States.ListGroupCast.Undo()
+            assert.are.equal(counted, _G.GetItemCount)
+            assert.are.equal(client.originals.GetSpellName, client.C_Spell.GetSpellName)
+        end)
+        _G.GetItemCount = before
+        assert.is_true(ok, tostring(err))
+    end)
+
+    it("puts everything back on Unlearn: the spell and the class (white)", function()
         local States, log, client = load()
         States.Learn()
         States.Unlearn()
@@ -143,7 +167,7 @@ describe("UI scenarios: the spellbook fixture on wow-ui-sim ac893c6 (#154)", fun
     end)
 end)
 
-describe("UI scenarios: the player's seeded buffs on wow-ui-sim ac893c6 (#223)", function()
+describe("UI scenarios: the player's seeded buffs on wow-ui-sim (#223)", function()
     it("takes every Fortitude off the player, the simulator's random 21562 too, and no other buff (white)", function()
         local States, log, client = load()
         client.auras = { { spellId = 1459 }, { spellId = 21562 }, { spellId = 10938 }, { spellId = 21564 } }

@@ -1232,6 +1232,24 @@ local function Settle(content)
     end
 end
 
+-- How many of the message rows ("1." to "30.") read at or above the row
+-- before them, or can't be read: 0 when the layout is in order.
+local function RowsOutOfPlace(content)
+    local rows = {}
+    for _, region in ipairs({ content:GetRegions() }) do
+        local n = region:GetObjectType() == "FontString" and region:IsVisible()
+            and tonumber((region:GetText() or ""):match("^(%d+)%.$"))
+        if n then rows[n] = region end
+    end
+    local count, last = 0, nil
+    for n = 1, #rows do
+        local top = Edges(rows[n], "GetTop", "GetBottom")
+        if not top or (last and top >= last) then count = count + 1 end
+        last = top or last
+    end
+    return count
+end
+
 -- Whether the message rows ("1." to "30.", each hung below the one before)
 -- are drawn in order, top to bottom, with what follows them (the first
 -- visible region whose top is named by follows) below the last. A stale
@@ -1276,12 +1294,16 @@ local function RowsInOrder(content, label, follows)
     return line
 end
 
--- Runs fn(content, tab) with the options open at each tab in turn, the
--- Buff Back tab's buffs named as on Forever (pages.lua's WithBuffNames,
--- #158), then goes back to the first tab, even when a check fails.
+-- Runs fn(content, tab) with the options open at each tab in turn, then
+-- goes back to the first tab, even when a check fails. The Buff Back tab's
+-- buffs must carry their Forever names, as the simulator's own spell data
+-- gives them (pages.lua's UnnamedBuff, #158, #160): rows of buff keys
+-- would pass every layout check on text far shorter than a player reads.
 local function OnEachTab(fn)
     local Pages = FriendlyForeverUIPages
-    local ok, err = pcall(Pages.WithBuffNames, function()
+    local ok, err = pcall(function()
+        local unnamed = Pages.UnnamedBuff()
+        check(unnamed == nil, "the Buff Back tab's buffs aren't named as on Forever: " .. tostring(unnamed))
         for _, tab in ipairs(Pages.TABS) do
             local content = Pages.OpenTab(tab.name)
             check(content ~= nil, "couldn't open the " .. tab.label .. " tab")
@@ -1315,7 +1337,11 @@ test("each options tab opens by its button, and keeps its checkboxes and labels 
             check(ShowsText(content, tab.label .. "  "), name .. ": the header doesn't name the tab")
             OnScreen(_G[FriendlyForeverUIPages.PANEL], "options panel (" .. name .. ")")
             -- Every place below is read from a settled layout, or the
-            -- checks fail: none passes on the last tab's places.
+            -- checks fail: none passes on the last tab's places. How many
+            -- rows read out of place before that is reported, so a run
+            -- says whether the simulator still needs it (#160).
+            report(("FACT sim %s: %d message row(s) out of place before the layout is settled"):format(
+                name, RowsOutOfPlace(content)))
             Settle(content)
             RowsInOrder(content, name, "Preview random")
             CheckAll({

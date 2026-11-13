@@ -1,4 +1,4 @@
--- Spec: #35, #52, #90, #112, #148, #158, #47, #173, #208
+-- Spec: #35, #52, #90, #112, #148, #158, #47, #173, #208, #160
 -- The UI simulator's layout check (uitests/scenarios.lua), run here against
 -- stand-in regions whose edges, anchors and text sizes each test sets
 -- itself, so the expected answer comes from those numbers and not from the
@@ -592,10 +592,10 @@ describe("UI simulator layout check for an options tab (TabTextInside, #112)", f
         assert.is_nil(anyLine('LAYOUT Guild Join tab checkbox "Hidden box"'))
     end)
 
-    -- #158: the simulator has no names for Forever's buffs, so the Buff
-    -- Back tab's rows showed the buff keys. A stand-in row, 7 pixels a
-    -- letter, 120 from the panel's edge: the key fits, the longest Forever
-    -- name the fixture (uitests/pages.lua) gives doesn't, and fails.
+    -- #158: without names for Forever's buffs, the Buff Back tab's rows
+    -- show the buff keys. A stand-in row, 7 pixels a letter, 120 from the
+    -- panel's edge: the key fits, the longest Forever name the tab must
+    -- show (uitests/pages.lua's list) doesn't, and fails.
     it("fails a buff row whose Forever name doesn't fit, though its buff key does (black)", function()
         _G.A_Print = function() end
         dofile("uitests/pages.lua")
