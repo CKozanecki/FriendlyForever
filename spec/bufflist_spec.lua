@@ -598,6 +598,25 @@ describe("A group cast in the list (#227)", function()
     end)
 
     describe("black", function()
+        it("a group cast whose macro can't be built leaves its aim, and every member it covered, with their own single rows", function()
+            boot()
+            local saved = wow.SPELL_NAMES[BRILLIANCE]
+            wow.SPELL_NAMES[BRILLIANCE] = "Arcane; Brilliance"
+            group("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
+            local text = table.concat(rows(), "|")
+            for _, who in ipairs({ "Ann Vale", "Bo Fern", "Cid Rock", "Dot Moss" }) do
+                assert.is_truthy(text:find(who .. ": Arcane Intellect", 1, true), who .. " has a single row: " .. text)
+            end
+            -- The aim's row works like any other: it arms their single buff, and nothing casts.
+            for i, text2 in ipairs(rows()) do
+                if text2:find("Ann Vale", 1, true) then click(i) end
+            end
+            local armedNow = armed()
+            wow.SPELL_NAMES[BRILLIANCE] = saved
+            assert.are.equal("Ann Vale: Arcane Intellect", armedNow)
+            assert.are.equal(0, #wow.casts, "a click casts nothing")
+        end)
+
         local function show(cast)
             boot()
             group("party", { "Ann-Vale" })
