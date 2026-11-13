@@ -252,7 +252,8 @@ local function NextOffer()
         if share then groupReason = groupReason .. ". " .. share end
     end
     -- One offer per player: the first, which is the one the button would
-    -- make (a player owed a favour who is also in your group appears in both).
+    -- make (a player owed a favour who is also in your group appears in both,
+    -- and one group cast aimed at a player is listed beside another, #305).
     local castable, seen = {}, {}
     for _, offer in ipairs(list) do
         if not seen[offer.name] and BuffButton.BuildCastMacro(offer.name, offer.spell, true, offer.self) then
