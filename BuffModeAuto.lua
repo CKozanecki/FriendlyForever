@@ -193,22 +193,51 @@ local function InPvP()
     return kind ~= "none" and kind ~= "party" and kind ~= "raid"
 end
 
+-- Every member of the group by name, you included; nil when a member's
+-- name can't be read (then nobody is taken to have left).
+local function RosterNames()
+    local names = {}
+    local me = ns.Util.UnitFullName("player")
+    if me then names[me] = true end
+    local prefix, count = "party", 4
+    if ns.Util.ReadGameValues(IsInRaid) == true then prefix, count = "raid", 40 end
+    for i = 1, count do
+        local unit = prefix .. i
+        if ns.Util.ReadGameValues(UnitExists, unit) ~= false then
+            local name = ns.Util.UnitFullName(unit)
+            if not name then return nil end
+            names[name] = true
+        end
+    end
+    return names
+end
+
 -- A member missing a buff of yours outright (#272), if that trigger is on:
--- any one as a fight ends, otherwise one who wasn't missing it at the last
--- look. Each look remembers who was, so buff mode you turned off stays off
--- until someone else goes missing. After a login the first look only notes
--- who is (buff mode is off after one), unless a fight has ended.
+-- any one as a fight ends, otherwise one who wasn't missing it before.
+-- Who was is remembered until they're seen wearing it or leave the group:
+-- a member out of this look (out of range, skipped, unreadable) keeps
+-- what they had, so coming back close isn't a new fade, and buff mode you
+-- turned off stays off until someone else goes missing. After a login the
+-- first look only notes who is (buff mode is off after one), unless a
+-- fight has ended.
 local function CheckMissing(fightEnded)
     if not ready or not inGroup or fighting or InCombatLockdown() then return end
     if Cfg().autoOnMissing ~= true or InPvP() or ns.Battleground.Quiet() then
         lastMissing = {}
         return
     end
+    local list, worn = ns.GroupBuffs.Missing()
     local now, first = {}, nil
-    for _, offer in ipairs(ns.GroupBuffs.Missing()) do
+    for _, offer in ipairs(list) do
         local key = offer.name .. "\1" .. offer.buff.key
         now[key] = true
         if not first and (fightEnded or (lastMissing and not lastMissing[key])) then first = offer end
+    end
+    -- Carried over: missing before, not seen this time, still in the group.
+    local roster = RosterNames()
+    for key in pairs(lastMissing or {}) do
+        local name = key:match("^(.-)\1")
+        if not worn[key] and (roster == nil or roster[name]) then now[key] = true end
     end
     lastMissing = now
     if not first then return end
@@ -307,6 +336,7 @@ function Auto.OnRosterUpdate()
     end
     if nowIn and not inGroup then
         pulled, joinedAt = false, nil
+        lastMissing = {} -- a group joined: everyone missing a buff is new (#272)
         if not InsideWithGroup() then
             joinedAt = GetTime()
             JoinedNearby()

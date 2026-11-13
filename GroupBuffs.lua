@@ -80,7 +80,8 @@ local heldBack = {}  -- [name] = GetTime() the game refused a cast to them
 local lastSelfWhy        -- why you were last left out of the offers (said once in debug)
 -- While GroupBuffs.Missing asks (#272): any copy of a buff counts as worn
 -- (running low, or anyone's), and only a member close by and known to be
--- online can be missing one.
+-- online can be missing one. While it asks, this is the table of pairs
+-- seen worn ([name .. "\1" .. buff key] = true); otherwise false.
 local presentOnly = false
 -- The dungeon-or-raid round (#256), or nil: { started = GetTime(), given =
 -- { [name .. "\1" .. buff key] = true }, inStep = { [buff key] = { buff,
@@ -403,8 +404,10 @@ function GroupBuffs.Next(out)
     local function Found(offer)
         if not out then return true end
         first = first or offer
-        if not listed[offer.name] then
-            listed[offer.name] = true
+        -- Missing lists each buff a member lacks; the button's list, each member once.
+        local id = presentOnly and (offer.name .. "\1" .. offer.buff.key) or offer.name
+        if not listed[id] then
+            listed[id] = true
             out[#out + 1] = offer
         end
         return false
@@ -453,7 +456,7 @@ function GroupBuffs.Next(out)
             elseif wears then
                 -- A buff only running low is worn here: your top-up cast
                 -- still counts as just given (#272).
-                if not presentOnly then justGiven[key] = nil end
+                if presentOnly then presentOnly[key] = true else justGiven[key] = nil end
             elseif allowed == nil then
                 -- The rules can't tell (an unreadable role or class):
                 -- said, and not settled, only for a member missing it.
@@ -545,14 +548,16 @@ end
 -- not merely running low. Next's rules hold (your Buff Back rules, the raid
 -- split, water, the one-Blessing rule), and a member counts only when close
 -- by, online and readable: one whose buffs, name, connection or range can't
--- be read is never missing one. Nothing here casts.
+-- be read is never missing one. Each buff a member lacks is listed. Also
+-- the pairs seen worn, { [name .. "\1" .. buff key] = true }: a member left
+-- out of this look (out of range, say) is in neither. Nothing here casts.
 function GroupBuffs.Missing()
-    local list = {}
-    presentOnly = true
+    local list, worn = {}, {}
+    presentOnly = worn
     local ok, err = pcall(GroupBuffs.Next, list)
     presentOnly = false
     if not ok then error(err, 0) end
-    return list
+    return list, worn
 end
 
 -- Your buff reached them (the game said so).

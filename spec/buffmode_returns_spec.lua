@@ -11,6 +11,7 @@ local MOTW, MOTW_1 = 9885, 1126
 -- test's own idea of "wearing it", read from the client's state.
 local MARKS = { [MOTW] = true, [MOTW_1] = true }
 local INTELLECT = 10157
+local THORNS = 9910
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
 
@@ -28,10 +29,12 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
     -- a death or a stranger's buff never turn it on here.
     local function boot(opts)
         opts = opts or {}
+        local known = { [MOTW_1] = true, [MOTW] = true }
+        if opts.thorns then known[THORNS] = true end
         ns = wow.boot({ db = { buffBack = { autoOnJoin = false, autoOnDeath = false, autoOnBuffed = false } },
             autoBuffMode = true, buffSelf = opts.buffSelf, before = function(state)
                 state.class = "DRUID"
-                state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
+                state.knownSpells = known
             end })
     end
 
@@ -228,6 +231,103 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
             boot()
             for _ = 1, 3 do look() end
             assert.is_false(ns.BuffMode.IsOn(), "buff mode is off after a login")
+        end)
+    end)
+
+    describe("who counts as newly missing (white)", function()
+        it("a second buff fading from someone already missing one turns it on again", function()
+            boot({ thorns = true })
+            joinCovered()
+            wow.wearBuff("party1", THORNS, { source = "player" })
+            wow.wearBuff("party2", THORNS, { source = "player" })
+            look()
+            assert.is_false(ns.BuffMode.IsOn())
+            wow.state.units.party1.auras = { THORNS } -- her Mark is dispelled
+            look()
+            assert.is_true(ns.BuffMode.IsAuto())
+            slash("buffmode off")
+            look()
+            assert.is_false(ns.BuffMode.IsOn())
+            wow.state.units.party1.auras = {} -- and now her Thorns fades
+            look()
+            assert.is_true(ns.BuffMode.IsAuto())
+            assert.is_true(printedHas("(Ann Vale is missing your Thorns)"))
+        end)
+
+        it("someone else covering one of two missing buffs isn't a new fade", function()
+            boot({ thorns = true })
+            joinCovered()
+            wow.wearBuff("party2", THORNS, { source = "player" })
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "Ann has never had your Thorns")
+            slash("buffmode off")
+            strip("party1") -- missing both now
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "her Mark faded")
+            slash("buffmode off")
+            wow.wearBuff("party1", MOTW, { source = "party2" }) -- Cid gives her a Mark
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "still only missing the Thorns she was missing")
+        end)
+
+        it("coming back close by, or after a skip, isn't a new fade", function()
+            joinCovered()
+            look()
+            strip("party1")
+            look()
+            slash("buffmode off")
+            wow.state.units.party1.outOfRange = true -- off to loot, 45 yards away
+            for _ = 1, 3 do look() end
+            wow.state.units.party1.outOfRange = nil
+            for _ = 1, 3 do look() end
+            assert.is_false(ns.BuffMode.IsOn(), "back in range")
+            wow.state.units.party1.secrets = { range = true }
+            look()
+            wow.state.units.party1.secrets = nil
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "range readable again")
+            ns.GroupBuffs.Skip("Ann-Vale")
+            look()
+            wow.advance(ns.GroupBuffs.SKIP_SECONDS)
+            for _ = 1, 3 do look() end
+            assert.is_false(ns.BuffMode.IsOn(), "the skip ran out")
+        end)
+
+        it("once seen wearing it, losing it again is a new fade", function()
+            joinCovered()
+            look()
+            strip("party1")
+            look()
+            slash("buffmode off")
+            wow.wearBuff("party1", MOTW, { source = "party2" }) -- Cid covers her
+            look()
+            strip("party1") -- and it's dispelled
+            look()
+            assert.is_true(ns.BuffMode.IsAuto())
+        end)
+
+        it("someone who leaves the group and rejoins missing it is new again", function()
+            joinCovered()
+            look()
+            strip("party1")
+            look()
+            slash("buffmode off")
+            wow.setGroup("party", { "Cid-Rock" })
+            wow.wearBuff("party1", MOTW, { source = "player" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            look()
+            wow.setGroup("party", { "Cid-Rock", "Ann-Vale" })
+            wow.wearBuff("party1", MOTW, { source = "player" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            look()
+            assert.is_true(ns.BuffMode.IsAuto())
+        end)
+
+        it("the first group joined after a login counts members already missing it", function()
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            look()
+            assert.is_true(ns.BuffMode.IsAuto())
         end)
     end)
 
