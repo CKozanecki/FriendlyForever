@@ -1,4 +1,4 @@
--- Spec: #29, #71, #76, #99, #268
+-- Spec: #29, #71, #76, #99, #268, #272
 -- When buff mode turns on and off by itself.
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
@@ -81,6 +81,10 @@ describe("Buff mode turning on and off by itself", function()
             assert.is_true(b.autoOnJoin)
             assert.is_true(b.autoOnDeath)
             assert.is_true(b.autoOnBuffed)
+            assert.is_true(b.autoOnMissing)
+            -- A member missing your buff turns it on as the fight ends (#272):
+            -- off here, so the death is what does.
+            b.autoOnMissing = false
             join()
             assert.is_true(ns.BuffMode.IsOn())
             assert.is_true(printedHas("(you joined a group)"))
@@ -122,20 +126,23 @@ describe("Buff mode turning on and off by itself", function()
         it("other specs start with the triggers off unless their saved settings set them", function()
             local function triggers(n)
                 local b = n.db.buffBack
-                return { b.autoOnJoin, b.autoOnDeath, b.autoOnBuffed }
+                return { b.autoOnJoin, b.autoOnDeath, b.autoOnBuffed, b.autoOnMissing }
             end
-            assert.are.same({ false, false, false }, triggers(wow.boot()))
-            assert.are.same({ false, false, false }, triggers(wow.boot({ db = { enabled = true } })))
-            assert.are.same({ false, false, false }, triggers(wow.boot({ db = { buffBack = { sayLine = true } } })))
-            assert.are.same({ true, false, false }, triggers(wow.boot({ db = { buffBack = { autoOnJoin = true } } })))
+            assert.are.same({ false, false, false, false }, triggers(wow.boot()))
+            assert.are.same({ false, false, false, false }, triggers(wow.boot({ db = { enabled = true } })))
+            assert.are.same({ false, false, false, false },
+                triggers(wow.boot({ db = { buffBack = { sayLine = true } } })))
+            assert.are.same({ true, false, false, false },
+                triggers(wow.boot({ db = { buffBack = { autoOnJoin = true } } })))
             local saved = _G.FriendlyForeverDB
-            assert.are.same({ true, false, false }, triggers(wow.boot({ db = saved })), "kept over a reload")
-            assert.are.same({ true, true, true }, triggers(wow.boot({ db = { enabled = true }, autoBuffMode = true })))
+            assert.are.same({ true, false, false, false }, triggers(wow.boot({ db = saved })), "kept over a reload")
+            assert.are.same({ true, true, true, true },
+                triggers(wow.boot({ db = { enabled = true }, autoBuffMode = true })))
         end)
 
         it("does nothing with every trigger that turns it on switched off", function()
             local b = ns.db.buffBack
-            b.autoOnJoin, b.autoOnDeath, b.autoOnBuffed = false, false, false
+            b.autoOnJoin, b.autoOnDeath, b.autoOnBuffed, b.autoOnMissing = false, false, false, false
             join()
             wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", class = "WARRIOR", id = "Bob-Stone" })
             wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
@@ -194,6 +201,7 @@ describe("Buff mode turning on and off by itself", function()
 
         it("answers a death out of a fight at once, after the first pull", function()
             ns.db.buffBack.autoOnDeath = true
+            ns.db.buffBack.autoOnMissing = false -- the death alone (#272)
             join()
             wow.enterCombat()
             wow.leaveCombat()
@@ -240,6 +248,7 @@ describe("Buff mode turning on and off by itself", function()
 
         it("counts a death once: a ghost's health changing isn't another", function()
             ns.db.buffBack.autoOnDeath = true
+            ns.db.buffBack.autoOnMissing = false -- the death alone (#272)
             join()
             wow.enterCombat()
             dies("party1")
@@ -259,6 +268,7 @@ describe("Buff mode turning on and off by itself", function()
 
         it("doesn't count someone who joins already dead as a death", function()
             ns.db.buffBack.autoOnDeath = true
+            ns.db.buffBack.autoOnMissing = false -- the death alone (#272)
             join()
             wow.enterCombat()
             wow.leaveCombat()
@@ -514,6 +524,7 @@ describe("Buff mode turning on and off by itself", function()
 
         it("ends at the timeout even in a fight (the key is already handed back)", function()
             ns.db.buffBack.autoOnJoin = true
+            ns.db.buffBack.autoOnMissing = false -- not back on as the fight ends (#272)
             ns.db.buffBack.autoOffPull = false
             join()
             wow.enterCombat()

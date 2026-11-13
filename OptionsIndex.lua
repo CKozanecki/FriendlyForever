@@ -82,8 +82,9 @@ OptionsIndex.SETTINGS = {
     { name = "Blessings I give in this raid", page = BUFF_BACK, keywords = "paladin blessing blessings raid buff",
         controls = { "who.raidBlessings" } },
     { name = "Buff mode turns on by itself", page = BUFF_BACK,
-        keywords = "buff mode automatic auto group join dungeon raid instance nearby death stranger",
-        controls = { "auto.autoOnJoin", "auto.autoOnDeath", "auto.autoOnBuffed" } },
+        keywords = "buff mode automatic auto group join dungeon raid instance nearby death stranger "
+            .. "missing faded fade combat",
+        controls = { "auto.autoOnJoin", "auto.autoOnDeath", "auto.autoOnBuffed", "auto.autoOnMissing" } },
     { name = "Buff mode turns off again", page = BUFF_BACK, keywords = "buff mode automatic auto pull minutes",
         controls = { "auto.autoOffPull", "auto.autoOffDone", "steppers.autoOffMinutes" } },
     { name = "Top up my buffs with under", page = BUFF_BACK,

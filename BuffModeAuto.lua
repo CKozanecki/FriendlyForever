@@ -11,7 +11,15 @@
 --   a group member dying, after the group's first pull (until the next one);
 --   someone outside your group buffing you (a group member's buff isn't a
 --   favour, so it doesn't count), except where quiet mode holds in a capital
---   city: there it would end quiet mode at the first stranger's buff (#34).
+--   city: there it would end quiet mode at the first stranger's buff (#34);
+--   in any group, out of combat, a member missing a buff of yours outright
+--   (#272: never cast, or fully faded; not merely running low; anyone's copy
+--   counts as theirs): as a fight ends with one missing, and whenever one
+--   goes missing that wasn't before (looked for every WATCH_SECONDS, as the
+--   game says nothing when a buff runs out). Only a member close by (the
+--   game's ~40-yard group range), online and readable counts
+--   (GroupBuffs.Missing), and never in an arena or battleground. Buff mode
+--   you turned off yourself stays off until the next one goes missing.
 -- Turns off (on by default), but only buff mode a trigger turned on, never
 -- buff mode you turned on yourself:
 --   the first pull (PLAYER_REGEN_DISABLED);
@@ -43,12 +51,18 @@ local insideWait = false -- buff mode that trigger turned on waits for everyone 
 local timeoutToken = 0   -- bumps each auto start, so an old timer does nothing
 local quietWhy           -- a trigger refused while a battleground was quiet
 local joinedAt           -- when you joined a group out in the world, while it waits for someone close by
+local lastMissing = {}   -- [name .. "\1" .. buff key] = true: missing at the last look (#272);
+                         -- nil after a login: the first look only notes who is
+local watching = false   -- the look for missing buffs is scheduled
 
 local function Cfg() return ns.db.buffBack end
 
 -- Out in the world, joining a group turns buff mode on only with someone
 -- close by (#256): checked when you join, and on roster changes this long after.
 Auto.NEARBY_SECONDS = 120
+-- How often, in a group, members are looked at for a buff of yours gone
+-- missing (#272).
+Auto.WATCH_SECONDS = 5
 
 local function InGroup()
     return ns.Util.ReadGameValues(IsInGroup) == true
@@ -172,6 +186,82 @@ local function TurnOn(why, inside)
     if ns.BuffMode.IsAuto() and not inside then StartTimeout() end
 end
 
+-- In an arena or a battleground, or where the game won't say: no missing
+-- buff turns buff mode on there (#272).
+local function InPvP()
+    local _, kind = ns.Util.ReadGameValues(IsInInstance)
+    return kind ~= "none" and kind ~= "party" and kind ~= "raid"
+end
+
+-- Every member of the group by name, you included; nil when a member's
+-- name can't be read (then nobody is taken to have left).
+local function RosterNames()
+    local names = {}
+    local me = ns.Util.UnitFullName("player")
+    if me then names[me] = true end
+    local prefix, count = "party", 4
+    if ns.Util.ReadGameValues(IsInRaid) == true then prefix, count = "raid", 40 end
+    for i = 1, count do
+        local unit = prefix .. i
+        if ns.Util.ReadGameValues(UnitExists, unit) ~= false then
+            local name = ns.Util.UnitFullName(unit)
+            if not name then return nil end
+            names[name] = true
+        end
+    end
+    return names
+end
+
+-- A member missing a buff of yours outright (#272), if that trigger is on:
+-- any one as a fight ends, otherwise one who wasn't missing it before.
+-- Who was is remembered until they're seen wearing it or leave the group:
+-- a member out of this look (out of range, skipped, unreadable) keeps
+-- what they had, so coming back close isn't a new fade, and buff mode you
+-- turned off stays off until someone else goes missing. After a login the
+-- first look only notes who is (buff mode is off after one), unless a
+-- fight has ended.
+local function CheckMissing(fightEnded)
+    if not ready or not inGroup or fighting or InCombatLockdown() then return end
+    if Cfg().autoOnMissing ~= true or InPvP() or ns.Battleground.Quiet() then
+        lastMissing = {}
+        return
+    end
+    local list, worn = ns.GroupBuffs.Missing()
+    local now, first = {}, nil
+    for _, offer in ipairs(list) do
+        local key = offer.name .. "\1" .. offer.buff.key
+        now[key] = true
+        if not first and (fightEnded or (lastMissing and not lastMissing[key])) then first = offer end
+    end
+    -- Carried over: missing before, not seen this time, still in the group.
+    local roster = RosterNames()
+    for key in pairs(lastMissing or {}) do
+        local name = key:match("^(.-)\1")
+        if not worn[key] and (roster == nil or roster[name]) then now[key] = true end
+    end
+    lastMissing = now
+    if not first then return end
+    local who = first.self and "you're" or (ns.Util.DisplayName(first.name) .. " is")
+    local why = who .. " missing your " .. (ns.BuffData.SpellName(first.buff) or "buff")
+    TurnOn(fightEnded and ("the fight ended and " .. why) or why)
+end
+
+-- Look again every WATCH_SECONDS while in a group. The next look is
+-- scheduled first, so one that fails doesn't end them.
+local function Watch()
+    if watching then return end
+    watching = true
+    C_Timer.After(Auto.WATCH_SECONDS, ns.Diag.Wrap(function()
+        watching = false
+        if not inGroup then
+            lastMissing = {}
+            return
+        end
+        Watch()
+        CheckMissing(false)
+    end))
+end
+
 -- Being in a dungeon or raid with your group (#256), if that trigger is on.
 -- Entering also starts the round (GroupBuffs.StartRound: a buff, yours or
 -- another member's, put up over 5 minutes before you entered is offered
@@ -246,6 +336,7 @@ function Auto.OnRosterUpdate()
     end
     if nowIn and not inGroup then
         pulled, joinedAt = false, nil
+        lastMissing = {} -- a group joined: everyone missing a buff is new (#272)
         if not InsideWithGroup() then
             joinedAt = GetTime()
             JoinedNearby()
@@ -254,9 +345,11 @@ function Auto.OnRosterUpdate()
         JoinedNearby()
     elseif not nowIn then
         pulled, deathSeen, joinedAt = false, false, nil
+        lastMissing = {}
         ns.GroupBuffs.EndRound()
     end
     inGroup = nowIn
+    if nowIn then Watch() end
 end
 
 -- PLAYER_ENTERING_WORLD. A login or reload: the group as it is now is where
@@ -278,8 +371,10 @@ function Auto.OnEnteringWorld(isLogin, isReload)
     ready = true
     inGroup = InGroup()
     pulled, deathSeen, pendingWhy, pendingInside, insideWait, joinedAt = false, false, nil, nil, false, nil
+    lastMissing = nil
     ns.GroupBuffs.EndRound()
     NoteWhoIsDead()
+    if inGroup then Watch() end
 end
 
 -- PLAYER_REGEN_DISABLED. The button empties itself for the fight in the
@@ -315,6 +410,7 @@ function Auto.OnCombatEnd()
         OnDeath()
     end
     if why then TurnOn(why, inside) end
+    CheckMissing(true)
 end
 
 -- A death is a member going from alive to dead: a ghost's health changing

@@ -99,13 +99,16 @@ Walkthrough.STEPS = {
         text = function()
             local cfg = Section("buffBack")
             local text = ns.Options.AUTO_TEXT
+            -- That it never casts comes first, so it stays in view above the list (#272).
             local lines = { "Buff mode turns on by itself, and borrows your key, at these times. Each has its "
-                .. "switch under \"Buff mode turns on by itself\"; untick any you don't want.", "" }
+                .. "switch under \"Buff mode turns on by itself\"; untick any you don't want. It never casts "
+                .. "by itself: you still press the key for each buff.", "" }
             local function Row(field) lines[#lines + 1] = "  " .. text[field] .. ": " .. OnOff(cfg[field]) end
             lines[#lines + 1] = "Turns on:"
             Row("autoOnJoin")
             Row("autoOnDeath")
             Row("autoOnBuffed")
+            Row("autoOnMissing")
             lines[#lines + 1] = "Turns off again, if it turned itself on:"
             Row("autoOffPull")
             Row("autoOffDone")
@@ -113,8 +116,6 @@ Walkthrough.STEPS = {
             if minutes and minutes > 0 then
                 lines[#lines + 1] = ("  or after %d minutes"):format(minutes)
             end
-            lines[#lines + 1] = ""
-            lines[#lines + 1] = "Buff mode never casts by itself: you still press the key for each buff."
             return table.concat(lines, "\n")
         end,
     },
