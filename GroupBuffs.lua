@@ -400,7 +400,11 @@ function GroupBuffs.Next(out)
         if not out then return true end
         first = first or offer
         -- Missing lists each buff a member lacks; the button's list, each member once.
+        -- A group offer is its own entry: its aim keeps their single row too, for
+        -- when the button drops the group cast (its macro can't be built, #252).
+        -- Missing lists each pair once, so there the two are one entry.
         local id = presentOnly and (offer.name .. "\1" .. offer.buff.key) or offer.name
+        if offer.cast and not presentOnly then id = id .. "\1group" end
         if not listed[id] then
             listed[id] = true
             out[#out + 1] = offer

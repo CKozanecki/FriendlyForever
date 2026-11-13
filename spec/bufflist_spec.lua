@@ -1,4 +1,4 @@
--- Spec: #43, #227
+-- Spec: #43, #227, #252
 -- The clickable list beside the buff button: everyone the button would offer
 -- to, and the buff for each; a click makes that player the next offer.
 local wow = require("spec.support.wow")
@@ -559,9 +559,11 @@ describe("A group cast in the list (#227)", function()
             group("party", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" })
             local text = table.concat(rows(), "|")
             wow.SPELL_NAMES[BRILLIANCE] = saved
-            for _, who in ipairs({ "Bo Fern", "Cid Rock", "Dot Moss" }) do
+            -- The group cast's aim is covered too: it keeps its own row (#252).
+            for _, who in ipairs({ "Ann Vale", "Bo Fern", "Cid Rock", "Dot Moss" }) do
                 assert.is_truthy(text:find(who .. ": Arcane Intellect", 1, true), who .. " keeps a row: " .. text)
             end
+            assert.is_nil(text:find("Party (", 1, true), "no group row: its macro can't be built")
             assert.is_truthy(armed():find("Arcane Intellect", 1, true), "the button holds a single buff, not nothing")
         end)
 
