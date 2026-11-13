@@ -558,14 +558,15 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         state.units.player.subgroup (1 unless set), and
 --                         setGroup(..., opts) with opts.noPlayer leaves it out.
 --                         Where the game puts you among the raidN slots is
---                         unconfirmed; the last slot is a guess, and addon code
---                         must not rely on it.
+--                         unconfirmed (#307); the last slot is a guess, and
+--                         addon code must not rely on it.
 --   Casts on members out of reach (#260): a cast on a unit that is hidden (out
 --                         of sight, or zoneOut) fails with "Target not in line
 --                         of sight", and one on a unit marked outOfRange with
 --                         "Out of range." (also outOfSpellRange; M.LINE_OF_SIGHT_ERROR,
 --                         M.OUT_OF_RANGE_ERROR), as castFailures does; the game
---                         refuses both, though its exact wording is unconfirmed.
+--                         refuses both, though its exact wording is unconfirmed
+--                         (#307).
 --                         A spell-range check (C_Spell.IsSpellInRange) answers
 --                         nil for a hidden unit and false for one outOfRange.
 --                         Pessimistic: the real game may let a cast near the

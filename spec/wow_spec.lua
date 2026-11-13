@@ -829,6 +829,24 @@ describe("The simulated client's fidelity fixes (#255, #260, #265, #296)", funct
             assert.is_nil(wow.state.units.raid41)
         end)
 
+        it("the game's replies (an echoed addon message, a queued roster update) survive a reload (black)", function()
+            wow.boot()
+            local heard = { addon = 0, roster = 0 }
+            local frame = CreateFrame("Frame")
+            frame:RegisterEvent("CHAT_MSG_ADDON")
+            frame:RegisterEvent("GUILD_ROSTER_UPDATE")
+            frame:SetScript("OnEvent", function(_, event)
+                if event == "CHAT_MSG_ADDON" then heard.addon = heard.addon + 1 else heard.roster = heard.roster + 1 end
+            end)
+            C_ChatInfo.RegisterAddonMessagePrefix("FFTEST")
+            C_ChatInfo.SendAddonMessage("FFTEST", "hi", "GUILD")
+            wow.queueRosterUpdate({ "Ann-Vale" }, 3)
+            wow.reloadInPlace()
+            wow.advance(60)
+            assert.are.equal(1, heard.addon, "the echo still arrives")
+            assert.are.equal(1, heard.roster, "the queued roster update still arrives")
+        end)
+
         it("the game's own timers (a refilling breath bar, an echoed addon message) survive a reload (black)", function()
             wow.boot()
             wow.dive()

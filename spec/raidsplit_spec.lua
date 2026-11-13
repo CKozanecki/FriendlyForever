@@ -107,7 +107,7 @@ describe("The raid buff split (#70)", function()
                     wow.state.units["raid" .. i].class = class
                     wow.state.units["raid" .. i].subgroup = groups[i]
                 end
-                -- In the game you have a raid slot too (setGroup leaves it out).
+                -- You have a raid slot too (setGroup adds one, #255); this one carries this copy's own name, class and subgroup.
                 wow.addUnit("raid" .. (#names + 1), { name = c.name, surname = c.surname, id = c.full,
                     class = c.class, subgroup = c.group })
             else
