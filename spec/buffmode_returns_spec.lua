@@ -231,6 +231,53 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
         end)
     end)
 
+    describe("the debug log (white)", function()
+        local function logged(fragment)
+            local n = 0
+            for _, line in ipairs(ns.db.diagLog) do
+                if line:find(fragment, 1, true) then n = n + 1 end
+            end
+            return n
+        end
+
+        before_each(function()
+            ns.db.debug = true
+            ns.db.diagLog = {}
+        end)
+
+        it("says why it turned on and off: a fade, then everyone covered", function()
+            joinCovered()
+            look()
+            strip("party1")
+            look()
+            assert.are.equal(1, logged("auto turned on: Ann Vale is missing your Mark of the Wild"))
+            scroll()
+            assert.are.equal(1, logged("auto turned off: everyone has your buffs"))
+        end)
+
+        it("says why it turned on and off: a fight's end, then the next pull", function()
+            joinCovered()
+            look()
+            wow.enterCombat()
+            strip("party1")
+            wow.leaveCombat()
+            assert.are.equal(1, logged("auto turned on: the fight ended and Ann Vale is missing your Mark of the Wild"))
+            wow.enterCombat()
+            assert.are.equal(1, logged("auto turned off: the fight started"))
+        end)
+
+        it("logs decisions, not looks: a hundred looks with nothing new add no lines (#268)", function()
+            joinCovered()
+            look()
+            strip("party1")
+            look()
+            slash("buffmode off")
+            local lines = #ns.db.diagLog
+            for _ = 1, 100 do look() end
+            assert.are.equal(lines, #ns.db.diagLog)
+        end)
+    end)
+
     describe("what it can't see, and where it never turns on (black)", function()
         -- Ann is missing your Mark in the given way; Cid is covered. A fight
         -- ends, the strongest reason to turn on, and time passes.
