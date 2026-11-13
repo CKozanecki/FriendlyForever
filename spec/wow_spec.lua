@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274
+-- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -485,7 +485,8 @@ describe("The simulated client's group versions (#41)", function()
         boot()
         assert.are.equal(2, select(3, GetRaidRosterInfo(1)))
         assert.are.equal(1, select(3, GetRaidRosterInfo(4)))
-        assert.is_nil(GetRaidRosterInfo(5))
+        assert.are.equal("Me", GetRaidRosterInfo(5), "you have the next slot (#255)")
+        assert.is_nil(GetRaidRosterInfo(6))
         wow.state.units.raid1.secrets = { subgroup = true }
         assert.is_true(issecretvalue(select(3, GetRaidRosterInfo(1))))
         wow.state.rosterSecret = true
@@ -660,5 +661,162 @@ describe("The simulated client's frame sizes and line heights (#270)", function(
             assert.is_number(wow.LINE_HEIGHT[font], font)
             assert.is_true(wow.LINE_HEIGHT[font] >= width, font)
         end
+    end)
+end)
+
+describe("The simulated client's fidelity fixes (#255, #260, #265, #296)", function()
+    local function bootRaid(opts)
+        wow.boot({ before = function(state)
+            state.class = "MAGE"
+            state.knownSpells = { [10157] = true }
+        end })
+        wow.setGroup("raid", { "Ann-Vale", "Bo-Fern" }, false, opts)
+    end
+
+    local function raidSlotsOfPlayer()
+        local found = {}
+        for n = 1, 40 do
+            if _G.UnitExists("raid" .. n) and _G.UnitIsUnit("raid" .. n, "player") then found[#found + 1] = n end
+        end
+        return found
+    end
+
+    describe("your own raid slot (#255)", function()
+        it("setGroup gives you exactly one raid slot, with your subgroup, name and class (white)", function()
+            bootRaid()
+            assert.are.same({ 3 }, raidSlotsOfPlayer())
+            assert.are.equal(3, _G.GetNumGroupMembers())
+            local name, _, subgroup = _G.GetRaidRosterInfo(3)
+            assert.are.equal("Me", name)
+            assert.are.equal(1, subgroup, "subgroup 1 unless the spec sets one")
+            assert.are.equal("MAGE", select(2, _G.UnitClass("raid3")), "your class, as state.class has it")
+            wow.state.units.player.subgroup = 4
+            assert.are.equal(4, select(3, _G.GetRaidRosterInfo(3)))
+        end)
+
+        it("an instance group in raid slots has your slot too, and a party never does (white)", function()
+            wow.boot()
+            wow.setGroup("instance", { "Ann-Vale", "Bo-Fern" }, true)
+            assert.are.same({ 3 }, raidSlotsOfPlayer())
+            wow.setGroup("party", { "Ann-Vale", "Bo-Fern" })
+            assert.are.same({}, raidSlotsOfPlayer())
+            assert.is_nil(wow.state.units.party3)
+            wow.setGroup(nil, {})
+            assert.are.same({}, raidSlotsOfPlayer())
+        end)
+
+        it("opts.noPlayer leaves the slot out, and a new group drops the old slot (black)", function()
+            bootRaid({ noPlayer = true })
+            assert.are.same({}, raidSlotsOfPlayer())
+            assert.is_nil(_G.GetRaidRosterInfo(3))
+            bootRaid()
+            wow.setGroup("raid", { "Ann-Vale" })
+            assert.are.same({ 2 }, raidSlotsOfPlayer())
+            assert.is_nil(wow.state.units.raid3)
+        end)
+    end)
+
+    describe("casts on members out of sight or range (#260)", function()
+        local function castOn(who)
+            wow.state.units.player.target = nil
+            wow.runMacro("/targetexact " .. who .. "\n/cast [help,nodead] Arcane Intellect")
+        end
+
+        it("a cast on a hidden member fails with the line of sight error, and nobody gets the buff (white)", function()
+            bootRaid()
+            wow.state.knownSpells[1459] = true
+            local errors = {}
+            local frame = CreateFrame("Frame")
+            frame:RegisterEvent("UI_ERROR_MESSAGE")
+            frame:SetScript("OnEvent", function(_, _, _, msg) errors[#errors + 1] = msg end)
+            wow.zoneOut("raid1")
+            castOn("Ann Vale")
+            assert.are.same({ wow.LINE_OF_SIGHT_ERROR }, errors)
+            assert.are.equal(wow.LINE_OF_SIGHT_ERROR, wow.casts[1].failed)
+            assert.are.equal(0, #wow.landed)
+        end)
+
+        it("a cast on an out of range member fails with the out of range error (white)", function()
+            bootRaid()
+            wow.state.knownSpells[1459] = true
+            wow.state.units.raid1.outOfRange = true
+            castOn("Ann Vale")
+            assert.are.equal(wow.OUT_OF_RANGE_ERROR, wow.casts[1].failed)
+            assert.are.equal(0, #wow.landed)
+            wow.state.units.raid1.outOfRange = nil
+            castOn("Ann Vale")
+            assert.is_nil(wow.casts[2].failed, "in reach again, it lands")
+        end)
+
+        it("a cast on yourself is never out of range, and an explicit castFailure still wins (black)", function()
+            bootRaid()
+            wow.state.knownSpells[1459] = true
+            wow.state.units.player.outOfRange = true
+            wow.runMacro("/cast [@player,nodead] Arcane Intellect")
+            assert.is_nil(wow.casts[1].failed)
+            wow.state.units.raid2.outOfRange = true
+            wow.state.castFailures["Bo-Fern"] = "Interrupted"
+            castOn("Bo Fern")
+            assert.are.equal("Interrupted", wow.casts[2].failed)
+        end)
+
+        it("the spell range check never says true for a zoned out member, and false for one out of range (white)", function()
+            bootRaid()
+            assert.is_true(C_Spell.IsSpellInRange(10157, "raid1"))
+            wow.zoneOut("raid1")
+            assert.is_not_true(C_Spell.IsSpellInRange(10157, "raid1"))
+            wow.zoneIn("raid1")
+            assert.is_true(C_Spell.IsSpellInRange(10157, "raid1"))
+            wow.state.units.raid1.outOfRange = true
+            assert.is_false(C_Spell.IsSpellInRange(10157, "raid1"))
+        end)
+    end)
+
+    describe("fonts are objects (#265)", function()
+        it("GetFontObject gives a Font object whose name is the font set, by name or by object (white)", function()
+            wow.boot()
+            local line = CreateFrame("Frame"):CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            line:SetFontObject("GameFontNormalSmall")
+            local font = line:GetFontObject()
+            assert.is_table(font)
+            assert.are.equal("GameFontNormalSmall", font:GetName())
+            local other = CreateFrame("Frame"):CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            other:SetFontObject(font)
+            assert.are.equal("GameFontNormalSmall", other:GetFontObject():GetName())
+            assert.are.equal(font, other:GetFontObject(), "one object per font")
+        end)
+
+        it("an unknown font name, or something that isn't a font, is an error (black)", function()
+            wow.boot()
+            local line = CreateFrame("Frame"):CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            assert.has_error(function() line:SetFontObject("NoSuchFont") end)
+            assert.has_error(function() line:SetFontObject(nil) end)
+            assert.has_error(function() line:SetFontObject({}) end)
+            assert.are.equal("GameFontNormal", line:GetFontObject():GetName(), "the old font stays")
+        end)
+    end)
+
+    describe("reloadInPlace drops the addon's timers (#296)", function()
+        it("a timer scheduled before the reload never fires after it, and one scheduled after does (white)", function()
+            wow.boot()
+            local fired = {}
+            C_Timer.After(5, function() fired[#fired + 1] = "before" end)
+            wow.reloadInPlace()
+            C_Timer.After(5, function() fired[#fired + 1] = "after" end)
+            wow.advance(60)
+            assert.are.same({ "after" }, fired)
+        end)
+
+        it("the game's own timers (a refilling breath bar, an echoed addon message) survive a reload (black)", function()
+            wow.boot()
+            wow.dive()
+            wow.surface()
+            local before = #wow.timers
+            assert.is_true(before > 0)
+            wow.reloadInPlace(true)
+            assert.are.equal(before, #wow.timers)
+            wow.advance(wow.BREATH_REFILL_SECONDS + 1)
+            assert.is_nil(wow.state.breath)
+        end)
     end)
 end)

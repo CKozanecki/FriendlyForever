@@ -413,7 +413,11 @@ describe("Greater Blessings in buff mode (#41)", function()
                 end
                 local function tokens()
                     local out = {}
-                    for i = 1, 40 do if wow.state.units["raid" .. i] then out[#out + 1] = "raid" .. i end end
+                    -- The others only: your own raid slot (#255) is you, who this storm doesn't change.
+                    for i = 1, 40 do
+                        local u = wow.state.units["raid" .. i]
+                        if u and u ~= wow.state.units.player then out[#out + 1] = "raid" .. i end
+                    end
                     return out
                 end
                 local function someone()

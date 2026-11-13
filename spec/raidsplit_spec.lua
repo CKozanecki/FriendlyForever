@@ -1051,11 +1051,14 @@ describe("The raid buff split (#70)", function()
                             reach.offline = reach.offline + 1
                             markOffline()
                             if not offline[i] then
-                                -- Back online: PLAYER_ENTERING_WORLD again (the
-                                -- copy keeps its state; a fresh copy is the
-                                -- reload test's job).
+                                -- Back online: the roster is told again. Not a
+                                -- reload (#296): a real one drops the copy's
+                                -- timers and its state, and wow.reloadInPlace
+                                -- keeps the state, so a copy that reloaded here
+                                -- would never beat again. A fresh copy after a
+                                -- reload is the reload test's job.
                                 wow.use(c)
-                                wow.reloadInPlace(true)
+                                wow.fire("GROUP_ROSTER_UPDATE")
                             end
                         elseif roll == 5 then
                             lossy = true
@@ -1072,7 +1075,7 @@ describe("The raid buff split (#70)", function()
                     for i in pairs(offline) do
                         offline[i] = nil
                         wow.use(clients[i])
-                        wow.reloadInPlace(true)
+                        wow.fire("GROUP_ROSTER_UPDATE") -- not a reload: see above (#296)
                     end
                     markOffline()
                     lossy = false
