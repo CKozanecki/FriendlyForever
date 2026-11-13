@@ -45,11 +45,23 @@ Config.LIMITS = {
 -- Order of message types (also the order of the options tabs).
 Config.TYPES = { "guildLogin", "buff", "guildJoin", "partyJoin", "partyHello", "partyHelloAgain", "buffBack" }
 
+-- The name placeholders for a message type's player: guild greetings name
+-- the whole name in {name} too, since many players use their first name as
+-- a title (owner, #281); every other type keeps {name} as the first name.
+function Config.NameVars(msgType, fullName)
+    local vars = ns.Util.NameVars(fullName)
+    local info = Config.TYPE_INFO[msgType]
+    if info and info.wholeName then vars.name = vars.fullname end
+    return vars
+end
+
 Config.TYPE_INFO = {
     guildLogin = {
         label   = "Guild Login",
         channel = "Guild chat",
-        help    = "Greets guild members when they come online. Placeholders: {name} (first name), {fullname}",
+        help    = "Greets guild members when they come online. "
+            .. "Placeholders: {name} and {fullname}, both the whole name",
+        wholeName = true,
     },
     buff = {
         label   = "Buff Thanks",
@@ -59,7 +71,8 @@ Config.TYPE_INFO = {
     guildJoin = {
         label   = "Guild Join",
         channel = "Guild chat",
-        help    = "Welcomes new members who join the guild. Placeholders: {name} (first name), {fullname}",
+        help    = "Welcomes new members who join the guild. Placeholders: {name} and {fullname}, both the whole name",
+        wholeName = true,
     },
     partyJoin = {
         label   = "Party Join",

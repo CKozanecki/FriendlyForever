@@ -113,12 +113,19 @@ function Auto.Check(timedOutAfter)
     if not ns.db or not ns.BuffMode.IsAuto() then return end
     local cfg = Cfg()
     if timedOutAfter then
-        return ns.BuffMode.Set(false, { why = timedOutAfter .. " minutes passed" })
+        ns.BuffMode.Set(false, { why = timedOutAfter .. " minutes passed" })
+        if not ns.BuffMode.IsAuto() then
+            ns.Diag.Log("buffMode", "auto turned off: %s minutes passed", timedOutAfter)
+        end
+        return
     end
     if InCombatLockdown() then return end
     if cfg.autoOffDone ~= true then return end
     local done, why = Settled(insideWait)
-    if done then ns.BuffMode.Set(false, { why = why }) end
+    if done then
+        ns.BuffMode.Set(false, { why = why })
+        if not ns.BuffMode.IsAuto() then ns.Diag.Log("buffMode", "auto turned off: %s", why) end
+    end
 end
 
 local function StartTimeout()
@@ -161,6 +168,7 @@ local function TurnOn(why, inside)
     -- Set first: turning on refreshes the button, which checks it at once.
     if inside then WaitInside() else insideWait = false end
     ns.BuffMode.Set(true, { auto = true, why = why })
+    if ns.BuffMode.IsAuto() then ns.Diag.Log("buffMode", "auto turned on: %s", why) end
     if ns.BuffMode.IsAuto() and not inside then StartTimeout() end
 end
 
@@ -283,6 +291,7 @@ function Auto.OnCombatStart()
     deathSeen, pendingWhy, pendingInside = false, nil, nil
     if Cfg().autoOffPull == true and ns.BuffMode.IsAuto() then
         ns.BuffMode.EndForFight("the fight started")
+        ns.Diag.Log("buffMode", "auto turned off: the fight started")
     end
     -- Waiting for everyone lasts up to the first pull (#256). Buff mode
     -- the pull didn't end ("at the first pull" unticked) follows the usual
