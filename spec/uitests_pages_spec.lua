@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47, #169, #208, #209
+-- Spec: #52, #112, #158, #47, #169, #208, #209, #254
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -251,6 +251,23 @@ describe("the UI simulator's Buff Back names", function()
         end
     end)
 
+    it("has the screenshot job take options-buff-back-lower at both sizes, from its own script (white, #254)", function()
+        local workflow = wow.readFile(".github/workflows/ui-sim.yml")
+        assert.is_truthy(workflow:find('FriendlyForeverUIPages%.ShowTabLower%("buff%-back"%)', 1))
+        assert.is_truthy(workflow:find('> "$states/tab%-buff%-back%-lower%.lua"', 1))
+        -- Inside shoot_all, so both passes (and their suffixes) take it.
+        local all = workflow:match("shoot_all%(%) {\n(.-)\n%s*}\n%s*for size in")
+        assert.is_truthy(all and all:find('shoot options%-buff%-back%-lower %-%-exec%-lua "@/shot%-lua/tab%-buff%-back%-lower%.lua"'))
+    end)
+
+    it("answers no panel to scroll with a message, not a Lua error (black, #254)", function()
+        _G.FriendlyForeverOptionsPanel = nil
+        local ok, undo, why = pcall(Pages.ScrollToBottom)
+        assert.is_true(ok)
+        assert.is_nil(undo)
+        assert.is_truthy(why)
+    end)
+
     it("leaves the names in place for the screenshot taken after ShowTab (white)", function()
         Pages.ShowTab("buff-back")
         assert.are.equal("Blessing of Wisdom", _G.C_Spell.GetSpellName(19742))
@@ -284,6 +301,35 @@ describe("the UI simulator's walkthrough steps", function()
             assert.is_truthy(step.name:find("^[a-z][a-z-]*$"), step.name)
         end
         assert.are.equal("buffBack", ns.Options.CurrentType(), "the last step shot is on the Buff Back tab")
+    end)
+
+    it("scrolls the Buff Back tab to the bottom for its lower shot, and the undo puts the scroll back (white, #254)", function()
+        -- The simulated panel has no tab buttons to click: open the tab as the walkthrough does.
+        ns.Options.OpenTab("buffBack")
+        local scroll = ns.Options.widgets.scroll
+        scroll:SetVerticalScroll(0)
+        -- The simulated client has no child lists or layout: give the panel its scroll frame, and the frame a range.
+        scroll.scrollRange = 300
+        scroll.GetScrollChild = function() return ns.Options.widgets.content end
+        _G.FriendlyForeverOptionsPanel.GetChildren = function() return scroll end
+        local undo = Pages.ScrollToBottom()
+        local range = scroll:GetVerticalScrollRange()
+        assert.are.equal(300, range)
+        assert.are.equal(range, scroll:GetVerticalScroll())
+        undo()
+        assert.are.equal(0, scroll:GetVerticalScroll())
+    end)
+
+    it("shows the lower Buff Back tab from the tab's own script, with the buffs named (white, #254)", function()
+        _G.A_Print = function() end -- OpenTab's message: the simulated panel has no tab buttons
+        local scroll = ns.Options.widgets.scroll
+        scroll.scrollRange = 300
+        scroll.GetScrollChild = function() return ns.Options.widgets.content end
+        _G.FriendlyForeverOptionsPanel.GetChildren = function() return scroll end
+        local undo = Pages.ShowTabLower("buff-back")
+        assert.is_function(undo)
+        assert.are.equal(300, scroll:GetVerticalScroll())
+        assert.are.equal("Blessing of Wisdom", _G.C_Spell.GetSpellName(19742))
     end)
 
     it("skips the walkthrough a new install opened, by its button, before showing a page or tab", function()

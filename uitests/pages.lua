@@ -242,6 +242,43 @@ function Pages.ShowTab(name)
     Pages.OpenTab(name)
 end
 
+-- The options panel's scroll frame (the one holding the tab's rows), or nil.
+local function PanelScroll()
+    local panel = _G[Pages.PANEL]
+    if type(panel) ~= "table" then return nil end
+    for _, child in ipairs({ panel:GetChildren() }) do
+        if child.GetScrollChild and child:GetScrollChild() then return child end
+    end
+end
+
+-- Scrolls the options panel to the bottom (#254) and returns a function that
+-- puts the scroll back where it was. The range is read now and again a frame
+-- later, once the panel has laid the tab's rows out (as Options.lua's
+-- ScrollTo does). Returns nothing, and why, if there is no panel to scroll.
+function Pages.ScrollToBottom()
+    local scroll = PanelScroll()
+    if not scroll then
+        local why = "the options panel has no scroll frame"
+        report(why)
+        return nil, why
+    end
+    local before = scroll:GetVerticalScroll()
+    local function bottom()
+        local range = scroll:GetVerticalScrollRange()
+        scroll:SetVerticalScroll(type(range) == "number" and range or 0)
+    end
+    bottom()
+    if C_Timer and C_Timer.After then C_Timer.After(0, bottom) end
+    return function() scroll:SetVerticalScroll(before) end
+end
+
+-- For the screenshot job: the Buff Back tab, or any tab, scrolled to its
+-- bottom (#254). Like ShowTab, it leaves the panel as it is for the shot.
+function Pages.ShowTabLower(name)
+    Pages.ShowTab(name)
+    return Pages.ScrollToBottom()
+end
+
 -- The walkthrough's steps the screenshots show (#47), each named by a
 -- word in its title: the first, and buff mode's key and triggers, which
 -- the walkthrough must reach.
