@@ -3,8 +3,9 @@
 -- per press. Favours owed to strangers come first. Nothing here casts.
 --
 -- The same safety rules as buff back: a member flagged for PvP is skipped
--- unless you're flagged too (read each time the button is armed, so at the
--- press), as are the dead, the offline, and anyone out of range (of the
+-- unless you're flagged too, or your whole group is inside a dungeon or raid
+-- with you (#306: FlaggedMayBeBuffed; read each time the button is armed, so
+-- at the press), as are the dead, the offline, and anyone out of range (of the
 -- spell, when the game says) or too far for the game to show. The game can't
 -- say whether they're in line of sight: a cast it refuses holds that member
 -- back for a moment, so the next press goes to the next member.
@@ -103,6 +104,47 @@ end
 
 local function Recently(at, seconds)
     return at ~= nil and GetTime() - at < seconds
+end
+
+-- In a dungeon or raid instance (#256), and which: not in a battleground or
+-- arena, and never when the game won't say.
+function GroupBuffs.InDungeonOrRaid()
+    local _, kind = Read(IsInInstance)
+    if kind == "party" then return true, "dungeon" end
+    if kind == "raid" then return true, "raid" end
+    return false
+end
+
+-- Whether every other group member is in here with you: connected and shown
+-- by the game. A member whose connection or visibility can't be read isn't
+-- (#256), and neither is a slot that can't be read as holding someone or
+-- empty (#306); a member whose name can't be read leaves Next unsettled
+-- anyway. Buff mode's wait in a dungeon or raid (BuffModeAuto.lua) and the
+-- PvP rule below share this one test.
+function GroupBuffs.EveryoneInside()
+    for _, unit in ipairs(Read(IsInRaid) == true and RAID_UNITS or PARTY_UNITS) do
+        local exists = Read(UnitExists, unit)
+        if exists ~= false and Read(UnitIsUnit, unit, "player") ~= true then
+            if exists ~= true then return false end
+            if Read(UnitIsConnected, unit) ~= true then return false end
+            if Read(UnitIsVisible, unit) ~= true then return false end
+        end
+    end
+    return true
+end
+
+-- Whether a member flagged for PvP may be buffed now. When you're flagged
+-- too, buffing them changes nothing for you. Otherwise only by the owner's
+-- rule (#306): inside a dungeon or raid, once every member of your group is
+-- in there with you, nobody can attack you, and that is the only time it's
+-- safe. Everywhere else (the open world, cities, battlegrounds, arenas),
+-- while anyone is outside or can't be read, and when the game won't say
+-- where you are, a flagged member is never buffed. Read each time the
+-- button is armed, so at the press.
+local function FlaggedMayBeBuffed()
+    if Read(UnitIsPVP, "player") == true then return true end
+    local inside = GroupBuffs.InDungeonOrRaid()
+    return inside and GroupBuffs.EveryoneInside()
 end
 
 -- Whether the game says this member can't be buffed now, and why.
@@ -310,11 +352,13 @@ local OPEN_REASONS = {
     ["the game refused your last cast to them"] = true,
 }
 
--- Why this member can't have a buff now, or nil if they may.
-local function CantBuff(unit, iAmFlagged)
+-- Why this member can't have a buff now, or nil if they may. flaggedOk:
+-- a member flagged for PvP may be buffed (FlaggedMayBeBuffed), so their flag
+-- isn't asked for.
+local function CantBuff(unit, flaggedOk)
     local why = Unreachable(unit)
     if why then return why end
-    if not iAmFlagged then
+    if not flaggedOk then
         local flagged = Read(UnitIsPVP, unit)
         if flagged == true then return "flagged for PvP and you aren't" end
         if flagged == nil then return "can't see whether they're flagged for PvP" end
@@ -323,10 +367,11 @@ end
 
 -- The members who may be buffed now, in group order: { unit, name, class },
 -- the first reason one was left out, and whether one left out may still
--- need a buff (OPEN_REASONS, or a slot or name that can't be read).
+-- need a buff (OPEN_REASONS, or a slot or name that can't be read). Also
+-- whether a member flagged for PvP may be buffed, for the group versions.
 local function Candidates(units)
     local me = Util.UnitFullName("player")
-    local iAmFlagged = Read(UnitIsPVP, "player") == true
+    local flaggedOk = FlaggedMayBeBuffed()
     local out, seen, firstReason, open = {}, {}, nil, false
     for _, unit in ipairs(units) do
         local name = Util.UnitFullName(unit)
@@ -344,7 +389,7 @@ local function Candidates(units)
                 open = true
             elseif not seen[name] then
                 seen[name] = true
-                local why = CantBuff(unit, iAmFlagged)
+                local why = CantBuff(unit, flaggedOk)
                 -- Missing (#272): only someone close by (the game's ~40-yard
                 -- group range) and known to be online; a range or connection
                 -- the game won't give isn't.
@@ -369,7 +414,7 @@ local function Candidates(units)
             end
         end
     end
-    return out, firstReason, open
+    return out, firstReason, open, flaggedOk
 end
 
 -- You as a member to buff (#198): { unit = "player", name, class, self = true },
@@ -429,7 +474,7 @@ function GroupBuffs.Next(out)
         if held then return nil, ns.Water.HeldReason(held), true, held end
         return nil, "you have no buffs to offer", true
     end
-    local members, firstReason, open = Candidates(units)
+    local members, firstReason, open, flaggedOk = Candidates(units)
     local unreadable, outOfRange = {}, {}
     local family = {} -- [name .. buff key] = whether they wear another of yours (read once)
     -- Every reason a member is passed over here leaves a buff to give.
@@ -487,7 +532,8 @@ function GroupBuffs.Next(out)
         needs[nkey] = result
         return result
     end
-    local groupCtx = { units = units, inRaid = Read(IsInRaid) == true, InRange = InSpellRange }
+    local groupCtx = { units = units, inRaid = Read(IsInRaid) == true, InRange = InSpellRange,
+        flaggedOk = flaggedOk }
     -- The buffs for one list of members, in your buff order (the first
     -- buff goes to all of them before the second goes to any).
     local function Pass(list)

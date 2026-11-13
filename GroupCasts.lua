@@ -12,7 +12,9 @@
 -- member it would cover (the target's whole party or subgroup, you
 -- included) passes the checks below. Anything that can't be read fails them,
 -- and the single buff is offered instead:
---   - not flagged for PvP, unless you are (the cast would flag you);
+--   - not flagged for PvP, unless you are, or your whole group is inside
+--     a dungeon or raid with you (#306; GroupBuffs says when): the cast
+--     would flag you;
 --   - allowed the buff by your rules (BuffRules.lua);
 --   - not wearing a higher rank of the buff from you than the group
 --     version's (it would replace it);
@@ -197,14 +199,15 @@ local function Cap(text)
 end
 
 -- Why the group version can't go to this group, or nil if it can: every
--- member it would cover has to pass.
-local function WhyNot(buff, spell, members, iAmFlagged, ctx)
+-- member it would cover has to pass. flaggedOk: a member flagged for PvP
+-- may be covered (ctx.flaggedOk), so nobody's flag is asked for.
+local function WhyNot(buff, spell, members, flaggedOk, ctx)
     for _, m in ipairs(members) do
         local who = m.isMe and "you" or m.name and Util.DisplayName(m.name) or "a group member"
         if Read(UnitIsConnected, m.unit) ~= false then
             -- Reading it for the dead too: a flagged player who is down
             -- may be back up by the time the cast goes out.
-            if not iAmFlagged then
+            if not flaggedOk then
                 local flagged = Read(UnitIsPVP, m.unit)
                 if flagged == true then return Cap(who) .. " is flagged for PvP and you aren't" end
                 if flagged == nil then return "can't see whether " .. who .. " is flagged for PvP" end
@@ -242,7 +245,11 @@ end
 --            true if they're missing the buff and may have it, InRange =
 --            function(spell, unit) false if the spell can't reach them,
 --            Blocked = function(entry, equals) why the cast (as strong as
---            the single rank `equals`) mustn't cover that member (#256), or nil }
+--            the single rank `equals`) mustn't cover that member (#256), or nil,
+--            flaggedOk = true when a member flagged for PvP may be covered:
+--            you're flagged too, or everyone is inside a dungeon or raid
+--            (#306). Anything else, or left out, and a flagged member, or
+--            one whose flag can't be read, stops the cast }
 -- The reason comes with a third value, true for one worth only a line in the
 -- button's tooltip, not its face (a group version you haven't learned, which
 -- stays true for a long time).
@@ -314,7 +321,7 @@ function GroupCasts.Offer(buff, members, ctx)
         return a.at < b.at
     end)
 
-    local iAmFlagged = Read(UnitIsPVP, "player") == true
+    local flaggedOk = ctx.flaggedOk == true
     local firstWhy
     for _, r in ipairs(ranked) do
         local g = r.g
@@ -322,7 +329,7 @@ function GroupCasts.Offer(buff, members, ctx)
         if Recently(skipped[buff.key .. "\1" .. g.key], GroupCasts.SKIP_SECONDS) then
             firstWhy = firstWhy or ("You skipped " .. g.label)
         else
-            local blocked = WhyNot(buff, spell, g.members, iAmFlagged, ctx) or Weaker(buff, spell, g.missing)
+            local blocked = WhyNot(buff, spell, g.members, flaggedOk, ctx) or Weaker(buff, spell, g.missing)
             if blocked then
                 firstWhy = firstWhy or blocked
             else

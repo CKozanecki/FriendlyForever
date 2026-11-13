@@ -142,7 +142,8 @@ Options.GROUP_VERSIONS_TOOLTIP = "In buff mode, offer the group version of a buf
     .. "Prayer of Fortitude, Prayer of Spirit, Prayer of Shadow Protection, Gift of the Wild) "
     .. "when you know it, carry its reagent, and enough of the party it covers (in a raid, the subgroup) "
     .. "are missing the buff. Never cast at anyone flagged for PvP "
-    .. "when you aren't, and never against your \"who gets each buff\" rules."
+    .. "when you aren't, unless your whole group is inside a dungeon or raid with you, "
+    .. "and never against your \"who gets each buff\" rules."
 Options.BREATH_TOOLTIP = "Offer Unending Breath and Water Breathing only while you're swimming or underwater, "
     .. "for 2 minutes after, or in an underwater dungeon."
 

@@ -83,6 +83,10 @@ From #68 (beta build 70425, mid-October 2026; [Paladin deep dive](https://www.wo
 - **Buff mode buffs you** (#198): your own copy of a group buff is cast with `/cast [@player,nodead] <spell>`, which casts on you without targeting anyone. It assumes `[@player]` works in a secure macro on Forever as in Classic, that `UNIT_SPELLCAST_SENT` names you as the target, and that `C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")` is readable for your own buffs. **Unconfirmed**: the quality issue #213 says how to check it in game.
 - Whether group members' aura caster (`sourceUnit`) is readable, whether `C_Spell.IsSpellInRange` or `IsSpellInRange` answer for them, and the exact "Out of range" and line-of-sight error texts: **confirmed in game** (launch, Nov 4) (from #30).
 
+## PvP flags
+
+- Inside a dungeon or raid, once everyone in the group is inside, it is safe to buff a player flagged for PvP, because nobody can attack you there. That is the only time it is safe to buff a flagged player. Source: the owner, 2026-11-13 (#306). Buff mode follows it (`GroupBuffs.lua`'s `FlaggedMayBeBuffed`); everywhere else, battlegrounds and arenas included, it never buffs a flagged member unless you're flagged too.
+
 ## Level-ups
 
 - **A party member's level-up** (#273): the addon listens for `UNIT_LEVEL` (a plain event: `RegisterUnitEvent` may keep only two units) and acts only on `party1` to `party4`. It congratulates only when `UnitLevel` rises above the level it last saw for that player, because the event also fires with no change. It never congratulates in a raid, battleground or arena, or for your own level-up. Source: the retail and Classic Era API ([UNIT_LEVEL](https://warcraft.wiki.gg/wiki/UNIT_LEVEL), [UnitLevel](https://warcraft.wiki.gg/wiki/API_UnitLevel)). **Unconfirmed on Forever**: [#291](https://github.com/CKozanecki/FriendlyForever/issues/291) says how to check it in game. Dungeon-finder (instance) groups count as parties (owner's decision, #273).
