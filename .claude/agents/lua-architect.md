@@ -64,6 +64,9 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 **Running checks**
 - Run confirmation checks one review loop at a time, or in separate worktrees: two `make check` runs in one worktree share `dist/` and can give a false failure (#178, #172, #176).
 
+**Settings pages**
+- A shown frame with no parent counts as visible (the owner confirmed it in game), and our pages have no parent until the Settings window adopts them, so hide each page when it is created and check a parent before filling it. A page filled from its `OnShow` also needs to be hidden first: whether a frame already visible fires `OnShow` on the first take-in is unconfirmed (#267).
+
 **Secure buttons and combat**
 - Secure attributes and override bindings change only out of combat. What must stop for a fight stops in `PLAYER_REGEN_DISABLED`, while the game still allows it; requests during a fight wait until it ends, and so does an addon loaded mid-fight by a `/reload` (#21, #62: the key chooser stayed live into a fight and could swallow an ability key).
 - Every part interpolated into the secure button's macro (names, spells) is rejected if it could end its line or start a command, or holds `;`, `[` or `]`. Targeting uses `/targetexact`, a name that isn't found casts nothing and gives the old target back, and the macro stays within 255 characters (#21, #27).
@@ -86,6 +89,9 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 
 - A per-player addon message is sent only to players the feature can use it for. Group members are never thanked, so a plan whispered to each one you buff would fill Comm's 8-place send queue in a raid and push out a stranger's `ANSWER` (#36).
 - Holding a message before it is queued restarts the queue's age limit. A limit meant to count from the event (a /say thank-you's 30 s from when it was due) is passed on with its start time (`Announcer`'s `ageFrom`), or a held /say goes out a minute late (#36).
+
+**Renewing a worn buff**
+- "Same strength" isn't "same length". A renewal threshold measured as a share of the worn aura's own duration can swap a group version (Gift of the Wild, an hour) for a single cast that lasts less (Mark, 30 minutes), leaving the player less time. `CanReplace` counts a group version as its single rank (#206), so a rule that renews by share must also check the worn spell is a single rank. Top-up (#42) escapes this only because its threshold is an absolute time, shorter than any fresh cast (#269, PR #278).
 
 **Saved settings and imports**
 - Every saved or imported field has its own validator, and a spec checks every default has one. Unknown keys, infinite numbers, duplicates and wrong types are dropped, sizes capped. Imports are parsed as data with size, depth and count limits, and an export never exceeds what import reads (#20, #21, #61, #73: `Serialize.MAX_DEPTH`).
