@@ -1,4 +1,4 @@
--- Spec: #52, #64, #112, #197, #208, #41, #209
+-- Spec: #52, #64, #112, #197, #208, #41, #209, #270
 -- Layout: the buff-back button's text stays inside the button, and on each
 -- options tab the message list follows the last row that tab shows. The
 -- checks work from the simulated client's own anchors and text widths
@@ -25,6 +25,24 @@ end
 local function assertInside(button, fs, label)
     local ok, drawn, why = insideButton(button, fs)
     assert.is_true(ok, label .. " '" .. drawn.text:sub(1, 60) .. "' " .. tostring(why))
+    return drawn
+end
+
+-- The button's second line (#270): its whole text, never cut short, on as
+-- many lines as it wraps onto, all inside the button. Worked out from the
+-- simulated client's own anchors, text widths and line heights.
+local function assertWhole(button, fs, label)
+    local drawn = wow.drawnText(fs, button)
+    local plain = (fs:GetText() or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    local shown = label .. " '" .. plain:sub(1, 60) .. "'"
+    assert.are.equal(plain, drawn.text, shown .. " is cut short")
+    assert.is_true(drawn.left >= 0 and drawn.right <= button:GetWidth(), shown .. " spills across")
+    local point, relativeTo, relativePoint, _, y = fs:GetPoint(1)
+    assert.are.equal(button, relativeTo, "the line hangs from the button")
+    assert.truthy(point:find("TOP", 1, true) and relativePoint:find("TOP", 1, true), "the line hangs from the top")
+    local bottom = -y + drawn.lines * wow.LINE_HEIGHT[fs.font]
+    assert.is_true(bottom <= button:GetHeight(), ("%s: %d lines reach %d below the top, the button is %d tall")
+        :format(shown, drawn.lines, bottom, button:GetHeight()))
     return drawn
 end
 
@@ -56,10 +74,10 @@ describe("Layout", function()
             wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = 10157 })
             assert.are.equal("buffed you - give Mark of the Wild", button.subtitle:GetText())
             assertInside(button, button.title, "the name")
-            assertInside(button, button.subtitle, "the favour")
+            assertWhole(button, button.subtitle, "the favour")
         end)
 
-        it("keeps a long favour inside it, cut off with …: missing your Power Word: Fortitude", function()
+        it("wraps a long favour whole inside it, never cut short: missing your Power Word: Fortitude", function()
             boot("PRIEST", { [FORTITUDE_1] = true, [FORTITUDE] = true })
             slash("buffmode on")
             wow.setGroup("party", { "Ann-Vale" })
@@ -67,9 +85,9 @@ describe("Layout", function()
             wow.advance(0)
             assert.are.equal("missing your Power Word: Fortitude", button.subtitle:GetText())
             assertInside(button, button.title, "the name")
-            local favour = assertInside(button, button.subtitle, "the favour")
-            -- Too long for the pessimistic font: the game cuts it off.
-            assert.are.equal("…", favour.text:sub(-#"…"))
+            local favour = assertWhole(button, button.subtitle, "the favour")
+            -- Too long for one line in the pessimistic font: it wraps (#270).
+            assert.is_true(favour.lines > 1, "it wraps")
         end)
 
         it("shows a group cast whole: who it reaches on the title, the spell on the subtitle (#41)", function()
@@ -91,19 +109,22 @@ describe("Layout", function()
             end
         end)
 
-        it("keeps text damaged into a very long string inside it, on one line", function()
+        it("keeps text damaged into a very long string inside it: the name cut on one line, the rest wrapped", function()
             boot("DRUID", { [MOTW_1] = true, [MOTW] = true })
             slash("move")
             local long = string.rep("Wolfgangamadeus", 40)
             button.title:SetText(long)
             button.subtitle:SetText("|cffff0000" .. string.rep("Ünïcödé ", 60) .. "|r")
             local title = assertInside(button, button.title, "the title")
-            local hint = assertInside(button, button.subtitle, "the hint")
             assert.are.equal("…", title.text:sub(-#"…"))
-            assert.are.equal("…", hint.text:sub(-#"…"))
+            -- The button fits its text whenever it re-arms.
+            ns.BuffButton.Refresh()
+            button.subtitle:SetText("|cffff0000" .. string.rep("Ünïcödé ", 60) .. "|r")
+            button:SetHeight(ns.BuffButton.HeightFor(button.subtitle))
+            assertWhole(button, button.subtitle, "the hint")
         end)
 
-        it("shows a reason too long for the button in full in its tooltip", function()
+        it("shows a reason too long for one line wrapped on the button, and in full in its tooltip", function()
             boot("PRIEST", { [FORTITUDE_1] = true, [FORTITUDE] = true })
             slash("buffmode on")
             -- A member whose buffs the game won't show (a secret).
@@ -112,8 +133,8 @@ describe("Layout", function()
             wow.fire("GROUP_ROSTER_UPDATE")
             wow.advance(0)
             local reason = button.subtitle:GetText()
-            local drawn = assertInside(button, button.subtitle, "the reason")
-            assert.are.equal("…", drawn.text:sub(-#"…"), "the reason is too long for the button: '" .. reason .. "'")
+            local drawn = assertWhole(button, button.subtitle, "the reason")
+            assert.is_true(drawn.lines > 1, "the reason is too long for one line: '" .. reason .. "'")
             wow.run(button, "OnEnter")
             assert.truthy(_G.GameTooltip.lines, "the tooltip has lines")
             local found = false
@@ -133,7 +154,7 @@ describe("Layout", function()
             wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = 10157 })
             assert.are.equal("Wolfgangamad Wolfgangamad", button.title:GetText())
             assertInside(button, button.title, "the name")
-            assertInside(button, button.subtitle, "the favour")
+            assertWhole(button, button.subtitle, "the favour")
         end)
     end)
 

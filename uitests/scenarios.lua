@@ -287,7 +287,7 @@ test("the buff-back button's text stays inside it (unlocked, the longest hint)",
         assertNotNil(button)
         assertTrue(FriendlyForeverDB.buffBack.unlocked)
         TextInside(button, button.title, "button title", 1)
-        TextInside(button, button.subtitle, "button hint", 1)
+        TextInside(button, button.subtitle, "button hint")
     end)
 end)
 
@@ -493,7 +493,8 @@ local function ExpectEmpty(States, when)
     Expect(not States.Button():IsShown(), when .. ": the button is up")
 end
 
--- The last argument to TextInside, 1: each button line stays on one line.
+-- The last argument to TextInside, 1: the name stays on one line. The line
+-- below it may wrap: the button grows to hold it, never cutting it (#270).
 test("with a favour owed, the button names the player and the buff, and its text stays inside it", function()
     InState("favour", FriendlyForeverUIStates.Favour, function(button, States)
         Expect(select(2, UnitClass("player")) == "PRIEST", "the player isn't a Priest")
@@ -505,7 +506,7 @@ test("with a favour owed, the button names the player and the buff, and its text
         Expect((States.Macro() or ""):find("/cast [help,nodead] " .. States.SPELL.name, 1, true) ~= nil,
             "the macro doesn't cast " .. States.SPELL.name)
         TextInside(button, button.title, "favour title", 1)
-        TextInside(button, button.subtitle, "favour hint", 1)
+        TextInside(button, button.subtitle, "favour hint")
         OnScreen(button, "buff-back button (favour)")
     end)
 end)
@@ -524,7 +525,7 @@ test("in buff mode, you are offered first, then a party member missing your buff
         Expect((States.Macro() or ""):find("/cast [@player,nodead] " .. States.SPELL.name, 1, true) ~= nil,
             "the macro doesn't cast " .. States.SPELL.name .. " on you")
         TextInside(button, button.title, "buff mode (you first) title", 1)
-        TextInside(button, button.subtitle, "buff mode (you first) hint", 1)
+        TextInside(button, button.subtitle, "buff mode (you first) hint")
         OnScreen(button, "buff-back button (buff mode, you first)")
         -- A click on the party member's row in the list makes her the next offer.
         local list = _G.FriendlyForeverBuffList
@@ -540,7 +541,7 @@ test("in buff mode, you are offered first, then a party member missing your buff
             "the hint doesn't offer " .. States.SPELL.name)
         Expect(States.MacroTarget() == States.GROUPMATE, "the macro doesn't target " .. States.GROUPMATE)
         TextInside(button, button.title, "buff mode title", 1)
-        TextInside(button, button.subtitle, "buff mode hint", 1)
+        TextInside(button, button.subtitle, "buff mode hint")
         OnScreen(button, "buff-back button (buff mode)")
     end)
 end)
@@ -607,12 +608,29 @@ test("the button says a buff is already done, in red, then moves on", function()
         -- The name is the point of the note: it must not be cut short.
         local titleLine = TextInside(button, button.title, "already-done title", 1)
         Expect(not titleLine:find("cut short", 1, true), titleLine .. ": the note's title is cut short")
-        TextInside(button, button.subtitle, "already-done spell", 1)
+        TextInside(button, button.subtitle, "already-done spell")
         OnScreen(button, "button (already done)")
         report("LAYOUT already done: " .. title .. " / " .. (button.subtitle:GetText() or ""))
         States.Advance(2)
         Expect(States.Macro() ~= nil, "after 2 seconds the button doesn't hold the next buff")
         Expect(not (button.title:GetText() or ""):find("Already done", 1, true), "the note is still up")
+    end)
+end)
+
+-- A long reason the button shows (#270): whole, wrapped inside the button,
+-- never cut short, at every size. The specs try every length.
+test("a long reason the button shows wraps whole inside it", function()
+    InState("long reason", FriendlyForeverUIStates.LongReason, function(button, States)
+        Expect(button:IsShown(), "the button isn't up in buff mode")
+        Expect(States.Macro() == nil, "the button holds a macro")
+        local reason = button.subtitle:GetText() or ""
+        Expect(reason:find("can't see whether they're flagged for PvP (target them, or show friendly nameplates)",
+            1, true) ~= nil, ("the reason reads %q, not the long one"):format(reason))
+        local line = TextInside(button, button.subtitle, "long reason")
+        Expect(not line:find("cut short", 1, true), line .. ": the reason is cut short")
+        TextInside(button, button.title, "long reason title", 1)
+        OnScreen(button, "buff-back button (long reason)")
+        report("LAYOUT long reason: " .. reason)
     end)
 end)
 
@@ -1172,6 +1190,54 @@ test("the Buff Back tab's top-up row stays inside the options, between its neigh
         check(aboveBottom and labelTop and labelBottom and belowTop, "the rows' edges can't be read here")
         local line = ("LAYOUT top-up row: %.0f..%.0f, below buff mode's minutes (bottom %.0f), above battlegrounds"
             .. " (top %.0f)"):format(labelBottom, labelTop, aboveBottom, belowTop)
+        report(line)
+        check(labelTop <= aboveBottom + 1 and belowTop <= labelBottom + 1, line .. ": out of order or overlapping")
+    end)
+    OpenTab("Guild Login")
+    if not ok then error(err, 0) end
+end)
+
+-- The Buff Back tab's renew row (#269): its label and stepper on one line
+-- inside the options, between the capital-city option and the buff order,
+-- overlapping neither.
+local RENEW_LABEL = "Renew my buff when theirs has under (% left, 0 = never):"
+
+test("the Buff Back tab's renew row stays inside the options, between its neighbours (#269)", function()
+    local panel, content = OpenTab("Buff Back")
+    local ok, err = pcall(function()
+        Settle(content)
+        -- A checkbox's label is the checkbox's own region, not the content's.
+        local above
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child.label and child.label.GetText
+                and child.label:GetText() == "Show the button in capital cities (buff mode always shows it)" then
+                above = child.label
+            end
+        end
+        local label = WithText(content, RENEW_LABEL)
+        local below = WithText(content, "Buff order (first that suits them is offered):")
+            or WithText(content, "Your class has no buffs to offer.")
+        check(above and label and below, "the renew row or its neighbours aren't on the Buff Back tab")
+        TextInside(content, label, "renew label", 1)
+        -- Its "+": the one on the label's line, right of it.
+        local labelTop, labelBottom = Edges(label, "GetTop", "GetBottom")
+        local _, labelRight = Edges(label, "GetLeft", "GetRight")
+        local plus
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child:IsVisible() and child.GetText and child:GetText() == "+" then
+                local top, bottom = Edges(child, "GetTop", "GetBottom")
+                local left = Edges(child, "GetLeft", "GetRight")
+                if top and labelTop and left and labelRight and left > labelRight
+                    and math.abs((top + bottom) / 2 - (labelTop + labelBottom) / 2) < 12 then plus = child end
+            end
+        end
+        check(plus ~= nil, "the renew row's + button isn't beside its label")
+        EndsInside(panel, plus, "renew + button")
+        local aboveBottom = select(2, Edges(above, "GetTop", "GetBottom"))
+        local belowTop = Edges(below, "GetTop", "GetBottom")
+        check(aboveBottom and labelTop and labelBottom and belowTop, "the rows' edges can't be read here")
+        local line = ("LAYOUT renew row: %.0f..%.0f, below the capital-city option (bottom %.0f), above the buff"
+            .. " order (top %.0f)"):format(labelBottom, labelTop, aboveBottom, belowTop)
         report(line)
         check(labelTop <= aboveBottom + 1 and belowTop <= labelBottom + 1, line .. ": out of order or overlapping")
     end)

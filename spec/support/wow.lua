@@ -172,10 +172,12 @@ function methods:Click(mouseButton)
     if self.enabled and self.scripts.OnClick then self.scripts.OnClick(self, mouseButton or "LeftButton") end
 end
 function methods:IsEnabled() return self.enabled end
-function methods:SetSize(w, h) self.width, self.height = w, h end
-function methods:SetWidth(w) self.width = w end
-function methods:SetHeight(h) self.height = h end
+-- A protected frame's size is locked in combat too (#270).
+function methods:SetSize(w, h) guardProtected(self, "SetSize"); self.width, self.height = w, h end
+function methods:SetWidth(w) guardProtected(self, "SetWidth"); self.width = w end
+function methods:SetHeight(h) guardProtected(self, "SetHeight"); self.height = h end
 function methods:GetWidth() return self.width or 0 end
+function methods:GetHeight() return self.height or 0 end
 function methods:GetCenter() return self.centerX or 0, self.centerY or 0 end
 function methods:GetTop() return self.top end
 function methods:GetRight() return self.right end
@@ -247,6 +249,14 @@ function methods:SetOwner(owner) self.owner, self.lines = owner, {} end
 M.CHAR_WIDTH = {
     GameFontNormal = 7, GameFontHighlight = 7, GameFontNormalLarge = 9,
     GameFontNormalSmall = 6, GameFontHighlightSmall = 6,
+}
+
+-- A line of text is this many pixels tall in each font (#270): the game's
+-- fonts are about 10 to 12 pixels for the small ones, so these are at the
+-- tall end. Real heights: see ASSUMPTIONS.
+M.LINE_HEIGHT = {
+    GameFontNormal = 14, GameFontHighlight = 14, GameFontNormalLarge = 17,
+    GameFontNormalSmall = 12, GameFontHighlightSmall = 12,
 }
 
 local function plainText(text)
@@ -459,6 +469,11 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         for mouse clicks; the addon re-arms on both halves)
 --   Text emotes need no key press (owner, in game, 2026-11-09: #236); only
 --                         /say and /yell do (see PerformEmote).
+--   A press of a button (M.press, and so a key or the wheel bound to it) is
+--                         one hardware event, its PreClick and PostClick
+--                         included: /say may go from either half (#271).
+--                         A click from code (Button:Click) is none.
+--                         UNCONFIRMED in game: #275 says how to check it.
 --   state.errorBeforeFailed  a refused cast's error text (UI_ERROR_MESSAGE)
 --                         comes before UNIT_SPELLCAST_FAILED instead of after
 --                         (default false); the addon accepts either order
@@ -493,6 +508,12 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         likewise for its group role and Main Tank assignment;
 --                         auraTimes for its buffs' duration and expirationTime
 --                         alone (the buffs themselves readable).
+--   Level-ups (#273): UNIT_LEVEL is assumed to fire for party1..4 with that
+--                         unit token when a member levels up (unit.level is
+--                         what UnitLevel answers). Not yet confirmed in game:
+--                         see quality issue #291. The test
+--                         helper wow.levelUp(token, level) sets the level and
+--                         fires it; unit.secrets.level makes UnitLevel a secret.
 --   A group member's buff times (#42): unit.auraDurations[i] and
 --                         unit.auraExpires[i] (GetTime() clock; 0: never runs
 --                         out) give aura i's duration and expirationTime. Unset,
@@ -546,6 +567,13 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         "…". Pinned on one side, it grows to fit its text.
 --                         Widths come from M.CHAR_WIDTH (a little wide on
 --                         purpose); real fonts: confirmed in game at launch.
+--                         A line of text is M.LINE_HEIGHT tall for its font
+--                         (#270), as tall as the buff button allows for one;
+--                         the game's line heights and how far its wrapped
+--                         text reaches: to check in game, #277.
+--   A protected frame's size (SetSize, SetWidth, SetHeight) is locked in
+--                         combat, like showing it (the game's rule for
+--                         secure frames).
 --   Addon messages (#32): C_ChatInfo.RegisterAddonMessagePrefix and
 --                         SendAddonMessage answer with the 10.2.7+ result codes
 --                         (Enum.*Result). The game's throttle is a burst of 10
@@ -1282,6 +1310,9 @@ function M.reset()
     _G.UnitFullName = function(unit) return unitField(unit, "name"), unitField(unit, "surname") end
     _G.GetUnitName = function(unit) return unitField(unit, "name") end
     _G.UnitIsPlayer = function(unit) return unitField(unit, "isPlayer") end
+    -- unit.level (#273): what UnitLevel answers for that unit; nobody has one
+    -- until a test gives it. unit.secrets.level makes it a secret.
+    _G.UnitLevel = function(unit) return unitField(unit, "level") end
     _G.UnitIsUnit = restricted(function(a, b)
         local ua, ub = resolveUnit(a), resolveUnit(b)
         local same = ua ~= nil and ub ~= nil and ua.id == ub.id
@@ -1948,6 +1979,14 @@ M.ELWYNN = 1429
 function M.setMap(id, opts)
     M.state.mapId = id
     if not (opts and opts.silent) then M.fire("ZONE_CHANGED_NEW_AREA") end
+end
+
+-- A group member reaches level (#273): their level changes, then UNIT_LEVEL
+-- fires for their unit token, as assumed above.
+function M.levelUp(token, level)
+    local u = assert(M.state.units[token], "no unit " .. tostring(token))
+    u.level = level
+    M.fire("UNIT_LEVEL", token)
 end
 
 function M.systemMessage(text)

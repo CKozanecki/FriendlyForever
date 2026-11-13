@@ -9,7 +9,8 @@ local Options = {}
 ns.Options = Options
 
 -- Room for the Buff Back tab's buff list, who gets each, and buff mode rows above its lines.
-Options.CONTENT_HEIGHT = 1940
+Options.CONTENT_HEIGHT = 1970 -- 1940 plus the second row of tabs (#273)
+Options.TABS_PER_ROW = 4
 
 local panel, category, startPage, generalPage, ledgerPage
 local currentType = Config.TYPES[1]
@@ -176,8 +177,9 @@ end
 -- settings defaults to ns.db[currentType]. Does nothing on a type without
 -- that field (its stepper is hidden there). font: the label's, if not the
 -- usual one.
-local function Stepper(parent, text, field, settings, font)
+local function Stepper(parent, text, field, settings, font, step)
     local limits = Config.LIMITS[field]
+    step = step or 1
     local s = {}
     settings = settings or function() return ns.db[currentType] end
 
@@ -198,14 +200,14 @@ local function Stepper(parent, text, field, settings, font)
     end
 
     s.label = Label(parent, text, font)
-    s.minus = Button(parent, "-", 24, function() Step(-1) end)
+    s.minus = Button(parent, "-", 24, function() Step(-step) end)
     s.minus:SetPoint("LEFT", s.label, "RIGHT", 8, 0)
     s.box = TextBox(parent, 44, 4)
     s.box:SetNumeric(true)
     s.box:SetJustifyH("CENTER")
     s.box:SetPoint("LEFT", s.minus, "RIGHT", 8, 0)
     s.box:SetScript("OnEditFocusLost", function(self) Set(tonumber(self:GetText())) end)
-    s.plus = Button(parent, "+", 24, function() Step(1) end)
+    s.plus = Button(parent, "+", 24, function() Step(step) end)
     s.plus:SetPoint("LEFT", s.box, "RIGHT", 4, 0)
     return s
 end
@@ -220,7 +222,8 @@ end
 -- before a tab switch or reset gives the boxes new contents.
 local function ClearEditFocus()
     local boxes = { widgets.steppers.delay.box, widgets.steppers.repeatCooldown.box,
-        widgets.steppers.owedMinutes.box, widgets.steppers.topUpMinutes.box, widgets.steppers.groupEnough.box,
+        widgets.steppers.owedMinutes.box, widgets.steppers.renewPercent.box,
+        widgets.steppers.topUpMinutes.box, widgets.steppers.groupEnough.box,
         widgets.steppers.maxGreeters.box,
         widgets.unknownName }
     for _, edit in ipairs(widgets.edits) do boxes[#boxes + 1] = edit end
@@ -572,7 +575,9 @@ local function Fill()
     widgets.buffModeKey:SetShown(isBuffBack)
     if not widgets.keyCapture.active then widgets.buffModeKey:SetText(KeyButtonText()) end
     ShowStepper(widgets.steppers.owedMinutes, isBuffBack)
+    ShowStepper(widgets.steppers.renewPercent, isBuffBack)
     if isBuffBack then
+        FillBox(widgets.steppers.renewPercent.box, tostring(cfg.renewPercent))
         widgets.sayLine:SetChecked(cfg.sayLine)
         widgets.showInCities:SetChecked(cfg.showInCities)
         FillBox(widgets.steppers.owedMinutes.box, tostring(cfg.owedMinutes))
@@ -708,20 +713,26 @@ function Options.Create()
     local labelWidth = widgets.skipAFK.label:GetStringWidth() or 0
     widgets.skipAFK:SetPoint("RIGHT", widgets.master, "LEFT", -(labelWidth + 16), 0)
 
-    local prev
-    for _, msgType in ipairs(Config.TYPES) do
+    -- Tabs wrap after Options.TABS_PER_ROW, so eight of them still fit the
+    -- panel's width (#273). The header hangs from the last row.
+    local prev, rowStart
+    for i, msgType in ipairs(Config.TYPES) do
         local tab = Button(content, Config.TYPE_INFO[msgType].label, 84, function() Options.SelectType(msgType) end)
-        if prev then
-            tab:SetPoint("LEFT", prev, "RIGHT", 6, 0)
-        else
+        if i == 1 then
             tab:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -14)
+            rowStart = tab
+        elseif (i - 1) % Options.TABS_PER_ROW == 0 then
+            tab:SetPoint("TOPLEFT", rowStart, "BOTTOMLEFT", 0, -4)
+            rowStart = tab
+        else
+            tab:SetPoint("LEFT", prev, "RIGHT", 6, 0)
         end
         widgets.tabs[msgType] = tab
         prev = tab
     end
 
     widgets.header = Label(content, "", "GameFontNormal")
-    widgets.header:SetPoint("TOPLEFT", widgets.tabs[Config.TYPES[1]], "BOTTOMLEFT", 0, -16)
+    widgets.header:SetPoint("TOPLEFT", rowStart, "BOTTOMLEFT", 0, -16)
     -- Wraps at the panel's right edge: the Buff Back tab's runs wider than
     -- the panel (#112). The rows below hang from it, so they move down.
     widgets.help = Label(content, "", "GameFontHighlightSmall")
@@ -787,6 +798,11 @@ function Options.Create()
             ns.BuffButton.Refresh()
         end)
     widgets.showInCities:SetPoint("TOPLEFT", widgets.sayLine, "BOTTOMLEFT", 0, -4)
+    -- Renewing your buff they already wear, partly worn off (Offers.lua, #269).
+    local renew = Stepper(content, "Renew my buff when theirs has under (% left, 0 = never):", "renewPercent",
+        nil, nil, 5)
+    renew.label:SetPoint("TOPLEFT", widgets.showInCities, "BOTTOMLEFT", 4, -8)
+    widgets.steppers.renewPercent = renew
 
     -- Row 4: thank them with a line in /say, a whisper, a /thank emote, or a
     -- line and an emote (a dropdown, #274).
@@ -843,7 +859,7 @@ function Options.Create()
     -- Buff Back tab only, in the buff tab's rows 4 to 6: the buff order, one
     -- row per buff of your class (the most any class has).
     widgets.buffOrderHeader = Label(content, "", "GameFontNormalSmall")
-    widgets.buffOrderHeader:SetPoint("TOPLEFT", widgets.showInCities, "BOTTOMLEFT", 4, -10)
+    widgets.buffOrderHeader:SetPoint("TOPLEFT", renew.label, "BOTTOMLEFT", 0, -14)
     local most = 0
     for _, list in pairs(ns.BuffData.CLASSES) do most = math.max(most, #list) end
     widgets.buffRows = {}
@@ -1051,7 +1067,8 @@ function Options.Create()
     flavour:SetWordWrap(true)
 
     local note = Label(content, "Buff thanks in /say: the game only allows /say after a key press, so they wait "
-        .. "and go out on your next key press (or type /friendly say). Whispers need no key press. "
+        .. "and go out on your next key press or buff-back button press (or type /friendly say). "
+        .. "Whispers need no key press. "
         .. "A /thank emote needs no key press and goes out at once.",
         "GameFontDisableSmall")
     note:SetPoint("TOPLEFT", flavour, "BOTTOMLEFT", 0, -10)

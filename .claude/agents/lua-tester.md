@@ -112,10 +112,12 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A test that builds game state and then boots must build it in `wow.boot{ before = ... }` (or a `PLAYER_ENTERING_WORLD` handler): `wow.boot` resets the client, so state set up before it is gone. On #272 the "nothing after a login" test set up a group and then booted, ran with no group at all, and could never fail. Assert the state the test depends on (`IsInGroup()`, say) after booting.
 - A loop that starts at login (a `C_Timer` chain from `PLAYER_ENTERING_WORLD`) needs a test that logs in and then waits for the loop with no other event: on #272 deleting the login-time `Watch()` passed every spec, since roster events in the other tests started the loop anyway. `wow.reloadInPlace()` can't show it while old timers survive the "reload" (#296).
 
+- A compound guard (`a and b`) needs a case where each half alone decides. A test setting both halves bad at once can't fail when one half is dropped. On #269 the "never runs out" test set both duration and expiry to 0, so dropping `expires > 0` survived. With it gone, a buff with a full duration and an expiry of 0 would read as worn off and be renewed on every press (PR #278).
+
 **The simulated client**
 - New behaviour is realistic, pessimistic when unsure, in the ASSUMPTIONS block, and if it is an unconfirmed game fact, with a new `quality` issue that says how to check it in game (#21, #60, #62, #88, #197).
 - Redirects and side paths (`state.castLandsOn`) apply the game's rules where the cast lands: macro conditions, PvP flags (#84: 18 storm seeds failed; #87: redirected PvP flags were filed by unit table instead of player).
-- When a test fails or flakes, check whether the simulated client is the cause before blaming the addon. Model fixes get tests of their own; other model gaps are filed as issues (#87 filed #84 and #89; #85 filed #90).
+- When a test fails or flakes, check whether the simulated client is the cause before blaming the addon. Model fixes and new model behaviour get tests of their own in `spec/wow_spec.lua`; other model gaps are filed as issues (#87 filed #84 and #89; #85 filed #90; on #270 the combat lock on a protected frame's size and `M.LINE_HEIGHT` came without tests at first).
 - A test-wide default in `wow.boot` reads the given saved settings before loading fills in defaults, has an opt-out, and has a spec of its own. Check that a changed default doesn't quietly move every other spec onto a new path (#72: with the triggers on by default, every buff back spec ran in buff mode, and the helper read settings after loading).
 
 **Changes after an approval**

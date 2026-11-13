@@ -156,6 +156,16 @@ function Util.ReadGameValues(fn, ...)
     return a, b, c
 end
 
+-- Whether your spell can reach the unit: false when the game says it
+-- can't, true when it says it can, nil when it won't say (a secret, or no
+-- answer). Shared by buff mode (GroupBuffs.lua) and buff back (#270).
+function Util.InSpellRange(spell, unit)
+    local inRange = Util.ReadGameValues(C_Spell and C_Spell.IsSpellInRange, spell, unit)
+    if inRange == nil then inRange = Util.ReadGameValues(IsSpellInRange, spell, unit) end
+    if inRange == false or inRange == 0 then return false end
+    if inRange == true or inRange == 1 then return true end
+end
+
 -- Whether you put up a buff whose caster the game gives as source (an
 -- aura's sourceUnit): true, false, or nil when that can't be read. A caster
 -- the game doesn't name (nil) is someone outside your group, not you (the

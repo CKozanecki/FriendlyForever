@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #281
+-- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -174,9 +174,9 @@ describe("Buff back", function()
             buffedBy()
             assert.is_table(ns.Offers.Current(), "shown, and not flagged")
             wow.state.units.nameplate1 = nil
-            local offer, why = ns.Offers.Current()
+            local offer, _, everyoneLeft = ns.Offers.Current()
             assert.is_nil(offer, "they may have flagged since")
-            assert.is_truthy(why:find("can't see whether", 1, true))
+            assert.is_true(everyoneLeft, "out of sight, they don't hold the button (#270)")
             stranger("target") -- you target them: the game shows them again
             assert.is_table(ns.Offers.Current())
         end)
@@ -223,8 +223,13 @@ describe("Buff back", function()
             stranger("nameplate1", { pvp = true })
             buffedBy()
             wow.state.units.nameplate1 = nil
-            local offer, why = ns.Offers.Current()
+            local offer, _, everyoneLeft = ns.Offers.Current()
             assert.is_nil(offer)
+            assert.is_true(everyoneLeft, "out of sight, they don't hold the button (#270)")
+            stranger("target", { pvp = true })
+            local why
+            offer, why = ns.Offers.Current()
+            assert.is_nil(offer, "seen again, still flagged")
             assert.is_truthy(why:find("flagged for PvP", 1, true))
         end)
 
@@ -287,11 +292,16 @@ describe("Buff back", function()
             stranger("nameplate1", { auras = { MOTW, THORNS }, class = "WARRIOR" })
             buffedBy()
             wow.addUnit("nameplate1", { name = "Ann", surname = "Vale", dead = true, auras = { MOTW, THORNS } })
-            wow.state.pvp = true -- you're flagged: no need to see Bob to offer
-            local offer = ns.Offers.Current()
+            wow.state.pvp = true -- you're flagged: Bob's flag doesn't matter
+            -- Bob can't be seen, so he doesn't hold the button (#270): Ann's
+            -- state (dead) is never read as his.
+            local offer, why, everyoneLeft = ns.Offers.Current()
+            assert.is_nil(offer)
+            assert.is_true(everyoneLeft, why)
+            stranger("nameplate2", { class = "WARRIOR" }) -- Bob, seen again
+            offer = ns.Offers.Current()
             assert.are.equal("Bob-Stone", offer.name, "Ann's state says nothing about Bob")
-            assert.are.equal("Mark of the Wild", offer.spell)
-            assert.is_nil(offer.unit)
+            assert.are.equal("Mark of the Wild", offer.spell, "Ann's buffs say nothing about Bob's")
         end)
 
         it("treats buffs hidden in a fight as not worn", function()
