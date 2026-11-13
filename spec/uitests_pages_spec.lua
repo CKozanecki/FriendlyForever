@@ -332,6 +332,19 @@ describe("the UI simulator's walkthrough steps", function()
         assert.are.equal(40, scroll:GetVerticalScroll())
     end)
 
+    it("doesn't scroll again on the next frame once the scroll was put back (white, #254)", function()
+        ns.Options.OpenTab("buffBack")
+        local scroll = Layout()
+        local later = {}
+        _G.C_Timer = { After = function(_, fn) later[#later + 1] = fn end }
+        scroll:SetVerticalScroll(40)
+        local undo = Pages.ScrollToRow(Pages.LOWER_ROW)
+        undo()
+        for _, fn in ipairs(later) do fn() end
+        assert.are.equal(#later > 0, true, "the frame-later scroll was queued")
+        assert.are.equal(40, scroll:GetVerticalScroll())
+    end)
+
     it("keeps the offset inside the child less the view, and inside the range (black, #254)", function()
         ns.Options.OpenTab("buffBack")
         local scroll, row = Layout()

@@ -296,7 +296,9 @@ function Pages.ScrollToRow(rowText)
         return nil, why
     end
     local before = scroll:GetVerticalScroll()
+    local undone = false
     local function place()
+        if undone then return end
         Settle(content)
         local top, at = content:GetTop(), row:GetTop()
         local offset = (type(top) == "number" and type(at) == "number") and math.max(0, top - at - 12) or 0
@@ -308,7 +310,11 @@ function Pages.ScrollToRow(rowText)
     end
     place()
     if C_Timer and C_Timer.After then C_Timer.After(0, place) end
-    return function() scroll:SetVerticalScroll(before) end
+    -- Also cancels the scroll set for the next frame, if it hasn't come yet.
+    return function()
+        undone = true
+        scroll:SetVerticalScroll(before)
+    end
 end
 
 -- The row the lower shot starts at: the group versions check box, the first
