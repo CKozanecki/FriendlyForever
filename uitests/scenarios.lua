@@ -1179,6 +1179,54 @@ test("the Buff Back tab's top-up row stays inside the options, between its neigh
     if not ok then error(err, 0) end
 end)
 
+-- The Buff Back tab's renew row (#269): its label and stepper on one line
+-- inside the options, between the capital-city option and the buff order,
+-- overlapping neither.
+local RENEW_LABEL = "Renew my buff when theirs has under (% left, 0 = never):"
+
+test("the Buff Back tab's renew row stays inside the options, between its neighbours (#269)", function()
+    local panel, content = OpenTab("Buff Back")
+    local ok, err = pcall(function()
+        Settle(content)
+        -- A checkbox's label is the checkbox's own region, not the content's.
+        local above
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child.label and child.label.GetText
+                and child.label:GetText() == "Show the button in capital cities (buff mode always shows it)" then
+                above = child.label
+            end
+        end
+        local label = WithText(content, RENEW_LABEL)
+        local below = WithText(content, "Buff order (first that suits them is offered):")
+            or WithText(content, "Your class has no buffs to offer.")
+        check(above and label and below, "the renew row or its neighbours aren't on the Buff Back tab")
+        TextInside(content, label, "renew label", 1)
+        -- Its "+": the one on the label's line, right of it.
+        local labelTop, labelBottom = Edges(label, "GetTop", "GetBottom")
+        local _, labelRight = Edges(label, "GetLeft", "GetRight")
+        local plus
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child:IsVisible() and child.GetText and child:GetText() == "+" then
+                local top, bottom = Edges(child, "GetTop", "GetBottom")
+                local left = Edges(child, "GetLeft", "GetRight")
+                if top and labelTop and left and labelRight and left > labelRight
+                    and math.abs((top + bottom) / 2 - (labelTop + labelBottom) / 2) < 12 then plus = child end
+            end
+        end
+        check(plus ~= nil, "the renew row's + button isn't beside its label")
+        EndsInside(panel, plus, "renew + button")
+        local aboveBottom = select(2, Edges(above, "GetTop", "GetBottom"))
+        local belowTop = Edges(below, "GetTop", "GetBottom")
+        check(aboveBottom and labelTop and labelBottom and belowTop, "the rows' edges can't be read here")
+        local line = ("LAYOUT renew row: %.0f..%.0f, below the capital-city option (bottom %.0f), above the buff"
+            .. " order (top %.0f)"):format(labelBottom, labelTop, aboveBottom, belowTop)
+        report(line)
+        check(labelTop <= aboveBottom + 1 and belowTop <= labelBottom + 1, line .. ": out of order or overlapping")
+    end)
+    OpenTab("Guild Login")
+    if not ok then error(err, 0) end
+end)
+
 -- Names the panel doesn't have, of every type the screenshot job or a
 -- typo could give: each is answered with a message, and the tab stays put.
 local BAD_TABS = { "", "Buff Back", "buffBack", "buff", "general", "nope", 42, true, { "buff-back" } }

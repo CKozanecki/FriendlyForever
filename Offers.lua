@@ -5,7 +5,9 @@
 -- For each favour the buff is chosen fresh: your class's buffs you know, in
 -- order, skipping ones that can't go to a stranger (Battle Shout),
 -- ones their class has no use for (Intellect to a warrior), and ones they
--- already wear when the game lets us see.
+-- already wear when the game lets us see. A buff they wear with under the
+-- renew setting's share of its time left (#269), of a rank yours can
+-- replace, counts as missing, so you can renew it.
 --
 -- Safety: buffing a player flagged for PvP flags you too. A favour is offered
 -- only when you are flagged yourself, or the game shows them right now (on a
@@ -128,8 +130,9 @@ end
 
 -- true / false whether the unit wears this buff (any rank, group version or
 -- blocker), or nil when the game won't say (no unit, or hidden in a fight).
--- runningLow (optional, buff mode's top-up timing, #42): function(aura,
--- buff) saying a readable aura of it doesn't count, as it's running out.
+-- With true, the aura that counts comes second.
+-- runningLow (optional): function(aura, buff) saying a readable aura of it
+-- doesn't count, as it's running out (buff back's renewal, #269).
 function Offers.Wears(unit, buff, runningLow)
     local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
     if not unit or not api then return nil end
@@ -139,9 +142,60 @@ function Offers.Wears(unit, buff, runningLow)
         if aura == nil then return false end
         local id = aura.spellId
         if Util.IsSecret(id) then return nil end
-        if ns.BuffData.Covers(buff, id) and not (runningLow and runningLow(aura, buff)) then return true end
+        if ns.BuffData.Covers(buff, id) and not (runningLow and runningLow(aura, buff)) then return true, aura end
     end
     return false
+end
+
+-- The renew setting (#269) as a fraction, read defensively: settings
+-- damaged mid-session mustn't stop the button.
+local function RenewShare()
+    local limits = ns.Config.LIMITS.renewPercent
+    return Util.ClampNumber(ns.db.buffBack.renewPercent, limits.min, limits.max,
+        ns.Config.DEFAULTS.buffBack.renewPercent) / 100
+end
+
+-- The aura's full time and time left in seconds, or nil when they can't be
+-- read (secret, not numbers, or it never runs out). Secrets are never compared.
+local function TimesOf(aura)
+    local duration, expires = aura.duration, aura.expirationTime
+    if Util.IsSecret(duration) or Util.IsSecret(expires) then return nil end
+    if type(duration) ~= "number" or type(expires) ~= "number" then return nil end
+    -- Each test says yes only for a real number, so NaN is a no. An expiry
+    -- of 0 is an aura that never runs out.
+    if not (duration > 0 and expires > 0) then return nil end
+    return duration, expires - GetTime()
+end
+
+-- Whether spellId is one of buff's own single ranks (not a group version).
+local function IsSingleRank(buff, spellId)
+    for _, id in ipairs(buff.ranks) do
+        if id == spellId then return true end
+    end
+    return false
+end
+
+-- Whether aura (readable, wearing buff) is partly worn off for buff back
+-- (#269): under the renew setting's share of its full time left, and a rank
+-- your cast can replace (never over a stronger one: #41, #206, #253). Only a
+-- single rank: a group version lasts longer than your single cast, so
+-- renewing it would leave them with less time. A time that can't be read is
+-- never worn off.
+local function WornOff(aura, buff)
+    if not IsSingleRank(buff, aura.spellId) then return false end
+    local duration, left = TimesOf(aura)
+    if not duration then return false end
+    if left >= duration * RenewShare() then return false end
+    return ns.BuffData.CanReplace(buff, aura.spellId)
+end
+
+-- For the debug log: how much of aura's time is left, as text.
+local function LeftText(aura)
+    local duration, left = TimesOf(aura)
+    if not duration then return "time left can't be read" end
+    left = math.max(0, math.floor(left))
+    return string.format("%dm %02ds left, %d%%", math.floor(left / 60), left % 60,
+        math.floor(left / duration * 100))
 end
 
 -- Room for name in a [name] = time table that holds at most limit: when it
@@ -227,7 +281,17 @@ local function ChooseBuff(favour, myBuffs, held, visible)
         if not buff.selfCast and ns.BuffData.Useful(buff, favour.class) then
             suitable = suitable + 1
             -- Unknown (no unit, or hidden in a fight) counts as not wearing it.
-            if Offers.Wears(unit, buff) ~= true then return buff end
+            local wears, aura = Offers.Wears(unit, buff, WornOff)
+            if wears ~= true then return buff end
+            -- Said once per favour and buff: the button re-arms often.
+            favour.skipLogged = favour.skipLogged or {}
+            if not favour.skipLogged[buff.key] then
+                favour.skipLogged[buff.key] = true
+                local stronger = not ns.BuffData.CanReplace(buff, aura.spellId)
+                ns.Diag.Log("buffBack", "skipping %s for %s: they wear %s (%s)",
+                    ns.BuffData.SpellName(buff) or buff.key, favour.name,
+                    stronger and "one yours can't replace" or "it", LeftText(aura))
+            end
         end
     end
     return nil, suitable > 0 and "they already have your buffs" or "none of your buffs suit them"
