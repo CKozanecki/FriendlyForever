@@ -2124,9 +2124,10 @@ describe("UI simulator workflow", function()
         local VERBOSE = { "cp", "mv", "rm", "ln", "chmod", "chown", "install", "mkdir", "rmdir" }
 
         -- Paths read however they're quoted: "$RUNNER_TEMP"/shots, ${RUNNER_TEMP}/shots.
-        -- An array's elements and an expansion's forms (${logs[@]}, ${f%.log}) read as the variable (#360).
+        -- An array's elements and an expansion's forms (${logs[@]}, ${f%.log}) read as the variable, with
+        -- what follows its name kept, so a source in a default (${x:-$RUNNER_TEMP/shots}) still shows (#360).
         local function plain(s)
-            return (s:gsub("%${([%w_]+)}", "$%1"):gsub("%${([%a_][%w_]*)[%[:%%#/^,@][^}]*}", "$%1")
+            return (s:gsub("%${([%w_]+)}", "$%1"):gsub("%${([%a_][%w_]*)([%[:%%#/^,@][^}]*)}", "$%1 %2")
                 :gsub('"(%$[%w_]+)"/', "%1/"))
         end
         local function namesOne(s, patterns)
@@ -2236,7 +2237,9 @@ describe("UI simulator workflow", function()
             -- a command can be made of (#173, #360's review): one pipeline
             -- ending in the tr, so nothing in it escapes the tr.
             local function keep(inside)
-                -- (Nor a copy to stderr, a tee or a device on the way to the tr.)
+                -- (Nor a copy to stderr, a tee or a device on the way to the tr.
+                -- Its errors thrown away are fine: 2>/dev/null.)
+                inside = inside:gsub("%f[%d]2>%s*/dev/null%f[%s%z]", "")
                 if inside:find("||", 1, true) or inside:find(">", 1, true) or inside:find("%f[%w]tee%f[%W]")
                     or inside:find("/dev/", 1, true) or inside:find("/proc/", 1, true) then
                     return nil
@@ -2590,7 +2593,9 @@ describe("UI simulator workflow", function()
                             pipeline, prints, from = {}, false, nil
                         end
                     end
+                    -- Also after the words before it: then x=..., { x=... (round 3).
                     capture(piece.text, sources, temps)
+                    capture(stripped(piece.text).command, sources, temps)
                     advance(state, piece, sources, temps)
                 end
                 local last = pieces[#pieces]
@@ -2884,12 +2889,22 @@ describe("UI simulator workflow", function()
                 assert.are.equal(1, #scan(step('logs=()\nlogs+=("$ui"/x)\ncat "${logs[0]}"')))
                 assert.are.equal(1, #scan(step('for f in shots/*; do cat "${f%.png}.txt"; done')))
                 assert.are.same({}, (scan(step('logs=(a b)\ncat "${logs[@]}"'))))
+                -- A source in a default value (round 3).
+                assert.are.equal(1, #scan(step('cat "${LOG:-$RUNNER_TEMP/shot-logs/a.log}"')))
+                assert.are.equal(1, #scan(step('dir="${SHOT_LOGS:-$RUNNER_TEMP/shot-logs}"\ntail -n 60 "$dir"/*.log')))
+                -- An assignment after then, do, else or a brace (round 3).
+                assert.are.equal(1, #scan(step('if [ -n "$x" ]; then f="$RUNNER_TEMP/shot-logs/a.log"; fi\ncat "$f"')))
+                assert.are.equal(1, #scan(step('{ f="$ui/x"; cat "$f"; }')))
+                assert.are.equal(1, #scan(step('for d in a; do f="$ui/$d"; done\ncat "$f"')))
             end)
 
             it("counts a read kept as digits or hex digits by its $( ) as printing nothing, and no other (white, red)", function()
                 local loop = 'for f in shots/*.png; do\n  %s\ndone'
                 for _, quiet in ipairs({ [[[ "$(head -c 8 "$f" | od -An -tx1 | tr -cd '0-9a-f')" = "89504e47" ] || continue]],
-                    [[[ "$(stat -c %s "$f" | tr -cd '0-9')" -le 5242880 ] || continue]] }) do
+                    [[[ "$(stat -c %s "$f" | tr -cd '0-9')" -le 5242880 ] || continue]],
+                    -- Its errors thrown away (round 3).
+                    [[[ "$(stat -c %s "$f" 2>/dev/null | tr -cd '0-9')" -le 5242880 ] || continue]],
+                    [[[ "$(head -c 8 "$f" 2> /dev/null | od -An -tx1 | tr -cd '0-9a-f')" = "89504e47" ] || continue]] }) do
                     assert.are.same({}, (scan(step(loop:format(quiet)))), quiet)
                     assert.are.same({}, (scan(step(loop:format(quiet)), true)), quiet)
                 end
@@ -2904,7 +2919,8 @@ describe("UI simulator workflow", function()
                     [[n=$(cat "$f" | tee x | tr -cd '0-9')]], [[n=$(cat "$f" 2>&1 | tr -cd '0-9')]],
                     [[n=$(dd if="$f" of=/dev/stderr | tr -cd '0-9')]], [[n=$(cat "$f" >&2 | tr -cd '0-9')]],
                     -- A redirect to a variable could name a device.
-                    [[n=$(cat "$f" > "$out" | tr -cd '0-9')]] }) do
+                    [[n=$(cat "$f" > "$out" | tr -cd '0-9')]], [[n=$(cat "$f" 2>/dev/null >/dev/stderr | tr -cd '0-9')]],
+                    [[n=$(cat "$f" 2>/dev/nullx | tr -cd '0-9')]] }) do
                     assert.are.equal(1, #scan(step(loop:format(loud))), loud)
                 end
             end)
