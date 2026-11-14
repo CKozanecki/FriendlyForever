@@ -2428,7 +2428,15 @@ describe("UI simulator workflow", function()
         -- cd goes there, as $RUNNER_TEMP/x itself would (#360).
         local DECLARE = { ["export"] = true, ["local"] = true, ["declare"] = true, ["readonly"] = true,
             ["typeset"] = true }
+        -- Words that can come before an assignment or a loop on its line (round 4).
+        local LEADS = { ["then"] = true, ["do"] = true, ["else"] = true, ["elif"] = true, ["{"] = true, ["!"] = true,
+            ["if"] = true, ["while"] = true, ["until"] = true }
         local function capture(command, sources, temps)
+            repeat
+                local before = command
+                local lead, after = command:match("^(%S+)%s+(.*)$")
+                if lead and LEADS[lead] then command = after end
+            until command == before
             local word, rest = command:match("^(%a+)%s+(.*)$")
             if word and DECLARE[word] then
                 command = rest
@@ -2441,7 +2449,7 @@ describe("UI simulator workflow", function()
             if not name then return end
             local alias = "%$" .. name .. "%f[^%w_]"
             local p = plain(value):gsub('"', "")
-            if namesOne(value, sources) or p:match("^%$RUNNER_TEMP/?$") or p:find("%$RUNNER_TEMP/.*%.%.") then
+            if namesOne(value, sources) or p:match("^%$RUNNER_TEMP/?$") or p:match("^%$RUNNER_TEMP%s") or p:find("%$RUNNER_TEMP/.*%.%.") then
                 sources[#sources + 1] = alias
             elseif p:find("%$RUNNER_TEMP%f[^%w_]") or namesOne(value, temps) then
                 temps[#temps + 1] = alias
@@ -2593,9 +2601,7 @@ describe("UI simulator workflow", function()
                             pipeline, prints, from = {}, false, nil
                         end
                     end
-                    -- Also after the words before it: then x=..., { x=... (round 3).
                     capture(piece.text, sources, temps)
-                    capture(stripped(piece.text).command, sources, temps)
                     advance(state, piece, sources, temps)
                 end
                 local last = pieces[#pieces]
@@ -2896,6 +2902,15 @@ describe("UI simulator workflow", function()
                 assert.are.equal(1, #scan(step('if [ -n "$x" ]; then f="$RUNNER_TEMP/shot-logs/a.log"; fi\ncat "$f"')))
                 assert.are.equal(1, #scan(step('{ f="$ui/x"; cat "$f"; }')))
                 assert.are.equal(1, #scan(step('for d in a; do f="$ui/$d"; done\ncat "$f"')))
+                -- $RUNNER_TEMP itself through an expansion form, and a loop after then, do or a brace (round 4).
+                assert.are.equal(1, #scan(step('t="${RUNNER_TEMP:-/tmp}"\ntail -n 60 "$t"/shot-logs/a.log')))
+                assert.are.equal(1, #scan(step('t="${RUNNER_TEMP%/}"\ntail -n 60 "$t"/shot-logs/a.log')))
+                for _, loop in ipairs({ 'if [ -d "$ui" ]; then for f in "$ui"/*.log; do tail "$f"; done; fi',
+                    'for d in a; do for f in "$ui"/$d/*; do cat "$f"; done; done', '{ for f in "$ui"/*; do cat "$f"; done; }',
+                    'if c; then :; else select f in shots/*; do cat "$f"; done; fi', 'if f="$ui/x"; then cat "$f"; fi',
+                    'while ! f="$ui/x"; do :; done\ncat "$f"' }) do
+                    assert.are.equal(1, #scan(step(loop)), loop)
+                end
             end)
 
             it("counts a read kept as digits or hex digits by its $( ) as printing nothing, and no other (white, red)", function()
