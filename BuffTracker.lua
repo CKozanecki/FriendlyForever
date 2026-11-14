@@ -649,7 +649,16 @@ function BuffTracker.OnPlayerAura(updateInfo)
     -- A full update gives no list of what is new, so compare against the
     -- buffs we already knew about (zoning re-sends everything you have).
     if fullUpdate then
-        knownAuraIds = ScanBuffs(active and function(aura) HandleAddedAura(aura, now) end or nil)
+        local current, listed = ScanBuffs(active and function(aura) HandleAddedAura(aura, now) end or nil)
+        if listed then
+            knownAuraIds = current
+        else
+            -- The game refused the list (#245): forgetting the buffs we knew
+            -- would read them again as new. Keep them, add what was seen, and
+            -- look at them all later.
+            for id in pairs(current) do knownAuraIds[id] = true end
+            Missed(now)
+        end
         return
     end
 

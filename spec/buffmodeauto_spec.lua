@@ -794,7 +794,7 @@ describe("Buff mode turning on and off by itself", function()
             assert.are.equal(1, ns.Offers.Count())
         end)
 
-        it("in a battle under way, notes the hidden buff without owing it", function()
+        it("with the addon switched off as the fight ends, notes the hidden buff without owing it", function()
             bob()
             wow.enterCombat()
             landHidden({ sourceUnit = "nameplate1" })
@@ -806,50 +806,233 @@ describe("Buff mode turning on and off by itself", function()
             assert.is_false(ns.BuffMode.IsOn())
         end)
 
-        it("chaos: hidden and readable updates, fights and buffs in any order never owe a buff twice, " ..
-            "never turn buff mode on in a fight, and raise no Lua error", function()
-            for _, seed in ipairs({ 7, 245, 9001 }) do
-                random.seed(seed)
-                boot()
-                ns.db.buffBack.autoOnBuffed, ns.db.debug = true, true
-                local landed = {} -- [aura instance ID] = the stranger it came from, by the client's own state
-                for step = 1, 300 do
-                    local where = ("seed %d, step %d"):format(seed, step)
-                    local wasOn = ns.BuffMode.IsOn()
-                    local r = random.random(8)
-                    if r == 1 then
-                        if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end
-                    elseif r == 2 or r == 3 then
-                        local name = ({ "Bob", "Gus", "Hal" })[random.random(3)]
-                        wow.addUnit("nameplate1", { name = name, surname = "Stone", class = "MAGE", id = name .. "-Stone" })
-                        local aura = landHidden({ sourceUnit = "nameplate1" }, random.random() < 0.3)
-                        landed[aura.auraInstanceID] = name .. "-Stone"
-                    elseif r == 4 then
-                        wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = {} })
-                    elseif r == 5 then
-                        wow.fire("UNIT_AURA", "player", { isFullUpdate = true })
-                    elseif r == 6 then
-                        wow.state.aurasRestricted = not wow.state.aurasRestricted
-                    elseif r == 7 then
-                        wow.advance(random.random() * 20)
-                    else
-                        slash("buffmode off")
-                    end
-                    assert.is_true(not (wow.state.inCombat and not wasOn and ns.BuffMode.IsAuto()),
-                        where .. ": turned on in a fight")
-                end
-                wow.state.aurasRestricted = false
-                if wow.state.inCombat then wow.leaveCombat() end
-                wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = {} })
-                -- Each landed buff is one ledger entry at most: owed (or skipped as stale) once.
-                local count = 0
-                for _ in pairs(landed) do count = count + 1 end
-                assert.is_true(#ns.db.ledger.entries <= count, ("seed %d: %d entries for %d buffs"):format(
-                    seed, #ns.db.ledger.entries, count))
-                assert.is_true(#ns.db.ledger.entries > 0, "seed " .. seed .. ": some hidden buff was read")
-                assert.are.same({}, wow.errors, "seed " .. seed)
-            end
+        it("counts the time unreadable from the first hidden update, not the last", function()
+            bob()
+            wow.enterCombat()
+            landHidden({ sourceUnit = "nameplate1" })
+            wow.advance(15)
+            wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = wow.secret({}) }) -- another change, hidden
+            wow.advance(5)
+            wow.leaveCombat()
+            assert.are.equal(1, ns.Offers.Count())
+            assert.is_true(ns.BuffMode.IsAuto())
         end)
+
+        it("out of a fight, an entry it can't read doesn't keep the stale limit stretched afterwards", function()
+            bob()
+            local odd = { isHelpful = true, isFromPlayerOrPlayerPet = true, auraInstanceID = wow.secret(24999),
+                sourceUnit = "player", name = "Thorns", spellId = 9910, duration = 600, expirationTime = wow.now + 600 }
+            wow.state.playerAuras[#wow.state.playerAuras + 1] = odd
+            wow.fire("UNIT_AURA", "player", wow.secret({})) -- a locked payload, out of a fight
+            wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = {} }) -- readable: it catches up
+            wow.advance(3600)
+            -- Re-sent by the game under a new ID (zoning): Bob cast it 700 s ago.
+            nextId = nextId + 1
+            wow.state.playerAuras[#wow.state.playerAuras + 1] = { isHelpful = true, isFromPlayerOrPlayerPet = true,
+                auraInstanceID = nextId, sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT,
+                duration = 1800, expirationTime = wow.now + 1100 }
+            wow.fire("UNIT_AURA", "player", { isFullUpdate = true })
+            assert.are.equal(0, ns.Offers.Count())
+            assert.is_false(ns.BuffMode.IsOn())
+        end)
+
+        it("a buff read by a catch-up in the fight isn't read again as the fight ends", function()
+            ns.db.buff.thankStyle = "whisper"
+            bob()
+            wow.enterCombat()
+            landHidden({ sourceUnit = "nameplate1" })
+            wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = {} }) -- readable: it catches up in the fight
+            wow.advance(ns.db.buff.delay + 1) -- the thank-you goes
+            wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = wow.secret({}) }) -- hidden again
+            wow.leaveCombat()
+            wow.advance(ns.db.buff.delay + 1)
+            assert.are.equal(1, owedLines("Bob-Stone"))
+            assert.are.equal(1, #wow.sentTo("WHISPER"))
+        end)
+
+        it("a full update whose list the game refuses forgets nothing, so a buff caught up once isn't read again",
+            function()
+                ns.db.buff.thankStyle = "whisper"
+                bob()
+                wow.enterCombat()
+                landHidden({ sourceUnit = "nameplate1" })
+                wow.advance(2)
+                wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = {} }) -- caught up: Bob is owed
+                wow.advance(1)
+                wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = wow.secret({}) }) -- hidden again
+                wow.state.aurasRestricted = true
+                wow.fire("UNIT_AURA", "player", { isFullUpdate = true }) -- the game won't list your buffs
+                wow.state.aurasRestricted = false
+                wow.advance(30)
+                wow.leaveCombat()
+                wow.advance(ns.db.buff.delay + 1)
+                assert.are.equal(1, owedLines("Bob-Stone"))
+                assert.are.equal(1, #wow.sentTo("WHISPER"))
+                assert.are.equal(1, #ns.db.ledger.entries)
+            end)
+
+        it("a full update whose list the game refuses is read later: a buff landing then isn't lost", function()
+            bob()
+            wow.state.aurasRestricted = true
+            nextId = nextId + 1
+            wow.state.playerAuras[#wow.state.playerAuras + 1] = { isHelpful = true, isFromPlayerOrPlayerPet = true,
+                auraInstanceID = nextId, sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT,
+                duration = 1800, expirationTime = wow.now + 1800 }
+            wow.fire("UNIT_AURA", "player", { isFullUpdate = true })
+            assert.are.equal(0, ns.Offers.Count())
+            wow.state.aurasRestricted = false
+            wow.advance(20)
+            wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = {} })
+            assert.are.equal(1, ns.Offers.Count())
+            assert.is_true(ns.BuffMode.IsAuto())
+        end)
+
+        it("a full update whose list breaks off part way reads what it saw once, and the rest later", function()
+            ns.db.buff.thankStyle = "whisper"
+            bob()
+            wow.addUnit("nameplate2", { name = "Gus", surname = "Stone", class = "MAGE", id = "Gus-Stone" })
+            for _, who in ipairs({ "nameplate1", "nameplate2" }) do
+                nextId = nextId + 1
+                wow.state.playerAuras[#wow.state.playerAuras + 1] = { isHelpful = true, isFromPlayerOrPlayerPet = true,
+                    auraInstanceID = nextId, sourceUnit = who, name = "Arcane Intellect", spellId = INTELLECT,
+                    duration = 1800, expirationTime = wow.now + 1800 }
+            end
+            -- The game gives the first entry, then raises an error.
+            local byIndex = _G.C_UnitAuras.GetAuraDataByIndex
+            _G.C_UnitAuras.GetAuraDataByIndex = function(unit, index, ...)
+                if unit == "player" and index > 1 then error("aura data is restricted") end
+                return byIndex(unit, index, ...)
+            end
+            wow.fire("UNIT_AURA", "player", { isFullUpdate = true })
+            assert.are.equal(1, owedLines("Bob-Stone"))
+            assert.are.equal(0, owedLines("Gus-Stone"))
+            _G.C_UnitAuras.GetAuraDataByIndex = byIndex
+            wow.advance(ns.db.buff.delay + 1) -- Bob's thank-you goes: a second read would be a new favour
+            wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = {} })
+            assert.are.equal(1, owedLines("Bob-Stone"), "Bob's buff is read once")
+            assert.are.equal(1, owedLines("Gus-Stone"), "Gus's buff is read once the list comes back")
+        end)
+
+        it("when the game won't list your buffs, a readable update's new buff is still read", function()
+            bob()
+            wow.fire("UNIT_AURA", "player", wow.secret({})) -- something was missed
+            wow.state.aurasRestricted = true
+            nextId = nextId + 1
+            local aura = { isHelpful = true, isFromPlayerOrPlayerPet = true, auraInstanceID = nextId,
+                sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT,
+                duration = 1800, expirationTime = wow.now + 1800 }
+            wow.state.playerAuras[#wow.state.playerAuras + 1] = aura
+            wow.fire("UNIT_AURA", "player", { addedAuras = { aura } })
+            assert.are.equal(1, ns.Offers.Count())
+        end)
+
+        it("chaos: hidden and readable updates, refused lists, unreadable entries, locked data and fights in " ..
+            "any order read each buff at most once, never turn buff mode on in a fight, and raise no Lua error",
+            function()
+                -- How often the storm reached each path, over all seeds.
+                local reach = { fightEnd = 0, update = 0, refused = 0, partial = 0, locked = 0, read = 0 }
+                for _, seed in ipairs({ 7, 245, 9001 }) do
+                    random.seed(seed)
+                    boot()
+                    ns.db.buffBack.autoOnBuffed, ns.db.debug = true, true
+                    -- Each landed buff has a name of its own, so each read is counted
+                    -- from what reached the thank-you, not from the code's own state.
+                    local reads, hiddenIds, n = {}, {}, 0
+                    local addBuff = ns.BuffTracker.AddBuff
+                    ns.BuffTracker.AddBuff = function(caster, key, name, ...)
+                        reads[name] = (reads[name] or 0) + 1
+                        return addBuff(caster, key, name, ...)
+                    end
+                    local catchUp, from = ns.BuffTracker.CatchUp, nil
+                    ns.BuffTracker.CatchUp = function()
+                        local unreadable = next(hiddenIds) ~= nil
+                        local ok = catchUp()
+                        if wow.state.aurasRestricted then
+                            reach.refused = reach.refused + 1
+                        elseif from and ok then
+                            reach[from] = reach[from] + 1
+                            if unreadable and wow.state.inCombat then reach.partial = reach.partial + 1 end
+                        end
+                        return ok
+                    end
+                    local log = ns.Diag.Log
+                    ns.Diag.Log = function(cat, fmt, ...)
+                        if fmt:find("its data is locked", 1, true) then reach.locked = reach.locked + 1 end
+                        return log(cat, fmt, ...)
+                    end
+                    local function newAura(name)
+                        n = n + 1
+                        local aura = { isHelpful = true, isFromPlayerOrPlayerPet = true, auraInstanceID = 50000 + n,
+                            name = "Buff " .. seed .. "-" .. n, spellId = INTELLECT, sourceUnit = "nameplate1",
+                            duration = 1800, expirationTime = wow.now + 1800 }
+                        wow.addUnit("nameplate1", { name = name, surname = "Stone", class = "MAGE", id = name .. "-Stone" })
+                        wow.state.playerAuras[#wow.state.playerAuras + 1] = aura
+                        return aura
+                    end
+                    for step = 1, 300 do
+                        local where = ("seed %d, step %d"):format(seed, step)
+                        local wasOn = ns.BuffMode.IsOn()
+                        local name = ({ "Bob", "Gus", "Hal" })[random.random(3)]
+                        local r = random.random(11)
+                        from = nil
+                        if r == 1 then
+                            from = "fightEnd"
+                            if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end
+                        elseif r == 2 then
+                            landHidden({ sourceUnit = "nameplate1", name = "Buff " .. seed .. "-h" .. step },
+                                random.random() < 0.3)
+                            wow.addUnit("nameplate1", { name = name, surname = "Stone", class = "MAGE",
+                                id = name .. "-Stone" })
+                        elseif r == 3 then
+                            -- A readable update that brings a new buff.
+                            from = "update"
+                            local aura = newAura(name)
+                            wow.fire("UNIT_AURA", "player", { addedAuras = { aura } })
+                        elseif r == 4 then
+                            -- A buff whose data is locked, in the event and in the game's query.
+                            from = "update"
+                            local aura = newAura(name)
+                            wow.state.queryOverride = wow.state.queryOverride or {}
+                            wow.state.queryOverride[aura.auraInstanceID] = wow.secret(aura)
+                            wow.fire("UNIT_AURA", "player", { addedAuras = { wow.lockedAura(aura.auraInstanceID) } })
+                        elseif r == 5 then
+                            from = "update"
+                            wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = {} })
+                        elseif r == 6 then
+                            from = "update"
+                            wow.fire("UNIT_AURA", "player", { isFullUpdate = true })
+                        elseif r == 7 then
+                            wow.state.aurasRestricted = not wow.state.aurasRestricted
+                        elseif r == 8 then
+                            -- One entry on the list can't be read, or can again.
+                            -- (A secret instance ID stands in for an entry the addon
+                            -- can't read: the simulated list can't hold a secret table.)
+                            local aura = wow.state.playerAuras[random.random(math.max(1, #wow.state.playerAuras))]
+                            if aura and hiddenIds[aura] then
+                                aura.auraInstanceID, hiddenIds[aura] = hiddenIds[aura], nil
+                            elseif aura then
+                                hiddenIds[aura], aura.auraInstanceID = aura.auraInstanceID, wow.secret(aura.auraInstanceID)
+                            end
+                        elseif r == 9 then
+                            wow.advance(random.random() * 20)
+                        elseif r == 10 then
+                            wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = wow.secret({}) })
+                        else
+                            slash("buffmode off")
+                        end
+                        assert.is_true(not (wow.state.inCombat and not wasOn and ns.BuffMode.IsAuto()),
+                            where .. ": turned on in a fight")
+                        for buffName, count in pairs(reads) do
+                            assert.is_true(count <= 1, ("%s: %s read %d times"):format(where, buffName, count))
+                        end
+                    end
+                    for _ in pairs(reads) do reach.read = reach.read + 1 end
+                    assert.are.same({}, wow.errors, "seed " .. seed)
+                end
+                for path, count in pairs(reach) do
+                    assert.is_true(count > 0, "the storm never reached: " .. path)
+                end
+            end)
     end)
 
     describe("chaos (red tests)", function()
