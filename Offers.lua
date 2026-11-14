@@ -427,10 +427,10 @@ local function ChooseBuff(favour, myBuffs, held, visible)
     end
     -- The buff they asked for (#40): only that one for a request; a favour
     -- whose asked-for buff can't be given now gets the usual choice. With
-    -- the setting off (or damaged), or the player ignored since (whatever
-    -- the case they were typed in), a request holds nothing, and a favour's
-    -- asked-for buff is passed over.
-    if favour.request and (not ns.Requests.Listening() or ns.Ignore.Has(favour.name)) then return nil, nil, true end
+    -- the setting off (or damaged), a request holds nothing, and a favour's
+    -- asked-for buff is passed over. (A player ignored since never gets
+    -- here: Offers.Current passes them over, #353.)
+    if favour.request and not ns.Requests.Listening() then return nil, nil, true end
     if favour.requested and ns.Requests.Listening() then
         local buff, reason, away = Requested(favour, unit)
         if buff or favour.request then return buff, reason, away end
@@ -470,6 +470,11 @@ end
 -- first, so the clickable list is made by these same rules. A favour whose
 -- player has left gives no reason (#270); when every favour is so, the
 -- third value is true: nothing owed is worth the button's face.
+--
+-- A favour or request whose player is on the ignore list is never offered
+-- and gives no reason, however they got there (#353): Ignore.Add lets
+-- theirs go, but an import, another addon or a /run can put them on it
+-- without. When every one waiting is so, it's as if nobody were owed.
 function Offers.Current(list)
     if not ns.db or not ns.db.enabled then return nil, "the addon is off" end
     if not ns.db.buffBack.enabled then return nil, "buff back is off" end
@@ -479,22 +484,27 @@ function Offers.Current(list)
     -- Water breathing waits for water (Water.lua).
     local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
     local visible = VisiblePlayers()
-    local firstReason, first
+    local firstReason, first, owed
     for i = #favours, 1, -1 do
         local favour = favours[i]
-        local buff, reason, away = ChooseBuff(favour, myBuffs, held, visible)
-        local spell = buff and ns.BuffData.SpellName(buff)
-        if spell then
-            local offer = { name = favour.name, buff = buff, spell = spell, request = favour.request }
-            if not list then return offer end
-            first = first or offer
-            list[#list + 1] = offer
-        elseif not away then
-            firstReason = firstReason
-                or (Util.DisplayName(favour.name) .. ": " .. (reason or "the spell's name isn't known"))
+        -- Whatever the case their name was put on the list in (Ignore.Has).
+        if not ns.Ignore.Has(favour.name) then
+            owed = true
+            local buff, reason, away = ChooseBuff(favour, myBuffs, held, visible)
+            local spell = buff and ns.BuffData.SpellName(buff)
+            if spell then
+                local offer = { name = favour.name, buff = buff, spell = spell, request = favour.request }
+                if not list then return offer end
+                first = first or offer
+                list[#list + 1] = offer
+            elseif not away then
+                firstReason = firstReason
+                    or (Util.DisplayName(favour.name) .. ": " .. (reason or "the spell's name isn't known"))
+            end
         end
     end
     if first then return first end
+    if not owed then return nil, "nobody is owed a buff" end
     if not firstReason then return nil, "everyone you owe is out of sight or out of range", true end
     return nil, firstReason
 end
@@ -627,13 +637,19 @@ function Offers.LetGo(name)
     return true
 end
 
--- Drop a favour without a note (the player was ignored).
+-- Drop what is owed to a player without a note (they were ignored): their
+-- favour or request, matched as the ignore list matches names, whatever
+-- their case (#353: "bob-stone" lets Bob-Stone's go).
 function Offers.Forget(name)
-    local i = IndexOf(name)
-    if not i then return false end
-    table.remove(favours, i)
-    Changed()
-    return true
+    local key = ns.Config.IgnoreKey(name)
+    local any = false
+    for i = #favours, 1, -1 do
+        if ns.Config.IgnoreKey(favours[i].name) == key then
+            table.remove(favours, i)
+            any = true
+        end
+    end
+    if any then Changed() end
 end
 
 function Offers.Count()

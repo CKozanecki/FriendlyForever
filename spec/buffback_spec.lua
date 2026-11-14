@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40
+-- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -348,6 +348,126 @@ describe("Buff back", function()
                     assert.is_true(owed[name], name .. " is among the newest")
                 end
             end
+        end)
+    end)
+
+    describe("the ignore list (#353)", function()
+        -- Empty in every way a player could tell: nothing counted, nothing
+        -- offered, no macro, the button hidden, and a press casts nothing.
+        local function emptied(why)
+            assert.are.equal(0, ns.Offers.Count(), why)
+            local offer, reason = ns.Offers.Current()
+            assert.is_nil(offer, why)
+            assert.are.equal("nobody is owed a buff", reason, why)
+            assert.is_nil(macro(), why)
+            assert.is_false(button:IsShown(), why)
+            wow.press(button)
+            assert.are.equal(0, #wow.casts, why)
+        end
+
+        it("ignoring a player owed a favour, typed in any case, as \"First Surname\" or \"First-Surname\", "
+            .. "empties the button of them (white)", function()
+            for _, typed in ipairs({ "Bob Stone", "bob stone", "BOB STONE", "bOB sTONE", "Bob-Stone", "bob-stone",
+                "BOB-STONE", "bOb-StOnE", "  bob stone  " }) do
+                boot()
+                stranger()
+                buffedBy()
+                assert.is_truthy(macro(), typed)
+                assert.is_truthy(ns.Ignore.Add(typed), typed)
+                emptied(typed)
+            end
+            -- The same from the slash command, as the issue's repro typed it.
+            boot()
+            stranger()
+            buffedBy()
+            slash("ignore bob stone")
+            emptied("/friendly ignore bob stone")
+        end)
+
+        it("ignoring a player lets go of everything owed to them, however each was named (white)", function()
+            stranger()
+            ns.Offers.Owe("Bob-Stone", "nameplate1")
+            ns.Offers.Owe("bob-stone", "nameplate1")
+            ns.Offers.Owe("BOB-Stone", "nameplate1")
+            assert.are.equal(3, ns.Offers.Count())
+            ns.Ignore.Add("Bob Stone")
+            emptied("every one of them")
+        end)
+
+        it("ignoring one player in another case leaves everyone else's favour on the button (white)", function()
+            stranger("nameplate1")
+            buffedBy("nameplate1")
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2")
+            assert.are.equal("Ann-Vale", ns.Offers.Current().name, "the newest first")
+            ns.Ignore.Add("ann vale")
+            assert.are.equal(1, ns.Offers.Count())
+            assert.are.equal("Bob-Stone", ns.Offers.Current().name)
+            assert.is_truthy(macro():find("/targetexact Bob Stone", 1, true))
+            wow.press(button)
+            assert.are.same({ spell = "Mark of the Wild", id = MOTW, target = "Bob-Stone" }, wow.casts[1])
+        end)
+
+        it("a favour whose player was put on the list by an import isn't offered, nor listed (black)", function()
+            -- A line from another copy of the addon, its list in lower case.
+            local settings = ns.Profiles.Snapshot(ns.db, true)
+            settings.ignore = { ["bob-stone"] = "bob-stone" }
+            local line = ns.Serialize.Encode({ v = 1, settings = settings })
+            stranger("nameplate1")
+            buffedBy("nameplate1")
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            buffedBy("nameplate2")
+            assert.is_true(ns.Profiles.Import(line))
+            assert.is_true(ns.Ignore.Has("Bob-Stone"))
+            local list = {}
+            assert.are.equal("Ann-Vale", ns.Offers.Current(list).name)
+            assert.are.equal(1, #list, "the clickable list (#43) leaves them out too")
+            assert.are.equal("Ann-Vale", list[1].name)
+            ns.Ignore.Add("Ann-Vale")
+            assert.are.equal(1, ns.Offers.Count(), "an import lets nothing go: theirs is kept")
+            local offer, reason, everyoneLeft = ns.Offers.Current()
+            assert.is_nil(offer, "but never offered")
+            assert.are.equal("nobody is owed a buff", reason, "as if nobody were owed, never 'out of sight'")
+            assert.is_nil(everyoneLeft)
+            slash("buffback")
+            assert.is_true(printedHas("not armed: nobody is owed a buff"))
+            ns.BuffButton.Refresh()
+            assert.is_nil(macro())
+            assert.is_false(button:IsShown())
+            wow.press(button)
+            assert.are.equal(0, #wow.casts)
+            -- Taken off the list again (undoing the import), within the owed time: offered again.
+            assert.is_true(ns.Profiles.UndoImport())
+            assert.are.equal("Bob-Stone", ns.Offers.Current().name)
+        end)
+
+        it("a favour whose player was put on the list by hand, or whose entry is damaged, isn't offered, "
+            .. "even at a press (black)", function()
+            -- Another addon or a /run, in whatever case: Ignore.Add never ran.
+            for _, value in ipairs({ "Bob-Stone", "bob-stone", "BOB-STONE", true, 42 }) do
+                boot()
+                stranger()
+                buffedBy()
+                assert.is_truthy(macro())
+                ns.db.ignore["bob-stone"] = value
+                -- The button re-arms as it's pressed: no cast reaches them.
+                wow.press(button)
+                assert.are.equal(0, #wow.casts, tostring(value))
+                assert.is_nil(ns.Offers.Current(), tostring(value))
+                assert.is_nil(macro(), tostring(value))
+            end
+        end)
+
+        it("a favour whose player is on a list damaged and repaired mid-session isn't offered (black)", function()
+            stranger()
+            buffedBy()
+            ns.db.ignore = { ["bob-stone"] = "Bob-Stone", [7] = "junk", ["x"] = {} }
+            assert.is_nil(ns.Offers.Current(), "damaged entries beside theirs")
+            ns.db.ignore = "damaged"
+            assert.are.equal("Bob-Stone", ns.Offers.Current().name, "repaired empty: they're no longer ignored")
+            assert.are.same({}, ns.db.ignore)
+            ns.db.ignore["bob-stone"] = "Bob-Stone"
+            assert.is_nil(ns.Offers.Current(), "on the repaired list")
         end)
     end)
 

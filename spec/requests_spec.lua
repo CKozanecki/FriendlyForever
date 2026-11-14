@@ -1,4 +1,4 @@
--- Spec: #40
+-- Spec: #40, #353
 -- Buff requests in chat: a whisper or /say asking for one of your buffs
 -- queues that player on the buff-back button, for that buff. It never casts,
 -- says nothing in chat, and is off by default. Chat text is untrusted:
@@ -593,6 +593,13 @@ describe("Buff requests in chat", function()
             wow.whisper("mark pls", "Bob-Stone")
             ns.Ignore.Add("bob stone")
             assert.is_nil(offered(), "ignored as typed in any case: nothing held")
+            assert.are.equal(0, ns.Offers.Count(), "and theirs is let go (#353)")
+            -- Put on the list without Ignore.Add (another addon, a /run): kept, never offered.
+            ns.Ignore.Remove("bob stone")
+            wow.whisper("mark pls", "Bob-Stone")
+            ns.db.ignore["bob-stone"] = "BOB-STONE"
+            assert.is_nil(offered(), "on the list in another case: nothing held (#353)")
+            assert.are.equal(1, ns.Offers.Count())
         end)
 
         it("not while snoozed", function()
