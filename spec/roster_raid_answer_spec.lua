@@ -116,6 +116,26 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
             end
         end)
 
+        it("a fade during a look with IsInRaid() wrong is noted: off by hand stays off once the answer is true (black)", function()
+            for what, case in pairs(LIES) do
+                boot("autoOnMissing")
+                case.group()
+                coverAll()
+                look()
+                case.wrong()
+                -- Ann is in your own subgroup (party1): read at every look.
+                wow.state.units.party1.auras = {}
+                look()
+                assert.is_true(ns.BuffMode.IsAuto(), what .. ": Ann's Mark faded")
+                assert.is_true(printedHas("(Ann Vale is missing your Mark of the Wild)"), what)
+                slash("buffmode off")
+                truth()
+                for _ = 1, 3 do look() end
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": Ann is the same fade")
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
         it("after a reload, a first look with IsInRaid() wrong notes nothing: a fade missing all along stays old (black)", function()
             for what, case in pairs(LIES) do
                 boot("autoOnMissing")
@@ -298,15 +318,24 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
             -- was true (so the addon saw them too), and not seen wearing it,
             -- in reach, or out of the group since.
             local known = {}
-            local function note()
-                local inGroup = {}
+            -- Also held: a member in party1..4 seen missing, in reach, at any
+            -- look once the group has been noted (wasNoted: since the last
+            -- reload a look has noted it). Whatever IsInRaid() says, the addon
+            -- reads those slots at every look: your own subgroup in a raid,
+            -- everyone in a party.
+            local function note(wasNoted)
+                local inGroup, partySlot = {}, {}
+                for i = 1, 4 do
+                    local u = wow.state.units["party" .. i]
+                    if u then partySlot[u.id] = true end
+                end
                 for _, token in ipairs(others()) do
                     local u = wow.state.units[token]
                     inGroup[u.id] = true
                     if inReach(u) then
                         if wears(u) then
                             known[u.id] = nil
-                        elseif mode == "truth" then
+                        elseif mode == "truth" or (wasNoted and partySlot[u.id]) then
                             known[u.id] = true
                         end
                     end
@@ -343,11 +372,15 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
             -- every one since lied outright or couldn't be read. Until one
             -- could, the first look after it only notes, so nothing turns on.
             local fresh = false
+            -- Whether a look since the last reload has surely noted the group:
+            -- joining one notes it (as empty), and so does a look where
+            -- IsInRaid() told the truth.
+            local noted = false
 
             local function regroup()
                 wow.setGroup(nil, {})
                 wow.fire("GROUP_ROSTER_UPDATE")
-                known, fresh = {}, false
+                known, fresh, noted = {}, false, true
                 local names = {}
                 for _, name in ipairs(POOL) do
                     if random.random(3) > 1 then names[#names + 1] = name end
@@ -390,7 +423,7 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
                 end,
                 reload = function()
                     wow.reloadInPlace(false, { keepTimers = true })
-                    known, fresh = {}, true
+                    known, fresh, noted = {}, true, false
                     total.reloads = total.reloads + 1
                 end,
                 lie = function()
@@ -430,7 +463,8 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
                     slash("buffmode off")
                 end
                 if mode == "truth" or mode == "flips" then fresh = false end
-                note()
+                note(noted)
+                if mode == "truth" then noted = true end
                 assert.are.same({}, wow.errors, where)
                 assert.are.equal(0, #wow.casts, where .. ": nothing casts without a press")
             end
