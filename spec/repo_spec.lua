@@ -1825,11 +1825,74 @@ describe("UI simulator workflow", function()
         assert.are.equal("[-1920x1080]\n", suffix("1920x1080"))
     end)
 
-    it("never starts a late shot of the extra sizes, so the step's backstop holds (black)", function()
+    -- #309: the step's time limit, from the shots it can take.
+    it("counts the shots, and no shot starts too late for the step's time limit (white, black)", function()
         local shots = jobWith(order, "shoot")
-        assert.is_truthy(shots.text:find('if [ -n "$SUFFIX" ] && [ "$SECONDS" -gt 3000 ]; then', 1, true))
+        local function words(name)
+            local list = shots.text:match("\n%s*" .. name .. ": ([%w%- ]+)\n")
+            assert.is_truthy(list, name .. " isn't listed")
+            local n = 0
+            for _ in list:gmatch("%S+") do n = n + 1 end
+            return n
+        end
+        -- Every shoot call in shoot_all, a loop's body counted once a turn.
+        local body = shots.text:match("shoot_all%(%) {\n(.-)\n%s*}\n%s*for size in")
+        assert.is_truthy(body, "no shoot_all")
+        local count = 0
+        local loopTurns
+        for line in body:gmatch("[^\n]+") do
+            local list = line:match("^%s*for %w+ in ([^;]+); do%s*$")
+            if list then
+                loopTurns = list:find("OPTIONS_TABS", 1, true) and words("OPTIONS_TABS")
+                    or list:find("WALKTHROUGH_STEPS", 1, true) and words("WALKTHROUGH_STEPS")
+                assert.is_truthy(loopTurns, "a loop over " .. list .. " isn't counted")
+            elseif line:match("^%s*done%s*$") then
+                loopTurns = nil
+            elseif line:match("^%s*shoot[ _]") and not line:match("^%s*shoot_all") then
+                count = count + (loopTurns or 1)
+            end
+        end
+        -- The comment names the count and the worst case it implies.
+        local claimed = tonumber(wow.readFile(path):match("a pass of (%d+) shots can take about %d+ minutes"))
+        assert.are.equal(count, claimed, "the step's comment counts " .. tostring(claimed) .. " shots, shoot_all takes " .. count)
+        local worst = tonumber(wow.readFile(path):match("a pass of %d+ shots can take about (%d+) minutes"))
+        assert.is_true(math.abs(worst - count * 200 / 60) <= 1, "the comment's worst case isn't about " .. count .. " x 200 s")
+        -- The cut-off applies in both passes, and a shot started at it finishes inside the step.
+        assert.is_truthy(shots.text:find('if [ "$SECONDS" -gt "$SHOT_CUTOFF" ]; then', 1, true), "the cut-off isn't in shoot()")
+        assert.is_falsy(shots.text:find('[ -n "$SUFFIX" ] && [ "$SECONDS"', 1, true), "the cut-off is only for the second pass")
+        local cutoff = tonumber(shots.text:match("\n%s*SHOT_CUTOFF=(%d+)\n"))
         local timeout = tonumber(shots.text:match("timeout%-minutes: (%d+)\n%s*run: |"))
-        assert.is_truthy(timeout and timeout * 60 > 3000 + 200, "a shot started at the limit can't finish in the step")
+        assert.is_truthy(cutoff and timeout, "no cut-off or step limit")
+        assert.are.equal(cutoff, tonumber(wow.readFile(path):match("after SHOT_CUTOFF %((%d+) s,")), "the comment names another cut-off")
+        assert.are.equal(timeout, tonumber(wow.readFile(path):match("inside this\n%s*# step's (%d+) minutes")), "the comment names another limit")
+        -- 180 s wait, then about 20 s of checks and clean-up, and the probe's 10 s.
+        assert.is_true(timeout * 60 >= cutoff + 200 + 10 + 60, "a shot started at the cut-off can't finish in the step")
+        local job = tonumber(shots.text:match("timeout%-minutes: (%d+)\n"))
+        assert.is_true(job > timeout, "the job's limit doesn't leave room for the step")
+    end)
+
+    -- #310: the one font every run draws and measures in.
+    it("pins the simulator's fallback font on every run, and fails if the file is missing (white, black)", function()
+        local font = text:match("\n%s*RENDER_FONT: (/[^\n]+%.ttf)\n")
+        assert.is_truthy(font, "no RENDER_FONT")
+        local runs = 0
+        for _, job in ipairs({ "ui-sim", "shoot" }) do
+            local j = jobs[job == "shoot" and "screenshots" or job]
+            local joined = j.text:gsub("\\\n%s*", " ")
+            for line in joined:gmatch("[^\n]+") do
+                if line:find("/sim/wow%-sim") and line:find("docker run", 1, true) and not line:find("%-%-help") then
+                    runs = runs + 1
+                    assert.is_truthy(line:find('-e WOW_SIM_FALLBACK_FONT="$RENDER_FONT"', 1, true),
+                        "a wow-sim run without the pinned font: " .. line:sub(1, 80))
+                end
+            end
+            -- The render image holds the file, or its build stops.
+            assert.is_truthy(j.text:find("fonts%-dejavu%-core[^\n]*\n[^\n]*\n%s*&& test %-f $RENDER_FONT\n"),
+                job .. "'s render image doesn't check the font file exists")
+        end
+        -- sandbox(), sized() and shoot(), however often they're called.
+        assert.are.equal(3, runs, "the runs that pin the font aren't the three that draw text")
+        assert.are.equal("DejaVuSans.ttf", font:match("[^/]+$"))
     end)
 
     -- #153: text a shot or the simulator chooses (file names, logs) reaches

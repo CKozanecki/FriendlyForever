@@ -90,6 +90,13 @@ env:
   # quotes: YAML would read a hash of digits as a number.
   SPELL_DATA_SHA256: "baafb9369a8214a5d793fba12cadec875f7f4a0c4ff8e569d6faac21b2bcac7b"
   RENDER_BASE: debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 # bookworm-slim
+  # The one font file every wow-sim run draws and measures text in (#310).
+  # With no game fonts the simulator would use the first system face its font
+  # library lists, and nothing fixes which of DejaVu's faces that is: runs of
+  # one commit drew sans in one job and serif in another. It's DejaVuSans.ttf
+  # of the render image's fonts-dejavu-core; the image build fails if the file
+  # isn't there, since the simulator only warns and falls back.
+  RENDER_FONT: /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
 
 jobs:
   # Decides whether the UI simulator has anything to look at (#218): true if
@@ -559,7 +566,8 @@ jobs:
           FROM $RENDER_BASE
           RUN apt-get update -q && apt-get install -yq --no-install-recommends \
                 libicu72 libegl1 libgl1-mesa-dri libglx-mesa0 mesa-vulkan-drivers fonts-dejavu-core \
-              && rm -rf /var/lib/apt/lists/*
+              && rm -rf /var/lib/apt/lists/* \
+              && test -f $RENDER_FONT
           DOCKERFILE
 
       - name: Run the simulator (no network, addon read-only)
@@ -578,7 +586,7 @@ jobs:
             local started=$SECONDS status=0
             timeout -s TERM -k 10 120 docker run --rm --init --network none --cap-drop ALL --security-opt no-new-privileges \
               --user "$(id -u):$(id -g)" -e HOME=/tmp \
-              -e WOW_SIM_NO_SAVED_VARS=1 -e WOW_SIM_CASC=0 \
+              -e WOW_SIM_NO_SAVED_VARS=1 -e WOW_SIM_CASC=0 -e WOW_SIM_FALLBACK_FONT="$RENDER_FONT" \
               -v "$RUNNER_TEMP/ui-sim-build/sim:/sim:ro" \
               -v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/$SIM_PROFILE/AddOns:ro" \
               -v "$RUNNER_TEMP/addons:/test-addons:ro" ff-render /sim/wow-sim --addons-path /test-addons "$@" || status=$?
@@ -592,7 +600,7 @@ jobs:
             local status=0
             timeout -s TERM -k 10 300 docker run --rm --init --network none --cap-drop ALL --security-opt no-new-privileges \
               --user "$(id -u):$(id -g)" -e HOME=/tmp \
-              -e WOW_SIM_NO_SAVED_VARS=1 -e WOW_SIM_CASC=0 \
+              -e WOW_SIM_NO_SAVED_VARS=1 -e WOW_SIM_CASC=0 -e WOW_SIM_FALLBACK_FONT="$RENDER_FONT" \
               -v "$RUNNER_TEMP/ui-sim-build/sim:/sim:ro" \
               -v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/$SIM_PROFILE/AddOns:ro" \
               -v "$RUNNER_TEMP/addons:/test-addons:ro" -v "$RUNNER_TEMP/layout-lua:/layout-lua:ro" \
@@ -833,15 +841,20 @@ jobs:
           FROM $RENDER_BASE
           RUN apt-get update -q && apt-get install -yq --no-install-recommends \
                 libicu72 libegl1 libgl1-mesa-dri libglx-mesa0 mesa-vulkan-drivers fonts-dejavu-core \
-              && rm -rf /var/lib/apt/lists/*
+              && rm -rf /var/lib/apt/lists/* \
+              && test -f $RENDER_FONT
           DOCKERFILE
 
       - name: Take screenshots (no network, addon read-only)
-        # A backstop: the shots below stop themselves inside this. Each one
+        # A backstop: the shots below stop themselves inside this. Every shot
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so 21 shots and the probe take at most about 71 minutes.
-        # (Each usually takes about 8 s.) The second pass, at 1920 x 1080
-        # (#148), starts no shot after 50 minutes, so this still holds.
+        # clean-up, so a pass of 27 shots can take about 90 minutes in the
+        # worst case, and both passes together about 180. No shot starts
+        # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
+        # so the last one ends by about 4400 s with the probe: inside this
+        # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a
+        # normal run takes about 8 minutes and never nears the cut-off.)
+        # spec/repo_spec.lua counts the shots and checks these numbers (#309).
         timeout-minutes: 75
         run: |
           # WOW_SIM_CASC=0: never look for game files (no WoW install here).
@@ -854,8 +867,9 @@ jobs:
           # HOME in the container's /tmp and Blizzard's UI where it looks.
           # Each shot is saved as <name><SUFFIX>.png at WIDTH x HEIGHT. The
           # first pass is 1024 x 768 (no suffix), the second 1920 x 1080
-          # (-1920x1080) (#148); the second starts no shot after 50 minutes,
-          # so the backstop below still holds.
+          # (-1920x1080) (#148). Neither starts a shot after SHOT_CUTOFF
+          # seconds, so the step's time limit above still holds (#309).
+          SHOT_CUTOFF=4200
           # Only the PNGs go in the one folder a container can write
           # (/shots): the runner keeps each shot's log in shot-logs, which no
           # container mounts, so a shot can't plant a link there for the
@@ -869,14 +883,14 @@ jobs:
           shoot() {
             local name="$1"; shift
             local cid
-            if [ -n "$SUFFIX" ] && [ "$SECONDS" -gt 3000 ]; then
+            if [ "$SECONDS" -gt "$SHOT_CUTOFF" ]; then
               echo "$name$SUFFIX: skipped, out of time"
               return
             fi
             cid=$(docker run -d --init --network none --cap-drop ALL --security-opt no-new-privileges \
               --user "$(id -u):$(id -g)" -e HOME=/tmp -e XDG_RUNTIME_DIR=/tmp \
               --memory 6g --memory-swap 6g --cpus 3 --pids-limit 4096 \
-              -e WOW_SIM_NO_SAVED_VARS=1 \
+              -e WOW_SIM_NO_SAVED_VARS=1 -e WOW_SIM_FALLBACK_FONT="$RENDER_FONT" \
               -e WOW_SIM_CASC=0 -e WOW_SIM_VERBOSE=1 \
               -e LIBGL_ALWAYS_SOFTWARE=1 -e WOW_SIM_SOFTWARE_RENDER=1 -e WGPU_BACKEND=gl \
               -v "$RUNNER_TEMP/ui-sim-build/sim:/sim:ro" \
