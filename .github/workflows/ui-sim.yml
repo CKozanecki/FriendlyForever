@@ -330,10 +330,13 @@ jobs:
             exit 1
           }
           # The markers the simulator's own image writes, so it uses this
-          # cache and never tries to fetch game files itself.
+          # cache and never tries to fetch game files itself. The list's hash
+          # is taken before the cd and kept as hex digits only (#360).
+          manifest_sha=$(sha256sum "$manifest" | cut -d' ' -f1 | tr -cd '0-9a-f')
+          test "${#manifest_sha}" -eq 64
           cd "$ui/Interface/AddOns"
           printf 'profile=%s\nversion=%s\nsource=gethe-image-build\ngethe_revision=%s\nmanifest_sha256=%s\nfallback=none\n' \
-            "$SIM_PROFILE" "$BLIZZARD_UI_VERSION" "$BLIZZARD_UI_COMMIT" "$(sha256sum "$manifest" | cut -d' ' -f1)" \
+            "$SIM_PROFILE" "$BLIZZARD_UI_VERSION" "$BLIZZARD_UI_COMMIT" "$manifest_sha" \
             > .wow-ui-sim-blizzard-ui-provenance
           touch .wow-ui-sim-blizzard-ui-complete
 
@@ -1009,12 +1012,16 @@ jobs:
       # A shot could plant a link in its folder, and the upload would read
       # through it into the artifact. So first remove every container (a
       # cancelled or timed-out step leaves its detached shot running), then
-      # keep only plain .png files (find -P follows no link).
+      # keep only plain .png files (find -P follows no link). find names a
+      # file it can't delete on stderr, so its output is marked by shown, and
+      # pipefail keeps its exit status through it (#360).
       - name: Keep only plain PNG files in the shots folder
         if: always()
         run: |
+          shown() { tr '\r' '\n' | sed -e "s/^/${1:-| }/" -e 's/##\[/##(/g'; }
+          set -o pipefail
           docker ps -aq | xargs -r docker rm -f >/dev/null 2>&1 || true
-          find -P "$RUNNER_TEMP/shots" -mindepth 1 ! \( -type f -name '*.png' \) -delete
+          find -P "$RUNNER_TEMP/shots" -mindepth 1 ! \( -type f -name '*.png' \) -delete 2>&1 | shown
 
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
