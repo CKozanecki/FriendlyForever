@@ -52,7 +52,7 @@ Something you find that isn't this PR's job is not a finding against it: list it
    - a **concrete failure scenario**: the inputs or game state, and what goes wrong for the player or the release;
    - the fix, if it's clear.
 2. **Out of scope** items, if any (not counted against the PR).
-3. **Model,** on one line starting `Model:`: the model that served you, as your environment names it, its family alias and your effort level. The driver checks it against your frontmatter's family (CLAUDE.md's Models and effort, #182).
+3. **Model,** on one line starting `Model:`: the model that served you, as your environment names it, and its family alias. Don't report an effort level: you can't observe it reliably, and the driver records the configured one (CLAUDE.md's Review records, #318). The driver checks it against your frontmatter's family (CLAUDE.md's Models and effort, #182).
 4. **The verdict, as the last line, exactly one of:**
    - `APPROVED`: no findings;
    - `CHANGES REQUESTED`: at least one finding.

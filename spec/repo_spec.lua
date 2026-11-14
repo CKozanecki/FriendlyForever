@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #160
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -3663,6 +3663,36 @@ describe("Claude sessions' agents, knowledge and skills", function()
             "\n- Lua testing review: model , effort\n", "doesn't count: run it again, or flag it to the owner." }) do
             assert.is_truthy(template:find(line, 1, true), line)
         end
+    end)
+
+    -- #318: a reviewer can't observe its effort, so the record is the configured one.
+    it("CLAUDE.md has reviewers launched with effort high and records effort as configured (#318)", function()
+        local claude = wow.readFile("CLAUDE.md")
+        assert.is_truthy(claude:find("- **Launching a reviewer:** pass `effort: high` in the Agent call", 1, true),
+            "the launch rule")
+        local records = claude:match("\n## Review records\n(.*)$") or ""
+        local reviewed = records:match("%- %*%*Which model reviewed:%*%*[^\n]*") or ""
+        assert.is_truthy(reviewed:find("names the model that served it, its family, just above the verdict line",
+            1, true), "the model line")
+        assert.is_nil(reviewed:find("and the effort", 1, true), "no reported effort")
+        local bullet = records:match("%- %*%*Effort is recorded as configured, not as reported %(#318%)%.%*%*[^\n]*") or ""
+        for _, rule in ipairs({
+            "So the PR records the effort you configured (the frontmatter's `high`, plus the Agent call's `effort`"
+                .. " parameter), and never a number or level a reviewer reports about itself.",
+            "Say plainly in the PR that the served effort isn't exposed to the session.",
+            "The owner decided on #318 (2026-11-14): a review counts when it was launched on its agent's family"
+                .. " with `effort: high` configured, whatever effort the reviewer reports;",
+            "Re-run a review only when it was demonstrably launched without `high` configured.",
+        }) do
+            assert.is_truthy(bullet:find(rule, 1, true), rule)
+        end
+        for _, name in ipairs(AGENTS) do
+            local output = section(wow.readFile(".claude/agents/" .. name .. ".md"), "Output")
+            assert.is_truthy(output:find("Don't report an effort level", 1, true), name .. " reports no effort")
+        end
+        assert.is_truthy(wow.readFile(".github/pull_request_template.md"):find(
+            "with the effort as configured (`high`, passed in the Agent call), never a reviewer's own report of it",
+            1, true), "the PR template")
     end)
 
     it("CLAUDE.md's plan-limits rule names the account spending limit as the only sure stop", function()
