@@ -649,9 +649,12 @@ function BuffTracker.OnPlayerAura(updateInfo)
     -- A full update gives no list of what is new, so compare against the
     -- buffs we already knew about (zoning re-sends everything you have).
     if fullUpdate then
-        local current, listed = ScanBuffs(active and function(aura) HandleAddedAura(aura, now) end or nil)
+        local current, listed, readable = ScanBuffs(active and function(aura) HandleAddedAura(aura, now) end or nil)
         if listed then
             knownAuraIds = current
+            -- In a fight, a buff it can't read yet is looked at again later,
+            -- as CatchUp does (#245).
+            if not readable and InCombatLockdown() then Missed(now) end
         else
             -- The game refused the list (#245): forgetting the buffs we knew
             -- would read them again as new. Keep them, add what was seen, and

@@ -913,6 +913,24 @@ describe("Buff mode turning on and off by itself", function()
             assert.are.equal(1, owedLines("Gus-Stone"), "Gus's buff is read once the list comes back")
         end)
 
+        it("a full update in a fight with an entry it can't read looks at it again as the fight ends", function()
+            bob()
+            wow.enterCombat()
+            nextId = nextId + 1
+            -- (A secret instance ID stands in for an entry the addon can't read.)
+            local aura = { isHelpful = true, isFromPlayerOrPlayerPet = true, auraInstanceID = wow.secret(nextId),
+                sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT,
+                duration = 1800, expirationTime = wow.now + 1800 }
+            wow.state.playerAuras[#wow.state.playerAuras + 1] = aura
+            wow.fire("UNIT_AURA", "player", { isFullUpdate = true })
+            assert.are.equal(0, ns.Offers.Count())
+            aura.auraInstanceID = nextId
+            wow.advance(10)
+            wow.leaveCombat()
+            assert.are.equal(1, ns.Offers.Count())
+            assert.is_true(ns.BuffMode.IsAuto())
+        end)
+
         it("when the game won't list your buffs, a readable update's new buff is still read", function()
             bob()
             wow.fire("UNIT_AURA", "player", wow.secret({})) -- something was missed
