@@ -325,16 +325,27 @@ end
 -- How far a text line's text reaches across: left, right, and a note if
 -- it is cut short. A line pinned on its left only grows to its text, so its
 -- text ends where its width says, whatever width the line itself was given
--- (a label 220 wide reads as its text, so a name much narrower or wider
--- than the label shows, #177). One pinned on its right too stops at that
+-- (a left-justified label 220 wide reads as its text, so a name much
+-- narrower or wider than the label shows, #177). One pinned on its right too stops at that
 -- edge (GetStringWidth still reports the whole width): cut short there, or
 -- wrapped onto more lines when wraps says so.
 local function DrawnAcross(region, left, right, wraps)
     local width = Measure(region, "GetStringWidth")
     if not width then return left, right, "" end
     if not AnchoredOn(region, "RIGHT") then
-        -- Pinned at one point, its width is the one it was given.
-        if Measure(region, "GetNumPoints") == 1 then return left, left + width, "" end
+        -- Pinned at one point, its width is the one it was given, and the
+        -- text sits in it as its justification says. Left-justified text
+        -- starts at the left edge; a justification the client can't give
+        -- keeps the whole span.
+        if Measure(region, "GetNumPoints") == 1 then
+            local ok, justify = pcall(function() return region:GetJustifyH() end)
+            if ok and justify == "LEFT" then return left, left + width, "" end
+            if ok and justify == "RIGHT" then return right - width, right, "" end
+            if ok and justify == "CENTER" then
+                local middle = (left + right) / 2
+                return middle - width / 2, middle + width / 2, ""
+            end
+        end
         return left, math.max(right, left + width), ""
     end
     if width > right - left + 1 and not wraps then

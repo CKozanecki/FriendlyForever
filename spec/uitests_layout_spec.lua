@@ -481,6 +481,7 @@ describe("UI simulator layout check for an options tab (TabTextInside, #112)", f
             GetText = function() return label end,
             GetStringWidth = function() return width end,
             GetNumLines = function() return 1 end,
+            GetJustifyH = function() return "LEFT" end,
         })
     end
 
@@ -619,8 +620,8 @@ describe("UI simulator layout check for an options tab (TabTextInside, #112)", f
     end)
 
     -- #177: a name is drawn as wide as its text, not as its fixed-width label.
-    -- A stand-in row 220 wide, as Options.lua's names are, from 480 to 700 (past the
-    -- panel's edge at 600 only in the last two tests).
+    -- Stand-in rows at 100, in a label 220 wide as Options.lua's names are,
+    -- all inside the 600-wide panel.
     it("reports a Buff Back row's name at its drawn width, not its label's 220 (white)", function()
         checks.TabTextInside(content({ text("1. Blessing of Wisdom", 100, 150, true, 220) }), "Buff Back tab")
         assert.are.equal('LAYOUT Buff Back tab "1. Blessing of Wisdom": text 100..250, frame 0..600; '
@@ -651,6 +652,26 @@ describe("UI simulator layout check for an options tab (TabTextInside, #112)", f
         })
         checks.TabTextInside(content({ text("2. Blessing of Might", 100, 221, true, 220), note }), "Buff Back tab")
         assert.are.equal(2, #printed)
+    end)
+
+    it("places a fixed-width line's text by its justification (white)", function()
+        local function numberLabel(justify)
+            local r = text("12.", 100, 14, true, 20)
+            r.GetJustifyH = justify and function() return justify end or false
+            return r
+        end
+        checks.TabTextInside(content({ numberLabel("RIGHT") }), "Buff Back tab")
+        assert.truthy(printed[1]:find('"12.": text 106..120, frame', 1, true), printed[1])
+        printed[1] = nil
+        checks.TabTextInside(content({ numberLabel("CENTER") }), "Buff Back tab")
+        assert.truthy(printed[1]:find('"12.": text 103..117, frame', 1, true), printed[1])
+    end)
+
+    it("keeps the label's whole span when its justification can't be read (black)", function()
+        local r = text("12.", 100, 14, true, 20)
+        r.GetJustifyH = function() error("no") end
+        checks.TabTextInside(content({ r }), "Buff Back tab")
+        assert.truthy(printed[1]:find('"12.": text 100..120, frame', 1, true), printed[1])
     end)
 
     it("fails a tab that shows no text at all, rather than passing it (black)", function()

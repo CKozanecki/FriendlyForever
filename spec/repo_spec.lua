@@ -1903,14 +1903,24 @@ describe("UI simulator workflow", function()
     -- spaces), or holding "##[" anywhere, as a workflow command.
     describe("shot and simulator output in the job log (black)", function()
         local SOURCES = { "%$report%f[^%w]", "%$RUNNER_TEMP/report", "%$RUNNER_TEMP/shots", "%$RUNNER_TEMP/shot%-logs",
-            '"%$file"', '"%$log"', "%$RUNNER_TEMP/tree%-diff", "%$manifest", "%$ui%f[^%w]" }
+            '"%$file"', '"%$log"', "%$RUNNER_TEMP/tree%-diff", "%$manifest", "%$ui%f[^%w]",
+            "%$RUNNER_TEMP/sim%f[^%w]", "%$pin%f[^%w]" }
         -- diff and ls-tree print fetched content (#317).
         local READERS = { "%f[%w]tail%s", "%f[%w]head%s", "%f[%w]ls%s", "%f[%w]grep%s", "%f[%w]cat%s", "%f[%w]diff%s",
             "ls%-tree%s" }
 
         -- Whether a command line prints shot or simulator output. Paths are
         -- read however they're quoted: "$RUNNER_TEMP"/shots, ${RUNNER_TEMP}/shots.
+        -- git subcommands that print what the fetched repositories hold (#317).
+        local GIT_PRINTS = { "ls%-tree", "ls%-files", "show", "log", "status", "diff", "cat%-file", "ls%-remote", "grep" }
         local function printsOutput(line)
+            if line:match("^%s*grep%s+%-q") then return false end
+            -- (Output a command substitution captures never reaches the log.)
+            if line:find("%f[%w]git%s") and not line:find("%$%([^)]*%f[%w]git%s") then
+                for _, sub in ipairs(GIT_PRINTS) do
+                    if line:find("%f[%w]git%s[^\n]-%s" .. sub .. "%f[%W]") then return true end
+                end
+            end
             if line:find("docker logs", 1, true) or line:find("docker top", 1, true) then return true end
             -- A container run in the foreground (and so cargo in it) prints
             -- straight to the log (#164). One started with -d prints only its ID.
@@ -2029,6 +2039,13 @@ describe("UI simulator workflow", function()
             assert.is_true(printsOutput('timeout 300 docker run --rm ff-build cargo fetch --locked'))
             assert.is_true(printsOutput('diff -u <(sort "$manifest") <(sort "$other")'))
             assert.is_true(printsOutput('git -C "$ui" ls-tree -r --name-only HEAD Interface/AddOns/'))
+            assert.is_true(printsOutput('git -C "$ui" ls-files Interface/AddOns/'))
+            assert.is_true(printsOutput('git -C "$RUNNER_TEMP/sim" show HEAD:README'))
+            assert.is_true(printsOutput('ls "$RUNNER_TEMP/sim/data/blizzard-ui-files"'))
+            assert.is_true(printsOutput('cat "$pin"'))
+            assert.is_false(printsOutput('grep -qF "\\"version\\": 1" "$pin"'))
+            assert.is_false(printsOutput('git -C "$ui" checkout -q --detach FETCH_HEAD'))
+            assert.is_false(printsOutput('list=$(git -c core.quotePath=false diff --name-only "$base" HEAD) || true'))
             assert.is_false(printsOutput('docker run -d --name ff-proxy --cap-drop ALL ff-proxy'))
         end)
 
@@ -2113,10 +2130,18 @@ describe("UI simulator workflow", function()
                 end
             end)
 
+            it("cuts a difference of a few very long lines to a sane size (black)", function()
+                local names = {}
+                for i = 1, 10 do names[#names + 1] = "Blizzard_A/" .. ("n"):rep(5000) .. i .. ".lua" end
+                local out = compare(table.concat(names, "\n") .. "\n", { "Blizzard_Z/z.lua" })
+                assert.is_true(#out < 21000, "the difference isn't cut by size: " .. #out .. " bytes")
+                assert.is_truthy(out:find("exit 1\n$"), "the step didn't fail")
+            end)
+
             it("cuts a long difference to a sane size (black)", function()
                 local names = {}
                 for i = 1, 2000 do names[#names + 1] = "Blizzard_A/" .. ("n"):rep(40) .. i .. ".lua" end
-                local out = compare(table.concat(names, "\n") .. "\n", {})
+                local out = compare(table.concat(names, "\n") .. "\n", { "Blizzard_Z/z.lua" })
                 assert.is_true(#out < 21000, "the difference isn't cut: " .. #out .. " bytes")
                 assert.is_truthy(out:find("exit 1\n$"), "the step didn't fail")
             end)
