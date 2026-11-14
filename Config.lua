@@ -222,8 +222,8 @@ Config.DEFAULTS = {
         -- Battlegrounds (Battleground.lua): buff before the gates open. Off,
         -- the preparation phase is as quiet as the battle.
         bgPrepBuff = true,
-        -- Buff requests in chat (Requests.lua, #40): a whisper or /say asking
-        -- for one of your buffs queues that player on the button. Off by
+        -- Buff requests in chat (Requests.lua, #40): a whisper, /say or party
+        -- chat asking for one of your buffs queues that player on the button. Off by
         -- default (the owner's decision on #40).
         requests = false,
         -- Unending Breath and Water Breathing only near water (Water.lua, #136).

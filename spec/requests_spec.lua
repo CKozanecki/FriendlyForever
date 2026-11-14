@@ -413,6 +413,42 @@ describe("Buff requests in chat", function()
             assert.are.equal(1, ns.Offers.Count())
         end)
 
+        it("turned off by any other path, waiting requests go and don't come back when it's on again", function()
+            local paths = {
+                reset = function() ns.ResetType("buffBack") end,
+                ["profile switch"] = function() ns.Profiles.Use("Quiet") end,
+                ["master switch"] = function() ns.SetEnabled(false) end,
+                ["Buff Back's switch"] = function()
+                    ns.db.buffBack.enabled = false
+                    ns.RefreshEvents()
+                end,
+            }
+            for what, turnOff in pairs(paths) do
+                boot()
+                if what == "profile switch" then
+                    ns.Profiles.New("Quiet")
+                    ns.db.buffBack.requests = false
+                    ns.Profiles.Use("Default")
+                    assert.is_true(ns.db.buffBack.requests, what)
+                end
+                stranger()
+                wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = 10157 })
+                stranger("nameplate2", { name = "Ann", surname = "Vale" })
+                wow.whisper("thorns pls", "Bob-Stone")
+                wow.whisper("mark pls", "Ann-Vale")
+                assert.are.equal(1, ns.Offers.RequestCount(), what)
+                turnOff()
+                assert.are.equal(0, ns.Offers.RequestCount(), what)
+                assert.are.equal(1, ns.Offers.Count(), what .. ": the favour stays")
+                if what == "master switch" then ns.SetEnabled(true) end
+                if what == "Buff Back's switch" then ns.db.buffBack.enabled = true end
+                ns.Requests.SetEnabled(true)
+                assert.are.equal(0, ns.Offers.RequestCount(), what .. ": nothing comes back")
+                assert.are.equal("Mark of the Wild", select(2, offered()),
+                    what .. ": the favour's own choice, not the buff Bob asked for")
+            end
+        end)
+
         it("a setting turned off some other way (a profile, damage) holds nothing on the button", function()
             stranger()
             wow.whisper("mark pls", "Bob-Stone")
@@ -422,6 +458,31 @@ describe("Buff requests in chat", function()
             assert.are.equal(1, ns.Offers.Count())
             ns.db.buffBack.requests = true
             assert.are.equal("Bob-Stone", (offered()))
+        end)
+
+        it("other settings changing (Buff Thanks, a profile that keeps requests on) keep waiting requests", function()
+            stranger()
+            wow.whisper("mark pls", "Bob-Stone")
+            ns.db.buff.enabled = false
+            ns.RefreshEvents()
+            ns.db.buff.enabled = true
+            ns.RefreshEvents()
+            ns.Profiles.New("Raiding")
+            ns.Profiles.Use("Default")
+            ns.ResetType("buff")
+            assert.are.equal(1, ns.Offers.RequestCount())
+            assert.are.equal("Bob-Stone", (offered()))
+        end)
+
+        it("a favour's noted request is passed over while the setting is damaged", function()
+            stranger()
+            wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = 10157 })
+            wow.whisper("thorns pls", "Bob-Stone")
+            assert.are.equal("Thorns", select(2, offered()))
+            ns.db.buffBack.requests = "yes"
+            assert.are.equal("Mark of the Wild", select(2, offered()))
+            ns.db.buffBack.requests = true
+            assert.are.equal("Thorns", select(2, offered()))
         end)
 
         it("not with Buff Back's offer off, or the addon off", function()

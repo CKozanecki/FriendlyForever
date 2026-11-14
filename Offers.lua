@@ -342,8 +342,9 @@ function Offers.Request(name, buff)
     return true
 end
 
--- Let every request in chat go (#40: the setting was turned off). A
--- favour that noted a request keeps its place, without the asked-for buff.
+-- Let every request in chat go (#40: requests were turned off, by any
+-- path: ns.RefreshEvents). A favour that noted a request keeps its place,
+-- without the asked-for buff.
 function Offers.DropRequests()
     local any = false
     for i = #favours, 1, -1 do
@@ -416,9 +417,10 @@ local function ChooseBuff(favour, myBuffs, held, visible)
     -- The buff they asked for (#40): only that one for a request; a favour
     -- whose asked-for buff can't be given now gets the usual choice. With
     -- the setting off (or damaged), or the player ignored since (whatever
-    -- the case they were typed in), a request holds nothing.
+    -- the case they were typed in), a request holds nothing, and a favour's
+    -- asked-for buff is passed over.
     if favour.request and (not ns.Requests.Listening() or ns.Ignore.Has(favour.name)) then return nil, nil, true end
-    if favour.requested then
+    if favour.requested and ns.Requests.Listening() then
         local buff, reason, away = Requested(favour, unit)
         if buff or favour.request then return buff, reason, away end
     end

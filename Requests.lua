@@ -185,11 +185,11 @@ Requests.TOOLTIP = "When someone whispers you, or says in /say or party chat, a 
     .. "(\"mark pls\", \"can I get int?\"), the buff-back button offers them that buff. It never casts by "
     .. "itself, and nothing is said in chat. Your ignore list, snooze and the quiet in capital cities and "
     .. "battlegrounds apply."
--- Turn requests on or off from the switch. Off lets every
--- waiting request go, so none is offered after you said no to them.
+-- Turn requests on or off from the switch. Off lets every waiting request
+-- go (ns.RefreshEvents, whatever turned them off), so none is offered after
+-- you said no to them.
 function Requests.SetEnabled(on)
     ns.db.buffBack.requests = on and true or false
-    if not ns.db.buffBack.requests then ns.Offers.DropRequests() end
     ns.RefreshEvents()
     ns.BuffButton.Refresh()
 end

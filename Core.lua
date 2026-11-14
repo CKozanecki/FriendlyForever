@@ -42,8 +42,10 @@ local handlers = {}
 -- buff watching uses it (to name casters), so it is registered only while
 -- Buff Thanks or Buff Back is on. Whispers, /say and party chat are read
 -- only for buff requests (Requests.lua, #40), so they are registered only
--- while those are on. Call this whenever one of those switches or the master switch
--- changes.
+-- while those are on. Turned off by any path (their switch, the tab's
+-- reset, a profile switch or import, Buff Back's or the master switch),
+-- waiting requests go too, so none comes back when they're on again. Call
+-- this whenever one of those switches or the master switch changes.
 local REQUEST_EVENTS = { "CHAT_MSG_WHISPER", "CHAT_MSG_SAY", "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER" }
 function ns.RefreshEvents()
     if not ns.db then return end
@@ -56,6 +58,7 @@ function ns.RefreshEvents()
     for _, event in ipairs(REQUEST_EVENTS) do
         if listening then frame:RegisterEvent(event) else frame:UnregisterEvent(event) end
     end
+    if not listening then ns.Offers.DropRequests() end
 end
 
 local function Register(event, handler, unit)
