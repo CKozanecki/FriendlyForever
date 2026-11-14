@@ -907,10 +907,10 @@ describe("My Blessings in this raid", function()
             raid(TEN, nil)
             ns.BuffRules.SetRaidBlessings({ "might" })
             wow.setGroup("raid", OTHERS)
-            for i = 1, 4 do wow.state.units["raid" .. i].nameLoading = true end
+            wow.state.units.raid1.nameLoading = true
             wow.fire("GROUP_ROSTER_UPDATE")
-            assert.is_true(chosen(), "four names loading")
-            for i = 1, 4 do wow.state.units["raid" .. i].nameLoading = nil end
+            assert.is_true(chosen(), "one name loading")
+            wow.state.units.raid1.nameLoading = nil
             wow.fire("GROUP_ROSTER_UPDATE")
             assert.is_false(chosen(), "loaded: all new")
             -- Slots that can't be read at all, and an IsInRaid() that can't.
@@ -929,7 +929,7 @@ describe("My Blessings in this raid", function()
             assert.are.same({}, wow.errors)
         end)
 
-        it("what couldn't be read at the choice is filled in by later looks, and a change still counts (black)", function()
+        it("a leader that couldn't be read at the choice is taken from a later look, and a change still counts (black)", function()
             -- The leader couldn't be read when chosen.
             wow.state.leaderUnreadable = true
             raid(TEN, "Ann-Vale")
@@ -939,15 +939,15 @@ describe("My Blessings in this raid", function()
             assert.is_true(chosen(), "read now: Ann")
             raid(TEN, "Bo-Lake")
             assert.is_false(chosen(), "then Bo")
-            -- Names loading when chosen: nothing reads as gone till they load.
+            -- Names loading when chosen: they count, never as gone.
             wow.setGroup("raid", TEN)
-            for i = 1, 6 do wow.state.units["raid" .. i].nameLoading = true end
+            for i = 1, 2 do wow.state.units["raid" .. i].nameLoading = true end
             wow.fire("GROUP_ROSTER_UPDATE")
             ns.BuffRules.SetRaidBlessings({ "might" })
             raid(TEN, nil)
             assert.is_true(chosen(), "loaded: the same ten")
             raid(OTHERS, nil)
-            assert.is_false(chosen(), "then all new")
+            assert.is_false(chosen(), "then all new: the eight read are gone, of ten")
             assert.are.same({}, wow.errors)
         end)
 
@@ -969,14 +969,44 @@ describe("My Blessings in this raid", function()
             -- Ivy and Jo leave; the eight others stay, read now.
             raid({ "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss", "Fay-Dale", "Gus-Hill", "Hal-Moor" }, nil)
             assert.is_true(chosen(), "two of ten gone")
-            -- That look filled in the rest: Ivy, Jo and two more is four of ten.
-            raid({ "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss", "Fay-Dale" }, nil)
-            assert.is_true(chosen(), "Ivy, Jo, Gus and Hal: four of ten gone")
+            -- The eight that couldn't be read count among the ten, never as
+            -- gone: a later look doesn't fill them in, since by then it may
+            -- be another raid's members it reads.
             raid({ "Ann-Vale", "Bo-Lake", "Kit-Ash" }, nil)
-            assert.is_false(chosen(), "Ivy, Jo and six more: eight of ten gone")
+            assert.is_true(chosen(), "only Ivy and Jo were read: two of ten gone")
         end)
 
-        it("a look that fills in only some of the names keeps waiting for the rest (black)", function()
+        it("a choice with one name loading still sees the raid re-formed around you, with the same leader (black)", function()
+            -- Raid A: the ten, Ann leading; Jo's name still loading at the choice.
+            wow.state.leader = "Ann-Vale"
+            wow.setGroup("raid", TEN)
+            wow.state.units.raid10.nameLoading = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            ns.BuffRules.SetRaidBlessings({ "might" })
+            -- Straight into raid B: Ann and nine new, Ann leading.
+            local b = { "Ann-Vale" }
+            for i = 1, 9 do b[#b + 1] = OTHERS[i] end
+            raid(b, "Ann-Vale")
+            assert.is_false(chosen(), "eight of the nine read are gone, of ten")
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("a slot that can't be read as you or someone else isn't taken for a member (black)", function()
+            local real = _G.UnitIsUnit
+            -- Chosen while UnitIsUnit() can't be read: your own slot too.
+            raid({ "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern" }, "Ann-Vale")
+            _G.UnitIsUnit = function(a, b) return wow.secret(real(a, b)) end
+            assert.is_true(ns.BuffRules.SetRaidBlessings({ "might" }))
+            _G.UnitIsUnit = real
+            -- Half replaced, readable now: you aren't counted as gone.
+            raid({ "Ann-Vale", "Bo-Lake", "Kit-Ash", "Lu-Bay" }, "Ann-Vale")
+            assert.is_true(chosen(), "two of four gone, not three of five")
+            raid({ "Ann-Vale", "Kit-Ash", "Lu-Bay" }, "Ann-Vale")
+            assert.is_false(chosen(), "three of four gone")
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("a later look that can't read every slot judges nothing (black)", function()
             -- Chosen with eight of ten names loading: only Ivy and Jo read.
             wow.setGroup("raid", TEN)
             for i = 1, 8 do wow.state.units["raid" .. i].nameLoading = true end
@@ -987,7 +1017,7 @@ describe("My Blessings in this raid", function()
             wow.fire("GROUP_ROSTER_UPDATE")
             -- Ann, Bo, Ivy and Jo leave; the six others stay, read now.
             raid({ "Cid-Rock", "Dot-Fern", "Eve-Moss", "Fay-Dale", "Gus-Hill", "Hal-Moor" }, nil)
-            assert.is_true(chosen(), "four of ten gone, not four of the four first read")
+            assert.is_true(chosen(), "Ivy and Jo of ten gone, not four of the four first read")
         end)
 
         it("a slot that can't be read as holding someone may hold a member who stayed (black)", function()
@@ -1038,6 +1068,13 @@ describe("My Blessings in this raid", function()
             for _, seed in ipairs({ 5, 376, 1234, 4242 }) do
                 random.seed(seed)
                 boot()
+                local realUnitIsUnit = _G.UnitIsUnit
+                local selfUnreadable = false -- UnitIsUnit() can't be read
+                _G.UnitIsUnit = function(a, b)
+                    if selfUnreadable then return wow.secret(realUnitIsUnit(a, b)) end
+                    return realUnitIsUnit(a, b)
+                end
+                local choicePlain -- the choice read every slot
                 local leader, members = "Ann-Vale", {}
                 local atChoice -- the members at the choice: [name] = true
                 local model -- the chosen Blessings, or nil
@@ -1049,7 +1086,7 @@ describe("My Blessings in this raid", function()
                 local function show()
                     wow.state.leader = leader
                     wow.setGroup("raid", members)
-                    local plain = not obscured()
+                    local plain = not obscured() and not selfUnreadable
                     for i in ipairs(members) do
                         local u = wow.state.units["raid" .. i]
                         u.class, u.role = i % 2 == 0 and "MAGE" or "ROGUE", "DAMAGER"
@@ -1104,17 +1141,20 @@ describe("My Blessings in this raid", function()
                     local plain = show()
                     local gone, before = goneOfChoice()
                     local leaderChanged = model and leader ~= model.leader
-                    if model and plain and (leaderChanged or gone * 2 > before) then
+                    if model and plain and choicePlain and (leaderChanged or gone * 2 > before) then
                         assert.is_false(ns.BuffRules.RaidBlessingsChosen(), "another raid, seen plainly")
                         total.forgot = total.forgot + 1
                     end
                     -- Whatever was kept, it isn't this raid's now in the model.
                     model, atChoice = nil, nil
                 end
+                -- A choice can be made while names load or UnitIsUnit()
+                -- can't be read (SetRaidBlessings asks IsInRaid() only).
                 local function choose()
                     if obscured() then return end
+                    local plainNow = not selfUnreadable
                     for i in ipairs(members) do
-                        if wow.state.units["raid" .. i].nameLoading then return end
+                        if wow.state.units["raid" .. i].nameLoading then plainNow = false end
                     end
                     local pick, set, n = {}, {}, 0
                     for _, key in ipairs({ "kings", "wisdom", "might" }) do
@@ -1125,7 +1165,7 @@ describe("My Blessings in this raid", function()
                     end
                     if ns.BuffRules.SetRaidBlessings(pick) and n < 3 then
                         model = { keys = set, leader = leader }
-                        atChoice, unclear = {}, false
+                        atChoice, unclear, choicePlain = {}, not plainNow, plainNow
                         for _, name in ipairs(members) do atChoice[name] = true end
                         total.chosen = total.chosen + 1
                     elseif n == 3 then
@@ -1137,6 +1177,8 @@ describe("My Blessings in this raid", function()
                     wow.state.leaderUnreadable = r < 0.2 or nil
                     wow.state.unitsRestricted = (r >= 0.2 and r < 0.3) or nil
                     wow.state.inRaidUnreadable = (r >= 0.3 and r < 0.4) or nil
+                    selfUnreadable = r >= 0.4 and r < 0.5
+                    if selfUnreadable then unclear = true end
                 end
                 members = { "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
                 show()

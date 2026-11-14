@@ -332,9 +332,10 @@ end
 local raidBlessings
 -- The raid the last choice was made in (#376), read only while there is a
 -- choice: { leader = full name or nil while it can't be read, members =
--- { [full name] = true } for the other members, partial = true while a slot
--- couldn't be read }. What couldn't be read is filled in by later looks;
--- until then it can't show a change, so the choice is kept.
+-- { [full name] = true } for the other members read then, unread = how
+-- many slots couldn't be read then }. A slot that couldn't be read still
+-- counts among the members at the choice, but never as gone. A leader that
+-- couldn't be read is taken from a later look.
 local raidOf
 
 local Read = Util.ReadGameValues
@@ -346,37 +347,42 @@ local function InRaid()
 end
 
 -- The raid as the game shows it now: its leader's full name (nil when it
--- can't be read), the other members by full name, and whether any slot
--- couldn't be read (someone may be missing from the names).
+-- can't be read), the other members by full name, and how many slots
+-- couldn't be read: whether they hold someone, or who.
 local function RaidNow()
-    local leader = Read(UnitIsGroupLeader, "player") == true and Util.UnitFullName("player") or nil
-    local members, partial = {}, false
+    local me = Util.UnitFullName("player")
+    local leader = Read(UnitIsGroupLeader, "player") == true and me or nil
+    local members, unread = {}, 0
     for _, unit in ipairs(RAID_UNITS) do
         local exists = Read(UnitExists, unit)
         if exists == nil then
-            partial = true
-        elseif exists and Read(UnitIsUnit, unit, "player") ~= true then
+            unread = unread + 1
+        elseif exists then
+            -- UnitIsUnit() unreadable: told by name. Your own slot is the
+            -- same unit as "player", so its name loads with yours.
             local name = Util.UnitFullName(unit)
-            if name == nil then
-                partial = true
-            else
+            local you = Read(UnitIsUnit, unit, "player") == true or (name ~= nil and name == me)
+            if not you and name == nil then
+                unread = unread + 1
+            elseif not you then
                 members[name] = true
                 if Read(UnitIsGroupLeader, unit) == true then leader = name end
             end
         end
     end
-    return leader, members, partial
+    return leader, members, unread
 end
 
 -- Whether the raid now is another one than the choice's (#376), on positive
 -- evidence only: a leader read now and when chosen, and different; or most
--- of the members when chosen gone, by looks that read every slot (a member
--- in a slot that can't be read may still be there). A raid filling up
--- isn't one changing: newcomers count for nothing.
-local function RaidChanged(leader, members, partial)
+-- of the members at the choice gone, by a look that read every slot. A
+-- member in a slot that couldn't be read, then or now, may still be there:
+-- it counts among the members at the choice, never as gone. A raid filling
+-- up isn't one changing: newcomers count for nothing.
+local function RaidChanged(leader, members, unread)
     if raidOf.leader and leader and leader ~= raidOf.leader then return true end
-    if partial or raidOf.partial then return false end
-    local before, gone = 0, 0
+    if unread > 0 then return false end
+    local before, gone = raidOf.unread, 0
     for name in pairs(raidOf.members) do
         before = before + 1
         if not members[name] then gone = gone + 1 end
@@ -396,17 +402,14 @@ end
 function BuffRules.CheckRaid()
     CheckOut()
     if not raidBlessings or ns.GroupBuffs.RaidAnswer() ~= true then return end
-    local leader, members, partial = RaidNow()
-    if RaidChanged(leader, members, partial) then
+    local leader, members, unread = RaidNow()
+    if RaidChanged(leader, members, unread) then
         raidBlessings = nil
         return
     end
-    -- Fill in what couldn't be read when chosen.
+    -- A leader that couldn't be read when chosen. Members aren't filled in:
+    -- whoever is there now may already be another raid's (#376).
     if raidOf.leader == nil then raidOf.leader = leader end
-    if raidOf.partial then
-        for name in pairs(members) do raidOf.members[name] = true end
-        raidOf.partial = partial
-    end
 end
 
 -- The Blessings you know (the "blessing" family), in your class's order.
@@ -466,8 +469,8 @@ function BuffRules.SetRaidBlessings(keys)
     -- (#70) would narrow it: then it's your choice over the split's.
     raidBlessings = (count < all or ns.RaidSplit.Current() ~= nil) and chosen or nil
     -- The raid it's for (#376), as it is now: a change counts from here.
-    local leader, members, partial = RaidNow()
-    raidOf = { leader = leader, members = members, partial = partial }
+    local leader, members, unread = RaidNow()
+    raidOf = { leader = leader, members = members, unread = unread }
     ns.BuffButton.Refresh()
     return true
 end
