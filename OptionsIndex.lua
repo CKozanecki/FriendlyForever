@@ -14,6 +14,8 @@ OptionsIndex.SEARCH_PAGE = "Find a setting" -- the page listing them all, for th
 
 local MAIN = "the top of the options, every tab"
 local EVERY_TAB = "every message tab"
+-- Buff Back says its own switch and has no delay or repeat cooldown.
+local NOT_BUFF_BACK = "every message tab except the Buff Back tab"
 local BUFF = "the Buff Thanks tab"
 local BUFF_BACK = "the Buff Back tab"
 local GENERAL = "the General page"
@@ -28,11 +30,11 @@ OptionsIndex.SETTINGS = {
         controls = { "master" } },
     { name = "Don't send messages while I'm AFK", page = MAIN, keywords = "afk away skip",
         controls = { "skipAFK" } },
-    { name = "Enabled", page = EVERY_TAB, keywords = "on off message type switch",
+    { name = "Enabled", page = NOT_BUFF_BACK, keywords = "on off message type switch",
         controls = { "enabled" } },
-    { name = "Delay after event", page = EVERY_TAB, keywords = "wait seconds timing",
+    { name = "Delay after event", page = NOT_BUFF_BACK, keywords = "wait seconds timing",
         controls = { "steppers.delay" } },
-    { name = "Don't repeat to the same player for", page = EVERY_TAB, keywords = "repeat cooldown seconds again",
+    { name = "Don't repeat to the same player for", page = NOT_BUFF_BACK, keywords = "repeat cooldown seconds again",
         controls = { "steppers.repeatCooldown" } },
     { name = "Most players with Friendly Forever who greet one login", page = "the Guild Login tab",
         keywords = "guild login hello greet greeting copies limit others",

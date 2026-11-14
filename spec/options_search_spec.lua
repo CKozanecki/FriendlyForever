@@ -1,4 +1,4 @@
--- Spec: #48, #47, #208, #274
+-- Spec: #48, #47, #208, #274, #179
 -- Finding a setting: /friendly find <word>, the game's Settings search where
 -- the client has one, and the one table both read (OptionsIndex.lua).
 local wow = require("spec.support.wow")
@@ -341,5 +341,180 @@ describe("Finding a setting (#48)", function()
             assert.is_false(ns.OptionsIndex.RegisterSearch({}))
             assert.is_false(ns.OptionsIndex.RegisterSearch(nil))
         end)
+    end)
+end)
+
+-- The frames at a widgets path ("*" for any row of a list).
+local function FramesAt(widgets, path)
+    local found = {}
+    local function Walk(t, parts, i)
+        if i > #parts then
+            -- A stepper or a list names its parts: every control under it.
+            local seen = {}
+            local function Collect(x)
+                if type(x) ~= "table" or seen[x] then return end
+                seen[x] = true
+                if x.kind then
+                    if CONTROL_KINDS[x.kind] then found[#found + 1] = x end
+                    return
+                end
+                for _, v in pairs(x) do Collect(v) end
+            end
+            Collect(t)
+            return
+        end
+        if type(t) ~= "table" or t.kind then return end
+        if parts[i] == "*" then
+            for _, v in ipairs(t) do Walk(v, parts, i + 1) end
+        else
+            Walk(t[parts[i]], parts, i + 1)
+        end
+    end
+    local parts = {}
+    for part in path:gmatch("[^.]+") do parts[#parts + 1] = part end
+    Walk(widgets, parts, 1)
+    return found
+end
+
+local function Under(frame, root)
+    local f = frame
+    while f do
+        if f == root then return true end
+        f = f.parent
+    end
+    return false
+end
+
+describe("Each setting's page is where its control is (#179)", function()
+    local ns, Config
+
+    -- The master switch and the AFK box sit above the tabs, shown on all.
+    local TOP = { master = true, skipAFK = true }
+    local CurrentEntry -- the entry RealPages is working out
+
+    before_each(function()
+        -- A paladin who knows Kings, Wisdom and Might: the Blessings rows show.
+        ns = wow.boot({ before = function(state)
+            state.class = "PALADIN"
+            state.knownSpells = { [20217] = true, [19742] = true, [19740] = true }
+        end })
+        Config = ns.Config
+        ns.Options.Open()
+        -- Open the rows that hide until their state asks for them.
+        ns.db.buff.fallback = "say"
+        -- the nameplate button shows only while friendly nameplates are off
+        wow.state.cvars.nameplateShowFriendlyPlayers = "0"
+    end)
+
+    -- One checkbox is "Enabled" on most tabs and another setting's name on
+    -- one (Buff Back's offer switch): on a tab where its label is the name of a
+    -- different setting, it isn't this entry's.
+    local function LabelFits(label)
+        if not label or label == "" then return true end
+        local own = false
+        for _, entry in ipairs(ns.OptionsIndex.SETTINGS) do
+            if entry.name == label then own = entry end
+        end
+        return not own or own == CurrentEntry
+    end
+
+    -- The message tabs on which the panel shows frame, by selecting each tab
+    -- with its own button and reading IsShown (the panel's state, not the index).
+    local function TabsShowing(frame)
+        local tabs, shown, labels, varies = {}, {}, {}, false
+        for i, msgType in ipairs(Config.TYPES) do
+            ns.Options.widgets.tabs[msgType]:Click()
+            shown[i] = frame:IsShown()
+            labels[i] = frame.label and frame.label:GetText()
+            varies = varies or labels[i] ~= labels[1]
+        end
+        for i, msgType in ipairs(Config.TYPES) do
+            if shown[i] and (not varies or LabelFits(labels[i])) then tabs[#tabs + 1] = msgType end
+        end
+        return tabs
+    end
+
+    -- The page the entry's controls really are on: a set of page names (one
+    -- when it is right), worked out from the simulated client.
+    local function RealPages(entry)
+        local widgets = ns.Options.widgets
+        local general, ledger = ns.Options.Pages()
+        local pages = {}
+        CurrentEntry = entry
+        local unshown, total = 0, 0
+        for _, path in ipairs(entry.controls) do
+            local frames = FramesAt(widgets, path)
+            assert.is_true(#frames > 0, entry.name .. ": no control at " .. path)
+            for _, frame in ipairs(frames) do
+                total = total + 1
+                if Under(frame, general) then pages["the General page"] = true
+                elseif Under(frame, ledger) then pages["the Favour Ledger page"] = true
+                elseif Under(frame, ns.Options.StartPage()) then pages["the Start here page"] = true
+                else
+                    local tabs = TabsShowing(frame)
+                    if #tabs == #Config.TYPES then
+                        pages[TOP[path] and "the top of the options, every tab" or "every message tab"] = true
+                    elseif #tabs == #Config.TYPES - 1 then
+                        -- Everywhere but one tab (a row a tab has no use for).
+                        local shown = {}
+                        for _, msgType in ipairs(tabs) do shown[msgType] = true end
+                        for _, msgType in ipairs(Config.TYPES) do
+                            if not shown[msgType] then
+                                pages["every message tab except the " .. Config.TYPE_INFO[msgType].label .. " tab"] = true
+                            end
+                        end
+                    else
+                        for _, msgType in ipairs(tabs) do
+                            pages["the " .. Config.TYPE_INFO[msgType].label .. " tab"] = true
+                        end
+                        if #tabs == 0 then unshown = unshown + 1 end
+                    end
+                end
+            end
+        end
+        -- A list's spare rows hide (a class with fewer buffs), so a frame
+        -- shown nowhere only counts when all of the entry's are.
+        if unshown == total then pages["no page (never shown)"] = true end
+        return pages
+    end
+
+    -- nil when entry.page is where all its controls are, else what's wrong.
+    local function Problem(entry)
+        local pages, list = RealPages(entry), {}
+        for page in pairs(pages) do list[#list + 1] = page end
+        table.sort(list)
+        if #list ~= 1 then
+            return entry.name .. " has controls on different pages: " .. table.concat(list, "; ")
+        end
+        if list[1] ~= entry.page then
+            return entry.name .. " says " .. entry.page .. " but its controls are on " .. list[1]
+        end
+    end
+
+    it("has every entry's page match where its controls are (white)", function()
+        for _, entry in ipairs(ns.OptionsIndex.SETTINGS) do
+            assert.is_nil(Problem(entry))
+        end
+    end)
+
+    it("fails an entry with the wrong page, naming it (white)", function()
+        local entry = { name = "Buff mode key", page = "the General page", controls = { "buffModeKey" } }
+        assert.are.equal("Buff mode key says the General page but its controls are on the Buff Back tab", Problem(entry))
+        entry = { name = "Snooze", page = "the Buff Back tab", controls = { "general.snooze15" } }
+        assert.truthy(Problem(entry):find("Snooze says the Buff Back tab", 1, true))
+    end)
+
+    it("fails an entry whose controls are on different pages or tabs, naming it (black)", function()
+        local mixed = { name = "Mixed up", page = "the Buff Back tab", controls = { "buffModeKey", "general.snooze15" } }
+        local msg = Problem(mixed)
+        assert.truthy(msg:find("Mixed up has controls on different pages", 1, true))
+        local tabs = { name = "Two tabs", page = "the Buff Back tab", controls = { "buffModeKey", "listNames" } }
+        assert.truthy(Problem(tabs):find("Two tabs has controls on different pages", 1, true))
+    end)
+
+    it("fails a control that is shown on no tab (black)", function()
+        local entry = { name = "Hidden", page = "the Buff Back tab", controls = { "who.raidBlessings" } }
+        ns.BuffData.Mine = function() return {} end -- no Blessings known: its rows hide
+        assert.truthy(Problem(entry):find("Hidden says the Buff Back tab but its controls are on no page", 1, true))
     end)
 end)
