@@ -13,6 +13,16 @@ Ideas, bug reports and pull requests are welcome. Every change starts from an is
 5. Open the pull request as a **draft** and fill in the template, with `Closes #<issue>` for each spec it completes. Mark it ready for review when it is (see [Ready for review](#ready-for-review)). CI must pass and review conversations must be resolved before it can merge. **A pull request can merge as soon as the required `check` is green** (#241): the report-only jobs (the UI simulator, screenshots, CodeQL) never gate a merge, and nobody waits for them unless the change is a UI change the maintainer wants to look at. (An agent's UI change still has its screenshots looked at by the testing review before it is ready.) The maintainer reviews outside pull requests. Their own get an automated review, because GitHub doesn't let authors approve their own pull requests, so `main` requires passing CI rather than an approval.
 6. Merges are squash merges, so each PR becomes one commit on `main`, its title ending with the pull request's number, as in `(#54)`. Numbers in commit titles are pull requests; numbers at the end of changelog entries are issues.
 
+### Area batches
+
+**A trial (#345, the maintainer's decision of 2026-11-14).** Agent sessions work in area batches, not one pull request per issue. The trial's result is recorded on #345, and the maintainer decides there whether to keep it.
+
+- **One session, one area, one branch.** A session owns an area for a batch, such as "buff targeting" or "options panel", and works a list of related issues on one branch, named after the batch's first issue and the area, such as `claude/301-options-panel`.
+- **One pull request, one review at the end.** The batch is one pull request. Its description lists each issue under its own heading, with its keyword (`Closes #<issue>`, or `Refs #<issue>` for a spec it only starts) and its acceptance criteria as a checklist. The review loops run once, on the whole batch, and check each issue against its criteria.
+- **Everything else is per issue,** as before: each spec file names the issues it tests (`-- Spec: #301, #305`), and each user-visible change has its own note, `changes/<issue>.md`.
+- **Safety-critical areas keep the full rules, once per batch.** Both review loops, in order, and the mutation checks of [Review loops](#review-loops) apply as for any code pull request, once for the batch instead of once per issue: the mutation list covers every safety-critical line any issue in it changed.
+- **Areas don't share files.** About three or four sessions run at a time, each on an area chosen so that no two batches change the same file.
+
 ## Specs and traceability
 
 Every change can be traced from its spec to its code, tests, pull request and release.
@@ -71,12 +81,30 @@ It is **ready to merge** when, on top of that, every review conversation is reso
 
 #### Only behind `main`
 
-When another pull request merges, GitHub marks the next ready one out of date (#229). The maintainer decided on 2026-11-09 that the cheaper fix is for them to click GitHub's **Update branch** button themselves. It depends on the two file lists of the file-disjoint rule in [Review loops](#review-loops):
+`main` requires branches to be up to date before they merge, so when another pull request merges, GitHub marks the next ready one out of date (#229). GitHub's merge queue would do this for us, but it isn't offered for a repository owned by a personal account, and the maintainer decided on 2026-11-14 to keep this rule (#345). What happens depends on the two file lists of the file-disjoint rule in [Review loops](#review-loops):
 
-- **No file in both lists and no conflict: update branch only.** The developer does nothing: no merge, no push, no reviewer re-run. The "up to date with `main`" box counts as met; the coordinator's message to the maintainer, naming the pull request and the two file lists, is the record. The maintainer clicks **Update branch**, CI runs on the new head, and they merge when `check` is green.
+- **No file in both lists and no conflict: update branch only.** No merge on the command line and no reviewer re-run. Whoever drives the pull request clicks GitHub's **Update branch** on it (for the trial, #345, the driving session does this itself; before, the maintainer did, 2026-11-09), puts both file lists in the description as the record, and lets CI run on the new head. It merges when `check` is green, as [Who merges](#who-merges) says.
 - **A file in both lists, or any conflict: developer must merge.** Unchanged: the developer merges `main`, resolves, and the reviewers confirm the merge and the resolutions.
 
-The coordinator tells the maintainer which case each waiting pull request is in, naming it, so the maintainer never has to work it out.
+The coordinator tells each waiting pull request's driver which case it is in, naming it, so nobody has to work it out twice.
+
+#### Who merges
+
+The maintainer; the coordinator, under its delegation on #182; and, for a trial (#345, the maintainer's decision of 2026-11-14), the session that drives an agent's pull request, for that pull request only. Each merges only when all of these stops hold:
+
+- the required `check` is green on the pull request's latest commit;
+- the branch is up to date with `main`, updated as [Only behind `main`](#only-behind-main) says;
+- both review loops have approved, or what [Review loops](#review-loops) allows for it, with every finding fixed;
+- it has no open question for the maintainer (#215);
+- it is [ready for review](#ready-for-review), and every review conversation is resolved.
+
+How a pull request merges, always as a squash merge:
+
+- **Auto-merge first.** The driver turns on auto-merge once every stop holds except the green `check`, which GitHub then waits for, and merges the pull request when it passes. Auto-merge stays on only while those stops hold: the driver turns it off before any push to the branch (a fix, a merge of `main`), and turns it on again only when the stops hold once more. The one push it may stay on for is **Update branch** on a pull request only behind `main`, which brings in no file the pull request changes.
+- **Already clean: merge directly.** When GitHub won't turn on auto-merge because the pull request can already merge, the driver merges it directly once every stop holds, giving the head commit it checked the stops on (`expectedHeadSha`), so a push made since then stops the merge.
+- **The coordinator merges** when the only job still pending is a report-only one, or a session's own permission check blocks its merge. It checks every stop itself first and gives the head commit it checked (`expectedHeadSha`) too.
+
+Nobody approves, goes around the ruleset, or merges a pull request the stops don't cover. A driver merges only its own pull request.
 
 ## Local setup
 
@@ -166,7 +194,7 @@ The **UI simulator** workflow loads the packaged addon in [wow-ui-sim](https://g
     - the one that downloads Forever's spell data with the simulator's own tool (#160, the maintainer's decision of 2026-10-30). Its container is on a Docker network with no route out, and reaches only a proxy that allows nothing but an HTTPS tunnel to a host in `SPELL_DATA_HOSTS` on port 443 (no other host or port, and no plain HTTP). The file it writes must have the SHA-256 pinned as `SPELL_DATA_SHA256`, or the job stops before anything is cached, uploaded or run; `scripts/sim-spell-check.py` then proves every spell in `scripts/data/forever-spells.json` has the same rows in it. When the pin moves and the hash changes, take the new one from that step's annotation only after reading the download code at the new commit;
   - no secrets, and read-only access for every job but the one that publishes screenshots;
   - that publishing job runs nothing from the simulator or the pull request. It only checks that each file is a PNG of a sane size, then commits it, and pushes only if GitHub says the pull request is still open (#347; its one other permission is to read pull requests);
-  - anything the simulator or a shot chooses (file names, logs, the build's output, the difference between Blizzard's tree and the simulator's file list) reaches the job log only through the workflow's `shown` filter, so no line of it can be read as a workflow command (#153, #164, #317);
+  - anything the simulator or a shot chooses (file names, logs, the build's output, the difference between Blizzard's tree and the simulator's file list) reaches the job log only through the workflow's `shown` filter, so no line of it can be read as a workflow command (#153, #164, #317). The check follows a step's `cd`s and the variables that hold those paths, and judges each command on its own; so it can read every path, `${{ runner.temp }}` and `${{ github.workspace }}` appear only in `path:` inputs, never in a script or an `env:` value (#356, #360);
   - never the simulator project's own Action.
 
 ## Ground rules for addon code
