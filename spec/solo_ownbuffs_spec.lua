@@ -357,6 +357,42 @@ describe("Buff mode when solo: your own buffs (#329)", function()
             assert.are.equal(0, #wow.casts)
         end)
 
+        it("the missing-buff look (#272) never lists you solo, at its own API", function()
+            boot({ noMode = true })
+            local list, worn, groupKnown = ns.GroupBuffs.Missing()
+            assert.are.same({}, list)
+            assert.are.same({}, worn)
+            assert.is_true(groupKnown)
+            assert.are.equal("Power Word: Fortitude", ns.GroupBuffs.Next().spell, "though buff mode would offer it")
+        end)
+
+        it("leaving a group in a fight with a roster update that can't be read, then the fight ending with your "
+            .. "buff gone, doesn't turn buff mode on (black)", function()
+            boot({ class = "DRUID", known = { MOTW }, noMode = true, auto = true,
+                db = { buffBack = { autoOnMissing = true, autoOnJoin = false, autoOnDeath = false,
+                    autoOnBuffed = false } } })
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.wearBuff("party1", MOTW, { source = "player" })
+            wear(MOTW)
+            wow.advance(ns.BuffModeAuto.WATCH_SECONDS + 0.1)
+            assert.is_false(ns.BuffMode.IsOn(), "nothing missing")
+            wow.enterCombat()
+            wow.setGroup(nil, {})
+            wow.state.inGroupUnreadable = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.state.inGroupUnreadable = nil
+            wow.state.playerAuras = {} -- your Mark is dispelled in the fight
+            wow.advance(1)
+            wow.leaveCombat() -- inside WATCH_SECONDS of the unreadable update
+            wow.advance(0)
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.are.same({}, wow.errors)
+            -- Turned on by hand, it offers your Mark, as solo buff mode does.
+            slash("buffmode on")
+            assert.are.equal("Mark of the Wild", armed())
+        end)
+
         it("joining a group is #198's, leaving one is solo again, with no reload", function()
             boot()
             ns.Options.SetNeverOffer("spirit", true)

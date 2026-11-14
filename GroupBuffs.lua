@@ -536,11 +536,15 @@ local function Look(out, units, groupKnown)
     end
     local unknownWhy = "the game won't say whether you're in a raid or a group"
     -- Solo (#329): the game says you're in no group, and you're offered your
-    -- own buffs (SoloOn); the look below is then of you alone.
+    -- own buffs (SoloOn); the look below is then of you alone. Never for
+    -- Missing (presentOnly): the missing-buff trigger (#272) is a group's,
+    -- and solo nothing turns buff mode on by itself (#329), whatever buff
+    -- mode's triggers last read of the group (#373 keeps "in a group" through
+    -- a roster update that can't be read).
     local solo = false
     if #units == 0 then
         if not groupKnown then return nil, unknownWhy, false end
-        if not GroupBuffs.SoloOn() then return nil, "you're not in a group", true end
+        if presentOnly or not GroupBuffs.SoloOn() then return nil, "you're not in a group", true end
         solo = true
     end
     -- Water breathing waits for water (Water.lua): nothing to do now, and
