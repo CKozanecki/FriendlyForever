@@ -1037,7 +1037,10 @@ jobs:
   # when its pull request closes (#106). This job runs nothing from the
   # simulator or the pull request: it only checks the files are PNG images
   # of a sane size and commits them. It alone may write, and only for pull
-  # requests from this repository.
+  # requests from this repository. Just before it pushes, it checks that the
+  # pull request is still open (#347): a run still going when its pull
+  # request closes would otherwise put back the branch the clean-up has
+  # just deleted.
   publish-screenshots:
     needs: screenshots
     # Not in a cancelled run (a newer push replaces it), which has no
@@ -1047,8 +1050,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     continue-on-error: true
+    # pull-requests: read only for the open check before the push (#347).
     permissions:
       contents: write
+      pull-requests: read
     steps:
       # No artifact (the screenshot job stopped early) means nothing to publish.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -1086,6 +1091,33 @@ jobs:
           git add .
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -q -m "Screenshots for #$PR at $HEAD_SHA"
+          # --- open check (#347) ---
+          # Publishes only while the pull request is open, checked just before
+          # the push: a run still going when its pull request closes would
+          # otherwise put back the branch ui-screenshots-cleanup.yml has just
+          # deleted. Closed, or a lookup that fails or says anything else,
+          # publishes nothing and never fails the job. Nothing from the answer
+          # is printed. The token goes to curl on stdin, never on its command
+          # line. The step runs as bash -e without pipefail, the shell the
+          # tests use: a failed curl gives jq nothing, so the state is empty.
+          state=$(printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" |
+            curl -sSf -K - -H "Accept: application/vnd.github+json" "$GITHUB_API_URL/repos/$REPO/pulls/$PR" |
+            jq -r '.state' 2> /dev/null) || state=
+          case "$state" in
+            open) ;;
+            closed) skipped="pull request #$PR is closed" ;;
+            *) skipped="pull request #$PR couldn't be looked up" ;;
+          esac
+          if [ "$state" != open ]; then
+            echo "not publishing: $skipped"
+            {
+              echo "## UI screenshots"
+              echo
+              echo "Not published: $skipped."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # --- end of open check ---
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           git -c http.extraheader="AUTHORIZATION: basic $auth" \
             push -q --force "https://github.com/$REPO.git" "HEAD:refs/heads/ui-screenshots/pr-$PR"
