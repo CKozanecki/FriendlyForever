@@ -1,4 +1,4 @@
--- Spec: #36, #236
+-- Spec: #36, #236, #349
 -- Buff exchanges: one thank-you each way, sent after the last buff. Each
 -- side's thank-you is held while the exchange goes on, lists every buff it
 -- got, and always goes out within Exchange.MAX_DELAY.
@@ -44,11 +44,14 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
     end
 
     -- Buffs that landed reach the other side, then addon messages, after
-    -- lag() seconds (a storm sets it; none otherwise).
-    local lag
-    before_each(function() lag = nil end)
+    -- lag() seconds (a storm sets it; none otherwise). arriving(live), when a
+    -- storm sets it, looks at both clients just before buffs are carried
+    -- across, and leaves `live` the live client.
+    local lag, arriving
+    before_each(function() lag, arriving = nil, nil end)
 
-    local function settle()
+    local function settle(live)
+        if arriving then arriving(live) end
         wow.deliverBuffs(net)
         local seconds = lag and lag() or 0
         if seconds > 0 then wow.advanceAll(net, seconds, seconds) end
@@ -64,7 +67,7 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
         wow.use(client)
         wow.addUnit("target", wow.state.units.nameplate1)
         wow.runMacro("/cast " .. spell)
-        settle()
+        settle(client)
     end
 
     -- Both clients' thank-you delay (after pair(), which sets E).
@@ -78,7 +81,7 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
     local function press(client, mouseButton)
         wow.use(client)
         wow.press(client.ns.BuffButton.Frame(), mouseButton)
-        settle()
+        settle(client)
     end
 
     -- The thank-yous this client's game sent: { text, target, time }.
@@ -323,6 +326,79 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             assert.are.equal(1, #thanks(b), "his button held her all along (her copy is there)")
             assert.are.equal("Thanks Ann: Power Word: Fortitude and Divine Spirit", thanks(b)[1].text)
             assert.are.equal(firstAt + E.MAX_DELAY, thanks(b)[1].time)
+        end)
+
+        -- Bo can't see Ann, so only her receipt names her buff, WAIT after it came.
+        local function unseen()
+            wow.use(b)
+            wow.state.units.nameplate1, wow.state.units.target = nil, nil
+        end
+        -- A stale plan from her copy (a buff that never comes): Bo's thank-you
+        -- is held until the longest wait.
+        local function stalePlan()
+            wow.use(b)
+            wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;PLAN;Ann-Vale;kings", "WHISPER", "Ann-Vale", "", 0, 0, "", 0)
+        end
+
+        it("a buff its receipt names is held no longer than the longest wait from when it came (#349)", function()
+            pair()
+            unseen()
+            handCast(a, "Power Word: Fortitude")
+            wow.use(b)
+            local cameAt = wow.now
+            advance(b.ns.Receipts.WAIT)
+            assert.are.equal(1, b.ns.Exchange.Count(), "named by her receipt: an exchange with her")
+            stalePlan()
+            advance(E.MAX_DELAY)
+            assert.are.equal(1, #thanks(b))
+            assert.are.equal("Thanks Ann: Power Word: Fortitude", thanks(b)[1].text)
+            assert.are.equal(cameAt + E.MAX_DELAY, thanks(b)[1].time)
+        end)
+
+        it("one named late joins the thank-you started after it, which then waits no longer from it (#349)", function()
+            -- A delay of 4: still running when the receipt names it. Of 0: the
+            -- thank-you is already held by then.
+            for _, delay in ipairs({ 4, 0 }) do
+                pair()
+                setDelay(delay)
+                unseen()
+                handCast(a, "Power Word: Fortitude")
+                wow.use(b)
+                local cameAt = wow.now
+                advance(1.5)
+                wow.use(b)
+                wow.addUnit("nameplate1", { name = "Ann", surname = "Vale", class = "PRIEST", id = "Ann-Vale" })
+                handCast(a, "Divine Spirit") -- named by the game: the thank-you starts
+                advance(b.ns.Receipts.WAIT - 1.5)
+                stalePlan()
+                advance(E.MAX_DELAY)
+                local where = "a delay of " .. delay
+                assert.are.equal(1, #thanks(b), where)
+                assert.are.equal("Thanks Ann: Divine Spirit and Power Word: Fortitude", thanks(b)[1].text, where)
+                assert.are.equal(cameAt + E.MAX_DELAY, thanks(b)[1].time, where)
+            end
+        end)
+
+        it("one named late that came after the thank-you's first buff leaves its longest wait alone (#349)", function()
+            -- A delay of 4: still running when the receipt names it. Of 0: the
+            -- thank-you is already held by then.
+            for _, delay in ipairs({ 4, 0 }) do
+                pair()
+                setDelay(delay)
+                handCast(a, "Power Word: Fortitude") -- named by the game: the thank-you starts
+                wow.use(b)
+                local firstAt = wow.now
+                advance(1.5)
+                unseen()
+                handCast(a, "Divine Spirit") -- only her receipt names it, WAIT later
+                advance(b.ns.Receipts.WAIT)
+                stalePlan()
+                advance(E.MAX_DELAY)
+                local where = "a delay of " .. delay
+                assert.are.equal(1, #thanks(b), where)
+                assert.are.equal("Thanks Ann: Power Word: Fortitude and Divine Spirit", thanks(b)[1].text, where)
+                assert.are.equal(firstAt + E.MAX_DELAY, thanks(b)[1].time, where)
+            end
         end)
 
         it("a new exchange after a quiet gap has its own thank-you", function()
@@ -783,13 +859,31 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
 
     -- Red: a storm of hand casts, presses, favours let go, players walking
     -- off and back, stale plans, and time passing, between two clients whose addon
-    -- messages are lost at random and arrive late. The invariant comes from
-    -- the simulated clients alone (wow.landed and wow.sent): between two
-    -- thank-yous from one side, an exchange must have ended (a gap of GAP
-    -- seconds with no buff either way, ending after the first thank-you),
-    -- and a buff from the other side must have come after that gap.
+    -- messages are lost at random and arrive late. The invariants come from
+    -- the simulated clients alone (wow.landed, wow.sent, the units each
+    -- client had and the receipts the network carried):
+    --   * between two thank-yous from one side, an exchange must have ended
+    --     (a gap of GAP seconds with no buff that side knew of, either way,
+    --     ending after the first thank-you), and a buff from the other side
+    --     must have come after that gap;
+    --   * a thank-you goes at most MAX_DELAY after the first buff it thanks for.
+    -- A side knows a buff came from the other when its game named the caster
+    -- (it had a unit for them as the buff arrived) or their receipt surely did
+    -- (#349). One that only a lost or late receipt could have named was
+    -- "friend"'s as far as that side could tell: it can't keep their exchange
+    -- open, or start its longest wait. A receipt surely named its buff when it
+    -- reached that side less than Receipts.WAIT after the buff, with no other
+    -- buff of that key from them from WINDOW + WAIT before it to WAIT after
+    -- it, whose receipt or name could take its place. Before a side knew of
+    -- any buff, nothing can be said of its gaps: any buff after the first
+    -- thank-you may start a new exchange.
+    -- Two things in the same instant are ordered by the step each was first
+    -- seen in (#349: a thank-you that goes as a gap ends, then a buff).
     local SPELLS = { [1] = { "Power Word: Fortitude", "Divine Spirit", "Shadow Protection" },
         [2] = { "Mark of the Wild", "Thorns" } }
+    -- The buff key each one's receipt carries (BuffTable.lua).
+    local KEYS = { ["Power Word: Fortitude"] = "fortitude", ["Divine Spirit"] = "spirit",
+        ["Shadow Protection"] = "shadow", ["Mark of the Wild"] = "motw", ["Thorns"] = "thorns" }
     local JUMPS = { 0.5, 1, 2, 3, 5, 9, 12, 31 }
 
     local function storm(seed)
@@ -808,72 +902,145 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
                 return ok
             end
         end
-        local reach = { thanks = 0, maxDelay = 0, newExchanges = 0, lost = 0, afterThanks = 0, letGo = 0 }
+        local reach = { thanks = 0, maxDelay = 0, newExchanges = 0, lost = 0, afterThanks = 0, letGo = 0,
+            unknown = 0, byReceipt = 0 }
+        -- The receipts the network carried to a client: { from, to, key, at }.
+        local receipts = {}
         local lose = net.lose
-        net.lose = function(...)
-            local lost = lose(...)
-            if lost then reach.lost = reach.lost + 1 end
+        net.lose = function(msg, sender, receiver)
+            local lost = lose(msg, sender, receiver)
+            if lost then
+                reach.lost = reach.lost + 1
+            elseif msg.text:find(";RECEIPT;", 1, true) then
+                local key = msg.text:match(";RECEIPT;[^;]*;([^;]*)")
+                receipts[#receipts + 1] = { from = sender, to = receiver, key = key, at = wow.now }
+            end
             return lost
         end
-        -- Every buff between the two, either way: { at, from }.
+        -- For each client's landed buffs (by index in its wow.landed): whether
+        -- the other had a unit for the caster as the buff arrived, so its game
+        -- named them, and the step it was first seen in.
+        local unitNamed, seenStep = { [a] = {}, [b] = {} }, { [a] = {}, [b] = {} }
+        arriving = function(live)
+            for _, c in ipairs({ a, b }) do
+                wow.use(c)
+                local landed = wow.landed
+                for i = 1, #landed do
+                    if unitNamed[c][i] == nil and landed[i].target == other[c].full then
+                        wow.use(other[c])
+                        local named = false
+                        for _, u in pairs(wow.state.units) do
+                            if u.id == c.full then named = true end
+                        end
+                        unitNamed[c][i] = named
+                        wow.use(c)
+                    end
+                end
+            end
+            wow.use(live)
+        end
+        local WAIT, WINDOW = a.ns.Receipts.WAIT, a.ns.Receipts.WINDOW
+        -- Every buff between the two, either way, in order: { at, step, from,
+        -- key, known (the other side knew it was from `from`), byReceipt }.
         local function buffs()
             local all = {}
             for _, c in ipairs({ a, b }) do
                 wow.use(c)
-                for _, l in ipairs(wow.landed) do
-                    if l.target == other[c].full then all[#all + 1] = { at = l.at, from = c } end
+                for i, l in ipairs(wow.landed) do
+                    if l.target == other[c].full then
+                        local key = assert(KEYS[l.spell], l.spell)
+                        all[#all + 1] = { at = l.at, step = seenStep[c][i], from = c, key = key,
+                            known = unitNamed[c][i] == true }
+                    end
                 end
             end
-            table.sort(all, function(x, y) return x.at < y.at end)
+            for _, buff in ipairs(all) do
+                if not buff.known then
+                    local receipt, alone = false, true
+                    for _, r in ipairs(receipts) do
+                        if r.from == buff.from and r.to == other[buff.from] and r.key == buff.key
+                            and r.at >= buff.at and r.at < buff.at + WAIT then
+                            receipt = true
+                        end
+                    end
+                    for _, o in ipairs(all) do
+                        if o ~= buff and o.from == buff.from and o.key == buff.key
+                            and o.at >= buff.at - (WINDOW + WAIT) and o.at <= buff.at + WAIT then
+                            alone = false
+                        end
+                    end
+                    buff.known, buff.byReceipt = receipt and alone, receipt and alone
+                end
+            end
+            table.sort(all, function(x, y)
+                if x.at ~= y.at then return x.at < y.at end
+                return x.step < y.step
+            end)
             return all
+        end
+        -- x came after y: later, or in the same instant and first seen in a
+        -- later step. In the same step, it can't be told.
+        local function after(x, y)
+            return x.at > y.at or (x.at == y.at and x.step > y.step)
         end
         local lastThanks = { [a] = nil, [b] = nil }
         local seen = { [a] = 0, [b] = 0 }
-        local function check(where)
+        local function check(where, step)
             for _, c in ipairs({ a, b }) do
+                wow.use(c)
+                for i = 1, #wow.landed do seenStep[c][i] = seenStep[c][i] or step end
+            end
+            for _, c in ipairs({ a, b }) do
+                -- What c knew of: its own buffs, and theirs it could name.
+                local function knew(buff) return buff.from == c or buff.known end
                 local sent = thanks(c)
                 for i = seen[c] + 1, #sent do
-                    local t = sent[i]
-                    assert.are.equal(other[c].full, t.target, where)
+                    local t = { at = sent[i].time, step = step }
+                    assert.are.equal(other[c].full, sent[i].target, where)
                     reach.thanks = reach.thanks + 1
                     local prev = lastThanks[c]
                     if prev then
-                        -- A gap of GAP with no buff either way, ending after the
+                        -- A gap of GAP with no buff c knew of, ending after the
                         -- first thank-you, then a buff from the other side, all
-                        -- before the second.
+                        -- before the second. (One c couldn't name may end the
+                        -- gap, and before c knew of any, any buff does: that
+                        -- only lets more through.)
                         local ok, gapEnded, last = false, false, nil
                         for _, buff in ipairs(buffs()) do
-                            if buff.at > t.time then break end
-                            if last and buff.at > prev and buff.at - last >= c.ns.Exchange.GAP then
+                            if after(buff, t) then break end
+                            if after(buff, prev) and (not last or buff.at - last >= c.ns.Exchange.GAP) then
                                 gapEnded = true
                             end
                             if gapEnded and buff.from == other[c] then ok = true end
-                            last = buff.at
+                            if knew(buff) then last = buff.at end
                         end
                         assert.is_true(ok, where .. ": " .. c.full .. " thanked twice in one exchange")
                         reach.newExchanges = reach.newExchanges + 1
                     end
-                    -- The longest wait, from the first buff from them since
-                    -- the last gap of GAP (the exchange's first, or a later
-                    -- one if the exchange was held across a gap).
-                    -- Held across a gap with none from them after it, the
-                    -- latest from them is no earlier than the exchange's first.
+                    -- The longest wait, from the first buff from them c knew
+                    -- of since the last gap of GAP (the exchange's first, or a
+                    -- later one if the exchange was held across a gap).
+                    -- Held across a gap with none from them after it, or with
+                    -- only ones c couldn't be sure of, the latest from them is
+                    -- no earlier than the exchange's first.
                     local first, latest, last = nil, nil, nil
                     for _, buff in ipairs(buffs()) do
-                        if buff.at > t.time then break end
+                        if after(buff, t) then break end
                         if last and buff.at - last >= c.ns.Exchange.GAP then first = nil end
                         if buff.from == other[c] then
-                            first, latest = first or buff.at, buff.at
+                            if buff.known then first = first or buff end
+                            latest = buff
                         end
-                        last = buff.at
+                        if knew(buff) then last = buff.at end
                     end
                     first = first or latest
                     assert.is_not_nil(first, where .. ": a thank-you with no buff from them")
-                    local waited = t.time - first
+                    local waited = t.at - first.at
                     assert.is_true(waited <= c.ns.Exchange.MAX_DELAY + 1e-9,
                         where .. ": a thank-you " .. waited .. "s after their first buff")
                     if waited >= c.ns.Exchange.MAX_DELAY - 1e-9 then reach.maxDelay = reach.maxDelay + 1 end
-                    lastThanks[c] = t.time
+                    if first.byReceipt then reach.byReceipt = reach.byReceipt + 1 end
+                    lastThanks[c] = t
                 end
                 seen[c] = #sent
             end
@@ -915,7 +1082,7 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
                 advance(JUMPS[random.random(#JUMPS)])
             end
             local where = string.format("seed %d step %d", seed, step)
-            check(where)
+            check(where, step)
             for _, c in ipairs({ a, b }) do
                 wow.use(c)
                 assert.are.same({}, wow.errors, where)
@@ -936,16 +1103,20 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
                 if last and buff.at - last >= c.ns.Exchange.GAP then thankedAt = nil end
                 if thankedAt and buff.from == other[c] then reach.afterThanks = reach.afterThanks + 1 end
                 last = buff.at
+                if buff.from == other[c] and not buff.known then reach.unknown = reach.unknown + 1 end
             end
         end
+        arriving = nil
         return reach
     end
 
     it("a chaos storm of exchanges with random message loss never gives two thank-yous from one side in one exchange (red)", function()
-        local total = { thanks = 0, maxDelay = 0, newExchanges = 0, lost = 0, afterThanks = 0, letGo = 0 }
-        -- 24 reaches a favour let go (#165: counted below). Seeds 10 and 33 break "one thank-you per
-        -- exchange" and 23 and 28 a thank-you's delay: see #349.
-        for _, seed in ipairs({ 1, 2, 3, 4, 5, 6, 7, 8, 24 }) do
+        local total = { thanks = 0, maxDelay = 0, newExchanges = 0, lost = 0, afterThanks = 0, letGo = 0,
+            unknown = 0, byReceipt = 0 }
+        -- 24 reaches a favour let go (#165: counted below). 10 thanks as a gap ends, then
+        -- a buff comes in the same instant; 23 and 33 have a buff only a lost receipt could
+        -- have named; 23 and 28 time a thank-you from a buff its receipt named late (#349).
+        for _, seed in ipairs({ 1, 2, 3, 4, 5, 6, 7, 8, 10, 23, 24, 28, 33 }) do
             for k, v in pairs(storm(seed)) do total[k] = total[k] + v end
         end
         lag = nil
@@ -956,6 +1127,8 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
         assert.is_true(total.letGo > 0, "a favour was let go: " .. total.letGo)
         assert.is_true(total.afterThanks > 10, "their buffs came after a thank-you, inside its exchange: "
             .. total.afterThanks)
+        assert.is_true(total.unknown > 0, "a buff the other side couldn't be sure of: " .. total.unknown)
+        assert.is_true(total.byReceipt > 0, "a thank-you timed from a buff its receipt named: " .. total.byReceipt)
     end)
 end)
 

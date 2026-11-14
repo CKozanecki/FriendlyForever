@@ -1,4 +1,4 @@
--- Spec: #68, #76, #208, #219, #209, #44
+-- Spec: #68, #76, #208, #219, #209, #44, #368
 -- Who gets each buff in buff mode: everyone, tanks only, everyone but tanks,
 -- or chosen classes, plus players named Always or Never. Buffs go to everyone
 -- until you choose (#208), except the owner's defaults (#219): Wisdom and
@@ -415,6 +415,38 @@ describe("Who gets each buff", function()
                 end
             end
             assert.are.equal(ns.BuffRules.MAX_TOTAL_NAMES, kept)
+        end)
+
+        it("a raid that IsInRaid() won't own up to still needs the Main Tank read: a hidden one may be the tank (#368)", function()
+            paladin({ [MIGHT_1] = true })
+            rule("might", "notTanks")
+            local real = _G.IsInRaid
+            finally(function() _G.IsInRaid = real end)
+            local WRONG = {
+                ["false in a raid"] = function() _G.IsInRaid = function() return false end end,
+                ["a secret"] = function() wow.state.inRaidUnreadable = true end,
+            }
+            for what, wrong in pairs(WRONG) do
+                _G.IsInRaid, wow.state.inRaidUnreadable = real, nil
+                group("raid", { { "Ann-Vale", "WARRIOR", "DAMAGER" } })
+                wow.state.units.raid1.secrets = { mainTank = true }
+                assert.is_nil(ns.BuffRules.IsTank("raid1"), "a real raid")
+                wrong()
+                assert.is_nil(ns.BuffRules.IsTank("raid1"), what .. ": still may be the Main Tank")
+                ns.BuffButton.Refresh()
+                assert.is_nil(macro(), what .. ": no buff kept off tanks on someone who may be the tank")
+                -- With the Main Tank readable, the answer is the same as in a real raid.
+                wow.state.units.raid1.secrets = nil
+                assert.is_false(ns.BuffRules.IsTank("raid1"), what)
+            end
+            -- A real party whose IsInRaid() can't be read: the role still says,
+            -- since nobody has a Main Tank there.
+            _G.IsInRaid = real
+            wow.state.inRaidUnreadable = true
+            group("party", { { "Ann-Vale", "WARRIOR", "DAMAGER" }, { "Cid-Rock", "WARRIOR", "TANK" } })
+            assert.is_false(ns.BuffRules.IsTank("party1"))
+            assert.is_true(ns.BuffRules.IsTank("party2"))
+            assert.are.same({}, wow.errors)
         end)
 
         it("can't tell a party's tank without group roles: Main Tank is raid-only", function()
