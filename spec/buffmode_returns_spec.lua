@@ -1,4 +1,4 @@
--- Spec: #272
+-- Spec: #272, #330
 -- Buff mode comes back on by itself, in any group, out of combat, when a
 -- member is missing one of your buffs outright: never cast, or fully faded,
 -- not merely running low. It stays on until everyone is covered, or the next
@@ -518,6 +518,8 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
         end)
 
         it("a damaged switch reads as off, and is repaired at the next load", function()
+            -- The options panel closed: an open one repairs the file as it fills (#330).
+            _G.FriendlyForeverOptionsPanel:Hide()
             ns.db.buffBack.autoOnMissing = "yes"
             joinCovered()
             look()

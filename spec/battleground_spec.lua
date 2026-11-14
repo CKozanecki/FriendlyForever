@@ -1,4 +1,4 @@
--- Spec: #71, #32, #290
+-- Spec: #71, #32, #290, #330
 -- Battlegrounds: buffing in the preparation phase, then quiet until you
 -- leave or the battleground ends.
 local wow = require("spec.support.wow")
@@ -510,6 +510,8 @@ describe("Battlegrounds", function()
         end)
 
         it("damaged mid-session reads as off, the quiet side, without errors (black)", function()
+            -- The options panel closed: an open one repairs the file as it fills (#330).
+            _G.FriendlyForeverOptionsPanel:Hide()
             ns.db.buffBack.bgPrepBuff = 7
             wow.enterBattleground(TEAM)
             assert.is_false(ns.BuffMode.IsOn())
