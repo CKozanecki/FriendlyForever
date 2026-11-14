@@ -31,8 +31,31 @@ describe("Options panel", function()
     end
 
     -- What a field can be damaged into mid-session (another addon, a bad
-    -- /run): the wrong type, or a table holding junk.
-    local DAMAGE = { 7, "broken", true, false, function() end, { 7 }, { {} }, { broken = {} } }
+    -- /run): removed (NIL stands for nil, which a list can't hold), the wrong
+    -- type, or a table holding junk.
+    local NIL = {}
+    local DAMAGE = { NIL, 7, "broken", true, false, function() end, { 7 }, { {} }, { broken = {} } }
+    -- A table field with its own shape but a wrong value inside: only a
+    -- check of each value, not just of the keys, finds it.
+    local SHAPED = {
+        { "buffBack", "position", { point = "TOP", x = "far", y = 0 } },
+        { "buffBack", "whoGets", { intellect = { rule = 7 } } },
+        { "buffBack", "neverOffer", { intellect = "yes", arcanebrilliance = true } },
+        { "buffBack", "buffOrder", { "intellect", 7 } },
+        { "guildLogin", "messages", { "Hi", 7 } },
+    }
+
+    -- Every way every field is damaged: { msgType, field, value }.
+    local function damages()
+        local out = {}
+        for _, msgType in ipairs(ns.Config.TYPES) do
+            for field in pairs(ns.Config.DEFAULTS[msgType]) do
+                for _, value in ipairs(DAMAGE) do out[#out + 1] = { msgType, field, value } end
+            end
+        end
+        for _, case in ipairs(SHAPED) do out[#out + 1] = case end
+        return out
+    end
 
     describe("a field inside a section damaged mid-session (black, #330)", function()
         -- recent: a repair ran under a second ago, so Config.Repair does
@@ -45,58 +68,76 @@ describe("Options panel", function()
                 ns = wow.boot()
                 w = ns.Options.widgets
                 local checked = 0
-                for _, msgType in ipairs(ns.Config.TYPES) do
-                    for field in pairs(ns.Config.DEFAULTS[msgType]) do
-                        for _, value in ipairs(DAMAGE) do
-                            -- A repair runs at most once a second: a second on, it runs.
-                            wow.advance(2)
-                            if recent then ns.Config.Repair() end
+                for _, case in ipairs(damages()) do
+                    local msgType, field, value = case[1], case[2], case[3]
+                    if value == NIL then value = nil end
+                    -- A repair runs at most once a second: a second on, it runs.
+                    wow.advance(2)
+                    if recent then ns.Config.Repair() end
+                    ns.db[msgType][field] = value
+                    local expected = reloaded(msgType, field)
+                    -- A value a reload keeps isn't damage (true for a switch).
+                    if type(value) == "table" or value ~= expected then
+                        local what = msgType .. "." .. field .. " = " .. tostring(value)
+                            .. (case[3] == NIL and " (removed)" or "")
+                        ns.db.skipWhileAFK = "maybe"
+                        open()
+                        assert.are.same(expected, ns.db[msgType][field], what .. " healed as the panel opened")
+                        if not recent then
+                            assert.are.equal(ns.Config.DEFAULTS.skipWhileAFK, ns.db.skipWhileAFK,
+                                what .. ": it asked for the whole-file repair, so the rest heals too")
+                        end
+                        ns.db.skipWhileAFK = ns.Config.DEFAULTS.skipWhileAFK
+                        for _, tab in ipairs(ns.Config.TYPES) do
                             ns.db[msgType][field] = value
-                            local expected = reloaded(msgType, field)
-                            -- A value a reload keeps isn't damage (true for a switch).
-                            if type(value) == "table" or value ~= expected then
-                                local what = msgType .. "." .. field .. " = " .. tostring(value)
-                                ns.db.skipWhileAFK = "maybe"
-                                open()
-                                assert.are.same(expected, ns.db[msgType][field], what .. " healed as the panel opened")
-                                if not recent then
-                                    assert.are.equal(ns.Config.DEFAULTS.skipWhileAFK, ns.db.skipWhileAFK,
-                                        what .. ": it asked for the whole-file repair, so the rest heals too")
-                                end
-                                ns.db.skipWhileAFK = ns.Config.DEFAULTS.skipWhileAFK
-                                for _, tab in ipairs(ns.Config.TYPES) do
-                                    ns.db[msgType][field] = value
-                                    wow.run(w.tabs[tab], "OnClick")
-                                    assert.are.same(expected, ns.db[msgType][field], what .. " healed on the " .. tab
-                                        .. " tab")
-                                end
-                                -- Its own tab shows it as it now is.
-                                ns.db[msgType][field] = value
-                                wow.run(w.tabs[msgType], "OnClick")
-                                local live = ns.db[msgType]
-                                for i, edit in ipairs(w.edits) do
-                                    assert.are.equal(live.messages[i], edit:GetText(), what .. ": line " .. i)
-                                end
-                                for name, stepper in pairs(w.steppers) do
-                                    if stepper.box:IsShown() and live[name] ~= nil then
-                                        assert.are.equal(tostring(live[name]), stepper.box:GetText(), what .. ": " .. name)
-                                    end
-                                end
-                                if msgType == "buff" then
-                                    assert.are.equal(live.unknownName, w.unknownName:GetText(), what)
-                                    assert.are.equal(ns.Options.THANK_STYLE_TEXT[live.thankStyle],
-                                        w.thankStyle:GetText(), what)
-                                    assert.are.equal(ns.Options.FALLBACK_TEXT[live.fallback], w.fallback:GetText(), what)
-                                end
-                                assert.are.same({}, wow.errors)
-                                checked = checked + 1
+                            wow.run(w.tabs[tab], "OnClick")
+                            assert.are.same(expected, ns.db[msgType][field], what .. " healed on the " .. tab
+                                .. " tab")
+                        end
+                        -- Its own tab shows it as it now is.
+                        ns.db[msgType][field] = value
+                        wow.run(w.tabs[msgType], "OnClick")
+                        local live = ns.db[msgType]
+                        for i, edit in ipairs(w.edits) do
+                            assert.are.equal(live.messages[i], edit:GetText(), what .. ": line " .. i)
+                        end
+                        for name, stepper in pairs(w.steppers) do
+                            if stepper.box:IsShown() and live[name] ~= nil then
+                                assert.are.equal(tostring(live[name]), stepper.box:GetText(), what .. ": " .. name)
                             end
                         end
+                        if msgType == "buff" then
+                            assert.are.equal(live.unknownName, w.unknownName:GetText(), what)
+                            assert.are.equal(ns.Options.THANK_STYLE_TEXT[live.thankStyle],
+                                w.thankStyle:GetText(), what)
+                            assert.are.equal(ns.Options.FALLBACK_TEXT[live.fallback], w.fallback:GetText(), what)
+                        end
+                        assert.are.same({}, wow.errors)
+                        checked = checked + 1
                     end
                 end
-                assert.is_true(checked > 300, "every field was damaged every way")
+                assert.is_true(checked > 350, "every field was damaged every way")
             end)
         end
+
+        it("a number typed in a box whose field is then damaged is saved, as the box finishes its edit", function()
+            ns = wow.boot()
+            w = ns.Options.widgets
+            open()
+            wow.run(w.tabs.buffBack, "OnClick")
+            -- A second on: the repair runs, and puts a new section in place.
+            wow.advance(2)
+            local box = w.steppers.owedMinutes.box
+            box:SetFocus()
+            box:SetText("20")
+            ns.db.buffBack.owedMinutes = "broken"
+            wow.run(w.tabs.guildLogin, "OnClick")
+            assert.is_false(box:HasFocus())
+            assert.are.equal(20, ns.db.buffBack.owedMinutes)
+            wow.run(w.tabs.buffBack, "OnClick")
+            assert.are.equal("20", box:GetText())
+            assert.are.same({}, wow.errors)
+        end)
 
         it("a message line damaged inside its list is healed too, and typing in it saves", function()
             ns = wow.boot()
