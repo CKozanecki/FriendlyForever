@@ -355,8 +355,9 @@ describe("the process trial (#345)", function()
             -- #351's second architecture review: a push made while auto-merge is
             -- on would merge unreviewed once `check` passed.
             "Auto-merge stays on only while those stops hold: the driver turns it off before any push to the branch"
-                .. " (a fix, a merge of `main`)",
-            "The one push it may stay on for is **Update branch** on a pull request only behind `main`",
+                .. " (a fix, a merge of `main`), and turns it on again only when the stops hold once more.",
+            "The one push it may stay on for is **Update branch** on a pull request only behind `main`, which brings in"
+                .. " no file the pull request changes.",
             "**Already clean: merge directly.** When GitHub won't turn on auto-merge because the pull request can"
                 .. " already merge, the driver merges it directly once every stop holds, giving the head commit it"
                 .. " checked the stops on (`expectedHeadSha`), so a push made since then stops the merge.",
@@ -409,9 +410,22 @@ describe("the process trial (#345)", function()
         }) do
             assert.is_truthy(claude:find(text, 1, true), text)
         end
-        -- The coordinator's own merges are guarded the same way.
-        assert.is_truthy(flat(".claude/skills/coordinator/SKILL.md"):find("after checking every stop, with"
-            .. " `merge_pull_request`, `merge_method: squash` and `expectedHeadSha` set to the head it checked.", 1, true))
+        -- The coordinator merges only the two delegated cases, guarded the same
+        -- way, and steps in on auto-merge without its stops (#351's testing review).
+        local coordinator = flat(".claude/skills/coordinator/SKILL.md")
+        for _, text in ipairs({
+            "and merges a PR itself only when a report-only job is the only one pending or the driver's permission check"
+                .. " blocks the merge, after checking every stop, with `merge_pull_request`, `merge_method: squash` and"
+                .. " `expectedHeadSha` set to the head it checked.",
+            "It steps in when something's off (auto-merge on while a stop other than the pending `check` fails, or on"
+                .. " for two PRs that share a file): it turns that PR's auto-merge off (`disable_pr_auto_merge`) and tells"
+                .. " its driver why.",
+        }) do
+            assert.is_truthy(coordinator:find(text, 1, true), "coordinator lost: " .. text)
+        end
+        assert.is_truthy(flat(".claude/skills/after-merge/SKILL.md"):find("8. **Merge:** once every stop in"
+            .. " CONTRIBUTING.md's [Who merges](../../../CONTRIBUTING.md#who-merges) holds, turn auto-merge on again, or"
+            .. " merge as CLAUDE.md's \"Merging your PR\" says.", 1, true), "after-merge merges before the stops hold")
         -- Every rule file that names the merge or update tool gives it the head
         -- it checked, so a push made since then stops it.
         for _, path in ipairs(OTHERS) do

@@ -3673,6 +3673,13 @@ describe("Release docs", function()
             local flat = wow.readFile("CONTRIBUTING.md"):gsub("%s+", " ")
             local rule = flat:match("#### Only behind `main` (.-) #### Who merges ") or ""
             assert.is_truthy(rule:find("`main` requires branches to be up to date before they merge", 1, true), "the ruleset")
+            -- The owner's option (b) on #345: no merge queue for this repo, so the
+            -- one mention in the source of truth is the reason it isn't used.
+            assert.is_truthy(rule:find("GitHub's merge queue would do this for us, but it isn't offered for a repository"
+                .. " owned by a personal account, and the maintainer decided on 2026-11-14 to keep this rule (#345).", 1, true),
+                "the reason there's no merge queue")
+            local _, queues = flat:lower():gsub("merge queue", "")
+            assert.are.equal(1, queues, "CONTRIBUTING.md sends pull requests to a merge queue")
             assert.is_truthy(rule:find("**No file in both lists and no conflict: update branch only.**", 1, true), "update-branch case")
             assert.is_truthy(rule:find("No merge on the command line and no reviewer re-run. Whoever drives the pull request"
                 .. " clicks GitHub's **Update branch** on it (for the trial, #345, the driving session does this itself",
