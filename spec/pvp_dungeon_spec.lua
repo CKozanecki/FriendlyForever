@@ -1,4 +1,4 @@
--- Spec: #306
+-- Spec: #306, #335
 -- The owner's rule: inside a dungeon or raid, once every member of your group
 -- is in there with you, a member flagged for PvP may be buffed: single buffs,
 -- group versions and Greater Blessings. Everywhere else, and while anyone is
@@ -509,12 +509,159 @@ describe("Buffing a PvP-flagged member once the whole group is inside (#306)", f
         end)
     end)
 
+    describe("IsInRaid() is believed only when the group's slots agree (#335)", function()
+        local function inside() return ns.GroupBuffs.EveryoneInside() end
+        local function lie(answer) _G.IsInRaid = function() return answer end end
+
+        -- A raid in Molten Core: Ann, Bo and Cid in your subgroup, Dot and
+        -- Eve in the second, Bo flagged. In a raid the game also gives your
+        -- own subgroup's members as party1..4; the simulated client doesn't,
+        -- so they are added here.
+        local function moltenCore()
+            boot({ group = false, known = { INTELLECT } })
+            raid({ "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill" })
+            for i = 4, 5 do wow.state.units["raid" .. i].subgroup = 2 end
+            for i = 1, 3 do wow.state.units["party" .. i] = wow.state.units["raid" .. i] end
+            flag("raid2")
+            wow.enterRaid(MOLTEN_CORE, "Molten Core")
+        end
+
+        it("a real party and a real raid, everyone inside, still turn the rule on (white)", function()
+            boot({ known = { INTELLECT } })
+            flag("party4")
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            assert.is_true(inside(), "a party: raid1 doesn't exist")
+            assert.are.same({ "Ann Vale: Arcane Intellect", "Bo Fern: Arcane Intellect",
+                "Cid Rock: Arcane Intellect", "Dot Moss: Arcane Intellect" }, pressThrough())
+            assert.is_true(reached("Dot-Moss"))
+
+            moltenCore()
+            assert.is_true(inside(), "a raid: raid6 is you")
+            assert.are.same({ "Ann Vale: Arcane Intellect", "Bo Fern: Arcane Intellect",
+                "Cid Rock: Arcane Intellect", "Dot Moss: Arcane Intellect", "Eve Hill: Arcane Intellect" },
+                pressThrough())
+            assert.is_true(reached("Bo-Fern"))
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("you are found in any of the 40 raid slots, a full raid included (white)", function()
+            local names = {}
+            for i = 1, 39 do names[i] = "M" .. string.char(96 + (i - 1) % 26 + 1) .. i .. "-Vale" end
+            for _, slot in ipairs({ 1, 17, 40 }) do
+                boot({ group = false })
+                raid(names) -- you are raid40
+                local units = wow.state.units
+                units["raid" .. slot], units.raid40 = units.raid40, units["raid" .. slot]
+                wow.enterRaid(MOLTEN_CORE, "Molten Core")
+                assert.is_true(inside(), "you in raid" .. slot)
+                wow.zoneOut(slot == 40 and "raid39" or "raid40")
+                assert.is_false(inside(), "you in raid" .. slot .. ", one member outside")
+            end
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("IsInRaid() true in a party never turns it on, with everyone in or a member outside (black)", function()
+            boot()
+            flag("party4")
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            assert.is_true(inside(), "readable, the rule holds")
+            lie(true)
+            assert.is_false(inside(), "no raid slot is you: the answer is wrong")
+            wow.zoneOut("party1")
+            assert.is_false(inside(), "Ann outside, 40 empty raid slots")
+            assert.is_false(reached("Dot-Moss"))
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("IsInRaid() true in a party doesn't end buff mode's dungeon wait while a member is outside (black)", function()
+            ns = wow.boot({ autoBuffMode = true, before = function(state)
+                state.class = "MAGE"
+                state.knownSpells = { [INTELLECT] = true }
+            end })
+            button = ns.BuffButton.Frame()
+            wow.setGroup("party", { "Ann-Vale", "Dot-Moss" })
+            for _, token in ipairs({ "party1", "party2" }) do wow.zoneOut(token) end
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_false(ns.BuffMode.IsOn())
+            for _, token in ipairs({ "party1", "party2" }) do
+                wow.zoneIn(token)
+                wow.wearBuff(token, INTELLECT, { source = "player" })
+            end
+            wow.zoneOut("party2")
+            wow.enterDungeon(DEADMINES, "The Deadmines")
+            assert.is_true(ns.BuffMode.IsAuto(), "the dungeon turned it on")
+            lie(true)
+            ns.BuffButton.Refresh()
+            assert.is_true(ns.BuffMode.IsAuto(), "Dot is outside: still waiting")
+            wow.zoneIn("party2")
+            ns.BuffButton.Refresh()
+            assert.is_true(ns.BuffMode.IsAuto(), "the answer and the slots disagree: still waiting")
+            lie(false)
+            ns.BuffButton.Refresh()
+            assert.is_false(ns.BuffMode.IsOn(), "a true answer: everyone is here")
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("IsInRaid() false in a raid never turns it on: a member of another subgroup outside isn't missed (black)", function()
+            moltenCore()
+            wow.zoneOut("raid5")
+            assert.is_false(inside(), "Eve is outside")
+            lie(false)
+            assert.is_false(inside(), "raid1 exists: the answer is wrong")
+            assert.are.same({ "Ann Vale: Arcane Intellect", "Cid Rock: Arcane Intellect" }, pressThrough(),
+                "your subgroup, read as a party: Bo, flagged, gets nothing")
+            assert.is_false(reached("Bo-Fern"))
+            wow.zoneIn("raid5")
+            assert.is_false(inside(), "everyone in, but still the wrong answer")
+            assert.are.same({}, wow.flaggedBy)
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("a slot check that can't be read never turns it on (black)", function()
+            local function unreadable(fn, unit, other, answer)
+                local real = _G[fn]
+                _G[fn] = function(a, b)
+                    if a ~= unit or (other and b ~= other) then return real(a, b) end
+                    if answer == "error" then error("blocked") end
+                    if answer == "nothing" then return nil end
+                    return wow.secret(answer == "secret true")
+                end
+            end
+            for _, answer in ipairs({ "secret false", "secret true", "nothing", "error" }) do
+                -- In a party: whether raid1 exists.
+                boot({ known = { INTELLECT } })
+                flag("party4")
+                wow.enterDungeon(DEADMINES, "The Deadmines")
+                assert.is_true(inside(), answer .. ": readable, the rule holds")
+                unreadable("UnitExists", "raid1", nil, answer)
+                assert.is_false(inside(), answer .. ": raid1")
+                assert.are.same({ "Ann Vale: Arcane Intellect", "Bo Fern: Arcane Intellect",
+                    "Cid Rock: Arcane Intellect" }, pressThrough(), answer .. ": raid1")
+                assert.is_false(reached("Dot-Moss"), answer)
+
+                -- In a raid: whether your own slot is you.
+                moltenCore()
+                assert.is_true(inside(), answer .. ": readable, the rule holds in the raid")
+                unreadable("UnitIsUnit", "raid6", "player", answer)
+                assert.is_false(inside(), answer .. ": your slot")
+                for _ = 1, 8 do
+                    if not armed() then break end
+                    wow.pressKey("MOUSEWHEELUP")
+                end
+                assert.is_false(reached("Bo-Fern"), answer .. ": your slot")
+                assert.are.same({}, wow.flaggedBy, answer)
+                assert.are.same({}, wow.errors, answer)
+            end
+        end)
+    end)
+
     describe("chaos (red)", function()
         -- Where a flagged member must get nothing, and where the rule holds.
         local OUTSIDE = { "the open world", "an arena", "a battleground", "a dungeon, one outside",
             "a dungeon, one offline", "a raid, one outside", "a dungeon the game won't name",
             "a dungeon, a slot unreadable", "a dungeon, a connection unreadable", "a dungeon, sight unreadable",
-            "the open world, your flag unreadable", "the open world, their flag unreadable" }
+            "the open world, your flag unreadable", "the open world, their flag unreadable",
+            "a dungeon, one outside, IsInRaid lying", "a raid, one outside, IsInRaid lying" }
         local INSIDE = { "a dungeon", "a raid" }
 
         it("a storm of joins, leaves and zone changes never offers a buff to a flagged member outside the rule", function()
@@ -540,6 +687,18 @@ describe("Buffing a PvP-flagged member once the whole group is inside (#306)", f
                 _G.UnitIsPVP = function(unit)
                     if unit == "player" and myFlagHidden then return wow.secret(true) end
                     return realFlag(unit)
+                end
+                -- Whether IsInRaid() sometimes lies (#335): while set, each
+                -- call flips the true answer half the time, from a generator
+                -- of its own so the storm's own sequence isn't moved.
+                local raidLies, lieState = false, seed
+                local realRaid = _G.IsInRaid
+                _G.IsInRaid = function()
+                    local truth = realRaid()
+                    if not raidLies then return truth end
+                    lieState = (lieState * 48271) % 2147483647
+                    if lieState % 2 == 0 then return not truth end
+                    return truth
                 end
                 local per = { single = 0, group = 0, refused = {} }
                 local flaggedSeen = 0 -- how many times a buff has flagged you so far
@@ -676,6 +835,7 @@ describe("Buffing a PvP-flagged member once the whole group is inside (#306)", f
                     function() wow.state.unitsRestricted = random.random() < 0.1 end,
                     function() hiddenSlot = random.random() < 0.3 and anyone() or nil end,
                     function() myFlagHidden = random.random() < 0.2 end,
+                    function() raidLies = random.random() < 0.4 end,
                     function() ns.db.buffBack.groupVersions = random.random() < 0.7 end,
                     function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
                     function() if wow.state.inCombat then wow.leaveCombat() end end,
@@ -693,7 +853,7 @@ describe("Buffing a PvP-flagged member once the whole group is inside (#306)", f
                 local staged = 0
                 local function stage(step, kind)
                     staged = staged + 1
-                    hiddenSlot, myFlagHidden = nil, false
+                    hiddenSlot, myFlagHidden, raidLies = nil, false, false
                     if wow.state.inCombat then wow.leaveCombat() end
                     wow.state.inInstanceSecret, wow.state.unitsRestricted, wow.state.pvp = false, false, false
                     wow.leaveDungeon()
@@ -714,7 +874,7 @@ describe("Buffing a PvP-flagged member once the whole group is inside (#306)", f
                     flagged.pvp = true
                     if kind == "an arena" then
                         wow.enterDungeon(nil, nil, "arena")
-                    elseif kind == "a dungeon, one outside" or kind == "a raid, one outside" then
+                    elseif kind:find("one outside") then
                         wow.zoneOut(other)
                     elseif kind == "a dungeon, one offline" then
                         wow.state.units[other].offline = true
@@ -729,6 +889,7 @@ describe("Buffing a PvP-flagged member once the whole group is inside (#306)", f
                     if kind == "a dungeon, a slot unreadable" then hiddenSlot = other end
                     if kind == "the open world, your flag unreadable" then myFlagHidden = true end
                     if kind == "the open world, their flag unreadable" then flagged.secrets = { pvp = true } end
+                    if kind:find("IsInRaid lying") then raidLies = true end
                     local buffed = 0
                     for _ = 1, 8 do
                         if not press(step .. " (" .. kind .. ")") then break end
@@ -740,7 +901,7 @@ describe("Buffing a PvP-flagged member once the whole group is inside (#306)", f
                     if kind == "a battleground" then wow.leaveBattleground() end
                 end
 
-                for step = 1, 560 do
+                for step = 1, 640 do
                     if step % 10 == 0 then
                         stage(step, kinds[step / 10 % #kinds + 1])
                     else
@@ -752,7 +913,10 @@ describe("Buffing a PvP-flagged member once the whole group is inside (#306)", f
                 end
                 assert.are.same({}, wow.errors, "seed " .. seed)
                 for _, kind in ipairs(OUTSIDE) do
-                    assert.is_true((per.refused[kind] or 0) >= 3, ("seed %d left a flagged member out in %s %d times")
+                    -- A lying IsInRaid() often swaps in empty slots, so the
+                    -- button may offer nobody at all: once is enough there.
+                    local least = kind:find("IsInRaid lying") and 1 or 3
+                    assert.is_true((per.refused[kind] or 0) >= least, ("seed %d left a flagged member out in %s %d times")
                         :format(seed, kind, per.refused[kind] or 0))
                 end
                 assert.is_true(per.single >= 2, ("seed %d: %d single buffs to a flagged member inside"):format(seed, per.single))
