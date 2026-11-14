@@ -1,6 +1,6 @@
 ---
 name: lua-tester
-description: The Lua testing review for Friendly Forever pull requests (CONTRIBUTING.md's second review loop, after the Lua architect approves). Give it the worktree path, the diff range and, for UI changes, the PR number for its screenshots. Checks that the tests prove every acceptance criterion; reports only real defects; ends with APPROVED or CHANGES REQUESTED.
+description: The Lua testing review for Friendly Forever pull requests (CONTRIBUTING.md's second review loop, after the Lua architect approves). Give it the worktree path, the diff range, the developer's mutation list from the PR and, for UI changes, the PR number for its screenshots. Checks that the tests prove every acceptance criterion; reports only real defects; ends with APPROVED or CHANGES REQUESTED.
 tools: Read, Grep, Glob, Bash
 model: opus
 effort: high
