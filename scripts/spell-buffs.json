@@ -3,7 +3,9 @@
   "classes": {
     "MAGE": [
       { "key": "intellect", "name": "Arcane Intellect", "group": ["Arcane Brilliance"],
-        "groupCast": {"scope": "party", "spells": [{"name": "Arcane Brilliance", "reagent": 17020, "equalsRank": 5}]}, "manaOnly": true }
+        "groupCast": {"scope": "party", "spells": [{"name": "Arcane Brilliance", "reagent": 17020, "equalsRank": 5}]}, "manaOnly": true },
+      { "key": "icearmor", "name": "Ice Armor", "alsoNames": ["Frost Armor"], "family": "armor", "selfCast": true },
+      { "key": "magearmor", "name": "Mage Armor", "family": "armor", "selfCast": true }
     ],
     "PRIEST": [
       { "key": "fortitude", "name": "Power Word: Fortitude", "group": ["Prayer of Fortitude"],
@@ -13,12 +15,14 @@
       { "key": "spirit", "name": "Divine Spirit", "group": ["Prayer of Spirit"],
         "groupCast": {"scope": "party", "spells": [{"name": "Prayer of Spirit", "rank": 1, "reagent": 17029, "equalsRank": 4}]}, "manaOnly": true },
       { "key": "shadow", "name": "Shadow Protection", "group": ["Prayer of Shadow Protection"],
-        "groupCast": {"scope": "party", "spells": [{"name": "Prayer of Shadow Protection", "reagent": 17029, "equalsRank": 3}]} }
+        "groupCast": {"scope": "party", "spells": [{"name": "Prayer of Shadow Protection", "reagent": 17029, "equalsRank": 3}]} },
+      { "key": "innerfire", "name": "Inner Fire", "selfCast": true }
     ],
     "DRUID": [
       { "key": "motw", "name": "Mark of the Wild", "group": ["Gift of the Wild"],
         "groupCast": {"scope": "party", "spells": [{"name": "Gift of the Wild", "rank": 2, "reagent": 17026, "equalsRank": 7}, {"name": "Gift of the Wild", "rank": 1, "reagent": 17021, "equalsRank": 6}]} },
-      { "key": "thorns", "name": "Thorns", "defaultRule": "tanks" }
+      { "key": "thorns", "name": "Thorns", "defaultRule": "tanks" },
+      { "key": "omen", "name": "Omen of Clarity", "selfCast": true }
     ],
     "PALADIN": [
       { "key": "kings", "name": "Blessing of Kings", "group": ["Greater Blessing of Kings"], "family": "blessing",
@@ -33,17 +37,36 @@
         "groupCast": {"scope": "class", "spells": [
           {"name": "Greater Blessing of Might", "rank": 2, "reagent": 21177, "equalsRank": 7},
           {"name": "Greater Blessing of Might", "rank": 1, "reagent": 21177, "equalsRank": 6}]},
-        "defaultRule": "classes", "defaultClasses": ["WARRIOR", "PALADIN", "HUNTER", "ROGUE", "SHAMAN", "DRUID"] }
+        "defaultRule": "classes", "defaultClasses": ["WARRIOR", "PALADIN", "HUNTER", "ROGUE", "SHAMAN", "DRUID"] },
+      { "key": "righteousfury", "name": "Righteous Fury", "selfCast": true, "defaultNever": true },
+      { "key": "devotion", "name": "Devotion Aura", "family": "aura", "selfCast": true, "toggle": true },
+      { "key": "retribution", "name": "Retribution Aura", "family": "aura", "selfCast": true, "toggle": true },
+      { "key": "concentration", "name": "Concentration Aura", "family": "aura", "selfCast": true, "toggle": true },
+      { "key": "shadowaura", "name": "Shadow Resistance Aura", "family": "aura", "selfCast": true, "toggle": true },
+      { "key": "frostaura", "name": "Frost Resistance Aura", "family": "aura", "selfCast": true, "toggle": true },
+      { "key": "fireaura", "name": "Fire Resistance Aura", "family": "aura", "selfCast": true, "toggle": true },
+      { "key": "sanctity", "name": "Sanctity Aura", "family": "aura", "selfCast": true, "toggle": true }
     ],
     "SHAMAN": [
-      { "key": "waterbreathing", "name": "Water Breathing", "blockers": ["Unending Breath"], "water": true }
+      { "key": "waterbreathing", "name": "Water Breathing", "blockers": ["Unending Breath"], "water": true },
+      { "key": "lightningshield", "name": "Lightning Shield", "selfCast": true }
     ],
     "WARLOCK": [
-      { "key": "breath", "name": "Unending Breath", "blockers": ["Water Breathing"], "water": true }
+      { "key": "breath", "name": "Unending Breath", "blockers": ["Water Breathing"], "water": true },
+      { "key": "demonarmor", "name": "Demon Armor", "alsoNames": ["Demon Skin"], "selfCast": true }
     ],
     "WARRIOR": [
       { "key": "battleshout", "name": "Battle Shout", "selfCast": true }
+    ],
+    "HUNTER": [
+      { "key": "hawk", "name": "Aspect of the Hawk", "family": "aspect", "selfCast": true, "toggle": true },
+      { "key": "monkey", "name": "Aspect of the Monkey", "family": "aspect", "selfCast": true, "toggle": true },
+      { "key": "wildaspect", "name": "Aspect of the Wild", "family": "aspect", "selfCast": true, "toggle": true },
+      { "key": "trueshot", "name": "Trueshot Aura", "selfCast": true, "toggle": true }
     ]
+  },
+  "familyAuras": {
+    "aspect": ["Aspect of the Cheetah", "Aspect of the Pack", "Aspect of the Beast"]
   },
   "removed": [
     { "key": "salvation", "ids": [1038, 25895],

@@ -22,6 +22,15 @@ local numberBoxes = {}
 local function Current()
     return Config.Section(currentType)
 end
+
+-- The Buff Thanks and Buff Back sections, which their own controls write
+-- whichever tab shows: never damaged ones either (#330).
+local function Buff()
+    return Config.Section("buff")
+end
+local function BuffBack()
+    return Config.Section("buffBack")
+end
 Options.widgets = widgets -- exposed for tests
 
 Options.LEDGER_ROWS = 25
@@ -151,6 +160,9 @@ Options.GROUP_VERSIONS_TOOLTIP = "In buff mode, offer the group version of a buf
     .. "are missing the buff. Never cast at anyone flagged for PvP "
     .. "when you aren't, unless your whole group is inside a dungeon or raid with you, "
     .. "and never against your \"who gets each buff\" rules."
+Options.SELF_BUFFS_TOOLTIP = "In buff mode, once your favours and your group are done, offer the self-buffs "
+    .. "you're missing (\"you only\" in the list above: Inner Fire, armors, Aspects, auras...), in your buff "
+    .. "order. Not while you're dead, mounted, flying or in a form, or the game says the spell can't be cast now."
 Options.BREATH_TOOLTIP = "Offer Unending Breath and Water Breathing only while you're swimming or underwater, "
     .. "for 2 minutes after, or in an underwater dungeon."
 
@@ -182,28 +194,30 @@ local function TextBox(parent, width, maxLetters)
 end
 
 -- Label, [-] [number] [+], bound to settings()[field] within limits;
--- settings defaults to the tab's section (Current). Does nothing on a type without
--- that field (its stepper is hidden there). font: the label's, if not the
--- usual one.
+-- settings defaults to the tab's section (Current), whose field is read
+-- checked (Config.Field, #330). Does nothing on a type without that field
+-- (its stepper is hidden there). font: the label's, if not the usual one.
 local function Stepper(parent, text, field, settings, font, step)
     local limits = Config.LIMITS[field]
     step = step or 1
     local s = {}
+    local read = settings and function() return settings()[field] end
+        or function() return Config.Field(currentType, field) end
     settings = settings or Current
 
     local function Set(value)
-        local cfg = settings()
-        if cfg[field] == nil then
+        if read() == nil then
             SetBoxText(s.box, "")
             return
         end
+        local cfg = settings()
         cfg[field] = ns.Util.ClampNumber(value, limits.min, limits.max, cfg[field])
         SetBoxText(s.box, tostring(cfg[field]))
     end
     s.Set = Set
 
     local function Step(by)
-        local current = settings()[field]
+        local current = read()
         if current ~= nil then Set(current + by) end
     end
 
@@ -280,6 +294,7 @@ end
 local function TakeKey(key)
     if InCombatLockdown() then return StopKeyCapture() end
     StopKeyCapture()
+    BuffBack() -- the key is saved there: never to a damaged section (#330)
     local ok, why = ns.BuffMode.SetKey(ModifierPrefix() .. key)
     if not ok then ns.Print("couldn't set the buff mode key: " .. why .. ".") end
     widgets.buffModeKey:SetText(KeyButtonText())
@@ -318,9 +333,11 @@ local function CreateKeyCapture(parent)
     return capture
 end
 
--- The Buff Back tab's buff list: your class's buffs in your order.
+-- The Buff Back tab's buff list: your class's buffs in your order. Read
+-- checked (#330): every buff row's button, the Who rows' boxes included,
+-- starts here, so the section the rules then write is never a damaged one.
 local function OrderedClassBuffs()
-    return ns.BuffData.InOrder(ns.BuffData.ClassBuffs(), ns.db.buffBack.buffOrder)
+    return ns.BuffData.InOrder(ns.BuffData.ClassBuffs(), Config.Field("buffBack", "buffOrder"))
 end
 
 -- Move a buff of your class one place up (-1) or down (+1). Saved as your
@@ -349,8 +366,17 @@ function Options.MoveBuff(key, step)
 end
 
 function Options.SetNeverOffer(key, on)
-    if type(ns.db.buffBack.neverOffer) ~= "table" then ns.db.buffBack.neverOffer = {} end
-    ns.db.buffBack.neverOffer[key] = on or nil
+    local never = Config.Field("buffBack", "neverOffer") -- never a damaged list (#330)
+    -- A buff that's never offered by default (Righteous Fury, #44) keeps an
+    -- untick as false; any other buff's untick is no entry, as before.
+    local buff = ns.BuffData.ByKey(key)
+    if on then
+        never[key] = true
+    elseif buff and buff.defaultNever then
+        never[key] = false
+    else
+        never[key] = nil
+    end
     ns.BuffButton.Refresh()
     Options.Refresh()
 end
@@ -359,18 +385,23 @@ end
 -- Who button you clicked last, else the first in your order.
 local whoKey
 
+-- Self-buffs (#44) have no "who gets it": only you do.
 local function WhoBuff(buffs)
+    local first
     for _, buff in ipairs(buffs) do
-        if buff.key == whoKey then return buff end
+        if not buff.selfCast then
+            if buff.key == whoKey then return buff end
+            first = first or buff
+        end
     end
-    return buffs[1]
+    return first
 end
 
 -- A buff row's Who button: step its rule on, and show its details below.
 function Options.CycleWho(key)
     local buff
     for _, b in ipairs(OrderedClassBuffs()) do
-        if b.key == key then buff = b end
+        if b.key == key and not b.selfCast then buff = b end
     end
     if not buff then return end
     ClearEditFocus() -- a name box being typed in saves to its own buff first
@@ -395,6 +426,7 @@ end
 -- An Always or Never box lost focus: save it to key (the buff it was opened
 -- for), or say why not and show what's kept. Unchanged text isn't saved.
 function Options.SetWhoNames(key, list, text)
+    BuffBack() -- the rules save there: never to a damaged section (#330)
     if not key or text == ns.BuffRules.NamesText(key, list) then return Options.Refresh() end
     local ok, why = ns.BuffRules.SetNames(key, list, text)
     if not ok then ns.Print((list == "always" and "Always" or "Never") .. " list not saved: " .. why .. ".") end
@@ -461,6 +493,7 @@ end
 
 -- A raid Blessing tick box was clicked: cover the ticked ones.
 function Options.SetRaidBlessing()
+    BuffBack() -- the button then refreshes from it: never a damaged section (#330)
     local keys = {}
     for _, cb in ipairs(widgets.who.raidBlessings) do
         if cb:IsShown() and cb.key and cb:GetChecked() then keys[#keys + 1] = cb.key end
@@ -473,20 +506,22 @@ end
 local function FillBuffRows(shown)
     widgets.buffOrderHeader:SetShown(shown)
     local buffs = shown and OrderedClassBuffs() or {}
-    -- Read only for the Buff Back tab: the other tabs mustn't depend on its settings.
-    local never = shown and type(ns.db.buffBack.neverOffer) == "table" and ns.db.buffBack.neverOffer or {}
     for i, row in ipairs(widgets.buffRows) do
         local buff = buffs[i]
-        for _, part in ipairs({ row.name, row.up, row.down, row.never, row.who }) do part:SetShown(buff ~= nil) end
+        for _, part in ipairs({ row.name, row.up, row.down, row.never }) do part:SetShown(buff ~= nil) end
+        -- A self-buff (#44) has no Who button: only you get it.
+        row.who:SetShown(buff ~= nil and not buff.selfCast)
         row.key = buff and buff.key
         if buff then
             local name = ns.BuffData.SpellName(buff) or buff.key
+            if buff.selfCast then name = name .. " " .. ns.Colours.Text("muted", "(you only)") end
             if not ns.BuffData.IsKnown(buff) then name = name .. " " .. ns.Colours.Text("muted", "(not known yet)") end
             row.name:SetText(i .. ". " .. name)
             row.up:SetEnabled(i > 1)
             row.down:SetEnabled(i < #buffs)
-            row.never:SetChecked(never[buff.key] == true)
-            row.who:SetText("Who: " .. ns.BuffRules.RULE_TEXT[ns.BuffRules.Rule(buff)])
+            -- Read only for the Buff Back tab: the other tabs mustn't depend on its settings.
+            row.never:SetChecked(ns.BuffData.NeverOffered(buff))
+            if not buff.selfCast then row.who:SetText("Who: " .. ns.BuffRules.RULE_TEXT[ns.BuffRules.Rule(buff)]) end
         end
     end
     if shown and #buffs == 0 then
@@ -497,6 +532,14 @@ local function FillBuffRows(shown)
     -- On this tab the buff mode rows follow the buff list, and the messages
     -- follow them; on the others the messages follow the buff options.
     local last = buffs[1] and widgets.buffRows[#buffs].up or widgets.buffOrderHeader
+    -- Self-buffs (#44): on or off, below the list that holds them.
+    widgets.selfBuffs:SetShown(shown)
+    widgets.selfBuffs:ClearAllPoints()
+    widgets.selfBuffs:SetPoint("TOPLEFT", last, "BOTTOMLEFT", -4, -8)
+    if shown then
+        widgets.selfBuffs:SetChecked(ns.db.buffBack.selfBuffs == true)
+        last = widgets.selfBuffs
+    end
     last = FillWho(shown, buffs, last)
     last = FillRaidBlessings(shown, last)
     widgets.autoHeader:ClearAllPoints()
@@ -550,12 +593,14 @@ local function FillAuto(shown)
     widgets.waterHeader:SetShown(shown)
     widgets.breathNearWater:SetShown(shown)
     if shown then widgets.breathNearWater:SetChecked(ns.db.buffBack.breathNearWater == true) end
+    widgets.buffRequests:SetShown(shown)
+    if shown then widgets.buffRequests:SetChecked(ns.db.buffBack.requests == true) end
 end
 
 local function Fill()
-    -- A section damaged mid-session heals as the panel fills, whichever tab
-    -- shows, and reads as its defaults (#166).
-    for _, msgType in ipairs(Config.TYPES) do Config.Section(msgType) end
+    -- A section, or a field in one, damaged mid-session heals as the panel
+    -- fills, whichever tab shows, and reads as its defaults (#166, #330).
+    for _, msgType in ipairs(Config.TYPES) do Config.CheckedSection(msgType) end
     local cfg = ns.db[currentType]
     local info = Config.TYPE_INFO[currentType]
     local isBuff = currentType == "buff"
@@ -622,7 +667,7 @@ local function Fill()
     -- takes its space, so following one would leave an empty gap.
     local above, x, y = widgets.steppers.repeatCooldown.label, 0, -18
     if isBuffBack then
-        above, x, y = widgets.breathNearWater, 4, -14
+        above, x, y = widgets.buffRequests, 4, -14
     elseif isGuildLogin then
         above = widgets.greetersHelp
     elseif warn then
@@ -715,7 +760,12 @@ function Options.Create()
     local title = Label(content, ns.TITLE, "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 16, -16)
 
-    widgets.master = Checkbox(content, "Addon enabled", function(on) ns.SetEnabled(on) end)
+    widgets.master = Checkbox(content, "Addon enabled", function(on)
+        -- The events and the button then follow every section's switch:
+        -- never a damaged section's (#330).
+        for _, msgType in ipairs(Config.TYPES) do Config.Section(msgType) end
+        ns.SetEnabled(on)
+    end)
     widgets.master:SetPoint("TOPRIGHT", -150, -10)
     -- On the master switch's row; its label ends just left of that switch,
     -- however wide the font makes it.
@@ -779,19 +829,19 @@ function Options.Create()
 
     -- Buff tab only, row 3: list buff names
     widgets.listNames = Checkbox(content, "Name the buffs in the message", function(on)
-        ns.db.buff.listBuffNames = on
+        Buff().listBuffNames = on
     end)
     widgets.listNames:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
     -- Beside it: tell players I buff that it was me (Receipts.lua).
     widgets.receipts = Checkbox(content, "Tell players I buff that it was me", function(on)
-        ns.db.buff.receipts = on
+        Buff().receipts = on
     end)
     widgets.receipts:SetPoint("LEFT", widgets.listNames.label, "RIGHT", 40, 0)
 
     -- Buff Back tab only, right under Enabled (the tab has no timing rows):
     -- the line, and how long favours last.
     widgets.sayLine = Checkbox(content, "Say a line once my buff lands", function(on)
-        ns.db.buffBack.sayLine = on
+        BuffBack().sayLine = on
         ns.BuffButton.Refresh()
     end)
     widgets.sayLine:SetPoint("TOPLEFT", widgets.enabled, "BOTTOMLEFT", 0, -4)
@@ -804,7 +854,7 @@ function Options.Create()
     widgets.steppers.owedMinutes = owedMinutes
     widgets.showInCities = Checkbox(content, "Show the button in capital cities (buff mode always shows it)",
         function(on)
-            ns.db.buffBack.showInCities = on
+            BuffBack().showInCities = on
             ns.BuffButton.Refresh()
         end)
     widgets.showInCities:SetPoint("TOPLEFT", widgets.sayLine, "BOTTOMLEFT", 0, -4)
@@ -821,7 +871,7 @@ function Options.Create()
     widgets.thankStyle = Dropdown(content, Options.THANK_STYLES, Options.THANK_STYLE_TEXT, 220,
         function() return ns.db.buff.thankStyle end,
         function(value)
-            ns.db.buff.thankStyle = value
+            Buff().thankStyle = value
             Options.Refresh()
         end)
     widgets.thankStyle:SetPoint("LEFT", widgets.thankStyleLabel, "RIGHT", 10, 0)
@@ -833,19 +883,19 @@ function Options.Create()
     widgets.fallback = Dropdown(content, Options.FALLBACKS, Options.FALLBACK_TEXT, 160,
         function() return ns.db.buff.fallback end,
         function(value)
-            ns.db.buff.fallback = value
+            Buff().fallback = value
             Options.Refresh()
         end)
     widgets.fallback:SetPoint("LEFT", widgets.fallbackLabel, "RIGHT", 10, 0)
     widgets.unknownName = TextBox(content, 100, Config.LIMITS.unknownName.maxBytes)
     widgets.unknownName:SetPoint("LEFT", widgets.fallback, "RIGHT", 10, 0)
     widgets.unknownName:SetScript("OnTextChanged", function(self, userInput)
-        if userInput then ns.db.buff.unknownName = Config.CleanUnknownName(self:GetText()) end
+        if userInput then Buff().unknownName = Config.CleanUnknownName(self:GetText()) end
     end)
 
     -- Row 6: quiet in capital cities (Cities.lua)
     widgets.quiet = Checkbox(content, "Stay quiet in capital cities (no thank-yous; the ledger still counts)",
-        function(on) ns.db.buff.quietInCities = on end)
+        function(on) Buff().quietInCities = on end)
     widgets.quiet:SetPoint("TOPLEFT", widgets.fallbackLabel, "BOTTOMLEFT", -4, -8)
 
     -- Row 7: warning + one-click fix when friendly nameplates are off
@@ -892,6 +942,14 @@ function Options.Create()
         widgets.buffRows[i] = row
         above = row.up
     end
+
+    -- Buff Back tab only, below the buff list: offer your self-buffs (#44).
+    -- Anchored in FillBuffRows.
+    widgets.selfBuffs = Checkbox(content, "Offer my self-buffs in buff mode, after everyone else", function(on)
+        BuffBack().selfBuffs = on
+        ns.BuffButton.Refresh()
+    end)
+    Tooltip(widgets.selfBuffs, Options.SELF_BUFFS_TOOLTIP)
 
     -- Buff Back tab only, below the buff list: who gets the chosen buff in
     -- buff mode (BuffRules.lua). Anchored in FillWho.
@@ -950,7 +1008,7 @@ function Options.Create()
     widgets.auto = {}
     local function AutoBox(field)
         local cb = Checkbox(content, Options.AUTO_TEXT[field], function(on)
-            ns.db.buffBack[field] = on
+            BuffBack()[field] = on
             ns.BuffButton.Refresh()
         end)
         widgets.auto[field] = cb
@@ -985,7 +1043,7 @@ function Options.Create()
     -- Group versions (GroupCasts.lua, #41): one cast for a whole party.
     widgets.groupVersions = Checkbox(content, "Use group versions (Arcane Brilliance, the Prayers, Gift of the Wild)",
         function(on)
-            ns.db.buffBack.groupVersions = on
+            BuffBack().groupVersions = on
             ns.BuffButton.Refresh()
         end)
     widgets.groupVersions:SetPoint("TOPLEFT", topUp.label, "BOTTOMLEFT", -4, -10)
@@ -995,7 +1053,7 @@ function Options.Create()
     widgets.steppers.groupEnough = enough
     -- The raid buff split (RaidSplit.lua, #70).
     widgets.raidSplit = Checkbox(content, "Share buffs with other copies in raids", function(on)
-        ns.db.buffBack.raidSplit = on
+        BuffBack().raidSplit = on
         ns.BuffButton.Refresh()
     end)
     widgets.raidSplit:SetPoint("TOPLEFT", enough.label, "BOTTOMLEFT", -4, -10)
@@ -1006,7 +1064,7 @@ function Options.Create()
     widgets.bgHeader = Label(content, "Battlegrounds (quiet once the battle starts):", "GameFontNormalSmall")
     widgets.bgHeader:SetPoint("TOPLEFT", widgets.raidSplit, "BOTTOMLEFT", 4, -10)
     widgets.bgPrepBuff = Checkbox(content, "Buff in the preparation phase", function(on)
-        ns.db.buffBack.bgPrepBuff = on
+        BuffBack().bgPrepBuff = on
         ns.Battleground.Update()
         ns.BuffButton.Refresh()
     end)
@@ -1017,11 +1075,15 @@ function Options.Create()
     widgets.waterHeader = Label(content, "Unending Breath and Water Breathing:", "GameFontNormalSmall")
     widgets.waterHeader:SetPoint("TOPLEFT", widgets.bgPrepBuff, "BOTTOMLEFT", 4, -10)
     widgets.breathNearWater = Checkbox(content, "Water breathing: only near water", function(on)
-        ns.db.buffBack.breathNearWater = on
+        BuffBack().breathNearWater = on
         ns.BuffButton.Refresh()
     end)
     widgets.breathNearWater:SetPoint("TOPLEFT", widgets.waterHeader, "BOTTOMLEFT", -4, -2)
     Tooltip(widgets.breathNearWater, Options.BREATH_TOOLTIP)
+    -- Buff requests in chat (Requests.lua, #40).
+    widgets.buffRequests = Checkbox(content, ns.Requests.LABEL, function(on) ns.Requests.SetEnabled(on) end)
+    widgets.buffRequests:SetPoint("TOPLEFT", widgets.breathNearWater, "BOTTOMLEFT", 0, -10)
+    Tooltip(widgets.buffRequests, ns.Requests.TOOLTIP)
 
     local anchor = msgHeader
     for i = 1, Config.NUM_MESSAGES do
@@ -1034,14 +1096,14 @@ function Options.Create()
         edit:SetPoint("LEFT", num, "RIGHT", 10, 0)
         edit:SetPoint("RIGHT", content, "RIGHT", -24, 0)
         edit:SetScript("OnTextChanged", function(self, userInput)
-            if userInput then Current().messages[i] = Config.CleanMessage(self:GetText()) end
+            if userInput then Config.Field(currentType, "messages")[i] = Config.CleanMessage(self:GetText()) end
         end)
         widgets.edits[i] = edit
         anchor = num
     end
 
     widgets.preview = Button(content, "Preview random", 130, function()
-        local template = ns.Messages.Preview(Current().messages)
+        local template = ns.Messages.Preview(Config.Field(currentType, "messages"))
         local vars = ns.Config.NameVars(currentType, ns.Util.UnitFullName("player") or "Nikki-Shifts")
         vars.buff = "Power Word: Fortitude and Arcane Intellect"
         local text = template and ns.Util.Render(template, ns.Flavour.Vars(vars))

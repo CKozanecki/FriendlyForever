@@ -515,13 +515,12 @@ describe("Buffing a PvP-flagged member once the whole group is inside (#306)", f
 
         -- A raid in Molten Core: Ann, Bo and Cid in your subgroup, Dot and
         -- Eve in the second, Bo flagged. In a raid the game also gives your
-        -- own subgroup's members as party1..4; the simulated client doesn't,
-        -- so they are added here.
+        -- own subgroup's members as party1..4, as the simulated client does
+        -- (#322).
         local function moltenCore()
             boot({ group = false, known = { INTELLECT } })
             raid({ "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill" })
             for i = 4, 5 do wow.state.units["raid" .. i].subgroup = 2 end
-            for i = 1, 3 do wow.state.units["party" .. i] = wow.state.units["raid" .. i] end
             flag("raid2")
             wow.enterRaid(MOLTEN_CORE, "Molten Core")
         end
@@ -670,7 +669,7 @@ describe("Buffing a PvP-flagged member once the whole group is inside (#306)", f
             for _, kind in ipairs(OUTSIDE) do kinds[#kinds + 1] = kind end
             for _, kind in ipairs(INSIDE) do kinds[#kinds + 1] = kind end
             local total = { single = 0, group = 0, casts = 0 }
-            for _, seed in ipairs({ 5, 23, 88, 431, 2027, 9002 }) do
+            for _, seed in ipairs({ 5, 23, 89, 431, 2027, 9004 }) do
                 random.seed(seed)
                 for _ = 1, 5 do random.random() end
                 boot({ group = false, items = { [ITEM.arcanePowder] = 1000 } })

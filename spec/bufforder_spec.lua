@@ -1,4 +1,4 @@
--- Spec: #31, #71, #76, #136, #42, #46, #208, #41, #209, #70
+-- Spec: #31, #71, #76, #136, #42, #46, #208, #41, #209, #70, #44, #40
 -- Buff order and the never-offer list: which of your buffs the button offers
 -- first, and which it never offers.
 local wow = require("spec.support.wow")
@@ -187,7 +187,8 @@ describe("Buff order and never offer", function()
         it("shows the list only on the Buff Back tab, with the messages below it", function()
             local w = ns.Options.widgets
             wow.run(w.tabs.buffBack, "OnClick")
-            assert.are.equal(w.buffRows[2].up, select(2, w.who.header:GetPoint()), "who gets each follows the list")
+            assert.are.equal(w.buffRows[2].up, select(2, w.selfBuffs:GetPoint()), "self-buffs follow the list (#44)")
+            assert.are.equal(w.selfBuffs, select(2, w.who.header:GetPoint()), "then who gets each")
             assert.are.equal(w.who.neverLabel, select(2, w.autoHeader:GetPoint()), "then buff mode's rows")
             assert.are.equal(w.steppers.autoOffMinutes.label, select(2, w.steppers.topUpMinutes.label:GetPoint()),
                 "then top-up timing (#42)")
@@ -197,7 +198,8 @@ describe("Buff order and never offer", function()
             assert.are.equal(w.raidSplit, select(2, w.bgHeader:GetPoint()), "then battlegrounds")
             assert.are.equal(w.bgPrepBuff, select(2, w.waterHeader:GetPoint()), "then water breathing (#136)")
             assert.are.equal(w.waterHeader, select(2, w.breathNearWater:GetPoint()), "under its own heading")
-            assert.are.equal(w.breathNearWater, select(2, w.msgHeader:GetPoint()), "then the lines")
+            assert.are.equal(w.breathNearWater, select(2, w.buffRequests:GetPoint()), "then buff requests (#40)")
+            assert.are.equal(w.buffRequests, select(2, w.msgHeader:GetPoint()), "then the lines")
             wow.run(w.tabs.buff, "OnClick")
             assert.is_false(w.buffOrderHeader:IsShown())
             assert.is_false(w.who.header:IsShown())

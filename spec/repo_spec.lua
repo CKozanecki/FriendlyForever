@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #241, #242, #261, #318, #160, #309, #310, #345
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #345
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -488,6 +488,128 @@ describe("Test shards", function()
     end)
 end)
 
+-- A step's run: | block, as the shell gets it (comment-only lines are
+-- already gone: the parser drops them).
+local function runOf(step, name)
+    local body, indent = {}, nil
+    local inRun = false
+    for _, line in ipairs(splitLines(step.text)) do
+        if inRun then
+            if not line:match("^%s*$") then
+                indent = indent or indentOf(line)
+                if indentOf(line) < indent then break end
+            end
+            body[#body + 1] = line:sub((indent or 0) + 1)
+        elseif line:match("^%s*run: |%s*$") then
+            inRun = true
+        end
+    end
+    assert.is_true(#body > 0, name .. " has no run: | block")
+    return (table.concat(body, "\n"):gsub("%s+$", "")) .. "\n"
+end
+
+local function quote(value) return "'" .. value:gsub("'", "'\\''") .. "'" end
+
+local function writeText(file, content)
+    local handle = assert(io.open(file, "w"))
+    handle:write(content)
+    handle:close()
+end
+
+local function readText(file)
+    local handle = io.open(file, "r")
+    if not handle then return "" end
+    local content = handle:read("*a")
+    handle:close()
+    return content
+end
+
+-- A stand-in for curl that answers like GitHub's API from files in its
+-- folder, and logs each call ("METHOD URL") and the config it read. Like
+-- curl, it reads its config from stdin only with -K -, writes the body
+-- unless -o /dev/null (and, with -f, not for a status of 400 or more),
+-- writes the status only with -w '%{http_code}', and with -f exits 22 on
+-- a status of 400 or more. A request without the token gets 401; a pull
+-- request whose file says "unreachable" fails as curl does with no route.
+local fakeCurl = [=[#!/bin/bash
+dir=$(dirname "$0")
+method=GET url= config= out= format= fail=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -X) method=$2; shift ;;
+    -K) [ "$2" = - ] && config=$(cat); shift ;;
+    -o) out=$2; shift ;;
+    -w) format=$2; shift ;;
+    -H) shift ;;
+    --*) ;;
+    -*f*) fail=1 ;;
+    -*) ;;
+    *) url=$1 ;;
+  esac
+  shift
+done
+echo "$method $url" >> "$dir/calls"
+[ -n "$config" ] && printf '%s\n' "$config" >> "$dir/stdin"
+body= status=404
+if [ "$config" != 'header = "Authorization: Bearer secret-token-123"' ]; then
+  status=401 body='{"message":"Requires authentication"}'
+else
+  case "$method $url" in
+    "DELETE "*/git/refs/heads/ui-screenshots/pr-*)
+      n=${url##*/pr-}
+      status=204
+      if [ -f "$dir/delete-$n" ]; then status=$(cat "$dir/delete-$n"); fi
+      if [ "$status" = unreachable ]; then
+        [ "$format" = '%{http_code}' ] && printf 000
+        exit 7
+      fi
+      [ "$status" = 204 ] || body='{"message":"Reference does not exist"}' ;;
+    "GET "*/git/matching-refs/heads/ui-screenshots/)
+      if [ -f "$dir/refs.json" ]; then status=200 body=$(cat "$dir/refs.json"); fi ;;
+    "GET "*/pulls/*)
+      n=${url##*/pulls/}
+      [ "$(cat "$dir/pr-$n" 2>/dev/null)" = unreachable ] && exit 7
+      if [ -f "$dir/pr-$n" ]; then
+        status=200 body=$(printf '{"number":%s,"state":"%s"}' "$n" "$(cat "$dir/pr-$n")")
+      fi ;;
+  esac
+fi
+[ "$status" -ge 400 ] && [ -z "$body" ] && body='{"message":"Not Found"}'
+if [ "$out" != /dev/null ] && ! { [ -n "$fail" ] && [ "$status" -ge 400 ]; }; then printf '%s' "$body"; fi
+[ "$format" = '%{http_code}' ] && printf '%s' "$status"
+if [ -n "$fail" ] && [ "$status" -ge 400 ]; then exit 22; fi
+exit 0
+]=]
+
+-- Runs a script as GitHub Actions runs a step with shell: bash (bash
+-- --noprofile --norc -eo pipefail), or with flags, such as "-e" for a step
+-- with no shell:, with the fake curl first on PATH.
+-- files are written next to it first.
+-- Returns the exit code, the output, the curl calls, what curl read on
+-- stdin, and the step summary.
+local function runWithCurl(script, env, files, flags)
+    local dir = os.tmpname()
+    os.remove(dir)
+    os.execute('mkdir -p "' .. dir .. '/bin"')
+    writeText(dir .. "/bin/curl", fakeCurl)
+    os.execute('chmod +x "' .. dir .. '/bin/curl"')
+    for name, content in pairs(files or {}) do writeText(dir .. "/bin/" .. name, content) end
+    local exports = { 'export PATH="' .. dir .. '/bin:$PATH"', "export GITHUB_API_URL=https://api.test",
+        'export GITHUB_STEP_SUMMARY="' .. dir .. '/summary"', "export REPO=owner/repo",
+        "export TOKEN=secret-token-123" }
+    for key, value in pairs(env or {}) do exports[#exports + 1] = "export " .. key .. "=" .. quote(value) end
+    writeText(dir .. "/step.sh", table.concat(exports, "\n") .. "\n" .. script)
+    local p = io.popen('bash --noprofile --norc ' .. (flags or "-eo pipefail") .. ' "' .. dir
+        .. '/step.sh" < /dev/null 2>&1; echo "exit=$?"')
+    local output = p:read("*a")
+    p:close()
+    local code = tonumber(output:match("exit=(%d+)\n$"))
+    output = output:gsub("exit=%d+\n$", "")
+    local calls, stdin, summary = readText(dir .. "/bin/calls"), readText(dir .. "/bin/stdin"), readText(dir .. "/summary")
+    os.execute('rm -rf "' .. dir .. '"')
+    return code, output, calls, stdin, summary
+end
+
 describe("UI simulator workflow", function()
     local path = ".github/workflows/ui-sim.yml"
     local text, jobs, order
@@ -856,7 +978,7 @@ describe("UI simulator workflow", function()
     -- downloads the locked crates and runs none of their code, and the spell
     -- data download (#160), which reaches only a proxy. The proxy is ours.
     local function kind(command)
-        if command:find("ff%-build cargo fetch %-%-locked%s*$") then return "fetch" end
+        if command:find("ff%-build cargo fetch %-%-locked 2>&1 | shown%s*$", 1) then return "fetch" end
         if command:find("%sff%-proxy tinyproxy %-d %-c /proxy/tinyproxy%.conf%s*$") then return "proxy" end
         if command:find("%sff%-build /cli/wow%-cli casc sync%-forever%-spells %-%-source cdn %-%-output /spells/spells%.json%s") then
             return "spells"
@@ -1850,6 +1972,82 @@ describe("UI simulator workflow", function()
             assert.is_falsy(publish.text:find(banned), "the publish job runs " .. banned)
         end
         assert.is_truthy(publish.text:find("89504e470d0a1a0a", 1, true), "the publish job doesn't check for PNGs")
+        -- Its access: writing the branch, and reading pull requests for the open check (#347).
+        local access = publish.text:match("\n    permissions:\n(.-)\n    steps:")
+        assert.are.equal("      contents: write\n      pull-requests: read", access, "the publish job's access")
+    end)
+
+    -- #347: a run still going when its pull request closes put back the
+    -- branch the clean-up had just deleted (pr-324 came back nine minutes
+    -- after its deletion). The publish step now asks GitHub, just before the
+    -- push, whether the pull request is still open.
+    describe("publishes only while its pull request is open (#347)", function()
+        local function publishRun()
+            local publish = jobs["publish-screenshots"]
+            local i = indexOf(publish.steps, "push %-q")
+            assert.is_truthy(i, "no push in the publish job")
+            return publish.steps[i], runOf(publish.steps[i], "the publish step")
+        end
+
+        -- The open check: from the lookup to the end of its if, which the
+        -- auth line follows.
+        local function openCheck()
+            local _, run = publishRun()
+            local check = run:match("\n(state=%$%(printf .-\nfi\n)auth=")
+            assert.is_truthy(check, "no open check just before the push")
+            return check
+        end
+
+        it("checks just before the push, after the commit, with nothing between (white)", function()
+            local step, run = publishRun()
+            local check = openCheck()
+            local at = run:find(check, 1, true)
+            local commit = run:find("\n%s*commit %-q ")
+            local push = run:find("\nauth=[^\n]*\ngit %-c http%.extraheader=[^\n]*\n%s*push %-q [^\n]*\n")
+            assert.is_truthy(commit and commit < at, "the open check comes before the commit")
+            assert.are.equal(at + #check - 1, push, "something runs between the open check and the push")
+            assert.are.equal(1, select(2, run:gsub("%f[%w]push%f[%W]", "")), "more than one push")
+            assert.is_truthy(check:find('"$GITHUB_API_URL/repos/$REPO/pulls/$PR"', 1, true),
+                "the check doesn't look up this pull request")
+            -- Run below as GitHub runs it: the workflow names no shell (checked above), so bash -e.
+            assert.is_falsy(step.text:find("shell:"), "the publish step names a shell")
+        end)
+
+        local function guarded(state)
+            -- What follows the check stands in for the push.
+            return runWithCurl(openCheck() .. "echo PUSHED\n", { PR = "347" }, state and { ["pr-347"] = state } or nil,
+                "-e")
+        end
+
+        it("pushes while the pull request is open, asking with the token on stdin only (white)", function()
+            local code, output, calls, stdin, summary = guarded("open")
+            assert.are.equal(0, code, output)
+            assert.are.equal("PUSHED\n", output)
+            assert.are.equal("GET https://api.test/repos/owner/repo/pulls/347\n", calls)
+            assert.are.equal('header = "Authorization: Bearer secret-token-123"\n', stdin)
+            assert.are.equal("", summary)
+        end)
+
+        it("publishes nothing once the pull request is closed, says so, and doesn't fail (white)", function()
+            local code, output, _, _, summary = guarded("closed")
+            assert.are.equal(0, code, output)
+            assert.are.equal("not publishing: pull request #347 is closed\n", output)
+            assert.are.equal("## UI screenshots\n\nNot published: pull request #347 is closed.\n", summary)
+        end)
+
+        it("publishes nothing when the lookup fails or says anything else, and prints none of it (black)", function()
+            -- Not found, no route, an answer that isn't JSON, and states that
+            -- aren't "open", one of them a workflow command.
+            for _, state in ipairs({ false, "unreachable", 'x"}', "", "Open", "open ", "::warning::hostile" }) do
+                local code, output, calls, _, summary = guarded(state or nil)
+                local label = tostring(state)
+                assert.are.equal(0, code, label)
+                assert.are.equal("not publishing: pull request #347 couldn't be looked up\n", output, label)
+                assert.are.equal("## UI screenshots\n\nNot published: pull request #347 couldn't be looked up.\n",
+                    summary, label)
+                assert.are.equal("GET https://api.test/repos/owner/repo/pulls/347\n", calls, label)
+            end
+        end)
     end)
 
     -- #148: the layout checks and the screenshots run at the narrowest layout
@@ -1963,13 +2161,39 @@ describe("UI simulator workflow", function()
     -- spaces), or holding "##[" anywhere, as a workflow command.
     describe("shot and simulator output in the job log (black)", function()
         local SOURCES = { "%$report%f[^%w]", "%$RUNNER_TEMP/report", "%$RUNNER_TEMP/shots", "%$RUNNER_TEMP/shot%-logs",
-            '"%$file"', '"%$log"' }
-        local READERS = { "%f[%w]tail%s", "%f[%w]head%s", "%f[%w]ls%s", "%f[%w]grep%s", "%f[%w]cat%s" }
+            '"%$file"', '"%$log"', "%$RUNNER_TEMP/tree%-diff", "%$manifest", "%$ui%f[^%w]",
+            "%$RUNNER_TEMP/sim%f[^%w]", "%$pin%f[^%w]" }
+        -- diff and ls-tree print fetched content (#317).
+        local READERS = { "%f[%w]tail%s", "%f[%w]head%s", "%f[%w]ls%s", "%f[%w]grep%s", "%f[%w]cat%s", "%f[%w]diff%s",
+            "ls%-tree%s" }
 
         -- Whether a command line prints shot or simulator output. Paths are
         -- read however they're quoted: "$RUNNER_TEMP"/shots, ${RUNNER_TEMP}/shots.
-        local function printsOutput(line)
+        -- git subcommands that print what the fetched repositories hold (#317).
+        local GIT_PRINTS = { "ls%-tree", "ls%-files", "show", "log", "status", "diff", "cat%-file", "ls%-remote", "grep" }
+        -- Readers that, run inside a fetched tree, print what it holds with
+        -- no path on the line at all: a bare ls, or cat on a relative name (#356).
+        local BARE_READERS = { "ls", "cat", "find", "head", "tail" }
+        -- inTree: the step has cd'd into a fetched tree by this line (#356).
+        local function printsOutput(line, inTree)
+            if line:match("^%s*grep%s+%-q") then return false end
+            if inTree then
+                for _, reader in ipairs(BARE_READERS) do
+                    if line:find("%f[%w]" .. reader .. "%f[%W]") or line:find("%f[%w]" .. reader .. "$") then
+                        return true
+                    end
+                end
+            end
+            -- (Output a command substitution captures never reaches the log.)
+            if line:find("%f[%w]git%s") and not line:find("%$%([^)]*%f[%w]git%s") then
+                for _, sub in ipairs(GIT_PRINTS) do
+                    if line:find("%f[%w]git%s+[^\n]-%f[%w]" .. sub .. "%f[%W]") then return true end
+                end
+            end
             if line:find("docker logs", 1, true) or line:find("docker top", 1, true) then return true end
+            -- A container run in the foreground (and so cargo in it) prints
+            -- straight to the log (#164). One started with -d prints only its ID.
+            if line:find("docker run", 1, true) and not line:find("docker run -d ", 1, true) then return true end
             local plain = line:gsub("%${([%w_]+)}", "$%1"):gsub('"(%$[%w_]+)"/', "%1/")
             for _, reader in ipairs(READERS) do
                 if plain:find(reader) then
@@ -2007,44 +2231,350 @@ describe("UI simulator workflow", function()
             return list
         end
 
+        -- Where a step's shell is, after a line: a cd or pushd into a fetched
+        -- tree (a target naming one of SOURCES) or into $RUNNER_TEMP, which
+        -- holds them all, puts it inside. A relative one (cd .., cd -, cd sub)
+        -- can't be followed, so it counts as inside too, wherever it started,
+        -- and so do a command substitution (cd "$(dirname "$pin")"), popd and
+        -- a bare pushd, which go back to a place the scan doesn't track. Only
+        -- one to another named variable or an absolute path, or a bare cd
+        -- (home), takes it out (#356).
+        -- Each command of a line is read in turn: a line splits at ;, &&,
+        -- ||, | and parentheses, and the reserved words and braces that can
+        -- come before a command (if cd ..., then cd ..., { cd ...) are dropped.
+        local KEYWORDS = { ["if"] = true, ["then"] = true, ["else"] = true, ["elif"] = true, ["do"] = true,
+            ["while"] = true, ["until"] = true, ["time"] = true }
+        local function treeAfter(line, inTree)
+            for command in (line:gsub("[;&|()]", "\n") .. "\n"):gmatch("%s*([^\n]-)%s*\n") do
+                repeat
+                    local before = command
+                    command = command:gsub("^[{!]%s*", "")
+                    local word, rest = command:match("^(%a+)%s+(.*)$")
+                    if word and KEYWORDS[word] then command = rest end
+                until command == before
+                local target = command == "cd" and "" or command:match("^cd%s+(.+)$") or command:match("^pushd%s+(.+)$")
+                -- A numbered pushd (+1, -1) is a relative target: inside, below.
+                if command:match("^popd%f[%W]") or command == "pushd" then
+                    inTree = true
+                elseif target then
+                    local plain = target:gsub("%${([%w_]+)}", "$%1"):gsub('"(%$[%w_]+)"/', "%1/")
+                    local into = plain:find("%$RUNNER_TEMP%f[^%w_]") ~= nil
+                    for _, source in ipairs(SOURCES) do
+                        if plain:find(source) then into = true end
+                    end
+                    if into or not (target == "" or target:match('^"?%$[%a_{]') or target:match('^"?[/~]')) then
+                        inTree = true
+                    else
+                        inTree = false
+                    end
+                end
+            end
+            return inTree
+        end
+
+        -- The lines of a step that print shot or simulator output without a
+        -- filter, and how many printing lines it checked. Lines in a { ... }
+        -- block count as filtered only if the block ends "} 2>&1 | shown",
+        -- or goes to the step summary, a page the runner doesn't read for
+        -- commands.
+        local function scan(stepText)
+            local problems, seen = {}, 0
+            local block, inFunction, inTree
+            local function check(line, filtered)
+                seen = seen + 1
+                -- To a file, or both streams thrown away: nothing reaches the log (#356).
+                local toFile = line:find('%s>%s*"%$RUNNER_TEMP/')
+                    or line:find("%s>%s*/dev/null%s+2>&1") or line:find("&>%s*/dev/null")
+                -- Kept as digits only, in a variable (#173): no command can be made of those.
+                filtered = filtered or line:find("^%s*[%w_]+=%$%([^);&]*| tr %-cd '0%-9'%)%s*|| true%s*$") ~= nil
+                    or line:find("^%s*[%w_]+=%$%([^);&]*| tr %-cd '0%-9'%)%s*$") ~= nil
+                if not (filtered or toFile or line:find("| shown", 1, true)) then
+                    problems[#problems + 1] = "prints unfiltered output: " .. line
+                -- docker logs replays the container's stderr on its own.
+                elseif not filtered and not toFile and line:find("docker %l+ ") and not line:find("2>&1 |", 1, true) then
+                    problems[#problems + 1] = "filters only stdout: " .. line
+                end
+            end
+            for _, line in ipairs(splitLines((stepText:gsub("\\\n%s*", " ")))) do
+                if line:match("^%s*sandbox%(%) {%s*$") or line:match("^%s*sized%(%) {%s*$") then
+                    -- Their callers send all of it to a file: the next test.
+                    inFunction = true
+                elseif inFunction and line:match("^%s*}%s*$") then
+                    inFunction = nil
+                elseif inFunction and line:find("docker run", 1, true) then
+                    seen = seen + 1
+                elseif line:match("^%s*{%s*$") then
+                    block = {}
+                elseif block and line:match("^%s*}") then
+                    local filtered = line:match("^%s*} 2>&1 | shown%s*$")
+                        or line:match('^%s*} >> "%$GITHUB_STEP_SUMMARY"%s*$')
+                    for _, held in ipairs(block) do check(held, filtered ~= nil) end
+                    block = nil
+                -- A reader after a cd on the same line runs inside too.
+                elseif printsOutput(line, inTree or treeAfter(line, inTree)) then
+                    if block then block[#block + 1] = line else check(line, false) end
+                end
+                inTree = treeAfter(line, inTree)
+            end
+            if block then problems[#problems + 1] = "a { block that never ends" end
+            return problems, seen
+        end
+
         it("filters every tail, head, grep, ls or docker logs of shot or simulator output before the log", function()
             local seen = 0
             for _, job in ipairs(order) do
                 for _, step in ipairs(job.steps) do
-                    -- Lines in a { ... } block count as filtered only if the
-                    -- block ends "} 2>&1 | shown", or goes to the step
-                    -- summary, a page the runner doesn't read for commands.
-                    local block
-                    local function check(line, filtered)
-                        seen = seen + 1
-                        local toFile = line:find('%s>%s*"%$RUNNER_TEMP/')
-                        -- Kept as digits only, in a variable (#173): no command can be made of those.
-                        filtered = filtered or line:find("^%s*[%w_]+=%$%([^);&]*| tr %-cd '0%-9'%)%s*|| true%s*$") ~= nil
-                            or line:find("^%s*[%w_]+=%$%([^);&]*| tr %-cd '0%-9'%)%s*$") ~= nil
-                        assert.is_truthy(filtered or toFile or line:find("| shown", 1, true),
-                            job.name .. " prints unfiltered output: " .. line)
-                        -- docker logs replays the container's stderr on its own.
-                        if not filtered and not toFile and line:find("docker %l+ ") then
-                            assert.is_truthy(line:find("2>&1 |", 1, true),
-                                job.name .. " filters only stdout: " .. line)
-                        end
-                    end
-                    for _, line in ipairs(splitLines((step.text:gsub("\\\n%s*", " ")))) do
-                        if line:match("^%s*{%s*$") then
-                            block = {}
-                        elseif block and line:match("^%s*}") then
-                            local filtered = line:match("^%s*} 2>&1 | shown%s*$")
-                                or line:match('^%s*} >> "%$GITHUB_STEP_SUMMARY"%s*$')
-                            for _, held in ipairs(block) do check(held, filtered ~= nil) end
-                            block = nil
-                        elseif printsOutput(line) then
-                            if block then block[#block + 1] = line else check(line, false) end
-                        end
-                    end
-                    assert.is_nil(block, job.name .. " has a { block that never ends")
+                    local problems, count = scan(step.text)
+                    assert.are.same({}, problems, job.name)
+                    seen = seen + count
                 end
             end
             assert.is_true(seen >= 10, "expected the report, digest, shot log and docker logs prints, found " .. seen)
+            -- A step that starts elsewhere would escape treeAfter (#356).
+            assert.is_falsy(text:find("working%-directory:"), "a step starts in another directory")
+        end)
+
+        -- #356: after a cd into a fetched tree, a reader prints what the tree
+        -- holds with no source on its line, so the scan follows the step's cd.
+        describe("follows a cd into a fetched tree (#356)", function()
+            it("flags a bare ls after a cd into the tree, and passes it filtered (red)", function()
+                local problems = scan('run: |\n  cd "$ui/Interface/AddOns"\n  ls\n')
+                assert.are.same({ "prints unfiltered output:   ls" }, problems)
+                assert.are.same({}, (scan('run: |\n  cd "$ui/Interface/AddOns"\n  ls 2>&1 | shown\n')))
+            end)
+
+            it("flags each of ls, cat, find, head and tail in the tree, however the cd is written (red)", function()
+                for _, cd in ipairs({ 'cd "$ui/Interface/AddOns"', "cd $ui", 'cd "${RUNNER_TEMP}/sim"', 'cd "$RUNNER_TEMP"/sim/data',
+                    'pushd "$ui"', "cd $RUNNER_TEMP/shots" }) do
+                    for _, reader in ipairs({ "ls -la", "cat Blizzard.toc", "find . -name '*.lua'", "head -n 5 x.lua",
+                        "tail x.lua", "ls" }) do
+                        local problems = scan("run: |\n  " .. cd .. "\n  echo moving\n  " .. reader .. "\n")
+                        assert.are.equal(1, #problems, cd .. " / " .. reader)
+                    end
+                end
+            end)
+
+            it("follows a cd anywhere in a line, and a reader after it on the same line (red)", function()
+                assert.are.equal(1, #scan('run: |\n  cd "$ui" && ls\n'))
+                assert.are.equal(1, #scan('run: |\n  ( cd "$ui"; cat x )\n'))
+                assert.are.equal(1, #scan('run: |\n  mkdir -p x && cd "$ui"\n  ls\n'))
+                -- After a reserved word or a brace (#356's testing review).
+                for _, step in ipairs({ 'if cd "$ui/Interface/AddOns"; then\n  ls\n  fi', 'if [ -d "$ui" ]; then cd "$ui"; fi\n  ls',
+                    '{ cd "$ui" && ls; }', 'for d in a b; do cd "$ui/$d"; done\n  ls', 'while ! cd "$ui"; do sleep 1; done\n  ls',
+                    'if true; then :; else cd "$ui"; fi\n  ls', 'time cd "$ui"\n  ls', '! cd "$ui"\n  ls',
+                    'if false; then :; elif cd "$ui"; then :; fi\n  ls', 'until cd "$ui"; do sleep 1; done\n  ls' }) do
+                    assert.are.equal(1, #scan('run: |\n  cd "$out"\n  ' .. step .. "\n"), step)
+                end
+                -- tr -cd and a word starting "cd" aren't a cd.
+                assert.are.same({}, (scan('run: |\n  cd "$out"\n  n=$(tr -cd a-z < f)\n  cdrecord $ui\n  ls\n')))
+            end)
+
+            it("counts a cd into $RUNNER_TEMP, or a relative cd from anywhere, as inside (red)", function()
+                -- $RUNNER_TEMP holds every fetched and sandboxed tree: shots, sim, blizzard-ui.
+                for _, cd in ipairs({ 'cd "$RUNNER_TEMP"', "cd $RUNNER_TEMP", 'cd "${RUNNER_TEMP}"', 'cd "$RUNNER_TEMP"/x',
+                    'pushd "$RUNNER_TEMP" > /dev/null 2>&1' }) do
+                    assert.are.equal(1, #scan("run: |\n  " .. cd .. "\n  cd shots\n  ls\n"), cd)
+                    assert.are.equal(1, #scan("run: |\n  " .. cd .. "\n  ls -laq shots shot-logs\n"), cd)
+                    assert.are.equal(1, #scan("run: |\n  " .. cd .. "\n  find . -name x\n"), cd)
+                end
+                assert.are.equal(1, #scan('run: |\n  cd shots\n  ls\n'))
+                -- A command substitution can lead anywhere (#356's round-3 review).
+                for _, cd in ipairs({ 'cd "$(dirname "$pin")"', 'cd "$(dirname "$manifest")"',
+                    'cd "$(git -C "$ui" rev-parse --show-toplevel)"', "cd $(dirname $RUNNER_TEMP/shots/x)", "cd `pwd`" }) do
+                    assert.are.equal(1, #scan('run: |\n  cd "$out"\n  ' .. cd .. "\n  ls\n"), cd)
+                end
+                -- popd and a bare or numbered pushd go back to a place the scan doesn't track.
+                for _, back in ipairs({ "popd > /dev/null", "popd", "pushd", "pushd +1", "popd -n" }) do
+                    assert.are.equal(1, #scan('run: |\n  cd "$ui"\n  pushd "$out" > /dev/null\n  ' .. back .. "\n  ls\n"),
+                        back)
+                end
+                assert.are.equal(1, #scan('run: |\n  cd "$out"\n  cd -\n  ls\n'))
+                assert.are.same({}, (scan('run: |\n  cd "$RUNNER_TEMP_X"\n  ls\n')))
+            end)
+
+            it("stays inside after a relative cd, and leaves on a cd elsewhere (red, white)", function()
+                assert.are.equal(1, #scan('run: |\n  cd "$ui"\n  cd Interface/AddOns\n  cd ..\n  ls\n'))
+                assert.are.equal(1, #scan('run: |\n  cd "$ui"\n  cd -\n  cat x\n'))
+                assert.are.same({}, (scan('run: |\n  cd "$ui"\n  cd "$out"\n  ls\n')))
+                assert.are.same({}, (scan('run: |\n  cd "$ui"\n  cd /tmp\n  ls\n')))
+                assert.are.same({}, (scan('run: |\n  cd "$ui"\n  cd\n  ls\n')))
+                -- Outside any fetched tree, a bare reader is the existing rules' business.
+                assert.are.same({}, (scan('run: |\n  cd "$out"\n  ls\n  cat README.md\n')))
+            end)
+
+            it("counts output thrown away, both streams, as filtered, and stdout alone as not (white, red)", function()
+                assert.are.same({}, (scan('run: |\n  cd "$ui"\n  ls > /dev/null 2>&1\n  cat x &> /dev/null\n')))
+                assert.are.equal(1, #scan('run: |\n  cd "$ui"\n  ls > /dev/null\n'))
+                assert.are.equal(1, #scan('run: |\n  cd "$ui"\n  ls 2> /dev/null\n'))
+            end)
+
+            it("checks the fetch step's real cd into Blizzard's tree (white)", function()
+                local fetch
+                for _, step in ipairs(jobs.simulator.steps) do
+                    if step.text:find('\n%s*cd "%$ui/Interface/AddOns"\n') then fetch = step.text end
+                end
+                assert.is_truthy(fetch, "no step cds into Blizzard's tree")
+                assert.are.same({}, (scan(fetch)))
+                local leaky = fetch:gsub('(\n(%s*)cd "%$ui/Interface/AddOns"\n)', "%1%2ls\n", 1)
+                assert.are.same({ "prints unfiltered output:           ls" }, (scan(leaky)))
+            end)
+        end)
+
+        -- #164: the simulator's runs print only into files: sandbox() and
+        -- sized() are only ever called by attempt(), which sends both of
+        -- their streams to its files.
+        it("runs the simulator and its layout passes only through attempt, which sends their output to files (black)", function()
+            local step
+            for _, job in ipairs(order) do
+                for _, candidate in ipairs(job.steps) do
+                    if candidate.text:find("\n%s*sandbox%(%) {") then step = candidate end
+                end
+            end
+            assert.is_truthy(step, "no step defines sandbox()")
+            assert.is_truthy(step.text:find('"$@" > "$out" 2> "$err"', 1, true), "attempt doesn't send both streams to files")
+            assert.is_truthy(step.text:find('"$@" > "$out" 2>&1', 1, true), "attempt doesn't send both streams to a file")
+            local calls = 0
+            for _, line in ipairs(splitLines(step.text)) do
+                if (line:find("%f[%w]sandbox%s+%S") or line:find("%f[%w]sized%s+%S")) and not line:find("%(%)") then
+                    calls = calls + 1
+                    assert.is_truthy(line:match("^%s*attempt%s"), "called outside attempt: " .. line)
+                end
+            end
+            assert.is_true(calls >= 4, "expected the simulator's runs, found " .. calls)
+        end)
+
+        -- #164: foreground docker runs, cargo in them, and diff or ls-tree of
+        -- fetched content are caught by the scan (the cases it must not miss).
+        it("counts a foreground docker run, cargo, diff and ls-tree as printing output (black)", function()
+            assert.is_true(printsOutput("docker run --rm ff-build cargo build --release"))
+            assert.is_true(printsOutput('timeout 300 docker run --rm ff-build cargo fetch --locked'))
+            assert.is_true(printsOutput('diff -u <(sort "$manifest") <(sort "$other")'))
+            assert.is_true(printsOutput('git -C "$ui" ls-tree -r --name-only HEAD Interface/AddOns/'))
+            assert.is_true(printsOutput('git -C "$ui" ls-files Interface/AddOns/'))
+            assert.is_true(printsOutput("git ls-files"))
+            assert.is_true(printsOutput("  git log --oneline"))
+            assert.is_true(printsOutput("git diff"))
+            assert.is_true(printsOutput("git status"))
+            assert.is_true(printsOutput('git -C "$RUNNER_TEMP/sim" show HEAD:README'))
+            assert.is_true(printsOutput('ls "$RUNNER_TEMP/sim/data/blizzard-ui-files"'))
+            assert.is_true(printsOutput('cat "$pin"'))
+            assert.is_false(printsOutput('grep -qF "\\"version\\": 1" "$pin"'))
+            assert.is_false(printsOutput('git -C "$ui" checkout -q --detach FETCH_HEAD'))
+            assert.is_false(printsOutput('list=$(git -c core.quotePath=false diff --name-only "$base" HEAD) || true'))
+            assert.is_false(printsOutput('docker run -d --name ff-proxy --cap-drop ALL ff-proxy'))
+        end)
+
+        -- #164, #317: the fetch and build steps, which print what outside code
+        -- chooses, filter it, and keep the exit status through the filter.
+        it("filters the build steps' output and keeps their exit status (black)", function()
+            local filtered = 0
+            for _, job in ipairs(order) do
+                for _, step in ipairs(job.steps) do
+                    if step.text:find("ff%-build cargo ") then
+                        filtered = filtered + 1
+                        assert.is_truthy(step.text:find("\n%s*set %-o pipefail\n"), "a step pipes cargo into shown without pipefail")
+                        local joined = step.text:gsub("\\\n%s*", " ")
+                        assert.is_truthy(joined:find("ff%-build cargo %w+[^\n]* 2>&1 | shown\n"), "cargo's output isn't filtered")
+                    end
+                end
+            end
+            assert.are.equal(2, filtered, "expected cargo fetch and cargo build")
+        end)
+
+        -- #317: the fetch step compares Blizzard's tree with the simulator's
+        -- file list. Run its own shell on a made-up tree and list.
+        describe("the fetch step's tree comparison", function()
+            local function compare(manifestText, files)
+                local fetch
+                for _, step in ipairs(jobs.simulator.steps) do
+                    if step.text:find("tree-diff.txt", 1, true) then fetch = step.text end
+                end
+                assert.is_truthy(fetch, "no fetch step compares the tree")
+                local definition = fetch:match("\n%s*(shown%(%) {[^\n]*})\n")
+                local snippet = fetch:match('\n(%s*manifest="%$RUNNER_TEMP[^\n]*\n.-\n%s*exit 1\n%s*})')
+                assert.is_truthy(definition, "no shown() in the fetch step")
+                assert.is_truthy(snippet, "the comparison isn't where this test looks")
+                local dir = os.tmpname()
+                os.remove(dir)
+                local ui = dir .. "/ui"
+                local manifest = dir .. "/sim/data/blizzard-ui-files/p.txt"
+                os.execute("mkdir -p '" .. dir .. "/sim/data/blizzard-ui-files' '" .. ui .. "'")
+                local m = assert(io.open(manifest, "wb"))
+                m:write(manifestText)
+                m:close()
+                local list = {}
+                for _, name in ipairs(files) do
+                    list[#list + 1] = "mkdir -p \"$(dirname 'Interface/AddOns/" .. name .. "')\" && : > 'Interface/AddOns/" .. name .. "'"
+                end
+                local script = dir .. "/run.sh"
+                local f = assert(io.open(script, "w"))
+                f:write("set -e\ncd '", ui, "'\ngit init -q .\n", table.concat(list, "\n"),
+                    "\ngit add -A\ngit -c user.name=t -c user.email=t@t commit -q -m t\n",
+                    "export RUNNER_TEMP='", dir, "' SIM_PROFILE=p\nui='", ui, "'\n", definition, "\n", snippet, "\necho reached-end\n")
+                f:close()
+                local p = io.popen("bash -e '" .. script .. "' 2>&1; echo \"exit $?\"")
+                local out = p:read("*a")
+                p:close()
+                os.execute("rm -rf '" .. dir .. "'")
+                return out
+            end
+
+            it("passes and prints nothing when the file list and the tree match (white)", function()
+                local out = compare("Blizzard_A/a.lua\nBlizzard_B/b.lua\n", { "Blizzard_A/a.lua", "Blizzard_B/b.lua" })
+                assert.are.equal("reached-end\nexit 0\n", out)
+            end)
+
+            it("fails when they differ, and marks every name it prints (black)", function()
+                local out = compare("Blizzard_A/a.lua\nBlizzard_B/b.lua\n", { "Blizzard_A/a.lua", "Blizzard_C/c.lua" })
+                assert.is_truthy(out:find("exit 1\n$"), "the step didn't fail: " .. out)
+                assert.is_falsy(out:find("reached-end", 1, true), "the step went on after a difference")
+                assert.is_truthy(out:find("| -Blizzard_B/b.lua", 1, true), "a missing name isn't shown, marked: " .. out)
+                assert.is_truthy(out:find("| +Blizzard_C/c.lua", 1, true), "an extra name isn't shown, marked: " .. out)
+            end)
+
+            it("never lets a hostile name be read as a workflow command (black)", function()
+                local manifestText = "::error::one.lua\n   ::warning::two.lua\nx##[set-env name=A;]y.lua\nsplit\r::error::three.lua\n"
+                local out = compare(manifestText, { "Blizzard_A/a.lua" })
+                assert.is_truthy(out:find("exit 1\n$"), "the step didn't fail: " .. out)
+                for _, word in ipairs({ "one.lua", "two.lua", "set-env", "three.lua" }) do
+                    assert.is_truthy(out:find(word, 1, true), "a name was lost: " .. word)
+                end
+                for i, line in ipairs(runnerLines(out)) do
+                    assert.is_falsy(line:match("^%s*::"), "output line " .. i .. " is read as a command")
+                    assert.is_falsy(line:find("##[", 1, true), "output line " .. i .. " is read as an old-style command")
+                end
+            end)
+
+            it("cuts a difference of a few very long lines to a sane size (black)", function()
+                local names = {}
+                for i = 1, 10 do names[#names + 1] = "Blizzard_A/" .. ("n"):rep(5000) .. i .. ".lua" end
+                local out = compare(table.concat(names, "\n") .. "\n", { "Blizzard_Z/z.lua" })
+                assert.is_true(#out < 21000, "the difference isn't cut by size: " .. #out .. " bytes")
+                assert.is_truthy(out:find("exit 1\n$"), "the step didn't fail")
+            end)
+
+            it("cuts a long difference to a sane size (black)", function()
+                local names = {}
+                for i = 1, 2000 do names[#names + 1] = "Blizzard_A/" .. ("n"):rep(40) .. i .. ".lua" end
+                local out = compare(table.concat(names, "\n") .. "\n", { "Blizzard_Z/z.lua" })
+                assert.is_true(#out < 21000, "the difference isn't cut: " .. #out .. " bytes")
+                assert.is_truthy(out:find("exit 1\n$"), "the step didn't fail")
+            end)
+        end)
+
+        it("keeps a failing producer's exit status through shown, as the steps do (black)", function()
+            local definition = wow.readFile(path):match("\n%s*(shown%(%) {[^\n]*})\n")
+            local script = os.tmpname()
+            local f = assert(io.open(script, "w"))
+            f:write("set -e\n", definition, "\nset -o pipefail\n(echo '##[error]x'; exit 3) 2>&1 | shown\necho survived\n")
+            f:close()
+            local p = io.popen("bash '" .. script .. "' 2>&1; echo \"exit $?\"")
+            local out = p:read("*a")
+            p:close()
+            os.remove(script)
+            assert.is_truthy(out:find("exit 3", 1, true), "the producer's failure was hidden: " .. out)
+            assert.is_falsy(out:find("survived", 1, true), "the step went on after a failure")
+            assert.is_falsy(out:find("##[", 1, true), "a workflow command mark got through")
         end)
 
         it("defines shown() the same way in every step that uses it", function()
@@ -2109,24 +2639,10 @@ describe("UI screenshots clean-up workflow", function()
         jobs, order = parseWorkflow(path)
     end)
 
-    -- A step's run: | block, as the shell gets it.
+    -- The job's one step's run: | block, as the shell gets it.
     local function runBlock(job)
         assert.are.equal(1, #job.steps, job.name .. " should have one step")
-        local body, indent = {}, nil
-        local inRun = false
-        for _, line in ipairs(splitLines(job.steps[1].text)) do
-            if inRun then
-                if not line:match("^%s*$") then
-                    indent = indent or indentOf(line)
-                    if indentOf(line) < indent then break end
-                end
-                body[#body + 1] = line:sub((indent or 0) + 1)
-            elseif line:match("^%s*run: |%s*$") then
-                inRun = true
-            end
-        end
-        assert.is_true(#body > 0, job.name .. " has no run: | block")
-        return (table.concat(body, "\n"):gsub("%s+$", "")) .. "\n"
+        return runOf(job.steps[1], job.name)
     end
 
     local function nameCheck(job)
@@ -2134,104 +2650,6 @@ describe("UI screenshots clean-up workflow", function()
         local block = runBlock(job):match("pr_of_branch%(%) {\n.-\ndelete_branch%(%) {\n.-\n}\n")
         assert.is_truthy(block, job.name .. " has no name check")
         return block
-    end
-
-    local function quote(value) return "'" .. value:gsub("'", "'\\''") .. "'" end
-
-    local function write(file, content)
-        local handle = assert(io.open(file, "w"))
-        handle:write(content)
-        handle:close()
-    end
-
-    local function read(file)
-        local handle = io.open(file, "r")
-        if not handle then return "" end
-        local content = handle:read("*a")
-        handle:close()
-        return content
-    end
-
-    -- A stand-in for curl that answers like GitHub's API from files in its
-    -- folder, and logs each call ("METHOD URL") and the config it read. Like
-    -- curl, it reads its config from stdin only with -K -, writes the body
-    -- unless -o /dev/null (and, with -f, not for a status of 400 or more),
-    -- writes the status only with -w '%{http_code}', and with -f exits 22 on
-    -- a status of 400 or more. A request without the token gets 401.
-    local fakeCurl = [=[#!/bin/bash
-dir=$(dirname "$0")
-method=GET url= config= out= format= fail=
-while [ $# -gt 0 ]; do
-  case "$1" in
-    -X) method=$2; shift ;;
-    -K) [ "$2" = - ] && config=$(cat); shift ;;
-    -o) out=$2; shift ;;
-    -w) format=$2; shift ;;
-    -H) shift ;;
-    --*) ;;
-    -*f*) fail=1 ;;
-    -*) ;;
-    *) url=$1 ;;
-  esac
-  shift
-done
-echo "$method $url" >> "$dir/calls"
-[ -n "$config" ] && printf '%s\n' "$config" >> "$dir/stdin"
-body= status=404
-if [ "$config" != 'header = "Authorization: Bearer secret-token-123"' ]; then
-  status=401 body='{"message":"Requires authentication"}'
-else
-  case "$method $url" in
-    "DELETE "*/git/refs/heads/ui-screenshots/pr-*)
-      n=${url##*/pr-}
-      status=204
-      if [ -f "$dir/delete-$n" ]; then status=$(cat "$dir/delete-$n"); fi
-      if [ "$status" = unreachable ]; then
-        [ "$format" = '%{http_code}' ] && printf 000
-        exit 7
-      fi
-      [ "$status" = 204 ] || body='{"message":"Reference does not exist"}' ;;
-    "GET "*/git/matching-refs/heads/ui-screenshots/)
-      if [ -f "$dir/refs.json" ]; then status=200 body=$(cat "$dir/refs.json"); fi ;;
-    "GET "*/pulls/*)
-      n=${url##*/pulls/}
-      if [ -f "$dir/pr-$n" ]; then
-        status=200 body=$(printf '{"number":%s,"state":"%s"}' "$n" "$(cat "$dir/pr-$n")")
-      fi ;;
-  esac
-fi
-[ "$status" -ge 400 ] && [ -z "$body" ] && body='{"message":"Not Found"}'
-if [ "$out" != /dev/null ] && ! { [ -n "$fail" ] && [ "$status" -ge 400 ]; }; then printf '%s' "$body"; fi
-[ "$format" = '%{http_code}' ] && printf '%s' "$status"
-if [ -n "$fail" ] && [ "$status" -ge 400 ]; then exit 22; fi
-exit 0
-]=]
-
-    -- Runs a script as GitHub Actions runs a step with shell: bash (bash
-    -- --noprofile --norc -eo pipefail), with the fake curl first on PATH.
-    -- files are written next to it first.
-    -- Returns the exit code, the output, the curl calls, what curl read on
-    -- stdin, and the step summary.
-    local function runStep(script, env, files)
-        local dir = os.tmpname()
-        os.remove(dir)
-        os.execute('mkdir -p "' .. dir .. '/bin"')
-        write(dir .. "/bin/curl", fakeCurl)
-        os.execute('chmod +x "' .. dir .. '/bin/curl"')
-        for name, content in pairs(files or {}) do write(dir .. "/bin/" .. name, content) end
-        local exports = { 'export PATH="' .. dir .. '/bin:$PATH"', "export GITHUB_API_URL=https://api.test",
-            'export GITHUB_STEP_SUMMARY="' .. dir .. '/summary"', "export REPO=owner/repo",
-            "export TOKEN=secret-token-123" }
-        for key, value in pairs(env or {}) do exports[#exports + 1] = "export " .. key .. "=" .. quote(value) end
-        write(dir .. "/step.sh", table.concat(exports, "\n") .. "\n" .. script)
-        local p = io.popen('bash --noprofile --norc -eo pipefail "' .. dir .. '/step.sh" < /dev/null 2>&1; echo "exit=$?"')
-        local output = p:read("*a")
-        p:close()
-        local code = tonumber(output:match("exit=(%d+)\n$"))
-        output = output:gsub("exit=%d+\n$", "")
-        local calls, stdin, summary = read(dir .. "/bin/calls"), read(dir .. "/bin/stdin"), read(dir .. "/summary")
-        os.execute('rm -rf "' .. dir .. '"')
-        return code, output, calls, stdin, summary
     end
 
     it("runs on closed pull requests and by hand, never on pull_request_target", function()
@@ -2324,7 +2742,7 @@ exit 0
 
     describe("close-time job", function()
         local function close(pr, files)
-            return runStep(runBlock(jobs["delete-on-close"]), { PR = pr }, files)
+            return runWithCurl(runBlock(jobs["delete-on-close"]), { PR = pr }, files)
         end
 
         it("deletes the closed pull request's branch, passing the token on stdin only", function()
@@ -2368,7 +2786,7 @@ exit 0
     describe("name check", function()
         local function prOf(branch)
             local script = nameCheck(jobs.sweep) .. "pr_of_branch " .. quote(branch) .. "\n"
-            local code, output = runStep(script)
+            local code, output = runWithCurl(script)
             return code == 0 and output:gsub("\n$", "") or nil
         end
 
@@ -2394,7 +2812,7 @@ exit 0
         end
 
         local function sweep(files)
-            return runStep(runBlock(jobs.sweep), {}, files)
+            return runWithCurl(runBlock(jobs.sweep), {}, files)
         end
 
         it("deletes the branches of closed pull requests only, and keeps the rest", function()

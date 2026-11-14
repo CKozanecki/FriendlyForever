@@ -144,6 +144,22 @@ Walkthrough.STEPS = {
         end,
     },
     {
+        -- Buff requests in chat (#40): off by default, so a returning
+        -- player hears it exists and how to turn it on (the owner's decision).
+        since = 2,
+        title = "Buff requests in chat",
+        open = function() ns.Options.OpenTab("buffBack", "buffRequests") end,
+        text = function()
+            return "Players can ask for your buffs in chat. When someone whispers you, or says in /say or "
+                .. "party chat, a short request such as \"mark pls\" or \"can I get int?\", the buff-back button "
+                .. "offers them that buff. "
+                .. "It never casts by itself: you still press the button. Nothing is said in chat.\n\n"
+                .. "It's off unless you turn it on: tick \"" .. ns.Requests.LABEL .. "\" on the Buff Back tab. "
+                .. "It's " .. OnOff(Section("buffBack").requests) .. " now. Your ignore list, snooze and the "
+                .. "quiet in capital cities and battlegrounds apply."
+        end,
+    },
+    {
         since = 1,
         title = "That's it",
         open = function() ns.Options.OpenStart() end,

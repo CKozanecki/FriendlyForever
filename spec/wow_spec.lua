@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296
+-- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -664,6 +664,117 @@ describe("The simulated client's frame sizes and line heights (#270)", function(
     end)
 end)
 
+describe("The simulated client's party1..4 in a raid (#322)", function()
+    local function raid()
+        wow.boot()
+        wow.setGroup("raid", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill" })
+    end
+
+    it("are the other members of your own subgroup, the same units as their raid slots (white)", function()
+        raid()
+        wow.state.units.raid2.subgroup = 2
+        wow.state.units.raid4.subgroup = 2
+        local names = {}
+        for n = 1, 4 do
+            local u = wow.state.units["party" .. n]
+            names[n] = u and u.id or false
+        end
+        assert.are.same({ "Ann-Vale", "Cid-Rock", "Eve-Hill", false }, names)
+        assert.is_true(_G.UnitIsUnit("party1", "raid1"))
+        assert.is_true(_G.UnitExists("party3"))
+        assert.is_false(_G.UnitExists("party4"))
+        assert.is_false(_G.UnitIsUnit("party1", "player"))
+    end)
+
+    it("follow a member who changes subgroup, and your own subgroup (white)", function()
+        raid()
+        wow.state.units.raid1.subgroup = 2
+        assert.are.equal("Bo-Fern", wow.state.units.party1.id)
+        wow.state.units.player.subgroup = 2
+        assert.are.equal("Ann-Vale", wow.state.units.party1.id)
+        assert.is_nil(wow.state.units.party2)
+    end)
+
+    it("don't exist in a party's own sense, or with no group (black)", function()
+        wow.boot()
+        assert.is_nil(wow.state.units.party1)
+        wow.setGroup("party", { "Ann-Vale" })
+        assert.are.equal("Ann-Vale", wow.state.units.party1.id)
+        assert.is_nil(wow.state.units.party2)
+        wow.setGroup("raid", {})
+        assert.is_nil(wow.state.units.party1)
+    end)
+
+    it("are never keys of state.units, so a walk of it sees each member once (black)", function()
+        raid()
+        for token in pairs(wow.state.units) do assert.is_nil(token:find("^party")) end
+    end)
+end)
+
+describe("The simulated client's unreadable IsInRaid and IsInGroup (#322)", function()
+    it("answer secrets only when their flag is set (white)", function()
+        wow.boot()
+        wow.setGroup("raid", { "Ann-Vale" })
+        assert.is_false(_G.issecretvalue(_G.IsInRaid()))
+        assert.is_false(_G.issecretvalue(_G.IsInGroup()))
+        assert.is_true(_G.IsInRaid())
+        wow.state.inRaidUnreadable = true
+        assert.is_true(_G.issecretvalue(_G.IsInRaid()))
+        assert.is_false(_G.issecretvalue(_G.IsInGroup()))
+        wow.state.inRaidUnreadable = nil
+        wow.state.inGroupUnreadable = true
+        assert.is_true(_G.issecretvalue(_G.IsInGroup()))
+        assert.is_true(_G.issecretvalue(_G.IsInGroup(_G.LE_PARTY_CATEGORY_HOME)))
+        assert.is_false(_G.issecretvalue(_G.IsInRaid()))
+    end)
+end)
+
+describe("The simulated client's Button:Click (#285)", function()
+    before_each(function() wow.boot() end)
+
+    it("runs PreClick, OnClick and PostClick in that order, down false by default (white)", function()
+        local button = CreateFrame("Button", nil, UIParent)
+        local seen = {}
+        for _, name in ipairs({ "PreClick", "OnClick", "PostClick" }) do
+            button:SetScript(name, function(_, mouseButton, down)
+                seen[#seen + 1] = { name, mouseButton, down }
+            end)
+        end
+        button:Click()
+        button:Click("RightButton", true)
+        assert.are.same({
+            { "PreClick", "LeftButton", false }, { "OnClick", "LeftButton", false },
+            { "PostClick", "LeftButton", false },
+            { "PreClick", "RightButton", true }, { "OnClick", "RightButton", true },
+            { "PostClick", "RightButton", true },
+        }, seen)
+    end)
+
+    it("takes down as true only for true, and is no hardware event (white)", function()
+        local button = CreateFrame("Button", nil, UIParent)
+        local downs, hardware = {}, {}
+        button:SetScript("PreClick", function(_, _, down)
+            downs[#downs + 1] = down
+            hardware[#hardware + 1] = wow.hardware
+        end)
+        button:Click("LeftButton", 1)
+        button:Click("LeftButton", false)
+        assert.are.same({ false, false }, downs)
+        assert.are.same({ false, false }, hardware)
+    end)
+
+    it("runs nothing on a disabled button, and doesn't mind a button with no scripts (black)", function()
+        local button = CreateFrame("Button", nil, UIParent)
+        local ran = 0
+        button:SetScript("PreClick", function() ran = ran + 1 end)
+        button:SetEnabled(false)
+        button:Click()
+        assert.are.equal(0, ran)
+        local bare = CreateFrame("Button", nil, UIParent)
+        assert.has_no.errors(function() bare:Click("LeftButton", true) end)
+    end)
+end)
+
 describe("The simulated client's fidelity fixes (#255, #260, #265, #296)", function()
     local function bootRaid(opts)
         wow.boot({ before = function(state)
@@ -858,5 +969,166 @@ describe("The simulated client's fidelity fixes (#255, #260, #265, #296)", funct
             wow.advance(wow.BREATH_REFILL_SECONDS + 1)
             assert.is_nil(wow.state.breath)
         end)
+    end)
+end)
+
+describe("The simulated client's self-buffs (#44)", function()
+    local HAWK, MONKEY, DEVOTION, ICE, MAGE_ARMOR, INNER_FIRE = 25296, 13163, 10293, 10220, 22783, 10952
+    before_each(function()
+        wow.boot({ before = function(state)
+            state.knownSpells = { [HAWK] = true, [MONKEY] = true, [DEVOTION] = true, [ICE] = true,
+                [MAGE_ARMOR] = true, [INNER_FIRE] = true }
+        end })
+    end)
+
+    local function mine()
+        local out = {}
+        for _, a in ipairs(wow.state.playerAuras) do out[#out + 1] = a.spellId end
+        return out
+    end
+
+    it("answers what you're doing from its state, and as secrets when asked (white)", function()
+        assert.is_false(_G.IsMounted())
+        assert.is_false(_G.UnitOnTaxi("player"))
+        assert.are.equal(0, _G.GetShapeshiftForm())
+        assert.are.equal("MANA", select(2, _G.UnitPowerType("player")))
+        wow.state.mounted, wow.state.onTaxi, wow.state.form, wow.state.powerType = true, true, 1, "RAGE"
+        assert.is_true(_G.IsMounted())
+        assert.is_true(_G.UnitOnTaxi("player"))
+        assert.are.equal(1, _G.GetShapeshiftForm())
+        assert.are.same({ 1, "RAGE" }, { _G.UnitPowerType("player") })
+        wow.state.selfSecrets = { mounted = true, taxi = true, form = true, power = true }
+        assert.is_true(_G.issecretvalue(_G.IsMounted()))
+        assert.is_true(_G.issecretvalue(_G.UnitOnTaxi("player")))
+        assert.is_true(_G.issecretvalue(_G.GetShapeshiftForm()))
+        assert.is_true(_G.issecretvalue(select(2, _G.UnitPowerType("player"))))
+    end)
+
+    it("answers the usable check by ID or known name, from state.unusable (white)", function()
+        assert.are.same({ true, false }, { _G.C_Spell.IsSpellUsable(INNER_FIRE) })
+        assert.are.same({ true, false }, { _G.IsUsableSpell("Inner Fire") })
+        wow.state.unusable["Inner Fire"] = "power"
+        assert.are.same({ false, true }, { _G.C_Spell.IsSpellUsable(INNER_FIRE) })
+        wow.state.unusable["Inner Fire"] = "other"
+        assert.are.same({ false, false }, { _G.C_Spell.IsSpellUsable(INNER_FIRE) })
+        assert.are.same({ false, false }, { _G.C_Spell.IsSpellUsable(10220 + 1) }, "a spell nobody knows")
+        wow.state.selfSecrets.usable = true
+        assert.is_true(_G.issecretvalue(_G.C_Spell.IsSpellUsable(INNER_FIRE)))
+    end)
+
+    it("fails the cast of a spell the game says can't be cast now (white)", function()
+        wow.state.unusable["Inner Fire"] = "power"
+        wow.runMacro("/cast [@player,nodead] Inner Fire")
+        assert.are.equal("Not enough mana", wow.casts[#wow.casts].failed)
+        assert.are.same({}, mine())
+    end)
+
+    it("puts a self-buff on you, from you, replacing others of its family (white)", function()
+        wow.runMacro("/cast [@player,nodead] Ice Armor")
+        assert.are.same({ ICE }, mine())
+        assert.are.equal("player", wow.state.playerAuras[1].sourceUnit)
+        assert.are.equal(wow.now + 1800, wow.state.playerAuras[1].expirationTime)
+        wow.runMacro("/cast [@player,nodead] Mage Armor")
+        assert.are.same({ MAGE_ARMOR }, mine())
+        wow.runMacro("/cast [@player,nodead] Inner Fire")
+        assert.are.same({ MAGE_ARMOR, INNER_FIRE }, mine())
+    end)
+
+    it("a toggle never runs out; \"!\" casts nothing while it's on, and without it the cast switches it off (white)",
+        function()
+        wow.runMacro("/cast [@player,nodead] !Aspect of the Hawk")
+        assert.are.same({ HAWK }, mine())
+        assert.are.equal(0, wow.state.playerAuras[1].expirationTime)
+        local casts = #wow.casts
+        wow.runMacro("/cast [@player,nodead] !Aspect of the Hawk")
+        assert.are.equal(casts, #wow.casts)
+        assert.are.same({ HAWK }, mine())
+        wow.runMacro("/cast [@player,nodead] !Aspect of the Monkey")
+        assert.are.same({ MONKEY }, mine(), "one Aspect at a time")
+        wow.runMacro("/cast [@player,nodead] Aspect of the Monkey")
+        assert.is_true(wow.casts[#wow.casts].toggledOff)
+        assert.are.same({}, mine())
+    end)
+
+    it("shows the aura only after the server's answer, and later still with state.auraDelay (white)", function()
+        wow.state.auraDelay = 2
+        wow.runMacro("/cast [@player,nodead] Inner Fire")
+        assert.are.same({}, mine())
+        wow.advance(2)
+        assert.are.same({ INNER_FIRE }, mine())
+    end)
+
+    it("drops your own buff past its time only when state.expirePlayerAuras is set (white)", function()
+        wow.runMacro("/cast [@player,nodead] Inner Fire")
+        wow.advance(601)
+        assert.is_not_nil(_G.C_UnitAuras.GetAuraDataByIndex("player", 1, "HELPFUL"))
+        wow.state.expirePlayerAuras = true
+        assert.is_nil(_G.C_UnitAuras.GetAuraDataByIndex("player", 1, "HELPFUL"))
+    end)
+
+    it("selfBuffTable adds the self-buffs at Classic's IDs, highest rank first, and Cheetah, Pack and Beast "
+        .. "as Aspects (white)", function()
+        local t = wow.selfBuffTable()
+        local keys = {}
+        for _, list in pairs(t.classes) do
+            for _, buff in ipairs(list) do keys[buff.key] = buff end
+        end
+        assert.are.same({ 10952, 10951, 1006, 602, 7128, 588 }, keys.innerfire.ranks)
+        assert.are.same({ 10220, 10219, 7320, 7302, 7301, 7300, 168 }, keys.icearmor.ranks)
+        assert.is_true(keys.devotion.toggle)
+        assert.are.equal("aura", keys.devotion.family)
+        assert.is_true(keys.righteousfury.defaultNever)
+        assert.are.same({ 5118, 13159, 13161 }, t.familyAuras.aspect)
+        for _, key in ipairs(t.absent) do assert.is_nil(keys[key], key) end
+        assert.are_not.equal(t, wow.selfBuffTable(), "a fresh copy each call")
+    end)
+end)
+
+describe("The simulated client's chat from players (#40)", function()
+    it("fires a whisper and a /say with the game's argument list, text then sender", function()
+        wow.boot()
+        local seen = {}
+        local frame = CreateFrame("Frame")
+        frame:RegisterEvent("CHAT_MSG_WHISPER")
+        frame:RegisterEvent("CHAT_MSG_SAY")
+        frame:SetScript("OnEvent", function(_, event, ...)
+            seen[#seen + 1] = { event = event, n = select("#", ...), text = (...), sender = select(2, ...),
+                sender2 = select(5, ...) }
+        end)
+        wow.whisper("mark pls", "Bob-Stone")
+        wow.say("int pls", "Ann-Vale")
+        assert.are.equal(2, #seen)
+        assert.are.same({ event = "CHAT_MSG_WHISPER", n = 17, text = "mark pls", sender = "Bob-Stone",
+            sender2 = "Bob-Stone" }, seen[1])
+        assert.are.same({ event = "CHAT_MSG_SAY", n = 17, text = "int pls", sender = "Ann-Vale",
+            sender2 = "Ann-Vale" }, seen[2])
+    end)
+
+    it("fires party chat, from the leader as CHAT_MSG_PARTY_LEADER", function()
+        wow.boot()
+        local seen = {}
+        local frame = CreateFrame("Frame")
+        frame:RegisterEvent("CHAT_MSG_PARTY")
+        frame:RegisterEvent("CHAT_MSG_PARTY_LEADER")
+        frame:SetScript("OnEvent", function(_, event, ...) seen[#seen + 1] = { event, (...), (select(2, ...)) } end)
+        wow.party("fort pls", "Ann-Vale")
+        wow.party("int pls", "Bob-Stone", true)
+        assert.are.same({ { "CHAT_MSG_PARTY", "fort pls", "Ann-Vale" },
+            { "CHAT_MSG_PARTY_LEADER", "int pls", "Bob-Stone" } }, seen)
+    end)
+
+    it("reaches only frames registered for the event", function()
+        wow.boot()
+        local count = 0
+        local frame = CreateFrame("Frame")
+        frame:RegisterEvent("CHAT_MSG_SAY")
+        frame:SetScript("OnEvent", function() count = count + 1 end)
+        wow.whisper("mark pls", "Bob-Stone")
+        assert.are.equal(0, count)
+        wow.say("mark pls", "Bob-Stone")
+        assert.are.equal(1, count)
+        frame:UnregisterEvent("CHAT_MSG_SAY")
+        wow.say("mark pls", "Bob-Stone")
+        assert.are.equal(1, count)
     end)
 end)

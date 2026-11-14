@@ -2,7 +2,10 @@ name: UI screenshots clean-up
 
 # Deletes the UI simulator's screenshot branches, ui-screenshots/pr-<number>,
 # once their pull request is closed (issue #106). The publish-screenshots job
-# in ui-sim.yml makes them; see "UI simulator" in CONTRIBUTING.md.
+# in ui-sim.yml makes them; see "UI simulator" in CONTRIBUTING.md. That job
+# pushes only while its pull request is still open (#347), so a simulator run
+# still going at the close doesn't put back a branch deleted here; the sweep
+# clears anything left over.
 #
 # Safety, in keeping with ui-sim.yml (spec/repo_spec.lua checks all of it):
 # - It runs on pull_request (closed), never pull_request_target, and checks

@@ -222,11 +222,20 @@ Config.DEFAULTS = {
         -- Battlegrounds (Battleground.lua): buff before the gates open. Off,
         -- the preparation phase is as quiet as the battle.
         bgPrepBuff = true,
+        -- Buff requests in chat (Requests.lua, #40): a whisper, /say or party
+        -- chat asking for one of your buffs queues that player on the button. Off by
+        -- default (the owner's decision on #40).
+        requests = false,
         -- Unending Breath and Water Breathing only near water (Water.lua, #136).
         -- Off: offered anywhere, as before.
         breathNearWater = true,
+        -- Self-buffs (SelfBuffs.lua, #44): in buff mode, after everyone
+        -- else, offer your own missing self-buffs. On by default (the owner).
+        selfBuffs = true,
         -- buffOrder: buff keys, offered first in this order (empty: each
-        -- class's own order). neverOffer: [buff key] = true. They hold keys
+        -- class's own order). neverOffer: [buff key] = true, or false for a
+        -- buff that's "Never offer" by default and you unticked (Righteous
+        -- Fury, #44); unset follows the buff's default. They hold keys
         -- of any class, so one profile serves all your characters.
         buffOrder = {},
         neverOffer = {},
@@ -302,6 +311,8 @@ Config.FIELD_VALIDATORS = {
     raidSplit = Bool,
     bgPrepBuff = Bool,
     breathNearWater = Bool,
+    requests = Bool,
+    selfBuffs = Bool,
     unlocked = Bool,
     listBuffNames = Bool,
     quietInCities = Bool,
@@ -337,7 +348,10 @@ Config.FIELD_VALIDATORS = {
         local clean = {}
         if type(value) ~= "table" then return clean end
         for key, on in pairs(value) do
-            if type(key) == "string" and ns.BuffData.KEYS[key] and on == true then clean[key] = true end
+            -- false is kept too: it unticks a buff that's never offered by default (#44).
+            if type(key) == "string" and ns.BuffData.KEYS[key] and (on == true or on == false) then
+                clean[key] = on
+            end
         end
         return clean
     end,
@@ -547,7 +561,7 @@ end
 -- version as its `since` and raise the version to match: players who finished
 -- an older one then see only the new steps (#169). A spec checks that
 -- they agree (spec/walkthrough_spec.lua).
-Config.WALKTHROUGH_VERSION = 1
+Config.WALKTHROUGH_VERSION = 2
 
 -- A checked copy of the saved walkthrough state. None at all (settings from
 -- before it): seen 0, so every step shows once, and not a first run, so the
@@ -668,6 +682,45 @@ function Config.Section(msgType)
         if type(ns.db[msgType]) ~= "table" then ns.db[msgType] = Config.DefaultsFor(msgType) end
     end
     return ns.db[msgType]
+end
+
+-- Whether a field's checked value is the live one, tables by contents. The
+-- checked value comes first: it is never cyclic, so the walk ends whatever
+-- the live value holds.
+local function Same(checked, live)
+    if type(checked) ~= "table" or type(live) ~= "table" then return checked == live end
+    for key, value in pairs(checked) do
+        if not Same(value, live[key]) then return false end
+    end
+    for key in pairs(live) do
+        if checked[key] == nil then return false end
+    end
+    return true
+end
+
+-- One field of a message type's live section, for the options panel to show
+-- and write (#330). A field damaged mid-session (the wrong type, or a table
+-- holding junk) would make it raise an error. So a field its check would
+-- change asks for the whole-file repair, and if that didn't heal it (one ran
+-- under a second ago), gets its checked value at once: its default, for
+-- junk. A field the type doesn't have is nil.
+function Config.Field(msgType, field)
+    local default = Config.DEFAULTS[msgType][field]
+    if default == nil then return nil end
+    local validate = Config.FIELD_VALIDATORS[field]
+    local cfg = Config.Section(msgType)
+    if Same(validate(cfg[field], default), cfg[field]) then return cfg[field] end
+    Config.Repair()
+    cfg = Config.Section(msgType) -- the repair puts a new section in place
+    local checked = validate(cfg[field], default)
+    if not Same(checked, cfg[field]) then cfg[field] = checked end
+    return cfg[field]
+end
+
+-- Check every field of a message type's live section (Config.Field), for
+-- the options panel to fill from (#330).
+function Config.CheckedSection(msgType)
+    for field in pairs(Config.DEFAULTS[msgType]) do Config.Field(msgType, field) end
 end
 
 -- Fresh copy of one type's defaults.

@@ -40,7 +40,8 @@ ns.BuffModeAuto = Auto
 
 local frame
 local ready = false      -- the login (or reload) has finished: the roster is real
-local inGroup = false    -- in a group at the last roster update
+local inGroup = false    -- in a group at the last roster update; nil after a login whose
+                         -- IsInGroup() couldn't be read, until a roster update reads it (#370)
 local fighting = false   -- between PLAYER_REGEN_DISABLED and _ENABLED
 local dead = {}          -- [name] = true for group members last seen dead
 local pulled = false     -- this group has fought since you joined it
@@ -68,6 +69,14 @@ local function InGroup()
     return ns.Util.ReadGameValues(IsInGroup) == true
 end
 
+-- Whether you're in a group: true or false, or nil when IsInGroup() can't
+-- be read (#322).
+local function GroupAnswer()
+    local answer = ns.Util.ReadGameValues(IsInGroup)
+    if answer == true or answer == false then return answer end
+    return nil
+end
+
 -- In a dungeon or raid, and whether every other group member is in here
 -- with you (#256): GroupBuffs.lua's, which its PvP rule shares (#306).
 local InDungeonOrRaid = ns.GroupBuffs.InDungeonOrRaid
@@ -80,11 +89,17 @@ end
 -- Nothing left to do: no favours owed, and no group member missing your buffs
 -- that you could see and reach (GroupBuffs never calls an unreadable member done).
 -- inside: waiting for everyone in a dungeon or raid, so also everyone in
--- there with you (#256). Also why, for the message.
-local function Settled(inside)
+-- there with you (#256). withSelf: your self-buffs too (#44): "everyone has
+-- your buffs" waits for them, but a missing self-buff alone never turns buff
+-- mode on (the owner, #44 Q6). Also why, for the message.
+local function Settled(inside, withSelf)
     if ns.Offers.Count() > 0 then return false end
     local offer, _, settled, held = ns.GroupBuffs.Next()
     if offer ~= nil or settled ~= true then return false end
+    if withSelf then
+        local mine, _, mineSettled = ns.SelfBuffs.Next()
+        if mine ~= nil or mineSettled ~= true then return false end
+    end
     if inside and not EveryoneInside() then return false end
     -- Your water buff waits for water (Water.lua): nobody has it, so say so.
     if held then return true, ns.Water.HeldReason(held) end
@@ -113,7 +128,7 @@ function Auto.Check(timedOutAfter)
     end
     if InCombatLockdown() then return end
     if cfg.autoOffDone ~= true then return end
-    local done, why = Settled(insideWait)
+    local done, why = Settled(insideWait, true)
     if done then
         ns.BuffMode.Set(false, { why = why })
         if not ns.BuffMode.IsAuto() then ns.Diag.Log("buffMode", "auto turned off: %s", why) end
@@ -171,14 +186,26 @@ local function InPvP()
     return kind ~= "none" and kind ~= "party" and kind ~= "raid"
 end
 
+-- The group's slots: "raid", 40 in a raid, "party", 4 otherwise; nil when
+-- the game won't say whether you're in a raid, or its answer and the slots
+-- disagree (#359: GroupBuffs.RaidAnswer, as buff mode's group look reads
+-- it, #346). A raid taken for a party would have only your own subgroup.
+local function GroupSlots()
+    local inRaid = ns.GroupBuffs.RaidAnswer()
+    if inRaid == nil then return nil end
+    if inRaid then return "raid", 40 end
+    return "party", 4
+end
+
 -- Every member of the group by name, you included; nil when a member's
--- name can't be read (then nobody is taken to have left).
+-- name can't be read, or the group's slots can't be told (GroupSlots):
+-- then nobody is taken to have left.
 local function RosterNames()
+    local prefix, count = GroupSlots()
+    if not prefix then return nil end
     local names = {}
     local me = ns.Util.UnitFullName("player")
     if me then names[me] = true end
-    local prefix, count = "party", 4
-    if ns.Util.ReadGameValues(IsInRaid) == true then prefix, count = "raid", 40 end
     for i = 1, count do
         local unit = prefix .. i
         if ns.Util.ReadGameValues(UnitExists, unit) ~= false then
@@ -197,14 +224,14 @@ end
 -- what they had, so coming back close isn't a new fade, and buff mode you
 -- turned off stays off until someone else goes missing. After a login the
 -- first look only notes who is (buff mode is off after one), unless a
--- fight has ended.
+-- fight has ended; while the group can't be told, it notes nothing.
 local function CheckMissing(fightEnded)
     if not ready or not inGroup or fighting or InCombatLockdown() then return end
     if Cfg().autoOnMissing ~= true or InPvP() or ns.Battleground.Quiet() then
         lastMissing = {}
         return
     end
-    local list, worn = ns.GroupBuffs.Missing()
+    local list, worn, groupKnown = ns.GroupBuffs.Missing()
     local now, first = {}, nil
     for _, offer in ipairs(list) do
         local key = offer.name .. "\1" .. offer.buff.key
@@ -217,7 +244,12 @@ local function CheckMissing(fightEnded)
         local name = key:match("^(.-)\1")
         if not worn[key] and (roster == nil or roster[name]) then now[key] = true end
     end
-    lastMissing = now
+    -- The first look after a login only notes who is missing; while the
+    -- group can't be told it notes nothing, and the next look notes instead:
+    -- a raid taken for a party would note only your subgroup (#359), and a
+    -- group whose slots weren't known (IsInGroup() unreadable, #370) would
+    -- note nobody, so a buff missing all along would count as new.
+    if lastMissing ~= nil or (roster ~= nil and groupKnown) then lastMissing = now end
     if not first then return end
     local who = first.self and "you're" or (ns.Util.DisplayName(first.name) .. " is")
     local why = who .. " missing your " .. (ns.BuffData.SpellName(first.buff) or "buff")
@@ -231,10 +263,10 @@ local function Watch()
     watching = true
     C_Timer.After(Auto.WATCH_SECONDS, ns.Diag.Wrap(function()
         watching = false
-        if not inGroup then
-            lastMissing = {}
-            return
-        end
+        -- Out of a group, or not yet known (#370): no look. Leaving the group
+        -- forgot who was missing (OnRosterUpdate), and joining one or the
+        -- login starts afresh, so nothing is kept here.
+        if not inGroup then return end
         Watch()
         CheckMissing(false)
     end))
@@ -257,10 +289,9 @@ local function InsideWithGroup()
     return inside
 end
 
-local function GroupUnitNames()
+-- The other members in the slots prefix1..count by name: { [name] = unit }.
+local function NamesIn(prefix, count)
     local out = {}
-    local prefix, count = "party", 4
-    if ns.Util.ReadGameValues(IsInRaid) == true then prefix, count = "raid", 40 end
     for i = 1, count do
         local unit = prefix .. i
         local name = ns.Util.UnitFullName(unit)
@@ -269,20 +300,42 @@ local function GroupUnitNames()
     return out
 end
 
+-- The other members by name: { [name] = unit }; nil when the group's slots
+-- can't be told (GroupSlots).
+local function GroupUnitNames()
+    local prefix, count = GroupSlots()
+    if not prefix then return nil end
+    return NamesIn(prefix, count)
+end
+
 -- Who in the group is dead now, so only a death from here on counts (a
--- member who joins dead, or releases as a ghost, isn't a new death).
+-- member who joins dead, or releases as a ghost, isn't a new death). When
+-- the group's slots can't be told (#359), anyone either set of slots shows
+-- dead is added and nobody is forgotten: a raid taken for a party would
+-- forget the other subgroups' dead.
 local function NoteWhoIsDead()
+    local units = GroupUnitNames()
+    if not units then
+        for _, slots in ipairs({ NamesIn("party", 4), NamesIn("raid", 40) }) do
+            for name, unit in pairs(slots) do
+                if ns.Util.ReadGameValues(UnitIsDeadOrGhost, unit) == true then dead[name] = true end
+            end
+        end
+        return
+    end
     local now = {}
-    for name, unit in pairs(GroupUnitNames()) do
+    for name, unit in pairs(units) do
         if ns.Util.ReadGameValues(UnitIsDeadOrGhost, unit) == true then now[name] = true end
     end
     dead = now
 end
 
 -- Whether another member is within the game's group range check (UnitInRange,
--- about 40 yards). A range the game won't check or give isn't close.
+-- about 40 yards). A range the game won't check or give isn't close, and
+-- nobody is while the group's slots can't be told (#359): the next roster
+-- change looks again.
 local function SomeoneClose()
-    for _, unit in pairs(GroupUnitNames()) do
+    for _, unit in pairs(GroupUnitNames() or {}) do
         if ns.Util.ReadGameValues(UnitIsUnit, unit, "player") ~= true then
             -- The game answers false when it can't check (false, false).
             if ns.Util.ReadGameValues(UnitInRange, unit) == true then return true end
@@ -310,6 +363,14 @@ function Auto.OnRosterUpdate()
     -- then isn't joining one (buff mode is off after a login).
     if not ready then
         inGroup = nowIn
+        return
+    end
+    -- A login or reload that couldn't read IsInGroup() (#370): the first
+    -- update that can is where we start, as at the login, not a group joined
+    -- (a buff missing all along would count as new).
+    if inGroup == nil then
+        inGroup = GroupAnswer()
+        if inGroup then Watch() end
         return
     end
     if nowIn and not inGroup then
@@ -347,7 +408,7 @@ function Auto.OnEnteringWorld(isLogin, isReload)
         return
     end
     ready = true
-    inGroup = InGroup()
+    inGroup = GroupAnswer()
     pulled, deathSeen, pendingWhy, pendingInside, insideWait, joinedAt = false, false, nil, nil, false, nil
     lastMissing = nil
     ns.GroupBuffs.EndRound()

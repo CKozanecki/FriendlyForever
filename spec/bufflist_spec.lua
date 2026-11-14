@@ -661,7 +661,7 @@ describe("A group cast in the list (#227)", function()
         it("a storm of raid groups and clicks lists no covered member singly, one row per player, one mark", function()
             boot()
             random.seed(227)
-            for _ = 1, 5 do random.random() end -- past the generator's near-zero first draws (#38)
+            for _ = 1, 5 do random.random() end -- on top of random.seed's own 5 (#165), a different storm from the one first picked (#38)
             local names = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed", "Gus-Lane" }
             local groupRows = 0
             for step = 1, 60 do
