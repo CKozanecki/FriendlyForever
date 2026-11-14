@@ -255,7 +255,13 @@ end
 -- one the tab showed the buff keys ("wisdom"), much shorter than what a
 -- player reads. This list is what the tab must show: UnnamedBuff checks the
 -- simulator against it. The ranks are BuffData.lua's PALADIN ranks, which
--- spec/uitests_pages_spec.lua checks.
+-- spec/uitests_pages_spec.lua checks: the paladin's buffs for others only.
+-- The paladin's self-buffs (#44: Righteous Fury and the auras) aren't in the
+-- simulator's spell data yet, so it can't name them and their rows show
+-- their keys ("devotion"); listing them here would fail every tab's layout
+-- scenarios on UnnamedBuff. #343 gives the simulator their spells, and then
+-- this list takes them too. Until then spec/layout_spec.lua checks every
+-- class's rows, self-buffs included, with their real names.
 Pages.BUFF_NAMES = {
     { key = "kings", name = "Blessing of Kings", ranks = { 20217 } },
     { key = "wisdom", name = "Blessing of Wisdom", ranks = { 25290, 19854, 19853, 19852, 19850, 19742 } },

@@ -5,7 +5,7 @@ Run by a maintainer or a session, never by players, never in CI against
 Blizzard, and never shipped (scripts/ is in .pkgmeta's ignore list).
 
     python3 scripts/gen_spell_table.py \
-        --spells scripts/data/forever-spells.json \
+        --spells scripts/data/forever-spells-extended.json \
         --buffs scripts/spell-buffs.json \
         --out BuffTable.lua
 

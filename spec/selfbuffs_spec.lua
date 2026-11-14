@@ -2,9 +2,8 @@
 -- Self-buffs: in buff mode, once the favours you owe and your group are
 -- done, the button offers your own missing self-buffs (Inner Fire, armors,
 -- Aspects, auras, Battle Shout...), one per press, on you, through the same
--- secure button. The committed buff table holds only Battle Shout of these
--- until their spells are extracted, so these specs load the table the
--- generator would make (wow.selfBuffTable), at Classic Era's IDs.
+-- secure button. These specs use the committed buff table, generated from
+-- Forever's spell data (#44 part 2), whose self-buff IDs are Classic Era's.
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
@@ -30,7 +29,7 @@ describe("Self-buffs in buff mode", function()
     -- mode unless opts.noMode.
     local function boot(opts)
         opts = opts or {}
-        ns = wow.boot({ db = opts.db, buffSelf = true, autoBuffMode = opts.auto, buffTable = wow.selfBuffTable(),
+        ns = wow.boot({ db = opts.db, buffSelf = true, autoBuffMode = opts.auto,
             before = function(state)
                 state.class = opts.class or "PRIEST"
                 state.knownSpells = {}

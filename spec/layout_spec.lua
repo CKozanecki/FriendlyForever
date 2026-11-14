@@ -1,4 +1,4 @@
--- Spec: #52, #64, #112, #197, #208, #41, #209, #270
+-- Spec: #52, #64, #112, #197, #208, #41, #209, #270, #44
 -- Layout: the buff-back button's text stays inside the button, and on each
 -- options tab the message list follows the last row that tab shows. The
 -- checks work from the simulated client's own anchors and text widths
@@ -225,6 +225,54 @@ describe("Layout", function()
             -- The rows below hang from it, so a wrapped help pushes them down.
             local _, below = w.enabled:GetPoint(1)
             assert.are.equal(w.help, below)
+        end)
+    end)
+
+    -- The Buff Back tab's buff rows (#44): with the self-buffs in the table,
+    -- a paladin's rows run to "11. Shadow Resistance Aura (you only) (not
+    -- known yet)", wider than the name's 220 pixels. A name wraps, centred on
+    -- its row; it must be shown whole, inside the panel, and never reach the
+    -- name of the row above or below.
+    describe("the buff rows on the Buff Back tab", function()
+        it("show every class's buffs whole, inside the panel, each name clear of the next row's", function()
+            local wrapped = 0
+            for class in pairs(wow.boot().BuffData.CLASSES) do
+                -- Knowing none of them: every row also says "(not known yet)".
+                local ns = wow.boot({ before = function(state)
+                    state.class = class
+                    state.knownSpells = {}
+                end })
+                local w = ns.Options.widgets
+                wow.run(w.tabs.buffBack, "OnClick")
+                local width = w.content:GetWidth()
+                local shown = {}
+                for _, row in ipairs(w.buffRows) do
+                    if row.name:IsShown() then shown[#shown + 1] = row end
+                end
+                assert.are.equal(#ns.BuffData.CLASSES[class], #shown, class)
+                for i, row in ipairs(shown) do
+                    local label = class .. " row " .. i
+                    local drawn = wow.drawnText(row.name, w.content)
+                    assert.are.equal((row.name:GetText():gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")), drawn.text,
+                        label .. ": its name is cut")
+                    assert.is_true(drawn.left >= 0 and drawn.right <= width, ("%s: draws from %d to %d, outside 0 to %d")
+                        :format(label, drawn.left, drawn.right, width))
+                    if drawn.lines > 1 then wrapped = wrapped + 1 end
+                    local nextRow = shown[i + 1]
+                    if nextRow then
+                        -- Rows hang one below another: the gap below a row's
+                        -- Up button, then the next Up button's height.
+                        local point, above, relativePoint, _, gap = nextRow.up:GetPoint(1)
+                        assert.are.same({ "TOPLEFT", row.up, "BOTTOMLEFT" }, { point, above, relativePoint }, label)
+                        local pitch = row.up:GetHeight() - gap
+                        local nextLines = wow.drawnText(nextRow.name, w.content).lines
+                        local reach = (drawn.lines + nextLines) * wow.LINE_HEIGHT[row.name.font] / 2
+                        assert.is_true(reach <= pitch, ("%s: its name (%d lines) reaches the next row's (%d lines): "
+                            .. "%d of %d pixels"):format(label, drawn.lines, nextLines, reach, pitch))
+                    end
+                end
+            end
+            assert.is_true(wrapped > 0, "no row is long enough to wrap: the test checks nothing")
         end)
     end)
 

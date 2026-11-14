@@ -1,4 +1,4 @@
--- Spec: #135, #136, #209
+-- Spec: #135, #136, #209, #44
 -- The warlock's Unending Breath through buff thanks, buff back and buff mode,
 -- and its data: Water Breathing (131) is the shaman's, a blocker, not a
 -- group version. The tests here swim, since it's offered only near water
@@ -81,7 +81,10 @@ describe("Unending Breath", function()
     describe("its data", function()
         it("is the warlock's one buff: rank 5697, with the shaman's Water Breathing (131) as a blocker", function()
             local list = ns.BuffData.CLASSES.WARLOCK
-            assert.are.equal(1, #list)
+            -- Its one buff for others; Demon Armor, after it, is a self-buff (#44).
+            assert.are.equal(2, #list)
+            assert.are.equal("demonarmor", list[2].key)
+            assert.is_true(list[2].selfCast)
             local breath = list[1]
             assert.are.same({ key = "breath", name = "Unending Breath", ranks = { BREATH }, blockers = { WATER_BREATHING }, water = true },
                 breath)

@@ -457,8 +457,9 @@ nameSpell("Unending Breath", { 5697 })
 nameSpell("Water Breathing", { 131 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 
--- Self-buffs (#44), by their Classic Era IDs (Forever's are unconfirmed:
--- #326). M.SELF_SPELLS[id] = { duration (seconds, 0 for a toggle that never
+-- Self-buffs (#44), by their IDs and names: Forever's spell data has each at
+-- Classic Era's (docs/forever-facts.md; spec/bufftable_spec.lua checks the
+-- generated table against M.SELF_RANKS). M.SELF_SPELLS[id] = { duration (seconds, 0 for a toggle that never
 -- runs out), toggle, family }: cast on yourself, each puts its aura on you
 -- from you (see cast), replacing one of the same spell and, for a family,
 -- any other of that family of yours (the game keeps one Aspect, one aura,
@@ -524,8 +525,9 @@ for name, ids in pairs({
 --                         names the unit by its first name, as for any target.
 --                         UNCONFIRMED in game: #213 says how to check it.
 --   Self-buffs (#44; UNCONFIRMED in game, #326 says how to check each):
---                         the spells in M.SELF_SPELLS, by Classic Era IDs,
---                         names and durations. A toggle (Aspect, paladin aura,
+--                         the spells in M.SELF_SPELLS, at the IDs and names
+--                         Forever's spell data gives (Classic Era's), with
+--                         Classic Era's durations. A toggle (Aspect, paladin aura,
 --                         Trueshot Aura) never runs out (duration and
 --                         expirationTime 0). Cast on you, the aura goes on from
 --                         you, replacing your others of its family. "/cast
@@ -2035,70 +2037,6 @@ function M.parseToc()
         end
     end
     return meta, files
-end
-
--- The committed buff table with the self-buffs (#44) added at the Classic
--- Era IDs M.SELF_SPELLS names, as the generator would make it from
--- scripts/spell-buffs.json once their spells are extracted. For specs:
--- wow.boot({ buffTable = wow.selfBuffTable() }). A fresh copy each call.
-function M.selfBuffTable()
-    local loaded = {}
-    assert(loadfile(M.ROOT .. "BuffTable.lua"))(M.ADDON_NAME, loaded)
-    local function copy(v)
-        if type(v) ~= "table" then return v end
-        local c = {}
-        for k, x in pairs(v) do c[k] = copy(x) end
-        return c
-    end
-    local tableCopy = copy(loaded.BuffTable)
-    local function idsOf(...)
-        local out = {}
-        for _, name in ipairs({ ... }) do
-            for _, id in ipairs(assert(M.SELF_RANKS[name], name)) do out[#out + 1] = id end
-        end
-        return out
-    end
-    local function selfBuff(key, names, fields)
-        local buff = { key = key, name = names[1], ranks = idsOf(unpack(names)), selfCast = true }
-        for k, v in pairs(fields or {}) do buff[k] = v end
-        return buff
-    end
-    local add = {
-        PRIEST = { selfBuff("innerfire", { "Inner Fire" }) },
-        MAGE = { selfBuff("icearmor", { "Ice Armor", "Frost Armor" }, { family = "armor" }),
-            selfBuff("magearmor", { "Mage Armor" }, { family = "armor" }) },
-        DRUID = { selfBuff("omen", { "Omen of Clarity" }) },
-        PALADIN = { selfBuff("righteousfury", { "Righteous Fury" }, { defaultNever = true }) },
-        SHAMAN = { selfBuff("lightningshield", { "Lightning Shield" }) },
-        WARLOCK = { selfBuff("demonarmor", { "Demon Armor", "Demon Skin" }) },
-        HUNTER = {},
-    }
-    for _, aura in ipairs({ { "devotion", "Devotion Aura" }, { "retribution", "Retribution Aura" },
-        { "concentration", "Concentration Aura" }, { "shadowaura", "Shadow Resistance Aura" },
-        { "frostaura", "Frost Resistance Aura" }, { "fireaura", "Fire Resistance Aura" },
-        { "sanctity", "Sanctity Aura" } }) do
-        table.insert(add.PALADIN, selfBuff(aura[1], { aura[2] }, { family = "aura", toggle = true }))
-    end
-    for _, aspect in ipairs({ { "hawk", "Aspect of the Hawk" }, { "monkey", "Aspect of the Monkey" },
-        { "wildaspect", "Aspect of the Wild" } }) do
-        table.insert(add.HUNTER, selfBuff(aspect[1], { aspect[2] }, { family = "aspect", toggle = true }))
-    end
-    table.insert(add.HUNTER, selfBuff("trueshot", { "Trueshot Aura" }, { toggle = true }))
-    for class, list in pairs(add) do
-        tableCopy.classes[class] = tableCopy.classes[class] or {}
-        for _, buff in ipairs(list) do table.insert(tableCopy.classes[class], buff) end
-    end
-    local absent = {}
-    for _, key in ipairs(tableCopy.absent) do
-        local present = false
-        for _, list in pairs(add) do
-            for _, buff in ipairs(list) do present = present or buff.key == key end
-        end
-        if not present then absent[#absent + 1] = key end
-    end
-    tableCopy.absent = absent
-    tableCopy.familyAuras = { aspect = idsOf("Aspect of the Cheetah", "Aspect of the Pack", "Aspect of the Beast") }
-    return tableCopy
 end
 
 function M.load()

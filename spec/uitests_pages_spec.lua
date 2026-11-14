@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160
+-- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -177,8 +177,19 @@ describe("the UI simulator's Buff Back names", function()
         return texts
     end
 
-    it("names every paladin buff BuffData lists, at every one of its ranks (white)", function()
-        local paladin = ns.BuffData.CLASSES.PALADIN
+    -- Its buffs for others: the simulator has no spell data for the
+    -- self-buffs (#44) until #343, so it can't name them.
+    local function forOthers()
+        local list = {}
+        for _, buff in ipairs(ns.BuffData.CLASSES.PALADIN) do
+            if not buff.selfCast then list[#list + 1] = buff end
+        end
+        return list
+    end
+
+    it("names every paladin buff for others BuffData lists, at every one of its ranks (white)", function()
+        local paladin = forOthers()
+        assert.are.equal(3, #paladin)
         assert.are.equal(#paladin, #Pages.BUFF_NAMES)
         for i, buff in ipairs(paladin) do
             assert.are.equal(buff.key, Pages.BUFF_NAMES[i].key)
@@ -209,11 +220,18 @@ describe("the UI simulator's Buff Back names", function()
         _G.C_Spell.GetSpellName = function(id) return names[id] end
         assert.is_nil(Pages.UnnamedBuff())
         local seen = rows()
-        assert.are.equal(3, #seen)
+        assert.are.equal(#ns.BuffData.CLASSES.PALADIN, #seen)
         for i, buff in ipairs(Pages.BUFF_NAMES) do
             assert.are.equal(i .. ". " .. buff.name, seen[i]:match("^(.-) |c") or seen[i])
         end
         assert.are.equal("2. Blessing of Wisdom", seen[2]:match("^(.-) |c") or seen[2])
+        -- The self-buffs follow, by their keys while the client has no name
+        -- for them (the simulator until #343).
+        for i = #Pages.BUFF_NAMES + 1, #seen do
+            local buff = ns.BuffData.CLASSES.PALADIN[i]
+            assert.is_true(buff.selfCast, buff.key)
+            assert.are.equal(i .. ". " .. buff.key, seen[i]:match("^(.-) |c"))
+        end
     end)
 
     it("names the first rank the client has no name for, or another name, with what it should be (black)", function()

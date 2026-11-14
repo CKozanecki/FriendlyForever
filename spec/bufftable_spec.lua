@@ -10,9 +10,15 @@ local wow = require("spec.support.wow")
 
 local ROOT = wow.ROOT
 local MAX_SPELL_ID = 1000000
-local SOURCE = ROOT .. "/scripts/data/forever-spells.json"
+-- The generator's source: upstream's extraction with the self-buffs' spells
+-- added to its ID list (#44; docs/forever-facts.md has how it was made).
+local SOURCE = ROOT .. "/scripts/data/forever-spells-extended.json"
+local SOURCE_SHA = "43d0cfa0a207b9fc0bc9ae5ea76b70b3d2ecb8779f4b33b92e288ce45d7cc45b"
+-- Upstream's own, smaller extraction, the copy the UI simulator checks (#160).
+local UPSTREAM = ROOT .. "/scripts/data/forever-spells.json"
 local BUFFS = ROOT .. "/scripts/spell-buffs.json"
 local GENERATOR = ROOT .. "/scripts/gen_spell_table.py"
+local CHECK = ROOT .. "/scripts/sim-spell-check.py"
 -- The SHA-256 upstream's docs/specs/forever-spell-data.md records for the
 -- Forever build 1.60.1.70685 (Osso/wow-ui-sim).
 local UPSTREAM_SHA = "13122873d813481e85815946ddf964068b04132d4d2b2b44ba5ce61491595ad0"
@@ -127,10 +133,92 @@ describe("The generated buff table", function()
             assert.are.same({}, problems(ns.BuffTable))
         end)
 
-        it("records the game build and the source file's hash, and the source is upstream's checked file", function()
+        it("records the game build and the source file's hash, the extraction recorded in docs/forever-facts.md", function()
             assert.are.equal("1.60.1.70685", ns.BuffTable.build)
-            assert.are.equal(UPSTREAM_SHA, ns.BuffTable.sourceSha256)
-            assert.are.equal(UPSTREAM_SHA, sha256(SOURCE))
+            assert.are.equal("forever-spells-extended.json", ns.BuffTable.source)
+            assert.are.equal(SOURCE_SHA, ns.BuffTable.sourceSha256)
+            assert.are.equal(SOURCE_SHA, sha256(SOURCE))
+            assert.is_truthy(read(ROOT .. "/docs/forever-facts.md"):find(SOURCE_SHA, 1, true),
+                "docs/forever-facts.md doesn't record the source's SHA-256")
+        end)
+
+        it("comes from a source with every spell of upstream's checked file, row for row (#44)", function()
+            assert.are.equal(UPSTREAM_SHA, sha256(UPSTREAM))
+            -- sim-spell-check.py <larger> <smaller>: every spell of the smaller
+            -- file has exactly the same rows, tables and build in the larger.
+            local p = io.popen(('python3 -I "%s" "%s" "%s" 2>&1; echo "EXIT:$?"'):format(CHECK, SOURCE, UPSTREAM))
+            local text = p:read("*a")
+            p:close()
+            assert.are.equal("0", text:match("EXIT:(%d+)%s*$"), text)
+            assert.is_truthy(text:find("all 72 committed spells have the same rows", 1, true), text)
+        end)
+
+        it("comes from a source holding every spell ID of scripts/data/forever-spell-ids-extra.txt, and every "
+            .. "spell the table names (#44)", function()
+            -- The IDs added to upstream's list for the larger extraction, one
+            -- per line, so the next extraction can add to them.
+            local extra, count = {}, 0
+            for line in read(ROOT .. "/scripts/data/forever-spell-ids-extra.txt"):gmatch("([^\n]*)\n") do
+                local id = tonumber(line:match("^(%d+)$"))
+                assert.is_truthy(id, "not a spell ID: '" .. line .. "'")
+                assert.is_nil(extra[id], "listed twice: " .. line)
+                extra[id], count = true, count + 1
+            end
+            assert.are.equal(71, count)
+            local p = io.popen(('python3 -I -c "%s" "%s"'):format(
+                "import json,sys; d=json.load(open(sys.argv[1])); "
+                    .. "print(' '.join(str(r['ID']) for r in d['tables']['SpellName']['rows']))", SOURCE))
+            local inSource = {}
+            for id in p:read("*a"):gmatch("%d+") do inSource[tonumber(id)] = true end
+            p:close()
+            for id in pairs(extra) do assert.is_true(inSource[id], "listed but not extracted: " .. id) end
+            for _, list in pairs(ns.BuffTable.classes) do
+                for _, buff in ipairs(list) do
+                    for _, field in ipairs({ "ranks", "group", "blockers" }) do
+                        for _, id in ipairs(buff[field] or {}) do
+                            assert.is_true(inSource[id], buff.key .. " " .. id .. " is not in the source")
+                        end
+                    end
+                end
+            end
+        end)
+
+        it("names each self-buff (#44) at the IDs the simulated client gives its spells, highest rank first", function()
+            -- wow.SELF_RANKS is the simulated client's own list (Classic Era's
+            -- IDs); a re-extraction that moves an ID must move it there too.
+            local function ids(...)
+                local out = {}
+                for _, name in ipairs({ ... }) do
+                    for _, id in ipairs(assert(wow.SELF_RANKS[name], name)) do out[#out + 1] = id end
+                end
+                return out
+            end
+            local expected = {
+                battleshout = ids("Battle Shout"), innerfire = ids("Inner Fire"),
+                icearmor = ids("Ice Armor", "Frost Armor"), magearmor = ids("Mage Armor"),
+                demonarmor = ids("Demon Armor", "Demon Skin"), lightningshield = ids("Lightning Shield"),
+                righteousfury = ids("Righteous Fury"), omen = ids("Omen of Clarity"),
+                hawk = ids("Aspect of the Hawk"), monkey = ids("Aspect of the Monkey"),
+                wildaspect = ids("Aspect of the Wild"), trueshot = ids("Trueshot Aura"),
+                devotion = ids("Devotion Aura"), retribution = ids("Retribution Aura"),
+                concentration = ids("Concentration Aura"), shadowaura = ids("Shadow Resistance Aura"),
+                frostaura = ids("Frost Resistance Aura"), fireaura = ids("Fire Resistance Aura"),
+                sanctity = ids("Sanctity Aura"),
+            }
+            local seen = {}
+            for _, list in pairs(ns.BuffTable.classes) do
+                for _, buff in ipairs(list) do
+                    if buff.selfCast then
+                        assert.is_truthy(expected[buff.key], "an unexpected self-buff: " .. buff.key)
+                        assert.are.same(expected[buff.key], buff.ranks, buff.key)
+                        seen[buff.key] = true
+                    end
+                end
+            end
+            for key in pairs(expected) do assert.is_true(seen[key], key .. " is missing from the table") end
+            assert.are.same(ids("Aspect of the Cheetah", "Aspect of the Pack", "Aspect of the Beast"),
+                ns.BuffTable.familyAuras.aspect)
+            assert.are.same({ "light" }, ns.BuffTable.absent)
         end)
 
         it("keeps the buff defaults of #219/#221: Thorns tanks only, Wisdom and Might by class", function()
@@ -213,7 +301,10 @@ describe("The generated buff table", function()
                 for _, buff in ipairs(ns.BuffData.Offerable()) do keys[#keys + 1] = buff.key end
                 -- Self-buffs (#44) after them, in the class's order too.
                 for _, buff in ipairs(ns.BuffData.SelfOfferable()) do keys[#keys + 1] = buff.key end
-                for _, buff in ipairs(made.classes[class]) do want[#want + 1] = buff.key end
+                -- Righteous Fury is "Never offer" until you choose (#44, owner's Q4).
+                for _, buff in ipairs(made.classes[class]) do
+                    if not buff.defaultNever then want[#want + 1] = buff.key end
+                end
                 assert.are.same(want, keys, class)
             end
             -- A pressed cast, by name.

@@ -1,4 +1,4 @@
--- Spec: #68, #76, #208, #219, #209
+-- Spec: #68, #76, #208, #219, #209, #44
 -- Who gets each buff in buff mode: everyone, tanks only, everyone but tanks,
 -- or chosen classes, plus players named Always or Never. Buffs go to everyone
 -- until you choose (#208), except the owner's defaults (#219): Wisdom and
@@ -187,8 +187,14 @@ describe("Who gets each buff", function()
             for _, row in ipairs(w.buffRows) do
                 if row.key then
                     seen = seen + 1
-                    local chosen = row.key == "wisdom" or row.key == "might"
-                    assert.are.equal(chosen and "Who: Chosen classes" or "Who: Everyone", row.who:GetText(), row.key)
+                    if ns.BuffData.ByKey(row.key).selfCast then
+                        -- A self-buff (#44) has no Who button: only you get it.
+                        assert.is_false(row.who:IsShown(), row.key)
+                    else
+                        local chosen = row.key == "wisdom" or row.key == "might"
+                        assert.is_true(row.who:IsShown(), row.key)
+                        assert.are.equal(chosen and "Who: Chosen classes" or "Who: Everyone", row.who:GetText(), row.key)
+                    end
                 end
             end
             assert.are.equal(#ns.BuffData.CLASSES.PALADIN, seen)
