@@ -1,6 +1,6 @@
 # Agent facts: how the instruction files load
 
-How Claude Code and Codex read this repo's instructions, so AGENTS.md and CLAUDE.md stay one set of rules (#186). The research behind them is on #183. Where this file and AGENTS.md differ, AGENTS.md wins and this file is fixed.
+How Claude Code and Codex read this repo's instructions, so AGENTS.md and CLAUDE.md stay one set of rules (#186). The research behind them is on #183. The Codex trial is paused (the owner's decision of 2026-11-14, #183): the Codex rows are kept, and their checks still run, so a trial can restart without rework. Where this file and AGENTS.md differ, AGENTS.md wins and this file is fixed.
 
 | Fact | What we do about it | Source |
 |---|---|---|

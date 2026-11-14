@@ -3,15 +3,18 @@
 -- per press. Favours owed to strangers come first. Nothing here casts.
 --
 -- The same safety rules as buff back: a member flagged for PvP is skipped
--- unless you're flagged too (read each time the button is armed, so at the
--- press), as are the dead, the offline, and anyone out of range (of the
+-- unless you're flagged too, or your whole group is inside a dungeon or raid
+-- with you (#306: FlaggedMayBeBuffed; read each time the button is armed, so
+-- at the press), as are the dead, the offline, and anyone out of range (of the
 -- spell, when the game says) or too far for the game to show. The game can't
 -- say whether they're in line of sight: a cast it refuses holds that member
 -- back for a moment, so the next press goes to the next member.
 --
 -- A paladin keeps one Blessing on each player: a member wearing one of yours
--- has theirs, and isn't offered another (it would replace it). A member whose name, flag or buffs can't be
--- read is skipped too, and the button says why. Your rules for who gets
+-- has theirs, and isn't offered another (it would replace it). A member whose name or buffs can't be
+-- read is skipped too, and the button says why; so is one whose flag can't
+-- be read, unless flagged members may be buffed (FlaggedMayBeBuffed: nobody's
+-- flag is asked for then). Your rules for who gets
 -- each buff (tanks only, chosen classes, named players: BuffRules.lua) apply
 -- here, and only here. Group buffs never say a line and are never thanked.
 --
@@ -103,6 +106,52 @@ end
 
 local function Recently(at, seconds)
     return at ~= nil and GetTime() - at < seconds
+end
+
+-- In a dungeon or raid instance (#256), and which: not in a battleground or
+-- arena, and never when the game won't say.
+function GroupBuffs.InDungeonOrRaid()
+    local _, kind = Read(IsInInstance)
+    if kind == "party" then return true, "dungeon" end
+    if kind == "raid" then return true, "raid" end
+    return false
+end
+
+-- Whether every other group member is in here with you: connected and shown
+-- by the game. A member whose connection or visibility can't be read isn't
+-- (#256), and neither is a slot that can't be read as holding someone or
+-- empty, or as you or someone else (#306); a member whose name can't be
+-- read leaves Next unsettled anyway. When the game won't say whether you're
+-- in a raid, nobody is taken to be inside. Buff mode's wait in a dungeon or raid (BuffModeAuto.lua) and the
+-- PvP rule below share this one test.
+function GroupBuffs.EveryoneInside()
+    -- Which slots hold your group has to be readable too (#306): a raid
+    -- taken for a party would have only your own subgroup looked at.
+    local inRaid = Read(IsInRaid)
+    if inRaid ~= true and inRaid ~= false then return false end
+    for _, unit in ipairs(inRaid and RAID_UNITS or PARTY_UNITS) do
+        local exists = Read(UnitExists, unit)
+        if exists ~= false and Read(UnitIsUnit, unit, "player") ~= true then
+            if exists ~= true then return false end
+            if Read(UnitIsConnected, unit) ~= true then return false end
+            if Read(UnitIsVisible, unit) ~= true then return false end
+        end
+    end
+    return true
+end
+
+-- Whether a member flagged for PvP may be buffed now. When you're flagged
+-- too, buffing them changes nothing for you. Otherwise only by the owner's
+-- rule (#306): inside a dungeon or raid, once every member of your group is
+-- in there with you, nobody can attack you, and that is the only time it's
+-- safe. Everywhere else (the open world, cities, battlegrounds, arenas),
+-- while anyone is outside or can't be read, and when the game won't say
+-- where you are, a flagged member is never buffed. Read each time the
+-- button is armed, so at the press.
+local function FlaggedMayBeBuffed()
+    if Read(UnitIsPVP, "player") == true then return true end
+    local inside = GroupBuffs.InDungeonOrRaid()
+    return inside and GroupBuffs.EveryoneInside()
 end
 
 -- Whether the game says this member can't be buffed now, and why.
@@ -310,11 +359,13 @@ local OPEN_REASONS = {
     ["the game refused your last cast to them"] = true,
 }
 
--- Why this member can't have a buff now, or nil if they may.
-local function CantBuff(unit, iAmFlagged)
+-- Why this member can't have a buff now, or nil if they may. flaggedOk:
+-- a member flagged for PvP may be buffed (FlaggedMayBeBuffed), so their flag
+-- isn't asked for.
+local function CantBuff(unit, flaggedOk)
     local why = Unreachable(unit)
     if why then return why end
-    if not iAmFlagged then
+    if not flaggedOk then
         local flagged = Read(UnitIsPVP, unit)
         if flagged == true then return "flagged for PvP and you aren't" end
         if flagged == nil then return "can't see whether they're flagged for PvP" end
@@ -323,10 +374,11 @@ end
 
 -- The members who may be buffed now, in group order: { unit, name, class },
 -- the first reason one was left out, and whether one left out may still
--- need a buff (OPEN_REASONS, or a slot or name that can't be read).
+-- need a buff (OPEN_REASONS, or a slot or name that can't be read). Also
+-- whether a member flagged for PvP may be buffed, for the group versions.
 local function Candidates(units)
     local me = Util.UnitFullName("player")
-    local iAmFlagged = Read(UnitIsPVP, "player") == true
+    local flaggedOk = FlaggedMayBeBuffed()
     local out, seen, firstReason, open = {}, {}, nil, false
     for _, unit in ipairs(units) do
         local name = Util.UnitFullName(unit)
@@ -344,7 +396,7 @@ local function Candidates(units)
                 open = true
             elseif not seen[name] then
                 seen[name] = true
-                local why = CantBuff(unit, iAmFlagged)
+                local why = CantBuff(unit, flaggedOk)
                 -- Missing (#272): only someone close by (the game's ~40-yard
                 -- group range) and known to be online; a range or connection
                 -- the game won't give isn't.
@@ -369,7 +421,7 @@ local function Candidates(units)
             end
         end
     end
-    return out, firstReason, open
+    return out, firstReason, open, flaggedOk
 end
 
 -- You as a member to buff (#198): { unit = "player", name, class, self = true },
@@ -398,9 +450,10 @@ end
 -- With a list (#43), each member the button would offer to is appended to
 -- it once, in the order the button would reach them, with what it would
 -- offer, instead of stopping at the first: the clickable list is made by
--- these same rules. A group offer is an entry of its own, by its aim and
--- buff, beside its aim's single offer (#252) and any other group offer aimed
--- at them (#305); the button keeps one row per player (BuffButton.lua).
+-- these same rules. Each offer is an entry of its own, by its player and
+-- buff: a member's every single buff (#313), and a group offer beside its
+-- aim's single offer (#252) and any other group offer aimed at them (#305);
+-- the button keeps one row per player (BuffButton.lua).
 function GroupBuffs.Next(out)
     local units = GroupUnits()
     local first, listed = nil, {}
@@ -408,13 +461,16 @@ function GroupBuffs.Next(out)
     local function Found(offer)
         if not out then return true end
         first = first or offer
-        -- Missing lists each buff a member lacks; the button's list, each member's
-        -- single offer once, and each group offer by its aim and buff: its aim keeps
-        -- their single row too, for when the button drops the group cast (its macro
-        -- can't be built, #252), and a second group cast aimed at them keeps its
-        -- own, for when the first is dropped (#305). In Missing a group offer and
-        -- its aim's single offer are one entry, the pair.
-        local id = (presentOnly or offer.cast) and (offer.name .. "\1" .. offer.buff.key) or offer.name
+        -- Every offer is listed once by its player and buff. In the button's list
+        -- a group offer is an entry apart from its aim's single offer of that
+        -- buff, so the aim keeps their single row when the button drops the
+        -- group cast (its macro can't be built, #252); a second group cast aimed
+        -- at them keeps its own when the first is dropped (#305); and a member's
+        -- later single buff keeps its own when their first is dropped (#313).
+        -- The button keeps one row per player (BuffButton.lua). In Missing a
+        -- group offer and its aim's single offer are one entry, the pair.
+        local id = offer.name .. "\1" .. offer.buff.key
+        if offer.cast and not presentOnly then id = id .. "\1group" end
         if not listed[id] then
             listed[id] = true
             out[#out + 1] = offer
@@ -429,7 +485,7 @@ function GroupBuffs.Next(out)
         if held then return nil, ns.Water.HeldReason(held), true, held end
         return nil, "you have no buffs to offer", true
     end
-    local members, firstReason, open = Candidates(units)
+    local members, firstReason, open, flaggedOk = Candidates(units)
     local unreadable, outOfRange = {}, {}
     local family = {} -- [name .. buff key] = whether they wear another of yours (read once)
     -- Every reason a member is passed over here leaves a buff to give.
@@ -487,7 +543,8 @@ function GroupBuffs.Next(out)
         needs[nkey] = result
         return result
     end
-    local groupCtx = { units = units, inRaid = Read(IsInRaid) == true, InRange = InSpellRange }
+    local groupCtx = { units = units, inRaid = Read(IsInRaid) == true, InRange = InSpellRange,
+        flaggedOk = flaggedOk }
     -- The buffs for one list of members, in your buff order (the first
     -- buff goes to all of them before the second goes to any).
     local function Pass(list)
@@ -622,12 +679,17 @@ end
 -- The game's refusals that are about the target, not you: the client's own
 -- strings where it has them, and their English text otherwise. A refusal
 -- about you (the global cooldown, mana, being stunned) moves no one back.
+-- "A more powerful spell is already active" (SPELL_FAILED_AURA_BOUNCED) is
+-- on the safe side (#253): not seen in game, but if a top-up of a group
+-- version is ever refused with it, that member waits like any refusal.
 local TARGET_REFUSAL_GLOBALS = {
     "SPELL_FAILED_LINE_OF_SIGHT", "SPELL_FAILED_OUT_OF_RANGE", "ERR_OUT_OF_RANGE",
     "SPELL_FAILED_BAD_TARGETS", "SPELL_FAILED_BAD_IMPLICIT_TARGETS", "SPELL_FAILED_TARGETS_DEAD",
+    "SPELL_FAILED_AURA_BOUNCED",
 }
 local TARGET_REFUSAL_TEXT = {
     "target not in line of sight", "out of range", "invalid target", "no target", "target is dead",
+    "a more powerful spell is already active",
 }
 
 local function Normalise(text)

@@ -1,4 +1,4 @@
--- Spec: #43, #227, #252, #305
+-- Spec: #43, #227, #252, #305, #313
 -- The clickable list beside the buff button: everyone the button would offer
 -- to, and the buff for each; a click makes that player the next offer.
 local wow = require("spec.support.wow")
@@ -267,17 +267,21 @@ describe("The list beside the buff button (#43)", function()
         end)
 
         it("leaves out an offer the button could not cast, as the button empties", function()
-            local saved = { wow.SPELL_NAMES[MOTW_1], wow.SPELL_NAMES[MOTW] }
-            wow.SPELL_NAMES[MOTW_1], wow.SPELL_NAMES[MOTW] = "Mark; of the Wild", "Mark; of the Wild"
+            -- Every buff of yours is unsafe: a later one would get its row (#313).
+            local saved = {}
+            for _, id in ipairs({ MOTW_1, MOTW, 9910, 9756, 8914, 1075, 782, THORNS_1 }) do
+                saved[id] = wow.SPELL_NAMES[id]
+                wow.SPELL_NAMES[id] = saved[id] and (saved[id] .. ";")
+            end
             slash("buffmode on")
             party({ "Ann-Vale", "Cid-Rock" })
-            wow.SPELL_NAMES[MOTW_1], wow.SPELL_NAMES[MOTW] = saved[1], saved[2]
+            for id, name in pairs(saved) do wow.SPELL_NAMES[id] = name end
             assert.are.same({}, rows())
             assert.is_nil(armed())
             assert.are.equal("the name or spell can't be put in a macro safely", button.subtitle:GetText())
         end)
 
-        it("offers the next player when the first one's buff could not be cast", function()
+        it("offers the next buff it can cast when a player's first could not be cast, theirs or the next player's (#313)", function()
             local saved = { wow.SPELL_NAMES[MOTW_1], wow.SPELL_NAMES[MOTW] }
             wow.SPELL_NAMES[MOTW_1], wow.SPELL_NAMES[MOTW] = "Mark; of the Wild", "Mark; of the Wild"
             slash("buffmode on")
@@ -288,8 +292,9 @@ describe("The list beside the buff button (#43)", function()
             wow.fire("GROUP_ROSTER_UPDATE")
             wow.advance(0)
             wow.SPELL_NAMES[MOTW_1], wow.SPELL_NAMES[MOTW] = saved[1], saved[2]
-            assert.are.same({ "> Ann Vale: Thorns" }, rows())
-            assert.are.equal("Ann Vale: Thorns", armed())
+            -- Cid's Mark can't be cast, so his Thorns is his row; Ann's is hers.
+            assert.are.same({ "> Cid Rock: Thorns", "Ann Vale: Thorns" }, rows())
+            assert.are.equal("Cid Rock: Thorns", armed())
         end)
 
         it("hides rows no longer needed when the list shrinks", function()
@@ -820,6 +825,113 @@ describe("Two group casts aimed at the same player (#305)", function()
             assert.are.equal("Ann Vale: Prayer of Spirit", armedClicked)
             assert.are.equal(0, castsBefore, "listing and clicking cast nothing")
             assert.are.equal(PRAYER_SPIRIT, cast and cast.id, "the button's press casts it")
+            assert.are.same({}, wow.errors)
+        end)
+    end)
+end)
+
+describe("A member's later single buff (#313)", function()
+    local ns, button
+    local FORT, PRAYER_FORT = 10938, 21564
+    local SPIRIT, PRAYER_SPIRIT = 27841, 27681
+    local NAMES = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" }
+
+    -- A priest giving single buffs only: "Use group versions" is off.
+    local function boot()
+        ns = wow.boot({ before = function(state)
+            state.class = "PRIEST"
+            state.knownSpells = { [FORT] = true, [PRAYER_FORT] = true, [SPIRIT] = true, [PRAYER_SPIRIT] = true }
+            state.items = { [wow.ITEM.sacredCandle] = 5 }
+        end })
+        button = ns.BuffButton.Frame()
+        ns.db.buffBack.groupVersions = false
+        slash("buffmode on")
+    end
+
+    -- A party of mages: each is missing both Fortitude and Divine Spirit.
+    local function party()
+        wow.setGroup("party", NAMES)
+        for i = 1, 4 do wow.state.units["party" .. i].class = "MAGE" end
+        wow.fire("GROUP_ROSTER_UPDATE")
+        wow.advance(0)
+    end
+
+    local function rows()
+        local out = {}
+        local frame = ns.BuffList.Frame()
+        if not frame or not frame:IsShown() then return out end
+        for _, row in ipairs(ns.BuffList.Rows()) do
+            if row:IsShown() then out[#out + 1] = row.text:GetText() end
+        end
+        return out
+    end
+
+    local function armed()
+        local text = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
+        if not text then return nil end
+        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
+    end
+
+    local function click(i) ns.BuffList.Rows()[i].scripts.OnClick(ns.BuffList.Rows()[i]) end
+
+    describe("white", function()
+        it("lists each single buff a member lacks as an entry of its own, from the button's own rules", function()
+            boot()
+            party()
+            local list = {}
+            ns.GroupBuffs.Next(list)
+            local singles = {}
+            for _, offer in ipairs(list) do
+                assert.is_nil(offer.cast, "group versions are off")
+                singles[#singles + 1] = offer.name .. ": " .. offer.spell
+            end
+            -- Your buff order: Fortitude to everyone before Divine Spirit to anyone.
+            assert.are.same({
+                "Ann-Vale: Power Word: Fortitude", "Bo-Fern: Power Word: Fortitude",
+                "Cid-Rock: Power Word: Fortitude", "Dot-Moss: Power Word: Fortitude",
+                "Ann-Vale: Divine Spirit", "Bo-Fern: Divine Spirit",
+                "Cid-Rock: Divine Spirit", "Dot-Moss: Divine Spirit",
+            }, singles)
+        end)
+
+        it("with every spell buildable, keeps one row per player, their first buff", function()
+            boot()
+            party()
+            assert.are.same({
+                "> Ann Vale: Power Word: Fortitude", "Bo Fern: Power Word: Fortitude",
+                "Cid Rock: Power Word: Fortitude", "Dot Moss: Power Word: Fortitude",
+            }, rows())
+            assert.are.equal("Ann Vale: Power Word: Fortitude", armed())
+            assert.are.equal(0, #wow.casts, "listing casts nothing")
+        end)
+    end)
+
+    describe("black", function()
+        it("when a member's first single buff can't go in a macro, their next buff still gets its row", function()
+            boot()
+            local saved = wow.SPELL_NAMES[FORT]
+            wow.SPELL_NAMES[FORT] = "Power; Word: Fortitude"
+            party()
+            local listed = rows()
+            local armedFirst = armed()
+            local clicked = #listed >= 3
+            if clicked then click(3) end
+            local armedClicked = armed()
+            local castsBefore = #wow.casts
+            wow.pressKey("MOUSEWHEELUP")
+            local cast = wow.casts[1]
+            -- Put the name back before any assertion, so a failure can't leak into other tests.
+            wow.SPELL_NAMES[FORT] = saved
+            assert.are.same({
+                "> Ann Vale: Divine Spirit", "Bo Fern: Divine Spirit",
+                "Cid Rock: Divine Spirit", "Dot Moss: Divine Spirit",
+            }, listed, "each member's Divine Spirit has its row")
+            assert.are.equal("Ann Vale: Divine Spirit", armedFirst)
+            assert.is_true(clicked, "Cid's row was there to click")
+            assert.are.equal("Cid Rock: Divine Spirit", armedClicked)
+            assert.are.equal(0, castsBefore, "listing and clicking cast nothing")
+            assert.are.equal(SPIRIT, cast and cast.id, "the button's press casts it")
+            assert.are.equal("Cid-Rock", cast and cast.target)
             assert.are.same({}, wow.errors)
         end)
     end)

@@ -68,32 +68,10 @@ local function InGroup()
     return ns.Util.ReadGameValues(IsInGroup) == true
 end
 
--- In a dungeon or raid (#256): not in a battleground or arena, and never
--- when the game won't say.
-local function InDungeonOrRaid()
-    local _, kind = ns.Util.ReadGameValues(IsInInstance)
-    if kind == "party" then return true, "dungeon" end
-    if kind == "raid" then return true, "raid" end
-    return false
-end
-
--- Whether every other group member is in here with you: connected and shown
--- by the game. A member whose connection or visibility can't be read isn't
--- (#256); one whose name can't be read leaves GroupBuffs unsettled anyway.
-local function EveryoneInside()
-    local prefix, count = "party", 4
-    if ns.Util.ReadGameValues(IsInRaid) == true then prefix, count = "raid", 40 end
-    for i = 1, count do
-        local unit = prefix .. i
-        -- A slot that can't be read is checked like a member.
-        if ns.Util.ReadGameValues(UnitExists, unit) ~= false
-            and ns.Util.ReadGameValues(UnitIsUnit, unit, "player") ~= true then
-            if ns.Util.ReadGameValues(UnitIsConnected, unit) ~= true then return false end
-            if ns.Util.ReadGameValues(UnitIsVisible, unit) ~= true then return false end
-        end
-    end
-    return true
-end
+-- In a dungeon or raid, and whether every other group member is in here
+-- with you (#256): GroupBuffs.lua's, which its PvP rule shares (#306).
+local InDungeonOrRaid = ns.GroupBuffs.InDungeonOrRaid
+local EveryoneInside = ns.GroupBuffs.EveryoneInside
 
 local function IsGroupUnit(unit)
     return type(unit) == "string" and (unit:find("^party%d") or unit:find("^raid%d")) ~= nil
