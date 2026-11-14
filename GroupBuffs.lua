@@ -122,22 +122,32 @@ end
 -- (#256), and neither is a slot that can't be read as holding someone or
 -- empty, or as you or someone else (#306); a member whose name can't be
 -- read leaves Next unsettled anyway. When the game won't say whether you're
--- in a raid, nobody is taken to be inside. Buff mode's wait in a dungeon or raid (BuffModeAuto.lua) and the
+-- in a raid, nobody is taken to be inside, nor when its answer and the
+-- slots disagree (#335). Buff mode's wait in a dungeon or raid (BuffModeAuto.lua) and the
 -- PvP rule below share this one test.
 function GroupBuffs.EveryoneInside()
     -- Which slots hold your group has to be readable too (#306): a raid
     -- taken for a party would have only your own subgroup looked at.
     local inRaid = Read(IsInRaid)
     if inRaid ~= true and inRaid ~= false then return false end
+    -- And believed only when the slots agree (#335): in a party raid1 is
+    -- empty, and in a raid one of raid1..40 is you. A party taken for a raid
+    -- would read 40 empty slots as nobody missing.
+    if not inRaid and Read(UnitExists, "raid1") ~= false then return false end
+    local sawYou = not inRaid
     for _, unit in ipairs(inRaid and RAID_UNITS or PARTY_UNITS) do
         local exists = Read(UnitExists, unit)
-        if exists ~= false and Read(UnitIsUnit, unit, "player") ~= true then
-            if exists ~= true then return false end
-            if Read(UnitIsConnected, unit) ~= true then return false end
-            if Read(UnitIsVisible, unit) ~= true then return false end
+        if exists ~= false then
+            if Read(UnitIsUnit, unit, "player") == true then
+                sawYou = true
+            else
+                if exists ~= true then return false end
+                if Read(UnitIsConnected, unit) ~= true then return false end
+                if Read(UnitIsVisible, unit) ~= true then return false end
+            end
         end
     end
-    return true
+    return sawYou
 end
 
 -- Whether a member flagged for PvP may be buffed now. When you're flagged
