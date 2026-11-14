@@ -1,4 +1,4 @@
--- Spec: #28, #76, #46
+-- Spec: #28, #76, #46, #384
 -- Buff mode: a key of your choice lent to the buff-back button while it's
 -- on, handed back when it ends and during fights.
 local wow = require("spec.support.wow")
@@ -342,11 +342,98 @@ describe("Buff mode", function()
             assert.are.same({ MOUSEWHEELUP = "FriendlyForeverBuffButton" }, lent())
             assert.are.same({}, wow.errors)
         end)
+
+        -- #384: Buff Back's whole settings section lost or damaged mid-session.
+        local LOST = {} -- stands for nil, which ipairs can't hold
+        local DAMAGES = { LOST, "x", 42, true }
+        local function damage(value) ns.db.buffBack = value ~= LOST and value or nil end
+        local function label(value) return value == LOST and "nil" or tostring(value) end
+
+        it("ends, hands its key back and never errors when Buff Back's settings are lost mid-session (black)",
+            function()
+                for _, value in ipairs(DAMAGES) do
+                    boot()
+                    owed() -- a favour waiting: the refresh reads the offers too
+                    slash("buffmode on")
+                    assert.are.same({ MOUSEWHEELUP = "FriendlyForeverBuffButton" }, lent(), label(value))
+                    wow.printed = {}
+                    damage(value)
+                    ns.BuffButton.Refresh()
+                    assert.are.same({}, wow.errors, label(value))
+                    assert.are.same({}, lent(), label(value) .. ": no key lent")
+                    wow.pressKey("MOUSEWHEELUP")
+                    wow.press(button)
+                    assert.are.equal(0, #wow.casts, label(value) .. ": nothing cast")
+                    assert.are_not.equal("Drag, then /friendly move", button.subtitle:GetText(),
+                        label(value) .. ": a lost section reads as locked, not unlocked for moving")
+                    assert.is_false(ns.BuffMode.IsOn(), label(value))
+                    assert.is_true(printedHas("buff mode off: the addon or Buff Back is switched off."), label(value))
+                    -- It stays off while the damage lasts, and says why.
+                    slash("buffmode on")
+                    _G.FriendlyForever_ToggleBuffMode()
+                    assert.are.same({}, lent(), label(value))
+                    assert.is_false(ns.BuffMode.IsOn(), label(value))
+                    assert.is_true(printedHas("buff mode needs the addon and Buff Back switched on."), label(value))
+                    assert.are.same({}, wow.errors, label(value))
+                end
+            end)
+
+        it("a press of the lent key before the next refresh never errors when Buff Back's settings are lost (black)",
+            function()
+                for _, value in ipairs(DAMAGES) do
+                    for _, favour in ipairs({ false, true }) do
+                        boot()
+                        if favour then owed() end
+                        slash("buffmode on")
+                        local where = label(value) .. (favour and ", a favour owed" or ", nothing owed")
+                        assert.are.same({ MOUSEWHEELUP = "FriendlyForeverBuffButton" }, lent(), where)
+                        damage(value)
+                        wow.pressKey("MOUSEWHEELUP") -- no refresh in between
+                        assert.are.same({}, wow.errors, where)
+                        assert.are.equal(0, #wow.casts, where .. ": nothing cast")
+                        -- Read as locked: the button says it's in buff mode with nothing to
+                        -- press, not the favour it held before.
+                        assert.are.equal("Buff mode", button.title:GetText(), where)
+                    end
+                end
+            end)
+
+        it("lends no key after a fight in which Buff Back's settings were lost (black)", function()
+            for _, value in ipairs(DAMAGES) do
+                boot()
+                slash("buffmode on")
+                wow.enterCombat()
+                assert.are.same({}, lent(), label(value))
+                damage(value)
+                wow.leaveCombat()
+                assert.are.same({}, wow.errors, label(value))
+                assert.are.same({}, lent(), label(value) .. ": no key lent after the fight")
+                assert.is_false(ns.BuffMode.IsOn(), label(value))
+            end
+        end)
+
+        it("choosing a key heals lost Buff Back settings instead of raising an error (black)", function()
+            for _, value in ipairs(DAMAGES) do
+                boot()
+                damage(value)
+                assert.is_true(ns.BuffMode.SetKey("F"), label(value))
+                assert.are.same({}, wow.errors, label(value))
+                assert.is_table(ns.db.buffBack, label(value))
+                assert.are.equal("F", ns.db.buffBack.buffModeKey, label(value))
+                damage(value)
+                slash("buffmode key SHIFT-F")
+                assert.are.same({}, wow.errors, label(value))
+                assert.are.equal("SHIFT-F", ns.db.buffBack.buffModeKey, label(value))
+                assert.is_true(printedHas("buff mode key: SHIFT-F."), label(value))
+            end
+        end)
     end)
 
     describe("chaos (red tests)", function()
         it("never leaves a stray key lent and never changes a binding in a fight", function()
             local keys = { "MOUSEWHEELUP", "MOUSEWHEELDOWN", "SHIFT-F", "BUTTON4", "ESCAPE", 42, "F" }
+            local lostWhileLent = 0 -- #384: damage that met a lent key out of a fight
+            local pressedWhileLost = 0 -- #384: a lent key pressed before the refresh that ends buff mode
             for _, seed in ipairs({ 3, 28, 99, 512, 2026 }) do
                 random.seed(seed)
                 boot()
@@ -360,16 +447,51 @@ describe("Buff mode", function()
                     _G.ClearOverrideBindings = function(...) guard(); return realClear(...) end
                 end
                 wrap()
+                local function intact() return type(ns.db.buffBack) == "table" end
                 local actions = {
                     function() slash(({ "buffmode", "buffmode on", "buffmode off" })[random.random(3)]) end,
                     function() _G.FriendlyForever_ToggleBuffMode() end,
-                    function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
+                    function()
+                        if wow.state.inCombat then return wow.leaveCombat() end
+                        -- A fight starting with the section lost raises an error
+                        -- outside buff mode (BuffModeAuto.lua, #387), which heals it.
+                        if intact() then wow.enterCombat() end
+                    end,
                     function() ns.BuffMode.SetKey(keys[random.random(#keys)]) end,
-                    function() ns.db.buffBack.buffModeKey = keys[random.random(#keys)] end,
+                    function()
+                        if not intact() then return end
+                        ns.db.buffBack.buffModeKey = keys[random.random(#keys)]
+                    end,
                     function() slash(random.random() < 0.7 and "on" or "off") end,
-                    function() ns.db.buffBack.enabled = random.random() < 0.8; ns.BuffButton.Refresh() end,
+                    function()
+                        if not intact() then return end
+                        ns.db.buffBack.enabled = random.random() < 0.8
+                        ns.BuffButton.Refresh()
+                    end,
                     function() wow.state.unbindable = random.random() < 0.2 and { F = true } or nil end,
-                    function() owed(({ "Bob", "Ann" })[random.random(2)]) end,
+                    function()
+                        -- A favour while the section is lost raises an error
+                        -- outside buff mode (BuffTracker.lua), which heals it.
+                        if not intact() then return end
+                        owed(({ "Bob", "Ann" })[random.random(2)])
+                    end,
+                    function()
+                        -- #384: the whole section lost mid-session, then a refresh,
+                        -- sometimes after a press of the lent key that comes first.
+                        local wasLent = ns.BuffMode.LentKey() ~= nil
+                        ns.db.buffBack = ({ nil, "x", 42, true })[random.random(4)]
+                        local key = next(wow.state.overrides)
+                        if key and random.random() < 0.5 then
+                            wow.pressKey(key)
+                            assert.are.same({}, wow.errors, "seed " .. seed .. ": a press with the section lost")
+                            pressedWhileLost = pressedWhileLost + 1
+                        end
+                        ns.BuffButton.Refresh()
+                        if not wow.state.inCombat then
+                            assert.is_false(ns.BuffMode.IsOn(), "seed " .. seed .. ": on with the section lost")
+                            if wasLent then lostWhileLent = lostWhileLent + 1 end
+                        end
+                    end,
                     function() wow.pressKey(({ "MOUSEWHEELUP", "SHIFT-F", "F" })[random.random(3)]) end,
                     function() wow.advance(random.random() * 10) end,
                     function()
@@ -379,8 +501,11 @@ describe("Buff mode", function()
                     end,
                 }
                 for step = 1, 400 do
-                    actions[random.random(#actions)]()
-                    local where = ("seed %d, step %d"):format(seed, step)
+                    local which = random.random(#actions)
+                    actions[which]()
+                    local where = ("seed %d, step %d (action %d)"):format(seed, step, which)
+                    -- Every step: a reload (boot) would clear what came before it.
+                    assert.are.same({}, wow.errors, where)
                     local count, owner = 0, nil
                     for _, o in pairs(wow.state.overrides) do
                         count = count + 1
@@ -392,7 +517,7 @@ describe("Buff mode", function()
                     if wow.state.inCombat then
                         assert.are.equal(0, count, where .. ": a key lent in a fight")
                     else
-                        local allowed = ns.db.enabled and ns.db.buffBack.enabled
+                        local allowed = ns.db.enabled and intact() and ns.db.buffBack.enabled
                         local should = ns.BuffMode.IsOn() and allowed
                         assert.are.equal(should and 1 or 0, count, where .. ": lent doesn't match buff mode")
                         if should then
@@ -403,6 +528,8 @@ describe("Buff mode", function()
                 assert.are.equal(0, inFight, "seed " .. seed .. ": a binding changed in a fight")
                 assert.are.same({}, wow.errors, "seed " .. seed)
             end
+            assert.is_true(lostWhileLent > 0, "the section was never lost while a key was lent")
+            assert.is_true(pressedWhileLost > 0, "the lent key was never pressed with the section lost")
         end)
     end)
 end)

@@ -1,4 +1,4 @@
--- Spec: #52, #281
+-- Spec: #52, #281, #384
 -- Phase 1 under damage and chaos: the ignore list, snooze, profiles,
 -- export/import with undo and the favour ledger, damaged mid-session (black)
 -- and in seeded random storms (red). Mid-session damage stands for another
@@ -346,7 +346,7 @@ describe("Phase 1 chaos (red tests)", function()
             saved = nil,       -- { line, ignored } from the last export
         }
         local seen = { greeted = 0, thanked = 0, ignoredOnline = 0, imports = 0, undos = 0, switches = 0,
-            reloads = 0, snoozedSteps = 0 }
+            reloads = 0, snoozedSteps = 0, offWhileLent = 0 }
         local thanksSinceClear = 0
         local sentBefore = 0
 
@@ -492,6 +492,8 @@ describe("Phase 1 chaos (red tests)", function()
                 ns.Options.Open()
                 ns.Options.Refresh()
             end,
+            -- Buff mode on through the damage, profile switches and imports (#384).
+            function() slash(pick({ "buffmode on", "buffmode on", "buffmode off", "buffmode" })) end,
             reload,
         }
 
@@ -568,9 +570,18 @@ describe("Phase 1 chaos (red tests)", function()
             local snoozeEnds = snoozedBefore and m.snoozeUntil
             local ignoredBefore = {}
             for who in pairs(m.ignored) do ignoredBefore[who] = true end
+            local lentBefore = next(wow.state.overrides) ~= nil
             local which = random.random(#actions)
             actions[which]()
             assert.are.same({}, wow.errors, at .. " (action " .. which .. ")")
+            -- Read from the simulated client's bindings, not the addon's own record.
+            if next(wow.state.overrides) and not wow.state.inCombat then
+                local buffBack = ns.db.buffBack
+                local on = ns.db.enabled == true and type(buffBack) == "table" and buffBack.enabled == true
+                assert.is_true(on, at .. ": a key lent while the addon or Buff Back is off")
+            end
+            -- The case that matters: the addon switched off while a key was lent.
+            if lentBefore and not m.enabled then seen.offWhileLent = seen.offWhileLent + 1 end
 
             -- What went out this step, read from the simulated client.
             local snoozedNow = snoozed()
@@ -634,7 +645,7 @@ describe("Phase 1 chaos (red tests)", function()
         end
         -- The storms really reached what they test, not just the edges.
         for _, key in ipairs({ "greeted", "thanked", "ignoredOnline", "imports", "undos", "switches", "reloads",
-            "snoozedSteps" }) do
+            "snoozedSteps", "offWhileLent" }) do
             assert.is_true((total[key] or 0) > 0, key .. ": " .. tostring(total[key]))
         end
     end)
