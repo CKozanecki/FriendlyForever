@@ -326,17 +326,97 @@ end
 -- don't both give Kings: nil when you haven't chosen (all of them), or
 -- [buff key] = true. Kept for this raid only, never saved: it's forgotten
 -- as soon as the game says you're not in a raid, and the group's slots agree
--- (#368: GroupBuffs.RaidAnswer). An answer that can't be read or believed
--- keeps it: one wrong look mustn't hand Kings back to both paladins.
+-- (#368: GroupBuffs.RaidAnswer), and when the raid's leader, or most of its
+-- members, change (#376: the owner). An answer that can't be read or
+-- believed keeps it: one wrong look mustn't hand Kings back to both paladins.
 local raidBlessings
+-- The raid the last choice was made in (#376), read only while there is a
+-- choice: { leader = full name or nil while it can't be read, members =
+-- { [full name] = true } for the other members read then, unread = how
+-- many slots couldn't be read then }. A slot that couldn't be read still
+-- counts among the members at the choice, but never as gone. Nothing is
+-- filled in by later looks: by then it may be another raid's (#376), so a
+-- leader that couldn't be read leaves the members to decide.
+local raidOf
+
+local Read = Util.ReadGameValues
+local RAID_UNITS = {}
+for i = 1, 40 do RAID_UNITS[i] = "raid" .. i end
 
 local function InRaid()
-    return Util.ReadGameValues(IsInRaid) == true
+    return Read(IsInRaid) == true
 end
 
--- Forget the choice once you're out of the raid. Called before each use.
+-- In a battleground, whose raid group isn't yours (#376: the owner): true
+-- or false, or nil when IsInInstance() can't be read.
+local function InBattleground()
+    local _, kind = Read(IsInInstance)
+    if type(kind) ~= "string" then return nil end
+    return kind == "pvp"
+end
+
+-- The raid as the game shows it now: its leader's full name (nil when it
+-- can't be read), the other members by full name, and how many slots
+-- couldn't be read: whether they hold someone, or who.
+local function RaidNow()
+    local me = Util.UnitFullName("player")
+    local leader = Read(UnitIsGroupLeader, "player") == true and me or nil
+    local members, unread = {}, 0
+    for _, unit in ipairs(RAID_UNITS) do
+        local exists = Read(UnitExists, unit)
+        if exists == nil then
+            unread = unread + 1
+        elseif exists then
+            -- UnitIsUnit() unreadable: told by name. Your own slot is the
+            -- same unit as "player", so its name loads with yours.
+            local name = Util.UnitFullName(unit)
+            local you = Read(UnitIsUnit, unit, "player") == true or (name ~= nil and name == me)
+            if not you and name == nil then
+                unread = unread + 1
+            elseif not you then
+                members[name] = true
+                if Read(UnitIsGroupLeader, unit) == true then leader = name end
+            end
+        end
+    end
+    return leader, members, unread
+end
+
+-- Whether the raid now is another one than the choice's (#376), on positive
+-- evidence only: a leader read now and when chosen, and different; or most
+-- of the members at the choice gone, by a look that read every slot. A
+-- member in a slot that couldn't be read, then or now, may still be there:
+-- it counts among the members at the choice, never as gone. A raid filling
+-- up isn't one changing: newcomers count for nothing.
+local function RaidChanged(leader, members, unread)
+    if raidOf.leader and leader and leader ~= raidOf.leader then return true end
+    if unread > 0 then return false end
+    local before, gone = raidOf.unread, 0
+    for name in pairs(raidOf.members) do
+        before = before + 1
+        if not members[name] then gone = gone + 1 end
+    end
+    return gone * 2 > before
+end
+
+-- The choice while it's in force, or nil. Called before each use. In a
+-- battleground it's kept but not used, and nothing there forgets it: it
+-- applies again back in your raid (#376: the owner). Otherwise it's
+-- forgotten once you're out of the raid (#368).
+local function InForce()
+    if not raidBlessings or InBattleground() == true then return nil end
+    if ns.GroupBuffs.RaidAnswer() == false then raidBlessings = nil end
+    return raidBlessings
+end
+
+-- On each roster update (Core.lua): forget the choice once you're out of the
+-- raid, or in another one (#376). Only while the game says, believably,
+-- that you're in a raid and not in a battleground: an answer that can't be
+-- read keeps the choice.
 function BuffRules.CheckRaid()
-    if raidBlessings and ns.GroupBuffs.RaidAnswer() == false then raidBlessings = nil end
+    if not InForce() or ns.GroupBuffs.RaidAnswer() ~= true or InBattleground() ~= false then return end
+    local leader, members, unread = RaidNow()
+    if RaidChanged(leader, members, unread) then raidBlessings = nil end
 end
 
 -- The Blessings you know (the "blessing" family), in your class's order.
@@ -353,8 +433,8 @@ end
 -- which is every buff when there's no split (not in a raid, or no other
 -- copy of your class in it).
 function BuffRules.CoversInRaid(buff)
-    BuffRules.CheckRaid()
-    if raidBlessings and buff.family == "blessing" then return raidBlessings[buff.key] == true end
+    local chosen = InForce()
+    if chosen and buff.family == "blessing" then return chosen[buff.key] == true end
     return ns.RaidSplit.Covers(buff)
 end
 
@@ -362,10 +442,10 @@ end
 -- when you haven't (the split then decides). Announced to the other copies
 -- of your class in the raid (RaidSplit.lua).
 function BuffRules.HandSetBlessings()
-    BuffRules.CheckRaid()
-    if not raidBlessings then return nil end
+    local chosen = InForce()
+    if not chosen then return nil end
     local out = {}
-    for key in pairs(raidBlessings) do out[key] = true end
+    for key in pairs(chosen) do out[key] = true end
     return out
 end
 
@@ -381,6 +461,11 @@ function BuffRules.SetRaidBlessings(keys)
         return true
     end
     if not InRaid() then return false, "you're not in a raid" end
+    -- A choice can't be used here (#376); one made in your raid waits.
+    if InBattleground() == true then
+        return false, raidBlessings and "you're in a battleground (your raid's choice applies again when you're back)"
+            or "you're in a battleground"
+    end
     local mine, chosen, count, all = {}, {}, 0, 0
     for _, buff in ipairs(BuffRules.MyBlessings()) do
         mine[buff.key] = true
@@ -395,12 +480,20 @@ function BuffRules.SetRaidBlessings(keys)
     -- Every Blessing you know narrows nothing, unless the raid buff split
     -- (#70) would narrow it: then it's your choice over the split's.
     raidBlessings = (count < all or ns.RaidSplit.Current() ~= nil) and chosen or nil
+    -- The raid it's for (#376), as it is now: a change counts from here.
+    local leader, members, unread = RaidNow()
+    raidOf = { leader = leader, members = members, unread = unread }
     ns.BuffButton.Refresh()
     return true
 end
 
 -- Whether you've narrowed your Blessings for this raid.
 function BuffRules.RaidBlessingsChosen()
-    BuffRules.CheckRaid()
-    return raidBlessings ~= nil
+    return InForce() ~= nil
+end
+
+-- Whether a choice is held for your raid while you're in a battleground,
+-- where it isn't used (#376).
+function BuffRules.RaidBlessingsHeld()
+    return raidBlessings ~= nil and InBattleground() == true
 end
