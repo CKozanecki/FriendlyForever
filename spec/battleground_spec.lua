@@ -1,4 +1,4 @@
--- Spec: #71, #32, #290, #330, #370
+-- Spec: #71, #32, #290, #330, #370, #392
 -- Battlegrounds: buffing in the preparation phase, then quiet until you
 -- leave or the battleground ends.
 local wow = require("spec.support.wow")
@@ -255,7 +255,7 @@ describe("Battlegrounds", function()
 
         it("still greets guildmates in guild chat", function()
             guildmateLogsIn()
-            wow.advance(10)
+            wow.advance(30)
             assert.are.equal(1, #wow.sentTo("GUILD"))
         end)
 

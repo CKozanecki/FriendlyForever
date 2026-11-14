@@ -1,4 +1,4 @@
--- Spec: #52, #80, #101, #47, #273
+-- Spec: #52, #80, #101, #47, #273, #392
 local wow = require("spec.support.wow")
 
 describe("Config", function()
@@ -169,6 +169,51 @@ describe("Config", function()
         assert.are.equal(casual.buff[5], db.buff.messages[4])
         assert.are.equal(fantasy.buff[30], db.buff.messages[30])
         assert.are.same(fantasy.partyHello, db.partyHello.messages)
+    end)
+
+    describe("Guild Login delay, 3 to 15 seconds (#392)", function()
+        it("is 15 on a fresh install", function()
+            assert.are.equal(15, Config.Load({}).guildLogin.delay)
+        end)
+
+        it("moves a saved 3 to 15, and keeps any other saved delay", function()
+            assert.are.equal(15, Config.Load({ schemaVersion = 6, guildLogin = { delay = 3 } }).guildLogin.delay)
+            assert.are.equal(15, Config.Load({ guildLogin = { delay = 3 } }).guildLogin.delay) -- no version: oldest
+            for _, mine in ipairs({ 0, 2, 4, 7, 14, 15, 60 }) do
+                local db = Config.Load({ schemaVersion = 6, guildLogin = { delay = mine } })
+                assert.are.equal(mine, db.guildLogin.delay, tostring(mine))
+            end
+        end)
+
+        it("runs once: a 3 set after the migration stays 3", function()
+            local db = Config.Load({ schemaVersion = 6, guildLogin = { delay = 3 } })
+            assert.are.equal(7, db.schemaVersion)
+            db.guildLogin.delay = 3
+            db = Config.Load(db)
+            assert.are.equal(3, db.guildLogin.delay)
+            db = Config.Load({ schemaVersion = 7, guildLogin = { delay = 3 } })
+            assert.are.equal(3, db.guildLogin.delay)
+        end)
+
+        it("does not touch other types' delays or a damaged guildLogin", function()
+            local db = Config.Load({ schemaVersion = 6, buff = { delay = 3 }, partyHello = { delay = 3 } })
+            assert.are.equal(3, db.buff.delay)
+            assert.are.equal(3, db.partyHello.delay)
+            assert.are.equal(15, db.guildLogin.delay)
+            for _, junk in ipairs({ "junk", true, 42 }) do
+                assert.are.equal(15, Config.Load({ schemaVersion = 6, guildLogin = junk }).guildLogin.delay,
+                    tostring(junk))
+            end
+        end)
+
+        it("repairs a damaged saved delay to 15", function()
+            for _, bad in ipairs({ "soon", true, {}, 0 / 0 }) do
+                assert.are.equal(15, Config.Load({ schemaVersion = 7, guildLogin = { delay = bad } }).guildLogin.delay,
+                    tostring(bad))
+            end
+            assert.are.equal(0, Config.Load({ schemaVersion = 7, guildLogin = { delay = -5 } }).guildLogin.delay)
+            assert.are.equal(60, Config.Load({ schemaVersion = 7, guildLogin = { delay = 999 } }).guildLogin.delay)
+        end)
     end)
 
     it("leaves a 0.8.0 file's lines alone, even ones matching the casual set", function()
