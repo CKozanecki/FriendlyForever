@@ -252,6 +252,18 @@ local function Within(at, maxAge, now)
     return at ~= nil and now >= at and now - at <= maxAge
 end
 
+-- Let go, without a note, of anything owed to a player on the ignore list,
+-- whatever the case of either name (Ignore.Has, #353). Ignore.Add lets
+-- theirs go itself (Offers.Forget), but an import, another addon or a /run
+-- can put them on the list without it. Run wherever the favours are read,
+-- as Expire is, so nothing counts or offers a favour that is never given:
+-- not the button, not buff mode's "nothing left to do", not the status.
+local function DropIgnored()
+    for i = #favours, 1, -1 do
+        if ns.Ignore.Has(favours[i].name) then table.remove(favours, i) end
+    end
+end
+
 -- Someone outside your group buffed you. unit: the token they were seen
 -- under, if any; ledgerEntry: their ledger entry, marked when you return it.
 function Offers.Owe(name, unit, ledgerEntry)
@@ -266,6 +278,9 @@ function Offers.Owe(name, unit, ledgerEntry)
             marked and " (their copy said so)" or "")
         return
     end
+    -- An ignored player's favour takes no room (#353): it goes before a
+    -- real one is pushed out.
+    DropIgnored()
     local i = IndexOf(name)
     local old = i and table.remove(favours, i)
     -- A buff they asked for in chat (#40) is still the one they'd like.
@@ -323,8 +338,11 @@ end
 -- a request never pushes out a favour. Returns true if queued, or false and
 -- why not.
 function Offers.Request(name, buff)
-    -- An expired request mustn't block a fresh one, or count against the limit.
+    -- An expired request mustn't block a fresh one, or count against the
+    -- limit; nor one of an ignored player's. Both go before the index below
+    -- is taken: removing an entry ahead of theirs would move it.
     Expire(GetTime())
+    DropIgnored()
     local i = IndexOf(name)
     if i then
         local favour = favours[i]
@@ -372,6 +390,7 @@ end
 
 -- How many of the entries waiting are requests in chat (#40).
 function Offers.RequestCount()
+    DropIgnored()
     local count = 0
     for _, favour in ipairs(favours) do
         if favour.request then count = count + 1 end
@@ -427,10 +446,10 @@ local function ChooseBuff(favour, myBuffs, held, visible)
     end
     -- The buff they asked for (#40): only that one for a request; a favour
     -- whose asked-for buff can't be given now gets the usual choice. With
-    -- the setting off (or damaged), or the player ignored since (whatever
-    -- the case they were typed in), a request holds nothing, and a favour's
-    -- asked-for buff is passed over.
-    if favour.request and (not ns.Requests.Listening() or ns.Ignore.Has(favour.name)) then return nil, nil, true end
+    -- the setting off (or damaged), a request holds nothing, and a favour's
+    -- asked-for buff is passed over. (A player ignored since never gets
+    -- here: Offers.Current lets theirs go first, #353.)
+    if favour.request and not ns.Requests.Listening() then return nil, nil, true end
     if favour.requested and ns.Requests.Listening() then
         local buff, reason, away = Requested(favour, unit)
         if buff or favour.request then return buff, reason, away end
@@ -470,11 +489,14 @@ end
 -- first, so the clickable list is made by these same rules. A favour whose
 -- player has left gives no reason (#270); when every favour is so, the
 -- third value is true: nothing owed is worth the button's face.
+-- A favour or request whose player is on the ignore list is let go first,
+-- however they got there (DropIgnored, #353): it's never offered.
 function Offers.Current(list)
     if not ns.db or not ns.db.enabled then return nil, "the addon is off" end
     if not ns.db.buffBack.enabled then return nil, "buff back is off" end
     -- No Changed() here: the button is the caller, and would re-enter.
     Expire(GetTime())
+    DropIgnored()
     if #favours == 0 then return nil, "nobody is owed a buff" end
     -- Water breathing waits for water (Water.lua).
     local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
@@ -627,15 +649,23 @@ function Offers.LetGo(name)
     return true
 end
 
--- Drop a favour without a note (the player was ignored).
+-- Drop what is owed to a player without a note (they were ignored): their
+-- favour or request, matched as the ignore list matches names, whatever
+-- their case (#353: "bob-stone" lets Bob-Stone's go).
 function Offers.Forget(name)
-    local i = IndexOf(name)
-    if not i then return false end
-    table.remove(favours, i)
-    Changed()
-    return true
+    local key = ns.Config.IgnoreKey(name)
+    local any = false
+    for i = #favours, 1, -1 do
+        if ns.Config.IgnoreKey(favours[i].name) == key then
+            table.remove(favours, i)
+            any = true
+        end
+    end
+    if any then Changed() end
 end
 
+-- How many are owed: none to a player on the ignore list.
 function Offers.Count()
+    DropIgnored()
     return #favours
 end
