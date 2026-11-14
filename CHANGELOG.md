@@ -2,6 +2,8 @@
 
 ## 1.3.1
 
+- **My Blessings in this raid** is now forgotten when you go straight from one raid into another: when the raid's leader changes, or most of the members it had when you chose have gone. A raid filling up, or a few people swapping, keeps it. In a battleground it isn't used, and it applies again when you're back in your raid. (#376)
+- **Buff mode** entering a dungeon or raid with your group now starts the round and the "with your group" trigger even when the game can't say at the loading screen whether you're in a group: it goes by your group as last seen. (#377)
 - **Buff mode survives lost Buff Back settings:** if another addon or a `/run` wipes Buff Back's settings while buff mode is on, buff mode now ends and hands its key back, instead of raising an error; choosing a buff mode key then repairs them. (#384)
 
 ## 1.3.0
