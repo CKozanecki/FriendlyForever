@@ -31,6 +31,7 @@ How the simulated client models secrets, and its limits, is in [simulated-client
 - An ordinary mouse click on the game world: whether a `GLOBAL_MOUSE_DOWN` handler counts as a hardware event is **unconfirmed**, so it doesn't release held lines yet (#275).
 - Text emotes (`/thank`) do **not** need a key press (owner, in game, 2026-11-09). As built since #236, emotes go out at once; only `/say` and `/yell` wait for a key press (`ChatQueue.NeedsHardwareEvent`).
 - Whether `C_ChatInfo.PerformEmote("THANK", unit)` (with `DoEmote` as the fallback) is aimed at that unit. Source: #52. **Confirmed in game** (launch, Nov 4).
+- `CHAT_MSG_WHISPER`, `CHAT_MSG_SAY` and `CHAT_MSG_PARTY` (`CHAT_MSG_PARTY_LEADER` from the party's leader) give the text first and the sender's name second, as in the retail API ([CHAT_MSG_WHISPER](https://warcraft.wiki.gg/wiki/CHAT_MSG_WHISPER), [CHAT_MSG_SAY](https://warcraft.wiki.gg/wiki/CHAT_MSG_SAY)). Buff requests (#40) assume the sender is the whole name (`First-Surname` or `First Surname`, as `CHAT_MSG_ADDON` gives, #138) and ignore a sender with no surname. That form for these events, and that their text is plain in the open world: **unconfirmed**; #352 says how to check them in game.
 - The game has a chat lockdown (`C_ChatInfo.InChatMessagingLockdown`); nothing is sent while it's on. Source: #32. Whether it covers addon messages: **confirmed in game** (launch, Nov 4).
 - Raid join messages do appear on Forever: the maintainer saw them on the beta, 2026-10-22. Source: #15.
 
