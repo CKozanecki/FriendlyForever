@@ -2,6 +2,7 @@
 
 ## 1.3.1
 
+- **Shamans answer requests for Water Walking:** when buff requests are on, a player who asks for "water walking", "ww" or "walk on water" in a whisper, /say or party chat is offered Water Walking on the buff-back button, unless they already have it, from the spell, an item or a potion. It's offered only when asked for: buff back and buff mode never offer it unasked, and it isn't held back away from water. The Buff Back tab lists it as "(when asked)", and "never offer" stops requests for it. For now it's offered only when the game names the spell "Water Walking", so a game client in another language doesn't offer it. (#350)
 - **My Blessings in this raid** is now forgotten when you go straight from one raid into another: when the raid's leader changes, or most of the members it had when you chose have gone. A raid filling up, or a few people swapping, keeps it. In a battleground it isn't used, and it applies again when you're back in your raid. (#376)
 - **Buff mode** entering a dungeon or raid with your group now starts the round and the "with your group" trigger even when the game can't say at the loading screen whether you're in a group: it goes by your group as last seen. (#377)
 - **Buff mode survives lost Buff Back settings:** if another addon or a `/run` wipes Buff Back's settings while buff mode is on, buff mode now ends and hands its key back, instead of raising an error; choosing a buff mode key then repairs them. (#384)
