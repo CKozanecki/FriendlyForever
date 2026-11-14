@@ -78,7 +78,9 @@ local function YouCant()
     if taxi == true then return "you're on a flight path", false end
     if taxi ~= false then return "can't tell whether you're on a flight path", true end
     local _, class = Read(UnitClass, "player")
-    local formWhy = type(class) == "string" and FORM_CLASSES[class]
+    -- A class that can't be read might be a druid's or a shaman's.
+    if type(class) ~= "string" then return "can't tell whether you're in a form", true end
+    local formWhy = FORM_CLASSES[class]
     if formWhy then
         local form = Read(GetShapeshiftForm)
         if type(form) ~= "number" or form ~= form then return "can't tell whether " .. formWhy, true end

@@ -354,6 +354,20 @@ describe("Self-buffs in buff mode", function()
             assert.are.equal("you're not in a group", subtitle())
         end)
 
+        it("the Buff Back tab's switch saves and takes effect at once, both ways", function()
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffBack, "OnClick")
+            assert.are.equal("/cast [@player,nodead] Inner Fire", macro())
+            w.selfBuffs:SetChecked(false)
+            wow.run(w.selfBuffs, "OnClick", "LeftButton")
+            assert.is_false(ns.db.buffBack.selfBuffs)
+            assert.is_nil(macro())
+            w.selfBuffs:SetChecked(true)
+            wow.run(w.selfBuffs, "OnClick", "LeftButton")
+            assert.is_true(ns.db.buffBack.selfBuffs)
+            assert.are.equal("/cast [@player,nodead] Inner Fire", macro())
+        end)
+
         it("a setting damaged mid-session reads as off, never as on", function()
             for _, junk in ipairs({ "yes", 1, {}, "true" }) do
                 ns.db.buffBack.selfBuffs = junk
@@ -431,7 +445,6 @@ describe("Self-buffs in buff mode", function()
             assert.is_true(byKey.righteousfury.never:GetChecked(), "Righteous Fury: Never offer by default")
             assert.is_true(w.selfBuffs:IsShown())
             assert.is_true(w.selfBuffs:GetChecked())
-            wow.run(w.selfBuffs, "OnClick")
             -- The Who section is never about a self-buff.
             ns.Options.CycleWho("devotion")
             assert.is_falsy(w.who.header:GetText():find("Devotion", 1, true))
@@ -597,6 +610,28 @@ describe("Self-buffs in buff mode", function()
                 assert.is_nil(macro())
             end
             assert.are.same({}, wow.errors)
+        end)
+
+        it("a buff for others whose caster can't be read (a Blessing) doesn't stop your self-buffs", function()
+            wow.state.playerAuras[1] = { isHelpful = true, spellId = BLESSING_OF_KINGS,
+                sourceUnit = wow.secret("raid3"), duration = 3600, expirationTime = wow.now + 3600, auraInstanceID = 1 }
+            refresh()
+            assert.are.equal("/cast [@player,nodead] Inner Fire", macro())
+        end)
+
+        it("offers nothing to a class that can't be read, which might be in a form", function()
+            boot({ class = "DRUID", known = { OMEN } })
+            assert.are.equal("/cast [@player,nodead] Omen of Clarity", macro())
+            local real = _G.UnitClass
+            finally(function() _G.UnitClass = real end)
+            _G.UnitClass = function(unit)
+                if unit == "player" then return wow.secret("Druid"), wow.secret("DRUID") end
+                return real(unit)
+            end
+            wow.state.form = 1
+            refresh()
+            assert.is_nil(macro())
+            assert.is_truthy(subtitle():find("can't tell whether you're in a form", 1, true))
         end)
 
         it("never casts over a toggle whose caster can't be read", function()
@@ -915,13 +950,17 @@ describe("Self-buffs in buff mode", function()
 
         it("a storm of auras, deaths, mounts, forms, fights, power, spells and junk settings never errors, "
             .. "never casts when it mustn't, and heals to a correct offer", function()
-            local reached = { cast = 0, combat = 0, waited = 0, healed = 0 }
+            local reached = { cast = 0, combat = 0, waited = 0, healed = 0, byClass = {} }
             -- Saved settings are plain data: never a secret.
             local junk = { "yes", 7, {}, false, true, { innerfire = "x" }, { 5, "monkey" } }
-            for _, seed in ipairs({ 3, 41, 97, 512, 1999, 31337 }) do
+            for round, seed in ipairs({ 3, 41, 97, 512, 1999, 31337, 7, 64, 256, 777, 4096, 65537 }) do
                 random.seed(seed)
-                local setup = CLASSES[random.random(1, #CLASSES)]
+                -- Each seed plays the next class, so every class meets a storm
+                -- (a first draw after seeding can repeat: #38, #47).
+                local setup = CLASSES[(round - 1) % #CLASSES + 1]
                 boot({ class = setup.class, known = setup.known, power = setup.power })
+                -- Your buffs run out, as in the game: timed ones come round again.
+                wow.state.expirePlayerAuras = true
                 local spellNames = {}
                 for _, id in ipairs(setup.known) do spellNames[#spellNames + 1] = wow.SPELL_NAMES[id] end
                 -- The damage passes: all of it (all), or one kind at random.
@@ -943,7 +982,7 @@ describe("Self-buffs in buff mode", function()
                     end
                 end
                 for step = 1, 800 do
-                    local roll = random.random(1, 22)
+                    local roll = random.random(1, 30)
                     local s = wow.state
                     if roll == 1 then strip()
                     elseif roll == 2 then wear(setup.known[random.random(1, #setup.known)], random.random(0, 1) * 600)
@@ -983,7 +1022,8 @@ describe("Self-buffs in buff mode", function()
                     elseif roll <= 17 then heal(false)
                     else
                         local blocked = s.inCombat or s.units.player.dead or s.mounted or s.onTaxi
-                            or s.aurasRestricted
+                            or s.aurasRestricted or s.selfSecrets.mounted or s.selfSecrets.taxi
+                            or (setup.class == "DRUID" and (s.form ~= 0 or s.selfSecrets.form))
                         local before = #wow.casts
                         local ok, err = pcall(press)
                         assert.is_true(ok, tostring(err))
@@ -1000,6 +1040,7 @@ describe("Self-buffs in buff mode", function()
                                 "seed " .. seed .. ": cast while unusable")
                             assert.is_true(cast.id ~= CHEETAH and cast.id ~= PACK, "seed " .. seed .. ": Cheetah or Pack")
                             reached.cast = reached.cast + 1
+                            reached.byClass[setup.class] = (reached.byClass[setup.class] or 0) + 1
                         end
                         if #wow.casts == before then
                             if s.inCombat then reached.combat = reached.combat + 1 else reached.waited = reached.waited + 1 end
@@ -1035,7 +1076,10 @@ describe("Self-buffs in buff mode", function()
             assert.is_true(reached.cast >= 20, "casts: " .. reached.cast)
             assert.is_true(reached.combat >= 100, "presses in combat: " .. reached.combat)
             assert.is_true(reached.waited >= 200, "presses that waited: " .. reached.waited)
-            assert.are.equal(6, reached.healed)
+            assert.are.equal(12, reached.healed)
+            for _, setup in ipairs(CLASSES) do
+                assert.is_true((reached.byClass[setup.class] or 0) >= 2, setup.class .. " cast in the storm")
+            end
         end)
     end)
 
