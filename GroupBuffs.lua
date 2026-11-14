@@ -120,11 +120,16 @@ end
 -- Whether every other group member is in here with you: connected and shown
 -- by the game. A member whose connection or visibility can't be read isn't
 -- (#256), and neither is a slot that can't be read as holding someone or
--- empty (#306); a member whose name can't be read leaves Next unsettled
--- anyway. Buff mode's wait in a dungeon or raid (BuffModeAuto.lua) and the
+-- empty, or as you or someone else (#306); a member whose name can't be
+-- read leaves Next unsettled anyway. When the game won't say whether you're
+-- in a raid, nobody is taken to be inside. Buff mode's wait in a dungeon or raid (BuffModeAuto.lua) and the
 -- PvP rule below share this one test.
 function GroupBuffs.EveryoneInside()
-    for _, unit in ipairs(Read(IsInRaid) == true and RAID_UNITS or PARTY_UNITS) do
+    -- Which slots hold your group has to be readable too (#306): a raid
+    -- taken for a party would have only your own subgroup looked at.
+    local inRaid = Read(IsInRaid)
+    if inRaid ~= true and inRaid ~= false then return false end
+    for _, unit in ipairs(inRaid and RAID_UNITS or PARTY_UNITS) do
         local exists = Read(UnitExists, unit)
         if exists ~= false and Read(UnitIsUnit, unit, "player") ~= true then
             if exists ~= true then return false end

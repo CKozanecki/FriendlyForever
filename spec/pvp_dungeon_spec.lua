@@ -364,6 +364,47 @@ describe("Buffing a PvP-flagged member once the whole group is inside (#306)", f
             end
         end)
 
+        it("a member outside whose slot can't be read as you or someone else is still outside", function()
+            for _, answer in ipairs({ "secret false", "secret true", "nothing", "error" }) do
+                boot()
+                flag("party4")
+                wow.enterDungeon(DEADMINES, "The Deadmines")
+                assert.are.equal("Ann Vale: Arcane Brilliance", armed(), answer .. ": readable, the rule holds")
+                -- Cid has left the dungeon, and the game won't say whether
+                -- his slot is you: he isn't passed over as if it were.
+                wow.zoneOut("party3")
+                local real = _G.UnitIsUnit
+                _G.UnitIsUnit = function(a, b)
+                    if not (a == "party3" and b == "player") then return real(a, b) end
+                    if answer == "error" then error("blocked") end
+                    if answer == "nothing" then return nil end
+                    return wow.secret(answer == "secret true")
+                end
+                assert.are.same({ "Ann Vale: Arcane Intellect", "Bo Fern: Arcane Intellect" }, pressThrough(), answer)
+                nothingForDot(answer)
+            end
+        end)
+
+        it("when the game won't say whether you're in a raid, nobody is taken to be inside", function()
+            local answers = {
+                secret = function() _G.IsInRaid = function() return wow.secret(false) end end,
+                nothing = function() _G.IsInRaid = function() return nil end end,
+                throws = function() _G.IsInRaid = function() error("blocked") end end,
+                gone = function() _G.IsInRaid = nil end,
+                ["a number"] = function() _G.IsInRaid = function() return 0 end end,
+            }
+            for label, setup in pairs(answers) do
+                boot()
+                flag("party4")
+                wow.enterDungeon(DEADMINES, "The Deadmines")
+                assert.are.equal("Ann Vale: Arcane Brilliance", armed(), label .. ": readable, the rule holds")
+                setup()
+                assert.are.same({ "Ann Vale: Arcane Intellect", "Bo Fern: Arcane Intellect",
+                    "Cid Rock: Arcane Intellect" }, pressThrough(), label)
+                nothingForDot(label)
+            end
+        end)
+
         it("a slot that can't be read with nobody in it is someone who may be outside", function()
             boot({ group = false })
             wow.setGroup("party", { "Ann-Vale", "Bo-Fern", "Dot-Moss" })
