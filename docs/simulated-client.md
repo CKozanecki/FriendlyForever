@@ -91,5 +91,5 @@ The network's own behaviour is tested in `spec/wow_comm_spec.lua`.
 
 ## Time and randomness
 
-- **Time:** `wow.now` is the game clock (`GetTime()`), starting at 1000; `state.clock` is the wall clock (`time()`). `wow.advance(seconds)` runs due timers in order and moves the clock. Nothing waits in real time.
+- **Time:** `wow.now` is the game clock (`GetTime()`), starting at 1000; `state.clock` is the wall clock (`time()`). `wow.advance(seconds)` runs due timers in order and moves the clock. Nothing waits in real time. A timer the addon schedules with a delay too small to move the clock (about `1e-13` at `now` near 1000) runs at the same time, and one that reschedules itself that way never lets `advance` return: `Comm.Pump`'s send bucket can do it after many sends (#325). Until #325 is fixed, a storm that returns many favours and doesn't test the hidden channel stubs `ns.Comm.Send`, as #316's does.
 - **Randomness:** chaos (red) specs use `spec/support/random.lua`, a seeded MINSTD generator, so a seed runs the same storm on every computer. Lua 5.1's `math.random` uses the platform's C `rand()`, so a seed ran one storm on Linux and another on macOS (#76, #87). A failing seed found by hand is added to the spec's committed seed list.
