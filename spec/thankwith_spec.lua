@@ -1,4 +1,4 @@
--- Spec: #101, #36, #236, #274
+-- Spec: #101, #36, #236, #274, #165
 -- "Thank them with" and "If that can't reach them": every combination for a
 -- named caster, an unnamed one and a failed whisper; the buff-back line;
 -- old settings, profiles and settings lines; and a chaos storm.
@@ -635,7 +635,7 @@ describe("Thank them with, and if that can't reach them (#101)", function()
 
         for seed = 1, 6 do
             it("never sends a /say line when neither choice has /say, and never errors: seed " .. seed, function()
-                local reached = storm(seed * 7919, true)
+                local reached = storm(seed * 7883, true)
                 assert.are.equal(0, saidCount(), "seed " .. seed)
                 -- The storm reached each path a /say line could come from.
                 assert.is_true(reached.failedWhisper.emote > 0, "a failed whisper with /thank instead")
