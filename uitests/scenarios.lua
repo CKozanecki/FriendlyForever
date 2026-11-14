@@ -39,6 +39,17 @@ local function report(line)
     printLine(line)
 end
 
+-- Every action the client blocked or forbade an addon since pages.lua
+-- loaded, as "<event> <addon> <action>", in order and counted (pages.lua's
+-- watcher, #160): the last scenario reports them. Empty in spec/'s stand-in.
+local blockedOrder, blockedActions = {}, {}
+if type(FriendlyForeverUIPages) == "table" and type(FriendlyForeverUIPages.blocked) == "table" then
+    blockedOrder, blockedActions = FriendlyForeverUIPages.blocked.order, FriendlyForeverUIPages.blocked.count
+end
+-- The lines that called the client's own blocked-action chat line, which
+-- fires no event (pages.lua's hook, #160).
+local blockedMessage = type(FriendlyForeverUIPages) == "table" and FriendlyForeverUIPages.blockedMessage or {}
+
 -- Fails the test with message, unlike assertTrue, which drops its message.
 local function check(ok, message)
     if not ok then error(message, 3) end
@@ -62,6 +73,165 @@ local function AnyContains(lines, fragment)
     end
     return false
 end
+
+-- What the simulator does by itself, as FACT lines in the report (#160). Each
+-- is a quirk docs/ui-simulator.md records, or something the fixtures in
+-- button_states.lua and pages.lua answer for it. When the simulator's pin
+-- moves, these lines say which still hold, in the run itself. It comes
+-- first, so it sees the simulator as it starts, and puts back what it
+-- changes. Nothing here can fail the run: a probe that errors says so.
+test("reports what the simulator does by itself (docs/ui-simulator.md)", function()
+    local function fact(name, fn)
+        local ok, value = pcall(fn)
+        report(("FACT sim %s: %s"):format(name, ok and tostring(value) or ("error: " .. tostring(value))))
+    end
+    local States, Pages = FriendlyForeverUIStates, FriendlyForeverUIPages
+    local spell = States.SPELL
+
+    fact("client", function()
+        local version, build, _, interface = GetBuildInfo()
+        return ("%s (%s), interface %s"):format(tostring(version), tostring(build), tostring(interface))
+    end)
+    fact("screen", function()
+        return ("%.0fx%.0f units, UIParent scale %.3f"):format(GetScreenWidth(), GetScreenHeight(), UIParent:GetScale())
+    end)
+    fact("starts in a group of", function() return GetNumGroupMembers() end)
+    fact("the player", function()
+        local _, class = UnitClass("player")
+        return ("%s, level %s"):format(tostring(class), tostring(UnitLevel("player")))
+    end)
+    fact("the player's starting buffs", function()
+        local ids = {}
+        for i = 1, 255 do
+            local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
+            if not aura then break end
+            ids[#ids + 1] = tostring(aura.spellId)
+        end
+        table.sort(ids)
+        return #ids .. " (" .. table.concat(ids, " ") .. ")"
+    end)
+    fact("the map the player is on", function() return C_Map.GetBestMapForUnit("player") end)
+
+    -- Forever's buffs by name: every rank the Buff Back tab can show.
+    fact("names our buffs' ranks", function()
+        local named, total, wrong = 0, 0, {}
+        for _, buff in ipairs(Pages.BUFF_NAMES) do
+            for _, id in ipairs(buff.ranks) do
+                total = total + 1
+                local name = C_Spell.GetSpellName(id)
+                if name == buff.name then
+                    named = named + 1
+                elseif #wrong < 5 then
+                    wrong[#wrong + 1] = id .. "=" .. tostring(name)
+                end
+            end
+        end
+        return ("%d of %d%s"):format(named, total, #wrong > 0 and (", not: " .. table.concat(wrong, " ")) or "")
+    end)
+    fact("names the fixture's buff", function() return C_Spell.GetSpellName(spell.id) end)
+    fact("the fixture's buff, before it's learned", function()
+        return ("known %s, in the spellbook %s, in range of the player %s"):format(tostring(IsSpellKnown(spell.id)),
+            tostring(C_SpellBook.IsSpellInSpellBook(spell.id)), tostring(C_Spell.IsSpellInRange(spell.id, "player")))
+    end)
+    fact("the fixture's buff, once learned", function()
+        A_Admin.LearnSpell(spell.id)
+        local ok, text = pcall(function()
+            local inRange = C_Spell.IsSpellInRange
+            local line = "known %s, in the spellbook %s, in range of the player by ID %s and by name %s, of party1 %s"
+            return line:format(
+                tostring(IsSpellKnown(spell.id)), tostring(C_SpellBook.IsSpellInSpellBook(spell.id)),
+                tostring(inRange(spell.id, "player")), tostring(inRange(spell.name, "player")),
+                tostring(inRange(spell.id, "party1")))
+        end)
+        A_Admin.UnlearnSpell(spell.id)
+        if not ok then error(text, 0) end
+        return text
+    end)
+
+    -- A buff from someone else: does the aura name its caster?
+    fact("a buff added with the caster party1 names its source as", function()
+        A_Admin.AddBuff(spell.id, spell.name, "135987", 3600, 1, "party1")
+        local source
+        for i = 1, 255 do
+            local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
+            if not aura then break end
+            if aura.spellId == spell.id then source = tostring(aura.sourceUnit) end
+        end
+        A_Admin.RemoveBuff(spell.id)
+        return source or "no such aura"
+    end)
+
+    -- A fight starting: is PLAYER_REGEN_DISABLED before the lockdown, as in the game?
+    fact("PLAYER_REGEN_DISABLED arrives", function()
+        local seen = {}
+        local frame = CreateFrame("Frame")
+        frame:RegisterEvent("PLAYER_REGEN_DISABLED")
+        frame:SetScript("OnEvent", function()
+            seen[#seen + 1] = InCombatLockdown() and "in the lockdown" or "before the lockdown"
+        end)
+        local ok, err = pcall(A_Admin.SetInCombat, true)
+        pcall(A_Admin.SetInCombat, false)
+        frame:UnregisterAllEvents()
+        frame:SetScript("OnEvent", nil)
+        if not ok then error(err, 0) end
+        return #seen == 0 and "never" or table.concat(seen, ", then ")
+    end)
+
+    -- Layout: a chain of anchors longer than 16, a line pinned to two
+    -- frames, and the height of small text. Scrolling isn't asked here: a
+    -- scroll frame made and read in one frame has no range yet, so the
+    -- answer would mean nothing. The walkthrough's row-in-view LAYOUT line
+    -- says how a scrolled row reads.
+    fact("a chain of 20 anchors follows a move of its first", function()
+        local first = CreateFrame("Frame", nil, UIParent)
+        first:SetSize(10, 10)
+        first:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
+        local last = first
+        for _ = 2, 20 do
+            local link = CreateFrame("Frame", nil, UIParent)
+            link:SetSize(10, 10)
+            link:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, 0)
+            last = link
+        end
+        local before = last:GetTop()
+        first:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, -100)
+        local moved = before - last:GetTop()
+        first:Hide()
+        return ("the last moved %.0f of 100"):format(moved)
+    end)
+    fact("a long line pinned to two frames 100 apart", function()
+        local left = CreateFrame("Frame", nil, UIParent)
+        left:SetSize(10, 10)
+        left:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 100, -100)
+        local right = CreateFrame("Frame", nil, UIParent)
+        right:SetSize(10, 10)
+        right:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 200, -100)
+        local line = left:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        line:SetPoint("LEFT", left, "RIGHT", 0, 0)
+        line:SetPoint("RIGHT", right, "LEFT", 0, 0)
+        line:SetText("one two three four five six seven eight nine ten eleven twelve")
+        local lines, width = line:GetNumLines(), line:GetWidth()
+        left:Hide()
+        right:Hide()
+        return ("is %s line(s), %.0f wide"):format(tostring(lines), width)
+    end)
+    fact("small text wrapped onto lines", function()
+        local holder = CreateFrame("Frame", nil, UIParent)
+        holder:SetSize(120, 10)
+        holder:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 300, -100)
+        local text = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        text:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, 0)
+        text:SetWidth(120)
+        text:SetText("one two three four five six seven eight nine ten eleven twelve")
+        local lines, height = text:GetNumLines(), text:GetStringHeight()
+        holder:Hide()
+        return ("%s lines, %.1f high, %.1f a line"):format(tostring(lines), height, height / math.max(lines or 1, 1))
+    end)
+    fact("C_VoiceChat.GetAvailableOutputDevices exists", function()
+        return C_VoiceChat ~= nil and C_VoiceChat.GetAvailableOutputDevices ~= nil
+    end)
+    assertTrue(true)
+end)
 
 -- The simulator starts with no saved settings, a new install (#47): the
 -- addon is off and its walkthrough open at its first step, and skipping it
@@ -105,7 +275,12 @@ test("/friendly selftest runs against the real UI", function()
 end)
 
 test("the options panel is made and opens without errors", function()
+    local before = #blockedOrder
     SlashCmdList.FRIENDLYFOREVER("")
+    -- What the client blocked as /friendly opened the panel, if it says so
+    -- at once (the last scenario lists the whole run's).
+    report("FACT sim /friendly opening the options: " .. (#blockedOrder > before
+        and table.concat(blockedOrder, "; ", before + 1) or "no action blocked at once"))
     local panel = _G.FriendlyForeverOptionsPanel
     assertNotNil(panel)
     assertTrue(panel:GetWidth() > 0)
@@ -1059,6 +1234,24 @@ local function Settle(content)
     end
 end
 
+-- How many of the message rows ("1." to "30.") read at or above the row
+-- before them, or can't be read: 0 when the layout is in order.
+local function RowsOutOfPlace(content)
+    local rows = {}
+    for _, region in ipairs({ content:GetRegions() }) do
+        local n = region:GetObjectType() == "FontString" and region:IsVisible()
+            and tonumber((region:GetText() or ""):match("^(%d+)%.$"))
+        if n then rows[n] = region end
+    end
+    local count, last = 0, nil
+    for n = 1, #rows do
+        local top = Edges(rows[n], "GetTop", "GetBottom")
+        if not top or (last and top >= last) then count = count + 1 end
+        last = top or last
+    end
+    return count
+end
+
 -- Whether the message rows ("1." to "30.", each hung below the one before)
 -- are drawn in order, top to bottom, with what follows them (the first
 -- visible region whose top is named by follows) below the last. A stale
@@ -1103,12 +1296,16 @@ local function RowsInOrder(content, label, follows)
     return line
 end
 
--- Runs fn(content, tab) with the options open at each tab in turn, the
--- Buff Back tab's buffs named as on Forever (pages.lua's WithBuffNames,
--- #158), then goes back to the first tab, even when a check fails.
+-- Runs fn(content, tab) with the options open at each tab in turn, then
+-- goes back to the first tab, even when a check fails. The Buff Back tab's
+-- buffs must carry their Forever names, as the simulator's own spell data
+-- gives them (pages.lua's UnnamedBuff, #158, #160): rows of buff keys
+-- would pass every layout check on text far shorter than a player reads.
 local function OnEachTab(fn)
     local Pages = FriendlyForeverUIPages
-    local ok, err = pcall(Pages.WithBuffNames, function()
+    local ok, err = pcall(function()
+        local unnamed = Pages.UnnamedBuff()
+        check(unnamed == nil, "the Buff Back tab's buffs aren't named as on Forever: " .. tostring(unnamed))
         for _, tab in ipairs(Pages.TABS) do
             local content = Pages.OpenTab(tab.name)
             check(content ~= nil, "couldn't open the " .. tab.label .. " tab")
@@ -1142,7 +1339,11 @@ test("each options tab opens by its button, and keeps its checkboxes and labels 
             check(ShowsText(content, tab.label .. "  "), name .. ": the header doesn't name the tab")
             OnScreen(_G[FriendlyForeverUIPages.PANEL], "options panel (" .. name .. ")")
             -- Every place below is read from a settled layout, or the
-            -- checks fail: none passes on the last tab's places.
+            -- checks fail: none passes on the last tab's places. How many
+            -- rows read out of place before that is reported, so a run
+            -- says whether the simulator still needs it (#160).
+            report(("FACT sim %s: %d message row(s) out of place before the layout is settled"):format(
+                name, RowsOutOfPlace(content)))
             Settle(content)
             RowsInOrder(content, name, "Preview random")
             CheckAll({
@@ -1396,6 +1597,25 @@ end)
 -- against regions whose edges it sets itself, and the Buff Thanks tab's
 -- choices, which spec/thankwith_spec.lua checks against the options. The
 -- simulator ignores what a test file returns.
+-- The actions the client blocked or forbade during the whole run (#160),
+-- one FACT line each with how often, or one line saying none. A line naming
+-- FriendlyForever is the addon's own call being refused, which a player
+-- would see in game: read it.
+test("reports the actions the client blocked while the scenarios ran", function()
+    if #blockedOrder == 0 then report("FACT sim blocked actions: none") end
+    for _, what in ipairs(blockedOrder) do
+        report(("FACT sim blocked action: %s (%d time(s))"):format(what, blockedActions[what]))
+    end
+    -- The chat line's other source, which fires no event (pages.lua).
+    if #blockedMessage == 0 then
+        report("FACT sim the blocked-action chat line: not printed by the client's own function")
+    end
+    for i, line in ipairs(blockedMessage) do
+        report(("FACT sim the blocked-action chat line, caller %d: %s"):format(i, line))
+    end
+    assertTrue(true)
+end)
+
 return { TextInside = TextInside, PushedDownInside = PushedDownInside, TabTextInside = TabTextInside,
     OnScreen = OnScreen, Settle = Settle, RowsInOrder = RowsInOrder, AcrossInside = AcrossInside,
     RowInView = RowInView, THANK_WITH = THANK_WITH, CANT_REACH = CANT_REACH }

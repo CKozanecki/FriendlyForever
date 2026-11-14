@@ -80,5 +80,8 @@ files["uitests/**"] = {
         "C_UnitAuras",
         "geterrorhandler", "seterrorhandler", "debugprofilestop",
         "Settings", "time", "date", "GetPhysicalScreenSize",
+        -- The simulator facts scenario (#160).
+        "GetBuildInfo", "GetScreenWidth", "GetScreenHeight", "GetNumGroupMembers", "C_Map", "IsSpellKnown",
+        "CreateFrame", "C_VoiceChat",
     },
 }

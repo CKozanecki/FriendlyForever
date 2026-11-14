@@ -7,17 +7,25 @@ name: UI simulator
 #
 # Safety:
 # - The simulator is built here from one reviewed commit of its source
-#   (ac893c6, #154), with every base image pinned by digest, so it can't
+#   (936d5f5, #160), with every base image pinned by digest, so it can't
 #   change under us; read the source at a new commit before moving the pin.
 #   There's no published image at that commit, and we never use the
 #   project's release binaries.
 # - No job has secrets, and every job but publish-screenshots has read-only
 #   access to the repository.
-# - Every container runs with no network (but the one that downloads the
-#   locked crates, and runs none of their code), no capabilities and no
-#   privilege escalation, and sees its inputs read-only. We don't use the
-#   project's own Action: it pulls a moving tag, mounts the repository
-#   read-write and puts an input into a shell command unquoted.
+# - Every container runs with no capabilities and no privilege escalation,
+#   and sees its inputs read-only. Building and running the simulator have
+#   no network. Two steps do, and neither builds or runs the simulator:
+#   - the one that downloads the locked crates, and runs none of their code;
+#   - the one that downloads Forever's spell data with the simulator's own
+#     tool (#160, the owner's decision). Its container sits on a network
+#     with no route out. It reaches only a proxy, which lets through only
+#     HTTPS tunnels to the hosts in SPELL_DATA_HOSTS, on port 443. What it
+#     writes must match SPELL_DATA_SHA256, or the job stops before anything
+#     is cached, uploaded or run.
+# - We don't use the project's own Action: it pulls a moving tag, mounts
+#   the repository read-write and puts an input into a shell command
+#   unquoted.
 # - Only the publish-screenshots job may write, and it runs nothing from the
 #   simulator or the pull request.
 
@@ -50,17 +58,37 @@ env:
   # most players use. spec/repo_spec.lua checks both are listed.
   LAYOUT_SIZES: 1024x768 1920x1080
   SIM_REPO: https://github.com/Osso/wow-ui-sim.git
-  # The maintainer's fixes for our findings (#100, Osso/wow-ui-sim#13), on
-  # their master after v0.1.37; reviewed on #154.
-  SIM_COMMIT: ac893c6659d5152965352bfeb725fad89b9bc0d5
-  BLIZZARD_UI_COMMIT: b9be9379719047977fca4dba1bb1d9988e8840b3 # pinned by that commit's Dockerfile
-  # That commit's Dockerfile builds on rust:1.92-bookworm; running uses the
-  # same Debian, so the binary finds the ICU it was linked with.
-  BUILD_BASE: rust@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2 # 1.92-bookworm
-  # What the build uses; the cache key covers each (#170).
+  # The head of their master on 2026-11-13, with the Forever profile, its
+  # spell data and our three contributions (#100); reviewed on #160.
+  SIM_COMMIT: 936d5f53841ee620384b7f05a0f8d5e861835c3d
+  # The client the simulator plays: WoW Forever, the game the addon ships
+  # for (#160, the owner's decision). It names the Blizzard UI cache folder
+  # and the spell data folder.
+  SIM_PROFILE: wowforever
+  # Forever's UI code, at the commit and version SIM_COMMIT's
+  # data/blizzard-ui-builds/wowforever.json names; the fetch step checks both.
+  BLIZZARD_UI_COMMIT: aff0d8cd53bf4d9ef1c1dd2786b94461a276fb16
+  BLIZZARD_UI_VERSION: 1.60.1.70707
+  # SIM_COMMIT's rust-toolchain.toml asks for Rust 1.99.1. BUILD_TOOLCHAIN
+  # tells rustup to use the image's own toolchain, so it never tries to
+  # download one. Running uses the same Debian, so the binary finds the ICU
+  # it was linked with.
+  BUILD_BASE: rust@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c # 1.99.1-bookworm
+  BUILD_TOOLCHAIN: 1.99.1
+  # What the build uses; the cache key covers each (#170). "tools" builds
+  # wow-cli, which downloads the spell data.
   BUILD_PACKAGES: clang mold git pkg-config cmake libicu-dev libudev-dev
-  BUILD_FEATURES: gui client-retail
+  BUILD_FEATURES: gui client-wowforever tools
   BUILD_STRIP: symbols
+  # Forever's spell data (#160): the hosts its download may reach, all on
+  # port 443 (the discovery host, then Blizzard's CDN), and the SHA-256 of
+  # what it must write. The simulator's own code checks every downloaded
+  # chunk against keys pinned in its source before decoding it.
+  SPELL_DATA_HOSTS: us.version.battle.net level3.ssl.blizzard.com us.cdn.blizzard.com kr.cdn.blizzard.com
+  # Taken from this workflow's first run on #314, after #160's review of the
+  # download code; the row check below ties it to our committed copy. In
+  # quotes: YAML would read a hash of digits as a number.
+  SPELL_DATA_SHA256: "baafb9369a8214a5d793fba12cadec875f7f4a0c4ff8e569d6faac21b2bcac7b"
   RENDER_BASE: debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 # bookworm-slim
 
 jobs:
@@ -75,7 +103,8 @@ jobs:
   # *.lua), the ones the options panel is built from, Colours.lua (the palette
   # every colour comes from), BuffData.lua and BuffRules.lua (they decide text
   # the Buff Back tab shows, #226), the scenarios, the
-  # art, the packaging inputs, the simulator harness and this workflow. A
+  # art, the packaging inputs, the simulator harness, the spell data check
+  # and the copy it checks against (#160), and this workflow. A
   # change to anything else, such as Greeter.lua or GroupBuffs.lua, skips the
   # jobs below; a skipped job counts as passing.
   #
@@ -153,7 +182,8 @@ jobs:
             case "$file" in
               */*)
                 case "$file" in
-                  uitests/* | Media/* | .github/workflows/ui-sim.yml | scripts/package.sh | scripts/ui-sim-harness.lua) hit=yes ;;
+                  uitests/* | Media/* | .github/workflows/ui-sim.yml | scripts/package.sh | scripts/ui-sim-harness.lua \
+                    | scripts/sim-spell-check.py | scripts/data/forever-spells.json) hit=yes ;;
                 esac ;;
               *)
                 case "$file" in
@@ -175,10 +205,11 @@ jobs:
           answer false "no UI file changed"
 
   # Builds the simulator once, with its renderer, for both jobs below: the
-  # way SIM_COMMIT's Dockerfile does, and renders on the CPU with Mesa's
-  # software driver. It also fetches Blizzard's UI code at its pinned commit.
-  # No Blizzard art is fetched, so Blizzard's textures are missing: text,
-  # layout and our own colors show.
+  # way SIM_COMMIT's Dockerfile does for its Forever image, and renders on
+  # the CPU with Mesa's software driver. It also fetches Forever's UI code at
+  # its pinned commit, and downloads Forever's spell data, which the Forever
+  # profile won't start without. No Blizzard art is fetched, so Blizzard's
+  # textures are missing: text, layout and our own colors show.
   #
   # The finished, staged build is cached (#170), keyed on everything that
   # shapes it, so it is rebuilt only when a pin or a build setting moves. On
@@ -194,10 +225,10 @@ jobs:
   # checksummed crates (it runs none of their code), then compiles with no
   # network, no capabilities and the sources read-only. Its output goes to
   # the other jobs as an artifact: the stripped binary, the test framework
-  # run-tests loads from beside it, and Blizzard's UI code. Whatever comes
-  # out of the cache is as untrusted as a fresh build: the runner checks it
-  # holds only plain files and copies nothing else, and only a sandbox runs
-  # it.
+  # run-tests loads from beside it, the spell data and Blizzard's UI code.
+  # Whatever comes out of the cache is as untrusted as a fresh build: the
+  # runner checks it holds only plain files and the spell data's hash, and
+  # copies nothing else, and only a sandbox runs it.
   simulator:
     needs: changes
     # Not when no UI file changed; an empty answer (the job above failed) runs.
@@ -209,11 +240,15 @@ jobs:
       # The workflow file itself is in the key, so editing any build or
       # staging step (a flag, a marker, a copied folder) misses the cache and
       # is built and checked in the run that changes it, never hidden by a
-      # hit. Only this file is checked out.
+      # hit. Only this file is checked out, with the two the spell data
+      # check reads (#160).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: .github/workflows/ui-sim.yml
+          sparse-checkout: |
+            .github/workflows/ui-sim.yml
+            scripts/sim-spell-check.py
+            scripts/data/forever-spells.json
           sparse-checkout-cone-mode: false
 
       # One hash over every input of the build below. Change any of them and
@@ -223,18 +258,26 @@ jobs:
         id: key
         env:
           WORKFLOW_HASH: ${{ hashFiles('.github/workflows/ui-sim.yml') }}
+          SPELL_CHECK_HASH: ${{ hashFiles('scripts/sim-spell-check.py', 'scripts/data/forever-spells.json') }}
         run: |
           # hashFiles gives '' when the file wasn't checked out; refuse that
           # rather than cache without it.
           test -n "$WORKFLOW_HASH"
+          test -n "$SPELL_CHECK_HASH"
           inputs="$(printf '%s\n' \
             "workflow=$WORKFLOW_HASH" \
             "sim=$SIM_COMMIT" \
+            "profile=$SIM_PROFILE" \
             "blizzard-ui=$BLIZZARD_UI_COMMIT" \
+            "blizzard-ui-version=$BLIZZARD_UI_VERSION" \
             "build-base=$BUILD_BASE" \
+            "toolchain=$BUILD_TOOLCHAIN" \
             "packages=$BUILD_PACKAGES" \
             "features=$BUILD_FEATURES" \
-            "strip=$BUILD_STRIP")"
+            "strip=$BUILD_STRIP" \
+            "spell-hosts=$SPELL_DATA_HOSTS" \
+            "spell-data=$SPELL_DATA_SHA256" \
+            "spell-check=$SPELL_CHECK_HASH")"
           echo "key=wow-ui-sim-build-$(printf '%s' "$inputs" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the staged simulator build
@@ -258,16 +301,22 @@ jobs:
           git -C "$ui" sparse-checkout set Interface/AddOns
           git -C "$ui" checkout -q --detach FETCH_HEAD
           test "$(git -C "$ui" rev-parse HEAD)" = "$BLIZZARD_UI_COMMIT"
+          # Our pin is the one the simulator's source names for this profile
+          # (its Dockerfile still names an older one, #160's review).
+          pin="$RUNNER_TEMP/sim/data/blizzard-ui-builds/$SIM_PROFILE.json"
+          grep -qF "\"gethe_revision\": \"$BLIZZARD_UI_COMMIT\"" "$pin"
+          grep -qF "\"version\": \"$BLIZZARD_UI_VERSION\"" "$pin"
           # As SIM_COMMIT's Dockerfile does: the tree must be exactly the
           # file list the simulator was built for.
-          manifest="$RUNNER_TEMP/sim/data/blizzard-ui-files/retail.txt"
+          manifest="$RUNNER_TEMP/sim/data/blizzard-ui-files/$SIM_PROFILE.txt"
           diff -u <(LC_ALL=C sort "$manifest") \
             <(git -C "$ui" ls-tree -r --name-only HEAD Interface/AddOns/ | cut -d/ -f3- | LC_ALL=C sort)
           # The markers the simulator's own image writes, so it uses this
           # cache and never tries to fetch game files itself.
           cd "$ui/Interface/AddOns"
-          printf 'profile=retail\nversion=12.1.5.70448\nsource=gethe-image-build\ngethe_revision=%s\nmanifest_sha256=%s\nfallback=none\n' \
-            "$BLIZZARD_UI_COMMIT" "$(sha256sum "$manifest" | cut -d' ' -f1)" > .wow-ui-sim-blizzard-ui-provenance
+          printf 'profile=%s\nversion=%s\nsource=gethe-image-build\ngethe_revision=%s\nmanifest_sha256=%s\nfallback=none\n' \
+            "$SIM_PROFILE" "$BLIZZARD_UI_VERSION" "$BLIZZARD_UI_COMMIT" "$(sha256sum "$manifest" | cut -d' ' -f1)" \
+            > .wow-ui-sim-blizzard-ui-provenance
           touch .wow-ui-sim-blizzard-ui-complete
 
       - name: Build a build image (the Dockerfile's build tools)
@@ -290,27 +339,100 @@ jobs:
         if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
           docker run --rm --cap-drop ALL --security-opt no-new-privileges \
-            --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/cargo \
+            --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/cargo -e RUSTUP_TOOLCHAIN="$BUILD_TOOLCHAIN" \
             -v "$RUNNER_TEMP/sim:/build:ro" -v "$RUNNER_TEMP/cargo-home:/cargo" -w /build \
             ff-build cargo fetch --locked
 
+      # wow-sim is the simulator; wow-cli is its tool, built here only for
+      # the spell data step below.
       - name: Build the simulator with its renderer (no network, sources read-only)
         if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
           docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
             --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/cargo -e CARGO_TARGET_DIR=/target \
-            -e CARGO_PROFILE_RELEASE_STRIP="$BUILD_STRIP" \
+            -e CARGO_PROFILE_RELEASE_STRIP="$BUILD_STRIP" -e RUSTUP_TOOLCHAIN="$BUILD_TOOLCHAIN" \
             --memory 12g --memory-swap 12g --pids-limit 8192 \
             -v "$RUNNER_TEMP/sim:/build:ro" -v "$RUNNER_TEMP/cargo-home:/cargo:ro" \
             -v "$RUNNER_TEMP/sim-target:/target" -w /build \
-            ff-build cargo build --release --locked --offline --bin wow-sim \
+            ff-build cargo build --release --locked --offline --bin wow-sim --bin wow-cli \
               --no-default-features --features "$BUILD_FEATURES"
+
+      # The Forever profile needs Forever's spell data, which only the
+      # simulator's own tool makes, by downloading five tables from
+      # Blizzard's CDN (#160; the owner accepted network for this step only).
+      # It is the one run of the simulator's code with any network, and it
+      # gets as little as will do:
+      # - its container is on a Docker network made with --internal, which
+      #   has no route out and answers no outside name;
+      # - the only thing it can reach there is a proxy (tinyproxy, Debian's,
+      #   on the pinned base), which refuses everything but an HTTPS tunnel
+      #   to a host in SPELL_DATA_HOSTS on port 443: no other host, no other
+      #   port and no plain HTTP;
+      # - it gets the tool read-only and one empty folder to write, and has
+      #   no capabilities and no secrets.
+      # What it wrote is then checked by the step after this one. The proxy's
+      # log shows every host it asked for.
+      - name: Download Forever's spell data (network to Blizzard's CDN only)
+        if: steps.sim-cache.outputs.cache-hit != 'true'
+        run: |
+          # The tool's output is untrusted (#153): see the ui-sim job's shown.
+          shown() { tr '\r' '\n' | sed -e "s/^/${1:-| }/" -e 's/##\[/##(/g'; }
+          cli="$RUNNER_TEMP/sim-target/release/wow-cli"
+          test -f "$cli"
+          test ! -L "$cli"
+          mkdir -p "$RUNNER_TEMP/spell-cli" "$RUNNER_TEMP/spell-proxy" "$RUNNER_TEMP/spell-out"
+          cp -P "$cli" "$RUNNER_TEMP/spell-cli/wow-cli"
+          # The proxy's settings: nothing but a CONNECT (an HTTPS tunnel) to
+          # a listed host, by exact name, on port 443. FilterURLs makes the
+          # filter read the whole request target, "host:443" for a CONNECT
+          # and "http://..." for a plain request, so each filter line names
+          # the host with its port and no plain request can match one.
+          # Without it the filter reads the host alone, and plain HTTP to a
+          # listed host passes on any port (#314's architecture review; both
+          # tried against tinyproxy 1.11.1, Debian bookworm's).
+          printf '%s\n' 'Port 8888' 'Listen 0.0.0.0' 'Timeout 60' 'MaxClients 20' 'ConnectPort 443' \
+            'FilterDefaultDeny Yes' 'FilterType ere' 'FilterURLs On' 'Filter "/proxy/filter"' 'LogLevel Connect' \
+            > "$RUNNER_TEMP/spell-proxy/tinyproxy.conf"
+          # Read as words, never as file patterns: a * must be refused, not matched.
+          read -ra hosts <<< "$SPELL_DATA_HOSTS"
+          for host in "${hosts[@]}"; do
+            case "$host" in "" | *[!a-z0-9.-]*) echo "not a plain host name in SPELL_DATA_HOSTS"; exit 1 ;; esac
+            printf '^%s:443$\n' "${host//./\\.}"
+          done > "$RUNNER_TEMP/spell-proxy/filter"
+          test -s "$RUNNER_TEMP/spell-proxy/filter"
+          chmod -R a-w "$RUNNER_TEMP/spell-cli" "$RUNNER_TEMP/spell-proxy"
+          docker build -t ff-proxy - <<DOCKERFILE
+          FROM $RENDER_BASE
+          RUN apt-get update -q && apt-get install -yq --no-install-recommends tinyproxy \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          docker network create --internal ff-cdn
+          docker run -d --name ff-proxy --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" -v "$RUNNER_TEMP/spell-proxy:/proxy:ro" \
+            ff-proxy tinyproxy -d -c /proxy/tinyproxy.conf
+          docker network connect ff-cdn ff-proxy
+          sleep 2
+          status=0
+          timeout -s TERM -k 10 300 docker run --rm --init --network ff-cdn --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" -e HOME=/tmp -e WOW_SIM_CASC=0 -e HTTPS_PROXY=http://ff-proxy:8888 \
+            --memory 2g --memory-swap 2g --pids-limit 512 \
+            -v "$RUNNER_TEMP/spell-cli:/cli:ro" -v "$RUNNER_TEMP/spell-out:/spells" \
+            ff-build /cli/wow-cli casc sync-forever-spells --source cdn --output /spells/spells.json > "$RUNNER_TEMP/spell-data.log" 2>&1 || status=$?
+          head -c 20000 "$RUNNER_TEMP/spell-data.log" | shown
+          echo "wow-cli: exit $status (124: stopped at the time limit)"
+          echo "what the proxy was asked for:"
+          docker logs ff-proxy 2>&1 | grep -E 'Request \(|refused' | head -200 | shown "proxy> " || true
+          docker rm -f ff-proxy >/dev/null
+          docker network rm ff-cdn >/dev/null
+          [ "$status" -eq 0 ]
 
       # What the simulator's image holds: the binary (stripped by the build,
       # as the image's is), with the test framework run-tests loads from
-      # Interface/AddOns beside it, and Blizzard's UI code. The build's output
-      # is untrusted, so the runner only copies the binary, and only a plain
-      # file, never a link: nothing here reads or runs it outside a sandbox.
+      # Interface/AddOns and the spell data it reads from spells/ beside it,
+      # and Blizzard's UI code. The build's output and the downloaded spell
+      # data are untrusted, so the runner only copies them, and only plain
+      # files, never a link: nothing here reads or runs them outside a
+      # sandbox before the check below.
       - name: Stage the simulator for the other jobs
         if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
@@ -320,6 +442,11 @@ jobs:
           test -f "$bin"
           test ! -L "$bin"
           cp -P "$bin" "$out/sim/wow-sim"
+          spells="$RUNNER_TEMP/spell-out/spells.json"
+          test -f "$spells"
+          test ! -L "$spells"
+          mkdir -p "$out/sim/spells/$SIM_PROFILE"
+          cp -P "$spells" "$out/sim/spells/$SIM_PROFILE/spells.json"
           cp -r "$RUNNER_TEMP/sim/Interface/AddOns/TestFramework" "$out/sim/Interface/AddOns/"
           cp -r "$RUNNER_TEMP/blizzard-ui/Interface/AddOns" "$out/blizzard-ui/"
 
@@ -328,7 +455,15 @@ jobs:
       # untrusted as anything the build made. The binary must be a plain
       # file, and nothing in the tree may be a link or any other special
       # file; the upload below would follow or carry them on.
-      - name: Check the staged files are plain files
+      #
+      # The spell data must be the reviewed download, byte for byte (#160):
+      # its SHA-256 must be SPELL_DATA_SHA256, or the job stops here, before
+      # anything is saved, uploaded or run. A mismatch is named in an
+      # annotation, which holds only the hash, in hex. Only a file with the
+      # pinned hash is then read: scripts/sim-spell-check.py proves that
+      # every spell in scripts/data/forever-spells.json, the copy whose hash
+      # the simulator's own spec records (#209), has the same rows here.
+      - name: Check the staged files are plain files, and the spell data is the pinned one
         run: |
           out="$RUNNER_TEMP/ui-sim-build"
           test -f "$out/sim/wow-sim"
@@ -336,6 +471,17 @@ jobs:
           test -d "$out/sim/Interface/AddOns/TestFramework"
           test -d "$out/blizzard-ui/AddOns"
           test -z "$(find "$out" -mindepth 1 ! -type f ! -type d -print -quit)"
+          spells="$out/sim/spells/$SIM_PROFILE/spells.json"
+          test -f "$spells"
+          test ! -L "$spells"
+          test "$(stat -c %s "$spells")" -le 1048576
+          actual=$(sha256sum "$spells" | cut -d' ' -f1)
+          case "$actual" in "" | *[!0-9a-f]*) actual=unreadable ;; esac
+          if [ "$actual" != "$SPELL_DATA_SHA256" ]; then
+            echo "::error title=UI simulator: Forever spell data is not the pinned download::Its SHA-256 is $actual, which is not SPELL_DATA_SHA256. Nothing was cached, uploaded or run."
+            exit 1
+          fi
+          python3 -I scripts/sim-spell-check.py "$spells" scripts/data/forever-spells.json
 
       # Saved as soon as it is staged and checked, so a later failure or a
       # cancelled run still keeps it.
@@ -418,11 +564,11 @@ jobs:
 
       - name: Run the simulator (no network, addon read-only)
         run: |
-          # Our TOC is for Forever (interface 16001); the simulator runs the
-          # retail 12.1.5 UI that Forever's is built on, so load it the way
-          # the game's "Load out of date AddOns" box would. As the
-          # simulator's image did: no saved variables, and Blizzard's UI
-          # where it looks (WOW_SIM_CASC=0: never look for game files).
+          # The simulator plays Forever (SIM_PROFILE), whose interface
+          # version is our TOC's (16001), so the addon loads as it does in
+          # the game. As the simulator's image does: no saved variables,
+          # Blizzard's UI where it looks, and the spell data beside the
+          # binary (WOW_SIM_CASC=0: never look for game files).
           # Each command is stopped after 2 minutes if it hasn't finished (they
           # take seconds), so one that never exits can't hold up the job; its
           # output so far is kept, and the log says how each one ended (#154).
@@ -432,9 +578,9 @@ jobs:
             local started=$SECONDS status=0
             timeout -s TERM -k 10 120 docker run --rm --init --network none --cap-drop ALL --security-opt no-new-privileges \
               --user "$(id -u):$(id -g)" -e HOME=/tmp \
-              -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 -e WOW_SIM_NO_SAVED_VARS=1 -e WOW_SIM_CASC=0 \
+              -e WOW_SIM_NO_SAVED_VARS=1 -e WOW_SIM_CASC=0 \
               -v "$RUNNER_TEMP/ui-sim-build/sim:/sim:ro" \
-              -v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
+              -v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/$SIM_PROFILE/AddOns:ro" \
               -v "$RUNNER_TEMP/addons:/test-addons:ro" ff-render /sim/wow-sim --addons-path /test-addons "$@" || status=$?
             echo "$1: exit $status after $((SECONDS - started)) s (124: stopped at the time limit)" >&3
             return "$status"
@@ -446,9 +592,9 @@ jobs:
             local status=0
             timeout -s TERM -k 10 300 docker run --rm --init --network none --cap-drop ALL --security-opt no-new-privileges \
               --user "$(id -u):$(id -g)" -e HOME=/tmp \
-              -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 -e WOW_SIM_NO_SAVED_VARS=1 -e WOW_SIM_CASC=0 \
+              -e WOW_SIM_NO_SAVED_VARS=1 -e WOW_SIM_CASC=0 \
               -v "$RUNNER_TEMP/ui-sim-build/sim:/sim:ro" \
-              -v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
+              -v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/$SIM_PROFILE/AddOns:ro" \
               -v "$RUNNER_TEMP/addons:/test-addons:ro" -v "$RUNNER_TEMP/layout-lua:/layout-lua:ro" \
               ff-render /sim/wow-sim --addons-path /test-addons --exec-lua @/layout-lua/layout.lua \
               dump-tree --filter FriendlyForever --width "${1%x*}" --height "${1#*x}" || status=$?
@@ -730,11 +876,11 @@ jobs:
             cid=$(docker run -d --init --network none --cap-drop ALL --security-opt no-new-privileges \
               --user "$(id -u):$(id -g)" -e HOME=/tmp -e XDG_RUNTIME_DIR=/tmp \
               --memory 6g --memory-swap 6g --cpus 3 --pids-limit 4096 \
-              -e WOW_SIM_LOAD_OUT_OF_DATE_ADDONS=1 -e WOW_SIM_NO_SAVED_VARS=1 \
+              -e WOW_SIM_NO_SAVED_VARS=1 \
               -e WOW_SIM_CASC=0 -e WOW_SIM_VERBOSE=1 \
               -e LIBGL_ALWAYS_SOFTWARE=1 -e WOW_SIM_SOFTWARE_RENDER=1 -e WGPU_BACKEND=gl \
               -v "$RUNNER_TEMP/ui-sim-build/sim:/sim:ro" \
-              -v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/retail/AddOns:ro" \
+              -v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/$SIM_PROFILE/AddOns:ro" \
               -v "$RUNNER_TEMP/addons:/test-addons:ro" \
               -v "$RUNNER_TEMP/shot-lua:/shot-lua:ro" \
               -v "$RUNNER_TEMP/shots:/shots" \

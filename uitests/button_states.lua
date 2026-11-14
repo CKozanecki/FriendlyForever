@@ -8,15 +8,13 @@
 -- The simulator loads the test files in name order, so this one comes before
 -- scenarios.lua and FriendlyForeverUIStates is there when they run.
 --
--- What the simulator (wow-ui-sim ac893c6, #154) can't model, and how this
--- file gets around it:
---   - Its spell data is retail's, with none of Forever's buffs: it has no
---     name for Power Word: Fortitude (10938), and its C_Spell.IsSpellInRange
---     answers nil for a spell it has no data for. While a state is set up,
---     the spellbook fixture (Learn) teaches the player that one buff with
---     A_Admin.LearnSpell, which the spellbook queries read, and answers its
---     name and range (in range of whoever the simulator says is in range).
---     Any other spell is answered by the simulator itself.
+-- The simulator (wow-ui-sim 936d5f5, #160) plays WoW Forever, with Forever's
+-- spell data: it names our buffs and answers their range itself (in range of
+-- every unit it shows: it has no distance model). While a state is set up,
+-- the spellbook fixture (Learn) only teaches the player the buff, with
+-- A_Admin.LearnSpell, as a Priest.
+--
+-- What it still can't model, and how this file gets around it:
 --   - A_Admin.AddBuff takes a caster, but the player's aura data still names
 --     the player as its source (its docs/admin-api/buffs.md). The buff is
 --     added with it, so the aura is real for Blizzard's frames too. Then
@@ -87,45 +85,26 @@ end
 -- The spellbook fixture
 ------------------------------------------------------------------------
 
-local learned -- what Learn changed: { class, functions = { [table] = { [key] = original } } }
-
-local function IsOurSpell(spell)
-    return spell == States.SPELL.id or spell == States.SPELL.name
-end
-
--- Replace namespace[key] with a function that answers for our spell and
--- passes anything else to the simulator's own (if it has one).
-local function Answer(namespace, key, forOurSpell)
-    local original = namespace[key]
-    learned.functions[namespace] = learned.functions[namespace] or {}
-    learned.functions[namespace][key] = { original = original }
-    namespace[key] = function(spell, ...)
-        if IsOurSpell(spell) then return forOurSpell(spell, ...) end
-        if original then return original(spell, ...) end
-    end
-end
+local learned -- what Learn changed: { class }
 
 -- Make the player a Priest who knows Power Word: Fortitude. LearnSpell
 -- (#100 item 2, fixed in wow-ui-sim d907b88) puts it in the spellbook the
 -- simulator's C_SpellBook.IsSpellInSpellBook and IsSpellKnown read, and
 -- fires nothing, so SPELLS_CHANGED is fired here, as the game does when your
--- spells change.
+-- spells change. The buff's name and range are the simulator's own, from
+-- Forever's spell data (#100 items 7 and 8, fixed by wow-ui-sim 936d5f5's
+-- Forever profile, #160): nothing answers for it here any more.
 function States.Learn()
     if learned then return end
     local _, _, classId = UnitClass("player")
-    learned = { class = classId, functions = {} }
+    learned = { class = classId }
     Admin("LearnSpell", States.SPELL.id)
-    Answer(C_Spell, "GetSpellName", function() return States.SPELL.name end)
-    Answer(C_Spell, "IsSpellInRange", function(_, unit) return UnitInRange(unit) and true or false end)
     Admin("SetPlayerClass", States.PRIEST)
     States.Fire("SPELLS_CHANGED")
 end
 
 function States.Unlearn()
     if not learned then return end
-    for namespace, keys in pairs(learned.functions) do
-        for key, saved in pairs(keys) do namespace[key] = saved.original end
-    end
     Admin("UnlearnSpell", States.SPELL.id)
     if learned.class then Admin("SetPlayerClass", learned.class) end
     learned = nil
@@ -193,9 +172,8 @@ function States.Combat(on)
 end
 
 -- The party as it was before the first change here, to put back: nil
--- until then. The screenshot build starts in a party of four whose members
--- wear buffs; the scenario run starts in none (#100 item 6, still so at
--- wow-ui-sim ac893c6).
+-- until then. Every run starts in a party of four whose members wear buffs
+-- (the scenario run too, since wow-ui-sim 936d5f5: #100 item 6, #160).
 local savedParty
 
 local function SaveParty()
@@ -236,7 +214,7 @@ States.FORTITUDE_IDS = FORTITUDE_IDS -- for spec/uitests_states_spec.lua
 
 -- The simulator seeds the player with 4 to 6 random buffs when it starts, and
 -- its pool includes Power Word: Fortitude (21562) one start in five (wow-ui-sim
--- ac893c6, docs/ui-simulator.md). Then buff mode never offers you your own
+-- 936d5f5, docs/ui-simulator.md). Then buff mode never offers you your own
 -- Fortitude, and a scenario that expects "You" first flakes (#223). Take every
 -- Fortitude off the player, and fail loudly if one stays, so a change to the
 -- simulator's pool can't make a scenario pass or fail by chance.
@@ -424,9 +402,9 @@ States.ListFilled = {
 -- The list (#43) with a group cast in it (#227): in buff mode, a party of
 -- three missing Fortitude, and the player knows Prayer of Fortitude and
 -- carries its reagent, so the button holds the group version and the list
--- shows it as one row. The simulator has no Forever data, so the group
--- spell's name and the reagent count are answered here, as Learn does for
--- the single buff, and put back by Undo.
+-- shows it as one row. The simulator names the group spell and answers its
+-- range itself (Forever's spell data, #160); it has no bags, so the reagent
+-- count is answered here, and put back by Undo.
 States.GROUP_SPELL = { id = 21564, name = "Prayer of Fortitude", reagent = 17029 }
 States.GROUP_MEMBERS = { States.GROUPMATE, "Cedric Vane", "Dagny Rask" }
 local groupSaved
@@ -435,21 +413,7 @@ States.ListGroupCast = {
         States.PassLoginGrace()
         States.Learn()
         local items = _G.C_Item
-        groupSaved = { name = C_Spell.GetSpellName, count = _G.GetItemCount,
-            citem = items and items.GetItemCount, range = C_Spell.IsSpellInRange }
-        local name, range = C_Spell.GetSpellName, C_Spell.IsSpellInRange
-        C_Spell.GetSpellName = function(spell, ...)
-            if spell == States.GROUP_SPELL.id or spell == States.GROUP_SPELL.name then
-                return States.GROUP_SPELL.name
-            end
-            return name(spell, ...)
-        end
-        C_Spell.IsSpellInRange = function(spell, unit, ...)
-            if spell == States.GROUP_SPELL.id or spell == States.GROUP_SPELL.name then
-                return UnitInRange(unit) and true or false
-            end
-            return range(spell, unit, ...)
-        end
+        groupSaved = { count = _G.GetItemCount, citem = items and items.GetItemCount }
         local count = _G.GetItemCount
         _G.GetItemCount = function(item, ...)
             if item == States.GROUP_SPELL.reagent then return 5 end
@@ -468,8 +432,7 @@ States.ListGroupCast = {
         States.RestoreParty()
         Admin("UnlearnSpell", States.GROUP_SPELL.id)
         if groupSaved then
-            C_Spell.GetSpellName, _G.GetItemCount = groupSaved.name, groupSaved.count
-            C_Spell.IsSpellInRange = groupSaved.range
+            _G.GetItemCount = groupSaved.count
             if _G.C_Item then _G.C_Item.GetItemCount = groupSaved.citem end
             groupSaved = nil
         end
