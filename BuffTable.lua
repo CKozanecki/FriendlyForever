@@ -6,8 +6,8 @@ local _, ns = ...
 ns.BuffTable = {
     format = 1,
     build = "1.60.1.70685",
-    source = "forever-spells.json",
-    sourceSha256 = "13122873d813481e85815946ddf964068b04132d4d2b2b44ba5ce61491595ad0",
+    source = "forever-spells-extended.json",
+    sourceSha256 = "43d0cfa0a207b9fc0bc9ae5ea76b70b3d2ecb8779f4b33b92e288ce45d7cc45b",
     classes = {
         DRUID = {
             {
@@ -30,6 +30,38 @@ ns.BuffTable = {
                 defaultRule = "tanks",
             },
         },
+        HUNTER = {
+            {
+                key = "hawk",
+                name = "Aspect of the Hawk",
+                ranks = { 25296, 14322, 14321, 14320, 14319, 14318, 13165 },
+                family = "aspect",
+                selfCast = true,
+                toggle = true,
+            },
+            {
+                key = "monkey",
+                name = "Aspect of the Monkey",
+                ranks = { 13163 },
+                family = "aspect",
+                selfCast = true,
+                toggle = true,
+            },
+            {
+                key = "wildaspect",
+                name = "Aspect of the Wild",
+                ranks = { 20190, 20043 },
+                family = "aspect",
+                selfCast = true,
+                toggle = true,
+            },
+            {
+                key = "trueshot",
+                name = "Trueshot Aura",
+                ranks = { 20906, 20905, 19506 },
+                selfCast = true,
+            },
+        },
         MAGE = {
             {
                 key = "intellect",
@@ -43,6 +75,20 @@ ns.BuffTable = {
                     },
                 },
                 manaOnly = true,
+            },
+            {
+                key = "icearmor",
+                name = "Ice Armor",
+                ranks = { 10220, 10219, 7320, 7302, 7301, 7300, 168 },
+                family = "armor",
+                selfCast = true,
+            },
+            {
+                key = "magearmor",
+                name = "Mage Armor",
+                ranks = { 22783, 22782, 6117 },
+                family = "armor",
+                selfCast = true,
             },
         },
         PALADIN = {
@@ -107,6 +153,69 @@ ns.BuffTable = {
                     DRUID = true,
                 },
             },
+            {
+                key = "righteousfury",
+                name = "Righteous Fury",
+                ranks = { 25780 },
+                selfCast = true,
+                defaultNever = true,
+            },
+            {
+                key = "devotion",
+                name = "Devotion Aura",
+                ranks = { 10293, 10292, 1032, 10291, 643, 10290, 465 },
+                family = "aura",
+                selfCast = true,
+                toggle = true,
+            },
+            {
+                key = "retribution",
+                name = "Retribution Aura",
+                ranks = { 10301, 10300, 10299, 10298, 7294 },
+                family = "aura",
+                selfCast = true,
+                toggle = true,
+            },
+            {
+                key = "concentration",
+                name = "Concentration Aura",
+                ranks = { 19746 },
+                family = "aura",
+                selfCast = true,
+                toggle = true,
+            },
+            {
+                key = "shadowaura",
+                name = "Shadow Resistance Aura",
+                ranks = { 19896, 19895, 19876 },
+                family = "aura",
+                selfCast = true,
+                toggle = true,
+            },
+            {
+                key = "frostaura",
+                name = "Frost Resistance Aura",
+                ranks = { 19898, 19897, 19888 },
+                family = "aura",
+                selfCast = true,
+                toggle = true,
+            },
+            {
+                key = "fireaura",
+                name = "Fire Resistance Aura",
+                ranks = { 19900, 19899, 19891 },
+                family = "aura",
+                selfCast = true,
+                toggle = true,
+            },
+            {
+                key = "sanctity",
+                name = "Sanctity Aura",
+                ranks = { 20218 },
+                family = "aura",
+                selfCast = true,
+                toggle = true,
+            },
         },
         PRIEST = {
             {
@@ -147,6 +256,12 @@ ns.BuffTable = {
                     },
                 },
             },
+            {
+                key = "innerfire",
+                name = "Inner Fire",
+                ranks = { 10952, 10951, 1006, 602, 7128, 588 },
+                selfCast = true,
+            },
         },
         SHAMAN = {
             {
@@ -156,6 +271,12 @@ ns.BuffTable = {
                 blockers = { 5697 },
                 water = true,
             },
+            {
+                key = "lightningshield",
+                name = "Lightning Shield",
+                ranks = { 10432, 10431, 8134, 945, 905, 325, 324 },
+                selfCast = true,
+            },
         },
         WARLOCK = {
             {
@@ -164,6 +285,12 @@ ns.BuffTable = {
                 ranks = { 5697 },
                 blockers = { 131 },
                 water = true,
+            },
+            {
+                key = "demonarmor",
+                name = "Demon Armor",
+                ranks = { 11735, 11734, 11733, 1086, 706, 696, 687 },
+                selfCast = true,
             },
         },
         WARRIOR = {
@@ -176,11 +303,11 @@ ns.BuffTable = {
         },
     },
     -- Buffs left out: their keys stay known so saved settings still load.
-    absent = {
-        "concentration", "demonarmor", "devotion", "fireaura", "frostaura", "hawk", "icearmor", "innerfire",
-        "light", "lightningshield", "magearmor", "monkey", "omen", "retribution", "righteousfury",
-        "sanctity", "shadowaura", "trueshot", "wildaspect",
+    absent = { "light", "omen" },
+    -- Spells that count as wearing a family of self-buffs, never offered (#44).
+    familyAuras = {
+        aspect = { 5118, 13159, 13161 },
     },
-    -- Spells of buffs Blizzard removed: an aura with one is passed over.
-    removedSpells = { 1038, 19977, 19978, 19979, 25890, 25895 },
+    -- Spells of buffs the game no longer has (the removed list): an aura with one is passed over.
+    removedSpells = { 1038, 16864, 19977, 19978, 19979, 25890, 25895 },
 }

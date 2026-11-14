@@ -9,7 +9,12 @@ local Options = {}
 ns.Options = Options
 
 -- Room for the Buff Back tab's buff list, who gets each, and buff mode rows above its lines.
-Options.CONTENT_HEIGHT = 1970 -- 1940 plus the second row of tabs (#273)
+-- 1940, plus the second row of tabs (#273), plus 230 for the Buff Back tab at
+-- its tallest: a paladin's 11 buff rows with the self-buffs (#44), the solo
+-- option (#329), the raid Blessings rows and the Who list's class rows need
+-- about 2133 px with the UI simulator's pessimistic line wrapping (#363; its
+-- scenario "the Buff Back tab stays inside its page at its tallest").
+Options.CONTENT_HEIGHT = 2200
 Options.TABS_PER_ROW = 4
 
 local panel, category, startPage, generalPage, ledgerPage

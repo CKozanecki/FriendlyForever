@@ -1386,6 +1386,63 @@ test("each options tab opens by its button, and keeps its checkboxes and labels 
     check(#failures == 0, table.concat(failures, "\n"))
 end)
 
+-- The Buff Back tab at its tallest (#44, #363's testing review): with the
+-- self-buffs, a paladin lists 11 buff rows, and a paladin who knows a
+-- Blessing also gets the raid Blessings rows, and the class rows when the
+-- buff Who shows is on "Chosen classes". The simulator's paladin knows no
+-- Blessing and shows Kings, on "Everyone", so the scenario above never lays
+-- those out: here the paladin learns Blessing of Kings and its Who button
+-- is clicked round to "Chosen classes". Its saved entry and the spell are
+-- put back, even when a check fails.
+local KINGS = 20217
+
+local function DeepCopy(value)
+    if type(value) ~= "table" then return value end
+    local copy = {}
+    for k, v in pairs(value) do copy[k] = DeepCopy(v) end
+    return copy
+end
+
+test("the Buff Back tab stays inside its page at its tallest: a paladin who knows a Blessing, Who on Chosen classes",
+    function()
+    local _, content = OpenTab("Buff Back")
+    local saved = FriendlyForeverDB and FriendlyForeverDB.buffBack
+    check(type(saved) == "table", "no saved Buff Back settings")
+    local hadWhoGets = saved.whoGets
+    local hadKings = type(hadWhoGets) == "table" and DeepCopy(hadWhoGets.kings) or nil
+    local knewKings = IsSpellKnown(KINGS)
+    local ok, err = pcall(function()
+        if not knewKings then
+            A_Admin.LearnSpell(KINGS)
+            A_Admin.FireEvent("SPELLS_CHANGED")
+        end
+        content = select(2, OpenTab("Buff Back"))
+        local who = WithText(content, "Who: Everyone")
+        check(who ~= nil, "no Who button on Everyone (Blessing of Kings)")
+        for _ = 1, 3 do who:GetScript("OnClick")(who) end
+        check(who:GetText() == "Who: Chosen classes", "Kings' Who reads " .. tostring(who:GetText()))
+        local raid
+        for _, region in ipairs({ content:GetRegions() }) do
+            local text = region.GetText and region:GetText()
+            if text and region:IsShown() and text:find("Blessings I give in this raid:", 1, true) == 1 then
+                raid = region
+            end
+        end
+        check(raid ~= nil, "the raid Blessings rows aren't shown")
+        Settle(content)
+        PushedDownInside(content, "Buff Back tab at its tallest")
+    end)
+    -- The saved settings as they were: Kings' entry, or no list at all.
+    saved.whoGets = hadWhoGets
+    if type(hadWhoGets) == "table" then hadWhoGets.kings = hadKings end
+    if not knewKings then
+        A_Admin.UnlearnSpell(KINGS)
+        A_Admin.FireEvent("SPELLS_CHANGED")
+    end
+    OpenTab(FriendlyForeverUIPages.TABS[1].label)
+    if not ok then error(err, 0) end
+end)
+
 -- The Buff Back tab's top-up row (#42): its label and stepper on one line
 -- inside the options, between buff mode's minutes and the battlegrounds
 -- heading, overlapping neither.

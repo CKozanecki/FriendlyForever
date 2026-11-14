@@ -21,8 +21,7 @@
     "DRUID": [
       { "key": "motw", "name": "Mark of the Wild", "group": ["Gift of the Wild"],
         "groupCast": {"scope": "party", "spells": [{"name": "Gift of the Wild", "rank": 2, "reagent": 17026, "equalsRank": 7}, {"name": "Gift of the Wild", "rank": 1, "reagent": 17021, "equalsRank": 6}]} },
-      { "key": "thorns", "name": "Thorns", "defaultRule": "tanks" },
-      { "key": "omen", "name": "Omen of Clarity", "selfCast": true }
+      { "key": "thorns", "name": "Thorns", "defaultRule": "tanks" }
     ],
     "PALADIN": [
       { "key": "kings", "name": "Blessing of Kings", "group": ["Greater Blessing of Kings"], "family": "blessing",
@@ -62,7 +61,7 @@
       { "key": "hawk", "name": "Aspect of the Hawk", "family": "aspect", "selfCast": true, "toggle": true },
       { "key": "monkey", "name": "Aspect of the Monkey", "family": "aspect", "selfCast": true, "toggle": true },
       { "key": "wildaspect", "name": "Aspect of the Wild", "family": "aspect", "selfCast": true, "toggle": true },
-      { "key": "trueshot", "name": "Trueshot Aura", "selfCast": true, "toggle": true }
+      { "key": "trueshot", "name": "Trueshot Aura", "selfCast": true }
     ]
   },
   "familyAuras": {
@@ -72,6 +71,8 @@
     { "key": "salvation", "ids": [1038, 25895],
       "reason": "Blizzard removed Blessing of Salvation and Mass Salvation before launch (owner, 2026-11-08; #208)" },
     { "key": "light", "keepKey": true, "ids": [19977, 19978, 19979, 25890],
-      "reason": "Blizzard removed Blessing of Light (owner, 2026-11-09, citing Blizzard's WoW Forever beta development notes of November 2; the data still has its rows)" }
+      "reason": "Blizzard removed Blessing of Light (owner, 2026-11-09, citing Blizzard's WoW Forever beta development notes of November 2; the data still has its rows)" },
+    { "key": "omen", "keepKey": true, "ids": [16864],
+      "reason": "Omen of Clarity is a passive talent on Forever, not a buff to cast (its spell data; owner, 2026-11-14, #44)" }
   ]
 }

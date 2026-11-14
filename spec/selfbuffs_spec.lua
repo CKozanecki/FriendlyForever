@@ -2,9 +2,8 @@
 -- Self-buffs: in buff mode, once the favours you owe and your group are
 -- done, the button offers your own missing self-buffs (Inner Fire, armors,
 -- Aspects, auras, Battle Shout...), one per press, on you, through the same
--- secure button. The committed buff table holds only Battle Shout of these
--- until their spells are extracted, so these specs load the table the
--- generator would make (wow.selfBuffTable), at Classic Era's IDs.
+-- secure button. These specs use the committed buff table, generated from
+-- Forever's spell data (#44 part 2), whose self-buff IDs are Classic Era's.
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
@@ -17,7 +16,19 @@ local TRUESHOT = 20906
 local DEVOTION, RETRIBUTION, CONCENTRATION = 10293, 10301, 19746
 local RIGHTEOUS_FURY = 25780
 local BATTLE_SHOUT = 25289
-local OMEN, LIGHTNING_SHIELD, DEMON_ARMOR, DEMON_SKIN = 16864, 10432, 11735, 696
+local LIGHTNING_SHIELD, DEMON_ARMOR, DEMON_SKIN = 10432, 11735, 696
+-- No druid self-buff can be cast on Forever: Omen of Clarity is a passive
+-- there (#44). The rule that a druid in a form is offered none is tested
+-- with a made-up one, added to a copy of the committed table.
+local DRUID_TEST, DRUID_TEST_NAME = 990001, "Test Druid Ward"
+local function druidTable()
+    local loaded = {}
+    assert(loadfile(wow.ROOT .. "BuffTable.lua"))(wow.ADDON_NAME, loaded)
+    table.insert(loaded.BuffTable.classes.DRUID,
+        { key = "druidtest", name = DRUID_TEST_NAME, ranks = { DRUID_TEST }, selfCast = true })
+    wow.SPELL_NAMES[DRUID_TEST] = DRUID_TEST_NAME
+    return loaded.BuffTable
+end
 local BLESSING_OF_KINGS = 20217
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
@@ -30,7 +41,7 @@ describe("Self-buffs in buff mode", function()
     -- mode unless opts.noMode.
     local function boot(opts)
         opts = opts or {}
-        ns = wow.boot({ db = opts.db, buffSelf = true, autoBuffMode = opts.auto, buffTable = wow.selfBuffTable(),
+        ns = wow.boot({ db = opts.db, buffSelf = true, autoBuffMode = opts.auto, buffTable = opts.buffTable,
             before = function(state)
                 state.class = opts.class or "PRIEST"
                 state.knownSpells = {}
@@ -261,13 +272,21 @@ describe("Self-buffs in buff mode", function()
             assert.are.equal("/cast [@player,nodead] !Aspect of the Wild", macro())
         end)
 
-        it("offers Trueshot Aura beside your Aspect: its own toggle", function()
+        it("offers Trueshot Aura beside your Aspect: a 30-minute buff on Forever, topped up when low", function()
             boot({ class = "HUNTER", known = { HAWK, TRUESHOT } })
             wear(HAWK, 0)
             refresh()
-            assert.are.equal("/cast [@player,nodead] !Trueshot Aura", macro())
+            -- Timed, not a toggle: no "!".
+            assert.are.equal("/cast [@player,nodead] Trueshot Aura", macro())
             press()
             assert.is_nil(macro())
+            -- The top-up time (5 minutes, under half of 30): 5:01 left isn't low, 4:59 is.
+            wow.advance(1800 - 301)
+            refresh()
+            assert.is_nil(macro())
+            wow.advance(2)
+            refresh()
+            assert.are.equal("/cast [@player,nodead] Trueshot Aura", macro())
         end)
 
         it("offers a paladin's first aura (Devotion by default) only when no aura of yours is on", function()
@@ -304,6 +323,16 @@ describe("Self-buffs in buff mode", function()
             wow.state.playerAuras = {}
             wear(BATTLE_SHOUT, 120, "party1")
             wow.state.playerAuras[1].expirationTime = wow.now + 5
+            refresh()
+            assert.is_nil(macro())
+        end)
+
+        it("another hunter's Trueshot Aura on you counts as having it, and is never cast over", function()
+            boot({ class = "HUNTER", known = { HAWK, TRUESHOT } })
+            party({ "Ann-Vale" })
+            wear(HAWK, 0)
+            wear(TRUESHOT, 1800, "party1")
+            wow.state.playerAuras[2].expirationTime = wow.now + 5
             refresh()
             assert.is_nil(macro())
         end)
@@ -626,12 +655,12 @@ describe("Self-buffs in buff mode", function()
         end)
 
         it("offers nothing to a class that can't be read, which might be in a form", function()
-            boot({ class = "DRUID", known = { OMEN } })
-            assert.are.equal("/cast [@player,nodead] Omen of Clarity", macro())
+            boot({ class = "SHAMAN", known = { LIGHTNING_SHIELD } })
+            assert.are.equal("/cast [@player,nodead] Lightning Shield", macro())
             local real = _G.UnitClass
             finally(function() _G.UnitClass = real end)
             _G.UnitClass = function(unit)
-                if unit == "player" then return wow.secret("Druid"), wow.secret("DRUID") end
+                if unit == "player" then return wow.secret("Shaman"), wow.secret("SHAMAN") end
                 return real(unit)
             end
             wow.state.form = 1
@@ -690,12 +719,12 @@ describe("Self-buffs in buff mode", function()
         end
 
         it("offers nothing to a druid in a form, or a shaman in Ghost Wolf", function()
-            boot({ class = "DRUID", known = { OMEN }, before = function(s) s.form = 1 end })
+            boot({ class = "DRUID", known = { DRUID_TEST }, buffTable = druidTable(), before = function(s) s.form = 1 end })
             assert.is_nil(macro())
             assert.is_truthy(subtitle():find("you're in a form", 1, true))
             wow.state.form = 0
             refresh()
-            assert.are.equal("/cast [@player,nodead] Omen of Clarity", macro())
+            assert.are.equal("/cast [@player,nodead] " .. DRUID_TEST_NAME, macro())
             boot({ class = "SHAMAN", known = { LIGHTNING_SHIELD }, before = function(s) s.form = 1 end })
             assert.is_nil(macro())
             assert.is_truthy(subtitle():find("you're in Ghost Wolf", 1, true))
@@ -739,7 +768,7 @@ describe("Self-buffs in buff mode", function()
                 assert.is_nil(macro(), field)
                 assert.is_truthy(subtitle():find("can't tell whether", 1, true), field)
             end
-            boot({ class = "DRUID", known = { OMEN } })
+            boot({ class = "DRUID", known = { DRUID_TEST }, buffTable = druidTable() })
             wow.state.selfSecrets.form = true
             refresh()
             assert.is_nil(macro())
@@ -786,6 +815,24 @@ describe("Self-buffs in buff mode", function()
                 assert.is_nil(ns.BuffData.ForCast(id))
                 assert.are.equal("aspect", ns.BuffData.SelfFamilyOf(id))
             end
+        end)
+
+        it("never offers Omen of Clarity, a passive on Forever, even to a druid who has it and whose saved "
+            .. "settings name it; those settings still load", function()
+            local OMEN = 16864
+            boot({ class = "DRUID", known = { OMEN },
+                db = { buffBack = { buffOrder = { "omen", "motw" }, neverOffer = { omen = false } } } })
+            assert.is_nil(macro())
+            assert.is_nil(ns.SelfBuffs.Next())
+            assert.is_nil(ns.BuffData.ByKey("omen"))
+            assert.is_true(ns.BuffData.KEYS.omen, "the key stays known")
+            assert.are.same({ "omen", "motw" }, ns.db.buffBack.buffOrder)
+            -- Its passive's aura on you is passed over, never a buff to thank or count.
+            assert.is_true(ns.BuffData.IsRemoved(OMEN))
+            wear(OMEN, 0)
+            refresh()
+            assert.is_nil(macro())
+            assert.are.same({}, wow.errors)
         end)
 
         it("offers and arms nothing in combat, and again after the fight", function()
@@ -944,19 +991,34 @@ describe("Self-buffs in buff mode", function()
             assert.is_true(reached.contested >= 80, "presses with both waiting: " .. reached.contested)
         end)
 
+        -- Whether the client shows none of your self-buffs on you, and no locked
+        -- aura that could be one: read from its own state, never the addon's.
+        local function noSelfBuffShown(s)
+            for _, aura in ipairs(s.playerAuras) do
+                local id = rawget(aura, "spellId")
+                local ends = rawget(aura, "expirationTime")
+                if getmetatable(aura) ~= nil then return false end
+                if type(id) == "number" and wow.SELF_SPELLS[id]
+                    and (ends == 0 or (type(ends) == "number" and ends > wow.now)) then
+                    return false
+                end
+            end
+            return true
+        end
+
         -- The classes the storm plays, with every self-buff they know.
         local CLASSES = {
             { class = "PALADIN", power = "MANA", known = { DEVOTION, RETRIBUTION, CONCENTRATION, RIGHTEOUS_FURY } },
             { class = "HUNTER", power = "MANA", known = { HAWK, MONKEY, WILD, TRUESHOT, CHEETAH, PACK } },
             { class = "MAGE", power = "MANA", known = { ICE_ARMOR, FROST_ARMOR, MAGE_ARMOR } },
             { class = "WARRIOR", power = "RAGE", known = { BATTLE_SHOUT } },
-            { class = "DRUID", power = "MANA", known = { OMEN } },
+            { class = "SHAMAN", power = "MANA", known = { LIGHTNING_SHIELD } },
             { class = "WARLOCK", power = "MANA", known = { DEMON_ARMOR, DEMON_SKIN } },
         }
 
         it("a storm of auras, deaths, mounts, forms, fights, power, spells and junk settings never errors, "
             .. "never casts when it mustn't, and heals to a correct offer", function()
-            local reached = { cast = 0, combat = 0, waited = 0, healed = 0, byClass = {} }
+            local reached = { cast = 0, combat = 0, waited = 0, healed = 0, byClass = {}, formOnly = 0 }
             -- Saved settings are plain data: never a secret.
             local junk = { "yes", 7, {}, false, true, { innerfire = "x" }, { 5, "monkey" } }
             for round, seed in ipairs({ 3, 41, 97, 512, 1999, 31337, 7, 64, 256, 777, 4096, 65537 }) do
@@ -1027,9 +1089,16 @@ describe("Self-buffs in buff mode", function()
                     elseif roll == 14 then wow.advance(random.random(1, 400))
                     elseif roll <= 17 then heal(false)
                     else
-                        local blocked = s.inCombat or s.units.player.dead or s.mounted or s.onTaxi
+                        local other = s.inCombat or s.units.player.dead or s.mounted or s.onTaxi
                             or s.aurasRestricted or s.selfSecrets.mounted or s.selfSecrets.taxi
-                            or (setup.class == "DRUID" and (s.form ~= 0 or s.selfSecrets.form))
+                        -- The classes whose forms stop a self-buff: a druid's, a shaman's Ghost Wolf.
+                        local formClass = setup.class == "DRUID" or setup.class == "SHAMAN"
+                        local inForm = formClass and (s.form ~= 0 or s.selfSecrets.form)
+                        local blocked = other or inForm
+                        -- Reach: a press that only the form holds back, while the client
+                        -- shows none of your self-buffs on you (and no locked aura that
+                        -- could be one): without the form, it would have cast.
+                        if inForm and not other and noSelfBuffShown(s) then reached.formOnly = reached.formOnly + 1 end
                         local before = #wow.casts
                         local ok, err = pcall(press)
                         assert.is_true(ok, tostring(err))
@@ -1083,9 +1152,51 @@ describe("Self-buffs in buff mode", function()
             assert.is_true(reached.combat >= 100, "presses in combat: " .. reached.combat)
             assert.is_true(reached.waited >= 200, "presses that waited: " .. reached.waited)
             assert.are.equal(12, reached.healed)
+            -- Rare here (combat, mounts and deaths hold most presses back): the
+            -- storm below aims at forms.
+            assert.is_true(reached.formOnly >= 1, "presses only a form held back: " .. reached.formOnly)
             for _, setup in ipairs(CLASSES) do
                 assert.is_true((reached.byClass[setup.class] or 0) >= 2, setup.class .. " cast in the storm")
             end
+        end)
+
+        it("a storm of forms, Ghost Wolf, form secrets, lost buffs and time never casts in a form, and casts "
+            .. "again out of it", function()
+            -- A shaman (Ghost Wolf), and a druid with the made-up self-buff:
+            -- no druid self-buff can be cast on Forever (Omen is a passive).
+            local SETUPS = {
+                { class = "SHAMAN", known = { LIGHTNING_SHIELD } },
+                { class = "DRUID", known = { DRUID_TEST }, buffTable = druidTable },
+            }
+            local reached = { formOnly = 0, cast = 0 }
+            for round, seed in ipairs({ 5, 23, 101, 2024 }) do
+                random.seed(seed)
+                local setup = SETUPS[(round - 1) % #SETUPS + 1]
+                boot({ class = setup.class, known = setup.known, buffTable = setup.buffTable and setup.buffTable() })
+                wow.state.expirePlayerAuras = true
+                for _ = 1, 400 do
+                    local s = wow.state
+                    local roll = random.random(1, 10)
+                    if roll == 1 then s.form = s.form ~= 0 and 0 or random.random(1, 4)
+                    elseif roll == 2 then s.selfSecrets.form = not s.selfSecrets.form or nil
+                    elseif roll == 3 then strip()
+                    elseif roll == 4 then wow.advance(random.random(1, 700))
+                    else
+                        local inForm = s.form ~= 0 or s.selfSecrets.form
+                        if inForm and noSelfBuffShown(s) then reached.formOnly = reached.formOnly + 1 end
+                        local before = #wow.casts
+                        local ok, err = pcall(press)
+                        assert.is_true(ok, tostring(err))
+                        for i = before + 1, #wow.casts do
+                            assert.is_falsy(inForm, "seed " .. seed .. ": " .. wow.casts[i].spell .. " cast in a form")
+                            reached.cast = reached.cast + 1
+                        end
+                    end
+                end
+                assert.are.same({}, wow.errors)
+            end
+            assert.is_true(reached.formOnly >= 40, "presses only a form held back: " .. reached.formOnly)
+            assert.is_true(reached.cast >= 20, "casts out of a form: " .. reached.cast)
         end)
     end)
 
