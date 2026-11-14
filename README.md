@@ -23,6 +23,8 @@ The chat messages:
 
 `{name}` is the first name ("Nikki") and `{fullname}` the whole name ("Nikki Shifts"). In the two guild greetings (login hello and welcome), `{name}` is the whole name too, as many players use their first name as a title. Forever characters always have a surname. The addon identifies players by their full name, so two people called Nikki are never mixed up.
 
+Placeholders work in any case: `{Buff}`, `{BUFF}` and `{buff}` all fill. One the addon doesn't know, such as a typo like `{bfuf}`, stays as typed, so the preview shows it.
+
 Each message type except Buff Back has its own on/off switch, a delay, a "don't repeat to the same player" cooldown (default 3 minutes; for the two hellos it's per group leader and 30 seconds, and for Level Up 60 seconds; guild hellos also skip anyone greeted in the last 30 minutes) and 30 editable messages. Buff Back's line has its own switch and 30 lines but no delay or cooldown: it's said once for each favour you return. Lines are used in a shuffled rotation: every line comes up once before any repeats, a new round never starts with the line that just ended the last one, and the rotation carries over across reloads and logins.
 
 ## Flavour
