@@ -206,8 +206,10 @@ local function Empty(reason, keepShown)
     notArmedReason = reason
     SetSecureMacro(nil)
     -- In buff mode the button stays up, saying why there's nothing to press.
-    local lent = ns.BuffMode.LentKey()
-    if lent and not ns.db.buffBack.unlocked then
+    -- A press reaches here without the refresh that would end buff mode, so
+    -- Buff Back's section lost mid-session reads as locked here too (#384).
+    local lent, buffBack = ns.BuffMode.LentKey(), ns.db.buffBack
+    if lent and not (type(buffBack) == "table" and buffBack.unlocked) then
         SetLabels("Buff mode", reason)
         button.icon:SetTexture(BuffButton.PLACEHOLDER_ICON)
     end

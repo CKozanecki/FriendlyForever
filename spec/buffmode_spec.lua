@@ -378,6 +378,26 @@ describe("Buff mode", function()
                 end
             end)
 
+        it("a press of the lent key before the next refresh never errors when Buff Back's settings are lost (black)",
+            function()
+                for _, value in ipairs(DAMAGES) do
+                    for _, favour in ipairs({ false, true }) do
+                        boot()
+                        if favour then owed() end
+                        slash("buffmode on")
+                        local where = label(value) .. (favour and ", a favour owed" or ", nothing owed")
+                        assert.are.same({ MOUSEWHEELUP = "FriendlyForeverBuffButton" }, lent(), where)
+                        damage(value)
+                        wow.pressKey("MOUSEWHEELUP") -- no refresh in between
+                        assert.are.same({}, wow.errors, where)
+                        assert.are.equal(0, #wow.casts, where .. ": nothing cast")
+                        -- Read as locked: the button says it's in buff mode with nothing to
+                        -- press, not the favour it held before.
+                        assert.are.equal("Buff mode", button.title:GetText(), where)
+                    end
+                end
+            end)
+
         it("lends no key after a fight in which Buff Back's settings were lost (black)", function()
             for _, value in ipairs(DAMAGES) do
                 boot()
