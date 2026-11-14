@@ -269,4 +269,26 @@ describe("the review-saving rules", function()
             .. " or resolved", 1, true))
         assert.is_truthy(flat("AGENTS.md"):find("mutates only the lines the merge changed or resolved", 1, true))
     end)
+
+    it("write the owner's review speed-ups of 2026-11-14 once, and point to them (#217)", function()
+        for _, text in ipairs({
+            "**One combined pass for a merge whose changes don't overlap:**",
+            "Overlapping hunks, or a conflict that was resolved, keep both loops.",
+            "**Parallel reviews for a PR that isn't safety-critical.**",
+            "the architecture and testing reviews may run at the same time",
+            "If the architect requests changes, the tester re-checks only what changed.",
+            "keeps the strict order: architecture first, then testing",
+            "`make setup` in a session is a no-op check",
+        }) do
+            local _, count = contributing:gsub(text:gsub("%p", "%%%0"), "")
+            assert.are.equal(1, count, text)
+        end
+        local agents = flat("AGENTS.md")
+        assert.is_truthy(agents:find("**Quick loops while coding:**", 1, true))
+        assert.is_truthy(agents:find("Then run the full `make check`, with every spec and every seed, before the"
+            .. " reviews", 1, true))
+        assert.is_truthy(agents:find("a PR that isn't safety-critical may have both run at once", 1, true))
+        assert.is_truthy(flat(".claude/skills/after-merge/SKILL.md"):find("one combined pass confirms it instead", 1, true))
+        assert.is_falsy(agents:find("keeps the strict order", 1, true), "AGENTS.md points to the rule, not restates it")
+    end)
 end)
