@@ -25,6 +25,13 @@
 -- your target stays as it is. You are left out when dead or unreadable (the
 -- reason is named); range and PvP flag don't apply to your own buffs.
 --
+-- Solo (#329): in no group, buff mode still offers you your own copy of the
+-- buffs you give, by the same rules (the owner, on by default:
+-- buffBack.soloOwnBuffs), single versions only, never a group version.
+-- Someone else's copy on you counts as yours until it runs low: there's no
+-- group to keep in step, so it's never recast over at once. Only when the
+-- game says you're in no group: one that won't say offers nothing (#322).
+--
 -- Top-up timing (#42): a buff you give (whoever cast it) with less than the
 -- set time left (buffBack.topUpMinutes) counts as missing, so you can renew
 -- it before it runs out. Only a rank you can replace, or a group version
@@ -72,6 +79,19 @@ GroupBuffs.HELD_BACK_SECONDS = 15
 -- second. "off" leaves you out (specs that predate #198 start with it:
 -- wow.boot). Only this line decides; the rest of the file follows it.
 GroupBuffs.SELF_ORDER = "first"
+
+-- Solo (#329): what the button says once you have all your own buffs.
+GroupBuffs.SOLO_DONE = "you have your buffs"
+
+-- Whether buff mode offers you your own buffs when you're in no group
+-- (#329): "Offer my own buffs when I'm not in a group" (buffBack.soloOwnBuffs,
+-- on by default; damaged mid-session, it reads as off, as "Offer my
+-- self-buffs" does, and loading puts the default back: Config.lua), and only
+-- while you are offered your own buffs at all (SELF_ORDER).
+function GroupBuffs.SoloOn()
+    if GroupBuffs.SELF_ORDER == "off" then return false end
+    return ns.db ~= nil and type(ns.db.buffBack) == "table" and ns.db.buffBack.soloOwnBuffs == true
+end
 
 local PARTY_UNITS, RAID_UNITS = {}, {}
 for i = 1, 4 do PARTY_UNITS[i] = "party" .. i end
@@ -289,7 +309,9 @@ local function Renews(member, buff, aura, units)
     if not ns.BuffData.CanReplace(buff, aura.spellId) then return false end
     local who = CasterOf(aura.sourceUnit, units)
     if who == nil then return nil end
-    if who == "outside" then return true end
+    -- Solo (#329), no group slots: nobody's buff is kept in step, so
+    -- another's copy is left be until it runs low (Wears tops it up).
+    if who == "outside" then return #units > 0 end
     local recasts = RoundRecasts(member.name, buff, aura)
     if not recasts and who == "group" then NoteInStep(buff, aura) end
     return recasts
@@ -513,15 +535,20 @@ local function Look(out, units, groupKnown)
         return false
     end
     local unknownWhy = "the game won't say whether you're in a raid or a group"
+    -- Solo (#329): the game says you're in no group, and you're offered your
+    -- own buffs (SoloOn); the look below is then of you alone.
+    local solo = false
     if #units == 0 then
         if not groupKnown then return nil, unknownWhy, false end
-        return nil, "you're not in a group", true
+        if not GroupBuffs.SoloOn() then return nil, "you're not in a group", true end
+        solo = true
     end
     -- Water breathing waits for water (Water.lua): nothing to do now, and
     -- the buff held back is named (4th value) for buff mode's message.
     local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
     if #myBuffs == 0 then
         if held then return nil, ns.Water.HeldReason(held), groupKnown, held end
+        if solo then return nil, "you're not in a group", true end
         -- Self-buffs (#44) are never the group's: SelfBuffs.lua offers them.
         local why = "you have no buffs to offer"
         if #ns.BuffData.MySelfBuffs() > 0 then why = "you have no buffs for your group" end
@@ -601,7 +628,8 @@ local function Look(out, units, groupKnown)
             -- buff carries the reason. You still come first (#198) unless
             -- the group version covers you too.
             local note, quiet
-            if spell and groupKnown then
+            -- Solo, single versions only (#329): never a group version.
+            if spell and groupKnown and not solo then
                 groupCtx.Needs = function(member) return Needs(buff, member) end
                 groupCtx.Blocked = function(entry, equals) return CoverBlocked(entry, buff, units, equals) end
                 local groupOffer
@@ -650,6 +678,7 @@ local function Look(out, units, groupKnown)
     if offer then return offer end
     if first then return first end
     if not groupKnown then return nil, firstReason or unknownWhy, false end
+    if solo then return nil, firstReason or GroupBuffs.SOLO_DONE, not open end
     return nil, firstReason or "everyone in your group has your buffs", not open
 end
 

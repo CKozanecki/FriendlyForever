@@ -23,7 +23,8 @@
 -- Turns off (on by default), but only buff mode a trigger turned on, never
 -- buff mode you turned on yourself:
 --   the first pull (PLAYER_REGEN_DISABLED);
---   everyone being buffed (never assumed when someone's buffs can't be read);
+--   everyone being buffed (never assumed when someone's buffs can't be read;
+--   solo, you having your own buffs, #329);
 --   a timeout, whichever comes first.
 -- Turned on in a dungeon or raid, it waits for everyone (#256): it stays on
 -- until every member is in there with you and has your buffs, or until the
@@ -94,7 +95,7 @@ end
 -- mode on (the owner, #44 Q6). Also why, for the message.
 local function Settled(inside, withSelf)
     if ns.Offers.Count() > 0 then return false end
-    local offer, _, settled, held = ns.GroupBuffs.Next()
+    local offer, groupWhy, settled, held = ns.GroupBuffs.Next()
     if offer ~= nil or settled ~= true then return false end
     if withSelf then
         local mine, _, mineSettled = ns.SelfBuffs.Next()
@@ -104,6 +105,8 @@ local function Settled(inside, withSelf)
     -- Your water buff waits for water (Water.lua): nobody has it, so say so.
     if held then return true, ns.Water.HeldReason(held) end
     if inside then return true, "everyone is here and has your buffs" end
+    -- Solo (#329): only you were looked at, so say so.
+    if groupWhy == ns.GroupBuffs.SOLO_DONE then return true, groupWhy end
     return true, "everyone has your buffs"
 end
 
