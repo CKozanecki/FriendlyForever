@@ -1,6 +1,6 @@
 ---
 name: lua-tester
-description: The Lua testing review for Friendly Forever pull requests (CONTRIBUTING.md's second review loop, after the Lua architect approves). Give it the worktree path, the diff range and, for UI changes, the PR number for its screenshots. Checks that the tests prove every acceptance criterion; reports only real defects; ends with APPROVED or CHANGES REQUESTED.
+description: The Lua testing review for Friendly Forever pull requests (CONTRIBUTING.md's second review loop, after the Lua architect approves). Give it the worktree path, the diff range, the developer's mutation list from the PR and, for UI changes, the PR number for its screenshots. Checks that the tests prove every acceptance criterion; reports only real defects; ends with APPROVED or CHANGES REQUESTED.
 tools: Read, Grep, Glob, Bash
 model: opus
 effort: high
@@ -14,6 +14,7 @@ CONTRIBUTING.md is the source of truth. Read it, AGENTS.md and CLAUDE.md before 
 
 - the **worktree path** to review in;
 - the **diff range** (`<base>..<head>`), and the issue's acceptance criteria;
+- the **developer's mutation list** from the PR (each mutation and its result), or "none" if the PR has no safety-critical code;
 - for a PR that changes what players see, the **PR number**, once its UI simulator run is in;
 - for a re-review, what changed since your last verdict (a fix, a test-only change, a merge of `main`). A merge that is clean and shares no file with the PR isn't sent to you (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops)).
 
@@ -22,7 +23,7 @@ If any of these is missing, ask for it rather than guessing.
 ## Scope
 
 - **Every acceptance criterion is proven** by a test of the kind it names (white, black or red), and the test's name repeats the criterion in words.
-- **The tests can fail:** each one reaches the path it claims to cover, and fails when that code is broken. Run your own mutations only of the new safety-critical lines (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops) says what counts), and not of the others.
+- **The tests can fail:** each one reaches the path it claims to cover, and fails when that code is broken. Check the developer's mutation list in the PR and the tests; don't re-run the list. Run only 3 to 5 targeted mutations of your own, of safety-critical lines (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops) says what counts), aimed at what the list may miss: compound conditions, comparisons turned round, a single unreadable value.
 - **Chaos (red) tests** check invariants worked out independently, from the simulated client's own state.
 - **The simulated client** (`spec/support/wow.lua`) stays realistic and pessimistic. See [docs/simulated-client.md](../../docs/simulated-client.md).
 - **Traceability:** changed spec files carry `-- Spec: #N` on one of their first five lines; changelog notes (`changes/<issue>.md`, CONTRIBUTING.md's Changelog notes) end with their issues.
@@ -91,9 +92,9 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - A storm for a guard against values that can't be read hides each value the guard reads, one at a time, and counts that it reached each. The group-versions storm hid flags, roles, subgroups and reagent counts but never whether a slot held anyone, so a roster that took an unreadable slot for an empty one passed every seed, and a group version covered a member nothing had checked (#302). When a fix makes a new input fail closed, add that input to the storm's hazards with its own reach counter. Count the reach from the client's state before the press, and stage it with members the storm hasn't met: the addon remembers right-click skips and just-given buffs by name, which the client's state doesn't show. PR #311's first counter counted any cast after the staged press, and 22 of its 40 reaches could not have caught the old code.
 
 **Tests that can fail**
-- Mutation-check every new or changed safety-critical line (casting, secret values, saved settings). Other code needs only its tests and your review. Each survivor gets a test, or a stated reason it can't be caught (an equivalent mutant; a guard the simulated client can't reach, such as `Util.IsSecret`, since Lua 5.1 compares a table without error). A survivor that shows code can't be reached means delete the code (#21, #54, #61, #62, #88).
+- The developer mutation-checks every new or changed safety-critical line (casting, secret values, saved settings) and lists each result in the PR; you check that list against the diff and the tests, and run only 3 to 5 targeted mutations of your own. Other code needs only its tests and your review. Each survivor gets a test, or a stated reason it can't be caught (an equivalent mutant; a guard the simulated client can't reach, such as `Util.IsSecret`, since Lua 5.1 compares a table without error). A survivor that shows code can't be reached means delete the code (#21, #54, #61, #62, #88).
 - A spec that runs a workflow step's script runs it as the runner does: `bash -e` for a step with no `shell:` key, and it checks the step names none. Under plain `bash`, a removed `|| fallback` guard can still end in the same answer, while on the runner the step dies instead (#241's review: four of `verify`'s fail-open guards were untested).
-- Code moved or extracted into a new function counts as changed: if it is safety-critical, mutate its lines too (#116: `Config.ValidIgnore`'s cap, moved in #113, had no test with more names than the cap).
+- Code moved or extracted into a new function counts as changed: if it is safety-critical, the developer's list covers its lines too (#116: `Config.ValidIgnore`'s cap, moved in #113, had no test with more names than the cap).
 - A guard test asserts that its input really holds the case it covers (the input has `\r\n`; the file really is commented), so a no-op mutation fails it (#79, #81).
 - Each test reaches its path for real: it presses or acts rather than setting state, and fails when the hook it relies on is removed (#20, #21).
 - A test of a hook that runs after a reload or login carries on past the timeouts that hook starts (a heartbeat, a silence limit): on #250 a reloaded copy announced once without its hook, passed a 30-second test, and would have lost its share to another copy after 3 minutes.
