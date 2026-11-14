@@ -1,4 +1,4 @@
--- Spec: #30, #76, #99, #208, #253, #259
+-- Spec: #30, #76, #99, #208, #253, #259, #44
 -- Buff mode buffs group members missing your buffs, one per press, with the
 -- same safety rules as buff back.
 local wow = require("spec.support.wow")
@@ -121,9 +121,11 @@ describe("Buffing your group in buff mode", function()
             wow.state.class = "WARRIOR"
             ns.BuffData.SpellsChanged()
             party({ "Ann-Vale" })
+            -- A self-buff (#44): only "Offer my self-buffs" offers it, on you.
+            ns.db.buffBack.selfBuffs = false
             ns.BuffButton.Refresh()
             assert.is_nil(macro())
-            assert.are.equal("everyone in your group has your buffs", button.subtitle:GetText())
+            assert.are.equal("you have no buffs for your group", button.subtitle:GetText())
         end)
 
         it("gives a paladin's members one Blessing each, never replacing yours", function()

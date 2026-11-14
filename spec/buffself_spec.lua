@@ -1,4 +1,4 @@
--- Spec: #198
+-- Spec: #198, #44
 -- Buff mode also buffs you: your own copy of each buff you give is offered
 -- on you, after the group's, under the same rules.
 local wow = require("spec.support.wow")
@@ -391,9 +391,15 @@ describe("Buff mode buffing you too", function()
         it("never offers a buff only for yourself on you (a warrior's Battle Shout)", function()
             boot({ known = { [6673] = true }, class = "WARRIOR" })
             party({ "Ann-Vale" })
+            -- It's a self-buff (#44), offered only by that path: off, nothing.
+            ns.db.buffBack.selfBuffs = false
             ns.BuffButton.Refresh()
             assert.is_nil(macro())
-            assert.are.equal("everyone in your group has your buffs", select(2, ns.GroupBuffs.Next()))
+            assert.are.equal("you have no buffs for your group", select(2, ns.GroupBuffs.Next()))
+            ns.db.buffBack.selfBuffs = true
+            ns.BuffButton.Refresh()
+            assert.is_true(ns.BuffButton.ArmedOffer().selfBuff)
+            assert.is_nil(ns.GroupBuffs.Next())
         end)
 
         it("says it in your words when your own role can't be read for a tanks-only rule", function()
