@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44
+-- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -336,6 +336,18 @@ describe("Buff back", function()
                 buffedBy("nameplate" .. i)
             end
             assert.are.equal(ns.Offers.MAX, ns.Offers.Count())
+            -- Which ones (#40's testing review): the three oldest went, the newest MAX stay.
+            local list, owed = {}, {}
+            ns.Offers.Current(list)
+            for _, offer in ipairs(list) do owed[offer.name] = true end
+            for i = 1, ns.Offers.MAX + 3 do
+                local name = "Pal" .. string.char(96 + i) .. "-Stone"
+                if i <= 3 then
+                    assert.is_nil(owed[name], name .. " was among the oldest")
+                else
+                    assert.is_true(owed[name], name .. " is among the newest")
+                end
+            end
         end)
     end)
 

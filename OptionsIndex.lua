@@ -110,6 +110,9 @@ OptionsIndex.SETTINGS = {
     { name = "Water breathing: only near water", page = BUFF_BACK,
         keywords = "buff unending breath water breathing swim underwater",
         controls = { "breathNearWater" } },
+    { name = "Offer my buffs to players who ask in chat", page = BUFF_BACK,
+        keywords = "buff request requests ask asked whisper say chat mark int fort",
+        controls = { "buffRequests" } },
 
     { name = "Snooze", page = GENERAL, keywords = "snooze pause mute quiet wake",
         controls = { "general.snooze15", "general.snooze60", "general.wake" } },

@@ -40,8 +40,13 @@ local handlers = {}
 
 -- UNIT_SPELLCAST_SUCCEEDED fires for every cast the client sees, and only
 -- buff watching uses it (to name casters), so it is registered only while
--- Buff Thanks or Buff Back is on. Call this whenever one of those switches
--- or the master switch changes.
+-- Buff Thanks or Buff Back is on. Whispers, /say and party chat are read
+-- only for buff requests (Requests.lua, #40), so they are registered only
+-- while those are on. Turned off by any path (their switch, the tab's
+-- reset, a profile switch or import, Buff Back's or the master switch),
+-- waiting requests go too, so none comes back when they're on again. Call
+-- this whenever one of those switches or the master switch changes.
+local REQUEST_EVENTS = { "CHAT_MSG_WHISPER", "CHAT_MSG_SAY", "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER" }
 function ns.RefreshEvents()
     if not ns.db then return end
     if ns.BuffTracker.Watching() then
@@ -49,6 +54,11 @@ function ns.RefreshEvents()
     else
         frame:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     end
+    local listening = ns.Requests.Listening()
+    for _, event in ipairs(REQUEST_EVENTS) do
+        if listening then frame:RegisterEvent(event) else frame:UnregisterEvent(event) end
+    end
+    if not listening then ns.Offers.DropRequests() end
 end
 
 local function Register(event, handler, unit)
@@ -70,7 +80,7 @@ function handlers.ADDON_LOADED(name)
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
         "BuffTable", "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
         "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "OptionsIndex", "Colours", "Walkthrough",
-        "BuffList", "GroupCasts", "RaidSplit", "LevelUps", "SelfBuffs" }) do
+        "BuffList", "GroupCasts", "RaidSplit", "LevelUps", "SelfBuffs", "Requests" }) do
         if ns[module] == nil then
             local text = "this update added files. Restart the game (not /reload) to finish updating."
             ns.Print(ns.Colours and ns.Colours.Text("bad", text) or text)
@@ -136,6 +146,11 @@ function handlers.ADDON_LOADED(name)
         ns.BuffTracker.OnPlayerAura(updateInfo)
     end, "player")
     handlers.UNIT_SPELLCAST_SUCCEEDED = ns.BuffTracker.OnSpellcastSucceeded
+    -- Buff requests in chat (#40): registered by RefreshEvents while on.
+    handlers.CHAT_MSG_WHISPER = ns.Requests.OnWhisper
+    handlers.CHAT_MSG_SAY = ns.Requests.OnSay
+    handlers.CHAT_MSG_PARTY = ns.Requests.OnParty
+    handlers.CHAT_MSG_PARTY_LEADER = ns.Requests.OnParty
     ns.RefreshEvents()
     Register("CVAR_UPDATE", function() ns.Options.Refresh() end)
     -- Edits made since the last switch go into the active profile.
@@ -169,6 +184,10 @@ frame:RegisterEvent("ADDON_LOADED")
 local FIRST_ARG_ONLY = { CHAT_MSG_SYSTEM = true }
 -- CHAT_MSG_ADDON brings about 9, for every addon's messages; ours reads 4.
 local FIRST_FOUR_ARGS = { CHAT_MSG_ADDON = true }
+-- Whispers, /say and party chat bring about 17; buff requests read the
+-- text and sender.
+local FIRST_TWO_ARGS = { CHAT_MSG_WHISPER = true, CHAT_MSG_SAY = true, CHAT_MSG_PARTY = true,
+    CHAT_MSG_PARTY_LEADER = true }
 
 frame:SetScript("OnEvent", function(_, event, ...)
     local handler = handlers[event]
@@ -178,6 +197,9 @@ frame:SetScript("OnEvent", function(_, event, ...)
     elseif FIRST_FOUR_ARGS[event] then
         local a1, a2, a3, a4 = ...
         ns.Diag.Call(handler, a1, a2, a3, a4)
+    elseif FIRST_TWO_ARGS[event] then
+        local a1, a2 = ...
+        ns.Diag.Call(handler, a1, a2)
     else
         ns.Diag.Call(handler, ...)
     end
