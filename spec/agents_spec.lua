@@ -211,7 +211,9 @@ describe("the review-saving rules", function()
             "An approved review is never repeated",
             "**Mutation checks are for safety-critical code only (#217).**",
             "code where a mistake could cast wrongly, mishandle a secret value, or damage saved settings",
-            "the testing reviewer doesn't repeat about 20 more",
+            "The testing reviewer checks that list and the tests, and doesn't repeat the list",
+            "3 to 5 targeted mutations of its own",
+            "A merge confirmation mutates only the lines the merge changed or resolved.",
         }) do
             local _, count = contributing:gsub(text:gsub("%p", "%%%0"), "")
             assert.are.equal(1, count, text)
@@ -251,5 +253,17 @@ describe("the review-saving rules", function()
             .. " confirm the merge and the resolution only", 1, true))
         assert.is_truthy(flat("AGENTS.md"):find("the reviewers confirm the merge, unless it touches none of the PR's"
             .. " files", 1, true))
+    end)
+
+    it("never tell the testing reviewer to mutation-check every safety-critical line itself (#217)", function()
+        local tester = flat(".claude/agents/lua-tester.md")
+        assert.is_falsy(tester:find("Mutation-check every new or changed", 1, true))
+        assert.is_falsy(tester:find("Run your own mutations only of the new safety-critical lines", 1, true))
+        assert.is_falsy(tester:lower():find("mutate its lines too", 1, true))
+        assert.is_truthy(tester:find("3 to 5 targeted mutations", 1, true))
+        assert.is_truthy(tester:find("don't re-run the list", 1, true))
+        assert.is_truthy(flat(".claude/skills/after-merge/SKILL.md"):find("mutates only the lines the merge changed"
+            .. " or resolved", 1, true))
+        assert.is_truthy(flat("AGENTS.md"):find("mutates only the lines the merge changed or resolved", 1, true))
     end)
 end)
