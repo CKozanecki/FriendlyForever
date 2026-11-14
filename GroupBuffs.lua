@@ -114,6 +114,9 @@ local function RaidAnswer()
     end
     return nil
 end
+-- Shared with buff mode's triggers (#359: BuffModeAuto.lua), so every look
+-- at the group reads the raid the same way.
+GroupBuffs.RaidAnswer = RaidAnswer
 
 -- The slots to look through: raid1..40 in a raid (one of them is you),
 -- party1..4 in a party. Empty when you're in no group. Also whether the

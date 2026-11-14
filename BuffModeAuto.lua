@@ -177,14 +177,26 @@ local function InPvP()
     return kind ~= "none" and kind ~= "party" and kind ~= "raid"
 end
 
+-- The group's slots: "raid", 40 in a raid, "party", 4 otherwise; nil when
+-- the game won't say whether you're in a raid, or its answer and the slots
+-- disagree (#359: GroupBuffs.RaidAnswer, as buff mode's group look reads
+-- it, #346). A raid taken for a party would have only your own subgroup.
+local function GroupSlots()
+    local inRaid = ns.GroupBuffs.RaidAnswer()
+    if inRaid == nil then return nil end
+    if inRaid then return "raid", 40 end
+    return "party", 4
+end
+
 -- Every member of the group by name, you included; nil when a member's
--- name can't be read (then nobody is taken to have left).
+-- name can't be read, or the group's slots can't be told (GroupSlots):
+-- then nobody is taken to have left.
 local function RosterNames()
+    local prefix, count = GroupSlots()
+    if not prefix then return nil end
     local names = {}
     local me = ns.Util.UnitFullName("player")
     if me then names[me] = true end
-    local prefix, count = "party", 4
-    if ns.Util.ReadGameValues(IsInRaid) == true then prefix, count = "raid", 40 end
     for i = 1, count do
         local unit = prefix .. i
         if ns.Util.ReadGameValues(UnitExists, unit) ~= false then
@@ -263,10 +275,12 @@ local function InsideWithGroup()
     return inside
 end
 
+-- The other members by name: { [name] = unit }; nil when the group's slots
+-- can't be told (GroupSlots).
 local function GroupUnitNames()
+    local prefix, count = GroupSlots()
+    if not prefix then return nil end
     local out = {}
-    local prefix, count = "party", 4
-    if ns.Util.ReadGameValues(IsInRaid) == true then prefix, count = "raid", 40 end
     for i = 1, count do
         local unit = prefix .. i
         local name = ns.Util.UnitFullName(unit)
@@ -276,19 +290,25 @@ local function GroupUnitNames()
 end
 
 -- Who in the group is dead now, so only a death from here on counts (a
--- member who joins dead, or releases as a ghost, isn't a new death).
+-- member who joins dead, or releases as a ghost, isn't a new death). When
+-- the group's slots can't be told, nothing is noted and nobody forgotten
+-- (#359): a raid taken for a party would forget the other subgroups' dead.
 local function NoteWhoIsDead()
+    local units = GroupUnitNames()
+    if not units then return end
     local now = {}
-    for name, unit in pairs(GroupUnitNames()) do
+    for name, unit in pairs(units) do
         if ns.Util.ReadGameValues(UnitIsDeadOrGhost, unit) == true then now[name] = true end
     end
     dead = now
 end
 
 -- Whether another member is within the game's group range check (UnitInRange,
--- about 40 yards). A range the game won't check or give isn't close.
+-- about 40 yards). A range the game won't check or give isn't close, and
+-- nobody is while the group's slots can't be told (#359): the next roster
+-- change looks again.
 local function SomeoneClose()
-    for _, unit in pairs(GroupUnitNames()) do
+    for _, unit in pairs(GroupUnitNames() or {}) do
         if ns.Util.ReadGameValues(UnitIsUnit, unit, "player") ~= true then
             -- The game answers false when it can't check (false, false).
             if ns.Util.ReadGameValues(UnitInRange, unit) == true then return true end
