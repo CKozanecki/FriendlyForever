@@ -145,6 +145,11 @@ describe("Buff mode when solo: your own buffs (#329)", function()
             ns.db.buffBack.groupVersions = true
             ns.db.buffBack.groupEnough = 1
             assert.are.equal("Power Word: Fortitude", armed())
+            -- Not even looked at: no group version's reason rides on the offer.
+            local offer = ns.GroupBuffs.Next()
+            assert.is_nil(offer.note)
+            assert.is_nil(offer.hint)
+            assert.is_nil(offer.cast)
             local cast = press()
             assert.are.equal(FORT, cast.id)
             assert.are.equal(5, wow.state.items[ITEM.sacredCandle], "no candle used")
@@ -247,6 +252,19 @@ describe("Buff mode when solo: your own buffs (#329)", function()
             assert.are.equal("/cast [@player,nodead] Power Word: Fortitude", macro())
             wow.run(w.tabs.buff, "OnClick")
             assert.is_false(w.soloOwnBuffs:IsShown())
+            -- Opened with it off, the box shows it off.
+            ns.db.buffBack.soloOwnBuffs = false
+            wow.run(w.tabs.buffBack, "OnClick")
+            assert.is_false(w.soloOwnBuffs:GetChecked())
+        end)
+
+        it("never while you aren't offered your own buffs at all (GroupBuffs.SELF_ORDER off)", function()
+            boot()
+            ns.GroupBuffs.SELF_ORDER = "off"
+            assert.is_nil(armed())
+            local _, why, settled = ns.GroupBuffs.Next()
+            assert.are.equal("you're not in a group", why)
+            assert.is_true(settled)
         end)
 
         it("off, it changes nothing in a group (#198 still buffs you there)", function()
