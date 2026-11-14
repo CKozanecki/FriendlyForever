@@ -1,4 +1,4 @@
--- Spec: #330
+-- Spec: #330, #44
 -- The options panel with a field inside a settings section damaged
 -- mid-session, and the Buff Thanks and Buff Back tabs' controls clicked with
 -- their whole section damaged after the panel filled (#330). A whole section
@@ -232,7 +232,7 @@ describe("Options panel", function()
         -- with a self-buff (#44), who gets each (chosen classes), and the
         -- raid's Blessings.
         local function boot()
-            ns = wow.boot({ buffTable = wow.selfBuffTable(), before = function(state)
+            ns = wow.boot({ before = function(state)
                 state.class = "PALADIN"
                 state.knownSpells = { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true, [RIGHTEOUS_FURY] = true }
             end })
