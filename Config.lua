@@ -15,7 +15,7 @@ local Config = {}
 ns.Config = Config
 
 
-Config.SCHEMA_VERSION = 6
+Config.SCHEMA_VERSION = 7
 Config.NUM_MESSAGES = 30
 Config.MAX_LOG = 400 -- diagnostic log lines kept in saved variables
 Config.MAX_IGNORED = 500
@@ -121,7 +121,8 @@ Config.DEFAULTS = {
     linesPerMinute = 4,
     guildLogin = {
         enabled = true,
-        delay = 3,
+        -- 15 s so the hello lands after the guildmate has loaded in (#392).
+        delay = 15,
         repeatCooldown = 180,
         -- The most copies of the addon in the guild that greet one login
         -- (GuildHellos.lua): the owner's decision on #38.
@@ -421,6 +422,14 @@ end
 
 -- Each entry upgrades a saved file from version (key - 1) to key.
 local MIGRATIONS = {
+    [7] = function(db)
+        -- The Guild Login delay default went from 3 to 15 seconds (#392). A
+        -- saved delay still exactly 3 is the old default and becomes 15; any
+        -- other value is the player's own. Runs once, by schema version.
+        if type(db.guildLogin) == "table" and db.guildLogin.delay == 3 then
+            db.guildLogin.delay = 15
+        end
+    end,
     [6] = function(db)
         -- 0.8.0 replaced every type's default lines with fantasy ones. A saved
         -- line still exactly the old (casual) default becomes the new one in

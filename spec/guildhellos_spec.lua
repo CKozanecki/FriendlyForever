@@ -1,4 +1,4 @@
--- Spec: #38, #197, #290
+-- Spec: #38, #197, #290, #392
 -- Guild hellos: every copy in the guild greets a guildmate who logs in, a
 -- random while apart, with different lines, and at most K of them.
 local wow = require("spec.support.wow")
@@ -91,6 +91,29 @@ describe("Guild hellos (#38)", function()
             end
             ns = wow.boot({ db = { guildLogin = { maxGreeters = "lots" } } })
             assert.are.equal(5, ns.db.guildLogin.maxGreeters)
+        end)
+
+        it("waits 15 seconds by default, so the hello lands 16 to 23 seconds after the login (#392)", function()
+            local ns = wow.boot()
+            assert.are.equal(15, ns.Config.DEFAULTS.guildLogin.delay)
+            assert.are.equal(15, ns.db.guildLogin.delay)
+            local G = ns.GuildHellos
+            assert.are.equal(16, 15 + G.STAGGER_MIN)
+            assert.are.equal(23, 15 + G.STAGGER_MAX)
+            local clients, net = Guild(1, 1)
+            local start = wow.now
+            LogIn(clients, LOGIN)
+            wow.advanceAll(net, 40, 0.1)
+            local hellos = Hellos(clients)
+            assert.are.equal(1, #hellos)
+            local wait = hellos[1].time - start
+            assert.is_true(wait >= 16 and wait <= 23 + wow.ADDON_ECHO_DELAY + 0.2, tostring(wait))
+        end)
+
+        it("covers the longest delay, wait and echo within the time a login is tracked (#392)", function()
+            local G = wow.boot().GuildHellos
+            local limits = wow.boot().Config.LIMITS.delay
+            assert.is_true(limits.max + G.STAGGER_MAX + G.ECHO_WAIT < G.LOGIN_TTL)
         end)
 
         it("is set on the Guild Login tab only", function()
@@ -514,7 +537,7 @@ describe("Guild hellos (#38)", function()
             Prove(clients)
             LogIn(clients, LOGIN)
             wow.state.lockdown = true
-            wow.advanceAll(net, 15, 0.1)
+            wow.advanceAll(net, 30, 0.1) -- past the longest delay and wait (15 + 8)
             assert.are.equal(0, #Hellos(clients), "nothing during lockdown")
             wow.state.lockdown = false
             wow.advanceAll(net, 40, 0.1)
@@ -753,7 +776,8 @@ describe("Guild hellos (#38)", function()
             for _, c in ipairs(clients) do
                 wow.use(c)
                 c.ns.db.guildLogin.repeatCooldown = random.random(0, 1) * 30
-                c.ns.db.guildLogin.delay = random.random(0, 4)
+                -- Mostly short, now and then up to the setting's limit of 60 (#392).
+                c.ns.db.guildLogin.delay = random.random() < 0.3 and random.random(0, 60) or random.random(0, 4)
             end
             -- The game relays a guild message to everyone or no one (confirmed
             -- in game at launch): each message is lost whole, echo included.
@@ -799,7 +823,7 @@ describe("Guild hellos (#38)", function()
                 -- earliest login with room first, in time order, finds a way
                 -- whenever there is one, all windows being as long).
                 local G = clients[1].ns.GuildHellos
-                local reach = 4 + G.STAGGER_MAX + G.ECHO_WAIT + clients[1].ns.ChatQueue.MAX_AGE + 1
+                local reach = 60 + G.STAGGER_MAX + G.ECHO_WAIT + clients[1].ns.ChatQueue.MAX_AGE + 1
                 table.sort(hellos, function(x, y) return x.time < y.time end)
                 local per = {}
                 for _, h in ipairs(hellos) do
