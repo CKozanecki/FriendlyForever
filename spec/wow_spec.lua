@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #40
+-- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -661,6 +661,117 @@ describe("The simulated client's frame sizes and line heights (#270)", function(
             assert.is_number(wow.LINE_HEIGHT[font], font)
             assert.is_true(wow.LINE_HEIGHT[font] >= width, font)
         end
+    end)
+end)
+
+describe("The simulated client's party1..4 in a raid (#322)", function()
+    local function raid()
+        wow.boot()
+        wow.setGroup("raid", { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill" })
+    end
+
+    it("are the other members of your own subgroup, the same units as their raid slots (white)", function()
+        raid()
+        wow.state.units.raid2.subgroup = 2
+        wow.state.units.raid4.subgroup = 2
+        local names = {}
+        for n = 1, 4 do
+            local u = wow.state.units["party" .. n]
+            names[n] = u and u.id or false
+        end
+        assert.are.same({ "Ann-Vale", "Cid-Rock", "Eve-Hill", false }, names)
+        assert.is_true(_G.UnitIsUnit("party1", "raid1"))
+        assert.is_true(_G.UnitExists("party3"))
+        assert.is_false(_G.UnitExists("party4"))
+        assert.is_false(_G.UnitIsUnit("party1", "player"))
+    end)
+
+    it("follow a member who changes subgroup, and your own subgroup (white)", function()
+        raid()
+        wow.state.units.raid1.subgroup = 2
+        assert.are.equal("Bo-Fern", wow.state.units.party1.id)
+        wow.state.units.player.subgroup = 2
+        assert.are.equal("Ann-Vale", wow.state.units.party1.id)
+        assert.is_nil(wow.state.units.party2)
+    end)
+
+    it("don't exist in a party's own sense, or with no group (black)", function()
+        wow.boot()
+        assert.is_nil(wow.state.units.party1)
+        wow.setGroup("party", { "Ann-Vale" })
+        assert.are.equal("Ann-Vale", wow.state.units.party1.id)
+        assert.is_nil(wow.state.units.party2)
+        wow.setGroup("raid", {})
+        assert.is_nil(wow.state.units.party1)
+    end)
+
+    it("are never keys of state.units, so a walk of it sees each member once (black)", function()
+        raid()
+        for token in pairs(wow.state.units) do assert.is_nil(token:find("^party")) end
+    end)
+end)
+
+describe("The simulated client's unreadable IsInRaid and IsInGroup (#322)", function()
+    it("answer secrets only when their flag is set (white)", function()
+        wow.boot()
+        wow.setGroup("raid", { "Ann-Vale" })
+        assert.is_false(_G.issecretvalue(_G.IsInRaid()))
+        assert.is_false(_G.issecretvalue(_G.IsInGroup()))
+        assert.is_true(_G.IsInRaid())
+        wow.state.inRaidUnreadable = true
+        assert.is_true(_G.issecretvalue(_G.IsInRaid()))
+        assert.is_false(_G.issecretvalue(_G.IsInGroup()))
+        wow.state.inRaidUnreadable = nil
+        wow.state.inGroupUnreadable = true
+        assert.is_true(_G.issecretvalue(_G.IsInGroup()))
+        assert.is_true(_G.issecretvalue(_G.IsInGroup(_G.LE_PARTY_CATEGORY_HOME)))
+        assert.is_false(_G.issecretvalue(_G.IsInRaid()))
+    end)
+end)
+
+describe("The simulated client's Button:Click (#285)", function()
+    before_each(function() wow.boot() end)
+
+    it("runs PreClick, OnClick and PostClick in that order, down false by default (white)", function()
+        local button = CreateFrame("Button", nil, UIParent)
+        local seen = {}
+        for _, name in ipairs({ "PreClick", "OnClick", "PostClick" }) do
+            button:SetScript(name, function(_, mouseButton, down)
+                seen[#seen + 1] = { name, mouseButton, down }
+            end)
+        end
+        button:Click()
+        button:Click("RightButton", true)
+        assert.are.same({
+            { "PreClick", "LeftButton", false }, { "OnClick", "LeftButton", false },
+            { "PostClick", "LeftButton", false },
+            { "PreClick", "RightButton", true }, { "OnClick", "RightButton", true },
+            { "PostClick", "RightButton", true },
+        }, seen)
+    end)
+
+    it("takes down as true only for true, and is no hardware event (white)", function()
+        local button = CreateFrame("Button", nil, UIParent)
+        local downs, hardware = {}, {}
+        button:SetScript("PreClick", function(_, _, down)
+            downs[#downs + 1] = down
+            hardware[#hardware + 1] = wow.hardware
+        end)
+        button:Click("LeftButton", 1)
+        button:Click("LeftButton", false)
+        assert.are.same({ false, false }, downs)
+        assert.are.same({ false, false }, hardware)
+    end)
+
+    it("runs nothing on a disabled button, and doesn't mind a button with no scripts (black)", function()
+        local button = CreateFrame("Button", nil, UIParent)
+        local ran = 0
+        button:SetScript("PreClick", function() ran = ran + 1 end)
+        button:SetEnabled(false)
+        button:Click()
+        assert.are.equal(0, ran)
+        local bare = CreateFrame("Button", nil, UIParent)
+        assert.has_no.errors(function() bare:Click("LeftButton", true) end)
     end)
 end)
 

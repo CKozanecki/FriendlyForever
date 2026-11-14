@@ -21,6 +21,8 @@ A small simulation of the WoW client API, enough to load the addon as the game d
   - `opts.settingsClosed`: keep the settings pages unopened, as in the game until the player opens them (#267). Without it, boot has the Settings window adopt every page (`wow.adoptSettingsPages()`) so specs that read the pages' text see them filled. `Settings.OpenToCategory` adopts, shows and fills one page, running its `OnShow` only if it was hidden; the addon hides its pages when it creates them;
   - `opts.shippedLines`: keep the shipped message lines. Without it, types still on the shipped defaults use the fixed casual lines, since most specs check behaviour rather than wording.
 - **State:** `wow.reset()` builds `wow.state` (guild, group, instance, lockdown, combat, units, auras, spells, CVars, clock) and the record tables tests check against:
+  - `state.inRaidUnreadable`, `state.inGroupUnreadable`: `IsInRaid()` or `IsInGroup()` answers a secret (#322). In a raid, `party1` to `party4` are the other members of your own subgroup (`wow.state.units.partyN`, found on demand, never keys);
+  - `button:Click(mouseButton, down)` runs PreClick, OnClick and PostClick with `down` false unless given, and is no hardware event (#285);
   - `wow.sent`: chat lines the game accepted; `wow.blocked`: lines it refused;
   - `wow.casts`, `wow.keyActions`, `wow.printed`, `wow.timers`;
   - `wow.landed`: casts the server said landed, `{ spell, id, target, at }`, `at` being when (#37, #36);

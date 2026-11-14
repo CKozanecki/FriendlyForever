@@ -1,4 +1,4 @@
--- Spec: #70
+-- Spec: #70, #165
 -- The raid buff split: copies of the addon in the same raid share out the
 -- buffs their class has in common over the hidden channel, so two priests
 -- or two paladins don't give the same buff. The split only narrows what
@@ -19,7 +19,7 @@ local KEY_OF = { [FORT] = "fortitude", [PRAYER_FORT] = "fortitude", [SPIRIT] = "
 
 -- The chaos storm's seeds: each ends with at least two copies in the raid,
 -- and a paladin storm with one drafting (the test checks both).
-local SEEDS = { { n = 3, class = "PRIEST" }, { n = 7, class = "PRIEST" }, { n = 13, class = "PRIEST" },
+local SEEDS = { { n = 3, class = "PRIEST" }, { n = 7, class = "PRIEST" }, { n = 11, class = "PRIEST" },
     { n = 2, class = "PALADIN" }, { n = 4, class = "PALADIN" }, { n = 10, class = "PALADIN" },
     { n = 18, class = "PALADIN" } }
 

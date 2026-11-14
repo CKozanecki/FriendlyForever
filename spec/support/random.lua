@@ -15,12 +15,19 @@ local MULTIPLIER = 48271
 
 local state = 1
 
+-- MINSTD's first output is seed * 48271 mod (2^31 - 1), so for a small seed it
+-- is near 0 (#165). seed() discards this many outputs, so the first draw a
+-- spec sees is spread over the range whatever the seed.
+M.WARMUP = 5
+
 -- Start the sequence from seed s. The state is s mod (2^31 - 1); 0, where
--- the generator would stay forever, starts at 1 instead.
+-- the generator would stay forever, starts at 1 instead. Then the first
+-- WARMUP outputs are discarded (#165).
 function M.seed(s)
     assert(type(s) == "number" and s == s, "seed must be a number")
     state = math.floor(s) % MODULUS
     if state == 0 then state = 1 end
+    for _ = 1, M.WARMUP do M.next() end
 end
 
 -- The next raw value, an integer in 1..2^31 - 2.

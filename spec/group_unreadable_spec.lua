@@ -11,9 +11,8 @@ describe("Buff mode when IsInRaid() or IsInGroup() can't be read (#322)", functi
 
     -- A mage who knows Arcane Intellect and Arcane Brilliance and carries
     -- Arcane Powder, in a raid: Ann, Bo and Eve in your subgroup 1, Cid and
-    -- Dot in subgroup 2. In the game a raid also gives your own subgroup's other
-    -- members as party1..4; the simulated client doesn't yet (#322's harness
-    -- PR adds it), so they are added here.
+    -- Dot in subgroup 2. As in the game, the simulated client also gives your
+    -- own subgroup's other members as party1..4 in a raid (#322).
     local function bootRaid()
         ns = wow.boot({ before = function(state)
             state.class = "MAGE"
@@ -22,7 +21,6 @@ describe("Buff mode when IsInRaid() or IsInGroup() can't be read (#322)", functi
         end })
         wow.setGroup("raid", { "Ann-Vale", "Bo-Fern", "Eve-Hill", "Cid-Rock", "Dot-Moss" })
         for i = 4, 5 do wow.state.units["raid" .. i].subgroup = 2 end
-        for i = 1, 3 do wow.state.units["party" .. i] = wow.state.units["raid" .. i] end
         wow.fire("GROUP_ROSTER_UPDATE")
         wow.advance(0)
     end
@@ -99,6 +97,19 @@ describe("Buff mode when IsInRaid() or IsInGroup() can't be read (#322)", functi
         end
     end)
 
+    it("the client's own switches (state.inRaidUnreadable, state.inGroupUnreadable) leave it unsettled too (black)", function()
+        for _, flag in ipairs({ "inRaidUnreadable", "inGroupUnreadable" }) do
+            bootRaid()
+            subgroupOneBuffed()
+            for _, token in ipairs({ "raid4", "raid5" }) do wow.wearBuff(token, INTELLECT, { source = "player" }) end
+            wow.state[flag] = true
+            local none, _, settled = ns.GroupBuffs.Next()
+            assert.is_nil(none, flag)
+            assert.is_false(settled, flag)
+            assert.are.same({}, wow.errors, flag)
+        end
+    end)
+
     it("IsInGroup() unreadable never settles, in a raid or a party (black)", function()
         for answer in pairs(UNREADABLE) do
             bootRaid()
@@ -152,7 +163,6 @@ describe("Buff mode when IsInRaid() or IsInGroup() can't be read (#322)", functi
         local button = ns.BuffButton.Frame()
         wow.setGroup("raid", { "Ann-Vale", "Bo-Fern", "Eve-Hill", "Cid-Rock", "Dot-Moss" })
         for i = 4, 5 do wow.state.units["raid" .. i].subgroup = 2 end
-        for i = 1, 3 do wow.state.units["party" .. i] = wow.state.units["raid" .. i] end
         wow.fire("GROUP_ROSTER_UPDATE")
         wow.advance(0)
         assert.is_true(ns.BuffMode.IsAuto(), "joining with someone close by turned it on")
