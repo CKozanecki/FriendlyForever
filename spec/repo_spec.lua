@@ -2238,19 +2238,32 @@ describe("UI simulator workflow", function()
             if line:match("^%s*grep%s+%-q") then return false end
             -- A read a $( ) keeps as digits or hex digits only prints nothing
             -- a command can be made of (#173, #360's review): one pipeline
-            -- ending in the tr, so nothing in it escapes the tr.
+            -- ending in the tr, so nothing in it escapes the tr. The tr sees
+            -- only stdout, so the reader's errors, which name its file, must be
+            -- thrown away (2>/dev/null) or sent down the pipe (2>&1); the
+            -- commands after it read only the pipe: no file, glob or command
+            -- runner of their own (#364's testing review).
+            local ERRORS = "%f[%d]2>%s*/dev/null%f[%s%z]"
+            local INTO_PIPE = "%f[%d]2>&1%f[%s%z]"
             local function keep(inside)
-                -- (Nor a copy to stderr, a tee or a device on the way to the tr.
-                -- Its errors thrown away are fine: 2>/dev/null.)
-                inside = inside:gsub("%f[%d]2>%s*/dev/null%f[%s%z]", "")
-                if inside:find("||", 1, true) or inside:find(">", 1, true) or inside:find("%f[%w]tee%f[%W]")
+                local first, later = inside:match("^([^|]*)(.*)$")
+                if not (first:find(ERRORS) or first:find(INTO_PIPE)) then return nil end
+                if namesOne(later, sources) or later:find("[*?]") or later:find("%f[%w]xargs%f[%W]")
+                    or later:find("%f[%w]sh%f[%W]") or later:find("%f[%w]bash%f[%W]") or later:find("%f[%w]env%f[%W]")
+                    or later:find("%f[%w]exec%f[%W]") or later:find("%f[%w]eval%f[%W]") then
+                    return nil
+                end
+                -- (Nor a copy to stderr, a tee or a device on the way to the tr,
+                -- nor a command run beside it with & or &&.)
+                inside = inside:gsub(ERRORS, ""):gsub(INTO_PIPE, "")
+                if inside:find("&", 1, true) or inside:find("||", 1, true) or inside:find(">", 1, true) or inside:find("%f[%w]tee%f[%W]")
                     or inside:find("/dev/", 1, true) or inside:find("/proc/", 1, true) then
                     return nil
                 end
                 return ""
             end
-            local said = line:gsub("%$%(([^();&]*)| tr %-cd '0%-9'%)", keep)
-                :gsub("%$%(([^();&]*)| tr %-cd '0%-9a%-f'%)", keep)
+            local said = line:gsub("%$%(([^();]*)| tr %-cd '0%-9'%)", keep)
+                :gsub("%$%(([^();]*)| tr %-cd '0%-9a%-f'%)", keep)
             local quiet = plain(said)
             -- ($* and $? are parameters, not globs.)
             local globbed = bare:gsub("%$[*?#@]", ""):find("[*?]") ~= nil
@@ -2813,12 +2826,17 @@ describe("UI simulator workflow", function()
             end)
 
             it("keeps a checksum from the log only as hex digits in a variable, never by a relative file (white, red)", function()
-                assert.are.same({}, (scan(step([[h=$(sha256sum "$manifest" | cut -d' ' -f1 | tr -cd '0-9a-f')]]))))
+                assert.are.same({}, (scan(step([[h=$(sha256sum "$manifest" 2>&1 | cut -d' ' -f1 | tr -cd '0-9a-f')]]))))
+                assert.are.same({}, (scan(step([[h=$(sha256sum "$manifest" 2>/dev/null | cut -d' ' -f1 | tr -cd '0-9a-f')]]))))
+                -- Its errors would reach the log, naming the file (#364's testing review).
+                assert.are.equal(1, #scan(step([[h=$(sha256sum "$manifest" | cut -d' ' -f1 | tr -cd '0-9a-f')]])))
+                assert.are.equal(1, #scan(step('cd "$ui"\n' .. [[n=$(wc -l * | tail -n 1 | tr -cd '0-9')]])))
+                assert.are.same({}, (scan(step('cd "$ui"\n' .. [[n=$(wc -l * 2>/dev/null | tail -n 1 | tr -cd '0-9')]]))))
                 assert.are.equal(1, #scan(step([[h=$(sha256sum "$manifest" | cut -d' ' -f1 | tr -cd '0-9a-z:')]])))
                 assert.are.equal(1, #scan(step([[h=$(sha256sum "$manifest" | tr -cd '0-9a-f') && cat "$manifest"]])))
                 -- In a fetched tree, a relative file could be a link to /dev/stdout.
                 for _, line in ipairs({ "sha256sum x > .marker", "sha256sum x > out/marker.txt 2>&1", "sha256sum x > /dev/stdout",
-                    'sha256sum x > "$f"' }) do
+                    'sha256sum x > "$f"', "ls &> .log", "ls &> /dev/stdout" }) do
                     assert.are.equal(1, #scan(step('cd "$ui"\n' .. line)), line)
                 end
             end)
@@ -2836,7 +2854,9 @@ describe("UI simulator workflow", function()
                     'cd "$ui"\nif c; then\n  cd /tmp\nfi', 'cd "$ui"\nfalse && cd /tmp', 'cd "$ui"\n( cd /tmp )',
                     'cd "$ui"\ncd /tmp | true', 'cd "$ui"\n! cd /tmp', 'cd "$ui"\ncase x in\n  y) cd /tmp ;;\nesac',
                     'cd "$ui"\nwhile c; do cd /tmp; done', 'cd "$ui"\nf() { cd /tmp; }', 'cd "$ui"\nf() {\n  cd /tmp\n}',
-                    'cd "$ui"\ntrue &&\n  cd /tmp', 'cd "$ui"\ncd /tmp &', 'cd "$ui"\n( true; cd /tmp; true )' }) do
+                    'cd "$ui"\ntrue &&\n  cd /tmp', 'cd "$ui"\ncd /tmp &', 'cd "$ui"\n( true; cd /tmp; true )',
+                    -- After || or a pipe (#364's testing review).
+                    'cd "$ui"\nfalse || cd /tmp', 'cd "$ui"\ntrue | cd /tmp', 'cd "$ui"\nfalse ||\n  cd /tmp' }) do
                     assert.are.equal(1, #scan(step(away .. "\nls")), away)
                 end
                 for _, away in ipairs({ 'cd "$ui"\ncd /tmp', 'cd "$ui"\ncd "$HOME"; ls', 'cd "$ui"\nif c; then :; fi\ncd /tmp',
@@ -2872,6 +2892,9 @@ describe("UI simulator workflow", function()
                 end
                 local hash = ("0123456789abcdef"):rep(4)
                 assert.are.same({ 0, hash }, { run(hash .. "  x") })
+                local failed, said = runWithCurl("manifest=x\n" .. hashing, {}, { sha256sum = "#!/bin/sh\nexit 1\n" }, "-e")
+                assert.are_not.equal(0, failed, "a failed hash was recorded")
+                assert.is_truthy(said:find("couldn't hash", 1, true), "the step stops without saying why")
                 assert.are_not.equal(0, (run("")), "an empty hash was recorded")
                 assert.are_not.equal(0, (run(hash:sub(2) .. "::  x")), "a hash with other characters was recorded")
                 assert.are_not.equal(0, (run("::error::" .. hash .. "  x")), "a planted line was cut down to a hash")
@@ -2947,29 +2970,38 @@ describe("UI simulator workflow", function()
 
             it("counts a read kept as digits or hex digits by its $( ) as printing nothing, and no other (white, red)", function()
                 local loop = 'for f in shots/*.png; do\n  %s\ndone'
-                for _, quiet in ipairs({ [[[ "$(head -c 8 "$f" | od -An -tx1 | tr -cd '0-9a-f')" = "89504e47" ] || continue]],
-                    [[[ "$(stat -c %s "$f" | tr -cd '0-9')" -le 5242880 ] || continue]],
-                    -- Its errors thrown away (round 3).
-                    [[[ "$(stat -c %s "$f" 2>/dev/null | tr -cd '0-9')" -le 5242880 ] || continue]],
-                    [[[ "$(head -c 8 "$f" 2> /dev/null | od -An -tx1 | tr -cd '0-9a-f')" = "89504e47" ] || continue]] }) do
+                -- Its reader's errors, which name the file, thrown away or sent down the pipe to the tr.
+                for _, quiet in ipairs({ [[[ "$(stat -c %s "$f" 2>/dev/null | tr -cd '0-9')" -le 5242880 ] || continue]],
+                    [[[ "$(head -c 8 "$f" 2> /dev/null | od -An -tx1 | tr -cd '0-9a-f')" = "89504e47" ] || continue]],
+                    [[n=$(cat "$f" 2>&1 | tr -cd '0-9')]], [[n=$(grep -o 'START [0-9]*' "$f" 2>/dev/null | tail -n 1 | tr -cd '0-9')]] }) do
                     assert.are.same({}, (scan(step(loop:format(quiet)))), quiet)
                     assert.are.same({}, (scan(step(loop:format(quiet)), true)), quiet)
                 end
                 for _, loud in ipairs({ [[[ "$(head -c 8 "$f" | od -An -tx1 | tr -d ' \n')" = "89504e47" ] || continue]],
+                    -- The reader's errors reach the log: head: error reading 'shots/##[error]x.png' (#364's testing review).
+                    [[[ "$(head -c 8 "$f" | od -An -tx1 | tr -cd '0-9a-f')" = "89504e47" ] || continue]],
+                    [[[ "$(stat -c %s "$f" | tr -cd '0-9')" -le 5242880 ] || continue]],
+                    -- The commands after the reader read only the pipe.
+                    [[n=$(true 2>/dev/null | cat "$f" | tr -cd '0-9')]], [[n=$(ls shots 2>/dev/null | xargs cat | tr -cd '0-9')]],
+                    [[n=$(echo 2>/dev/null | cat shots/* | tr -cd '0-9')]], [[n=$(cat "$f" 2>&1 | sh | tr -cd '0-9')]],
                     [[[ "$(stat -c %s "$f")" -le 5242880 ] || continue]], [[echo "$(cat "$f" | tr -cd '0-9')" "$(cat "$f")"]],
                     -- Only one pipeline, ending in the tr: anything before it in the $( ) escapes it.
-                    [[n=$(cat "$f"; cat x | tr -cd '0-9')]], [[n=$(cat "$f" && cat x | tr -cd '0-9')]],
-                    [[n=$(cat "$f" || cat x | tr -cd '0-9')]], [[n=$(cat "$f"; cat x | tr -cd '0-9a-f')]],
-                    [[n=$(cat "$f" & cat x | tr -cd '0-9a-f')]], [[n=$(cat "$f" || cat x | tr -cd '0-9a-f')]],
+                    -- (Each with its errors handled, so only the rule named is at stake.)
+                    [[n=$(cat "$f" 2>/dev/null ; cat x | tr -cd '0-9')]], [[n=$(cat "$f" 2>/dev/null && cat x | tr -cd '0-9')]],
+                    [[n=$(cat "$f" 2>/dev/null || cat x | tr -cd '0-9')]], [[n=$(cat "$f" 2>/dev/null ; cat x | tr -cd '0-9a-f')]],
+                    [[n=$(cat "$f" 2>/dev/null & cat x | tr -cd '0-9a-f')]], [[n=$(cat "$f" 2>/dev/null || cat x | tr -cd '0-9a-f')]],
                     -- Nor a copy to stderr, a tee or a device on the way (round 2).
-                    [[n=$(cat "$f" | tee /dev/stderr | wc -l | tr -cd '0-9')]], [[n=$(head -c 8 "$f" >/dev/stderr | tr -cd '0-9a-f')]],
-                    [[n=$(cat "$f" | tee x | tr -cd '0-9')]], [[n=$(cat "$f" 2>&1 | tr -cd '0-9')]],
-                    [[n=$(dd if="$f" of=/dev/stderr | tr -cd '0-9')]], [[n=$(cat "$f" >&2 | tr -cd '0-9')]],
+                    [[n=$(cat "$f" 2>/dev/null | tee /dev/stderr | wc -l | tr -cd '0-9')]],
+                    [[n=$(head -c 8 "$f" 2>/dev/null >/dev/stderr | tr -cd '0-9a-f')]], [[n=$(cat "$f" 2>&1 | tee x | tr -cd '0-9')]],
+                    [[n=$(dd if="$f" of=/dev/stderr 2>/dev/null | tr -cd '0-9')]], [[n=$(cat "$f" 2>/dev/null >&2 | tr -cd '0-9')]],
+                    [[n=$(cat "$f" 2>/dev/null | tee /dev/stderr | tr -cd '0-9')]],
                     -- A redirect to a variable could name a device.
-                    [[n=$(cat "$f" > "$out" | tr -cd '0-9')]], [[n=$(cat "$f" 2>/dev/null >/dev/stderr | tr -cd '0-9')]],
+                    [[n=$(cat "$f" 2>/dev/null > "$out" | tr -cd '0-9')]], [[n=$(cat "$f" 2>/dev/null >/dev/stderr | tr -cd '0-9')]],
                     [[n=$(cat "$f" 2>/dev/nullx | tr -cd '0-9')]] }) do
                     assert.are.equal(1, #scan(step(loop:format(loud))), loud)
                 end
+                -- A glob after the reader is a reader of its own, inside a tree.
+                assert.are.equal(1, #scan(step('cd "$ui"\n' .. [[n=$(true 2>/dev/null | cat * | tr -cd '0-9')]])))
             end)
 
             it("starts a job's steps inside when it downloads an artifact into the workspace (red, white)", function()
