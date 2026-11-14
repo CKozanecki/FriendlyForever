@@ -261,7 +261,9 @@ local function NextOffer()
     end
     -- One offer per player: the first, which is the one the button would
     -- make (a player owed a favour who is also in your group appears in both,
-    -- and one group cast aimed at a player is listed beside another, #305).
+    -- one group cast aimed at a player is listed beside another, #305, and
+    -- each single buff a member lacks is listed, #313). The rest of a
+    -- player's entries are passed over by seen, before any macro is built.
     local castable, seen = {}, {}
     for _, offer in ipairs(list) do
         if not seen[offer.name]
