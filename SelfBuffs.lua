@@ -1,10 +1,10 @@
 -- Self-buffs (#44): in buff mode, once the button has nothing left for the
 -- favours you owe or for your group (GroupBuffs.lua, your own copy of the
 -- group buffs included), it offers the self-buffs you're missing: Inner Fire,
--- a mage's or warlock's armor, Lightning Shield, Righteous Fury, Omen of
--- Clarity, Battle Shout, a hunter's Aspect and Trueshot Aura, a paladin's
--- aura (BuffData's selfCast buffs). One press, one cast, on yourself, through
--- the same secure button. Nothing here casts.
+-- a mage's or warlock's armor, Lightning Shield, Righteous Fury, Battle
+-- Shout, a hunter's Aspect and Trueshot Aura, a paladin's aura (BuffData's
+-- selfCast buffs). One press, one cast, on yourself, through the same secure
+-- button. Nothing here casts.
 --
 -- Offered in buff mode only, solo too (the owner, #44), out of combat (the
 -- button is empty in a fight), when "Offer my self-buffs" is on
@@ -14,12 +14,13 @@
 -- round's re-sync (#256).
 --
 -- Which are missing, from your own buffs (C_UnitAuras, "player"):
---   timed (Inner Fire, the armors, Lightning Shield, Righteous Fury, Omen,
---   Battle Shout): missing, or yours and running low: under the top-up time
---   (buffBack.topUpMinutes) and under half its full time (#44 Q5). Charges
---   aren't counted (Q7). Anyone's copy counts as having it: another
---   warrior's Battle Shout is never cast over;
---   toggles (Aspects, paladin auras, Trueshot Aura): never on a timer.
+--   timed (Inner Fire, the armors, Lightning Shield, Righteous Fury, Battle
+--   Shout, Trueshot Aura): missing, or yours and running low: under the
+--   top-up time (buffBack.topUpMinutes) and under half its full time (#44
+--   Q5). Charges aren't counted (Q7). Anyone's copy counts as having it: another
+--   warrior's Battle Shout or another hunter's Trueshot Aura is never cast
+--   over (Trueshot Aura lasts 30 minutes on Forever: its spell data, #44);
+--   toggles (Aspects, paladin auras): never on a timer.
 --   Missing only when no toggle of that family of yours is on (any Aspect of
 --   yours, Cheetah's included; any aura of yours). Another player's copy
 --   (their Devotion Aura, their Aspect of the Wild) isn't yours;

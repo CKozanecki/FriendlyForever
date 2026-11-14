@@ -29,12 +29,6 @@ ns.BuffTable = {
                 ranks = { 9910, 9756, 8914, 1075, 782, 467 },
                 defaultRule = "tanks",
             },
-            {
-                key = "omen",
-                name = "Omen of Clarity",
-                ranks = { 16864 },
-                selfCast = true,
-            },
         },
         HUNTER = {
             {
@@ -66,7 +60,6 @@ ns.BuffTable = {
                 name = "Trueshot Aura",
                 ranks = { 20906, 20905, 19506 },
                 selfCast = true,
-                toggle = true,
             },
         },
         MAGE = {
@@ -310,11 +303,11 @@ ns.BuffTable = {
         },
     },
     -- Buffs left out: their keys stay known so saved settings still load.
-    absent = { "light" },
+    absent = { "light", "omen" },
     -- Spells that count as wearing a family of self-buffs, never offered (#44).
     familyAuras = {
         aspect = { 5118, 13159, 13161 },
     },
-    -- Spells of buffs Blizzard removed: an aura with one is passed over.
-    removedSpells = { 1038, 19977, 19978, 19979, 25890, 25895 },
+    -- Spells of buffs the game no longer has (the removed list): an aura with one is passed over.
+    removedSpells = { 1038, 16864, 19977, 19978, 19979, 25890, 25895 },
 }

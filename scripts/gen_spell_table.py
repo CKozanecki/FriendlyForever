@@ -410,7 +410,7 @@ def render(build_id, digest, source_name, classes, absent, removed_ids, families
         for family in sorted(families):
             lines.append(f"        {family} = {lua_list(families[family])},")
         lines.append("    },")
-    lines.append("    -- Spells of buffs Blizzard removed: an aura with one is passed over.")
+    lines.append("    -- Spells of buffs the game no longer has (the removed list): an aura with one is passed over.")
     lines.append("    removedSpells = " + lua_list(removed_ids) + ",")
     lines.append("}")
     return "\n".join(lines) + "\n"

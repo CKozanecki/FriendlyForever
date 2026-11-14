@@ -16,7 +16,19 @@ local TRUESHOT = 20906
 local DEVOTION, RETRIBUTION, CONCENTRATION = 10293, 10301, 19746
 local RIGHTEOUS_FURY = 25780
 local BATTLE_SHOUT = 25289
-local OMEN, LIGHTNING_SHIELD, DEMON_ARMOR, DEMON_SKIN = 16864, 10432, 11735, 696
+local LIGHTNING_SHIELD, DEMON_ARMOR, DEMON_SKIN = 10432, 11735, 696
+-- No druid self-buff can be cast on Forever: Omen of Clarity is a passive
+-- there (#44). The rule that a druid in a form is offered none is tested
+-- with a made-up one, added to a copy of the committed table.
+local DRUID_TEST, DRUID_TEST_NAME = 990001, "Test Druid Ward"
+local function druidTable()
+    local loaded = {}
+    assert(loadfile(wow.ROOT .. "BuffTable.lua"))(wow.ADDON_NAME, loaded)
+    table.insert(loaded.BuffTable.classes.DRUID,
+        { key = "druidtest", name = DRUID_TEST_NAME, ranks = { DRUID_TEST }, selfCast = true })
+    wow.SPELL_NAMES[DRUID_TEST] = DRUID_TEST_NAME
+    return loaded.BuffTable
+end
 local BLESSING_OF_KINGS = 20217
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
@@ -29,7 +41,7 @@ describe("Self-buffs in buff mode", function()
     -- mode unless opts.noMode.
     local function boot(opts)
         opts = opts or {}
-        ns = wow.boot({ db = opts.db, buffSelf = true, autoBuffMode = opts.auto,
+        ns = wow.boot({ db = opts.db, buffSelf = true, autoBuffMode = opts.auto, buffTable = opts.buffTable,
             before = function(state)
                 state.class = opts.class or "PRIEST"
                 state.knownSpells = {}
@@ -256,13 +268,21 @@ describe("Self-buffs in buff mode", function()
             assert.are.equal("/cast [@player,nodead] !Aspect of the Wild", macro())
         end)
 
-        it("offers Trueshot Aura beside your Aspect: its own toggle", function()
+        it("offers Trueshot Aura beside your Aspect: a 30-minute buff on Forever, topped up when low", function()
             boot({ class = "HUNTER", known = { HAWK, TRUESHOT } })
             wear(HAWK, 0)
             refresh()
-            assert.are.equal("/cast [@player,nodead] !Trueshot Aura", macro())
+            -- Timed, not a toggle: no "!".
+            assert.are.equal("/cast [@player,nodead] Trueshot Aura", macro())
             press()
             assert.is_nil(macro())
+            -- The top-up time (5 minutes, under half of 30): 5:01 left isn't low, 4:59 is.
+            wow.advance(1800 - 301)
+            refresh()
+            assert.is_nil(macro())
+            wow.advance(2)
+            refresh()
+            assert.are.equal("/cast [@player,nodead] Trueshot Aura", macro())
         end)
 
         it("offers a paladin's first aura (Devotion by default) only when no aura of yours is on", function()
@@ -299,6 +319,16 @@ describe("Self-buffs in buff mode", function()
             wow.state.playerAuras = {}
             wear(BATTLE_SHOUT, 120, "party1")
             wow.state.playerAuras[1].expirationTime = wow.now + 5
+            refresh()
+            assert.is_nil(macro())
+        end)
+
+        it("another hunter's Trueshot Aura on you counts as having it, and is never cast over", function()
+            boot({ class = "HUNTER", known = { HAWK, TRUESHOT } })
+            party({ "Ann-Vale" })
+            wear(HAWK, 0)
+            wear(TRUESHOT, 1800, "party1")
+            wow.state.playerAuras[2].expirationTime = wow.now + 5
             refresh()
             assert.is_nil(macro())
         end)
@@ -619,12 +649,12 @@ describe("Self-buffs in buff mode", function()
         end)
 
         it("offers nothing to a class that can't be read, which might be in a form", function()
-            boot({ class = "DRUID", known = { OMEN } })
-            assert.are.equal("/cast [@player,nodead] Omen of Clarity", macro())
+            boot({ class = "SHAMAN", known = { LIGHTNING_SHIELD } })
+            assert.are.equal("/cast [@player,nodead] Lightning Shield", macro())
             local real = _G.UnitClass
             finally(function() _G.UnitClass = real end)
             _G.UnitClass = function(unit)
-                if unit == "player" then return wow.secret("Druid"), wow.secret("DRUID") end
+                if unit == "player" then return wow.secret("Shaman"), wow.secret("SHAMAN") end
                 return real(unit)
             end
             wow.state.form = 1
@@ -683,12 +713,12 @@ describe("Self-buffs in buff mode", function()
         end
 
         it("offers nothing to a druid in a form, or a shaman in Ghost Wolf", function()
-            boot({ class = "DRUID", known = { OMEN }, before = function(s) s.form = 1 end })
+            boot({ class = "DRUID", known = { DRUID_TEST }, buffTable = druidTable(), before = function(s) s.form = 1 end })
             assert.is_nil(macro())
             assert.is_truthy(subtitle():find("you're in a form", 1, true))
             wow.state.form = 0
             refresh()
-            assert.are.equal("/cast [@player,nodead] Omen of Clarity", macro())
+            assert.are.equal("/cast [@player,nodead] " .. DRUID_TEST_NAME, macro())
             boot({ class = "SHAMAN", known = { LIGHTNING_SHIELD }, before = function(s) s.form = 1 end })
             assert.is_nil(macro())
             assert.is_truthy(subtitle():find("you're in Ghost Wolf", 1, true))
@@ -732,7 +762,7 @@ describe("Self-buffs in buff mode", function()
                 assert.is_nil(macro(), field)
                 assert.is_truthy(subtitle():find("can't tell whether", 1, true), field)
             end
-            boot({ class = "DRUID", known = { OMEN } })
+            boot({ class = "DRUID", known = { DRUID_TEST }, buffTable = druidTable() })
             wow.state.selfSecrets.form = true
             refresh()
             assert.is_nil(macro())
@@ -779,6 +809,24 @@ describe("Self-buffs in buff mode", function()
                 assert.is_nil(ns.BuffData.ForCast(id))
                 assert.are.equal("aspect", ns.BuffData.SelfFamilyOf(id))
             end
+        end)
+
+        it("never offers Omen of Clarity, a passive on Forever, even to a druid who has it and whose saved "
+            .. "settings name it; those settings still load", function()
+            local OMEN = 16864
+            boot({ class = "DRUID", known = { OMEN },
+                db = { buffBack = { buffOrder = { "omen", "motw" }, neverOffer = { omen = false } } } })
+            assert.is_nil(macro())
+            assert.is_nil(ns.SelfBuffs.Next())
+            assert.is_nil(ns.BuffData.ByKey("omen"))
+            assert.is_true(ns.BuffData.KEYS.omen, "the key stays known")
+            assert.are.same({ "omen", "motw" }, ns.db.buffBack.buffOrder)
+            -- Its passive's aura on you is passed over, never a buff to thank or count.
+            assert.is_true(ns.BuffData.IsRemoved(OMEN))
+            wear(OMEN, 0)
+            refresh()
+            assert.is_nil(macro())
+            assert.are.same({}, wow.errors)
         end)
 
         it("offers and arms nothing in combat, and again after the fight", function()
@@ -943,7 +991,7 @@ describe("Self-buffs in buff mode", function()
             { class = "HUNTER", power = "MANA", known = { HAWK, MONKEY, WILD, TRUESHOT, CHEETAH, PACK } },
             { class = "MAGE", power = "MANA", known = { ICE_ARMOR, FROST_ARMOR, MAGE_ARMOR } },
             { class = "WARRIOR", power = "RAGE", known = { BATTLE_SHOUT } },
-            { class = "DRUID", power = "MANA", known = { OMEN } },
+            { class = "SHAMAN", power = "MANA", known = { LIGHTNING_SHIELD } },
             { class = "WARLOCK", power = "MANA", known = { DEMON_ARMOR, DEMON_SKIN } },
         }
 

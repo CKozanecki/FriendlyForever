@@ -197,7 +197,7 @@ describe("The generated buff table", function()
                 battleshout = ids("Battle Shout"), innerfire = ids("Inner Fire"),
                 icearmor = ids("Ice Armor", "Frost Armor"), magearmor = ids("Mage Armor"),
                 demonarmor = ids("Demon Armor", "Demon Skin"), lightningshield = ids("Lightning Shield"),
-                righteousfury = ids("Righteous Fury"), omen = ids("Omen of Clarity"),
+                righteousfury = ids("Righteous Fury"),
                 hawk = ids("Aspect of the Hawk"), monkey = ids("Aspect of the Monkey"),
                 wildaspect = ids("Aspect of the Wild"), trueshot = ids("Trueshot Aura"),
                 devotion = ids("Devotion Aura"), retribution = ids("Retribution Aura"),
@@ -218,7 +218,14 @@ describe("The generated buff table", function()
             for key in pairs(expected) do assert.is_true(seen[key], key .. " is missing from the table") end
             assert.are.same(ids("Aspect of the Cheetah", "Aspect of the Pack", "Aspect of the Beast"),
                 ns.BuffTable.familyAuras.aspect)
-            assert.are.same({ "light" }, ns.BuffTable.absent)
+            -- Omen of Clarity is a passive on Forever (owner, #44): left out, its
+            -- key kept, its aura passed over.
+            assert.are.same({ "light", "omen" }, ns.BuffTable.absent)
+            local removed = {}
+            for _, id in ipairs(ns.BuffTable.removedSpells) do removed[id] = true end
+            assert.is_true(removed[16864])
+            -- Trueshot Aura lasts 30 minutes on Forever (owner, #44): timed, not a toggle.
+            assert.is_nil(ns.BuffData.ByKey("trueshot").toggle)
         end)
 
         it("keeps the buff defaults of #219/#221: Thorns tanks only, Wisdom and Might by class", function()

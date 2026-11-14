@@ -459,11 +459,12 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 
 -- Self-buffs (#44), by their IDs and names: Forever's spell data has each at
 -- Classic Era's (docs/forever-facts.md; spec/bufftable_spec.lua checks the
--- generated table against M.SELF_RANKS). M.SELF_SPELLS[id] = { duration (seconds, 0 for a toggle that never
--- runs out), toggle, family }: cast on yourself, each puts its aura on you
+-- generated table against M.SELF_RANKS). M.SELF_SPELLS[id] = { duration
+-- (seconds, 0 for a toggle that never runs out), toggle, family }: cast on yourself, each puts its aura on you
 -- from you (see cast), replacing one of the same spell and, for a family,
 -- any other of that family of yours (the game keeps one Aspect, one aura,
--- one armor). Durations are Classic Era's (#326, item 6).
+-- one armor). Durations are Classic Era's (#326, item 6), except Trueshot
+-- Aura's, which Forever's data gives.
 M.SELF_SPELLS = {}
 M.SELF_RANKS = {} -- [name] = its IDs, highest rank first
 local function selfSpell(name, ids, info)
@@ -480,13 +481,17 @@ selfSpell("Demon Armor", { 11735, 11734, 11733, 1086, 706 }, { duration = 1800, 
 selfSpell("Demon Skin", { 696, 687 }, { duration = 1800, family = "demon" })
 selfSpell("Lightning Shield", { 10432, 10431, 8134, 945, 905, 325, 324 }, { duration = 600 })
 selfSpell("Righteous Fury", { 25780 }, { duration = 1800 })
-selfSpell("Omen of Clarity", { 16864 }, { duration = 600 })
+-- Omen of Clarity is a passive talent on Forever, not a buff to cast (its
+-- spell data, #44): named, but not a self-spell.
+nameSpell("Omen of Clarity", { 16864 })
 for name, ids in pairs({
     ["Aspect of the Hawk"] = { 25296, 14322, 14321, 14320, 14319, 14318, 13165 },
     ["Aspect of the Monkey"] = { 13163 }, ["Aspect of the Wild"] = { 20190, 20043 },
     ["Aspect of the Cheetah"] = { 5118 }, ["Aspect of the Pack"] = { 13159 }, ["Aspect of the Beast"] = { 13161 },
 }) do selfSpell(name, ids, { duration = 0, toggle = true, family = "aspect" }) end
-selfSpell("Trueshot Aura", { 20906, 20905, 19506 }, { duration = 0, toggle = true })
+-- Trueshot Aura lasts 30 minutes on Forever (its spell data, #44), where
+-- Classic's stays on: a timed buff. Forever's ranks 1 and 2 are on #379.
+selfSpell("Trueshot Aura", { 20906, 20905, 19506 }, { duration = 1800 })
 for name, ids in pairs({
     ["Devotion Aura"] = { 10293, 10292, 1032, 10291, 643, 10290, 465 },
     ["Retribution Aura"] = { 10301, 10300, 10299, 10298, 7294 }, ["Concentration Aura"] = { 19746 },
@@ -527,9 +532,9 @@ for name, ids in pairs({
 --   Self-buffs (#44; UNCONFIRMED in game, #326 says how to check each):
 --                         the spells in M.SELF_SPELLS, at the IDs and names
 --                         Forever's spell data gives (Classic Era's), with
---                         Classic Era's durations. A toggle (Aspect, paladin aura,
---                         Trueshot Aura) never runs out (duration and
---                         expirationTime 0). Cast on you, the aura goes on from
+--                         Classic Era's durations, except Trueshot Aura's 30
+--                         minutes (Forever's data). A toggle (Aspect, paladin
+--                         aura) never runs out (duration and expirationTime 0). Cast on you, the aura goes on from
 --                         you, replacing your others of its family. "/cast
 --                         !Spell" casts nothing while that toggle of yours is
 --                         on; "/cast Spell" without "!" switches it off (the
