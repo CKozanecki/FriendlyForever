@@ -1918,7 +1918,7 @@ describe("UI simulator workflow", function()
             -- (Output a command substitution captures never reaches the log.)
             if line:find("%f[%w]git%s") and not line:find("%$%([^)]*%f[%w]git%s") then
                 for _, sub in ipairs(GIT_PRINTS) do
-                    if line:find("%f[%w]git%s[^\n]-%s" .. sub .. "%f[%W]") then return true end
+                    if line:find("%f[%w]git%s+[^\n]-%f[%w]" .. sub .. "%f[%W]") then return true end
                 end
             end
             if line:find("docker logs", 1, true) or line:find("docker top", 1, true) then return true end
@@ -2040,6 +2040,10 @@ describe("UI simulator workflow", function()
             assert.is_true(printsOutput('diff -u <(sort "$manifest") <(sort "$other")'))
             assert.is_true(printsOutput('git -C "$ui" ls-tree -r --name-only HEAD Interface/AddOns/'))
             assert.is_true(printsOutput('git -C "$ui" ls-files Interface/AddOns/'))
+            assert.is_true(printsOutput("git ls-files"))
+            assert.is_true(printsOutput("  git log --oneline"))
+            assert.is_true(printsOutput("git diff"))
+            assert.is_true(printsOutput("git status"))
             assert.is_true(printsOutput('git -C "$RUNNER_TEMP/sim" show HEAD:README'))
             assert.is_true(printsOutput('ls "$RUNNER_TEMP/sim/data/blizzard-ui-files"'))
             assert.is_true(printsOutput('cat "$pin"'))
