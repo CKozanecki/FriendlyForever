@@ -12,9 +12,13 @@
 -- Safety: buffing a player flagged for PvP flags you too. A favour is offered
 -- only when you are flagged yourself, or the game shows them right now (on a
 -- nameplate, as your target, focus or under your mouse) and says they aren't
--- flagged. The flag is read each time the button is armed, which includes
--- the moment you press it; an earlier reading is never trusted, since anyone
--- can flag at any time.
+-- flagged. The one exception is the owner's rule (#306, #316): a member of
+-- your group, once you're inside a dungeon or raid with every member of it
+-- in there with you (GroupBuffs.FlaggedMayBeBuffed, the rule buff mode
+-- follows), since nobody can attack you there. A player outside your group
+-- never is. The flag and the rule are read each time the button is armed,
+-- which includes the moment you press it; an earlier reading is never
+-- trusted, since anyone can flag at any time.
 --
 -- Favours are kept in memory only: a /reload or logout forgets them.
 --
@@ -273,6 +277,19 @@ local function OutOfReach(buff, unit)
     return spell ~= nil and Util.InSpellRange(spell, unit) == false
 end
 
+-- Whether a favour may go to them though they're flagged for PvP, or their
+-- flag can't be read: you're flagged too, or by the owner's rule (#316)
+-- they're a member of your group and GroupBuffs.FlaggedMayBeBuffed holds
+-- (you're inside a dungeon or raid with every member in there with you).
+-- Membership counts only when the game names them in one of your group's
+-- slots; anything it won't say leaves the favour refused. The rule comes
+-- first: it holds only when the game says whether you're in a raid, which
+-- Greeter.IsInMyGroup reads as it is.
+local function FlaggedMayBeBuffed(favour)
+    if Read(UnitIsPVP, "player") == true then return true end
+    return ns.GroupBuffs.FlaggedMayBeBuffed() == true and ns.Greeter.IsInMyGroup(favour.name) == true
+end
+
 -- The buff to give this favour, or nil and why not. away is true, with no
 -- reason, when they've left (#270): the game doesn't show them, or says
 -- your buff can't reach them.
@@ -280,11 +297,9 @@ local function ChooseBuff(favour, myBuffs, held, visible)
     local unit, flagged = Observe(favour, visible)
     if not unit or OutOfReach(myBuffs[1], unit) then return nil, nil, true end
     if Read(UnitIsDeadOrGhost, unit) == true then return nil, "they're dead" end
-    if Read(UnitIsPVP, "player") ~= true then
+    if flagged ~= false and not FlaggedMayBeBuffed(favour) then
         if flagged then return nil, "they're flagged for PvP and you aren't" end
-        if flagged == nil then
-            return nil, "can't see whether they're flagged for PvP (target them, or show friendly nameplates)"
-        end
+        return nil, "can't see whether they're flagged for PvP (target them, or show friendly nameplates)"
     end
     if #myBuffs == 0 then
         if held then return nil, ns.Water.HeldReason(held) end
