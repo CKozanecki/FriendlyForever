@@ -187,9 +187,10 @@ Requests.TOOLTIP = "When someone whispers you, or says in /say or party chat, a 
     .. "battlegrounds apply."
 -- Turn requests on or off from the switch. Off lets every waiting request
 -- go (ns.RefreshEvents, whatever turned them off), so none is offered after
--- you said no to them.
+-- you said no to them. It writes through Config.Section, so a Buff Back
+-- section damaged mid-session is repaired first, not an error (#330).
 function Requests.SetEnabled(on)
-    ns.db.buffBack.requests = on and true or false
+    ns.Config.Section("buffBack").requests = on and true or false
     ns.RefreshEvents()
     ns.BuffButton.Refresh()
 end

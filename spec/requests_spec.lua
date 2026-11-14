@@ -474,6 +474,23 @@ describe("Buff requests in chat", function()
             assert.are.equal("Bob-Stone", (offered()))
         end)
 
+        it("its checkbox saves to a repaired section when Buff Back's settings are damaged (#330)", function()
+            ns.Options.OpenTab("buffBack", "buffRequests")
+            local box = ns.Options.widgets.buffRequests
+            for _, bad in ipairs({ 7, "x", true }) do
+                ns.db.buffBack = bad
+                box:SetChecked(false)
+                wow.run(box, "OnClick")
+                assert.are.same({}, wow.errors, tostring(bad))
+                assert.are.equal("table", type(ns.db.buffBack))
+                assert.is_false(ns.db.buffBack.requests)
+                box:SetChecked(true)
+                wow.run(box, "OnClick")
+                assert.is_true(ns.db.buffBack.requests)
+                wow.advance(2) -- past the repair's once-a-second limit
+            end
+        end)
+
         it("a favour's noted request is passed over while the setting is damaged", function()
             stranger()
             wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = 10157 })
