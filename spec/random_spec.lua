@@ -1,10 +1,15 @@
--- Spec: #76
+-- Spec: #76, #165
 -- The chaos specs' random number generator: the same storms on every computer.
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
 describe("The chaos specs' random numbers", function()
     describe("a fixed sequence for a fixed seed (white)", function()
+        -- These check MINSTD itself, so they start it with no warm-up (#165).
+        local warmup
+        before_each(function() warmup = random.WARMUP; random.WARMUP = 0 end)
+        after_each(function() random.WARMUP = warmup end)
+
         it("gives MINSTD's known values from seed 1, on every platform", function()
             random.seed(1)
             local got = {}
@@ -49,6 +54,36 @@ describe("The chaos specs' random numbers", function()
             local a = random.next()
             random.seed(29)
             assert.are_not.equal(a, random.next())
+        end)
+    end)
+
+    describe("a spread first draw (white, #165)", function()
+        it("discards the first 5 outputs after the seed, so a small seed doesn't start near 0", function()
+            assert.are.equal(5, random.WARMUP)
+            random.WARMUP = 0
+            random.seed(1)
+            local sixth
+            for _ = 1, 6 do sixth = random.next() end
+            random.WARMUP = 5
+            random.seed(1)
+            assert.are.equal(sixth, random.next())
+        end)
+
+        it("gives a first random(1, 8) of at least 4 different values across seeds 1 to 20", function()
+            local seen, count = {}, 0
+            for s = 1, 20 do
+                random.seed(s)
+                local v = random.random(1, 8)
+                if not seen[v] then seen[v] = true; count = count + 1 end
+            end
+            assert.is_true(count >= 4, "only " .. count .. " different first draws")
+        end)
+
+        it("keeps the first fraction away from 0 for the small seeds the chaos specs use", function()
+            for _, s in ipairs({ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 38, 138, 2026 }) do
+                random.seed(s)
+                assert.is_true(random.random() > 0.0001, "seed " .. s)
+            end
         end)
     end)
 

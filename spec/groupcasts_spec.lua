@@ -1,4 +1,4 @@
--- Spec: #41, #256, #302
+-- Spec: #41, #256, #302, #165
 -- Group versions in buff mode: Arcane Brilliance, the Prayers and Gift of the
 -- Wild are offered before the single buff when you know them, carry the
 -- reagent, and enough of the party (in a raid, the subgroup) is missing the
@@ -909,7 +909,8 @@ describe("Group versions in buff mode (#41)", function()
                     if unit == hiddenSlot then return wow.secret(true) end
                     return realExists(unit)
                 end
-                local inGroup = {}
+                -- Boot's own party is the group until the first roster change (#165).
+                local inGroup = { ["Ann-Vale"] = true, ["Bo-Fern"] = true, ["Cid-Rock"] = true, ["Dot-Moss"] = true }
                 local function roster()
                     hiddenSlot = nil
                     local names = {}
