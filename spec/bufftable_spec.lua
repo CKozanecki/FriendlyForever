@@ -205,12 +205,32 @@ describe("The generated buff table", function()
                 frostaura = ids("Frost Resistance Aura"), fireaura = ids("Fire Resistance Aura"),
                 sanctity = ids("Sanctity Aura"),
             }
+            -- Each one's flags, written out (#44 and the owner's answers on it):
+            -- they decide how it's cast ("!" for a toggle), whose copy counts,
+            -- what a family covers and what starts as Never offer.
+            local ASPECT = { family = "aspect", toggle = true }
+            local AURA = { family = "aura", toggle = true }
+            local flags = {
+                battleshout = {}, innerfire = {}, demonarmor = {}, lightningshield = {}, trueshot = {},
+                icearmor = { family = "armor" }, magearmor = { family = "armor" },
+                righteousfury = { defaultNever = true },
+                hawk = ASPECT, monkey = ASPECT, wildaspect = ASPECT,
+                devotion = AURA, retribution = AURA, concentration = AURA, shadowaura = AURA,
+                frostaura = AURA, fireaura = AURA, sanctity = AURA,
+            }
             local seen = {}
             for _, list in pairs(ns.BuffTable.classes) do
                 for _, buff in ipairs(list) do
                     if buff.selfCast then
                         assert.is_truthy(expected[buff.key], "an unexpected self-buff: " .. buff.key)
                         assert.are.same(expected[buff.key], buff.ranks, buff.key)
+                        local want = assert(flags[buff.key], buff.key)
+                        assert.are.same({ want.family, want.toggle, want.defaultNever },
+                            { buff.family, buff.toggle, buff.defaultNever }, buff.key .. ": family, toggle, defaultNever")
+                        -- The simulated client's own record agrees on toggles.
+                        for _, id in ipairs(buff.ranks) do
+                            assert.are.equal(want.toggle == true, wow.SELF_SPELLS[id].toggle == true, buff.key .. " " .. id)
+                        end
                         seen[buff.key] = true
                     end
                 end
