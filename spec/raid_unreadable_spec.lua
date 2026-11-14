@@ -20,10 +20,11 @@ describe("Buff mode when IsInRaid or IsInGroup can't be read (#322)", function()
         wow.wearBuff("player", 10157, { source = "player" })
     end
 
-    it("readable: offers the subgroup 2 member in the raid (white, as before)", function()
+    it("readable: offers a subgroup 2 member in the raid, as before (black)", function()
         bootRaid()
         local offer = ns.GroupBuffs.Next()
         assert.is_not_nil(offer)
+        assert.is_true(offer.name == "Cid-Rock" or offer.name == "Dot-Moss", tostring(offer.name))
     end)
 
     it("IsInRaid unreadable: nothing errors, and Next still answers (black)", function()
@@ -34,10 +35,18 @@ describe("Buff mode when IsInRaid or IsInGroup can't be read (#322)", function()
         assert.are.same({}, wow.errors)
     end)
 
-    it("IsInGroup unreadable: nothing errors (black)", function()
-        bootRaid()
+    it("IsInGroup unreadable, in a party where it is read: nothing errors (black)", function()
+        ns = wow.boot({ before = function(state)
+            state.class = "MAGE"
+            state.knownSpells = { [10157] = true }
+        end })
+        wow.setGroup("party", { "Ann-Vale", "Bo-Fern" })
         wow.state.inGroupUnreadable = true
+        local reads, real = 0, _G.IsInGroup
+        _G.IsInGroup = function(...) reads = reads + 1; return real(...) end
         assert.has_no.errors(function() ns.GroupBuffs.Next() end)
+        _G.IsInGroup = real
+        assert.is_true(reads > 0, "Next read IsInGroup")
         assert.are.same({}, wow.errors)
     end)
 

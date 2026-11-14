@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296
+-- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #322, #285
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -708,6 +708,24 @@ describe("The simulated client's party1..4 in a raid (#322)", function()
     it("are never keys of state.units, so a walk of it sees each member once (black)", function()
         raid()
         for token in pairs(wow.state.units) do assert.is_nil(token:find("^party")) end
+    end)
+end)
+
+describe("The simulated client's unreadable IsInRaid and IsInGroup (#322)", function()
+    it("answer secrets only when their flag is set (white)", function()
+        wow.boot()
+        wow.setGroup("raid", { "Ann-Vale" })
+        assert.is_false(_G.issecretvalue(_G.IsInRaid()))
+        assert.is_false(_G.issecretvalue(_G.IsInGroup()))
+        assert.is_true(_G.IsInRaid())
+        wow.state.inRaidUnreadable = true
+        assert.is_true(_G.issecretvalue(_G.IsInRaid()))
+        assert.is_false(_G.issecretvalue(_G.IsInGroup()))
+        wow.state.inRaidUnreadable = nil
+        wow.state.inGroupUnreadable = true
+        assert.is_true(_G.issecretvalue(_G.IsInGroup()))
+        assert.is_true(_G.issecretvalue(_G.IsInGroup(_G.LE_PARTY_CATEGORY_HOME)))
+        assert.is_false(_G.issecretvalue(_G.IsInRaid()))
     end)
 end)
 

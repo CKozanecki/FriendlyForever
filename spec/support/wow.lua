@@ -562,7 +562,10 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         the game's documented unit tokens: "partyN" stays
 --                         valid in a raid for your subgroup). They answer as
 --                         the same unit as the member's raidN slot, and follow
---                         unit.subgroup. UNCONFIRMED in game: #322's check.
+--                         unit.subgroup. Source: warcraft.wiki.gg's UnitId page.
+--                         UNCONFIRMED in game: in a raid, run
+--                         /run for i=1,4 do print(i, UnitName("party"..i)) end
+--                         and compare with the raid frames' subgroup (#322).
 --                         state.inRaidUnreadable and
 --                         state.inGroupUnreadable make IsInRaid() and IsInGroup() secrets.
 --   UnitGroupRolesAssigned and GetPartyAssignment("MAINTANK") both exist and

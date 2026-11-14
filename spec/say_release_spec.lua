@@ -1,4 +1,4 @@
--- Spec: #271
+-- Spec: #271, #285
 -- A /say line held for a hardware event goes out on a press of the buff
 -- button, on any binding (the mouse wheel too) or mouse button, as well as
 -- on a key press; never without one.
@@ -75,7 +75,15 @@ describe("A held /say goes on a buff-button press (#271)", function()
         assert.are.equal(0, #wow.blocked)
     end)
 
-    it("a click from code is no hardware event: the line stays held", function()
+    it("a click from code on the buff-back button casts nothing and sends no held /say", function()
+        ns = wow.boot({ before = function(state)
+            state.class = "DRUID"
+            state.knownSpells = { [1126] = true, [9885] = true }
+        end })
+        Q, button = ns.ChatQueue, ns.BuffButton.Frame()
+        wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", class = "WARRIOR", id = "Bob-Stone" })
+        wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = 10157 })
+        assert.is_truthy(ns.BuffButton.ArmedOffer(), "a favour is shown, so a press would cast")
         holdSay("thanks")
         wow.advance(10)
         -- Button:Click from code: an up half only (the game's down argument
