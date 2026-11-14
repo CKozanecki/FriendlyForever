@@ -278,6 +278,9 @@ describe("the review-saving rules", function()
             "the architecture and testing reviews may run at the same time",
             "If the architect requests changes, the tester re-checks only what changed.",
             "keeps the strict order: architecture first, then testing",
+            "For a PR that changes only docs, CI, the test harness or UI text",
+            "This list is wider than the mutation-check definition below",
+            "a PR that changes anything beyond those four kinds keeps the strict order too",
             "`make setup` in a session is a no-op check",
         }) do
             local _, count = contributing:gsub(text:gsub("%p", "%%%0"), "")
