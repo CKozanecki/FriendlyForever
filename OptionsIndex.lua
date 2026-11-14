@@ -30,11 +30,11 @@ OptionsIndex.SETTINGS = {
         controls = { "master" } },
     { name = "Don't send messages while I'm AFK", page = MAIN, keywords = "afk away skip",
         controls = { "skipAFK" } },
-    { name = "Enabled", page = NOT_BUFF_BACK, keywords = "on off message type switch",
+    { name = "Enabled", page = NOT_BUFF_BACK, searchPage = EVERY_TAB, keywords = "on off message type switch",
         controls = { "enabled" } },
-    { name = "Delay after event", page = NOT_BUFF_BACK, keywords = "wait seconds timing",
+    { name = "Delay after event", page = NOT_BUFF_BACK, searchPage = EVERY_TAB, keywords = "wait seconds timing",
         controls = { "steppers.delay" } },
-    { name = "Don't repeat to the same player for", page = NOT_BUFF_BACK, keywords = "repeat cooldown seconds again",
+    { name = "Don't repeat to the same player for", page = NOT_BUFF_BACK, searchPage = EVERY_TAB, keywords = "repeat cooldown seconds again",
         controls = { "steppers.repeatCooldown" } },
     { name = "Most players with Friendly Forever who greet one login", page = "the Guild Login tab",
         keywords = "guild login hello greet greeting copies limit others",
@@ -130,9 +130,15 @@ OptionsIndex.SETTINGS = {
         controls = { "start.openMessages", "start.openGeneral", "start.openLedger" } },
 }
 
+-- The page words a setting is found by: its page, less an exception the page
+-- text names, so "buff back" doesn't find settings the Buff Back tab lacks.
+local function SearchPage(entry)
+    return entry.searchPage or entry.page
+end
+
 -- Everything a setting can be found by, in lower case.
 local function Haystack(entry)
-    return (entry.name .. " " .. entry.keywords .. " " .. entry.page):lower()
+    return (entry.name .. " " .. entry.keywords .. " " .. SearchPage(entry)):lower()
 end
 
 -- The settings matching every word of query, in table order, or nil and why.
@@ -195,7 +201,7 @@ function OptionsIndex.RegisterSearch(parent)
             local init = CreateSettingsListSectionHeaderInitializer(entry.name .. " (on " .. entry.page .. ")")
             if init then
                 if type(init.AddSearchTags) == "function" then
-                    local tags = { entry.name, entry.page }
+                    local tags = { entry.name, SearchPage(entry) }
                     for word in entry.keywords:gmatch("%S+") do tags[#tags + 1] = word end
                     init:AddSearchTags(unpack(tags))
                 end

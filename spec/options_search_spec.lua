@@ -137,6 +137,17 @@ describe("Finding a setting (#48)", function()
             return table.concat(wow.printed, "\n")
         end
 
+        it("doesn't find the settings Buff Back lacks by its name (#179)", function()
+            for _, word in ipairs({ "buff back", "buff", "back" }) do
+                for _, name in ipairs({ "Enabled", "Delay after event", "Don't repeat to the same player for" }) do
+                    local listed = Has(Names(ns.OptionsIndex.Find(word)), name)
+                    -- "Enabled" and the others only match words of their own
+                    assert.is_false(listed, name .. " found by '" .. word .. "'")
+                end
+            end
+            assert.is_true(Has(Names(ns.OptionsIndex.Find("every message tab")), "Delay after event"))
+        end)
+
         it("finds the nameplate setting on the Buff Thanks tab", function()
             local names = Names(ns.OptionsIndex.Find("nameplate"))
             assert.are.same({ "Show friendly player names" }, names)
