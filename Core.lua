@@ -531,6 +531,7 @@ local function BlessingsCommand(args)
     end
     ns.Print("blessings you give in this raid: " .. (#covered > 0 and table.concat(covered, ", ") or "none")
         .. (R.RaidBlessingsChosen() and ""
+            or R.RaidBlessingsHeld() and " (in a battleground: your raid's choice applies again when you're back)"
             or ns.RaidSplit.Current() and " (your share of the raid split: you haven't chosen)"
             or " (all: you haven't chosen)"))
     if #words == 0 then
