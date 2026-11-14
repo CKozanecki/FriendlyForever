@@ -1,4 +1,4 @@
--- Spec: #359
+-- Spec: #359, #370
 -- Buff mode's triggers read the group's slots the way its group look does
 -- (#346): IsInRaid() is believed only when the slots agree. While it can't
 -- be, the "someone is missing your buff" trigger forgets nobody it
@@ -161,6 +161,107 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
         end)
     end)
 
+    -- #370: the first look after a login or reload notes nothing while the
+    -- group's slots weren't known (IsInGroup() unreadable), as it already
+    -- does while the roster can't be told (#359).
+    describe("the first look after a reload, with IsInGroup() (#370)", function()
+        -- Cid's Mark fades, buff mode turns on, and the player turns it off.
+        local function fadedAndOff(group, token)
+            boot("autoOnMissing")
+            group()
+            coverAll()
+            look()
+            wow.state.units[token].auras = {}
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "Cid's Mark faded")
+            slash("buffmode off")
+        end
+
+        it("a first look with the group readable notes as before: off by hand stays off, a new fade counts (white)", function()
+            for _, group in ipairs({ raid, party }) do
+                fadedAndOff(group, group == raid and "raid4" or "party2")
+                wow.reloadInPlace(false, { keepTimers = true })
+                for _ = 1, 4 do look() end
+                assert.is_false(ns.BuffMode.IsOn(), "Cid was missing all along, not new")
+                wow.state.units[group == raid and "raid5" or "party1"].auras = {}
+                look()
+                assert.is_true(ns.BuffMode.IsAuto(), "a new fade still counts")
+                assert.is_true(printedHas(group == raid and "(Dot Moss is missing your Mark of the Wild)"
+                    or "(Ann Vale is missing your Mark of the Wild)"))
+                assert.are.same({}, wow.errors)
+            end
+        end)
+
+        it("a reload whose first look can't read IsInGroup() doesn't turn buff mode on later for a buff missing all along (black)", function()
+            for _, group in ipairs({ party, raid }) do
+                local what = group == raid and "raid" or "party"
+                fadedAndOff(group, group == raid and "raid4" or "party2")
+                wow.reloadInPlace(false, { keepTimers = true })
+                wow.state.inGroupUnreadable = true
+                look()
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": the look that can't read the group")
+                wow.state.inGroupUnreadable = nil
+                for _ = 1, 4 do look() end
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": Cid was missing all along, not new")
+                wow.state.units[group == raid and "raid5" or "party1"].auras = {}
+                look()
+                assert.is_true(ns.BuffMode.IsAuto(), what .. ": a new fade still counts")
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
+        it("a reload that can't read IsInGroup() at all: the next roster update that can is where it starts, not a group joined (black)", function()
+            for _, group in ipairs({ party, raid }) do
+                local what = group == raid and "raid" or "party"
+                fadedAndOff(group, group == raid and "raid4" or "party2")
+                wow.state.inGroupUnreadable = true
+                wow.reloadInPlace(false, { keepTimers = true })
+                look()
+                -- A roster update while it still can't be read changes nothing.
+                wow.fire("GROUP_ROSTER_UPDATE")
+                look()
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": while the group can't be read")
+                wow.state.inGroupUnreadable = nil
+                wow.fire("GROUP_ROSTER_UPDATE")
+                for _ = 1, 4 do look() end
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": Cid was missing all along, not new")
+                wow.state.units[group == raid and "raid5" or "party1"].auras = {}
+                look()
+                assert.is_true(ns.BuffMode.IsAuto(), what .. ": the looks run again, and a new fade counts")
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
+        it("a reload that can't read IsInGroup() and finds you out of a group starts there: joining one later is a join (black)", function()
+            boot("autoOnMissing")
+            wow.state.inGroupUnreadable = true
+            wow.reloadInPlace(false, { keepTimers = true })
+            wow.state.inGroupUnreadable = nil
+            -- The update that reads it says no group; then you join one where
+            -- Cid is missing your Mark: everyone missing a buff is new (#272).
+            wow.fire("GROUP_ROSTER_UPDATE")
+            party()
+            wow.wearBuff("party1", MOTW, { source = "player" })
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "Cid is missing your Mark in the group you joined")
+            assert.is_true(printedHas("(Cid Rock is missing your Mark of the Wild)"))
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("a first look with a member's name still loading notes nothing either: the roster half alone (black)", function()
+            fadedAndOff(party, "party2")
+            wow.reloadInPlace(false, { keepTimers = true })
+            -- The slots are known, but Cid can't be named yet.
+            wow.state.units.party2.nameLoading = true
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "the look that can't name Cid")
+            wow.state.units.party2.nameLoading = nil
+            for _ = 1, 4 do look() end
+            assert.is_false(ns.BuffMode.IsOn(), "Cid was missing all along, not new")
+            assert.are.same({}, wow.errors)
+        end)
+    end)
+
     describe("the death trigger", function()
         -- Cid joins dead; later, in a fight, Cid releases as a ghost (their
         -- health changes, still dead): not a new death.
@@ -265,9 +366,10 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
         end)
     end)
 
-    -- red: regroups, buffs worn and lost, range and sight changes, and an
+    -- red: regroups, buffs worn and lost, range and sight changes, an
     -- IsInRaid() that tells the truth, flips half its answers, always lies,
-    -- or can't be read. The missing-buff trigger never turns buff mode on
+    -- or can't be read, and an IsInGroup() that sometimes can't be read
+    -- (#370). The missing-buff trigger never turns buff mode on
     -- for a member the client's state shows was already missing at an
     -- earlier look the addon could see them at, and hasn't been seen wearing
     -- it or left since. Buff mode is turned off by hand after each turn-on,
@@ -275,7 +377,8 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
     it("a storm with an IsInRaid() that sometimes lies never turns buff mode on for a buff already missing (red)", function()
         local POOL = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed", "Gus-Lane", "Hal-Pine" }
         local MODES = { "truth", "flips", "inverted", "unreadable" }
-        local total = { looks = 0, turnedOn = 0, raidAsParty = 0, partyAsRaid = 0, reloads = 0, freshLies = 0 }
+        local total = { looks = 0, turnedOn = 0, raidAsParty = 0, partyAsRaid = 0, reloads = 0, freshLies = 0,
+            freshNoGroup = 0, noGroup = 0 }
         local perSeed = {}
         for _, seed in ipairs({ 11, 359, 1024, 4242, 31337, 77777 }) do
             random.seed(seed)
@@ -324,6 +427,9 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
             -- reads those slots at every look: your own subgroup in a raid,
             -- everyone in a party.
             local function note(wasNoted)
+                -- While IsInGroup() can't be read, the addon may have seen
+                -- nobody: nobody new is held (#370).
+                local seen = not wow.state.inGroupUnreadable
                 local inGroup, partySlot = {}, {}
                 for i = 1, 4 do
                     local u = wow.state.units["party" .. i]
@@ -335,7 +441,7 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
                     if inReach(u) then
                         if wears(u) then
                             known[u.id] = nil
-                        elseif mode == "truth" or (wasNoted and partySlot[u.id]) then
+                        elseif seen and (mode == "truth" or (wasNoted and partySlot[u.id])) then
                             known[u.id] = true
                         end
                     end
@@ -425,13 +531,21 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
                     wow.reloadInPlace(false, { keepTimers = true })
                     known, fresh, noted = {}, true, false
                     total.reloads = total.reloads + 1
+                    -- Sometimes IsInGroup() can't be read from just after the
+                    -- reload, for its first look (#370).
+                    if random.random(3) == 1 then wow.state.inGroupUnreadable = true end
                 end,
                 lie = function()
                     mode = MODES[random.random(#MODES)]
                     wow.state.inRaidUnreadable = mode == "unreadable" or nil
                 end,
+                -- IsInGroup() can't be read, or can again (#370).
+                group = function()
+                    wow.state.inGroupUnreadable = not wow.state.inGroupUnreadable or nil
+                end,
             }
-            local NAMES = { "regroup", "wear", "strip", "strip", "range", "sight", "lie", "lie", "lie", "reload" }
+            local NAMES = { "regroup", "wear", "strip", "strip", "range", "sight", "lie", "lie", "lie", "reload",
+                "group", "group" }
 
             regroup()
             for step = 1, 150 do
@@ -442,6 +556,23 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
                 local wasOn, printed, wasFresh = ns.BuffMode.IsOn(), #wow.printed, fresh
                 if fresh and (mode == "inverted" or mode == "unreadable") then
                     total.freshLies = total.freshLies + 1
+                end
+                -- A look with IsInGroup() unreadable, and one right after a
+                -- reload with a member missing their Mark in reach: the old
+                -- first look noted nobody there, and that member turned buff
+                -- mode on at the next look (#370).
+                local noGroup = wow.state.inGroupUnreadable == true
+                if noGroup and wow.state.groupType then
+                    total.noGroup = total.noGroup + 1
+                    if fresh then
+                        for _, token in ipairs(others()) do
+                            local u = wow.state.units[token]
+                            if inReach(u) and not wears(u) then
+                                total.freshNoGroup = total.freshNoGroup + 1
+                                break
+                            end
+                        end
+                    end
                 end
                 local before = {}
                 for id in pairs(known) do before[id] = true end
@@ -462,9 +593,9 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
                         .. " before any look since the reload could see the group")
                     slash("buffmode off")
                 end
-                if mode == "truth" or mode == "flips" then fresh = false end
+                if not noGroup and (mode == "truth" or mode == "flips") then fresh = false end
                 note(noted)
-                if mode == "truth" then noted = true end
+                if mode == "truth" and not noGroup then noted = true end
                 assert.are.same({}, wow.errors, where)
                 assert.are.equal(0, #wow.casts, where .. ": nothing casts without a press")
             end
@@ -476,5 +607,8 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
         assert.is_true(total.raidAsParty > 0, "a raid read as a party, another subgroup's fade remembered: " .. bySeed)
         assert.is_true(total.partyAsRaid > 0, "a party read as a raid, a fade remembered: " .. bySeed)
         assert.is_true(total.freshLies > 0, "a look right after a reload that lied or couldn't read: " .. total.freshLies)
+        assert.is_true(total.noGroup > 0, "a look in a group with IsInGroup() unreadable")
+        assert.is_true(total.freshNoGroup > 0, "a first look after a reload with IsInGroup() unreadable, someone missing: "
+            .. total.freshNoGroup)
     end)
 end)

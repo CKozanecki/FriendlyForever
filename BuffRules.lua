@@ -116,13 +116,18 @@ end
 -- answer that applies to be readable: the group role always, and in a raid
 -- the Main Tank assignment too (a secret one could hide a tank whose role
 -- says damage). Outside a raid there's no Main Tank, so its "no" says
--- nothing: a client without group roles can't tell a party's tank.
+-- nothing: a client without group roles can't tell a party's tank. "Outside
+-- a raid" is believed only as buff mode's group look believes it (#368:
+-- GroupBuffs.RaidAnswer); while the game won't say, it may be a raid.
 function BuffRules.IsTank(unit)
     local role, roleRead = Answer(UnitGroupRolesAssigned, unit)
     roleRead = roleRead and type(role) == "string"
     local mainTank, mainTankRead = Answer(GetPartyAssignment, "MAINTANK", unit)
     if (roleRead and role == "TANK") or (mainTankRead and mainTank and mainTank ~= 0) then return true end
-    if Util.ReadGameValues(IsInRaid) ~= true then
+    -- Both read, and neither says tank: raid or not, nobody can hide a tank.
+    -- (Asked first, as the raid answer looks through raid1..40.)
+    if roleRead and mainTankRead then return false end
+    if ns.GroupBuffs.RaidAnswer() == false then
         if roleRead then return false end
         return nil
     end
@@ -320,7 +325,9 @@ end
 -- Which of your Blessings you cover in the raid you're in, so two paladins
 -- don't both give Kings: nil when you haven't chosen (all of them), or
 -- [buff key] = true. Kept for this raid only, never saved: it's forgotten
--- as soon as you're not in a raid (an unreadable answer counts as not).
+-- as soon as the game says you're not in a raid, and the group's slots agree
+-- (#368: GroupBuffs.RaidAnswer). An answer that can't be read or believed
+-- keeps it: one wrong look mustn't hand Kings back to both paladins.
 local raidBlessings
 
 local function InRaid()
@@ -329,7 +336,7 @@ end
 
 -- Forget the choice once you're out of the raid. Called before each use.
 function BuffRules.CheckRaid()
-    if raidBlessings and not InRaid() then raidBlessings = nil end
+    if raidBlessings and ns.GroupBuffs.RaidAnswer() == false then raidBlessings = nil end
 end
 
 -- The Blessings you know (the "blessing" family), in your class's order.
@@ -365,13 +372,15 @@ end
 -- Choose the Blessings you cover in this raid: keys is a list of your
 -- Blessings' keys, or nil to stop choosing (all of them, or your share of the
 -- raid buff split when there is one, #70). Returns true, or false and why.
+-- Stopping always works, wherever the game says you are: a choice is kept
+-- while the raid answer can't be read (#368), and must never be stuck.
 function BuffRules.SetRaidBlessings(keys)
-    if not InRaid() then return false, "you're not in a raid" end
     if keys == nil then
         raidBlessings = nil
         ns.BuffButton.Refresh()
         return true
     end
+    if not InRaid() then return false, "you're not in a raid" end
     local mine, chosen, count, all = {}, {}, 0, 0
     for _, buff in ipairs(BuffRules.MyBlessings()) do
         mine[buff.key] = true

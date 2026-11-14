@@ -1,4 +1,4 @@
--- Spec: #346
+-- Spec: #346, #370
 -- Buff mode's group look believes IsInRaid() only when the group's slots
 -- agree with it, as the PvP rule's EveryoneInside does (#335): not a raid
 -- means raid1 is empty, a raid means one of raid1..40 is you. An answer the
@@ -463,5 +463,75 @@ describe("Buff mode's group look believes IsInRaid() only when the slots agree (
         assert.is_true(total.raidAsParty > 0, "a raid read as a party, your subgroup buffed, another missing: " .. bySeed)
         assert.is_true(total.partyAsRaid > 0, "a party read as a raid, someone missing: " .. bySeed)
         assert.is_true(total.ended > 0, "buff mode ended as done somewhere")
+    end)
+    -- #370: GroupBuffs.Missing reads the group once, and says whether its
+    -- slots were known in that read (buff mode's first look after a login
+    -- notes nothing while they weren't).
+    describe("Missing says whether the group's slots were known (#370)", function()
+        local function names(list)
+            local out = {}
+            for _, entry in ipairs(list) do out[#out + 1] = first(entry.name) end
+            table.sort(out)
+            return table.concat(out, " ")
+        end
+
+        it("known in a real raid, a real party and no group, listing who is missing (white)", function()
+            bootRaid()
+            local list, _, known = ns.GroupBuffs.Missing()
+            assert.is_true(known, "raid")
+            assert.are.equal("Ann Bo Cid Dot Eve", names(list))
+            bootParty()
+            list, _, known = ns.GroupBuffs.Missing()
+            assert.is_true(known, "party")
+            assert.are.equal("Ann Bo Cid Dot", names(list))
+            ns = mage()
+            list, _, known = ns.GroupBuffs.Missing()
+            assert.is_true(known, "no group")
+            assert.are.equal("", names(list))
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("not known while IsInRaid() or IsInGroup() can't be read or believed, with no group version listed (black)", function()
+            local CASES = {
+                { "IsInRaid() false in a raid", bootRaid, function() lie(false) end },
+                { "IsInRaid() unreadable in a raid", bootRaid, function() wow.state.inRaidUnreadable = true end },
+                { "IsInGroup() unreadable in a raid", bootRaid, function() wow.state.inGroupUnreadable = true end },
+                { "IsInRaid() true in a party", bootParty, function() lie(true) end },
+                { "IsInGroup() unreadable in a party", bootParty, function() wow.state.inGroupUnreadable = true end },
+            }
+            for _, case in ipairs(CASES) do
+                local what = case[1]
+                case[2]()
+                case[3]()
+                local list, _, known = ns.GroupBuffs.Missing()
+                assert.is_false(known, what)
+                assertNoGroupVersion(list, what)
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
+        it("a raid read as a party lists your own subgroup, singly: no group version for it (black)", function()
+            bootRaid()
+            lie(false)
+            local list, _, known = ns.GroupBuffs.Missing()
+            assert.is_false(known)
+            assert.are.equal("Ann Bo Eve", names(list))
+            assertNoGroupVersion(list, "a raid read as a party")
+        end)
+
+        it("the list and what it says come from one read: a later answer that disagrees changes neither (black)", function()
+            bootRaid()
+            -- Only the first question gets the truth; every later one says no raid.
+            local real, calls = _G.IsInRaid, 0
+            _G.IsInRaid = function()
+                calls = calls + 1
+                if calls == 1 then return real() end
+                return false
+            end
+            local list, _, known = ns.GroupBuffs.Missing()
+            assert.is_true(known)
+            assert.are.equal("Ann Bo Cid Dot Eve", names(list), "the whole raid, as the first read said")
+            assert.are.same({}, wow.errors)
+        end)
     end)
 end)
