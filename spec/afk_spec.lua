@@ -1,4 +1,4 @@
--- Spec: #392 (waits for the 15 s Guild Login delay)
+-- Spec: #392
 local wow = require("spec.support.wow")
 
 describe("Don't send messages while I'm AFK", function()
