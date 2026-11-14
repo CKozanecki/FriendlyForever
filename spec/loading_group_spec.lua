@@ -106,6 +106,19 @@ describe("A loading screen with IsInGroup() unreadable (#377)", function()
         assert.are.same({}, wow.errors)
     end)
 
+    it("readable at the loading screen, \"not in a group\" counts over the group as last read (white)", function()
+        boot()
+        groupElsewhere("party", { "Ann-Vale", "Cid-Rock" })
+        -- Left; the roster update comes after the loading screen.
+        wow.setGroup(nil, {})
+        wow.enterDungeon(DEADMINES, "The Deadmines")
+        assert.is_false(ns.GroupBuffs.InRound())
+        assert.is_false(ns.BuffMode.IsOn())
+        wow.fire("GROUP_ROSTER_UPDATE")
+        assert.is_false(ns.GroupBuffs.InRound())
+        assert.are.same({}, wow.errors)
+    end)
+
     it("the client's own switch (state.inGroupUnreadable) starts the round too (black)", function()
         boot()
         groupElsewhere("party", { "Ann-Vale", "Cid-Rock" })
@@ -197,6 +210,22 @@ describe("A loading screen with IsInGroup() unreadable (#377)", function()
                     mayStart = not unreadable and inGroupNow()
                 end,
                 function() unreadable = not unreadable end,
+                -- The group changes, and its roster update comes only after
+                -- a loading screen.
+                function()
+                    if random.random() < 0.5 then
+                        wow.setGroup(nil, {})
+                    else
+                        wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+                    end
+                    if unreadable then mayStart = lastRead == true else mayStart = inGroupNow() end
+                    wow.enterDungeon(DEADMINES, "The Deadmines")
+                    wow.fire("GROUP_ROSTER_UPDATE")
+                    if not unreadable then
+                        lastRead = inGroupNow()
+                        mayStart = mayStart or inGroupNow()
+                    end
+                end,
                 function()
                     if unreadable then mayStart = lastRead == true else mayStart = inGroupNow() end
                     if random.random() < 0.5 then

@@ -953,6 +953,48 @@ describe("My Blessings in this raid", function()
             assert.are.same({}, wow.errors)
         end)
 
+        it("a new leader read plainly forgets it, though a slot can't be read (black)", function()
+            -- A name still loading in raid B.
+            raid(TEN, "Ann-Vale")
+            ns.BuffRules.SetRaidBlessings({ "might" })
+            wow.state.leader = "Kit-Ash"
+            wow.setGroup("raid", OTHERS)
+            wow.state.units.raid2.nameLoading = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_false(chosen(), "Kit leads now")
+            -- One slot whose UnitExists() can't be read.
+            raid(TEN, "Ann-Vale")
+            ns.BuffRules.SetRaidBlessings({ "might" })
+            local real = _G.UnitExists
+            _G.UnitExists = function(unit)
+                if unit == "raid3" then return wow.secret(true) end
+                return real(unit)
+            end
+            raid(OTHERS, "Kit-Ash")
+            _G.UnitExists = real
+            assert.is_false(chosen(), "Kit leads now, raid3 unreadable")
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("your own leadership that can't be read never makes you the leader (black)", function()
+            -- Nobody's leadership can be read.
+            raid(TEN, "Ann-Vale")
+            ns.BuffRules.SetRaidBlessings({ "might" })
+            wow.state.isLeaderUnreadable, wow.state.leaderUnreadable = true, true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(chosen(), "no leader read: no change")
+            wow.state.isLeaderUnreadable, wow.state.leaderUnreadable = nil, nil
+            -- Yours can't be read, and Ann's name is loading.
+            wow.state.isLeaderUnreadable = true
+            wow.state.units.raid1.nameLoading = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(chosen(), "Ann not read, you not read: no change")
+            wow.state.isLeaderUnreadable, wow.state.units.raid1.nameLoading = nil, nil
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(chosen(), "Ann still leads")
+            assert.are.same({}, wow.errors)
+        end)
+
         it("your own name still loading hides no change (black)", function()
             raid(TEN, nil)
             ns.BuffRules.SetRaidBlessings({ "might" })
@@ -1142,12 +1184,21 @@ describe("My Blessings in this raid", function()
         -- forgets it.
         it("a regroup storm never forgets the choice within one raid, nor gives a Blessing left to another paladin (red)", function()
             local total = { kept = 0, forgot = 0, keptUnreadable = 0, chosen = 0 }
+            -- Looks with the choice kept while each hazard was on (#302: one counter each).
+            local keptWith = { leader = 0, myLeader = 0, restricted = 0, inRaid = 0, unitIsUnit = 0,
+                oneSlot = 0, nameLoading = 0 }
             local everyone = {}
             for _, n in ipairs(TEN) do everyone[#everyone + 1] = n end
             for _, n in ipairs(OTHERS) do everyone[#everyone + 1] = n end
             for _, seed in ipairs({ 5, 376, 1234, 4242 }) do
                 random.seed(seed)
                 boot()
+                local hiddenSlot -- a raid slot whose UnitExists() can't be read
+                local realUnitExists = _G.UnitExists
+                _G.UnitExists = function(unit)
+                    if unit == hiddenSlot then return wow.secret(realUnitExists(unit)) end
+                    return realUnitExists(unit)
+                end
                 local realUnitIsUnit = _G.UnitIsUnit
                 local selfUnreadable = false -- UnitIsUnit() can't be read
                 _G.UnitIsUnit = function(a, b)
@@ -1160,7 +1211,19 @@ describe("My Blessings in this raid", function()
                 local model -- the chosen Blessings, or nil
                 local unclear = false -- a look since the choice couldn't read something
                 local function obscured()
-                    return wow.state.leaderUnreadable or wow.state.unitsRestricted or wow.state.inRaidUnreadable
+                    return wow.state.leaderUnreadable or wow.state.isLeaderUnreadable or wow.state.unitsRestricted
+                        or wow.state.inRaidUnreadable or hiddenSlot ~= nil
+                end
+                -- The hazards on now, by name.
+                local function hazards()
+                    local on = { leader = wow.state.leaderUnreadable, myLeader = wow.state.isLeaderUnreadable,
+                        restricted = wow.state.unitsRestricted, inRaid = wow.state.inRaidUnreadable,
+                        unitIsUnit = selfUnreadable, oneSlot = hiddenSlot ~= nil }
+                    for i = 1, 40 do
+                        local u = wow.state.units["raid" .. i]
+                        if u and u.nameLoading then on.nameLoading = true end
+                    end
+                    return on
                 end
                 -- The roster update; whether it could read everything.
                 local function show()
@@ -1252,13 +1315,16 @@ describe("My Blessings in this raid", function()
                         model, atChoice = nil, nil
                     end
                 end
+                -- One hazard at a time, each alone (#259, #306), or none.
                 local function obscure()
                     local r = random.random()
-                    wow.state.leaderUnreadable = r < 0.2 or nil
-                    wow.state.unitsRestricted = (r >= 0.2 and r < 0.3) or nil
-                    wow.state.inRaidUnreadable = (r >= 0.3 and r < 0.4) or nil
+                    wow.state.leaderUnreadable = r < 0.12 or nil
+                    wow.state.isLeaderUnreadable = (r >= 0.12 and r < 0.24) or nil
+                    wow.state.unitsRestricted = (r >= 0.24 and r < 0.32) or nil
+                    wow.state.inRaidUnreadable = (r >= 0.32 and r < 0.4) or nil
                     selfUnreadable = r >= 0.4 and r < 0.5
-                    if selfUnreadable then unclear = true end
+                    hiddenSlot = (r >= 0.5 and r < 0.6) and ("raid" .. random.random(#members)) or nil
+                    if r < 0.6 then unclear = true end
                 end
                 members = { "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
                 show()
@@ -1284,6 +1350,9 @@ describe("My Blessings in this raid", function()
                         assert.is_true(ns.BuffRules.RaidBlessingsChosen(), where .. ": forgotten within one raid")
                         total.kept = total.kept + 1
                         if unclear then total.keptUnreadable = total.keptUnreadable + 1 end
+                        for hazard, on in pairs(hazards()) do
+                            if on then keptWith[hazard] = keptWith[hazard] + 1 end
+                        end
                         local cast = scroll()
                         if cast then
                             for _, b in ipairs(ns.BuffData.ClassBuffs()) do
@@ -1302,6 +1371,9 @@ describe("My Blessings in this raid", function()
             assert.is_true(total.chosen > 10, "choices: " .. total.chosen)
             assert.is_true(total.kept > 100, "looks with the choice kept: " .. total.kept)
             assert.is_true(total.keptUnreadable > 10, "kept through looks that couldn't read: " .. total.keptUnreadable)
+            for hazard, n in pairs(keptWith) do
+                assert.is_true(n > 3, "kept with " .. hazard .. " unreadable: " .. n)
+            end
             assert.is_true(total.forgot > 5, "other raids seen plainly: " .. total.forgot)
         end)
     end)
