@@ -724,6 +724,50 @@ describe("Buff mode turning on and off by itself", function()
             assert.is_true(logHas(ns, "Thorns (spell 9910): cast 70s ago, so I already had it -> skip"))
         end)
 
+        local function owedLines(name)
+            local n = 0
+            for _, line in ipairs(ns.db.diagLog) do
+                if line:find("you owe " .. name .. " a buff", 1, true) then n = n + 1 end
+            end
+            return n
+        end
+
+        it("in a fight, a buff it still can't read is looked at again as the fight ends; one it read isn't read twice",
+            function()
+                ns.db.buff.thankStyle = "whisper"
+                bob()
+                wow.addUnit("nameplate2", { name = "Gus", surname = "Stone", class = "MAGE", id = "Gus-Stone" })
+                wow.enterCombat()
+                landHidden({ sourceUnit = "nameplate1" })
+                -- Gus's buff is on the game's list, but its entry can't be read yet.
+                -- (A secret instance ID stands in for an entry the addon can't
+                -- read: the simulated list can't hold a secret table.)
+                local gus = landHidden({ sourceUnit = "nameplate2", name = "Mark of the Wild", spellId = MOTW })
+                local gusId = gus.auraInstanceID
+                gus.auraInstanceID = wow.secret(gusId)
+                wow.advance(ns.db.buff.delay + 1)
+                wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = {} }) -- readable, still in the fight
+                assert.are.equal(1, owedLines("Bob-Stone"))
+                assert.are.equal(0, owedLines("Gus-Stone"))
+                wow.advance(ns.db.buff.delay + 1) -- Bob's thank-you has gone: a second read would be a new favour
+                gus.auraInstanceID = gusId
+                wow.leaveCombat()
+                assert.are.equal(1, owedLines("Bob-Stone"), "Bob's buff is read once")
+                assert.are.equal(1, owedLines("Gus-Stone"), "Gus's buff is read as the fight ends")
+                assert.are.equal(2, ns.Offers.Count())
+                assert.is_true(ns.BuffMode.IsAuto())
+            end)
+
+        it("a new buff in the update that catches up is read once, not again from the update", function()
+            bob()
+            landHidden({ sourceUnit = "nameplate1" })
+            wow.addUnit("nameplate3", { name = "Hal", surname = "Stone", class = "MAGE", id = "Hal-Stone" })
+            wow.gainBuff({ sourceUnit = "nameplate3", name = "Mark of the Wild", spellId = MOTW })
+            assert.are.equal(1, owedLines("Hal-Stone"))
+            assert.are.equal(1, owedLines("Bob-Stone"))
+            assert.is_false(logHas(ns, "added to the thank-you already waiting for Hal-Stone"))
+        end)
+
         it("still doesn't count a group member's buff, or your own, that came in a fight", function()
             ns.db.buffBack.autoOnMissing = false -- Ann missing your Mark would turn it on (#272)
             join({ "Ann-Vale" })
