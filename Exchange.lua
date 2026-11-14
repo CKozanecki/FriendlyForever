@@ -182,12 +182,15 @@ function Exchange.NoteGiven(name)
 end
 
 -- A buff from them reached you (spellId: a readable number, or nil).
+-- seenAt: when it arrived, given only when a receipt named it later (#349).
 -- Returns true when this exchange has already had its thank-you, so this
 -- buff gets none.
-function Exchange.NoteReceived(name, spellId)
+function Exchange.NoteReceived(name, spellId, seenAt)
     local ex = Touch(name)
     local buff = ns.BuffData.ForAura(spellId)
     if buff and ex.theirPlan then ex.theirPlan[buff.key] = nil end
+    -- It joins the held thank-you, whose longest wait then counts from it.
+    if ex.held and seenAt and seenAt < ex.held.firstAt then ex.held.firstAt = seenAt end
     return ex.thanked == true
 end
 

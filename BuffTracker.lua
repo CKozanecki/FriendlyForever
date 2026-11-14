@@ -210,14 +210,21 @@ BuffTracker.HOW = HOW
 -- caster: full player name (also the whisper target), or BuffTracker.UNKNOWN_KEY.
 -- unit: the token the caster was seen under, if any (for the /thank emote).
 -- spellId: the buff's spell ID when readable (crossed off their copy's plan).
-function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId)
+-- seenAt: GetTime() when the buff arrived, given only when its receipt named
+-- it later (#349): the longest wait then counts from it.
+function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId, seenAt)
+    local now = GetTime()
     local unknown = caster == BuffTracker.UNKNOWN_KEY
     -- Part of an exchange with them (Exchange.lua), which has one thank-you.
     -- Nobody on your ignore list gets one (nor a plan).
-    local thankedAlready = not unknown and not ns.Ignore.Has(caster) and ns.Exchange.NoteReceived(caster, spellId)
+    local thankedAlready = not unknown and not ns.Ignore.Has(caster)
+        and ns.Exchange.NoteReceived(caster, spellId, seenAt)
     local existing = batches[caster]
     if existing then
         AddToBatch(existing, buffKey, spellName)
+        -- The longest wait counts from the first buff it thanks for, which
+        -- may be this one if its receipt named it late (#349).
+        if seenAt and seenAt < existing.firstAt then existing.firstAt = seenAt end
         ns.Ledger.AddBuff(existing.entry, spellName)
         ns.Diag.Log("buff", "added to the thank-you already waiting for %s", caster)
         return
@@ -244,7 +251,8 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId)
         return
     end
 
-    local batch = { names = {}, seen = {}, count = 0, entry = entry, class = ClassText(unit, caster), unit = unit }
+    local batch = { names = {}, seen = {}, count = 0, entry = entry, class = ClassText(unit, caster), unit = unit,
+        firstAt = seenAt or now }
     AddToBatch(batch, buffKey, spellName)
     batches[caster] = batch
 
@@ -294,13 +302,13 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId)
     end
 
     -- After the delay, held until the exchange with them is done (Exchange.lua;
-    -- someone unnamed has none, so theirs goes at once).
-    local firstAt = GetTime()
-    local function hold(go) ns.Exchange.Hold(caster, firstAt, go) end
+    -- someone unnamed has none, so theirs goes at once), and never past the
+    -- longest wait from the batch's first buff, when it arrived (#349).
+    local function hold(go) ns.Exchange.Hold(caster, batch.firstAt, go) end
     -- A /say or /thank may wait SAY_MAX_AGE from when it would have been
     -- queued without a hold, not from its release.
     local limits = ns.Config.LIMITS.delay
-    local dueAt = firstAt + Util.ClampNumber(cfg.delay, limits.min, limits.max, ns.Config.DEFAULTS.buff.delay)
+    local dueAt = now + Util.ClampNumber(cfg.delay, limits.min, limits.max, ns.Config.DEFAULTS.buff.delay)
     local scheduled, why = false, nil
     if withLine then
         local ok, reason = ns.Announcer.Schedule("buff", caster, {
@@ -518,12 +526,14 @@ local function HandleAddedAura(aura, now, grace)
     local known = unnamed and spellId and ns.BuffData.ForAura(spellId)
     if known then
         ns.Diag.Log("buff", "%s (spell %s): %s -> waiting for a receipt", spellName or "?", spellId, reason)
+        -- Named WAIT later, it is still timed from now, when it came (#349).
+        local seenAt = now
         ns.Receipts.Await(known.key, function(sender)
             if not Active() then return end
             if sender then caster, unit, reason = sender, nil, "named by their copy's receipt" end
             ns.Diag.Log("buff", "%s (spell %s): %s -> %s", spellName or "?", spellId, reason,
                 caster and ("thank " .. caster) or "skip")
-            if caster then BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId) end
+            if caster then BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId, seenAt) end
         end)
         return
     end
