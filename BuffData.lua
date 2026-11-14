@@ -16,9 +16,18 @@
 --             of the same strength }; every id is also in group
 --   blockers  other buffs that do the same job (Unending Breath for Water Breathing): ditto
 --   manaOnly  only offered to classes that use mana
---   selfCast  cast on yourself, reaching your party (Battle Shout): never a return
+--   selfCast  a self-buff (#44): cast on yourself only (some reach others
+--             from you: Battle Shout, Trueshot Aura, paladin auras). Never a
+--             return, never given to the group: SelfBuffs.lua offers them
+--   toggle    a self-buff that stays on until switched (an Aspect, a paladin
+--             aura): never topped up, and cast with "!" so a press can't
+--             switch it off
+--   defaultNever  "Never offer" until you tick or untick it (Righteous Fury)
 --   family    buffs of which a player keeps only one of yours (a paladin's
---             Blessings): casting another replaces it
+--             Blessings; a mage's armors, a hunter's Aspects, a paladin's
+--             auras): casting another replaces it
+--   ranks of a self-buff may be two spells' (Ice Armor's, then Frost
+--             Armor's): "/cast" names the one you know best (CastName)
 --   defaultRule  who gets it in buff mode until you choose (BuffRules.lua);
 --             everyone when not set
 --   defaultClasses  the classes a "chosen classes" default gives it to,
@@ -120,6 +129,24 @@ for _, list in pairs(BuffData.CLASSES) do
     end
 end
 
+-- [spell ID] = family, for the spells that count as wearing a family of
+-- self-buffs but are never offered (Aspect of the Cheetah, of the Pack and
+-- of the Beast, #44).
+local familyAuraOf = {}
+for family, ids in pairs(type(Table.familyAuras) == "table" and Table.familyAuras or {}) do
+    for _, id in ipairs(ids) do familyAuraOf[id] = family end
+end
+
+-- The family of self-buffs a spell ID counts for: a rank of a self-buff in
+-- a family, or one of its other spells (familyAuras); nil otherwise, and
+-- for a secret.
+function BuffData.SelfFamilyOf(spellId)
+    if Util.IsSecret(spellId) then return nil end
+    local buff = byRankId[spellId]
+    if buff and buff.selfCast then return buff.family end
+    return familyAuraOf[spellId]
+end
+
 -- Spells of buffs left out of the game's buffs: Blessing of Salvation and
 -- Mass Salvation, which Blizzard removed before launch (#208), and Blessing of
 -- Light, which Blizzard removed too (owner, with Blizzard's beta development
@@ -158,7 +185,8 @@ function BuffData.ForCast(spellId)
 end
 
 -- The buff's name as the game spells it ("Mark of the Wild"), for /cast and
--- for showing. Every rank has the same name, so the first one the client knows.
+-- for showing. Every rank has the same name, so the first one the client
+-- knows. (A self-buff of two spells has two: CastName.)
 function BuffData.SpellName(buff)
     for _, id in ipairs(buff.ranks) do
         local name = Read(C_Spell and C_Spell.GetSpellName, id) or Read(GetSpellInfo, id)
@@ -188,10 +216,26 @@ local function Known(id)
 end
 
 function BuffData.IsKnown(buff)
+    return BuffData.KnownRank(buff) ~= nil
+end
+
+-- The highest rank of buff you know (its spell ID), or nil.
+function BuffData.KnownRank(buff)
     for _, id in ipairs(buff.ranks) do
-        if Known(id) then return true end
+        if Known(id) then return id end
     end
-    return false
+    return nil
+end
+
+-- The name to cast buff by: the name of the highest rank you know, which is
+-- what "/cast <name>" casts. For a self-buff of two spells (Ice Armor and
+-- Frost Armor, #44) that is the one you know best. nil when you know none,
+-- or the client won't name it.
+function BuffData.CastName(buff)
+    local id = BuffData.KnownRank(buff)
+    if id == nil then return nil end
+    local name = Read(C_Spell and C_Spell.GetSpellName, id) or Read(GetSpellInfo, id)
+    if type(name) == "string" and name ~= "" then return name end
 end
 
 -- The group version of buff you can cast, or nil: { id, reagent, equals,
@@ -250,18 +294,31 @@ function BuffData.CanReplace(buff, spellId)
     return false
 end
 
--- Your class's buffs that you know, in order. Kept until your spells change
+-- Your class's buffs for others that you know, in order: not your
+-- self-buffs (MySelfBuffs, #44). Kept until your spells change
 -- (BuffData.SpellsChanged), since it takes a spellbook call per rank.
-local mine
-function BuffData.Mine()
-    if mine then return mine end
+local mine, mineSelf
+local function KnownOfKind(wantSelf)
     local _, class = Read(UnitClass, "player")
     local out = {}
     for _, buff in ipairs(class and BuffData.CLASSES[class] or {}) do
-        if BuffData.IsKnown(buff) then out[#out + 1] = buff end
+        if (buff.selfCast == true) == wantSelf and BuffData.IsKnown(buff) then out[#out + 1] = buff end
     end
     -- An unreadable class isn't remembered: the next call asks again.
-    if class then mine = out end
+    return out, class ~= nil
+end
+function BuffData.Mine()
+    if mine then return mine end
+    local out, keep = KnownOfKind(false)
+    if keep then mine = out end
+    return out
+end
+
+-- Your self-buffs that you know, in your class's order (#44).
+function BuffData.MySelfBuffs()
+    if mineSelf then return mineSelf end
+    local out, keep = KnownOfKind(true)
+    if keep then mineSelf = out end
     return out
 end
 
@@ -293,26 +350,41 @@ function BuffData.InOrder(buffs, order)
     return out
 end
 
--- Whether you've marked buff "never offer" on the Buff Back tab.
+-- Whether buff is marked "never offer" on the Buff Back tab: as you
+-- ticked or unticked it, or until you have, its default (Righteous Fury's
+-- is on, #44). Only true and false are a choice.
 function BuffData.NeverOffered(buff)
     local never = ns.db and type(ns.db.buffBack) == "table" and ns.db.buffBack.neverOffer
-    return type(never) == "table" and never[buff.key] == true
+    local chosen
+    if type(never) == "table" then chosen = never[buff.key] end
+    if chosen == true or chosen == false then return chosen end
+    return buff.defaultNever == true
 end
 
--- The buffs the button may offer: yours that you know, in your order, less
--- any marked "never offer".
-function BuffData.Offerable()
+local function OfferableOf(buffs)
     local order = ns.db and type(ns.db.buffBack) == "table" and ns.db.buffBack.buffOrder
     local out = {}
-    for _, buff in ipairs(BuffData.InOrder(BuffData.Mine(), order)) do
+    for _, buff in ipairs(BuffData.InOrder(buffs, order)) do
         if not BuffData.NeverOffered(buff) then out[#out + 1] = buff end
     end
     return out
 end
 
+-- The buffs the button may offer others: yours that you know, in your
+-- order, less any marked "never offer". Never a self-buff.
+function BuffData.Offerable()
+    return OfferableOf(BuffData.Mine())
+end
+
+-- The self-buffs the button may offer you (#44): those you know, in your
+-- buff order, less any marked "never offer".
+function BuffData.SelfOfferable()
+    return OfferableOf(BuffData.MySelfBuffs())
+end
+
 -- Call when the spellbook changes (SPELLS_CHANGED, a spell learned).
 function BuffData.SpellsChanged()
-    mine = nil
+    mine, mineSelf = nil, nil
 end
 
 -- Whether a class wants this buff. class: their file name ("WARRIOR") or nil

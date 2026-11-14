@@ -160,6 +160,9 @@ Options.GROUP_VERSIONS_TOOLTIP = "In buff mode, offer the group version of a buf
     .. "are missing the buff. Never cast at anyone flagged for PvP "
     .. "when you aren't, unless your whole group is inside a dungeon or raid with you, "
     .. "and never against your \"who gets each buff\" rules."
+Options.SELF_BUFFS_TOOLTIP = "In buff mode, once your favours and your group are done, offer the self-buffs "
+    .. "you're missing (\"you only\" in the list above: Inner Fire, armors, Aspects, auras...), in your buff "
+    .. "order. Not while you're dead, mounted, flying or in a form, or the game says the spell can't be cast now."
 Options.BREATH_TOOLTIP = "Offer Unending Breath and Water Breathing only while you're swimming or underwater, "
     .. "for 2 minutes after, or in an underwater dungeon."
 
@@ -363,7 +366,17 @@ function Options.MoveBuff(key, step)
 end
 
 function Options.SetNeverOffer(key, on)
-    Config.Field("buffBack", "neverOffer")[key] = on or nil
+    local never = Config.Field("buffBack", "neverOffer") -- never a damaged list (#330)
+    -- A buff that's never offered by default (Righteous Fury, #44) keeps an
+    -- untick as false; any other buff's untick is no entry, as before.
+    local buff = ns.BuffData.ByKey(key)
+    if on then
+        never[key] = true
+    elseif buff and buff.defaultNever then
+        never[key] = false
+    else
+        never[key] = nil
+    end
     ns.BuffButton.Refresh()
     Options.Refresh()
 end
@@ -372,18 +385,23 @@ end
 -- Who button you clicked last, else the first in your order.
 local whoKey
 
+-- Self-buffs (#44) have no "who gets it": only you do.
 local function WhoBuff(buffs)
+    local first
     for _, buff in ipairs(buffs) do
-        if buff.key == whoKey then return buff end
+        if not buff.selfCast then
+            if buff.key == whoKey then return buff end
+            first = first or buff
+        end
     end
-    return buffs[1]
+    return first
 end
 
 -- A buff row's Who button: step its rule on, and show its details below.
 function Options.CycleWho(key)
     local buff
     for _, b in ipairs(OrderedClassBuffs()) do
-        if b.key == key then buff = b end
+        if b.key == key and not b.selfCast then buff = b end
     end
     if not buff then return end
     ClearEditFocus() -- a name box being typed in saves to its own buff first
@@ -488,21 +506,22 @@ end
 local function FillBuffRows(shown)
     widgets.buffOrderHeader:SetShown(shown)
     local buffs = shown and OrderedClassBuffs() or {}
-    -- Read only for the Buff Back tab: the other tabs mustn't depend on its
-    -- settings. Fill has checked them (Config.CheckedSection, #330).
-    local never = shown and ns.db.buffBack.neverOffer or {}
     for i, row in ipairs(widgets.buffRows) do
         local buff = buffs[i]
-        for _, part in ipairs({ row.name, row.up, row.down, row.never, row.who }) do part:SetShown(buff ~= nil) end
+        for _, part in ipairs({ row.name, row.up, row.down, row.never }) do part:SetShown(buff ~= nil) end
+        -- A self-buff (#44) has no Who button: only you get it.
+        row.who:SetShown(buff ~= nil and not buff.selfCast)
         row.key = buff and buff.key
         if buff then
             local name = ns.BuffData.SpellName(buff) or buff.key
+            if buff.selfCast then name = name .. " " .. ns.Colours.Text("muted", "(you only)") end
             if not ns.BuffData.IsKnown(buff) then name = name .. " " .. ns.Colours.Text("muted", "(not known yet)") end
             row.name:SetText(i .. ". " .. name)
             row.up:SetEnabled(i > 1)
             row.down:SetEnabled(i < #buffs)
-            row.never:SetChecked(never[buff.key] == true)
-            row.who:SetText("Who: " .. ns.BuffRules.RULE_TEXT[ns.BuffRules.Rule(buff)])
+            -- Read only for the Buff Back tab: the other tabs mustn't depend on its settings.
+            row.never:SetChecked(ns.BuffData.NeverOffered(buff))
+            if not buff.selfCast then row.who:SetText("Who: " .. ns.BuffRules.RULE_TEXT[ns.BuffRules.Rule(buff)]) end
         end
     end
     if shown and #buffs == 0 then
@@ -513,6 +532,14 @@ local function FillBuffRows(shown)
     -- On this tab the buff mode rows follow the buff list, and the messages
     -- follow them; on the others the messages follow the buff options.
     local last = buffs[1] and widgets.buffRows[#buffs].up or widgets.buffOrderHeader
+    -- Self-buffs (#44): on or off, below the list that holds them.
+    widgets.selfBuffs:SetShown(shown)
+    widgets.selfBuffs:ClearAllPoints()
+    widgets.selfBuffs:SetPoint("TOPLEFT", last, "BOTTOMLEFT", -4, -8)
+    if shown then
+        widgets.selfBuffs:SetChecked(ns.db.buffBack.selfBuffs == true)
+        last = widgets.selfBuffs
+    end
     last = FillWho(shown, buffs, last)
     last = FillRaidBlessings(shown, last)
     widgets.autoHeader:ClearAllPoints()
@@ -913,6 +940,14 @@ function Options.Create()
         widgets.buffRows[i] = row
         above = row.up
     end
+
+    -- Buff Back tab only, below the buff list: offer your self-buffs (#44).
+    -- Anchored in FillBuffRows.
+    widgets.selfBuffs = Checkbox(content, "Offer my self-buffs in buff mode, after everyone else", function(on)
+        BuffBack().selfBuffs = on
+        ns.BuffButton.Refresh()
+    end)
+    Tooltip(widgets.selfBuffs, Options.SELF_BUFFS_TOOLTIP)
 
     -- Buff Back tab only, below the buff list: who gets the chosen buff in
     -- buff mode (BuffRules.lua). Anchored in FillWho.

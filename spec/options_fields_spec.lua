@@ -5,7 +5,7 @@
 -- damaged before the panel fills is spec/options_repair_spec.lua's (#166).
 local wow = require("spec.support.wow")
 
-local KINGS, MIGHT_1, WISDOM_1 = 20217, 19740, 19742
+local KINGS, MIGHT_1, WISDOM_1, RIGHTEOUS_FURY = 20217, 19740, 19742, 25780
 
 describe("Options panel", function()
     local ns, w
@@ -187,12 +187,13 @@ describe("Options panel", function()
         -- What a whole section can be damaged into.
         local SECTION_DAMAGE = { 7, "broken", true, false, function() end }
 
-        -- A paladin in a raid, so every Buff Back row shows: the buff list,
-        -- who gets each (chosen classes), and the raid's Blessings.
+        -- A paladin in a raid, so every Buff Back row shows: the buff list
+        -- with a self-buff (#44), who gets each (chosen classes), and the
+        -- raid's Blessings.
         local function boot()
-            ns = wow.boot({ before = function(state)
+            ns = wow.boot({ buffTable = wow.selfBuffTable(), before = function(state)
                 state.class = "PALADIN"
-                state.knownSpells = { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true }
+                state.knownSpells = { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true, [RIGHTEOUS_FURY] = true }
             end })
             w = ns.Options.widgets
             wow.setGroup("raid", { "Ann-Vale" })
@@ -309,6 +310,7 @@ describe("Options panel", function()
             add("raid split", toggle(w.raidSplit, "buffBack", "raidSplit"))
             add("battleground preparation", toggle(w.bgPrepBuff, "buffBack", "bgPrepBuff"))
             add("water breathing", toggle(w.breathNearWater, "buffBack", "breathNearWater"))
+            add("self-buffs", toggle(w.selfBuffs, "buffBack", "selfBuffs"))
             for _, field in ipairs(ns.Options.AUTO_SWITCHES) do add(field, toggle(w.auto[field], "buffBack", field)) end
             for _, name in ipairs({ "owedMinutes", "renewPercent", "autoOffMinutes", "topUpMinutes", "groupEnough" }) do
                 add(name, stepper(name, "buffBack"))
@@ -351,6 +353,19 @@ describe("Options panel", function()
                     return key
                 end,
                 check = function(key) return ns.db.buffBack.neverOffer[key] == true end,
+            })
+            -- Righteous Fury is never offered by default: unticking it saves false (#44).
+            add("Righteous Fury's Never offer box, unticked", {
+                click = function()
+                    for _, row in ipairs(w.buffRows) do
+                        if row.key == "righteousfury" then
+                            row.never:SetChecked(false)
+                            wow.run(row.never, "OnClick")
+                            return true
+                        end
+                    end
+                end,
+                check = function(found) return found and ns.db.buffBack.neverOffer.righteousfury == false end,
             })
             add("a buff's Who button", {
                 click = function()
