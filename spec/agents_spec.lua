@@ -264,6 +264,7 @@ describe("the review-saving rules", function()
         assert.is_truthy(tester:find("don't re-run the list", 1, true))
         assert.is_truthy(tester:find("developer's mutation list** from the PR", 1, true), "the tester is given the list")
         assert.is_truthy(flat("AGENTS.md"):find("change each new or changed line of it", 1, true))
+        assert.is_truthy(flat(".github/pull_request_template.md"):find("every mutation with its result listed", 1, true))
         assert.is_truthy(flat(".claude/skills/after-merge/SKILL.md"):find("mutates only the lines the merge changed"
             .. " or resolved", 1, true))
         assert.is_truthy(flat("AGENTS.md"):find("mutates only the lines the merge changed or resolved", 1, true))
