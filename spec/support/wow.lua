@@ -601,8 +601,10 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         farther than the game shows units also reads as not
 --                         visible, so the addon can't tell the two apart; it
 --                         counts neither as in (the pessimistic reading).
---                         Zoning fires no event here. Whether Forever reads a
---                         member outside the instance this way: #257.
+--                         Zoning fires no event here. A member outside the
+--                         instance reads as not visible on Forever: confirmed
+--                         in game (owner, 2026-11-14, #257). A member inside
+--                         but far away: still unconfirmed (#257).
 --                         IsInInstance() answers secrets while
 --                         state.inInstanceSecret is set; unit.secrets.range
 --                         makes UnitInRange's answers secrets.

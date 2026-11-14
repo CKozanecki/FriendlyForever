@@ -157,8 +157,9 @@ end
 -- safe. Everywhere else (the open world, cities, battlegrounds, arenas),
 -- while anyone is outside or can't be read, and when the game won't say
 -- where you are, a flagged member is never buffed. Read each time the
--- button is armed, so at the press.
-local function FlaggedMayBeBuffed()
+-- button is armed, so at the press. Buff back's favours to members of your
+-- group follow the same rule (#316: Offers.lua).
+function GroupBuffs.FlaggedMayBeBuffed()
     if Read(UnitIsPVP, "player") == true then return true end
     local inside = GroupBuffs.InDungeonOrRaid()
     return inside and GroupBuffs.EveryoneInside()
@@ -388,7 +389,7 @@ end
 -- whether a member flagged for PvP may be buffed, for the group versions.
 local function Candidates(units)
     local me = Util.UnitFullName("player")
-    local flaggedOk = FlaggedMayBeBuffed()
+    local flaggedOk = GroupBuffs.FlaggedMayBeBuffed()
     local out, seen, firstReason, open = {}, {}, nil, false
     for _, unit in ipairs(units) do
         local name = Util.UnitFullName(unit)
