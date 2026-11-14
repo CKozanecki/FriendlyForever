@@ -440,11 +440,17 @@ end
 -- we start, not a group joined (buff mode is off after one). Otherwise a
 -- loading screen: into a dungeon or raid with your group turns it on (#256);
 -- out of one, buff mode that waited for everyone gets the timeout from now.
+-- A loading screen that can't read IsInGroup() goes by the group as last
+-- read (#377).
 function Auto.OnEnteringWorld(isLogin, isReload)
     if not (isLogin or isReload) then
-        if InGroup() then
-            if InsideWithGroup() then return end
-        end
+        -- IsInGroup() can't be read (#377): the group as last read (#373).
+        -- Not known either (a login that couldn't read it, #370): nothing
+        -- for the group, no round started or ended.
+        local withGroup = GroupAnswer()
+        if withGroup == nil then withGroup = inGroup end
+        if withGroup == nil then return end
+        if withGroup and InsideWithGroup() then return end
         ns.GroupBuffs.EndRound()
         if insideWait and not InDungeonOrRaid() then
             insideWait = false
