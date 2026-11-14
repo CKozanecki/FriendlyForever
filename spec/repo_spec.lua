@@ -3703,7 +3703,8 @@ describe("Release docs", function()
             has(".claude/skills/after-merge/SKILL.md", "If the PR shares no file with the merge and has no conflict, don't merge:"
                 .. " update the branch and put both file lists in the description")
             has(".claude/skills/after-merge/SKILL.md", "If your PR has auto-merge on, turn it off (`disable_pr_auto_merge`),"
-                .. " so it can't merge before the reviewers have confirmed the merge.")
+                .. " so it can't merge before the reviewers have confirmed the merge (CONTRIBUTING.md's [Who merges]"
+                .. "(../../../CONTRIBUTING.md#who-merges): off before any push but Update branch).")
             has(".claude/skills/coordinator/SKILL.md", "only behind `main` (no shared file, no conflict), it is still ready:"
                 .. " its driver updates the branch")
             has(".claude/skills/coordinator/SKILL.md", "Otherwise it isn't ready: tell its driver to merge `main` in (the"
@@ -4342,10 +4343,11 @@ describe("Claude sessions' agents, knowledge and skills", function()
             .. " any stale branch.\n", 1, true), "CLAUDE.md's done line")
         for _, rule in ipairs({
             "\n- **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale"
-                .. " branches for the owner, and say which they are. One exception, a trial (#345): the driver of a PR"
-                .. " merges its own PR, by auto-merge or, when GitHub won't turn that on because the PR is already clean,"
-                .. " a direct squash merge, once the stops in CONTRIBUTING.md's [Who merges](CONTRIBUTING.md#who-merges)"
-                .. " hold. It never approves, and never merges another session's PR.\n",
+                .. " branches for the owner, and say which they are. Two exceptions, under the stops in CONTRIBUTING.md's"
+                .. " [Who merges](CONTRIBUTING.md#who-merges): the coordinator, under the owner's delegation on #182, merges"
+                .. " in the cases that section names; and, a trial (#345), the driver of a PR merges its own PR, by"
+                .. " auto-merge or, when GitHub won't turn that on because the PR is already clean, a direct squash merge."
+                .. " Neither ever approves, and a driver never merges another session's PR.\n",
             "\n- **Force-pushing:** never. Push a rebased branch under a new name and flag the old one for the owner"
                 .. " to delete.\n",
         }) do

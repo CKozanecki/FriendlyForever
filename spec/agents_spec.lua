@@ -304,8 +304,9 @@ describe("the review-saving rules", function()
 end)
 
 -- The process trial (#345, owner, 2026-11-14): area batches, three or four
--- sessions, and drivers enqueueing their own PRs in the merge queue. The
--- rules are written once in CONTRIBUTING.md; the others point there.
+-- sessions, and drivers updating and merging their own PRs (auto-merge, or a
+-- guarded squash merge). The rules are written once in CONTRIBUTING.md; the
+-- others point there.
 describe("the process trial (#345)", function()
     local function flat(path) return (wow.readFile(path):gsub("%s+", " ")) end
     local contributing = flat("CONTRIBUTING.md")
@@ -349,12 +350,19 @@ describe("the process trial (#345)", function()
             "- it has no open question for the maintainer (#215);",
             "- it is [ready for review](#ready-for-review), and every review conversation is resolved.",
             "How a pull request merges, always as a squash merge:",
-            "**Auto-merge first.** Once the stops hold, the driver turns on auto-merge",
+            "**Auto-merge first.** The driver turns on auto-merge once every stop holds except the green `check`,"
+                .. " which GitHub then waits for",
+            -- #351's second architecture review: a push made while auto-merge is
+            -- on would merge unreviewed once `check` passed.
+            "Auto-merge stays on only while those stops hold: the driver turns it off before any push to the branch"
+                .. " (a fix, a merge of `main`)",
+            "The one push it may stay on for is **Update branch** on a pull request only behind `main`",
             "**Already clean: merge directly.** When GitHub won't turn on auto-merge because the pull request can"
-                .. " already merge, the driver merges it directly, giving the head commit it checked the stops on"
-                .. " (`expectedHeadSha`), so a push made since then stops the merge.",
+                .. " already merge, the driver merges it directly once every stop holds, giving the head commit it"
+                .. " checked the stops on (`expectedHeadSha`), so a push made since then stops the merge.",
             "**The coordinator merges** when the only job still pending is a report-only one, or a session's own"
-                .. " permission check blocks its merge.",
+                .. " permission check blocks its merge. It checks every stop itself first and gives the head commit it"
+                .. " checked (`expectedHeadSha`) too.",
             "Nobody approves, goes around the ruleset, or merges a pull request the stops don't cover. A driver merges"
                 .. " only its own pull request.",
         }) do
@@ -387,18 +395,23 @@ describe("the process trial (#345)", function()
         function()
         local claude = flat("CLAUDE.md")
         for _, text in ipairs({
-            "- **Merging your PR** (a trial, #345), your own PR only. When it is only behind `main`, update it with the"
-                .. " GitHub tool `update_pull_request_branch`, giving `expectedHeadSha`, and wait for `check` on the new head."
-                .. " Then, only once every stop in CONTRIBUTING.md's [Who merges](CONTRIBUTING.md#who-merges) holds:",
-            "- **auto-merge:** turn it on with `enable_pr_auto_merge`, `mergeMethod: SQUASH`;",
-            "- **already clean:** if that tool refuses because the PR can already merge, call `merge_pull_request` with"
-                .. " `merge_method: squash` and `expectedHeadSha` set to the head you checked the stops on;",
+            "- **Merging your PR** (a trial, #345), your own PR only, as CONTRIBUTING.md's [Who merges](CONTRIBUTING.md#who-merges)"
+                .. " says. When it is only behind `main`, update it with the GitHub tool `update_pull_request_branch`,"
+                .. " giving `expectedHeadSha`. Then:",
+            "- **auto-merge:** once every stop holds except the green `check`, turn it on with `enable_pr_auto_merge`,"
+                .. " `mergeMethod: SQUASH`. Turn it off (`disable_pr_auto_merge`) before any other push to the branch;",
+            "- **already clean:** if that tool refuses because the PR can already merge, and every stop holds, call"
+                .. " `merge_pull_request` with `merge_method: squash` and `expectedHeadSha` set to the head you checked the"
+                .. " stops on;",
             "- **anything else:** if a report-only job is the only one pending, or your permission check blocks the"
                 .. " merge, don't find another way: tell the coordinator, which merges it.",
             "you turned on auto-merge or merged your PR, or it needs the coordinator to merge it (say why);",
         }) do
             assert.is_truthy(claude:find(text, 1, true), text)
         end
+        -- The coordinator's own merges are guarded the same way.
+        assert.is_truthy(flat(".claude/skills/coordinator/SKILL.md"):find("after checking every stop, with"
+            .. " `merge_pull_request`, `merge_method: squash` and `expectedHeadSha` set to the head it checked.", 1, true))
         -- Every rule file that names the merge or update tool gives it the head
         -- it checked, so a push made since then stops it.
         for _, path in ipairs(OTHERS) do

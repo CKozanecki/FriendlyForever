@@ -17,7 +17,7 @@ Only for a PR that needs a developer. If the PR shares no file with the merge an
 
 ## Steps
 
-0. **Auto-merge off first.** If your PR has auto-merge on, turn it off (`disable_pr_auto_merge`), so it can't merge before the reviewers have confirmed the merge.
+0. **Auto-merge off first.** If your PR has auto-merge on, turn it off (`disable_pr_auto_merge`), so it can't merge before the reviewers have confirmed the merge (CONTRIBUTING.md's [Who merges](../../../CONTRIBUTING.md#who-merges): off before any push but Update branch).
 1. **Merge, don't rebase.** In your own worktree:
    ```
    git fetch origin main

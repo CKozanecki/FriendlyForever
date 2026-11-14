@@ -100,9 +100,9 @@ The maintainer; the coordinator, under its delegation on #182; and, for a trial 
 
 How a pull request merges, always as a squash merge:
 
-- **Auto-merge first.** Once the stops hold, the driver turns on auto-merge, and GitHub merges the pull request when its required check passes.
-- **Already clean: merge directly.** When GitHub won't turn on auto-merge because the pull request can already merge, the driver merges it directly, giving the head commit it checked the stops on (`expectedHeadSha`), so a push made since then stops the merge.
-- **The coordinator merges** when the only job still pending is a report-only one, or a session's own permission check blocks its merge.
+- **Auto-merge first.** The driver turns on auto-merge once every stop holds except the green `check`, which GitHub then waits for, and merges the pull request when it passes. Auto-merge stays on only while those stops hold: the driver turns it off before any push to the branch (a fix, a merge of `main`), and turns it on again only when the stops hold once more. The one push it may stay on for is **Update branch** on a pull request only behind `main`, which brings in no file the pull request changes.
+- **Already clean: merge directly.** When GitHub won't turn on auto-merge because the pull request can already merge, the driver merges it directly once every stop holds, giving the head commit it checked the stops on (`expectedHeadSha`), so a push made since then stops the merge.
+- **The coordinator merges** when the only job still pending is a report-only one, or a session's own permission check blocks its merge. It checks every stop itself first and gives the head commit it checked (`expectedHeadSha`) too.
 
 Nobody approves, goes around the ruleset, or merges a pull request the stops don't cover. A driver merges only its own pull request.
 

@@ -39,7 +39,7 @@ An orientation for a new session (#182). It points to the detail rather than rep
   - read-only mounts;
   - no secrets.
 - **Secrets never pass through an agent.** The CurseForge key lives only in the `release` environment, as `CF_API_KEY`. Never ask for it, print it or commit it.
-- **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale branches for the owner, and say which they are. One exception, a trial (#345): the driver of a PR merges its own PR, by auto-merge or, when GitHub won't turn that on because the PR is already clean, a direct squash merge, once the stops in CONTRIBUTING.md's [Who merges](CONTRIBUTING.md#who-merges) hold. It never approves, and never merges another session's PR.
+- **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale branches for the owner, and say which they are. Two exceptions, under the stops in CONTRIBUTING.md's [Who merges](CONTRIBUTING.md#who-merges): the coordinator, under the owner's delegation on #182, merges in the cases that section names; and, a trial (#345), the driver of a PR merges its own PR, by auto-merge or, when GitHub won't turn that on because the PR is already clean, a direct squash merge. Neither ever approves, and a driver never merges another session's PR.
 - **Merged branches:** GitHub deletes a PR's branch when it merges, and `ui-screenshots/pr-<n>` when PR n closes (#115), so don't list those (#119). A stale branch is one still there after its PR merged or closed, or one with no PR.
 - **Force-pushing:** never. Push a rebased branch under a new name and flag the old one for the owner to delete.
 
