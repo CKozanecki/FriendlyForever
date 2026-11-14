@@ -113,7 +113,8 @@ describe("Guild hellos (#38)", function()
         it("covers the longest delay, wait and echo within the time a login is tracked (#392)", function()
             local G = wow.boot().GuildHellos
             local limits = wow.boot().Config.LIMITS.delay
-            assert.is_true(limits.max + G.STAGGER_MAX + G.ECHO_WAIT < G.LOGIN_TTL)
+            local roster = wow.boot().Greeter.PENDING_TIMEOUT -- the longest roster wait
+            assert.is_true(roster + limits.max + G.STAGGER_MAX + G.ECHO_WAIT < G.LOGIN_TTL)
         end)
 
         it("is set on the Guild Login tab only", function()
