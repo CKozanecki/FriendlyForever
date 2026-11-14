@@ -2,7 +2,7 @@
 
 <!-- What does this change, and what problem does it solve? -->
 
-<!-- One keyword per spec issue this completes, e.g. "Closes #27, closes #52". -->
+<!-- One keyword per spec issue this completes, e.g. "Closes #27, closes #52". An area batch lists each issue under its own heading, with its keyword and its criteria (CONTRIBUTING.md's Area batches). -->
 Closes #
 
 ### Acceptance criteria
