@@ -21,6 +21,32 @@
 local Pages = {}
 FriendlyForeverUIPages = Pages
 
+-- Every action the client blocks or forbids an addon while this file is
+-- loaded, as "<event> <addon> <action>": in order, and counted (#160). The
+-- simulator's Forever profile prints "Interface action failed because of an
+-- AddOn" in chat in the shots that open the main panel, and nothing said
+-- who it blamed for what. Each new one is printed as it happens, so a shot's
+-- own log has it too (the screenshot job runs this file, not the
+-- scenarios); the scenarios' last test lists them all.
+Pages.blocked = { order = {}, count = {} }
+if type(CreateFrame) == "function" then
+    pcall(function()
+        local say = type(A_Print) == "function" and A_Print or print
+        local watcher = CreateFrame("Frame")
+        watcher:RegisterEvent("ADDON_ACTION_BLOCKED")
+        watcher:RegisterEvent("ADDON_ACTION_FORBIDDEN")
+        watcher:SetScript("OnEvent", function(_, event, addon, action)
+            local what = ("%s %s %s"):format(tostring(event), tostring(addon), tostring(action))
+            local blocked = Pages.blocked
+            if not blocked.count[what] then
+                blocked.order[#blocked.order + 1] = what
+                say("FACT sim blocked action, as it happens: " .. what)
+            end
+            blocked.count[what] = (blocked.count[what] or 0) + 1
+        end)
+    end)
+end
+
 -- The frames' names (Options.GENERAL_PAGE, Options.LEDGER_PAGE,
 -- Options.START_PAGE, Window.NAME and Walkthrough.NAME).
 Pages.GENERAL = "FriendlyForeverGeneralPage"

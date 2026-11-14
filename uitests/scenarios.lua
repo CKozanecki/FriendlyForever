@@ -39,23 +39,12 @@ local function report(line)
     printLine(line)
 end
 
--- Every action the client blocks or forbids an addon while the scenarios
--- run, as "<event> <addon> <action>", counted: the last scenario reports
--- them (#160). The simulator's Forever profile prints "Interface action
--- failed because of an AddOn" in chat when /friendly opens the options, and
--- this says who it blames and for what. Nothing here in spec/'s stand-in.
-local blockedActions, blockedOrder = {}, {}
-if type(CreateFrame) == "function" then
-    pcall(function()
-        local watcher = CreateFrame("Frame")
-        watcher:RegisterEvent("ADDON_ACTION_BLOCKED")
-        watcher:RegisterEvent("ADDON_ACTION_FORBIDDEN")
-        watcher:SetScript("OnEvent", function(_, event, addon, action)
-            local what = ("%s %s %s"):format(tostring(event), tostring(addon), tostring(action))
-            if not blockedActions[what] then blockedOrder[#blockedOrder + 1] = what end
-            blockedActions[what] = (blockedActions[what] or 0) + 1
-        end)
-    end)
+-- Every action the client blocked or forbade an addon since pages.lua
+-- loaded, as "<event> <addon> <action>", in order and counted (pages.lua's
+-- watcher, #160): the last scenario reports them. Empty in spec/'s stand-in.
+local blockedOrder, blockedActions = {}, {}
+if type(FriendlyForeverUIPages) == "table" and type(FriendlyForeverUIPages.blocked) == "table" then
+    blockedOrder, blockedActions = FriendlyForeverUIPages.blocked.order, FriendlyForeverUIPages.blocked.count
 end
 
 -- Fails the test with message, unlike assertTrue, which drops its message.
