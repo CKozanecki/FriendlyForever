@@ -43,6 +43,10 @@ local FRAMINGS = { "%s", "%s pls", "%s please", "%s plz", "%s?", "%s pls?", "%s!
     "Can I get %s please", "could i get %s", "can i have %s", "may i have %s?", "any %s?", "need %s", "got %s?",
     "%s pls ty", "  %s   pls  ", "%s plox", "can i haz %s" }
 
+-- The storm's seeds: each reaches the limit of requests, and a favour owed
+-- while the button is full with requests among it (the storm checks both).
+local STORM_SEEDS = { 24, 30, 64, 87, 106 }
+
 local ME = { name = "Nikki", surname = "Shifts", id = "Nikki-Shifts", isPlayer = true }
 
 describe("Buff requests in chat", function()
@@ -228,6 +232,12 @@ describe("Buff requests in chat", function()
             assert.are.equal("Bob-Stone", (offered()))
         end)
 
+        it("offers the buff they asked for when what they wear can't be read (hidden in a fight)", function()
+            stranger("nameplate1", { auras = { SPELLS.DRUID.motw }, secrets = { auras = true } })
+            wow.whisper("mark pls", "Bob-Stone")
+            assert.are.equal("Mark of the Wild", select(2, offered()))
+        end)
+
         it("renews the buff they asked for when theirs is partly worn off", function()
             stranger("nameplate1", { auras = { SPELLS.DRUID.motw }, auraDurations = { 1800 },
                 auraExpires = { wow.now + 60 } })
@@ -273,6 +283,9 @@ describe("Buff requests in chat", function()
             assert.are.equal(1, ns.Offers.Count())
             assert.are.equal(0, ns.Offers.RequestCount())
             assert.are.equal("Thorns", select(2, offered()))
+            wow.whisper("mark pls", "Bob-Stone")
+            assert.are.equal("Thorns", select(2, offered()), "one request per player: the second doesn't replace it")
+            assert.is_true(printedLog("they already have a request waiting"))
             ns.Requests.SetEnabled(false)
             assert.are.equal("Mark of the Wild", select(2, offered()), "turned off: the favour's own choice again")
             ns.Requests.SetEnabled(true)
@@ -360,6 +373,51 @@ describe("Buff requests in chat", function()
             local who = {}
             for _, offer in ipairs(list) do who[#who + 1] = offer.name end
             assert.are.same({ "Gil-Moss", "Fyn-Moss", "Eda-Moss", "Dov-Moss", "Cal-Moss" }, who)
+        end)
+
+        it("favours, then requests, then more favours up to the button's limit: every favour stays", function()
+            local function owe(i)
+                local first = "Fav" .. string.char(96 + i)
+                stranger("nameplate" .. i, { name = first, surname = "Owed" })
+                wow.gainBuff({ sourceUnit = "nameplate" .. i, name = "Arcane Intellect", spellId = 10157 })
+            end
+            for i = 1, ns.Offers.MAX - ns.Offers.MAX_REQUESTS do owe(i) end
+            for i = 1, ns.Offers.MAX_REQUESTS do
+                local first = "Ask" .. string.char(96 + i)
+                stranger("nameplate" .. (20 + i), { name = first, surname = "Late" })
+                wow.whisper("mark pls", first .. "-Late")
+            end
+            assert.are.equal(ns.Offers.MAX_REQUESTS, ns.Offers.RequestCount())
+            assert.are.equal(ns.Offers.MAX, ns.Offers.Count(), "full")
+            for i = ns.Offers.MAX - ns.Offers.MAX_REQUESTS + 1, ns.Offers.MAX do owe(i) end
+            assert.are.equal(ns.Offers.MAX, ns.Offers.Count())
+            assert.are.equal(0, ns.Offers.RequestCount(), "each favour pushed out a request, oldest first")
+            local list, owed = {}, {}
+            ns.Offers.Current(list)
+            for _, offer in ipairs(list) do owed[offer.name] = true end
+            for i = 1, ns.Offers.MAX do
+                assert.is_true(owed["Fav" .. string.char(96 + i) .. "-Owed"], "favour " .. i .. " stays")
+            end
+        end)
+
+        it("with room for some, a new favour pushes out the oldest request first", function()
+            for i = 1, 3 do
+                local first = "Ask" .. string.char(96 + i)
+                stranger("nameplate" .. (30 + i), { name = first, surname = "Early" })
+                wow.whisper("mark pls", first .. "-Early")
+            end
+            for i = 1, ns.Offers.MAX - 2 do
+                local first = "Fav" .. string.char(96 + i)
+                stranger("nameplate" .. i, { name = first, surname = "Owed" })
+                wow.gainBuff({ sourceUnit = "nameplate" .. i, name = "Arcane Intellect", spellId = 10157 })
+            end
+            assert.are.equal(ns.Offers.MAX, ns.Offers.Count())
+            assert.are.equal(2, ns.Offers.RequestCount())
+            local list, who = {}, {}
+            ns.Offers.Current(list)
+            for _, offer in ipairs(list) do who[offer.name] = true end
+            assert.is_nil(who["Aska-Early"], "the oldest request went")
+            assert.is_true(who["Askb-Early"] and who["Askc-Early"])
         end)
 
         it("never pushes a favour out, however many ask", function()
@@ -687,10 +745,18 @@ describe("Buff requests in chat", function()
         local TAILS = { "", " pls", "?", " please ty", "!" }
         local JUNK = { "|cff", "|r", "|H", "|h", "\0", "\255", "%", "[", "(", ".*", "  ", "lol", "the", "boss", "123",
             "\226\128\139", "mark", "pls" }
-        local ASKERS, JUNKERS = {}, {}
+        -- Ten who ask, ten who send junk, and twenty strangers who buff you
+        -- (nameplates 1 to 40): with requests waiting, the favours fill the
+        -- rest of the button's 20 entries, so a request taking a favour's room
+        -- shows.
+        local ASKERS, JUNKERS, BUFFERS = {}, {}, {}
         for _, first in ipairs({ "Ann", "Bea", "Cal", "Dov", "Eda", "Fyn", "Gil", "Hob", "Ira", "Jax" }) do
             ASKERS[#ASKERS + 1] = first .. "-Ask"
             JUNKERS[#JUNKERS + 1] = first .. "-Junk"
+        end
+        for _, first in ipairs({ "Kai", "Lea", "Mo", "Ned", "Oda", "Pip", "Quin", "Rue", "Sol", "Tam", "Uma", "Vic",
+            "Wes", "Xan", "Yew", "Zed", "Ash", "Bly", "Cy", "Dun" }) do
+            BUFFERS[#BUFFERS + 1] = first .. "-Buff"
         end
 
         -- A message, and whether it is a request for one of a druid's buffs.
@@ -708,60 +774,130 @@ describe("Buff requests in chat", function()
             return table.concat(parts, random.random(2) == 1 and " " or ""), false
         end
 
-        it("a storm of chat never errors, never casts, never queues a junk sender, and never more than the limit",
-            function()
-                for _, seed in ipairs({ 3, 40, 404, 1234, 2026 }) do
-                    random.seed(seed)
-                    boot()
-                    for i, name in ipairs(ASKERS) do
+        -- On a whisper, /say, party chat or the party leader's line.
+        local function send(text, sender)
+            local channel = random.random(4)
+            if channel == 1 then
+                wow.whisper(text, sender)
+            elseif channel == 2 then
+                wow.say(text, sender)
+            else
+                wow.party(text, sender, channel == 4)
+            end
+        end
+
+        -- The rows the player sees, read from the list's frames.
+        local function shownRows()
+            ns.BuffButton.Refresh()
+            local shown = {}
+            local list = ns.BuffList.Frame()
+            for _, row in ipairs(list and list:IsShown() and ns.BuffList.Rows() or {}) do
+                if row:IsShown() then shown[#shown + 1] = row.text:GetText() end
+            end
+            return shown
+        end
+
+        -- How many rows are askers', and which.
+        local function asking(shown)
+            local n, names = 0, {}
+            for _, text in ipairs(shown) do
+                local who = text:match("(%a+ Ask):")
+                if who then
+                    n = n + 1
+                    names[who] = true
+                end
+            end
+            return n, names
+        end
+
+        it("a storm of chat never errors, never casts, never queues a junk sender, never more than the limit, "
+            .. "and never pushes out a favour", function()
+            for _, seed in ipairs(STORM_SEEDS) do
+                random.seed(seed)
+                boot()
+                ns.db.buff.enabled = false -- no thank-yous: the storm checks that requests say nothing
+                -- Favours and requests last 20 minutes: long enough for the
+                -- button to fill to its 20 entries, short enough that new
+                -- strangers buff you while it's full.
+                ns.db.buffBack.owedMinutes = 20
+                local function place(list, from)
+                    for i, name in ipairs(list) do
                         local first, surname = name:match("^(%a+)-(%a+)$")
-                        stranger("nameplate" .. i, { name = first, surname = surname })
-                        first, surname = JUNKERS[i]:match("^(%a+)-(%a+)$")
-                        stranger("nameplate" .. (10 + i), { name = first, surname = surname })
-                    end
-                    for step = 1, 300 do
-                        local where = ("seed %d, step %d"):format(seed, step)
-                        local roll = random.random(20)
-                        if roll == 1 then
-                            wow.advance(random.random(1, 400))
-                        elseif roll == 2 then
-                            ns.db.buffBack.requests = not ns.db.buffBack.requests
-                            ns.RefreshEvents()
-                        elseif roll == 3 then
-                            ns.db.buffBack.requests = ({ "on", 1, {}, false, true })[random.random(5)]
-                        elseif roll == 4 then
-                            local n = random.random(#ASKERS)
-                            wow.whisper(wow.secret("mark pls"), ASKERS[n])
-                        else
-                            local text, good = message()
-                            local junker = not good or random.random(3) == 1
-                            local sender = junker and JUNKERS[random.random(#JUNKERS)] or ASKERS[random.random(#ASKERS)]
-                            if junker and good then text = text .. " " .. JUNK[random.random(#JUNK)] .. "x" end
-                            if random.random(2) == 1 then wow.whisper(text, sender) else wow.say(text, sender) end
-                        end
-                        -- The rows the player sees, read from the list's frames.
-                        ns.BuffButton.Refresh()
-                        local shown = {}
-                        local list = ns.BuffList.Frame()
-                        for _, row in ipairs(list and list:IsShown() and ns.BuffList.Rows() or {}) do
-                            if row:IsShown() then shown[#shown + 1] = row.text:GetText() end
-                        end
-                        for _, text in ipairs(shown) do
-                            assert.is_falsy(text:find("Junk", 1, true), where .. ": a junk sender is listed")
-                        end
-                        assert.is_true(#shown <= 5, where .. ": " .. #shown .. " requests listed")
-                        local armed = macro()
-                        if armed then
-                            assert.is_truthy(armed:find("/targetexact %a+ Ask\n"), where .. ": armed for " .. armed)
-                            assert.are.equal("asked for Mark of the Wild", button.subtitle:GetText():gsub("Thorns",
-                                "Mark of the Wild"), where)
-                        end
-                        assert.are.equal(0, #wow.casts, where .. ": nothing casts without a press")
-                        assert.are.same({}, wow.sent, where .. ": nothing is said")
-                        assert.are.same({}, wow.errors, where)
+                        stranger("nameplate" .. (from + i), { name = first, surname = surname })
                     end
                 end
-            end)
+                place(ASKERS, 0)
+                place(JUNKERS, 10)
+                place(BUFFERS, 20)
+                -- The storm's own record: when each stranger last buffed you.
+                local buffedAt = {}
+                local atLimit = 0 -- requests sent with five already listed
+                local crowded = 0 -- buffs from someone new while 20 rows are listed, some of them requests
+                for step = 1, 300 do
+                    local where = ("seed %d, step %d"):format(seed, step)
+                    local roll = random.random(40)
+                    if roll <= 2 then
+                        wow.advance(random.random(1, 400))
+                    elseif roll == 3 then
+                        ns.db.buffBack.requests = not ns.db.buffBack.requests
+                        ns.RefreshEvents()
+                    elseif roll == 4 then
+                        ns.db.buffBack.requests = ({ "on", 1, {}, false, true })[random.random(5)]
+                    elseif roll <= 6 then
+                        local n = random.random(#ASKERS)
+                        wow.whisper(wow.secret("mark pls"), ASKERS[n])
+                    elseif roll <= 18 then
+                        local n = random.random(#BUFFERS)
+                        local shown = shownRows()
+                        local listed = false
+                        for _, text in ipairs(shown) do
+                            if text:find((BUFFERS[n]:gsub("-", " ")) .. ":", 1, true) then listed = true end
+                        end
+                        if #shown == 20 and asking(shown) > 0 and not listed then crowded = crowded + 1 end
+                        wow.gainBuff({ sourceUnit = "nameplate" .. (20 + n), name = "Arcane Intellect", spellId = 10157 })
+                        buffedAt[BUFFERS[n]] = wow.now
+                    else
+                        local text, good = message()
+                        local junker = not good or random.random(3) == 1
+                        local sender = junker and JUNKERS[random.random(#JUNKERS)] or ASKERS[random.random(#ASKERS)]
+                        if junker and good then text = text .. " " .. JUNK[random.random(#JUNK)] .. "x" end
+                        if not junker and ns.db.buffBack.requests == true then
+                            local n, names = asking(shownRows())
+                            if n == 5 and not names[(sender:gsub("-", " "))] then atLimit = atLimit + 1 end
+                        end
+                        send(text, sender)
+                    end
+                    local shown = shownRows()
+                    for _, text in ipairs(shown) do
+                        assert.is_falsy(text:find("Junk", 1, true), where .. ": a junk sender is listed")
+                    end
+                    local requests = asking(shown)
+                    assert.is_true(requests <= 5, where .. ": " .. requests .. " requests listed")
+                    -- Every stranger who buffed you within the "Offer for" time
+                    -- (less a second's margin) is still listed.
+                    local limit = ns.db.buffBack.owedMinutes * 60 - 1
+                    for name, at in pairs(buffedAt) do
+                        if wow.now - at <= limit then
+                            local listed = false
+                            for _, text in ipairs(shown) do
+                                if text:find((name:gsub("-", " ")) .. ":", 1, true) then listed = true end
+                            end
+                            assert.is_true(listed, where .. ": " .. name .. "'s favour is gone")
+                        end
+                    end
+                    local armed = macro()
+                    if armed then
+                        assert.is_truthy(armed:find("/targetexact %a+ Ask\n") or armed:find("/targetexact %a+ Buff\n"),
+                            where .. ": armed for " .. armed)
+                    end
+                    assert.are.equal(0, #wow.casts, where .. ": nothing casts without a press")
+                    assert.are.same({}, wow.sent, where .. ": nothing is said")
+                    assert.are.same({}, wow.errors, where)
+                end
+                assert.is_true(atLimit > 0, "seed " .. seed .. " never reached the limit of requests")
+                assert.is_true(crowded > 0, "seed " .. seed .. " never had a stranger buff you while the button was full")
+            end
+        end)
     end)
 
     describe("the walkthrough's what's new", function()

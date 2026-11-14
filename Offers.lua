@@ -273,7 +273,18 @@ function Offers.Owe(name, unit, ledgerEntry)
         requested = old and old.requested or nil }
     Observe(favour)
     favours[#favours + 1] = favour
-    while #favours > Offers.MAX do table.remove(favours, 1) end
+    -- Over the limit, the oldest request goes first (#40: requests never
+    -- take a favour's room), then the oldest favour.
+    while #favours > Offers.MAX do
+        local oldest = 1
+        for j, entry in ipairs(favours) do
+            if entry.request then
+                oldest = j
+                break
+            end
+        end
+        table.remove(favours, oldest)
+    end
     ns.Diag.Log("buffBack", "you owe %s a buff", name)
     Changed()
     for _, fn in ipairs(oweListeners) do fn() end
