@@ -2115,7 +2115,7 @@ describe("UI simulator workflow", function()
         -- du print names, and the rest print content (#360).
         local PRINTERS = { "tail", "head", "ls", "grep", "cat", "diff", "find", "stat", "sha256sum", "sha1sum",
             "sha512sum", "md5sum", "b2sum", "cksum", "wc", "du", "od", "xxd", "hexdump", "strings", "sort", "uniq",
-            "nl", "tac", "less", "more", "awk", "sed", "cut", "rsync", "tar", "zip", "unzip" }
+            "nl", "tac", "less", "more", "awk", "sed", "cut", "dd", "rsync", "tar", "zip", "unzip" }
         local READERS = { "ls%-tree%s" }
         for _, name in ipairs(PRINTERS) do READERS[#READERS + 1] = "%f[%w]" .. name .. "%s" end
         -- echo and printf print names only through a glob: echo *, printf '%s\n' "$ui"/* (#360).
@@ -2124,7 +2124,11 @@ describe("UI simulator workflow", function()
         local VERBOSE = { "cp", "mv", "rm", "ln", "chmod", "chown", "install", "mkdir", "rmdir" }
 
         -- Paths read however they're quoted: "$RUNNER_TEMP"/shots, ${RUNNER_TEMP}/shots.
-        local function plain(s) return (s:gsub("%${([%w_]+)}", "$%1"):gsub('"(%$[%w_]+)"/', "%1/")) end
+        -- An array's elements and an expansion's forms (${logs[@]}, ${f%.log}) read as the variable (#360).
+        local function plain(s)
+            return (s:gsub("%${([%w_]+)}", "$%1"):gsub("%${([%a_][%w_]*)[%[:%%#/^,@][^}]*}", "$%1")
+                :gsub('"(%$[%w_]+)"/', "%1/"))
+        end
         local function namesOne(s, patterns)
             local p = plain(s)
             for _, pattern in ipairs(patterns) do
@@ -2193,6 +2197,8 @@ describe("UI simulator workflow", function()
                     separator = c
                 elseif c == "&" and not line:sub(i - 1, i - 1):match("[<>]") and line:sub(i + 1, i + 1) ~= ">" then
                     separator = c
+                elseif c == "(" and table.concat(buf):match("[%a_][%w_]*%+?=$") then
+                    stack[#stack + 1] = "(" -- an array's value (logs=( ... )), not a subshell
                 elseif c == "(" then
                     cut("(")
                     depth = depth + 1
@@ -2230,7 +2236,11 @@ describe("UI simulator workflow", function()
             -- a command can be made of (#173, #360's review): one pipeline
             -- ending in the tr, so nothing in it escapes the tr.
             local function keep(inside)
-                if inside:find("||", 1, true) then return nil end
+                -- (Nor a copy to stderr, a tee or a device on the way to the tr.)
+                if inside:find("||", 1, true) or inside:find(">", 1, true) or inside:find("%f[%w]tee%f[%W]")
+                    or inside:find("/dev/", 1, true) or inside:find("/proc/", 1, true) then
+                    return nil
+                end
                 return ""
             end
             local quiet = plain(line):gsub("%$%(([^();&]*)| tr %-cd '0%-9'%)", keep)
@@ -2421,7 +2431,7 @@ describe("UI simulator workflow", function()
                 command = rest
                 while command:match("^%-%S*%s") do command = command:gsub("^%-%S*%s+", "") end
             end
-            local name, value = command:match("^([%a_][%w_]*)=(.*)$")
+            local name, value = command:match("^([%a_][%w_]*)%+?=(.*)$")
             -- A loop's variable holds each word it's given (#360's review).
             if not name then name, value = command:match("^for%s+([%a_][%w_]*)%s+in%s+(.*)$") end
             if not name then name, value = command:match("^select%s+([%a_][%w_]*)%s+in%s+(.*)$") end
@@ -2443,7 +2453,8 @@ describe("UI simulator workflow", function()
             for _, step in ipairs(job.steps) do
                 if step.text:find("actions/download%-artifact@") then
                     local target = step.text:match("\n%s*path:%s*([^\n]*)")
-                    if not target or not target:match("^%${{") then downloads = true end
+                    -- Only $RUNNER_TEMP is outside the workspace.
+                    if not (target and target:match("^%${{%s*runner%.temp%s*}}")) then downloads = true end
                 end
             end
             return downloads
@@ -2867,6 +2878,12 @@ describe("UI simulator workflow", function()
                 assert.are.equal(1, #scan(step('for f in "$ui"/Interface/AddOns/*; do cat "$f"; done')))
                 assert.are.equal(1, #scan(step('select f in shots/*; do stat "$f"; done')))
                 assert.are.same({}, (scan(step('for f in a b; do cat "$f"; done'))))
+                -- An array of sources, and its elements however they're expanded (round 2).
+                assert.are.equal(1, #scan(step('logs=("$RUNNER_TEMP"/shot-logs/*.log)\ntail -n 60 "${logs[@]}"')))
+                assert.are.equal(1, #scan(step('logs=("$RUNNER_TEMP"/shot-logs/*.log)\nfor f in "${logs[@]}"; do tail -n 60 "$f"; done')))
+                assert.are.equal(1, #scan(step('logs=()\nlogs+=("$ui"/x)\ncat "${logs[0]}"')))
+                assert.are.equal(1, #scan(step('for f in shots/*; do cat "${f%.png}.txt"; done')))
+                assert.are.same({}, (scan(step('logs=(a b)\ncat "${logs[@]}"'))))
             end)
 
             it("counts a read kept as digits or hex digits by its $( ) as printing nothing, and no other (white, red)", function()
@@ -2881,7 +2898,13 @@ describe("UI simulator workflow", function()
                     -- Only one pipeline, ending in the tr: anything before it in the $( ) escapes it.
                     [[n=$(cat "$f"; cat x | tr -cd '0-9')]], [[n=$(cat "$f" && cat x | tr -cd '0-9')]],
                     [[n=$(cat "$f" || cat x | tr -cd '0-9')]], [[n=$(cat "$f"; cat x | tr -cd '0-9a-f')]],
-                    [[n=$(cat "$f" & cat x | tr -cd '0-9a-f')]], [[n=$(cat "$f" || cat x | tr -cd '0-9a-f')]] }) do
+                    [[n=$(cat "$f" & cat x | tr -cd '0-9a-f')]], [[n=$(cat "$f" || cat x | tr -cd '0-9a-f')]],
+                    -- Nor a copy to stderr, a tee or a device on the way (round 2).
+                    [[n=$(cat "$f" | tee /dev/stderr | wc -l | tr -cd '0-9')]], [[n=$(head -c 8 "$f" >/dev/stderr | tr -cd '0-9a-f')]],
+                    [[n=$(cat "$f" | tee x | tr -cd '0-9')]], [[n=$(cat "$f" 2>&1 | tr -cd '0-9')]],
+                    [[n=$(dd if="$f" of=/dev/stderr | tr -cd '0-9')]], [[n=$(cat "$f" >&2 | tr -cd '0-9')]],
+                    -- A redirect to a variable could name a device.
+                    [[n=$(cat "$f" > "$out" | tr -cd '0-9')]] }) do
                     assert.are.equal(1, #scan(step(loop:format(loud))), loud)
                 end
             end)
@@ -2900,6 +2923,10 @@ describe("UI simulator workflow", function()
                     .. "      - uses: actions/download-artifact@x\n        with:\n          path: out\n")
                 assert.is_false(startsInside(fixture.a))
                 assert.is_true(startsInside(fixture.b))
+                -- The workspace by another name is the workspace (round 2).
+                local named = parseText("jobs:\n  c:\n    steps:\n      - uses: actions/download-artifact@x\n"
+                    .. "        with:\n          path: ${{ github.workspace }}/shots\n")
+                assert.is_true(startsInside(named.c))
             end)
 
             it("reads only a step's run: block as shell (white, red)", function()
