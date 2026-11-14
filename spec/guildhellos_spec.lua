@@ -723,8 +723,9 @@ describe("Guild hellos (#38)", function()
 
         local function storm(seed)
             random.seed(seed)
-            -- MINSTD's first draws after a small seed are near 0: skip them,
-            -- or every storm would be 2 copies with a cap that can't bind.
+            -- random.seed discards its first draws (#165), so a small seed no
+            -- longer builds the same smallest storm; 5 more are skipped here
+            -- to keep the storms the seeds below were chosen for.
             for _ = 1, 5 do random.random() end
             local n = random.random(3, 8)
             local cap = random.random(1, math.min(5, n - 1)) -- fewer than the copies, so it binds

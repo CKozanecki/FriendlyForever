@@ -480,7 +480,7 @@ describe("The walkthrough", function()
         for seed = 1, 40 do
             it("keeps the addon on for a player who finished, skipped or already used it (seed " .. seed .. ")", function()
                 random.seed(seed)
-                -- A small seed's first draws are always small: skip a few.
+                -- random.seed already skips a few (#165); 5 more keep these seeds' storms.
                 for _ = 1, 5 do random.random() end
                 -- Half the storms start as a new install, half as a player
                 -- already using the addon.

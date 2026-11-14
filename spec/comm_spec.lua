@@ -1126,7 +1126,8 @@ describe("The send limit's waits at a large GetTime (#325)", function()
     end)
 
     it("a storm of sends and clock steps at large GetTimes never spins and never beats the limit (red)", function()
-        -- Seeds 23 to 40 each spun before the fix; 3 and 2026 didn't.
+        -- Before #165's warm-up, seeds 23 to 40 each spun before the fix and 3 and 2026
+        -- didn't; with it, seeds 28 to 40 catch the spin (23 no longer does).
         for _, seed in ipairs({ 3, 23, 28, 29, 30, 31, 32, 39, 40, 2026 }) do
             random.seed(seed)
             local ns, C, seen = watched()
