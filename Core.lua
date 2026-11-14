@@ -40,11 +40,11 @@ local handlers = {}
 
 -- UNIT_SPELLCAST_SUCCEEDED fires for every cast the client sees, and only
 -- buff watching uses it (to name casters), so it is registered only while
--- Buff Thanks or Buff Back is on. Whispers and /say are read only for buff
--- requests (Requests.lua, #40), so they are registered only while those
--- are on. Call this whenever one of those switches or the master switch
+-- Buff Thanks or Buff Back is on. Whispers, /say and party chat are read
+-- only for buff requests (Requests.lua, #40), so they are registered only
+-- while those are on. Call this whenever one of those switches or the master switch
 -- changes.
-local REQUEST_EVENTS = { "CHAT_MSG_WHISPER", "CHAT_MSG_SAY" }
+local REQUEST_EVENTS = { "CHAT_MSG_WHISPER", "CHAT_MSG_SAY", "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER" }
 function ns.RefreshEvents()
     if not ns.db then return end
     if ns.BuffTracker.Watching() then
@@ -146,6 +146,8 @@ function handlers.ADDON_LOADED(name)
     -- Buff requests in chat (#40): registered by RefreshEvents while on.
     handlers.CHAT_MSG_WHISPER = ns.Requests.OnWhisper
     handlers.CHAT_MSG_SAY = ns.Requests.OnSay
+    handlers.CHAT_MSG_PARTY = ns.Requests.OnParty
+    handlers.CHAT_MSG_PARTY_LEADER = ns.Requests.OnParty
     ns.RefreshEvents()
     Register("CVAR_UPDATE", function() ns.Options.Refresh() end)
     -- Edits made since the last switch go into the active profile.
@@ -179,8 +181,10 @@ frame:RegisterEvent("ADDON_LOADED")
 local FIRST_ARG_ONLY = { CHAT_MSG_SYSTEM = true }
 -- CHAT_MSG_ADDON brings about 9, for every addon's messages; ours reads 4.
 local FIRST_FOUR_ARGS = { CHAT_MSG_ADDON = true }
--- Whispers and /say bring about 17; buff requests read the text and sender.
-local FIRST_TWO_ARGS = { CHAT_MSG_WHISPER = true, CHAT_MSG_SAY = true }
+-- Whispers, /say and party chat bring about 17; buff requests read the
+-- text and sender.
+local FIRST_TWO_ARGS = { CHAT_MSG_WHISPER = true, CHAT_MSG_SAY = true, CHAT_MSG_PARTY = true,
+    CHAT_MSG_PARTY_LEADER = true }
 
 frame:SetScript("OnEvent", function(_, event, ...)
     local handler = handlers[event]

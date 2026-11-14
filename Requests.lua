@@ -1,5 +1,5 @@
--- Buff requests in chat (#40): a player who whispers you, or says in /say, a
--- short request for one of your buffs ("mark pls", "can i get int?") is
+-- Buff requests in chat (#40): a player who whispers you, or says in /say
+-- or party chat (the owner, on #40), a short request for one of your buffs ("mark pls", "can i get int?") is
 -- queued on the buff-back button for that buff. Nothing here casts or sends
 -- anything: the button casts only on your press (BuffButton.lua), and no
 -- reply goes to chat. Off by default (the owner's decision on #40).
@@ -45,9 +45,22 @@ Requests.NICKNAMES = {
     fortitude = { "fort", "fortitude", "pwf", "stam", "stamina", "power word fortitude" },
     spirit = { "spirit", "ds", "divine spirit" },
     shadow = { "shadow prot", "shadow protection", "sprot" },
-    waterbreathing = { "water breathing", "wb" },
-    breath = { "unending breath", "ub", "breath", "water breathing" },
+    -- A shaman's Water Breathing and a warlock's Unending Breath do the same
+    -- job, so players ask for either by either name (the owner, on #40).
+    waterbreathing = "breathing",
+    breath = "breathing",
 }
+-- Lists more than one buff shares, by name: a buff above may name one.
+Requests.SHARED_NICKNAMES = {
+    breathing = { "water breathing", "wb", "unending breath", "ub", "breath" },
+}
+
+-- The names a request may use for buff (a key of NICKNAMES).
+function Requests.NamesFor(key)
+    local names = Requests.NICKNAMES[key]
+    if type(names) == "string" then names = Requests.SHARED_NICKNAMES[names] end
+    return type(names) == "table" and names or {}
+end
 
 -- What may come before the buff's name, and after it. Each is a whole
 -- word or words, compared as plain text; a longer lead is tried first.
@@ -109,7 +122,7 @@ function Requests.BuffFor(phrase)
     if type(phrase) ~= "string" then return nil end
     for _, buff in ipairs(ns.BuffData.Offerable()) do
         if not buff.selfCast then
-            for _, nick in ipairs(Requests.NICKNAMES[buff.key] or {}) do
+            for _, nick in ipairs(Requests.NamesFor(buff.key)) do
                 if nick == phrase then return buff end
             end
             if Spoken(ns.BuffData.SpellName(buff)) == phrase then return buff end
@@ -141,7 +154,8 @@ local function Refused(name)
     return nil
 end
 
--- A chat message (CHAT_MSG_WHISPER or CHAT_MSG_SAY: text, sender). where
+-- A chat message (CHAT_MSG_WHISPER, CHAT_MSG_SAY, CHAT_MSG_PARTY or
+-- CHAT_MSG_PARTY_LEADER: text, sender). where
 -- says which, for the debug log.
 local function OnChat(where, text, sender)
     if not Requests.Listening() then return end
@@ -169,7 +183,7 @@ end
 
 -- The Buff Back tab's switch, and its tooltip.
 Requests.LABEL = "Offer my buffs to players who ask in chat"
-Requests.TOOLTIP = "When someone whispers you, or says in /say, a short request for one of your buffs "
+Requests.TOOLTIP = "When someone whispers you, or says in /say or party chat, a short request for one of your buffs "
     .. "(\"mark pls\", \"can I get int?\"), the buff-back button offers them that buff. It never casts by "
     .. "itself, and nothing is said in chat. Your ignore list, snooze and the quiet in capital cities and "
     .. "battlegrounds apply."
@@ -184,3 +198,5 @@ end
 
 function Requests.OnWhisper(text, sender) OnChat("whisper", text, sender) end
 function Requests.OnSay(text, sender) OnChat("/say", text, sender) end
+-- Party chat, from a member or the party's leader (CHAT_MSG_PARTY_LEADER).
+function Requests.OnParty(text, sender) OnChat("party", text, sender) end

@@ -495,12 +495,13 @@ for name, ids in pairs({
 -- right before launch (#208), and the [@player] cast added since (#198),
 -- which is unconfirmed: #213. The simulation stays as it is, as a record of
 -- what it models.
---   Chat from players (#40, unconfirmed: #352): CHAT_MSG_WHISPER and
---                         CHAT_MSG_SAY name the sender by their whole name,
+--   Chat from players (#40, unconfirmed: #352): CHAT_MSG_WHISPER,
+--                         CHAT_MSG_SAY and CHAT_MSG_PARTY (and _LEADER)
+--                         name the sender by their whole name,
 --                         "First-Surname", as CHAT_MSG_ADDON does (confirmed,
 --                         #138), and their text is plain in the open world
 --                         (inside an instance it may be secret, #32). Specs
---                         fire them with wow.whisper and wow.say; the addon
+--                         fire them with wow.whisper, wow.say and wow.party; the addon
 --                         ignores a sender with no surname, the pessimistic
 --                         side.
 --   Settings pages (#267, confirmed in game by the owner, 1.1.0): a shown frame
@@ -2288,7 +2289,8 @@ function M.levelUp(token, level)
     M.fire("UNIT_LEVEL", token)
 end
 
--- Chat from another player (#40): CHAT_MSG_WHISPER or CHAT_MSG_SAY, with the
+-- Chat from another player (#40): CHAT_MSG_WHISPER, CHAT_MSG_SAY or
+-- CHAT_MSG_PARTY (CHAT_MSG_PARTY_LEADER from the party's leader), with the
 -- game's argument list (text, sender, language, channel, the sender again,
 -- flags, zone channel, channel index, channel name, language ID, line ID,
 -- GUID, ...). The sender is given as the spec passes it: "First-Surname" is
@@ -2301,6 +2303,9 @@ local function playerChat(event, text, sender)
 end
 function M.whisper(text, sender) playerChat("CHAT_MSG_WHISPER", text, sender) end
 function M.say(text, sender) playerChat("CHAT_MSG_SAY", text, sender) end
+function M.party(text, sender, leader)
+    playerChat(leader and "CHAT_MSG_PARTY_LEADER" or "CHAT_MSG_PARTY", text, sender)
+end
 
 function M.systemMessage(text)
     M.fire("CHAT_MSG_SYSTEM", text)

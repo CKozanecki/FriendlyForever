@@ -95,15 +95,31 @@ end
 -- Tokens that may show them, in the order they're checked: you can target
 -- or mouse over them, and they may show on a nameplate (whose numbers the
 -- game hands out afresh all the time).
+-- Last, your group's slots (#40: a group member may ask for a buff in
+-- chat), which name a member wherever they are: they count only while the
+-- game says it shows them (UnitIsVisible).
 local LOOKUP_TOKENS = { "target", "mouseover", "focus" }
 for i = 1, Offers.MAX_NAMEPLATES do LOOKUP_TOKENS[#LOOKUP_TOKENS + 1] = "nameplate" .. i end
+local GROUP_TOKENS = {}
+for i = 1, 4 do GROUP_TOKENS["party" .. i] = true end
+for i = 1, 40 do GROUP_TOKENS["raid" .. i] = true end
+for i = 1, 4 do LOOKUP_TOKENS[#LOOKUP_TOKENS + 1] = "party" .. i end
+for i = 1, 40 do LOOKUP_TOKENS[#LOOKUP_TOKENS + 1] = "raid" .. i end
+
+-- The full name of the player token shows now, or nil. A group slot that
+-- the game doesn't say is shown (out of sight, another zone, or it won't
+-- say) shows nobody.
+local function Shown(token)
+    if GROUP_TOKENS[token] and Read(UnitIsVisible, token) ~= true then return nil end
+    return Util.UnitFullName(token)
+end
 
 -- Who the game shows right now: [full name] = the unit tokens showing them.
 -- Read once per check of the favours, not once per favour.
 local function VisiblePlayers()
     local visible = {}
     for _, token in ipairs(LOOKUP_TOKENS) do
-        local name = Util.UnitFullName(token)
+        local name = Shown(token)
         if name then
             visible[name] = visible[name] or {}
             table.insert(visible[name], token)
@@ -117,7 +133,7 @@ end
 -- Empty if none is.
 local function LiveUnits(favour, visible)
     local units = {}
-    if favour.unit and Util.UnitFullName(favour.unit) == favour.name then units[1] = favour.unit end
+    if favour.unit and Shown(favour.unit) == favour.name then units[1] = favour.unit end
     for _, token in ipairs((visible or VisiblePlayers())[favour.name] or {}) do
         if token ~= units[1] then units[#units + 1] = token end
     end

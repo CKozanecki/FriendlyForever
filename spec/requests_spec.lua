@@ -33,8 +33,9 @@ local ASKED = {
         "Power Word: Fortitude" },
         spirit = { "spirit", "ds", "divine spirit", "Divine Spirit" },
         shadow = { "shadow prot", "shadow protection", "sprot", "Shadow Protection" } },
-    SHAMAN = { waterbreathing = { "water breathing", "wb", "Water Breathing" } },
-    WARLOCK = { breath = { "unending breath", "ub", "breath", "water breathing", "Unending Breath" } },
+    -- Either breathing buff by either name (the owner, on #40).
+    SHAMAN = { waterbreathing = { "water breathing", "wb", "unending breath", "ub", "breath", "Water Breathing" } },
+    WARLOCK = { breath = { "unending breath", "ub", "breath", "water breathing", "wb", "Unending Breath" } },
 }
 
 -- Ways around a buff's name: %s is the name.
@@ -89,7 +90,7 @@ describe("Buff requests in chat", function()
     before_each(function() boot() end)
 
     describe("asking", function()
-        it("common phrasings for each class's buffs queue the right buff, by whisper and by /say", function()
+        it("common phrasings for each class's buffs queue the right buff, by whisper, /say and party chat", function()
             for class, buffs in pairs(ASKED) do
                 for key, names in pairs(buffs) do
                     local spell = wow.SPELL_NAMES[SPELLS[class][key]]
@@ -99,7 +100,14 @@ describe("Buff requests in chat", function()
                             if #text <= 64 then
                                 boot({ class = class })
                                 stranger()
-                                if i % 2 == 0 then wow.whisper(text, "Bob-Stone") else wow.say(text, "Bob-Stone") end
+                                local channel = i % 4
+                                if channel == 0 then
+                                    wow.whisper(text, "Bob-Stone")
+                                elseif channel == 1 then
+                                    wow.say(text, "Bob-Stone")
+                                else
+                                    wow.party(text, "Bob-Stone", channel == 3)
+                                end
                                 local name, given = offered()
                                 local where = ("%s asked %s %q"):format(class, key, text)
                                 assert.are.equal("Bob-Stone", name, where)
@@ -145,6 +153,42 @@ describe("Buff requests in chat", function()
             wow.whisper("mark pls", "Bob-Stone")
             ns.Offers.OnAnswerMark("Bob-Stone")
             assert.are.equal("Bob-Stone", (offered()))
+        end)
+
+        it("a member of your group asking in party chat is offered, found in their party slot", function()
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.party("thorns pls", "Ann-Vale")
+            assert.are.same({ "Ann-Vale", "Thorns" }, { offered() })
+            assert.is_truthy(macro():find("/targetexact Ann Vale\n", 1, true))
+            wow.press(button)
+            assert.are.same({ spell = "Thorns", id = SPELLS.DRUID.thorns, target = "Ann-Vale" }, wow.casts[1])
+        end)
+
+        it("from the party's leader too", function()
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.party("mark pls", "Ann-Vale", true)
+            assert.are.same({ "Ann-Vale", "Mark of the Wild" }, { offered() })
+        end)
+
+        it("a group member the game doesn't show (another zone, out of sight) isn't offered", function()
+            wow.setGroup("raid", { "Ann-Vale", "Cid-Moss" })
+            wow.party("mark pls", "Ann-Vale")
+            wow.zoneOut("raid1")
+            assert.is_nil(offered())
+            wow.zoneIn("raid1")
+            assert.are.equal("Ann-Vale", (offered()))
+            wow.state.units.raid1.secrets = { hidden = true }
+            assert.is_nil(offered(), "whether they're shown can't be read")
+        end)
+
+        it("not raid, guild, officer, yell or channel chat", function()
+            wow.setGroup("raid", { "Ann-Vale" })
+            for _, event in ipairs({ "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER",
+                "CHAT_MSG_YELL", "CHAT_MSG_CHANNEL", "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_EMOTE" }) do
+                wow.fire(event, "mark pls", "Ann-Vale", "Common", "", "Ann-Vale", "", 0, 0, "", 7, 1, "g", 0,
+                    false, false, false, false)
+            end
+            assert.are.equal(0, ns.Offers.Count())
         end)
 
         it("is the buff they asked for, not the one a favour would pick first", function()

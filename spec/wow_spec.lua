@@ -970,6 +970,8 @@ describe("The simulated client's self-buffs (#44)", function()
         assert.are.same({ 5118, 13159, 13161 }, t.familyAuras.aspect)
         for _, key in ipairs(t.absent) do assert.is_nil(keys[key], key) end
         assert.are_not.equal(t, wow.selfBuffTable(), "a fresh copy each call")
+    end)
+end)
 
 describe("The simulated client's chat from players (#40)", function()
     it("fires a whisper and a /say with the game's argument list, text then sender", function()
@@ -989,6 +991,19 @@ describe("The simulated client's chat from players (#40)", function()
             sender2 = "Bob-Stone" }, seen[1])
         assert.are.same({ event = "CHAT_MSG_SAY", n = 17, text = "int pls", sender = "Ann-Vale",
             sender2 = "Ann-Vale" }, seen[2])
+    end)
+
+    it("fires party chat, from the leader as CHAT_MSG_PARTY_LEADER", function()
+        wow.boot()
+        local seen = {}
+        local frame = CreateFrame("Frame")
+        frame:RegisterEvent("CHAT_MSG_PARTY")
+        frame:RegisterEvent("CHAT_MSG_PARTY_LEADER")
+        frame:SetScript("OnEvent", function(_, event, ...) seen[#seen + 1] = { event, (...), (select(2, ...)) } end)
+        wow.party("fort pls", "Ann-Vale")
+        wow.party("int pls", "Bob-Stone", true)
+        assert.are.same({ { "CHAT_MSG_PARTY", "fort pls", "Ann-Vale" },
+            { "CHAT_MSG_PARTY_LEADER", "int pls", "Bob-Stone" } }, seen)
     end)
 
     it("reaches only frames registered for the event", function()
