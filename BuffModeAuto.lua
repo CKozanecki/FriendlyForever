@@ -40,7 +40,8 @@ ns.BuffModeAuto = Auto
 
 local frame
 local ready = false      -- the login (or reload) has finished: the roster is real
-local inGroup = false    -- in a group at the last roster update
+local inGroup = false    -- in a group at the last roster update; nil after a login whose
+                         -- IsInGroup() couldn't be read, until a roster update reads it (#370)
 local fighting = false   -- between PLAYER_REGEN_DISABLED and _ENABLED
 local dead = {}          -- [name] = true for group members last seen dead
 local pulled = false     -- this group has fought since you joined it
@@ -66,6 +67,14 @@ Auto.WATCH_SECONDS = 5
 
 local function InGroup()
     return ns.Util.ReadGameValues(IsInGroup) == true
+end
+
+-- Whether you're in a group: true or false, or nil when IsInGroup() can't
+-- be read (#322).
+local function GroupAnswer()
+    local answer = ns.Util.ReadGameValues(IsInGroup)
+    if answer == true or answer == false then return answer end
+    return nil
 end
 
 -- In a dungeon or raid, and whether every other group member is in here
@@ -215,14 +224,14 @@ end
 -- what they had, so coming back close isn't a new fade, and buff mode you
 -- turned off stays off until someone else goes missing. After a login the
 -- first look only notes who is (buff mode is off after one), unless a
--- fight has ended.
+-- fight has ended; while the group can't be told, it notes nothing.
 local function CheckMissing(fightEnded)
     if not ready or not inGroup or fighting or InCombatLockdown() then return end
     if Cfg().autoOnMissing ~= true or InPvP() or ns.Battleground.Quiet() then
         lastMissing = {}
         return
     end
-    local list, worn = ns.GroupBuffs.Missing()
+    local list, worn, groupKnown = ns.GroupBuffs.Missing()
     local now, first = {}, nil
     for _, offer in ipairs(list) do
         local key = offer.name .. "\1" .. offer.buff.key
@@ -236,9 +245,11 @@ local function CheckMissing(fightEnded)
         if not worn[key] and (roster == nil or roster[name]) then now[key] = true end
     end
     -- The first look after a login only notes who is missing; while the
-    -- group can't be told (a raid taken for a party would note only your
-    -- subgroup, #359) it notes nothing, and the next look notes instead.
-    if lastMissing ~= nil or roster ~= nil then lastMissing = now end
+    -- group can't be told it notes nothing, and the next look notes instead:
+    -- a raid taken for a party would note only your subgroup (#359), and a
+    -- group whose slots weren't known (IsInGroup() unreadable, #370) would
+    -- note nobody, so a buff missing all along would count as new.
+    if lastMissing ~= nil or (roster ~= nil and groupKnown) then lastMissing = now end
     if not first then return end
     local who = first.self and "you're" or (ns.Util.DisplayName(first.name) .. " is")
     local why = who .. " missing your " .. (ns.BuffData.SpellName(first.buff) or "buff")
@@ -252,10 +263,10 @@ local function Watch()
     watching = true
     C_Timer.After(Auto.WATCH_SECONDS, ns.Diag.Wrap(function()
         watching = false
-        if not inGroup then
-            lastMissing = {}
-            return
-        end
+        -- Out of a group, or not yet known (#370): no look. Leaving the group
+        -- forgot who was missing (OnRosterUpdate), and joining one or the
+        -- login starts afresh, so nothing is kept here.
+        if not inGroup then return end
         Watch()
         CheckMissing(false)
     end))
@@ -354,6 +365,14 @@ function Auto.OnRosterUpdate()
         inGroup = nowIn
         return
     end
+    -- A login or reload that couldn't read IsInGroup() (#370): the first
+    -- update that can is where we start, as at the login, not a group joined
+    -- (a buff missing all along would count as new).
+    if inGroup == nil then
+        inGroup = GroupAnswer()
+        if inGroup then Watch() end
+        return
+    end
     if nowIn and not inGroup then
         pulled, joinedAt = false, nil
         lastMissing = {} -- a group joined: everyone missing a buff is new (#272)
@@ -389,7 +408,7 @@ function Auto.OnEnteringWorld(isLogin, isReload)
         return
     end
     ready = true
-    inGroup = InGroup()
+    inGroup = GroupAnswer()
     pulled, deathSeen, pendingWhy, pendingInside, insideWait, joinedAt = false, false, nil, nil, false, nil
     lastMissing = nil
     ns.GroupBuffs.EndRound()

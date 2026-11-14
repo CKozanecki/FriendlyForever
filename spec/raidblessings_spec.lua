@@ -1,7 +1,8 @@
--- Spec: #68, #76, #208, #70
+-- Spec: #68, #76, #208, #70, #368
 -- My Blessings in this raid (paladins): choose which of your Blessings you
 -- give in the raid you're in, so two paladins don't both give Kings. The
--- choice is never saved and is forgotten once you're out of the raid.
+-- choice is never saved and is forgotten once you're out of the raid, as the
+-- group look believes it (#368): an answer that can't be believed keeps it.
 -- Quick Never: Shift+right-click on a group buff puts that member on the
 -- buff's Never list.
 local wow = require("spec.support.wow")
@@ -298,17 +299,19 @@ describe("My Blessings in this raid", function()
             assert.is_false(ns.BuffRules.RaidBlessingsChosen())
         end)
 
-        it("counts an unreadable raid answer as not in a raid", function()
+        it("an unreadable raid answer can't choose, but keeps a choice already made (#368)", function()
             group("raid", { "Ann-Vale" })
             ns.BuffRules.SetRaidBlessings({ "might" })
             local real = _G.IsInRaid
             _G.IsInRaid = function() return wow.secret(true) end
-            assert.is_false(ns.BuffRules.RaidBlessingsChosen())
-            assert.are.same({ false, "you're not in a raid" }, { ns.BuffRules.SetRaidBlessings({ "might" }) })
+            assert.is_true(ns.BuffRules.RaidBlessingsChosen())
+            assert.are.same({ false, "you're not in a raid" }, { ns.BuffRules.SetRaidBlessings({ "kings" }) })
             _G.IsInRaid = function() error("no") end
-            assert.is_false(ns.BuffRules.SetRaidBlessings({ "might" }))
+            assert.is_false(ns.BuffRules.SetRaidBlessings({ "kings" }))
             _G.IsInRaid = real
-            assert.is_false(ns.BuffRules.RaidBlessingsChosen(), "still forgotten when it reads again")
+            assert.is_true(ns.BuffRules.RaidBlessingsChosen(), "still chosen when it reads again")
+            assert.is_false(ns.BuffRules.CoversInRaid(ns.BuffData.ByKey("kings")), "Might only, as chosen")
+            assert.is_true(ns.BuffRules.CoversInRaid(ns.BuffData.ByKey("might")))
         end)
 
         it("refuses names that aren't your Blessings, and leaves the choice as it was", function()
@@ -469,6 +472,85 @@ describe("My Blessings in this raid", function()
         end)
     end)
 
+    -- #368: the choice is forgotten only when the game says you're not in a
+    -- raid and the slots agree (GroupBuffs.RaidAnswer); one look that can't
+    -- be read or believed keeps it.
+    describe("an IsInRaid() answer that can't be believed (#368)", function()
+        -- Each way one look can go wrong in a raid.
+        local WRONG = {
+            ["a secret"] = function() wow.state.inRaidUnreadable = true end,
+            ["false in a raid"] = function() _G.IsInRaid = function() return false end end,
+            ["no answer"] = function() _G.IsInRaid = function() return nil end end,
+        }
+        local function look()
+            wow.fire("GROUP_ROSTER_UPDATE") -- Core asks CheckRaid
+            ns.BuffButton.Refresh()
+        end
+
+        it("leaving a raid still forgets the choice, and a choice in a real raid is kept look after look (white)", function()
+            group("raid", { "Ann-Vale", "Cid-Rock" })
+            ns.BuffRules.SetRaidBlessings({ "might" })
+            for _ = 1, 5 do
+                look()
+                wow.advance(10)
+            end
+            assert.is_true(ns.BuffRules.RaidBlessingsChosen())
+            assert.are.equal("Ann Vale: Blessing of Might", armed())
+            group("party", { "Ann-Vale", "Cid-Rock" })
+            assert.is_false(ns.BuffRules.RaidBlessingsChosen(), "left the raid")
+            assert.are.equal("Ann Vale: Blessing of Kings", armed())
+            group("raid", { "Ann-Vale", "Cid-Rock" })
+            ns.BuffRules.SetRaidBlessings({ "might" })
+            solo()
+            assert.is_false(ns.BuffRules.RaidBlessingsChosen(), "left the raid for no group")
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("one look with IsInRaid() unreadable, false in a raid, or a secret keeps the choice, and the next true look still uses it (black)", function()
+            for what, wrong in pairs(WRONG) do
+                boot()
+                local real = _G.IsInRaid
+                group("raid", { "Ann-Vale", "Cid-Rock" })
+                ns.BuffRules.SetRaidBlessings({ "might" })
+                wrong()
+                look()
+                assert.is_true(ns.BuffRules.RaidBlessingsChosen(), what .. ": kept through the wrong look")
+                assert.is_false(ns.BuffRules.CoversInRaid(ns.BuffData.ByKey("kings")), what .. ": Kings is still left to others")
+                _G.IsInRaid, wow.state.inRaidUnreadable = real, nil
+                look()
+                assert.are.equal("Ann Vale: Blessing of Might", armed(), what .. ": the next true look")
+                assert.are.same({ "Ann-Vale Blessing of Might", "Cid-Rock Blessing of Might" }, buffAll(), what)
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
+        it("a party that IsInRaid() calls a raid keeps it too: only a believable \"not a raid\" forgets it (black)", function()
+            group("raid", { "Ann-Vale" })
+            ns.BuffRules.SetRaidBlessings({ "might" })
+            local real = _G.IsInRaid
+            _G.IsInRaid = function() return true end
+            group("party", { "Ann-Vale" })
+            assert.is_true(ns.BuffRules.RaidBlessingsChosen(), "IsInRaid() says raid, but no raid slot is you")
+            _G.IsInRaid = real
+            look()
+            assert.is_false(ns.BuffRules.RaidBlessingsChosen(), "the believable answer: not a raid")
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("stopping the choice works while the answer can't be read: never stuck (black)", function()
+            group("raid", { "Ann-Vale" })
+            ns.BuffRules.SetRaidBlessings({ "might" })
+            wow.state.inRaidUnreadable = true
+            local n = #wow.printed
+            slash("blessings all")
+            assert.is_false(ns.BuffRules.RaidBlessingsChosen())
+            assert.is_falsy(printedSince(n):find("you're not in a raid", 1, true), printedSince(n))
+            assert.is_truthy(printedSince(n):find("(all: you haven't chosen)", 1, true), printedSince(n))
+            assert.are.same({ true }, { ns.BuffRules.SetRaidBlessings(nil) })
+            assert.are.same({}, wow.errors)
+        end)
+    end)
+
     describe("chaos (red tests)", function()
         it("never gives a Blessing you left to others, nor any buff to someone on its Never list", function()
             local blessed, skippedByChoice = 0, 0
@@ -568,6 +650,119 @@ describe("My Blessings in this raid", function()
             end
             assert.is_true(blessed > 30, "blessed: " .. blessed)
             assert.is_true(skippedByChoice > 5, "presses with a choice and nothing to give: " .. skippedByChoice)
+        end)
+
+        -- #368: regroups, choices, buffs fading and presses, with an IsInRaid()
+        -- that tells the truth, flips half its answers, always says false,
+        -- answers nothing, or can't be read. While the client's state shows
+        -- you still in the raid you chose in, no press gives a Blessing you
+        -- left to another paladin. The model is the client's state and what
+        -- was chosen, never the rules' own answer.
+        it("a storm with an IsInRaid() that sometimes lies or can't be read never gives a Blessing left to another paladin in the same raid (red)", function()
+            local MODES = { "truth", "flips", "false", "none", "secret" }
+            local total = { steps = 0, keptThroughLie = 0, blessingsInRaid = 0, chosen = 0 }
+            for _, seed in ipairs({ 7, 368, 999, 2026, 31337 }) do
+                random.seed(seed)
+                boot()
+                local everyone = { "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
+                local mode, lieState = "truth", seed
+                local real = _G.IsInRaid
+                _G.IsInRaid = function()
+                    local answer = real()
+                    if mode == "false" then return false end
+                    if mode == "none" then return nil end
+                    if mode == "flips" then
+                        lieState = (lieState * 48271) % 2147483647
+                        if lieState % 2 == 0 then return not answer end
+                    end
+                    return answer
+                end
+                -- The Blessings chosen in the raid you're still in, or nil;
+                -- and whether a look that lied or couldn't read came since.
+                local chosen, lied = nil, false
+                local function inRaid() return wow.state.groupType == "raid" end
+                local function regroup()
+                    local members = {}
+                    for _, name in ipairs(everyone) do if random.random() < 0.7 then members[#members + 1] = name end end
+                    if #members == 0 then members[1] = everyone[1] end
+                    local r = random.random()
+                    if r < 0.15 then
+                        solo()
+                    else
+                        group(r < 0.7 and "raid" or "party", members, { "MAGE", "ROGUE", "MAGE", "WARRIOR", "PRIEST" })
+                    end
+                    -- Out of the raid, or into another: the choice was for that one.
+                    chosen, lied = nil, false
+                end
+                regroup()
+                local function choose()
+                    -- Choose, where the game says raid truly.
+                    if not inRaid() or mode ~= "truth" then return end
+                    local pick, set, n = {}, {}, 0
+                    for _, key in ipairs({ "kings", "wisdom", "might" }) do
+                        if random.random() < 0.5 then
+                            pick[#pick + 1] = key
+                            set[key], n = true, n + 1
+                        end
+                    end
+                    if ns.BuffRules.SetRaidBlessings(pick) then
+                        chosen, lied = n < 3 and set or nil, false
+                        if chosen then total.chosen = total.chosen + 1 end
+                    end
+                end
+                local function lie()
+                    mode = MODES[random.random(#MODES)]
+                    wow.state.inRaidUnreadable = mode == "secret" or nil
+                end
+                local function fade()
+                    -- Buffs wear off people (any of them, not only the first).
+                    for token, u in pairs(wow.state.units) do
+                        if (token:find("^raid") or token:find("^party")) and u.auras and #u.auras > 0
+                            and random.random() < 0.5 then
+                            local i = random.random(#u.auras)
+                            table.remove(u.auras, i)
+                            if u.auraSources then table.remove(u.auraSources, i) end
+                        end
+                    end
+                end
+                local actions = {
+                    regroup, choose, choose, choose, lie, lie, fade, fade, fade,
+                    function()
+                        mode = "truth"
+                        wow.state.inRaidUnreadable = nil
+                    end,
+                    function() wow.fire("GROUP_ROSTER_UPDATE") end,
+                    function() wow.advance(random.random() * 60) end,
+                }
+                for step = 1, 300 do
+                    local where = ("seed %d, step %d (IsInRaid %s)"):format(seed, step, mode)
+                    actions[random.random(#actions)]()
+                    if mode ~= "truth" then lied = true end
+                    ns.BuffButton.Refresh()
+                    local cast = scroll()
+                    total.steps = total.steps + 1
+                    if cast and inRaid() then
+                        local buff
+                        for _, b in ipairs(ns.BuffData.ClassBuffs()) do
+                            for _, id in ipairs(b.ranks) do if id == cast.id then buff = b end end
+                        end
+                        assert.is_truthy(buff, where .. ": cast " .. tostring(cast.spell))
+                        if buff.family == "blessing" then
+                            total.blessingsInRaid = total.blessingsInRaid + 1
+                            if chosen then
+                                assert.is_true(chosen[buff.key] == true,
+                                    where .. ": gave " .. buff.key .. ", left to another paladin in this raid")
+                                if lied then total.keptThroughLie = total.keptThroughLie + 1 end
+                            end
+                        end
+                    end
+                    assert.are.same({}, wow.errors, where)
+                end
+            end
+            assert.is_true(total.chosen > 5, "choices made: " .. total.chosen)
+            assert.is_true(total.blessingsInRaid > 30, "Blessings given in a raid: " .. total.blessingsInRaid)
+            assert.is_true(total.keptThroughLie > 5, "a chosen Blessing given after a look that lied: "
+                .. total.keptThroughLie)
         end)
     end)
 end)

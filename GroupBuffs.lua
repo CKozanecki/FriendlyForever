@@ -488,8 +488,9 @@ end
 -- buff: a member's every single buff (#313), and a group offer beside its
 -- aim's single offer (#252) and any other group offer aimed at them (#305);
 -- the button keeps one row per player (BuffButton.lua).
-function GroupBuffs.Next(out)
-    local units, groupKnown = GroupUnits()
+-- (Next's look, over units as GroupUnits read them, groupKnown being whether
+-- the game said which slots: Missing reads them itself, to say so, #370.)
+local function Look(out, units, groupKnown)
     local first, listed = nil, {}
     -- One offer found: the first is returned at once, or with a list kept.
     local function Found(offer)
@@ -652,6 +653,11 @@ function GroupBuffs.Next(out)
     return nil, firstReason or "everyone in your group has your buffs", not open
 end
 
+-- The look above, with the group read once here.
+function GroupBuffs.Next(out)
+    return Look(out, GroupUnits())
+end
+
 -- The members missing a buff of yours outright (#272), in the order the
 -- button would reach them: { name, buff, ... } as Next lists them. Missing
 -- means no copy at all, whoever cast it: never cast, or fully faded, and
@@ -660,14 +666,18 @@ end
 -- by, online and readable: one whose buffs, name, connection or range can't
 -- be read is never missing one. Each buff a member lacks is listed. Also
 -- the pairs seen worn, { [name .. "\1" .. buff key] = true }: a member left
--- out of this look (out of range, say) is in neither. Nothing here casts.
+-- out of this look (out of range, say) is in neither. And whether the group's
+-- slots were known (#370): false when IsInRaid() or IsInGroup() couldn't be
+-- read or believed (GroupUnits), so an empty list may only mean nobody was
+-- looked at. Nothing here casts.
 function GroupBuffs.Missing()
     local list, worn = {}, {}
+    local units, groupKnown = GroupUnits()
     presentOnly = worn
-    local ok, err = pcall(GroupBuffs.Next, list)
+    local ok, err = pcall(Look, list, units, groupKnown)
     presentOnly = false
     if not ok then error(err, 0) end
-    return list, worn
+    return list, worn, groupKnown == true
 end
 
 -- Your buff reached them (the game said so).
