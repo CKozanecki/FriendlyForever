@@ -214,6 +214,39 @@ describe("Buff requests in chat", function()
             assert.are.equal("Mark of the Wild", select(2, offered()))
         end)
 
+        it("the game's own spelling of the spell's name counts, in any language", function()
+            boot({ class = "PRIEST" })
+            local saved = {}
+            for id in pairs({ [10938] = true, [10937] = true, [2791] = true, [1245] = true, [1244] = true,
+                [1243] = true }) do
+                saved[id] = wow.SPELL_NAMES[id]
+                wow.SPELL_NAMES[id] = "Mot de pouvoir : Robustesse"
+            end
+            stranger()
+            wow.whisper("Mot de pouvoir : Robustesse ?", "Bob-Stone")
+            for id, name in pairs(saved) do wow.SPELL_NAMES[id] = name end
+            assert.are.equal("Bob-Stone", (offered()))
+        end)
+
+        it("renews the buff they asked for when theirs is partly worn off", function()
+            stranger("nameplate1", { auras = { SPELLS.DRUID.motw }, auraDurations = { 1800 },
+                auraExpires = { wow.now + 60 } })
+            wow.whisper("mark pls", "Bob-Stone")
+            assert.are.equal("Mark of the Wild", select(2, offered()))
+        end)
+
+        it("a water buff asked for isn't offered while the game says it can't reach them", function()
+            boot({ class = "SHAMAN" })
+            stranger("nameplate1", { outOfSpellRange = true })
+            wow.whisper("wb pls", "Bob-Stone")
+            local offer, why, everyoneLeft = ns.Offers.Current()
+            assert.is_nil(offer)
+            assert.is_true(everyoneLeft, "out of reach: it doesn't hold the button (#270)")
+            wow.state.units.nameplate1.outOfSpellRange = nil
+            assert.are.equal("everyone you owe is out of sight or out of range", why)
+            assert.are.equal("Water Breathing", select(2, offered()))
+        end)
+
         it("keeps the PvP rule: no offer to a flagged player unless you're flagged too", function()
             stranger("nameplate1", { pvp = true })
             wow.whisper("mark pls", "Bob-Stone")
@@ -399,6 +432,9 @@ describe("Buff requests in chat", function()
             assert.are.equal(0, ns.Offers.Count())
             ns.db.buffBack.enabled = true
             ns.SetEnabled(false)
+            for _, frame in ipairs(wow.frames) do
+                assert.is_nil(frame.events.CHAT_MSG_WHISPER, "the addon off: no chat is even read")
+            end
             wow.whisper("mark pls", "Bob-Stone")
             assert.are.equal(0, ns.Offers.Count())
             ns.SetEnabled(true)
@@ -470,7 +506,7 @@ describe("Buff requests in chat", function()
             for _, text in ipairs({ "", " ", "pls", "?", "please please", "I'll mark the boss", "mark the skull pls",
                 "mark pls and thorns", "lol mark", "marks pls", "mark mark", "can i get", "thorns pls :)",
                 "mark pls 123", "m a r k", "mark_pls", "mark\tpls\0", "ma rk", "MARKPLS", "can you mark pls",
-                "gimme mark", "mark pls pls pls", "any any mark", "buff pls", "buffs?", "wtb mark", "ty" }) do
+                "gimme mark", "mark pls pls pls", "any any mark", "any need mark", "need any mark", "buff pls", "buffs?", "wtb mark", "ty" }) do
                 wow.whisper(text, "Bob-Stone")
                 wow.say(text, "Bob-Stone")
                 assert.are.equal(0, ns.Offers.Count(), ("%q"):format(text))

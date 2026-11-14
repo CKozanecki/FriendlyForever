@@ -75,7 +75,7 @@ end
 
 -- Whether text ends with a space and word; the rest if so.
 local function BeforeTail(text, tail)
-    if #text > #tail and text:sub(-(#tail + 1)) == " " .. tail then return text:sub(1, -(#tail + 2)) end
+    if text:sub(-(#tail + 1)) == " " .. tail then return text:sub(1, -(#tail + 2)) end
 end
 
 -- The buff name a message asks for, as typed (lower case, single spaces),
@@ -105,7 +105,7 @@ function Requests.Phrase(text)
         if not cut then break end
         s = cut
     end
-    if s == "" then return nil end
+    -- An empty phrase ("pls" alone) equals no name, so it queues nobody.
     return s
 end
 
@@ -116,17 +116,15 @@ local function Spoken(name)
     return s
 end
 
--- The buff of yours (one you know and offer, never one cast only on
--- yourself) that a phrase names, or nil.
+-- The buff of yours that a phrase names, or nil: one you know and offer
+-- (BuffData.Offerable, which holds no self-buff such as Battle Shout: #44).
 function Requests.BuffFor(phrase)
     if type(phrase) ~= "string" then return nil end
     for _, buff in ipairs(ns.BuffData.Offerable()) do
-        if not buff.selfCast then
-            for _, nick in ipairs(Requests.NamesFor(buff.key)) do
-                if nick == phrase then return buff end
-            end
-            if Spoken(ns.BuffData.SpellName(buff)) == phrase then return buff end
+        for _, nick in ipairs(Requests.NamesFor(buff.key)) do
+            if nick == phrase then return buff end
         end
+        if Spoken(ns.BuffData.SpellName(buff)) == phrase then return buff end
     end
     return nil
 end
