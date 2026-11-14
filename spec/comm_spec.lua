@@ -1,4 +1,4 @@
--- Spec: #32, #46, #70
+-- Spec: #32, #46, #70, #325
 -- The hidden channel between copies of the addon: addon messages over the
 -- game's own routes, with every incoming message treated as untrusted.
 local wow = require("spec.support.wow")
@@ -657,13 +657,13 @@ describe("Hidden channel limits and edge cases", function()
         local C = wow.boot().Comm
         assert.are.same({
             VERSION = 1, MAX_BYTES = 255, MAX_FIELDS = 8,
-            SEND_BURST = 5, SEND_REFILL = 2, MAX_QUEUE = 8, MAX_QUEUE_AGE = 10,
+            SEND_BURST = 5, SEND_REFILL = 2, MAX_QUEUE = 8, MAX_QUEUE_AGE = 10, MIN_WAIT = 0.05,
             PEER_BURST = 6, PEER_REFILL = 1, ALL_BURST = 40, ALL_REFILL = 0.1, MAX_SENDERS = 200,
             MAX_PEERS = 200, PEER_TTL = 1800, REPLY_GAP = 300,
         }, {
             VERSION = C.VERSION, MAX_BYTES = C.MAX_BYTES, MAX_FIELDS = C.MAX_FIELDS,
             SEND_BURST = C.SEND_BURST, SEND_REFILL = C.SEND_REFILL, MAX_QUEUE = C.MAX_QUEUE,
-            MAX_QUEUE_AGE = C.MAX_QUEUE_AGE, PEER_BURST = C.PEER_BURST, PEER_REFILL = C.PEER_REFILL,
+            MAX_QUEUE_AGE = C.MAX_QUEUE_AGE, MIN_WAIT = C.MIN_WAIT, PEER_BURST = C.PEER_BURST, PEER_REFILL = C.PEER_REFILL,
             ALL_BURST = C.ALL_BURST, ALL_REFILL = C.ALL_REFILL, MAX_SENDERS = C.MAX_SENDERS,
             MAX_PEERS = C.MAX_PEERS, PEER_TTL = C.PEER_TTL, REPLY_GAP = C.REPLY_GAP,
         })
@@ -1016,5 +1016,157 @@ describe("Hidden channel edge cases, continued", function()
             receive(hello("Flood-Er"), "GUILD", "Flood-Er")
             assert.are.equal(5, count(ns, "commFlood"))
         end)
+    end)
+end)
+
+describe("The send limit's waits at a large GetTime (#325)", function()
+    -- A token bucket refilled by elapsed / SEND_REFILL can end a hair under
+    -- one token, such as 0.99999999999994. Waiting (1 - tokens) * SEND_REFILL
+    -- is then about 1e-13 s, and at GetTime() near 1000 now + wait rounds
+    -- back to now: the timer runs at the same instant, the bucket refills
+    -- nothing, and the pump waits again. The simulated client's advance()
+    -- would never return, so these tests watch every timer and fail on a
+    -- spin instead of hanging. It happens when the clock crosses a power of
+    -- two (1024, 2048 ...), where a double's step doubles and a wait worked
+    -- out below it no longer lands exactly.
+    local SPIN_BUDGET = 50 -- timers scheduled at one instant before it counts as a spin
+
+    -- Boots, and records the waits Comm.Pump schedules and any spin.
+    local function watched()
+        local ns = wow.boot()
+        local C = ns.Comm
+        local seen = { waits = {}, spun = false }
+        local realPump, realAfter = C.Pump, _G.C_Timer.After
+        local inPump, instant, atInstant = false, nil, 0
+        C.Pump = function(...)
+            inPump = true
+            local ok, err = pcall(realPump, ...)
+            inPump = false
+            if not ok then error(err, 0) end
+        end
+        _G.C_Timer.After = function(delay, fn)
+            if inPump then seen.waits[#seen.waits + 1] = { delay = delay, at = wow.now } end
+            if wow.now + delay == wow.now then
+                if instant == wow.now then atInstant = atInstant + 1 else instant, atInstant = wow.now, 1 end
+                -- Not scheduled: in the simulated client it would spin forever.
+                if atInstant > SPIN_BUDGET or inPump then seen.spun = true return end
+            end
+            return realAfter(delay, fn)
+        end
+        return ns, C, seen
+    end
+
+    -- At most SEND_BURST + w / SEND_REFILL attempts in any window of w seconds,
+    -- from the times the simulated game recorded.
+    local function assertUnderLimit(C, label)
+        local attempts = {}
+        for _, m in ipairs(wow.addonSent) do attempts[#attempts + 1] = m.time end
+        for _, m in ipairs(wow.addonRefused) do attempts[#attempts + 1] = m.time end
+        table.sort(attempts)
+        for i = 1, #attempts do
+            for j = i, #attempts do
+                local w = attempts[j] - attempts[i]
+                assert.is_true(j - i + 1 <= C.SEND_BURST + w / C.SEND_REFILL + 1e-9,
+                    string.format("%s: %d sends in %.6fs", label, j - i + 1, w))
+            end
+        end
+    end
+
+    -- Found by search: after these steps the bucket holds 0.99999999999994
+    -- tokens at GetTime() 1024.7 (numbers advance the clock, "S" sends).
+    local ROUNDING_RUN = { 1.9, 6.8, "S", "S", "S", 1.3, "S", 2.7, "S", "S", "S", "S" }
+
+    local function play(C, steps)
+        for _, step in ipairs(steps) do
+            if step == "S" then assert.is_true(C.SayHello("GUILD")) else wow.advance(step) end
+        end
+    end
+
+    it("after a long run of sends, the queue drains at one message per SEND_REFILL, as before (white)", function()
+        local ns, C, seen = watched()
+        play(C, ROUNDING_RUN)
+        -- The bucket is empty at a large GetTime: 7 sent, and 3 wait.
+        local emptied = wow.now
+        assert.is_true(emptied > 1000, "a large GetTime")
+        assert.is_true(C.SayHello("GUILD"))
+        assert.is_true(C.SayHello("GUILD"))
+        assert.are.equal(7, #wow.addonSent)
+        assert.are.equal(3, C.QueueLength())
+        wow.advance(30)
+        assert.is_false(seen.spun, "the pump spun at one instant")
+        assert.are.equal(10, #wow.addonSent)
+        assert.are.equal(0, C.QueueLength())
+        -- The n-th waiting message goes n refills after the bucket emptied:
+        -- never earlier, and never later than the floor.
+        for n = 1, 3 do
+            local due, at = emptied + n * C.SEND_REFILL, wow.addonSent[7 + n].time
+            assert.is_true(at >= due - 1e-9, string.format("message %d early: %.17g < %.17g", 7 + n, at, due))
+            assert.is_true(at <= due + C.MIN_WAIT + 1e-9, string.format("message %d stuck: %.17g", 7 + n, at))
+        end
+        assertUnderLimit(C, "rounding run")
+        assert.are.equal(10, count(ns, "commSent"))
+        assert.are.equal(0, count(ns, "commNotSent"))
+        noErrors(ns)
+    end)
+
+    it("a bucket a hair under one token never makes the pump wait less than MIN_WAIT (black)", function()
+        local ns, C, seen = watched()
+        play(C, ROUNDING_RUN)
+        wow.advance(30)
+        assert.is_false(seen.spun, "the pump spun at one instant")
+        assert.is_true(#seen.waits >= 2)
+        local floored = 0
+        for _, w in ipairs(seen.waits) do
+            assert.is_true(w.delay >= C.MIN_WAIT, string.format("waited %.17g at %.17g", w.delay, w.at))
+            if w.delay == C.MIN_WAIT then floored = floored + 1 end
+        end
+        -- The run reaches the rounding case, so the floor is what it waited.
+        assert.is_true(floored >= 1, "the floor was used")
+        noErrors(ns)
+    end)
+
+    it("a storm of sends and clock steps at large GetTimes never spins and never beats the limit (red)", function()
+        -- Seeds 23 to 40 each spun before the fix; 3 and 2026 didn't.
+        for _, seed in ipairs({ 3, 23, 28, 29, 30, 31, 32, 39, 40, 2026 }) do
+            random.seed(seed)
+            local ns, C, seen = watched()
+            -- Jump the clock forward to a little before a power of two.
+            local function nearPowerOfTwo()
+                local target = 2 ^ random.random(11, 22) - random.random() * 3 * C.SEND_REFILL
+                if target > wow.now then wow.advance(target - wow.now) end
+            end
+            nearPowerOfTwo()
+            local tried = 0
+            for _ = 1, 600 do
+                local r = random.random()
+                if r < 0.45 then
+                    for _ = 1, random.random(1, 4) do
+                        C.SayHello("GUILD")
+                        tried = tried + 1
+                    end
+                elseif r < 0.7 then
+                    wow.advance(random.random(1, 30) / 10)
+                elseif r < 0.85 then
+                    wow.advance(random.random() * C.SEND_REFILL)
+                elseif r < 0.95 then
+                    wow.advance(random.random() * 1e-3)
+                else
+                    nearPowerOfTwo()
+                end
+                assert.is_false(seen.spun, "seed " .. seed .. ": the pump spun at one instant")
+            end
+            wow.advance(C.MAX_QUEUE_AGE + C.SEND_REFILL)
+            assert.is_false(seen.spun, "seed " .. seed .. ": the pump spun at one instant")
+            for _, w in ipairs(seen.waits) do
+                assert.is_true(w.delay >= C.MIN_WAIT, string.format("seed %d: waited %.17g", seed, w.delay))
+            end
+            assertUnderLimit(C, "seed " .. seed)
+            assert.are.equal(0, C.QueueLength(), "seed " .. seed)
+            -- Every message was sent, or dropped with a count (too many or too
+            -- long waiting): none was lost in the queue.
+            assert.are.equal(tried, count(ns, "commSent") + count(ns, "commNotSent"), "seed " .. seed)
+            assert.are.same({}, wow.addonRefused, "seed " .. seed)
+            noErrors(ns)
+        end
     end)
 end)
