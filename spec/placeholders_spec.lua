@@ -322,23 +322,28 @@ describe("Placeholders fill whatever their case (#319)", function()
             return (key:gsub("%a", function(c) return random.random(2) == 1 and c:upper() or c end))
         end
 
-        -- Every line names them in some case, so a fallback ("Stranger") shows.
+        -- Every line names them and the buff in some case, so a fallback
+        -- ("Stranger") and a buff with no readable name ("buff") show.
         local function randomLine()
-            local parts = { "{" .. anyCase("name") .. "}" }
+            local parts = { "{" .. anyCase("name") .. "}", "{" .. anyCase("buff") .. "}" }
             for _ = 1, random.random(0, 3) do
                 parts[#parts + 1] = "{" .. anyCase(KNOWN[random.random(#KNOWN)]) .. "}"
             end
             return "Thanks " .. table.concat(parts, " ") .. "!"
         end
 
-        local NAMES = { "Fort", "Spirit", "", " |\1", false, "secret" }
+        -- Readable names, unreadable ones (blank, blank once cleaned, none,
+        -- secret), and more of the unreadable, so whole batches have none.
+        local NAMES = { "Fort", "Spirit", "", " |\1", false, "secret", false, "" }
         local FAIL_WINDOW = 5 -- seconds a "no player named" reply counts as our whisper failing
         local STRANGER = "Stranger"
+        -- Each style, fallback and with-or-without unnamed casters, twice.
+        local SEEDS = 48
 
         -- How often the storms reached each path the criterion names, worked
         -- out from the simulated client's own records (what it sent, and when),
         -- never from the addon's state.
-        local reached = { held = 0, unknown = 0, failedWhisper = 0, unreadable = 0 }
+        local reached
 
         local function lastWhisperTo(name)
             for i = #wow.sent, 1, -1 do
@@ -347,116 +352,113 @@ describe("Placeholders fill whatever their case (#319)", function()
             end
         end
 
-        for seed = 1, 25 do
-            it("never sends a known placeholder unfilled, seed " .. seed, function()
-                random.seed(seed * 7919)
-                local ns = wow.boot()
-                -- Every style with every fallback, twice over the seeds.
-                ns.db.buff.thankStyle = STYLES[(seed - 1) % #STYLES + 1]
-                ns.db.buff.fallback = FALLBACKS[math.floor((seed - 1) / #STYLES) % #FALLBACKS + 1]
-                -- Emotes alone have no text: then the fallback says a line.
-                if ns.db.buff.thankStyle == "emote" then ns.db.buff.fallback = "say" end
-                ns.db.buff.listBuffNames = random.random(2) == 1
-                ns.db.buff.quietInCities = false
-                ns.db.buff.unknownName = STRANGER
-                ns.db.buff.messages = { randomLine(), randomLine(), randomLine() }
-                -- Some storms have no caster the game won't name, so a
-                -- "Stranger" line in them can only be a failed whisper's fallback.
-                local unnamed = math.floor((seed - 1) / 12) % 2 == 1
-                -- With /thank alone, only an unnamed caster's fallback says a line.
-                if ns.db.buff.thankStyle == "emote" then unnamed = true end
-                for i, c in ipairs(CASTERS) do
-                    wow.addUnit("nameplate" .. i, { name = c.name, surname = c.surname,
-                        id = c.name .. "-" .. c.surname })
-                end
-                local fails, unreadable = {}, {} -- { at = time } and { at, first name }
+        local function storm(seed)
+            random.seed(seed * 7919)
+            local ns = wow.boot()
+            -- Every style with every fallback, each with and without unnamed casters.
+            local style = STYLES[(seed - 1) % #STYLES + 1]
+            ns.db.buff.thankStyle = style
+            ns.db.buff.fallback = FALLBACKS[math.floor((seed - 1) / #STYLES) % #FALLBACKS + 1]
+            -- Emotes alone have no text: then the fallback says a line.
+            if style == "emote" then ns.db.buff.fallback = "say" end
+            local listed = random.random(2) == 1
+            ns.db.buff.listBuffNames = listed
+            ns.db.buff.quietInCities = false
+            ns.db.buff.unknownName = STRANGER
+            ns.db.buff.messages = { randomLine(), randomLine(), randomLine() }
+            -- Some storms have no caster the game won't name, so a "Stranger"
+            -- line in them can only be a failed whisper's fallback.
+            local unnamed = math.floor((seed - 1) / 12) % 2 == 1
+            -- With /thank alone, only an unnamed caster's fallback says a line.
+            if style == "emote" then unnamed = true end
+            for i, c in ipairs(CASTERS) do
+                wow.addUnit("nameplate" .. i, { name = c.name, surname = c.surname, id = c.name .. "-" .. c.surname })
+            end
+            local fails = {} -- when a "no player named" reply followed our whisper to them
 
-                -- A key press; a /say it lets out was a line held for one.
-                local function press()
-                    local before = #wow.sent
-                    wow.keyDown()
-                    for i = before + 1, #wow.sent do
-                        if wow.sent[i].channel == "SAY" then reached.held = reached.held + 1 end
-                    end
+            -- A key press; a /say it lets out was a line held for one.
+            local function press()
+                local before = #wow.sent
+                wow.keyDown()
+                for i = before + 1, #wow.sent do
+                    if wow.sent[i].channel == "SAY" then reached.held = reached.held + 1 end
                 end
+            end
 
-                for _ = 1, 60 do
-                    local roll = random.random(10)
-                    if roll <= 4 then
-                        local aura = { spellId = 90000 + random.random(20) }
-                        local name = NAMES[random.random(#NAMES)]
-                        if name == "secret" then aura.name = wow.secret("Fort")
-                        elseif name then aura.name = name end
-                        local c
-                        if not unnamed or random.random(4) > 1 then
-                            local i = random.random(#CASTERS)
-                            aura.sourceUnit, c = "nameplate" .. i, CASTERS[i]
-                        end
-                        if c and name ~= "Fort" and name ~= "Spirit" then
-                            unreadable[#unreadable + 1] = { at = wow.now, first = c.name }
-                        end
-                        wow.gainBuff(aura)
-                    elseif roll == 5 then
-                        -- Mostly the one just whispered, so the fallback is reached.
-                        local c = CASTERS[random.random(#CASTERS)]
-                        local full = c.name .. "-" .. c.surname
-                        if random.random(4) > 1 then
-                            local latest
-                            for i = #wow.sent, 1, -1 do
-                                if wow.sent[i].channel == "WHISPER" then latest = wow.sent[i].target break end
-                            end
-                            full = latest or full
-                        end
-                        local whispered = lastWhisperTo(full)
-                        if whispered and wow.now - whispered <= FAIL_WINDOW then fails[#fails + 1] = { at = wow.now } end
-                        wow.systemMessage("No player named '" .. full .. "' is currently playing.")
-                    elseif roll == 6 then
-                        press()
-                    elseif roll == 7 then
-                        ns.db.buff.messages[random.random(3)] = randomLine()
-                    else
-                        wow.advance(random.random() * 6)
+            for _ = 1, 60 do
+                local roll = random.random(10)
+                if roll <= 4 then
+                    local aura = { spellId = 90000 + random.random(20) }
+                    local name = NAMES[random.random(#NAMES)]
+                    if name == "secret" then aura.name = wow.secret("Fort")
+                    elseif name then aura.name = name end
+                    if not unnamed or random.random(4) > 1 then
+                        aura.sourceUnit = "nameplate" .. random.random(#CASTERS)
                     end
-                end
-                for _ = 1, 40 do
-                    wow.advance(5)
+                    wow.gainBuff(aura)
+                elseif roll == 5 then
+                    -- Mostly the one just whispered, so the fallback is reached.
+                    local c = CASTERS[random.random(#CASTERS)]
+                    local full = c.name .. "-" .. c.surname
+                    if random.random(4) > 1 then
+                        for i = #wow.sent, 1, -1 do
+                            if wow.sent[i].channel == "WHISPER" then full = wow.sent[i].target break end
+                        end
+                    end
+                    local whispered = lastWhisperTo(full)
+                    if whispered and wow.now - whispered <= FAIL_WINDOW then fails[#fails + 1] = wow.now end
+                    wow.systemMessage("No player named '" .. full .. "' is currently playing.")
+                elseif roll == 6 then
                     press()
+                elseif roll == 7 then
+                    ns.db.buff.messages[random.random(3)] = randomLine()
+                else
+                    wow.advance(random.random() * 6)
                 end
-                assert.are.same({}, wow.errors)
-                assert.is_true(#wow.sent > 0, "the storm sent something")
-                for _, m in ipairs(wow.sent) do
-                    assert.are.same({}, unfilled(m.text), m.text)
-                    assert.is_nil(m.text:find("[{}]"), "every placeholder in the lines is known: " .. m.text)
-                end
+            end
+            for _ = 1, 40 do
+                wow.advance(5)
+                press()
+            end
+            assert.are.same({}, wow.errors)
+            assert.is_true(#wow.sent > 0, "the storm sent something")
+            for _, m in ipairs(wow.sent) do
+                assert.are.same({}, unfilled(m.text), m.text)
+                assert.is_nil(m.text:find("[{}]"), "every placeholder in the lines is known: " .. m.text)
+            end
 
-                -- What this storm reached, from what was sent and when.
-                local style = ns.db.buff.thankStyle
-                for _, m in ipairs(wow.sent) do
-                    local stranger = m.channel == "SAY" and m.text:find(STRANGER, 1, true)
-                    -- No whispers: a "Stranger" line is the unnamed caster's fallback.
-                    if stranger and style ~= "whisper" then
-                        reached.unknown = reached.unknown + 1
-                    end
-                    -- No unnamed casters: a "Stranger" line after a whisper
-                    -- failed is that whisper's fallback.
-                    if stranger and style == "whisper" and not unnamed and #fails > 0 and m.time >= fails[1].at then
-                        reached.failedWhisper = reached.failedWhisper + 1
-                    end
-                    for _, u in ipairs(unreadable) do
-                        if m.time >= u.at and m.text:find(u.first, 1, true) then
-                            reached.unreadable = reached.unreadable + 1
-                            break
-                        end
-                    end
+            -- What this storm reached, from what was sent and when.
+            for _, m in ipairs(wow.sent) do
+                local stranger = m.channel == "SAY" and m.text:find(STRANGER, 1, true)
+                -- No whispers: a "Stranger" line is the unnamed caster's fallback.
+                if stranger and style ~= "whisper" then reached.unknown = reached.unknown + 1 end
+                -- No unnamed casters: a "Stranger" line after a whisper failed
+                -- is that whisper's fallback.
+                if stranger and style == "whisper" and not unnamed and fails[1] and m.time >= fails[1] then
+                    reached.failedWhisper = reached.failedWhisper + 1
                 end
+                -- Names listed, yet "buff" or "buffs": a batch with no readable name.
+                if listed and (m.text:find("%f[%a]buffs?%f[%A]")) then
+                    reached.unreadable = reached.unreadable + 1
+                end
+            end
+        end
+
+        for seed = 1, SEEDS do
+            it("never sends a known placeholder unfilled, seed " .. seed, function()
+                reached = { held = 0, unknown = 0, failedWhisper = 0, unreadable = 0 }
+                storm(seed)
             end)
         end
 
         it("the storms reach every path the criterion names", function()
+            -- Its own storms: no test depends on another's order.
+            reached = { held = 0, unknown = 0, failedWhisper = 0, unreadable = 0 }
+            for seed = 1, SEEDS do storm(seed) end
             assert.is_true(reached.held > 0, "a /say held for a key press")
             assert.is_true(reached.unknown > 0, "the fallback for a caster the game won't name")
             assert.is_true(reached.failedWhisper > 0, "the fallback when a whisper can't reach them")
-            assert.is_true(reached.unreadable > 0, "a thank-you for a buff with no readable name")
+            assert.is_true(reached.unreadable > 0, "a thank-you for a batch with no readable buff name")
         end)
     end)
 end)
