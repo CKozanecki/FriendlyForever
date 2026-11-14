@@ -347,6 +347,14 @@ local function InRaid()
     return Read(IsInRaid) == true
 end
 
+-- In a battleground, whose raid group isn't yours (#376: the owner): true
+-- or false, or nil when IsInInstance() can't be read.
+local function InBattleground()
+    local _, kind = Read(IsInInstance)
+    if type(kind) ~= "string" then return nil end
+    return kind == "pvp"
+end
+
 -- The raid as the game shows it now: its leader's full name (nil when it
 -- can't be read), the other members by full name, and how many slots
 -- couldn't be read: whether they hold someone, or who.
@@ -391,18 +399,22 @@ local function RaidChanged(leader, members, unread)
     return gone * 2 > before
 end
 
--- Forget the choice once you're out of the raid (#368). Called before each
--- use.
-local function CheckOut()
-    if raidBlessings and ns.GroupBuffs.RaidAnswer() == false then raidBlessings = nil end
+-- The choice while it's in force, or nil. Called before each use. In a
+-- battleground it's kept but not used, and nothing there forgets it: it
+-- applies again back in your raid (#376: the owner). Otherwise it's
+-- forgotten once you're out of the raid (#368).
+local function InForce()
+    if not raidBlessings or InBattleground() == true then return nil end
+    if ns.GroupBuffs.RaidAnswer() == false then raidBlessings = nil end
+    return raidBlessings
 end
 
 -- On each roster update (Core.lua): forget the choice once you're out of the
 -- raid, or in another one (#376). Only while the game says, believably,
--- that you're in a raid: an answer that can't be read keeps the choice.
+-- that you're in a raid and not in a battleground: an answer that can't be
+-- read keeps the choice.
 function BuffRules.CheckRaid()
-    CheckOut()
-    if not raidBlessings or ns.GroupBuffs.RaidAnswer() ~= true then return end
+    if not InForce() or ns.GroupBuffs.RaidAnswer() ~= true or InBattleground() ~= false then return end
     local leader, members, unread = RaidNow()
     if RaidChanged(leader, members, unread) then raidBlessings = nil end
 end
@@ -421,8 +433,8 @@ end
 -- which is every buff when there's no split (not in a raid, or no other
 -- copy of your class in it).
 function BuffRules.CoversInRaid(buff)
-    CheckOut()
-    if raidBlessings and buff.family == "blessing" then return raidBlessings[buff.key] == true end
+    local chosen = InForce()
+    if chosen and buff.family == "blessing" then return chosen[buff.key] == true end
     return ns.RaidSplit.Covers(buff)
 end
 
@@ -430,10 +442,10 @@ end
 -- when you haven't (the split then decides). Announced to the other copies
 -- of your class in the raid (RaidSplit.lua).
 function BuffRules.HandSetBlessings()
-    CheckOut()
-    if not raidBlessings then return nil end
+    local chosen = InForce()
+    if not chosen then return nil end
     local out = {}
-    for key in pairs(raidBlessings) do out[key] = true end
+    for key in pairs(chosen) do out[key] = true end
     return out
 end
 
@@ -449,6 +461,8 @@ function BuffRules.SetRaidBlessings(keys)
         return true
     end
     if not InRaid() then return false, "you're not in a raid" end
+    -- A choice can't be used here (#376); one made in your raid waits.
+    if InBattleground() == true then return false, "not in a battleground" end
     local mine, chosen, count, all = {}, {}, 0, 0
     for _, buff in ipairs(BuffRules.MyBlessings()) do
         mine[buff.key] = true
@@ -472,6 +486,5 @@ end
 
 -- Whether you've narrowed your Blessings for this raid.
 function BuffRules.RaidBlessingsChosen()
-    CheckOut()
-    return raidBlessings ~= nil
+    return InForce() ~= nil
 end

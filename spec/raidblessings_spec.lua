@@ -1054,6 +1054,74 @@ describe("My Blessings in this raid", function()
             end
         end)
 
+        -- #376, the owner's answer (b): in a battleground the choice is kept
+        -- but not used, and nothing there forgets it.
+        local BG = { "Kit-Ash", "Lu-Bay", "Max-Cove", "Ned-Dune", "Oz-Elm" }
+        local function enterBattleground()
+            wow.state.leader = "Kit-Ash"
+            wow.enterBattleground(BG)
+        end
+        -- Back from the battleground to your raid, as it was.
+        local function backToRaid()
+            wow.state.inInstance, wow.state.instanceType = false, nil
+            wow.loseBuff(wow.PREPARATION_ID)
+            wow.fire("PLAYER_ENTERING_WORLD", false, false)
+            raid(TEN, "Ann-Vale")
+        end
+
+        it("in a battleground the choice isn't used, and applies again back in your raid (white)", function()
+            local kings = ns.BuffData.ByKey("kings")
+            raid(TEN, "Ann-Vale")
+            ns.BuffRules.SetRaidBlessings({ "might" })
+            wow.enterRaid(409, "Molten Core")
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(chosen(), "in a raid instance it's used")
+            enterBattleground()
+            assert.is_false(chosen(), "not in force here")
+            assert.is_true(ns.BuffRules.CoversInRaid(kings), "Kings is yours here")
+            assert.is_nil(ns.BuffRules.HandSetBlessings(), "nothing chosen to announce here")
+            for _ = 1, 3 do wow.fire("GROUP_ROSTER_UPDATE") end
+            backToRaid()
+            assert.is_true(chosen(), "back: the same raid")
+            assert.is_false(ns.BuffRules.CoversInRaid(kings))
+            assert.are.equal("Ann Vale: Blessing of Might", armed())
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("in a battleground choosing is refused, and stopping still works (black)", function()
+            raid(TEN, "Ann-Vale")
+            ns.BuffRules.SetRaidBlessings({ "might" })
+            enterBattleground()
+            assert.are.same({ false, "not in a battleground" }, { ns.BuffRules.SetRaidBlessings({ "wisdom" }) })
+            backToRaid()
+            assert.is_true(ns.BuffRules.CoversInRaid(ns.BuffData.ByKey("might")), "the raid's choice, not Wisdom")
+            assert.is_false(ns.BuffRules.CoversInRaid(ns.BuffData.ByKey("wisdom")))
+            enterBattleground()
+            assert.is_true(ns.BuffRules.SetRaidBlessings(nil))
+            backToRaid()
+            assert.is_false(chosen(), "stopped in the battleground: stays stopped")
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("where you are can't be read: the choice is used, and a look there forgets nothing (black)", function()
+            raid(TEN, "Ann-Vale")
+            ns.BuffRules.SetRaidBlessings({ "might" })
+            wow.state.inInstanceSecret = true
+            assert.is_true(ns.BuffRules.SetRaidBlessings({ "might" }), "can choose")
+            assert.is_true(chosen(), "used")
+            assert.are.equal("Ann Vale: Blessing of Might", armed())
+            -- Maybe a battleground: its other leader and members change nothing.
+            enterBattleground()
+            assert.is_true(chosen(), "kept: it may be a battleground")
+            backToRaid()
+            wow.state.inInstanceSecret = nil
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(chosen(), "back in the same raid")
+            raid(OTHERS, "Kit-Ash")
+            assert.is_false(chosen(), "readable: another raid")
+            assert.are.same({}, wow.errors)
+        end)
+
         -- Regroups within one raid (one leader, at most half of the members
         -- at the choice gone, subgroups moving) and changes to another raid,
         -- with a leader, names, slots and IsInRaid() that sometimes can't be
@@ -1184,7 +1252,18 @@ describe("My Blessings in this raid", function()
                 end
                 members = { "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern", "Eve-Moss" }
                 show()
+                -- A battleground and back: the same raid after it.
+                local function battleground()
+                    wow.state.leader = "Kit-Ash"
+                    wow.enterBattleground({ "Kit-Ash", "Lu-Bay", "Max-Cove" })
+                    for _ = 1, random.random(3) do wow.fire("GROUP_ROSTER_UPDATE") end
+                    wow.state.inInstance, wow.state.instanceType = false, nil
+                    wow.loseBuff(wow.PREPARATION_ID)
+                    wow.fire("PLAYER_ENTERING_WORLD", false, false)
+                    show()
+                end
                 local actions = { regroup, regroup, regroup, regroup, another, choose, choose, obscure, obscure,
+                    battleground,
                     function() wow.fire("GROUP_ROSTER_UPDATE") end,
                     function() for i = 1, 40 do local u = wow.state.units["raid" .. i]
                         if u then u.auras, u.auraSources = {}, {} end end end }
