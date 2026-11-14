@@ -176,7 +176,11 @@ ns.BuffTable = {
         },
     },
     -- Buffs left out: their keys stay known so saved settings still load.
-    absent = { "light" },
+    absent = {
+        "concentration", "demonarmor", "devotion", "fireaura", "frostaura", "hawk", "icearmor", "innerfire",
+        "light", "lightningshield", "magearmor", "monkey", "omen", "retribution", "righteousfury",
+        "sanctity", "shadowaura", "trueshot", "wildaspect",
+    },
     -- Spells of buffs Blizzard removed: an aura with one is passed over.
     removedSpells = { 1038, 19977, 19978, 19979, 25890, 25895 },
 }

@@ -1,4 +1,4 @@
--- Spec: #209
+-- Spec: #209, #44
 -- The buff table (BuffTable.lua) is generated from Forever's own spell data
 -- by scripts/gen_spell_table.py, once per game version. The addon never looks
 -- IDs up while you play. This spec checks the committed table is valid, that
@@ -211,6 +211,8 @@ describe("The generated buff table", function()
                 -- Knowing every rank of every buff of the class, all of them are offered, in its order.
                 local keys, want = {}, {}
                 for _, buff in ipairs(ns.BuffData.Offerable()) do keys[#keys + 1] = buff.key end
+                -- Self-buffs (#44) after them, in the class's order too.
+                for _, buff in ipairs(ns.BuffData.SelfOfferable()) do keys[#keys + 1] = buff.key end
                 for _, buff in ipairs(made.classes[class]) do want[#want + 1] = buff.key end
                 assert.are.same(want, keys, class)
             end
@@ -522,6 +524,77 @@ describe("The generated buff table", function()
             local out = read(dir .. "/out.lua")
             assert.is_falsy(out:find('key = "gone"', 1, true))
             assert.is_truthy(out:find('absent = { "gone" }', 1, true))
+        end)
+    end)
+
+    describe("the generator's self-buff fields (#44)", function()
+        local dir
+        before_each(function() dir = tmpdir() end)
+        after_each(function() os.execute('rm -rf "' .. dir .. '"') end)
+
+        -- Spell data with these { id, name, rank } rows.
+        local function data(rows)
+            local spell, names = {}, {}
+            for _, r in ipairs(rows) do
+                spell[#spell + 1] = ('{"ID":%d,"NameSubtext_lang":"Rank %d"}'):format(r[1], r[3])
+                names[#names + 1] = ('{"ID":%d,"Name_lang":"%s"}'):format(r[1], r[2])
+            end
+            return '{"schema":1,"build":"1.60.1.70685","tables":{"Spell":{"rows":[' .. table.concat(spell, ",")
+                .. ']},"SpellName":{"rows":[' .. table.concat(names, ",") .. ']}}}'
+        end
+        local ROWS = { { 7302, "Ice Armor", 1 }, { 7320, "Ice Armor", 2 }, { 168, "Frost Armor", 1 },
+            { 7300, "Frost Armor", 2 }, { 13163, "Aspect of the Monkey", 1 }, { 5118, "Aspect of the Cheetah", 1 },
+            { 25780, "Righteous Fury", 1 } }
+
+        local function run(buffs)
+            write(dir .. "/spells.json", data(ROWS))
+            write(dir .. "/buffs.json", buffs)
+            write(dir .. "/out.lua", "KEEP")
+            local code, text = generate(dir .. "/spells.json", dir .. "/buffs.json", dir .. "/out.lua")
+            return code, text, read(dir .. "/out.lua")
+        end
+
+        it("makes one buff of two spells, the main name's ranks first (white)", function()
+            local code, text, out = run('{"format":1,"classes":{"MAGE":[{"key":"icearmor","name":"Ice Armor",'
+                .. '"alsoNames":["Frost Armor"],"family":"armor","selfCast":true}]},"removed":[]}')
+            assert.are.equal(0, code, text)
+            assert.is_truthy(out:find("ranks = { 7320, 7302, 7300, 168 }", 1, true), out)
+            assert.is_truthy(out:find('family = "armor"', 1, true))
+            assert.is_truthy(out:find("selfCast = true", 1, true))
+        end)
+
+        it("writes toggle, defaultNever and the family's other spells (white)", function()
+            local code, text, out = run('{"format":1,"classes":{"HUNTER":[{"key":"monkey","name":"Aspect of the Monkey",'
+                .. '"family":"aspect","selfCast":true,"toggle":true}],"PALADIN":[{"key":"righteousfury",'
+                .. '"name":"Righteous Fury","selfCast":true,"defaultNever":true}]},'
+                .. '"familyAuras":{"aspect":["Aspect of the Cheetah","Aspect of the Pack"]},"removed":[]}')
+            assert.are.equal(0, code, text)
+            assert.is_truthy(out:find("toggle = true", 1, true))
+            assert.is_truthy(out:find("defaultNever = true", 1, true))
+            assert.is_truthy(out:find("aspect = { 5118 },", 1, true), out)
+            assert.is_truthy(text:find("NOT FOUND  family aspect: 'Aspect of the Pack'", 1, true), text)
+        end)
+
+        it("refuses a toggle or defaultNever on a buff for others, a self-buff with a group version or rule, "
+            .. "a family spell that is a buff's rank, and bad alsoNames (black)", function()
+            for _, buffs in ipairs({
+                '{"format":1,"classes":{"HUNTER":[{"key":"monkey","name":"Aspect of the Monkey","toggle":true}]}}',
+                '{"format":1,"classes":{"PALADIN":[{"key":"rf","name":"Righteous Fury","defaultNever":true}]}}',
+                '{"format":1,"classes":{"PALADIN":[{"key":"rf","name":"Righteous Fury","selfCast":true,'
+                    .. '"defaultRule":"tanks"}]}}',
+                '{"format":1,"classes":{"MAGE":[{"key":"ia","name":"Ice Armor","selfCast":true,'
+                    .. '"group":["Frost Armor"]}]}}',
+                '{"format":1,"classes":{"HUNTER":[{"key":"monkey","name":"Aspect of the Monkey","selfCast":true}]},'
+                    .. '"familyAuras":{"aspect":["Aspect of the Monkey"]}}',
+                '{"format":1,"classes":{"MAGE":[{"key":"ia","name":"Ice Armor","alsoNames":"Frost Armor"}]}}',
+                '{"format":1,"classes":{"MAGE":[{"key":"ia","name":"Ice Armor","alsoNames":[""]}]}}',
+                '{"format":1,"classes":{"MAGE":[{"key":"ia","name":"Ice Armor"}]},"familyAuras":["x"]}',
+                '{"format":1,"classes":{"MAGE":[{"key":"ia","name":"Ice Armor"}]},"familyAuras":{"Bad Key":["x"]}}',
+            }) do
+                local code, text, out = run(buffs)
+                assert.are.equal(1, code, buffs .. ": " .. text)
+                assert.are.equal("KEEP", out, buffs)
+            end
         end)
     end)
 
