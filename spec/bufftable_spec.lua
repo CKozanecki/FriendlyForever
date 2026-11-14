@@ -834,7 +834,7 @@ describe("The generated buff table", function()
                 assert.are.equal(0, code, text)
                 assert.is_truthy(out:find("ranks = { 546 },\n%s+blockers = { 11319 },"), out)
                 -- Refused: another spell in the data (131), its own rank (546), a bad ID or list.
-                for _, blockers in ipairs({ "[131]", "[546]", "[0]", "[10000001]", '["11319"]', "11319", "[11319.5]",
+                for _, blockers in ipairs({ "[131]", "[546]", "[0]", "[10000001]", '["11319"]', "11319", "{}", "[11319.5]",
                     "[11319,11319]" }) do
                     code, text, out = run('{"key":"waterwalking","name":"Water Walking","handIds":[546],'
                         .. '"handBlockerIds":' .. blockers .. '}')
