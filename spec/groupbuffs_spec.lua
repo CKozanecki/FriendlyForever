@@ -1,4 +1,4 @@
--- Spec: #30, #76, #99, #208, #259
+-- Spec: #30, #76, #99, #208, #253, #259
 -- Buff mode buffs group members missing your buffs, one per press, with the
 -- same safety rules as buff back.
 local wow = require("spec.support.wow")
@@ -223,12 +223,16 @@ describe("Buffing your group in buff mode", function()
             assert.is_true(is("Out of range."))
             assert.is_true(is("Target not in line of sight"))
             assert.is_true(is("|cffff0000Invalid target|r"))
+            assert.is_true(is("A more powerful spell is already active."), "#253, on the safe side")
             assert.is_false(is("Spell is not ready yet."))
             assert.is_false(is(nil))
             assert.is_false(is(wow.secret("Out of range.")))
             finally(function() _G.SPELL_FAILED_LINE_OF_SIGHT = nil end)
             _G.SPELL_FAILED_LINE_OF_SIGHT = "Ziel nicht im Sichtfeld"
             assert.is_true(is("Ziel nicht im Sichtfeld"), "a translated client's own string")
+            finally(function() _G.SPELL_FAILED_AURA_BOUNCED = nil end)
+            _G.SPELL_FAILED_AURA_BOUNCED = "Ein mächtigerer Zauber ist bereits aktiv."
+            assert.is_true(is("Ein mächtigerer Zauber ist bereits aktiv."), "#253: the client's own string")
         end)
 
         it("a press that casts nothing (a mind-controlled member) holds that member back too", function()
@@ -272,6 +276,23 @@ describe("Buffing your group in buff mode", function()
             wow.pressKey("MOUSEWHEELUP")
             assert.is_truthy(button.result:GetText():find("Target not in line of sight", 1, true))
             assert.are.equal("Cid Rock: Mark of the Wild", armed())
+            scroll()
+            scroll() -- Cid's Thorns
+            assert.is_nil(macro(), "Ann waits a moment")
+            assert.are.equal("Ann Vale: the game refused your last cast to them", button.subtitle:GetText())
+            wow.state.castFailures["Ann-Vale"] = nil
+            wow.advance(ns.GroupBuffs.HELD_BACK_SECONDS + 1)
+            assert.are.equal("Ann Vale: Mark of the Wild", armed(), "then back on the list")
+        end)
+
+        -- Not seen in game (#253): added on the safe side, in case a top-up of a
+        -- group version is ever refused this way.
+        it("'A more powerful spell is already active' holds that member back like other target refusals (#253)", function()
+            party({ "Ann-Vale", "Cid-Rock" })
+            wow.state.castFailures["Ann-Vale"] = "A more powerful spell is already active."
+            wow.pressKey("MOUSEWHEELUP")
+            assert.is_truthy(button.result:GetText():find("A more powerful spell is already active", 1, true))
+            assert.are.equal("Cid Rock: Mark of the Wild", armed(), "the next press goes to the next member")
             scroll()
             scroll() -- Cid's Thorns
             assert.is_nil(macro(), "Ann waits a moment")
