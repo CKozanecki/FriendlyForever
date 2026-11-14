@@ -493,7 +493,10 @@ end
 -- however they got there (DropIgnored, #353): it's never offered.
 function Offers.Current(list)
     if not ns.db or not ns.db.enabled then return nil, "the addon is off" end
-    if not ns.db.buffBack.enabled then return nil, "buff back is off" end
+    -- A section lost mid-session reads as off (#384): the button's refresh
+    -- comes here, and must not raise an error.
+    local buffBack = ns.db.buffBack
+    if type(buffBack) ~= "table" or not buffBack.enabled then return nil, "buff back is off" end
     -- No Changed() here: the button is the caller, and would re-enter.
     Expire(GetTime())
     DropIgnored()

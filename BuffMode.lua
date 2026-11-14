@@ -89,8 +89,12 @@ local function Lend(key)
     return false, tostring(err)
 end
 
+-- Buff Back's settings damaged mid-session (not a table: another addon, a
+-- bad /run) read as switched off, so buff mode ends and hands its key back
+-- (#384). Settings are checked at load, so only such damage gets here.
 local function Allowed()
-    return ns.db.enabled and ns.db.buffBack.enabled
+    local buffBack = ns.db.buffBack
+    return ns.db.enabled and type(buffBack) == "table" and buffBack.enabled
 end
 
 -- Make the binding match what's wanted: called by BuffButton.Refresh, so
@@ -195,7 +199,9 @@ function BuffMode.SetKey(key)
     if Util.ReadGameValues(GetBindingAction, key) == BuffMode.BINDING then
         return false, "that key turns buff mode on and off"
     end
-    ns.db.buffBack.buffModeKey = key
+    -- Through Config.Section: a section damaged mid-session is healed, never
+    -- written into (#330, #384).
+    ns.Config.Section("buffBack").buffModeKey = key
     ns.BuffButton.Refresh()
     return true
 end
