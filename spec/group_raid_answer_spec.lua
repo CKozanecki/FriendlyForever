@@ -269,7 +269,13 @@ describe("Buff mode's group look believes IsInRaid() only when the slots agree (
     it("a storm with an IsInRaid() that sometimes lies never ends buff mode as done while a member in reach is missing your buff (red)", function()
         local POOL = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed", "Gus-Lane", "Hal-Pine" }
         local MODES = { "truth", "flips", "inverted", "unreadable" }
-        local total = { looks = 0, settled = 0, ended = 0, settledLying = 0 }
+        -- How often the storm reached the cases the red criterion is about,
+        -- counted from the client's own state: a raid taken for a party (a
+        -- lying answer, your subgroup all buffed, someone in reach in another
+        -- subgroup missing it) and a party taken for a raid (always lying, in
+        -- a party, someone in reach missing it). By seed too.
+        local total = { looks = 0, settled = 0, ended = 0, raidAsParty = 0, partyAsRaid = 0 }
+        local perSeed = {}
         for _, seed in ipairs({ 7, 41, 313, 2026, 8191, 65537 }) do
             random.seed(seed)
             for _ = 1, 5 do random.random() end
@@ -307,14 +313,36 @@ describe("Buff mode's group look believes IsInRaid() only when the slots agree (
                 return false
             end
 
+            -- In reach, by the client's state: online, alive, in sight and in range.
+            local function inReach(u) return not (u.offline or u.dead or u.hidden or u.outOfRange) end
+
             -- A member the client's state shows in reach and missing your buff, or nil.
             local function missingInReach()
                 for _, token in ipairs(others()) do
                     local u = wow.state.units[token]
-                    if not (u.offline or u.dead or u.hidden or u.outOfRange) and not wears(u) then
+                    if inReach(u) and not wears(u) then
                         return token
                     end
                 end
+            end
+
+            -- Whether the client's state is a raid taken for a party, or a
+            -- party taken for a raid, while IsInRaid() is lying.
+            local function raidAsParty()
+                if wow.state.groupType ~= "raid" or (mode ~= "inverted" and mode ~= "flips") then return false end
+                local mine, oursAll, theirsMissing = wow.state.units.player.subgroup or 1, true, false
+                for _, token in ipairs(others()) do
+                    local u = wow.state.units[token]
+                    if (u.subgroup or 1) == mine then
+                        oursAll = oursAll and wears(u)
+                    elseif inReach(u) and not wears(u) then
+                        theirsMissing = true
+                    end
+                end
+                return oursAll and theirsMissing
+            end
+            local function partyAsRaid()
+                return wow.state.groupType == "party" and mode == "inverted" and missingInReach() ~= nil
             end
 
             local function strip(token)
@@ -392,6 +420,8 @@ describe("Buff mode's group look believes IsInRaid() only when the slots agree (
                     wow.state.inRaidUnreadable = mode == "unreadable"
                 end,
             }
+            local reached = { raidAsParty = 0, partyAsRaid = 0 }
+            perSeed[#perSeed + 1] = ("seed %d: %d raid as party, %d party as raid"):format(seed, 0, 0)
             local NAMES = { "regroup", "wear", "wearAll", "wearAll", "strip", "range", "zone", "lie", "lie" }
 
             for step = 1, 80 do
@@ -400,9 +430,16 @@ describe("Buff mode's group look believes IsInRaid() only when the slots agree (
                 local where = ("seed %d, step %d (%s, IsInRaid %s)"):format(seed, step, action, mode)
                 local _, _, settled = ns.GroupBuffs.Next()
                 total.looks = total.looks + 1
+                if raidAsParty() then
+                    total.raidAsParty = total.raidAsParty + 1
+                    reached.raidAsParty = reached.raidAsParty + 1
+                end
+                if partyAsRaid() then
+                    total.partyAsRaid = total.partyAsRaid + 1
+                    reached.partyAsRaid = reached.partyAsRaid + 1
+                end
                 if settled then
                     total.settled = total.settled + 1
-                    if mode ~= "truth" then total.settledLying = total.settledLying + 1 end
                     local missing = missingInReach()
                     assert.is_nil(missing, where .. ": settled while " .. tostring(missing) .. " is missing it")
                 end
@@ -416,10 +453,14 @@ describe("Buff mode's group look believes IsInRaid() only when the slots agree (
                 assert.are.same({}, wow.errors, where)
                 assert.are.equal(0, #wow.casts, where .. ": nothing casts without a press")
             end
+            perSeed[#perSeed] = ("seed %d: %d raid as party, %d party as raid")
+                :format(seed, reached.raidAsParty, reached.partyAsRaid)
         end
         -- The storm reached the cases it is about.
         assert.is_true(total.settled > 0, "Next settled somewhere")
-        assert.is_true(total.settledLying > 0, "Next settled while IsInRaid() lied but the slots told the truth")
+        local bySeed = table.concat(perSeed, "; ")
+        assert.is_true(total.raidAsParty > 0, "a raid read as a party, your subgroup buffed, another missing: " .. bySeed)
+        assert.is_true(total.partyAsRaid > 0, "a party read as a raid, someone missing: " .. bySeed)
         assert.is_true(total.ended > 0, "buff mode ended as done somewhere")
     end)
 end)
