@@ -657,6 +657,19 @@ function Config.Repair()
     ValidateSettings(ns.db)
 end
 
+-- One message type's live settings section, for the options panel to read
+-- and write. A section damaged mid-session (not a table: another addon, a
+-- bad /run) would make it raise an error before anything healed it (#166).
+-- So a damaged one asks for the whole-file repair, and if that didn't heal
+-- it (one ran under a second ago), gets this type's defaults back at once.
+function Config.Section(msgType)
+    if type(ns.db[msgType]) ~= "table" then
+        Config.Repair()
+        if type(ns.db[msgType]) ~= "table" then ns.db[msgType] = Config.DefaultsFor(msgType) end
+    end
+    return ns.db[msgType]
+end
+
 -- Fresh copy of one type's defaults.
 function Config.DefaultsFor(msgType)
     return ValidateType(nil, Config.DEFAULTS[msgType])
