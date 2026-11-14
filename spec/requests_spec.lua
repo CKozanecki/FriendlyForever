@@ -889,6 +889,11 @@ describe("Buff requests in chat", function()
                     if armed then
                         assert.is_truthy(armed:find("/targetexact %a+ Ask\n") or armed:find("/targetexact %a+ Buff\n"),
                             where .. ": armed for " .. armed)
+                        if armed:find("/targetexact %a+ Ask\n") then
+                            local label = button.subtitle:GetText()
+                            assert.is_true(label == "asked for Mark of the Wild" or label == "asked for Thorns",
+                                where .. ": an asker's button says " .. tostring(label))
+                        end
                     end
                     assert.are.equal(0, #wow.casts, where .. ": nothing casts without a press")
                     assert.are.same({}, wow.sent, where .. ": nothing is said")
