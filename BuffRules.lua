@@ -334,8 +334,9 @@ local raidBlessings
 -- choice: { leader = full name or nil while it can't be read, members =
 -- { [full name] = true } for the other members read then, unread = how
 -- many slots couldn't be read then }. A slot that couldn't be read still
--- counts among the members at the choice, but never as gone. A leader that
--- couldn't be read is taken from a later look.
+-- counts among the members at the choice, but never as gone. Nothing is
+-- filled in by later looks: by then it may be another raid's (#376), so a
+-- leader that couldn't be read leaves the members to decide.
 local raidOf
 
 local Read = Util.ReadGameValues
@@ -403,13 +404,7 @@ function BuffRules.CheckRaid()
     CheckOut()
     if not raidBlessings or ns.GroupBuffs.RaidAnswer() ~= true then return end
     local leader, members, unread = RaidNow()
-    if RaidChanged(leader, members, unread) then
-        raidBlessings = nil
-        return
-    end
-    -- A leader that couldn't be read when chosen. Members aren't filled in:
-    -- whoever is there now may already be another raid's (#376).
-    if raidOf.leader == nil then raidOf.leader = leader end
+    if RaidChanged(leader, members, unread) then raidBlessings = nil end
 end
 
 -- The Blessings you know (the "blessing" family), in your class's order.

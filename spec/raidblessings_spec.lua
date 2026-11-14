@@ -929,16 +929,18 @@ describe("My Blessings in this raid", function()
             assert.are.same({}, wow.errors)
         end)
 
-        it("a leader that couldn't be read at the choice is taken from a later look, and a change still counts (black)", function()
-            -- The leader couldn't be read when chosen.
+        it("nothing that couldn't be read at the choice is taken from a later look, which may be another raid's (black)", function()
+            -- The leader couldn't be read when chosen: the members decide.
             wow.state.leaderUnreadable = true
             raid(TEN, "Ann-Vale")
             ns.BuffRules.SetRaidBlessings({ "might" })
             wow.state.leaderUnreadable = nil
-            raid(TEN, "Ann-Vale")
-            assert.is_true(chosen(), "read now: Ann")
-            raid(TEN, "Bo-Lake")
-            assert.is_false(chosen(), "then Bo")
+            raid(TEN, "Bo-Lake") -- the next raid already: the same ten, Bo leading
+            assert.is_true(chosen(), "no leader at the choice to compare with")
+            raid(TEN, "Cid-Rock")
+            assert.is_true(chosen(), "Bo was never taken for the choice's leader")
+            raid(OTHERS, "Kit-Ash")
+            assert.is_false(chosen(), "all new")
             -- Names loading when chosen: they count, never as gone.
             wow.setGroup("raid", TEN)
             for i = 1, 2 do wow.state.units["raid" .. i].nameLoading = true end
