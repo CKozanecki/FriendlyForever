@@ -2,7 +2,8 @@
 -- The drift check for the agents' instruction files. AGENTS.md holds the rules
 -- every product follows; CLAUDE.md imports it and adds only Claude's own.
 -- Codex reads AGENTS.md (or an AGENTS.override.md, which Claude never reads)
--- up to a size cap. See docs/agent-facts.md for the sources.
+-- up to a size cap. The Codex trial is paused (#183, 2026-11-14), and these
+-- checks stay so it can restart without rework. See docs/agent-facts.md.
 local wow = require("spec.support.wow")
 
 -- Codex's project_doc_max_bytes default (docs/agent-facts.md).
@@ -84,17 +85,20 @@ describe("the agents' instruction files", function()
             assert.are.same({}, driftProblems(claude, agents, findOverrides(wow.ROOT)))
         end)
 
-    it("AGENTS.md holds the shared rules, the handoff format and the Codex notes", function()
+    it("AGENTS.md holds the shared rules and the handoff format, and no Codex-only rules while the trial is paused (#183)", function()
         for _, heading in ipairs({ "Start here", "Standards and safety", "Shared knowledge", "Starting and stopping",
-            "Issues and specs", "Pull requests", "Several sessions at once", "Reviews", "Tests", "Codex" }) do
+            "Issues and specs", "Pull requests", "Several sessions at once", "Reviews", "Tests" }) do
             assert.is_truthy(agents:find("\n## " .. heading .. "\n", 1, true), heading)
         end
+        assert.is_falsy(agents:find("\n## Codex\n", 1, true), "no Codex section while the trial is paused")
         assert.is_truthy(agents:find("### Handoff · <product> <model as served> · <UTC time>\n"
             .. "  - State: done | partial | blocked\n  - Branch / commit / PR:\n  - Done:\n  - Left:\n"
             .. "  - Next session must know:\n", 1, true), "the handoff format")
         assert.is_truthy(agents:find("**[CONTRIBUTING.md](CONTRIBUTING.md) is the source of truth.**", 1, true))
-        assert.is_truthy(agents:find("Codex's carry `Agent: codex <model as served>`, and never a"
-            .. " `Claude-Session:` line.", 1, true), "the Codex trailer")
+        assert.is_truthy(agents:find("the Codex trial is paused", 1, true), "the pause is recorded")
+        assert.is_falsy(agents:find("Agent: codex", 1, true), "no Codex commit trailer")
+        assert.is_falsy(agents:find("`codex/`", 1, true), "no codex/ branch prefix")
+        assert.is_truthy(agents:find("name each one `claude/<issue>-<what-it-does>`", 1, true), "the branch prefix")
     end)
 
     it("AGENTS.md records the owner's word about the game as fact, never hedged (#237)", function()

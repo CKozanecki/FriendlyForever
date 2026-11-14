@@ -7,9 +7,9 @@
 - the review loops;
 - ready for review.
 
-Use the PR template too. This file holds the rules every agent session follows, whatever the product: Claude Code and Codex (#183, #186). It only adds what applies to agent sessions. Where the two seem to differ, CONTRIBUTING.md wins: fix this file.
+Use the PR template too. This file holds the rules every agent session follows, whatever the product (#183, #186). Only Claude Code sessions work on this project now: **the Codex trial is paused** (the owner cancelled it on 2026-11-14, set aside and not planned; #183, and #188 and #189 are closed as not planned). The split below stays so a trial can restart without rework. It only adds what applies to agent sessions. Where the two seem to differ, CONTRIBUTING.md wins: fix this file.
 
-**One source of rules.** Each product's own file adds only what is specific to it: [CLAUDE.md](CLAUDE.md) imports this file and adds Claude's agents, skills, session tools and model rules; Codex reads this file itself, and its own notes are in "Codex" below. Never add an `AGENTS.override.md`: Codex reads it first, but Claude never does, so its rules would drift unseen. `spec/agents_spec.lua` fails if either happens ([`docs/agent-facts.md`](docs/agent-facts.md)).
+**One source of rules.** Each product's own file adds only what is specific to it: [CLAUDE.md](CLAUDE.md) imports this file and adds Claude's agents, skills, session tools and model rules; a product that reads this file itself (Codex, if the trial restarts) would put its own notes in a short section of it. Never add an `AGENTS.override.md`: Codex reads it first, but Claude never does, so its rules would drift unseen. `spec/agents_spec.lua` fails if either happens ([`docs/agent-facts.md`](docs/agent-facts.md)).
 
 ## Start here
 
@@ -51,7 +51,7 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 - [`docs/simulated-client.md`](docs/simulated-client.md): how `spec/support/wow.lua` models the game, and how to extend it;
 - [`docs/ui-simulator.md`](docs/ui-simulator.md): the UI simulator's known quirks and workarounds (#100);
 - [`docs/visual-style.md`](docs/visual-style.md): the colour palette, its contrast and colour-blindness numbers, and the scrolling rule (#46);
-- [`docs/agent-facts.md`](docs/agent-facts.md): how Claude Code and Codex load these instructions, and Codex's size cap (#186).
+- [`docs/agent-facts.md`](docs/agent-facts.md): how Claude Code and Codex load these instructions, and Codex's size cap, kept for a restart (#186).
 
 ## Starting and stopping
 
@@ -79,8 +79,8 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 
 ## Pull requests
 
-- **Branches:** name each one `<product>/<issue>-<what-it-does>`, with the prefix of the product driving it: `claude/` or `codex/`. Make a new one per PR from the latest `main`.
-- **Commit trailers:** each commit names the product that wrote it, in its last lines. Claude Code's carry `Claude-Session: <session link>`; Codex's carry `Agent: codex <model as served>`, and never a `Claude-Session:` line.
+- **Branches:** name each one `claude/<issue>-<what-it-does>`. Make a new one per PR from the latest `main`.
+- **Commit trailers:** each commit names the product that wrote it, in its last lines. they carry `Claude-Session: <session link>`.
 - **Easy to miss** (#75 missed the first two):
   - `Closes #<issue>` with the criteria checklist;
   - [marking the PR ready yourself](CONTRIBUTING.md#ready-for-review), with a comment;
@@ -103,7 +103,7 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 - **Reviewers share your worktree:** while a review agent is running, it temporarily changes files to check the tests catch it. Don't stage or commit then: `git add -A` on #46 picked up a reviewer's edit into a merge commit (807bc8e). Wait until it reports and `git status` is clean, or stage only the files you changed.
 - **Changes after an approval:** any change a review loop hasn't seen goes back to it for confirmation before the PR is called ready. That includes test-only and test-helper changes, merges that resolved conflicts, and rebases. A merge that is clean and shares no file with the PR, and a docs-only PR, need less review: CONTRIBUTING.md's [Review loops](CONTRIBUTING.md#review-loops). On #72, a test-helper change made after the architecture approval hid a real bug, and the re-check caught it.
 - **UI changes:** before the testing review, wait for the [UI simulator](CONTRIBUTING.md#ui-simulator) run, then tell the testing reviewer to fetch `ui-screenshots/pr-<number>`, view the screenshots, read the `LAYOUT` lines, and decide. Their verdict is the only look the screenshots get: the owner won't review them. Say in the PR what the reviewer saw.
-- **Who reviews:** every PR, whichever product wrote it, goes through both review loops (Lua architecture, then Lua testing) before it's marked ready, except where CONTRIBUTING.md's [Review loops](CONTRIBUTING.md#review-loops) allows less (a docs-only PR, a merge that shares no file). They run as Claude's reviewer agents (CLAUDE.md); a Codex session can't run them, so the coordinator does.
+- **Who reviews:** every PR goes through both review loops (Lua architecture, then Lua testing) before it's marked ready, except where CONTRIBUTING.md's [Review loops](CONTRIBUTING.md#review-loops) allows less (a docs-only PR, a merge that shares no file). They run as Claude's reviewer agents (CLAUDE.md).
 - **Keep them current:** when a review finds a lesson rather than a one-off (a bug class that can recur, or a check that would have caught it), the same PR adds it, citing the PR or issue, to the right reviewer agent's Lessons, or a fact to the right file in `docs/`.
 
 ## Tests
@@ -120,11 +120,3 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 - **`make check`:**
   - **Every change:** docs, art and config too. An asset missing from `.pkgmeta`'s ignore list once broke the build on a no-code change.
   - **After `git add`:** the repo spec checks tracked files, so a new file has to be tracked before the check can see it.
-
-## Codex
-
-Notes only Codex sessions need (#183). Everything above applies to Codex too.
-
-- **Where it runs:** during the trial, Codex Cloud only, so each task has its own container and never touches a shared checkout (#183).
-- **Talking to the other sessions:** Codex can't receive the coordinator's session messages. It reports through GitHub: the handoff comment above on the issue, and its PR.
-- **Its PRs:** branch `codex/<issue>-<what-it-does>`, the Codex commit trailer above, and its review loops (CONTRIBUTING.md's [Review loops](CONTRIBUTING.md#review-loops) says how many), run by the coordinator, before the PR is ready.
