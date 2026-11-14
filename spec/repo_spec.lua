@@ -3330,6 +3330,16 @@ describe("Release docs", function()
             local ready = flat:match("### Ready for review (.-) #### Merge queue") or ""
             assert.is_truthy(ready:find("Being only behind `main` is fine: the merge queue tests it on the latest `main`", 1, true),
                 "ready checklist")
+            -- The architecture review of #351: a PR that shares a file with what
+            -- main gained, without a conflict, isn't ready until the merge is confirmed.
+            assert.is_truthy(ready:find("- the branch has no conflicts with `main`, and shares no file with what `main`"
+                .. " gained since its last review unless the reviewers confirmed that merge as [Review loops](#review-loops)"
+                .. " says.", 1, true), "ready lets a PR sharing a file with main through")
+            -- Nothing switches to the queue before the ruleset does (#351's review).
+            assert.is_truthy(rule:find("- **Before the queue is on:** everything below applies only once the \"Protect"
+                .. " main\" ruleset requires the merge queue. Until then the earlier rule holds (#229): nobody turns on"
+                .. " auto-merge, and a pull request only behind `main` waits for **Update branch**", 1, true),
+                "Merge queue has no rule for before the switch")
             assert.is_falsy(ready:find("up to date with `main`", 1, true), "Ready for review still asks for up to date")
             assert.is_falsy(flat:find("#only-behind-main", 1, true), "CONTRIBUTING.md links the old rule")
             for _, path in ipairs({ "AGENTS.md", "CLAUDE.md", ".claude/skills/after-merge/SKILL.md",
@@ -3360,8 +3370,14 @@ describe("Release docs", function()
             has(".claude/skills/merge-order/SKILL.md", "Say so, and tell its driver to merge `main` in (the `after-merge` skill).")
             has(".claude/skills/merge-order/SKILL.md", "A pair that conflicts or shares a file never sits in the merge queue together")
             has("AGENTS.md", "only behind `main` (no shared file, no conflict) is not for the driver: it is simply enqueued")
-            has(".github/pull_request_template.md", "- [ ] The branch has no conflicts with `main` (only behind is fine: the"
-                .. " merge queue tests it on the latest `main`)")
+            has(".github/pull_request_template.md", "- [ ] The branch has no conflicts with `main`, and shares no file with"
+                .. " what `main` gained since its last review unless the reviewers confirmed that merge (only behind is fine:"
+                .. " the merge queue tests it on the latest `main`)")
+            for _, path in ipairs({ "AGENTS.md", "CLAUDE.md", ".claude/skills/after-merge/SKILL.md",
+                ".claude/skills/coordinator/SKILL.md", ".claude/skills/merge-order/SKILL.md" }) do
+                local text = wow.readFile(path):gsub("%s+", " ")
+                assert.is_truthy(text:find("ruleset requires the", 1, true), path .. " applies the queue before the ruleset does")
+            end
             -- Written once: each label appears exactly once in CONTRIBUTING.md.
             for _, label in ipairs({ "Only behind `main`: just enqueue.**", "the driver merges first.**" }) do
                 local _, count = flat:gsub(label:gsub("%p", "%%%0"), "")
@@ -3988,7 +4004,8 @@ describe("Claude sessions' agents, knowledge and skills", function()
         for _, rule in ipairs({
             "\n- **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale"
                 .. " branches for the owner, and say which they are. One exception, a trial (#345): the driver of a PR"
-                .. " enables auto-merge on its own PR, which adds it to the merge queue, once the stops in CONTRIBUTING.md's"
+                .. " enables auto-merge on its own PR, which adds it to the merge queue, once the ruleset requires the queue"
+                .. " and the stops in CONTRIBUTING.md's"
                 .. " [Merge queue](CONTRIBUTING.md#merge-queue) hold, and never merges any other way.\n",
             "\n- **Force-pushing:** never. Push a rebased branch under a new name and flag the old one for the owner"
                 .. " to delete.\n",

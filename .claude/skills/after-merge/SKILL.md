@@ -13,7 +13,7 @@ Only the driver of a PR does this to it. If it isn't your PR, message its driver
 
 When the owner or the coordinator says a PR has merged. GitHub doesn't notify sessions of merges, and the coordinator watches for them (#172), so don't poll for them yourself.
 
-Only for a PR that needs a developer. If the PR shares no file with the merge and has no conflict, do nothing: it goes into, or stays in, the merge queue, which tests it on the latest `main` (CONTRIBUTING.md's [Merge queue](../../../CONTRIBUTING.md#merge-queue), #345). Also when the merge queue removes your PR for a conflict with `main`.
+Only for a PR that needs a developer. If the PR shares no file with the merge and has no conflict, do nothing: it goes into, or stays in, the merge queue, which tests it on the latest `main` (CONTRIBUTING.md's [Merge queue](../../../CONTRIBUTING.md#merge-queue), #345). Also when the merge queue removes your PR for a conflict with `main`. Until the ruleset requires the queue, CONTRIBUTING.md's [Merge queue](../../../CONTRIBUTING.md#merge-queue) says what holds instead.
 
 ## Steps
 

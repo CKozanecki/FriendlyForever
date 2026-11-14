@@ -21,7 +21,7 @@ git fetch origin main <branch> ...
 git merge-base --is-ancestor origin/main origin/<branch> && echo "contains main"
 ```
 
-A PR that doesn't contain the latest `main` and conflicts with it, or shares a file with what `main` gained since it was reviewed, isn't ready. Say so, and tell its driver to merge `main` in (the `after-merge` skill). A PR only behind `main` (no shared file, no trial-merge conflict) is still ready: it is simply enqueued, and the merge queue tests it on the latest `main` (CONTRIBUTING.md's [Merge queue](../../../CONTRIBUTING.md#merge-queue), #345).
+A PR that doesn't contain the latest `main` and conflicts with it, or shares a file with what `main` gained since it was reviewed, isn't ready. Say so, and tell its driver to merge `main` in (the `after-merge` skill). A PR only behind `main` (no shared file, no trial-merge conflict) is still ready: it is simply enqueued, and the merge queue tests it on the latest `main` (CONTRIBUTING.md's [Merge queue](../../../CONTRIBUTING.md#merge-queue), #345). Until the ruleset requires the queue, CONTRIBUTING.md's [Merge queue](../../../CONTRIBUTING.md#merge-queue) says what holds instead.
 
 ## 3. Trial-merge every pair
 

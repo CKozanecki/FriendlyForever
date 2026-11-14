@@ -377,7 +377,8 @@ describe("the process trial (#345)", function()
 
     it("CLAUDE.md enqueues with auto-merge, own PR only, and never merges another way (white, black)", function()
         local claude = flat("CLAUDE.md")
-        assert.is_truthy(claude:find("- **Enqueueing your PR** (a trial, #345): once every stop in CONTRIBUTING.md's"
+        assert.is_truthy(claude:find("- **Enqueueing your PR** (a trial, #345): once the ruleset requires the merge"
+            .. " queue and every stop in CONTRIBUTING.md's"
             .. " [Merge queue](CONTRIBUTING.md#merge-queue) holds, turn on auto-merge for your own PR with the GitHub"
             .. " tool `enable_pr_auto_merge`, `mergeMethod: SQUASH`.", 1, true))
         assert.is_truthy(claude:find("Never call `merge_pull_request`, and never enqueue another session's PR.", 1, true))

@@ -69,7 +69,7 @@ A pull request is **ready for review** when all of these hold:
 
 - CI is green on the latest commit;
 - the description matches the final code;
-- the branch has no conflicts with `main`. Being only behind `main` is fine: the merge queue tests it on the latest `main` (see [Merge queue](#merge-queue));
+- the branch has no conflicts with `main`, and shares no file with what `main` gained since its last review unless the reviewers confirmed that merge as [Review loops](#review-loops) says. Being only behind `main` is fine: the merge queue tests it on the latest `main` (see [Merge queue](#merge-queue));
 - for pull requests written by an agent: both of its review loops (Lua architecture, then Lua testing) have approved, with every finding fixed (a docs-only pull request needs its one review, and a merge that touches none of its files needs only CI: see [Review loops](#review-loops));
 - it has no open question for the maintainer (#215).
 
@@ -81,7 +81,9 @@ It is **ready to merge** when, on top of that, every review conversation is reso
 
 #### Merge queue
 
-`main` requires GitHub's merge queue instead of branches that are up to date (#345, a trial the maintainer decided on 2026-11-14; it starts when the maintainer switches the ruleset after the pull request that wrote this merges, and until then a pull request only behind `main` waits for the maintainer's **Update branch**, #229).
+`main` requires GitHub's merge queue instead of branches that are up to date (#345, a trial the maintainer decided on 2026-11-14).
+
+- **Before the queue is on:** everything below applies only once the "Protect main" ruleset requires the merge queue. Until then the earlier rule holds (#229): nobody turns on auto-merge, and a pull request only behind `main` waits for **Update branch**, which the coordinator asks the maintainer for (or clicks itself under its delegation on #182), naming the pull request and the two file lists of [Review loops](#review-loops).
 
 - **What it does:** a pull request added to the queue (GitHub's auto-merge, **Merge when ready**) is built on a temporary branch on top of the latest `main` and of every pull request queued ahead of it. CI's `merge_group` trigger runs the required `check` there, and the queue squash-merges the pull request only when it passes. If it fails, or the pull request conflicts, the queue removes it and nothing merges. Nobody clicks **Update branch**.
 - **Only behind `main`: just enqueue.** When no file is in both of the two lists of [Review loops](#review-loops) and there is no conflict, the driver does nothing: no merge, no push, no reviewer re-run. The queue's `check` is the test on the latest `main`.
