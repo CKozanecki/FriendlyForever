@@ -501,6 +501,38 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
             end
         end)
 
+        it("once a look decides after an update that couldn't read IsInGroup(), someone coming close is checked only at the next roster change (black)", function()
+            -- Joining out in the world with nobody close: the join trigger
+            -- waits for a roster change with someone close (#256).
+            local function joinedFar()
+                boot("autoOnJoin")
+                wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+                wow.state.units.party1.outOfRange = true
+                wow.state.units.party2.outOfRange = true
+                wow.fire("GROUP_ROSTER_UPDATE")
+                assert.is_false(ns.BuffMode.IsOn(), "nobody close at the join")
+            end
+            for _, how in ipairs({ "a look", "a roster update" }) do
+                joinedFar()
+                unreadableUpdate()
+                if how == "a look" then
+                    wow.state.inGroupUnreadable = nil
+                    look()
+                else
+                    readableUpdate()
+                end
+                -- The same group, decided by `how`. Ann comes close; the game
+                -- sends no roster change.
+                wow.state.units.party1.outOfRange = nil
+                for _ = 1, 3 do look() end
+                assert.is_false(ns.BuffMode.IsOn(), how .. ": the looks don't check who is close")
+                wow.fire("GROUP_ROSTER_UPDATE")
+                assert.is_true(ns.BuffMode.IsAuto(), how .. ": the next roster change does")
+                assert.is_true(printedHas("(you joined a group)"), how)
+                assert.are.same({}, wow.errors, how)
+            end
+        end)
+
         it("after a reload that can't read IsInGroup(), the looks read it again without a roster update (black)", function()
             for _, case in ipairs(GROUPS) do
                 local what = case[1]
@@ -532,6 +564,19 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
             look()
             assert.is_true(ns.BuffMode.IsAuto(), "Cid is missing your Mark in the group you joined")
             assert.is_true(printedHas("(Cid Rock is missing your Mark of the Wild)"))
+            assert.are.same({}, wow.errors)
+            -- And with the join trigger: the look's "not in a group" is kept,
+            -- so the party joined later is a join.
+            boot("autoOnJoin")
+            wow.state.inGroupUnreadable = true
+            wow.reloadInPlace(false, { keepTimers = true })
+            look()
+            wow.state.inGroupUnreadable = nil
+            for _ = 1, 2 do look() end
+            wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(ns.BuffMode.IsAuto(), "joining after the look read no group is a join")
+            assert.is_true(printedHas("(you joined a group)"))
             assert.are.same({}, wow.errors)
         end)
     end)
