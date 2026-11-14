@@ -393,6 +393,23 @@ describe("Buff requests in chat", function()
                 "the oldest stays: Cal's went, not Ann's")
         end)
 
+        it("a request from a player owed a favour, after an ignored player's favour, lands on their own (#353)",
+            function()
+            for i, first in ipairs({ "Cal", "Ann", "Bea" }) do
+                stranger("nameplate" .. i, { name = first, surname = "Moss", class = "WARRIOR" })
+                wow.gainBuff({ sourceUnit = "nameplate" .. i, name = "Arcane Intellect", spellId = 10157 })
+            end
+            -- Put on the list without Ignore.Add, and nothing reads the favours before Ann asks.
+            ns.db.ignore["cal-moss"] = "Cal-Moss"
+            wow.whisper("thorns pls", "Ann-Moss")
+            local list, spells = {}, {}
+            ns.Offers.Current(list)
+            for _, offer in ipairs(list) do spells[offer.name] = offer.spell end
+            assert.are.equal("Thorns", spells["Ann-Moss"], "Ann's own favour holds what she asked for")
+            assert.are.equal("Mark of the Wild", spells["Bea-Moss"], "Bea never asked")
+            assert.is_nil(spells["Cal-Moss"])
+        end)
+
         it("an ignored player's favour takes no room on a full button: a request still fits (#353)", function()
             for i = 1, ns.Offers.MAX do
                 local first = "Fav" .. string.char(96 + i)

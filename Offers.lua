@@ -252,6 +252,18 @@ local function Within(at, maxAge, now)
     return at ~= nil and now >= at and now - at <= maxAge
 end
 
+-- Let go, without a note, of anything owed to a player on the ignore list,
+-- whatever the case of either name (Ignore.Has, #353). Ignore.Add lets
+-- theirs go itself (Offers.Forget), but an import, another addon or a /run
+-- can put them on the list without it. Run wherever the favours are read,
+-- as Expire is, so nothing counts or offers a favour that is never given:
+-- not the button, not buff mode's "nothing left to do", not the status.
+local function DropIgnored()
+    for i = #favours, 1, -1 do
+        if ns.Ignore.Has(favours[i].name) then table.remove(favours, i) end
+    end
+end
+
 -- Someone outside your group buffed you. unit: the token they were seen
 -- under, if any; ledgerEntry: their ledger entry, marked when you return it.
 function Offers.Owe(name, unit, ledgerEntry)
@@ -266,6 +278,9 @@ function Offers.Owe(name, unit, ledgerEntry)
             marked and " (their copy said so)" or "")
         return
     end
+    -- An ignored player's favour takes no room (#353): it goes before a
+    -- real one is pushed out.
+    DropIgnored()
     local i = IndexOf(name)
     local old = i and table.remove(favours, i)
     -- A buff they asked for in chat (#40) is still the one they'd like.
@@ -310,18 +325,6 @@ local function Expire(now)
     return any
 end
 
--- Let go, without a note, of anything owed to a player on the ignore list,
--- whatever the case of either name (Ignore.Has, #353). Ignore.Add lets
--- theirs go itself (Offers.Forget), but an import, another addon or a /run
--- can put them on the list without it. Run wherever the favours are read,
--- as Expire is, so nothing counts or offers a favour that is never given:
--- not the button, not buff mode's "nothing left to do", not the status.
-local function DropIgnored()
-    for i = #favours, 1, -1 do
-        if ns.Ignore.Has(favours[i].name) then table.remove(favours, i) end
-    end
-end
-
 -- Whether the game says your buff can't reach them (out of range).
 local function OutOfReach(buff, unit)
     local spell = buff and ns.BuffData.SpellName(buff)
@@ -336,7 +339,8 @@ end
 -- why not.
 function Offers.Request(name, buff)
     -- An expired request mustn't block a fresh one, or count against the
-    -- limit; nor one of an ignored player's.
+    -- limit; nor one of an ignored player's. Both go before the index below
+    -- is taken: removing an entry ahead of theirs would move it.
     Expire(GetTime())
     DropIgnored()
     local i = IndexOf(name)

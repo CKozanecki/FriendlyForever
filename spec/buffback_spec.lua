@@ -394,6 +394,25 @@ describe("Buff back", function()
             emptied("every one of them")
         end)
 
+        it("an ignored player's favour takes no room: a new favour on a full button pushes it out, "
+            .. "not the oldest real one (black)", function()
+            for i = 1, ns.Offers.MAX do
+                stranger("nameplate" .. i, { name = "Fav" .. string.char(96 + i), surname = "Owed" })
+                buffedBy("nameplate" .. i)
+            end
+            -- Put on the list without Ignore.Add, and nothing reads the favours before the next buff.
+            ns.db.ignore["favb-owed"] = "Favb-Owed"
+            stranger("nameplate30", { name = "New", surname = "Comer" })
+            buffedBy("nameplate30")
+            local list, who = {}, {}
+            ns.Offers.Current(list)
+            for _, offer in ipairs(list) do who[offer.name] = true end
+            assert.is_true(who["Fava-Owed"], "the oldest real favour stays")
+            assert.is_true(who["New-Comer"])
+            assert.is_nil(who["Favb-Owed"])
+            assert.are.equal(ns.Offers.MAX, ns.Offers.Count())
+        end)
+
         it("Offers.Forget lets go of everything owed to that player in any case, on the list or not (white)",
             function()
             stranger()
