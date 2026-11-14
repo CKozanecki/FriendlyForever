@@ -28,7 +28,7 @@ See [Ready for review](https://github.com/CKozanecki/FriendlyForever/blob/main/C
 
 - [ ] CI is green on the latest commit
 - [ ] This description matches the final code
-- [ ] The branch has no conflicts with `main`, and shares no file with what `main` gained since its last review unless the reviewers confirmed that merge (only behind is fine: the merge queue tests it on the latest `main`)
+- [ ] The branch is up to date with `main` and has no conflicts
 - [ ] Written by an agent: both review loops approved, or the one review / CI only that CONTRIBUTING.md's Review loops allows for this PR; every finding fixed
 - [ ] No open question for the owner: this description has no "decisions for the owner" section, and choices made by following the spec are stated as decisions taken
 

@@ -175,12 +175,8 @@ describe("CI workflow", function()
         setup(function()
             local job = jobWith(select(2, parseWorkflow(path)), "make release%-notes")
             local step = job.steps[indexOf(job.steps, "make release%-notes")]
-            -- In the merge queue (#345) the base is what the queued PR lands on;
-            -- without it BASE is empty, the step reads the index's TOC, which is
-            -- HEAD's, and a release PR would pass without its check.
-            assert.is_truthy(step.text:find("BASE: ${{ github.event.pull_request.base.sha"
-                .. " || github.event.merge_group.base_sha || github.event.before }}", 1, true),
-                "the step doesn't compare with the pull request's base, or the merge group's")
+            assert.is_truthy(step.text:find("BASE: ${{ github.event.pull_request.base.sha || github.event.before }}", 1, true),
+                "the step doesn't compare with the pull request's base")
             script = step.text:match("run: |\n(.*)$"):gsub("\n          ", "\n"):gsub("^%s+", "")
         end)
 
@@ -252,62 +248,6 @@ describe("CI workflow", function()
             assert.are.equal(0, code, out)
             out, code = step("1.0.0", "1.1.0", { "5.md" }, "0000000000000000000000000000000000000000")
             assert.are.equal(0, code, out)
-        end)
-    end)
-
-    -- #345: the merge queue. `check` is the one required check, so it must
-    -- run on merge_group or the queue waits for it forever; every job runs
-    -- there, since a job skipped by an event condition reports a skipped
-    -- check, which GitHub counts as passing.
-    describe("runs check in the merge queue (#345)", function()
-        local function onBlock(file)
-            local header = withoutComments(wow.readFile(file)):match("^(.-)\njobs:") or ""
-            return ((header:match("\non:\n(.-)\n[%w]") or ""):gsub("%s+$", ""))
-        end
-
-        it("runs on pushes to main, pull requests and the merge queue, and nothing else (white)", function()
-            assert.are.equal("  push:\n    branches: [main]\n  pull_request:\n  merge_group:\n    types: [checks_requested]",
-                onBlock(path))
-            assert.is_falsy(wow.readFile(path):find("pull_request_target", 1, true), "CI uses pull_request_target")
-        end)
-
-        it("runs every job on every trigger: no job is skipped by an event condition (black)", function()
-            local _, order = parseWorkflow(path)
-            assert.is_true(#order >= 3, "found " .. #order .. " jobs")
-            for _, job in ipairs(order) do
-                assert.is_falsy(job.text:find("github%.event_name"), job.name .. " depends on the event")
-                assert.is_falsy(job.text:find("github%.ref"), job.name .. " depends on the branch")
-                if job.name == "check" then
-                    assert.is_truthy(job.text:find("\n    if: %${{ always%(%) }}\n"), "check's condition isn't always()")
-                else
-                    assert.is_falsy(job.keys["if"], job.name .. " has a condition: a skipped job reads as passing")
-                end
-            end
-        end)
-
-        it("keeps its read-only access, and no secrets, in the queue too (black)", function()
-            local text = withoutComments(wow.readFile(path))
-            local header = text:match("^(.-)\njobs:")
-            assert.is_truthy(header:find("\npermissions:\n  contents: read\n"), "CI's access isn't read-only")
-            assert.is_falsy(text:find("permissions:", #header + 1, true), "a job widens CI's access")
-            assert.is_falsy(text:find("secrets%."), "CI reads a secret")
-        end)
-
-        -- The report-only workflows stay out of the queue: they gate nothing,
-        -- and a queued PR would wait on them for nothing.
-        it("is the only workflow that runs in the queue (black)", function()
-            local found = 0
-            for _, file in ipairs(workflowFiles()) do
-                local queued = onBlock(file):find("merge_group", 1, true) ~= nil
-                if file == path then
-                    assert.is_true(queued, file)
-                    found = found + 1
-                else
-                    assert.is_false(queued, file .. " runs in the merge queue")
-                    assert.is_falsy(wow.readFile(file):find("merge_group", 1, true), file .. " reads merge_group")
-                end
-            end
-            assert.are.equal(1, found)
         end)
     end)
 
@@ -3725,79 +3665,60 @@ describe("Release docs", function()
             assert.is_truthy(agents:find("A patch release of documentation-only fixes is one PR with the fix", 1, true), "AGENTS.md")
         end)
 
-        -- #345 (a trial): the merge queue replaces "require up to date" and the
-        -- owner's Update branch (#229). A PR only behind main is just enqueued;
-        -- overlap or a conflict still goes to the driver and the reviewers.
-        it("the merge queue rule is written once in CONTRIBUTING.md and only referenced elsewhere (white, black)", function()
+        -- #229, and the #345 trial (owner, 2026-11-14): main still requires
+        -- branches up to date (GitHub's merge queue isn't offered for a personal
+        -- account's repo). A ready PR only behind main is updated by its driver;
+        -- overlap or a conflict still goes to the developer and the reviewers.
+        it("the Update branch rule is written once in CONTRIBUTING.md and only referenced elsewhere (white, black)", function()
             local flat = wow.readFile("CONTRIBUTING.md"):gsub("%s+", " ")
-            local rule = flat:match("#### Merge queue (.-) ## ") or ""
-            for _, sentence in ipairs({
-                "`main` requires GitHub's merge queue instead of branches that are up to date (#345, a trial",
-                "CI's `merge_group` trigger runs the required `check` there, and the queue squash-merges the pull"
-                    .. " request only when it passes.",
-                "Nobody clicks **Update branch**.",
-                "**Only behind `main`: just enqueue.**",
-                "the driver does nothing: no merge, no push, no reviewer re-run.",
-                "**A file in both lists, or a conflict: the driver merges first.**",
-                "the driver merges `main`, resolves, and the reviewers confirm the merge as [Review loops](#review-loops)"
-                    .. " says, before the pull request goes back in the queue.",
-                "Two ready pull requests that share a file are never queued together",
-            }) do
-                assert.is_truthy(rule:find(sentence, 1, true), "Merge queue lost: " .. sentence)
-            end
-            local ready = flat:match("### Ready for review (.-) #### Merge queue") or ""
-            assert.is_truthy(ready:find("Being only behind `main` is fine: the merge queue tests it on the latest `main`", 1, true),
-                "ready checklist")
-            -- The architecture review of #351: a PR that shares a file with what
-            -- main gained, without a conflict, isn't ready until the merge is confirmed.
-            assert.is_truthy(ready:find("- the branch has no conflicts with `main`, and shares no file with what `main`"
-                .. " gained since its last review unless the reviewers confirmed that merge as [Review loops](#review-loops)"
-                .. " says.", 1, true), "ready lets a PR sharing a file with main through")
-            -- Nothing switches to the queue before the ruleset does (#351's review).
-            assert.is_truthy(rule:find("- **Before the queue is on:** everything below applies only once the \"Protect"
-                .. " main\" ruleset requires the merge queue. Until then the earlier rule holds (#229): nobody turns on"
-                .. " auto-merge, and a pull request only behind `main` waits for **Update branch**", 1, true),
-                "Merge queue has no rule for before the switch")
-            assert.is_falsy(ready:find("up to date with `main`", 1, true), "Ready for review still asks for up to date")
-            assert.is_falsy(flat:find("#only-behind-main", 1, true), "CONTRIBUTING.md links the old rule")
+            local rule = flat:match("#### Only behind `main` (.-) #### Who merges ") or ""
+            assert.is_truthy(rule:find("`main` requires branches to be up to date before they merge", 1, true), "the ruleset")
+            assert.is_truthy(rule:find("**No file in both lists and no conflict: update branch only.**", 1, true), "update-branch case")
+            assert.is_truthy(rule:find("No merge on the command line and no reviewer re-run. Whoever drives the pull request"
+                .. " clicks GitHub's **Update branch** on it (for the trial, #345, the driving session does this itself",
+                1, true), "the driver updates")
+            assert.is_truthy(rule:find("puts both file lists in the description as the record", 1, true), "the record")
+            assert.is_truthy(rule:find("**A file in both lists, or any conflict: developer must merge.**", 1, true), "developer case")
+            assert.is_truthy(rule:find("the reviewers confirm the merge and the resolutions", 1, true), "reviewers still confirm")
+            assert.is_truthy(rule:find("The coordinator tells each waiting pull request's driver which case it is in", 1, true))
+            local ready = flat:match("### Ready for review (.-) #### Only behind") or ""
+            assert.is_truthy(ready:find("only behind `main` counts as up to date", 1, true), "ready checklist")
             for _, path in ipairs({ "AGENTS.md", "CLAUDE.md", ".claude/skills/after-merge/SKILL.md",
                 ".claude/skills/coordinator/SKILL.md", ".claude/skills/merge-order/SKILL.md" }) do
                 local text = wow.readFile(path):gsub("%s+", " ")
-                assert.is_truthy(text:find("CONTRIBUTING.md#merge-queue", 1, true), path .. " doesn't reference the rule")
+                assert.is_truthy(text:find("#only-behind-main", 1, true), path .. " doesn't reference the rule")
                 assert.is_truthy(text:find("#345", 1, true), path .. " doesn't cite the trial")
-                assert.is_falsy(text:find("#only-behind-main", 1, true), path .. " links the old rule")
-                assert.is_falsy(text:lower():find("update branch", 1, true), path .. " still sends someone to Update branch")
-                assert.is_falsy(text:find("Only behind `main`: just enqueue.**", 1, true), path .. " restates the rule")
-                assert.is_falsy(text:find("the driver merges first.**", 1, true), path .. " restates the rule")
+                assert.is_falsy(text:find("update branch only.**", 1, true), path .. " restates the rule")
+                assert.is_falsy(text:find("developer must merge.**", 1, true), path .. " restates the rule")
+                -- The queue was dropped (#345, owner, 2026-11-14): nothing may send a PR to it.
+                assert.is_falsy(text:lower():find("merge queue", 1, true), path .. " still mentions the merge queue")
+                assert.is_falsy(text:lower():find("the owner clicks update branch", 1, true), path .. " still has the owner update")
             end
             -- Whole sentences, so a changed condition or a changed actor fails (#119).
             local function has(path, sentence)
                 local text = wow.readFile(path):gsub("%s+", " ")
                 assert.is_truthy(text:find(sentence, 1, true), path .. " lost: " .. sentence)
             end
-            has(".claude/skills/after-merge/SKILL.md", "If the PR shares no file with the merge and has no conflict, do"
-                .. " nothing: it goes into, or stays in, the merge queue")
+            has("CONTRIBUTING.md", "Unchanged: the developer merges `main`, resolves, and the reviewers confirm the merge and the resolutions.")
+            has(".claude/skills/after-merge/SKILL.md", "If the PR shares no file with the merge and has no conflict, don't merge:"
+                .. " update the branch and put both file lists in the description")
             has(".claude/skills/after-merge/SKILL.md", "If your PR has auto-merge on, turn it off (`disable_pr_auto_merge`),"
                 .. " so it can't merge before the reviewers have confirmed the merge.")
             has(".claude/skills/coordinator/SKILL.md", "only behind `main` (no shared file, no conflict), it is still ready:"
-                .. " its driver simply enqueues it")
+                .. " its driver updates the branch")
             has(".claude/skills/coordinator/SKILL.md", "Otherwise it isn't ready: tell its driver to merge `main` in (the"
                 .. " `after-merge` skill), and don't report it to the owner yet.")
+            has(".claude/skills/coordinator/SKILL.md", "For a PR only behind `main` (no shared file, no conflict), tell its"
+                .. " driver to update the branch")
             has(".claude/skills/coordinator/SKILL.md", "For a PR that shares a file or conflicts, tell its driver to merge"
                 .. " `main` in (the `after-merge` skill), and turn its auto-merge off if it's on.")
-            has(".claude/skills/merge-order/SKILL.md", "Say so, and tell its driver to merge `main` in (the `after-merge` skill).")
-            has(".claude/skills/merge-order/SKILL.md", "A pair that conflicts or shares a file never sits in the merge queue together")
-            has("AGENTS.md", "only behind `main` (no shared file, no conflict) is not for the driver: it is simply enqueued")
-            has(".github/pull_request_template.md", "- [ ] The branch has no conflicts with `main`, and shares no file with"
-                .. " what `main` gained since its last review unless the reviewers confirmed that merge (only behind is fine:"
-                .. " the merge queue tests it on the latest `main`)")
-            for _, path in ipairs({ "AGENTS.md", "CLAUDE.md", ".claude/skills/after-merge/SKILL.md",
-                ".claude/skills/coordinator/SKILL.md", ".claude/skills/merge-order/SKILL.md" }) do
-                local text = wow.readFile(path):gsub("%s+", " ")
-                assert.is_truthy(text:find("ruleset requires the", 1, true), path .. " applies the queue before the ruleset does")
-            end
+            has(".claude/skills/merge-order/SKILL.md", "Say so, and tell its driver to merge `main` in (the `after-merge` skill). Exception:")
+            has(".claude/skills/merge-order/SKILL.md", "only behind `main` (no shared file, no trial-merge conflict) is still ready,"
+                .. " and its driver updates the branch")
+            has("AGENTS.md", "only behind `main` (no shared file, no conflict) needs no merge: its driver clicks Update branch")
+            has(".github/pull_request_template.md", "- [ ] The branch is up to date with `main` and has no conflicts")
             -- Written once: each label appears exactly once in CONTRIBUTING.md.
-            for _, label in ipairs({ "Only behind `main`: just enqueue.**", "the driver merges first.**" }) do
+            for _, label in ipairs({ "update branch only.**", "developer must merge.**" }) do
                 local _, count = flat:gsub(label:gsub("%p", "%%%0"), "")
                 assert.are.equal(1, count, "CONTRIBUTING.md has " .. count .. " copies of " .. label)
             end
@@ -4422,9 +4343,9 @@ describe("Claude sessions' agents, knowledge and skills", function()
         for _, rule in ipairs({
             "\n- **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale"
                 .. " branches for the owner, and say which they are. One exception, a trial (#345): the driver of a PR"
-                .. " enables auto-merge on its own PR, which adds it to the merge queue, once the ruleset requires the queue"
-                .. " and the stops in CONTRIBUTING.md's"
-                .. " [Merge queue](CONTRIBUTING.md#merge-queue) hold, and never merges any other way.\n",
+                .. " merges its own PR, by auto-merge or, when GitHub won't turn that on because the PR is already clean,"
+                .. " a direct squash merge, once the stops in CONTRIBUTING.md's [Who merges](CONTRIBUTING.md#who-merges)"
+                .. " hold. It never approves, and never merges another session's PR.\n",
             "\n- **Force-pushing:** never. Push a rebased branch under a new name and flag the old one for the owner"
                 .. " to delete.\n",
         }) do

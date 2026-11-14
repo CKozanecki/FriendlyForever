@@ -21,7 +21,7 @@ git fetch origin main <branch> ...
 git merge-base --is-ancestor origin/main origin/<branch> && echo "contains main"
 ```
 
-A PR that doesn't contain the latest `main` and conflicts with it, or shares a file with what `main` gained since it was reviewed, isn't ready. Say so, and tell its driver to merge `main` in (the `after-merge` skill). A PR only behind `main` (no shared file, no trial-merge conflict) is still ready: it is simply enqueued, and the merge queue tests it on the latest `main` (CONTRIBUTING.md's [Merge queue](../../../CONTRIBUTING.md#merge-queue), #345). Until the ruleset requires the queue, CONTRIBUTING.md's [Merge queue](../../../CONTRIBUTING.md#merge-queue) says what holds instead.
+A PR that doesn't contain the latest `main` isn't ready (CONTRIBUTING's "up to date with `main`"). Say so, and tell its driver to merge `main` in (the `after-merge` skill). Exception: a PR only behind `main` (no shared file, no trial-merge conflict) is still ready, and its driver updates the branch (CONTRIBUTING.md's [Only behind `main`](../../../CONTRIBUTING.md#only-behind-main), #345).
 
 ## 3. Trial-merge every pair
 
@@ -45,7 +45,7 @@ Give the owner one list, with a reason for each place, for example:
 - a PR whose conflicts are trivial for the other side to resolve goes first;
 - PRs that conflict with nothing can go in any order.
 
-Name every conflicting pair and who resolves it (the driver of the PR that merges second). A pair that conflicts or shares a file never sits in the merge queue together: the second PR's driver keeps auto-merge off until the first has merged, then merges `main` in (CONTRIBUTING.md's [Merge queue](../../../CONTRIBUTING.md#merge-queue)). Pairs that share nothing can be queued in any order.
+Name every conflicting pair and who resolves it (the driver of the PR that merges second). For a pair that conflicts or shares a file, the second PR's driver keeps auto-merge off until the first has merged, then merges `main` in (CONTRIBUTING.md's [Who merges](../../../CONTRIBUTING.md#who-merges)). Pairs that share nothing can merge in any order.
 
 ## 5. Tell the drivers
 

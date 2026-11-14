@@ -11,7 +11,7 @@ Ideas, bug reports and pull requests are welcome. Every change starts from an is
 3. Make the change, with a test in `spec/` for any behavior change.
 4. Run `make check` locally.
 5. Open the pull request as a **draft** and fill in the template, with `Closes #<issue>` for each spec it completes. Mark it ready for review when it is (see [Ready for review](#ready-for-review)). CI must pass and review conversations must be resolved before it can merge. **A pull request can merge as soon as the required `check` is green** (#241): the report-only jobs (the UI simulator, screenshots, CodeQL) never gate a merge, and nobody waits for them unless the change is a UI change the maintainer wants to look at. (An agent's UI change still has its screenshots looked at by the testing review before it is ready.) The maintainer reviews outside pull requests. Their own get an automated review, because GitHub doesn't let authors approve their own pull requests, so `main` requires passing CI rather than an approval.
-6. Merges are squash merges, so each PR becomes one commit on `main`, its title ending with the pull request's number, as in `(#54)`. Numbers in commit titles are pull requests; numbers at the end of changelog entries are issues. They go through GitHub's merge queue, which tests each pull request on the latest `main` before it merges (see [Merge queue](#merge-queue)).
+6. Merges are squash merges, so each PR becomes one commit on `main`, its title ending with the pull request's number, as in `(#54)`. Numbers in commit titles are pull requests; numbers at the end of changelog entries are issues.
 
 ### Area batches
 
@@ -69,7 +69,7 @@ A pull request is **ready for review** when all of these hold:
 
 - CI is green on the latest commit;
 - the description matches the final code;
-- the branch has no conflicts with `main`, and shares no file with what `main` gained since its last review unless the reviewers confirmed that merge as [Review loops](#review-loops) says. Being only behind `main` is fine: the merge queue tests it on the latest `main` (see [Merge queue](#merge-queue));
+- the branch is up to date with `main` and has no conflicts (a branch that is only behind `main` counts as up to date: see [Only behind `main`](#only-behind-main));
 - for pull requests written by an agent: both of its review loops (Lua architecture, then Lua testing) have approved, with every finding fixed (a docs-only pull request needs its one review, and a merge that touches none of its files needs only CI: see [Review loops](#review-loops));
 - it has no open question for the maintainer (#215).
 
@@ -79,23 +79,32 @@ Then whoever drives it marks it ready (GitHub's **Ready for review** button, out
 
 It is **ready to merge** when, on top of that, every review conversation is resolved.
 
-#### Merge queue
+#### Only behind `main`
 
-`main` requires GitHub's merge queue instead of branches that are up to date (#345, a trial the maintainer decided on 2026-11-14).
+`main` requires branches to be up to date before they merge, so when another pull request merges, GitHub marks the next ready one out of date (#229). GitHub's merge queue would do this for us, but it isn't offered for a repository owned by a personal account, and the maintainer decided on 2026-11-14 to keep this rule (#345). What happens depends on the two file lists of the file-disjoint rule in [Review loops](#review-loops):
 
-- **Before the queue is on:** everything below applies only once the "Protect main" ruleset requires the merge queue. Until then the earlier rule holds (#229): nobody turns on auto-merge, and a pull request only behind `main` waits for **Update branch**, which the coordinator asks the maintainer for (or clicks itself under its delegation on #182), naming the pull request and the two file lists of [Review loops](#review-loops).
+- **No file in both lists and no conflict: update branch only.** No merge on the command line and no reviewer re-run. Whoever drives the pull request clicks GitHub's **Update branch** on it (for the trial, #345, the driving session does this itself; before, the maintainer did, 2026-11-09), puts both file lists in the description as the record, and lets CI run on the new head. It merges when `check` is green, as [Who merges](#who-merges) says.
+- **A file in both lists, or any conflict: developer must merge.** Unchanged: the developer merges `main`, resolves, and the reviewers confirm the merge and the resolutions.
 
-- **What it does:** a pull request added to the queue (GitHub's auto-merge, **Merge when ready**) is built on a temporary branch on top of the latest `main` and of every pull request queued ahead of it. CI's `merge_group` trigger runs the required `check` there, and the queue squash-merges the pull request only when it passes. If it fails, or the pull request conflicts, the queue removes it and nothing merges. Nobody clicks **Update branch**.
-- **Only behind `main`: just enqueue.** When no file is in both of the two lists of [Review loops](#review-loops) and there is no conflict, the driver does nothing: no merge, no push, no reviewer re-run. The queue's `check` is the test on the latest `main`.
-- **A file in both lists, or a conflict: the driver merges first.** Unchanged: the driver merges `main`, resolves, and the reviewers confirm the merge as [Review loops](#review-loops) says, before the pull request goes back in the queue. Two ready pull requests that share a file are never queued together: the second waits, out of the queue, until the first merges.
-- **Removed from the queue:** GitHub turns auto-merge off. The driver reads why in the `merge_group` run, fixes it on the branch like any other change (the review rules apply to the fix), and enqueues again once the stops below hold.
-- **Who enqueues.** The maintainer, or, for the trial, the session that drives an agent's pull request (the maintainer's merge delegation on #182, extended to developer sessions under the same stops). A driver enables auto-merge, as a squash merge, on its own pull request only, and only when all of these hold:
-  - the required `check` is green on the pull request's latest commit;
-  - both review loops have approved, or what [Review loops](#review-loops) allows for it, with every finding fixed;
-  - it has no open question for the maintainer (#215);
-  - it is [ready for review](#ready-for-review), and every review conversation is resolved.
+The coordinator tells each waiting pull request's driver which case it is in, naming it, so nobody has to work it out twice.
 
-  It never merges directly, approves, or goes around the queue. The coordinator watches the queue and steps in when something's off, turning auto-merge off and telling the driver why.
+#### Who merges
+
+The maintainer; the coordinator, under its delegation on #182; and, for a trial (#345, the maintainer's decision of 2026-11-14), the session that drives an agent's pull request, for that pull request only. Each merges only when all of these stops hold:
+
+- the required `check` is green on the pull request's latest commit;
+- the branch is up to date with `main`, updated as [Only behind `main`](#only-behind-main) says;
+- both review loops have approved, or what [Review loops](#review-loops) allows for it, with every finding fixed;
+- it has no open question for the maintainer (#215);
+- it is [ready for review](#ready-for-review), and every review conversation is resolved.
+
+How a pull request merges, always as a squash merge:
+
+- **Auto-merge first.** Once the stops hold, the driver turns on auto-merge, and GitHub merges the pull request when its required check passes.
+- **Already clean: merge directly.** When GitHub won't turn on auto-merge because the pull request can already merge, the driver merges it directly, giving the head commit it checked the stops on (`expectedHeadSha`), so a push made since then stops the merge.
+- **The coordinator merges** when the only job still pending is a report-only one, or a session's own permission check blocks its merge.
+
+Nobody approves, goes around the ruleset, or merges a pull request the stops don't cover. A driver merges only its own pull request.
 
 ## Local setup
 

@@ -337,20 +337,28 @@ describe("the process trial (#345)", function()
         end
     end)
 
-    it("CONTRIBUTING.md lets a driver enqueue only its own PR, and only when every stop holds (white, black)", function()
-        local queue = contributing:match("#### Merge queue (.-) ## ") or ""
+    it("CONTRIBUTING.md lets a driver merge only its own PR, and only when every stop holds (white, black)", function()
+        local who = contributing:match("#### Who merges (.-) ## ") or ""
         for _, text in ipairs({
-            "**Who enqueues.** The maintainer, or, for the trial, the session that drives an agent's pull request (the"
-                .. " maintainer's merge delegation on #182, extended to developer sessions under the same stops).",
-            "A driver enables auto-merge, as a squash merge, on its own pull request only, and only when all of these hold:",
+            "The maintainer; the coordinator, under its delegation on #182; and, for a trial (#345, the maintainer's"
+                .. " decision of 2026-11-14), the session that drives an agent's pull request, for that pull request only.",
+            "Each merges only when all of these stops hold:",
             "- the required `check` is green on the pull request's latest commit;",
+            "- the branch is up to date with `main`, updated as [Only behind `main`](#only-behind-main) says;",
             "- both review loops have approved, or what [Review loops](#review-loops) allows for it, with every finding fixed;",
             "- it has no open question for the maintainer (#215);",
             "- it is [ready for review](#ready-for-review), and every review conversation is resolved.",
-            "It never merges directly, approves, or goes around the queue.",
-            "The coordinator watches the queue and steps in when something's off",
+            "How a pull request merges, always as a squash merge:",
+            "**Auto-merge first.** Once the stops hold, the driver turns on auto-merge",
+            "**Already clean: merge directly.** When GitHub won't turn on auto-merge because the pull request can"
+                .. " already merge, the driver merges it directly, giving the head commit it checked the stops on"
+                .. " (`expectedHeadSha`), so a push made since then stops the merge.",
+            "**The coordinator merges** when the only job still pending is a report-only one, or a session's own"
+                .. " permission check blocks its merge.",
+            "Nobody approves, goes around the ruleset, or merges a pull request the stops don't cover. A driver merges"
+                .. " only its own pull request.",
         }) do
-            assert.is_truthy(queue:find(text, 1, true), "Merge queue lost: " .. text)
+            assert.is_truthy(who:find(text, 1, true), "Who merges lost: " .. text)
             assert.are.equal(1, once(text), text)
         end
     end)
@@ -359,7 +367,7 @@ describe("the process trial (#345)", function()
         for _, path in ipairs(OTHERS) do
             local text = flat(path)
             for _, copy in ipairs({ "Safety-critical areas keep the full rules", "One pull request, one review at the end",
-                "the required `check` is green on the pull request's latest commit", "Who enqueues." }) do
+                "the required `check` is green on the pull request's latest commit", "Who merges." }) do
                 assert.is_falsy(text:find(copy, 1, true), path .. " restates: " .. copy)
             end
         end
@@ -375,22 +383,31 @@ describe("the process trial (#345)", function()
             .. " one", 1, true))
     end)
 
-    it("CLAUDE.md enqueues with auto-merge, own PR only, and never merges another way (white, black)", function()
+    it("CLAUDE.md merges only its own PR, by auto-merge or a guarded squash merge, and never another way (white, black)",
+        function()
         local claude = flat("CLAUDE.md")
-        assert.is_truthy(claude:find("- **Enqueueing your PR** (a trial, #345): once the ruleset requires the merge"
-            .. " queue and every stop in CONTRIBUTING.md's"
-            .. " [Merge queue](CONTRIBUTING.md#merge-queue) holds, turn on auto-merge for your own PR with the GitHub"
-            .. " tool `enable_pr_auto_merge`, `mergeMethod: SQUASH`.", 1, true))
-        assert.is_truthy(claude:find("Never call `merge_pull_request`, and never enqueue another session's PR.", 1, true))
-        assert.is_truthy(claude:find("If the tool refuses (for example because the PR is already mergeable), don't"
-            .. " merge it another way: tell the coordinator.", 1, true))
-        assert.is_truthy(claude:find("you turned on auto-merge, so your PR is in the merge queue, or the queue"
-            .. " removed it (say why);", 1, true), "the coordinator hears about the queue")
-        -- No rule file names the direct-merge tool except to forbid it.
+        for _, text in ipairs({
+            "- **Merging your PR** (a trial, #345), your own PR only. When it is only behind `main`, update it with the"
+                .. " GitHub tool `update_pull_request_branch`, giving `expectedHeadSha`, and wait for `check` on the new head."
+                .. " Then, only once every stop in CONTRIBUTING.md's [Who merges](CONTRIBUTING.md#who-merges) holds:",
+            "- **auto-merge:** turn it on with `enable_pr_auto_merge`, `mergeMethod: SQUASH`;",
+            "- **already clean:** if that tool refuses because the PR can already merge, call `merge_pull_request` with"
+                .. " `merge_method: squash` and `expectedHeadSha` set to the head you checked the stops on;",
+            "- **anything else:** if a report-only job is the only one pending, or your permission check blocks the"
+                .. " merge, don't find another way: tell the coordinator, which merges it.",
+            "you turned on auto-merge or merged your PR, or it needs the coordinator to merge it (say why);",
+        }) do
+            assert.is_truthy(claude:find(text, 1, true), text)
+        end
+        -- Every rule file that names the merge or update tool gives it the head
+        -- it checked, so a push made since then stops it.
         for _, path in ipairs(OTHERS) do
             local text = flat(path)
-            for at in text:gmatch("()merge_pull_request") do
-                assert.are.equal("Never call `", text:sub(at - 12, at - 1), path .. " names merge_pull_request")
+            for _, tool in ipairs({ "merge_pull_request", "update_pull_request_branch" }) do
+                for at in text:gmatch("()" .. tool) do
+                    assert.is_truthy(text:sub(at, at + 140):find("`expectedHeadSha`", 1, true),
+                        path .. " names " .. tool .. " without expectedHeadSha")
+                end
             end
         end
     end)
