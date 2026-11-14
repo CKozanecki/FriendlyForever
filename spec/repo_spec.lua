@@ -2124,16 +2124,19 @@ describe("UI simulator workflow", function()
         local VERBOSE = { "cp", "mv", "rm", "ln", "chmod", "chown", "install", "mkdir", "rmdir" }
 
         -- Paths read however they're quoted: "$RUNNER_TEMP"/shots, ${RUNNER_TEMP}/shots.
-        -- An array's elements and an expansion's forms (${logs[@]}, ${f%.log}) read as the variable, with
-        -- what follows its name kept, so a source in a default (${x:-$RUNNER_TEMP/shots}) still shows (#360).
-        local function plain(s)
-            return (s:gsub("%${([%w_]+)}", "$%1"):gsub("%${([%a_][%w_]*)([%[:%%#/^,@][^}]*)}", "$%1 %2")
+        -- An array's elements and an expansion's forms (${logs[@]}, ${f%.log}) read as the variable: with
+        -- what follows its name kept, so a source in a default (${x:-$RUNNER_TEMP/shots}) still shows, or
+        -- with it dropped (drop), so ${RUNNER_TEMP:?}/shot-logs reads as the path it is (#360).
+        local function plain(s, drop)
+            return (s:gsub("%${([%w_]+)}", "$%1"):gsub("%${([%a_][%w_]*)([%[:%%#/^,@][^}]*)}", drop and "$%1" or "$%1 %2")
                 :gsub('"(%$[%w_]+)"/', "%1/"))
         end
+        -- Whether either reading names one of the patterns.
         local function namesOne(s, patterns)
-            local p = plain(s)
-            for _, pattern in ipairs(patterns) do
-                if p:find(pattern) then return true end
+            for _, p in ipairs({ plain(s), plain(s, true) }) do
+                for _, pattern in ipairs(patterns) do
+                    if p:find(pattern) then return true end
+                end
             end
             return false
         end
@@ -2246,8 +2249,9 @@ describe("UI simulator workflow", function()
                 end
                 return ""
             end
-            local quiet = plain(line):gsub("%$%(([^();&]*)| tr %-cd '0%-9'%)", keep)
+            local said = line:gsub("%$%(([^();&]*)| tr %-cd '0%-9'%)", keep)
                 :gsub("%$%(([^();&]*)| tr %-cd '0%-9a%-f'%)", keep)
+            local quiet = plain(said)
             -- ($* and $? are parameters, not globs.)
             local globbed = bare:gsub("%$[*?#@]", ""):find("[*?]") ~= nil
             for _, name in ipairs(GLOB_PRINTERS) do
@@ -2274,12 +2278,12 @@ describe("UI simulator workflow", function()
             if line:find("docker run", 1, true) and not line:find("docker run -d ", 1, true) then return true end
             for _, name in ipairs(VERBOSE) do
                 if quiet:find("%f[%w]" .. name .. "%s") and (quiet:find("%s%-%a*v") or quiet:find("%-%-verbose"))
-                    and (inTree or namesOne(quiet, sources)) then
+                    and (inTree or namesOne(said, sources)) then
                     return true
                 end
             end
             for _, reader in ipairs(READERS) do
-                if quiet:find(reader) and namesOne(quiet, sources) then return true end
+                if quiet:find(reader) and namesOne(said, sources) then return true end
             end
             return false
         end
@@ -2436,6 +2440,9 @@ describe("UI simulator workflow", function()
                 local before = command
                 local lead, after = command:match("^(%S+)%s+(.*)$")
                 if lead and LEADS[lead] then command = after end
+                -- A function's header: its body's assignments count (round 5).
+                local header = command:match("^[%w_:%-]+%s*%(%)%s*") or command:match("^function%s+[%w_:%-]+%s*%(?%)?%s*")
+                if header then command = command:sub(#header + 1) end
             until command == before
             local word, rest = command:match("^(%a+)%s+(.*)$")
             if word and DECLARE[word] then
@@ -2448,11 +2455,17 @@ describe("UI simulator workflow", function()
             if not name then name, value = command:match("^select%s+([%a_][%w_]*)%s+in%s+(.*)$") end
             if not name then return end
             local alias = "%$" .. name .. "%f[^%w_]"
-            local p = plain(value):gsub('"', "")
-            if namesOne(value, sources) or p:match("^%$RUNNER_TEMP/?$") or p:match("^%$RUNNER_TEMP%s") or p:find("%$RUNNER_TEMP/.*%.%.") then
+            local p = plain(value, true):gsub('"', "")
+            if namesOne(value, sources) or p:match("^%$RUNNER_TEMP/?$") or p:find("%$RUNNER_TEMP/.*%.%.") then
                 sources[#sources + 1] = alias
             elseif p:find("%$RUNNER_TEMP%f[^%w_]") or namesOne(value, temps) then
                 temps[#temps + 1] = alias
+            end
+            -- More words after an assignment: another assignment (a=1 f=...), or a command (round 5).
+            if command:match("^[%a_][%w_]*%+?=") then
+                local more = value:match('^"[^"]*"%s+(%S.*)$') or value:match("^'[^']*'%s+(%S.*)$")
+                    or value:match("^[^%s\"']+%s+(%S.*)$")
+                if more then capture(more, sources, temps) end
             end
         end
 
@@ -2905,10 +2918,18 @@ describe("UI simulator workflow", function()
                 -- $RUNNER_TEMP itself through an expansion form, and a loop after then, do or a brace (round 4).
                 assert.are.equal(1, #scan(step('t="${RUNNER_TEMP:-/tmp}"\ntail -n 60 "$t"/shot-logs/a.log')))
                 assert.are.equal(1, #scan(step('t="${RUNNER_TEMP%/}"\ntail -n 60 "$t"/shot-logs/a.log')))
+                -- Another folder in $RUNNER_TEMP that way is no source, only inside when a cd goes there.
+                assert.are.same({}, (scan(step('out="${RUNNER_TEMP:?}/build.log"\ncat "$out"'))))
                 for _, loop in ipairs({ 'if [ -d "$ui" ]; then for f in "$ui"/*.log; do tail "$f"; done; fi',
                     'for d in a; do for f in "$ui"/$d/*; do cat "$f"; done; done', '{ for f in "$ui"/*; do cat "$f"; done; }',
                     'if c; then :; else select f in shots/*; do cat "$f"; done; fi', 'if f="$ui/x"; then cat "$f"; fi',
-                    'while ! f="$ui/x"; do :; done\ncat "$f"' }) do
+                    'while ! f="$ui/x"; do :; done\ncat "$f"',
+                    -- After another assignment, and in a function's body (round 5).
+                    'a=1 f="$ui/x"\ncat "$f"', 'X=1 f="$ui/x"; cat "$f"', 'a="1 2" f="$ui/x"\ncat "$f"', "a='1' f=\"$ui/x\"\ncat \"$f\"",
+                    'g() { f="$ui/x"; cat "$f"; }', 'function g { f="$ui/x"; cat "$f"; }', 'function g() { f="$ui/x"; cat "$f"; }',
+                    -- A $RUNNER_TEMP path through an expansion form, used directly (round 5).
+                    'cat "${RUNNER_TEMP:?}/shot-logs/a.log"', 'tail -n 60 "${RUNNER_TEMP:-/tmp}"/shot-logs/*.log',
+                    'cat "${RUNNER_TEMP%/}/report/x"' }) do
                     assert.are.equal(1, #scan(step(loop)), loop)
                 end
             end)
