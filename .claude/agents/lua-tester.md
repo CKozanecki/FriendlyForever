@@ -64,7 +64,7 @@ Your verdict is the only look the screenshots get: the owner doesn't review them
 2. **What you ran:** the mutations, and the commands.
 3. **Screenshots,** for UI changes: what you saw.
 4. **Out of scope** items, if any (not counted against the PR).
-5. **Model,** on one line starting `Model:`: the model that served you, as your environment names it, its family alias and your effort level. The driver checks it against your frontmatter's family (CLAUDE.md's Models and effort, #182).
+5. **Model,** on one line starting `Model:`: the model that served you, as your environment names it, and its family alias. Don't report an effort level: you can't observe it reliably, and the driver records the configured one (CLAUDE.md's Review records, #318). The driver checks it against your frontmatter's family (CLAUDE.md's Models and effort, #182).
 6. **The verdict, as the last line, exactly one of:**
    - `APPROVED`: no findings;
    - `CHANGES REQUESTED`: at least one finding.
