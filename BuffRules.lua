@@ -462,7 +462,10 @@ function BuffRules.SetRaidBlessings(keys)
     end
     if not InRaid() then return false, "you're not in a raid" end
     -- A choice can't be used here (#376); one made in your raid waits.
-    if InBattleground() == true then return false, "not in a battleground" end
+    if InBattleground() == true then
+        return false, raidBlessings and "you're in a battleground (your raid's choice applies again when you're back)"
+            or "you're in a battleground"
+    end
     local mine, chosen, count, all = {}, {}, 0, 0
     for _, buff in ipairs(BuffRules.MyBlessings()) do
         mine[buff.key] = true
@@ -487,4 +490,10 @@ end
 -- Whether you've narrowed your Blessings for this raid.
 function BuffRules.RaidBlessingsChosen()
     return InForce() ~= nil
+end
+
+-- Whether a choice is held for your raid while you're in a battleground,
+-- where it isn't used (#376).
+function BuffRules.RaidBlessingsHeld()
+    return raidBlessings ~= nil and InBattleground() == true
 end
