@@ -12,13 +12,14 @@ The tools are the remote-session ones: `list_sessions`, `get_session`, `list_eve
 
 ## What the coordinator never does
 
-- **Never merges, approves or deletes:** not a PR, a branch, an issue or a comment. The owner merges (AGENTS.md). Stale branches are listed for the owner: only a branch still there after its PR merged or closed, or one with no PR. A merged PR's branch and its `ui-screenshots/pr-<n>` branch delete themselves, so they aren't listed (#119).
+- **Never approves or deletes:** not a PR, a branch, an issue or a comment. The owner merges (AGENTS.md), and anything the coordinator merges, it merges only under the owner's delegation on #182 and the stops in CONTRIBUTING.md's [Who merges](../../../CONTRIBUTING.md#who-merges). Stale branches are listed for the owner: only a branch still there after its PR merged or closed, or one with no PR. A merged PR's branch and its `ui-screenshots/pr-<n>` branch delete themselves, so they aren't listed (#119).
+- **Leaves the developers' PRs to their drivers** (a trial, #345): each driver updates its own PR when it is only behind `main`, turns on auto-merge, or merges it directly when it is already clean, once the stops hold. The coordinator watches instead of relaying each step, and merges a PR itself only when a report-only job is the only one pending or the driver's permission check blocks the merge, after checking every stop, with `merge_pull_request`, `merge_method: squash` and `expectedHeadSha` set to the head it checked. It steps in when something's off (auto-merge on while a stop other than the pending `check` fails, or on for two PRs that share a file): it turns that PR's auto-merge off (`disable_pr_auto_merge`) and tells its driver why.
 - **Never drives another session's PR:** it doesn't push to it, edit its description or announce it ready. It sends that PR's driver a message.
 - **Never passes secrets on,** and never asks for one.
 
 ## Keeping track
 
-For each session, keep: its issue, its branch and PR, who drives the PR (one driver per PR), and its state (working, waiting on the owner, ready, merged).
+For each session, keep: its issue, its branch and PR, who drives the PR (one driver per PR), and its state (working, waiting on the owner, ready, auto-merge on, merged).
 
 **One driver per PR.** If two sessions touch the same PR, tell the one that isn't driving to stop and send its changes to the driver.
 
@@ -31,6 +32,7 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
   - something failed that it can't fix.
 
   A notice wakes the coordinator at once, so the owner hears without waiting for the check-in. When you start a session, give it your session ID and this rule.
+- **How many, and on what** (a trial, #345): about three or four sessions at a time, each owning an area batch (CONTRIBUTING.md's [Area batches](../../../CONTRIBUTING.md#area-batches)). Choose the areas so that no two batches change the same file: list the files each batch's issues will touch before starting them, and hold back a batch that overlaps a running one.
 - **Starting a session:** pass the `model` parameter on every session, set explicitly from CLAUDE.md's Models and effort table, never left to the session default: `sonnet` for a developer, `opus` for security-sensitive and release-workflow changes, specs and hard bugs (with effort `high`). The opening prompt names the model, and the effort where the table gives one. Never a dated model ID. Check the plan's usage first (CLAUDE.md's Plan limits): a fan-out is long work.
 - **Before telling the owner something is pending, read that session's transcript** (`list_events` with `kinds: ["user", "assistant", "result"]`), not just its status. A status says idle; only the transcript says whether it's waiting on the owner, finished, or stuck, and whether the owner already answered.
 - Relay to the owner in one short list: what's needed, from whom, with the link. Don't relay routine progress.
@@ -43,17 +45,17 @@ For each session, keep: its issue, its branch and PR, who drives the PR (one dri
    git fetch origin main <branch>
    git merge-base --is-ancestor origin/main origin/<branch>
    ```
-   If it doesn't and it is only behind `main` (no shared file, no conflict), it is still ready: "update branch only" for the owner (CONTRIBUTING.md's [Only behind `main`](../../../CONTRIBUTING.md#only-behind-main), #229). Otherwise it isn't ready: tell its driver to merge `main` in (the `after-merge` skill), and don't report it to the owner yet.
+   If it doesn't and it is only behind `main` (no shared file, no conflict), it is still ready: its driver updates the branch (CONTRIBUTING.md's [Only behind `main`](../../../CONTRIBUTING.md#only-behind-main), #345). Otherwise it isn't ready: tell its driver to merge `main` in (the `after-merge` skill), and don't report it to the owner yet.
 2. Check CI is green on its head and its description's ready checklist is ticked.
-   After a merge of `main`, check the description's two file lists too (CONTRIBUTING.md's [Review loops](../../../CONTRIBUTING.md#review-loops)): if the owner updated the branch, compare the lists you computed when you told them "update branch only"; if you can't confirm that `git diff --name-only <old main>..<new main>` and `git diff --name-only origin/main...HEAD` share no file and the merge was clean, the reviewers must have confirmed it.
+   After a merge of `main` or an updated branch, check the description's two file lists too (CONTRIBUTING.md's [Review loops](../../../CONTRIBUTING.md#review-loops)): if you can't confirm that `git diff --name-only <old main>..<new main>` and `git diff --name-only origin/main...HEAD` share no file and the merge was clean, the reviewers must have confirmed it.
 3. Check there is no open owner question on it: none in its description, and none in its session's transcript that the owner hasn't answered. If there is one, it isn't ready to merge (CONTRIBUTING.md's "Ready for review", #215): tell its driver to wait for the answer, and put the question in the report.
 4. When more than one PR is ready, **trial-merge every pair** and recommend an order (the `merge-order` skill) before reporting.
 
 ## After the owner merges a PR
 
-**Spotting a merge.** The owner may say so, or may just merge on GitHub. So at every check-in, read each tracked PR's state (`gh api repos/CKozanecki/FriendlyForever/pulls/<n>`, read only). GitHub doesn't notify sessions of merges, and they don't poll (AGENTS.md's "After each merge"); the coordinator tells them.
+**Spotting a merge.** The owner may say so, may just merge on GitHub, or a driver's auto-merge or direct merge lands it. So at every check-in, read each tracked PR's state (`gh api repos/CKozanecki/FriendlyForever/pulls/<n>`, read only). GitHub doesn't notify sessions of merges, and they don't poll (AGENTS.md's "After each merge"); the coordinator tells them.
 
-1. For each other ready PR, compare the merge's files with the PR's files and the trial merge's conflicts, then tell the owner, naming the PR, "update branch only" or "developer must merge" (CONTRIBUTING.md's [Only behind `main`](../../../CONTRIBUTING.md#only-behind-main), #229). Only for "developer must merge", tell its driver to merge `main` in (the `after-merge` skill). Name the conflicts the trial merges predicted, and the files the merge changes, so each driver can prove the merge is file-disjoint (CONTRIBUTING.md's [Review loops](../../../CONTRIBUTING.md#review-loops)). Changelog fragments (`changes/<issue>.md`) never conflict; a PR that still has a line under `### Unreleased` moves it to a fragment when it next merges `main` (CONTRIBUTING.md's [Changelog notes](../../../CONTRIBUTING.md#changelog-notes), #261).
+1. For each other ready PR, compare the merge's files with the PR's files and the trial merge's conflicts. For a PR only behind `main` (no shared file, no conflict), tell its driver to update the branch (CONTRIBUTING.md's [Only behind `main`](../../../CONTRIBUTING.md#only-behind-main), #345). For a PR that shares a file or conflicts, tell its driver to merge `main` in (the `after-merge` skill), and turn its auto-merge off if it's on. Name the conflicts the trial merges predicted, and the files the merge changes, so each driver can prove the merge is file-disjoint (CONTRIBUTING.md's [Review loops](../../../CONTRIBUTING.md#review-loops)). Changelog fragments (`changes/<issue>.md`) never conflict; a PR that still has a line under `### Unreleased` moves it to a fragment when it next merges `main` (CONTRIBUTING.md's [Changelog notes](../../../CONTRIBUTING.md#changelog-notes), #261).
 2. **Tell the merged PR's session at once, politely** (the owner's standing rule, #172). Don't wait for it to notice. First check whether anything is left for it: the PR says `Refs #<issue>` rather than `Closes`, or its transcript shows more parts of the spec still to come.
    - **Nothing left:** "Your PR #<n> merged. Your work is done: finish per CLAUDE.md's "Finishing" (a closing comment only if one is owed, the done line to me, remove your worktree, cancel check-ins, closing summary)."
    - **Work left:** "Your PR #<n> merged. Carry on with what's left on #<issue>." It keeps working, so don't archive it.
