@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #345
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #360, #345
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -533,7 +533,11 @@ local function runWithCurl(script, env, files, flags)
     os.execute('mkdir -p "' .. dir .. '/bin"')
     writeText(dir .. "/bin/curl", fakeCurl)
     os.execute('chmod +x "' .. dir .. '/bin/curl"')
-    for name, content in pairs(files or {}) do writeText(dir .. "/bin/" .. name, content) end
+    for name, content in pairs(files or {}) do
+        writeText(dir .. "/bin/" .. name, content)
+        -- One starting #! is a fake command, found on PATH before the real one.
+        if content:match("^#!") then os.execute('chmod +x "' .. dir .. "/bin/" .. name .. '"') end
+    end
     local exports = { 'export PATH="' .. dir .. '/bin:$PATH"', "export GITHUB_API_URL=https://api.test",
         'export GITHUB_STEP_SUMMARY="' .. dir .. '/summary"', "export REPO=owner/repo",
         "export TOKEN=secret-token-123" }
@@ -2100,28 +2104,182 @@ describe("UI simulator workflow", function()
     -- the job log, where the runner reads a line starting "::" (after any
     -- spaces), or holding "##[" anywhere, as a workflow command.
     describe("shot and simulator output in the job log (black)", function()
+        -- Where shot and simulator output lives. shots on its own (a path
+        -- starting shots/, ./shots, or shots as an argument) is the publish
+        -- step's download folder in the workspace (#360).
         local SOURCES = { "%$report%f[^%w]", "%$RUNNER_TEMP/report", "%$RUNNER_TEMP/shots", "%$RUNNER_TEMP/shot%-logs",
             '"%$file"', '"%$log"', "%$RUNNER_TEMP/tree%-diff", "%$manifest", "%$ui%f[^%w]",
-            "%$RUNNER_TEMP/sim%f[^%w]", "%$pin%f[^%w]" }
-        -- diff and ls-tree print fetched content (#317).
-        local READERS = { "%f[%w]tail%s", "%f[%w]head%s", "%f[%w]ls%s", "%f[%w]grep%s", "%f[%w]cat%s", "%f[%w]diff%s",
-            "ls%-tree%s" }
+            "%$RUNNER_TEMP/sim%f[^%w]", "%$pin%f[^%w]", "%f[%w]shots%f[^%w_-]" }
+        -- Commands that print the files they're given, or their names: diff
+        -- and ls-tree print fetched content (#317); stat, the checksums, wc and
+        -- du print names, and the rest print content (#360).
+        local PRINTERS = { "tail", "head", "ls", "grep", "cat", "diff", "find", "stat", "sha256sum", "sha1sum",
+            "sha512sum", "md5sum", "b2sum", "cksum", "wc", "du", "od", "xxd", "hexdump", "strings", "sort", "uniq",
+            "nl", "tac", "less", "more", "awk", "sed", "cut", "dd", "rsync", "tar", "zip", "unzip" }
+        local READERS = { "ls%-tree%s" }
+        for _, name in ipairs(PRINTERS) do READERS[#READERS + 1] = "%f[%w]" .. name .. "%s" end
+        -- echo and printf print names only through a glob: echo *, printf '%s\n' "$ui"/* (#360).
+        local GLOB_PRINTERS = { "echo", "printf" }
+        -- These print each name they touch when asked to: cp -v, mv --verbose (#360's review).
+        local VERBOSE = { "cp", "mv", "rm", "ln", "chmod", "chown", "install", "mkdir", "rmdir" }
 
-        -- Whether a command line prints shot or simulator output. Paths are
-        -- read however they're quoted: "$RUNNER_TEMP"/shots, ${RUNNER_TEMP}/shots.
+        -- Paths read however they're quoted: "$RUNNER_TEMP"/shots, ${RUNNER_TEMP}/shots.
+        -- An array's elements and an expansion's forms (${logs[@]}, ${f%.log}) read as the variable: with
+        -- what follows its name kept, so a source in a default (${x:-$RUNNER_TEMP/shots}) still shows, or
+        -- with it dropped (drop), so ${RUNNER_TEMP:?}/shot-logs reads as the path it is (#360).
+        local function plain(s, drop)
+            return (s:gsub("%${([%w_]+)}", "$%1"):gsub("%${([%a_][%w_]*)([%[:%%#/^,@][^}]*)}", drop and "$%1" or "$%1 %2")
+                :gsub('"(%$[%w_]+)"/', "%1/"))
+        end
+        -- Whether either reading names one of the patterns.
+        local function namesOne(s, patterns)
+            for _, p in ipairs({ plain(s), plain(s, true) }) do
+                for _, pattern in ipairs(patterns) do
+                    if p:find(pattern) then return true end
+                end
+            end
+            return false
+        end
+
+        -- A line's commands, as bash splits them: at ;, ;;, &&, ||, &, | and
+        -- a subshell's parentheses, but not inside quotes, $( ), ` `, ${ },
+        -- <( ) or >( ), and nothing after a comment (#360). Each piece keeps
+        -- its text, the separators either side, how deep in parentheses it
+        -- is, and bare: its text outside quotes, where a glob shows.
+        local function piecesOf(line)
+            local pieces, stack, depth = {}, {}, 0
+            local buf, bare, before = {}, {}, nil
+            local function cut(sep)
+                local t = table.concat(buf):match("^%s*(.-)%s*$")
+                if t ~= "" then
+                    pieces[#pieces + 1] = { text = t, bare = table.concat(bare), before = before, after = sep,
+                        depth = depth }
+                end
+                buf, bare, before = {}, {}, sep
+            end
+            local i, n = 1, #line
+            while i <= n do
+                local c, two = line:sub(i, i), line:sub(i, i + 1)
+                local top = stack[#stack]
+                local quoted = false
+                for _, s in ipairs(stack) do
+                    if s == "'" or s == '"' then quoted = true end
+                end
+                local size, kept, separator = 1, true, nil
+                if c == "\\" and top ~= "'" then
+                    -- An escaped character is literal: never a glob or a separator.
+                    size = 2
+                    buf[#buf + 1] = two
+                    kept = false
+                elseif top == "'" then
+                    if c == "'" then table.remove(stack) end
+                elseif top == '"' or top == "{" then
+                    if (top == '"' and c == '"') or (top == "{" and c == "}") then table.remove(stack)
+                    elseif two == "$(" then stack[#stack + 1] = "("; size = 2
+                    elseif two == "${" then stack[#stack + 1] = "{"; size = 2
+                    elseif c == "`" then stack[#stack + 1] = "`"
+                    elseif top == "{" and (c == "'" or c == '"') then stack[#stack + 1] = c end
+                elseif top == "`" then
+                    if c == "`" then table.remove(stack) end
+                elseif c == "'" or c == '"' or c == "`" then
+                    stack[#stack + 1] = c
+                elseif two == "$(" or two == "<(" or two == ">(" then
+                    stack[#stack + 1] = "("; size = 2
+                elseif two == "${" then
+                    stack[#stack + 1] = "{"; size = 2
+                elseif top == "(" then
+                    if c == "(" then stack[#stack + 1] = "(" elseif c == ")" then table.remove(stack) end
+                elseif c == "#" and (i == 1 or line:sub(i - 1, i - 1):match("%s")) then
+                    break
+                elseif two == "()" then
+                    size = 2 -- a function's header, not a subshell
+                elseif two == ";;" or two == "&&" or two == "||" or two == "|&" then
+                    separator, size = two, 2
+                elseif c == ";" then
+                    separator = c
+                elseif c == "|" and line:sub(i - 1, i - 1) ~= ">" then
+                    separator = c
+                elseif c == "&" and not line:sub(i - 1, i - 1):match("[<>]") and line:sub(i + 1, i + 1) ~= ">" then
+                    separator = c
+                elseif c == "(" and table.concat(buf):match("[%a_][%w_]*%+?=$") then
+                    stack[#stack + 1] = "(" -- an array's value (logs=( ... )), not a subshell
+                elseif c == "(" then
+                    cut("(")
+                    depth = depth + 1
+                    kept = false
+                elseif c == ")" then
+                    cut(")")
+                    depth = math.max(0, depth - 1)
+                    kept = false
+                end
+                if separator then
+                    cut(separator)
+                elseif kept and not (c == "\\" and top ~= "'") then
+                    local chunk = line:sub(i, i + size - 1)
+                    buf[#buf + 1] = chunk
+                    if not quoted and not (#stack > 0 and (stack[#stack] == "'" or stack[#stack] == '"')) then
+                        bare[#bare + 1] = chunk
+                    end
+                end
+                i = i + size
+            end
+            cut(nil)
+            return pieces
+        end
+
+        -- Whether a command prints shot or simulator output. inTree: the step
+        -- has cd'd into a fetched tree by this command (#356). sources: SOURCES
+        -- and the step's variables that hold one (#360).
         -- git subcommands that print what the fetched repositories hold (#317).
         local GIT_PRINTS = { "ls%-tree", "ls%-files", "show", "log", "status", "diff", "cat%-file", "ls%-remote", "grep" }
-        -- Readers that, run inside a fetched tree, print what it holds with
-        -- no path on the line at all: a bare ls, or cat on a relative name (#356).
-        local BARE_READERS = { "ls", "cat", "find", "head", "tail" }
-        -- inTree: the step has cd'd into a fetched tree by this line (#356).
-        local function printsOutput(line, inTree)
+        local function printsOutput(line, inTree, sources, bare)
+            sources = sources or SOURCES
+            bare = bare or line
             if line:match("^%s*grep%s+%-q") then return false end
+            -- A read a $( ) keeps as digits or hex digits only prints nothing
+            -- a command can be made of (#173, #360's review): one pipeline
+            -- ending in the tr, so nothing in it escapes the tr. The tr sees
+            -- only stdout, so the reader's errors, which name its file, must be
+            -- thrown away (2>/dev/null) or sent down the pipe (2>&1); the
+            -- commands after it read only the pipe: no file, glob or command
+            -- runner of their own (#364's testing review).
+            -- (A word of its own: "$f"2>/dev/null is the argument "$f"2.)
+            local ERRORS = "%s2>%s*/dev/null%f[%s%z]"
+            local INTO_PIPE = "%s2>&1%f[%s%z]"
+            local function keep(inside)
+                local first, later = inside:match("^([^|]*)(.*)$")
+                if not (first:find(ERRORS) or first:find(INTO_PIPE)) then return nil end
+                if namesOne(later, sources) or later:find("[*?]") or later:find("%f[%w]xargs%f[%W]")
+                    or later:find("%f[%w]sh%f[%W]") or later:find("%f[%w]bash%f[%W]") or later:find("%f[%w]env%f[%W]")
+                    or later:find("%f[%w]exec%f[%W]") or later:find("%f[%w]eval%f[%W]") then
+                    return nil
+                end
+                -- (Nor a copy to stderr, a tee or a device on the way to the tr,
+                -- nor a command run beside it with & or &&, nor a < redirect:
+                -- bash opens it, and names its file on failure, before a later
+                -- 2>/dev/null applies, round 8.)
+                inside = inside:gsub(ERRORS, ""):gsub(INTO_PIPE, "")
+                if inside:find("<", 1, true) or inside:find("&", 1, true) or inside:find("||", 1, true) or inside:find(">", 1, true) or inside:find("%f[%w]tee%f[%W]")
+                    or inside:find("/dev/", 1, true) or inside:find("/proc/", 1, true) then
+                    return nil
+                end
+                return ""
+            end
+            local said = line:gsub("%$%(([^();]*)| tr %-cd '0%-9'%)", keep)
+                :gsub("%$%(([^();]*)| tr %-cd '0%-9a%-f'%)", keep)
+            local quiet = plain(said)
+            -- ($* and $? are parameters, not globs.)
+            local globbed = bare:gsub("%$[*?#@]", ""):find("[*?]") ~= nil
+            for _, name in ipairs(GLOB_PRINTERS) do
+                if globbed and line:find("%f[%w]" .. name .. "%f[%W]") and (inTree or namesOne(line, sources)) then
+                    return true
+                end
+            end
+            -- Readers that, run inside a fetched tree, print what it holds with
+            -- no path on the line at all: a bare ls, or cat on a relative name (#356).
             if inTree then
-                for _, reader in ipairs(BARE_READERS) do
-                    if line:find("%f[%w]" .. reader .. "%f[%W]") or line:find("%f[%w]" .. reader .. "$") then
-                        return true
-                    end
+                for _, reader in ipairs(PRINTERS) do
+                    if quiet:find("%f[%w]" .. reader .. "%f[%W]") then return true end
                 end
             end
             -- (Output a command substitution captures never reaches the log.)
@@ -2134,13 +2292,14 @@ describe("UI simulator workflow", function()
             -- A container run in the foreground (and so cargo in it) prints
             -- straight to the log (#164). One started with -d prints only its ID.
             if line:find("docker run", 1, true) and not line:find("docker run -d ", 1, true) then return true end
-            local plain = line:gsub("%${([%w_]+)}", "$%1"):gsub('"(%$[%w_]+)"/', "%1/")
-            for _, reader in ipairs(READERS) do
-                if plain:find(reader) then
-                    for _, source in ipairs(SOURCES) do
-                        if plain:find(source) then return true end
-                    end
+            for _, name in ipairs(VERBOSE) do
+                if quiet:find("%f[%w]" .. name .. "%s") and (quiet:find("%s%-%a*v") or quiet:find("%-%-verbose"))
+                    and (inTree or namesOne(said, sources)) then
+                    return true
                 end
+            end
+            for _, reader in ipairs(READERS) do
+                if quiet:find(reader) and namesOne(said, sources) then return true end
             end
             return false
         end
@@ -2171,71 +2330,279 @@ describe("UI simulator workflow", function()
             return list
         end
 
-        -- Where a step's shell is, after a line: a cd or pushd into a fetched
-        -- tree (a target naming one of SOURCES) or into $RUNNER_TEMP, which
-        -- holds them all, puts it inside. A relative one (cd .., cd -, cd sub)
-        -- can't be followed, so it counts as inside too, wherever it started,
-        -- and so do a command substitution (cd "$(dirname "$pin")"), popd and
-        -- a bare pushd, which go back to a place the scan doesn't track. Only
-        -- one to another named variable or an absolute path, or a bare cd
-        -- (home), takes it out (#356).
-        -- Each command of a line is read in turn: a line splits at ;, &&,
-        -- ||, | and parentheses, and the reserved words and braces that can
-        -- come before a command (if cd ..., then cd ..., { cd ...) are dropped.
-        local KEYWORDS = { ["if"] = true, ["then"] = true, ["else"] = true, ["elif"] = true, ["do"] = true,
-            ["while"] = true, ["until"] = true, ["time"] = true }
-        local function treeAfter(line, inTree)
-            for command in (line:gsub("[;&|()]", "\n") .. "\n"):gmatch("%s*([^\n]-)%s*\n") do
-                repeat
-                    local before = command
-                    command = command:gsub("^[{!]%s*", "")
-                    local word, rest = command:match("^(%a+)%s+(.*)$")
-                    if word and KEYWORDS[word] then command = rest end
-                until command == before
-                local target = command == "cd" and "" or command:match("^cd%s+(.+)$") or command:match("^pushd%s+(.+)$")
-                -- A numbered pushd (+1, -1) is a relative target: inside, below.
-                if command:match("^popd%f[%W]") or command == "pushd" then
-                    inTree = true
-                elseif target then
-                    local plain = target:gsub("%${([%w_]+)}", "$%1"):gsub('"(%$[%w_]+)"/', "%1/")
-                    local into = plain:find("%$RUNNER_TEMP%f[^%w_]") ~= nil
-                    for _, source in ipairs(SOURCES) do
-                        if plain:find(source) then into = true end
+        -- Where a step's shell is: a cd or pushd into a fetched tree (a target
+        -- naming one of the sources) or into $RUNNER_TEMP, which holds them
+        -- all, puts it inside. A relative one (cd .., cd -, cd sub) can't be
+        -- followed, so it counts as inside too, wherever it started, and so do
+        -- a command substitution (cd "$(dirname "$pin")"), popd, a bare pushd,
+        -- $OLDPWD, $PWD, $DIRSTACK, ~+ and ~-, which go back to a place the
+        -- scan doesn't track. Only one to another named variable or an
+        -- absolute path, or a bare cd (home), takes it out, and only when it
+        -- surely runs (#356, #360).
+        -- Words that can come before a command: reserved words and the
+        -- builtins that run the command after them (builtin cd, time -p cd).
+        local OPENS = { ["if"] = true, ["case"] = true, ["while"] = true, ["until"] = true, ["for"] = true,
+            ["select"] = true }
+        local LOOPS = { ["while"] = true, ["until"] = true, ["for"] = true, ["select"] = true }
+        local CLOSES = { ["fi"] = true, ["esac"] = true, ["done"] = true }
+        local PREFIXES = { ["then"] = true, ["else"] = true, ["elif"] = true, ["do"] = true, ["time"] = true,
+            ["builtin"] = true, ["command"] = true, ["exec"] = true, ["eval"] = true }
+
+        -- A command without what comes before it, and what those words say:
+        -- the blocks it opens and closes, whether it's negated or a function's
+        -- header.
+        local function stripped(input)
+            local info = { opens = {}, closes = 0, braces = {}, unbraces = 0 }
+            local command = input
+            repeat
+                local before = command
+                local header = command:match("^[%w_:%-]+%s*%(%)%s*") or command:match("^function%s+[%w_:%-]+%s*")
+                if header then
+                    info.header, command = true, command:sub(#header + 1)
+                elseif command:match("^{%s") or command == "{" then
+                    info.braces[#info.braces + 1] = info.header and "function" or "block"
+                    command = command:gsub("^{%s*", "")
+                elseif command:match("^}") then
+                    info.unbraces = info.unbraces + 1
+                    command = command:gsub("^}%s*", "")
+                elseif command:match("^!%s") then
+                    info.negated, command = true, command:gsub("^!%s*", "")
+                elseif command:match("^[%a_][%w_]*=") then
+                    -- A NAME=value word before a command (X=1 cd ...).
+                    local rest = command:match('^[%a_][%w_]*="[^"]*"%s+(%S.*)$')
+                        or command:match("^[%a_][%w_]*='[^']*'%s+(%S.*)$")
+                        or command:match("^[%a_][%w_]*=[^%s\"']*%s+(%S.*)$")
+                    if rest then command = rest end
+                else
+                    local word, rest = command:match("^(%S+)%s*(.*)$")
+                    if word and OPENS[word] then
+                        info.opens[#info.opens + 1] = word
+                        command = rest
+                    elseif word and CLOSES[word] then
+                        info.closes, command = info.closes + 1, rest
+                    elseif word and PREFIXES[word] then
+                        command = rest
+                        -- Their options (time -p, command -p, exec -a name are rare: -a's name is read as the command).
+                        while command:match("^%-%S*%s") do command = command:gsub("^%-%S*%s+", "") end
+                        if word == "eval" then command = command:gsub("[\"']", "") end
                     end
-                    if into or not (target == "" or target:match('^"?%$[%a_{]') or target:match('^"?[/~]')) then
-                        inTree = true
-                    else
-                        inTree = false
+                end
+            until command == before
+            info.command = command
+            return info
+        end
+
+        -- "in" for a cd that may enter a fetched tree, "out" for one that
+        -- leaves for a named place, nil for anything else.
+        local function cdKind(command, sources, temps)
+            if command:match("^popd%f[%W]") or command == "pushd" then return "in" end
+            local target = command == "cd" and "" or command:match("^cd%s+(.+)$") or command:match("^pushd%s+(.+)$")
+            if not target then return nil end
+            local p = plain(target)
+            if p:find("%$RUNNER_TEMP%f[^%w_]") or namesOne(target, sources) or namesOne(target, temps)
+                or p:find("%$OLDPWD%f[^%w_]") or p:find("%$PWD%f[^%w_]") or target:find("DIRSTACK", 1, true)
+                or target:match('^"?~[+-]') then
+                return "in"
+            end
+            if target == "" or target:match('^"?%$[%a_{]') or target:match('^"?[/~]') then return "out" end
+            return "in"
+        end
+
+        -- Whether a line has a cd that may enter a fetched tree.
+        local function enters(line, sources, temps)
+            for _, piece in ipairs(piecesOf(line)) do
+                if cdKind(stripped(piece.text).command, sources, temps) == "in" then return true end
+            end
+            return false
+        end
+
+        -- The shell's state after a command: inTree, how many if, case or
+        -- loop blocks and function bodies it's in, and the braces open.
+        local function advance(state, piece, sources, temps)
+            local info = stripped(piece.text)
+            state.blocks = state.blocks + #info.opens
+            for _, brace in ipairs(info.braces) do state.braces[#state.braces + 1] = brace end
+            local inFunction = false
+            for _, brace in ipairs(state.braces) do
+                if brace == "function" then inFunction = true end
+            end
+            local move = cdKind(info.command, sources, temps)
+            if move == "in" then
+                state.inTree = true
+            elseif move == "out" then
+                -- A cd that may not run (in an if, case, loop or function, in a
+                -- subshell or pipeline, negated, or before or after && or ||)
+                -- leaves the shell where it was (#360).
+                local sure = state.blocks == 0 and not inFunction and piece.depth == 0 and not info.negated
+                    and (piece.before == nil or piece.before == ";") and (piece.after == nil or piece.after == ";")
+                if sure then state.inTree = false end
+            end
+            state.blocks = math.max(0, state.blocks - info.closes)
+            for _ = 1, info.unbraces do table.remove(state.braces) end
+            return info
+        end
+
+        -- A variable set to a source holds one for the rest of the step, and
+        -- so does one set to $RUNNER_TEMP itself or a path climbing out of
+        -- it; one set to another path under $RUNNER_TEMP counts only when a
+        -- cd goes there, as $RUNNER_TEMP/x itself would (#360).
+        local DECLARE = { ["export"] = true, ["local"] = true, ["declare"] = true, ["readonly"] = true,
+            ["typeset"] = true }
+        -- Words that can come before an assignment or a loop on its line (round 4).
+        local LEADS = { ["then"] = true, ["do"] = true, ["else"] = true, ["elif"] = true, ["{"] = true, ["!"] = true,
+            ["if"] = true, ["while"] = true, ["until"] = true }
+        local function capture(command, sources, temps)
+            repeat
+                local before = command
+                local lead, after = command:match("^(%S+)%s+(.*)$")
+                if lead and LEADS[lead] then command = after end
+                -- A function's header: its body's assignments count (round 5).
+                local header = command:match("^[%w_:%-]+%s*%(%)%s*") or command:match("^function%s+[%w_:%-]+%s*%(?%)?%s*")
+                if header then command = command:sub(#header + 1) end
+            until command == before
+            local word, rest = command:match("^(%a+)%s+(.*)$")
+            if word and DECLARE[word] then
+                command = rest
+                while command:match("^%-%S*%s") do command = command:gsub("^%-%S*%s+", "") end
+            end
+            local name, value = command:match("^([%a_][%w_]*)%+?=(.*)$")
+            -- A loop's variable holds each word it's given (#360's review).
+            if not name then name, value = command:match("^for%s+([%a_][%w_]*)%s+in%s+(.*)$") end
+            if not name then name, value = command:match("^select%s+([%a_][%w_]*)%s+in%s+(.*)$") end
+            if not name then return end
+            local alias = "%$" .. name .. "%f[^%w_]"
+            local p = plain(value, true):gsub('"', "")
+            -- ($RUNNER_TEMP as one word of several: t="$RUNNER_TEMP" n=60, for d in x "$RUNNER_TEMP", round 6.)
+            if namesOne(value, sources) or p:match("^%$RUNNER_TEMP/?$") or p:match("^%$RUNNER_TEMP/?%s")
+                or p:find("%s%$RUNNER_TEMP/?%f[%s%z]") or p:find("%$RUNNER_TEMP/.*%.%.") then
+                sources[#sources + 1] = alias
+            elseif p:find("%$RUNNER_TEMP%f[^%w_]") or namesOne(value, temps) then
+                temps[#temps + 1] = alias
+            end
+            -- More words after an assignment: another assignment (a=1 f=...), or a command (round 5).
+            if command:match("^[%a_][%w_]*%+?=") then
+                local more = value:match('^"%$%b()"%s+(%S.*)$') or value:match("^%$%b()%s+(%S.*)$")
+                    or value:match('^"[^"]*"%s+(%S.*)$') or value:match("^'[^']*'%s+(%S.*)$")
+                    or value:match("^[^%s\"']+%s+(%S.*)$")
+                if more then capture(more, sources, temps) end
+            end
+        end
+
+        -- Whether a job's steps start in a folder that holds shot or simulator
+        -- output: it downloads an artifact into the workspace, by a relative
+        -- path (#360's review).
+        local function startsInside(job)
+            local downloads = false
+            for _, step in ipairs(job.steps) do
+                if step.text:find("actions/download%-artifact@") then
+                    local target = step.text:match("\n%s*path:%s*([^\n]*)")
+                    -- Only $RUNNER_TEMP is outside the workspace.
+                    if not (target and target:match("^%${{%s*runner%.temp%s*}}")) then downloads = true end
+                end
+            end
+            return downloads
+        end
+
+        -- The lines naming runner.temp or the workspace as a ${{ }} expression
+        -- anywhere but a path: input. The scan reads paths as $RUNNER_TEMP,
+        -- and the runner pastes an expression's value into a run: block, or an
+        -- env: value, where the scan can't see it (#360).
+        local function expressionsOutsidePaths(workflowText)
+            local found, pathBlock = {}, nil
+            for _, line in ipairs(splitLines(withoutComments(workflowText))) do
+                -- A path: | block's lines, more indented than its key, are paths too.
+                if pathBlock and line:match("%S") and indentOf(line) <= pathBlock then pathBlock = nil end
+                local inPath = pathBlock ~= nil or line:match("^%s*path:%s") ~= nil
+                if line:match("^%s*path:%s*[|>][+-]?%s*$") then pathBlock = indentOf(line) end
+                for expression in line:gmatch("%${{(.-)}}") do
+                    local e = expression:gsub("%s", "")
+                    if (e:find("runner%.temp") or e:find("runner%[") or e:find("RUNNER_TEMP") or e:find("github%.workspace")
+                        or e:find("github%[")) and not inPath then
+                        found[#found + 1] = line
+                        break
                     end
                 end
             end
-            return inTree
+            return found
+        end
+
+        -- Output thrown away or written to a file in $RUNNER_TEMP never
+        -- reaches the log (#356). A relative file doesn't count: in a fetched
+        -- tree it could be a link to /dev/stdout (#360).
+        local function toFile(command)
+            return command:find('%s>%s*"%$RUNNER_TEMP/') or command:find("%s>%s*/dev/null%s+2>&1") or command:find("&>%s*/dev/null")
         end
 
         -- The lines of a step that print shot or simulator output without a
-        -- filter, and how many printing lines it checked. Lines in a { ... }
-        -- block count as filtered only if the block ends "} 2>&1 | shown",
-        -- or goes to the step summary, a page the runner doesn't read for
-        -- commands.
-        local function scan(stepText)
-            local problems, seen = {}, 0
-            local block, inFunction, inTree
-            local function check(line, filtered)
+        -- filter, and how many printing commands it checked. Each command is
+        -- judged on its own, a pipe into shown with the command it filters
+        -- (#360). Lines in a { ... } block count as filtered only if the
+        -- block ends "} 2>&1 | shown", or goes to the step summary, a page the
+        -- runner doesn't read for commands.
+        -- startInside: the step starts in a folder that holds one, as the
+        -- publish job's workspace holds its downloaded shots (#360's review).
+        local function scan(stepText, startInside)
+            local problems, seen, reported = {}, 0, {}
+            local block, inFunction
+            local sources, temps = {}, {}
+            for _, source in ipairs(SOURCES) do sources[#sources + 1] = source end
+            local state = { inTree = startInside == true, blocks = 0, braces = {} }
+            local carry
+            -- Pipelines: the commands a | joins, judged together, across lines.
+            local pipeline, prints, from = {}, false, nil
+            local function check(command, line, filtered)
                 seen = seen + 1
-                -- To a file, or both streams thrown away: nothing reaches the log (#356).
-                local toFile = line:find('%s>%s*"%$RUNNER_TEMP/')
-                    or line:find("%s>%s*/dev/null%s+2>&1") or line:find("&>%s*/dev/null")
-                -- Kept as digits only, in a variable (#173): no command can be made of those.
-                filtered = filtered or line:find("^%s*[%w_]+=%$%([^);&]*| tr %-cd '0%-9'%)%s*|| true%s*$") ~= nil
-                    or line:find("^%s*[%w_]+=%$%([^);&]*| tr %-cd '0%-9'%)%s*$") ~= nil
-                if not (filtered or toFile or line:find("| shown", 1, true)) then
-                    problems[#problems + 1] = "prints unfiltered output: " .. line
+                local problem
+                if not (filtered or toFile(command) or command:find("| shown", 1, true)) then
+                    problem = "prints unfiltered output: " .. line
                 -- docker logs replays the container's stderr on its own.
-                elseif not filtered and not toFile and line:find("docker %l+ ") and not line:find("2>&1 |", 1, true) then
-                    problems[#problems + 1] = "filters only stdout: " .. line
+                elseif not filtered and not toFile(command) and command:find("docker %l+ ")
+                    and not command:find("2>&1 |", 1, true) then
+                    problem = "filters only stdout: " .. line
+                end
+                if problem and not reported[line] then
+                    reported[line] = true
+                    problems[#problems + 1] = problem
                 end
             end
+            -- Only the run: block is shell: a step's other keys (env:, with:) aren't (#360).
+            local all, runIndent = {}, nil
             for _, line in ipairs(splitLines((stepText:gsub("\\\n%s*", " ")))) do
+                if runIndent and line:match("%S") and indentOf(line) <= runIndent then runIndent = nil end
+                if runIndent then
+                    all[#all + 1] = line
+                else
+                    local key, command = line:match("^([%s-]*)run:%s*(.-)%s*$")
+                    if key then
+                        runIndent = #key
+                        if not command:match("^[|>][+-]?$") then all[#all + 1] = command; runIndent = nil end
+                    end
+                end
+            end
+            for index, line in ipairs(all) do
+                local pieces = piecesOf(line)
+                if pieces[1] and pieces[1].before == nil then pieces[1].before = carry end
+                -- A loop that enters a tree anywhere in its body is inside from its first line.
+                for _, piece in ipairs(pieces) do
+                    local info = stripped(piece.text)
+                    for _, word in ipairs(info.opens) do
+                        if LOOPS[word] then
+                            local open = 0
+                            for k = index, #all do
+                                if enters(all[k], sources, temps) then state.inTree = true end
+                                for _, other in ipairs(piecesOf(all[k])) do
+                                    local o = stripped(other.text)
+                                    for _, w in ipairs(o.opens) do
+                                        if LOOPS[w] then open = open + 1 end
+                                    end
+                                    if o.closes > 0 and other.text:match("done") then open = open - 1 end
+                                end
+                                if open <= 0 then break end
+                            end
+                        end
+                    end
+                end
+                local normal = false
                 if line:match("^%s*sandbox%(%) {%s*$") or line:match("^%s*sized%(%) {%s*$") then
                     -- Their callers send all of it to a file: the next test.
                     inFunction = true
@@ -2248,14 +2615,32 @@ describe("UI simulator workflow", function()
                 elseif block and line:match("^%s*}") then
                     local filtered = line:match("^%s*} 2>&1 | shown%s*$")
                         or line:match('^%s*} >> "%$GITHUB_STEP_SUMMARY"%s*$')
-                    for _, held in ipairs(block) do check(held, filtered ~= nil) end
+                    for _, held in ipairs(block) do check(held[1], held[2], filtered ~= nil) end
                     block = nil
-                -- A reader after a cd on the same line runs inside too.
-                elseif printsOutput(line, inTree or treeAfter(line, inTree)) then
-                    if block then block[#block + 1] = line else check(line, false) end
+                else
+                    normal = true
                 end
-                inTree = treeAfter(line, inTree)
+                for _, piece in ipairs(pieces) do
+                    if normal then
+                        pipeline[#pipeline + 1] = piece.text
+                        from = from or line
+                        if printsOutput(piece.text, state.inTree, sources, piece.bare) then prints = true end
+                        if piece.after ~= "|" and piece.after ~= "|&" then
+                            if prints then
+                                local command = table.concat(pipeline, " | ")
+                                if block then block[#block + 1] = { command, from } else check(command, from, false) end
+                            end
+                            pipeline, prints, from = {}, false, nil
+                        end
+                    end
+                    capture(piece.text, sources, temps)
+                    advance(state, piece, sources, temps)
+                end
+                local last = pieces[#pieces]
+                carry = last and (last.after == "&&" or last.after == "||" or last.after == "|" or last.after == "|&")
+                    and last.after or nil
             end
+            if prints then check(table.concat(pipeline, " | "), from, false) end
             if block then problems[#problems + 1] = "a { block that never ends" end
             return problems, seen
         end
@@ -2264,7 +2649,7 @@ describe("UI simulator workflow", function()
             local seen = 0
             for _, job in ipairs(order) do
                 for _, step in ipairs(job.steps) do
-                    local problems, count = scan(step.text)
+                    local problems, count = scan(step.text, startsInside(job))
                     assert.are.same({}, problems, job.name)
                     seen = seen + count
                 end
@@ -2357,6 +2742,330 @@ describe("UI simulator workflow", function()
                 assert.are.same({}, (scan(fetch)))
                 local leaky = fetch:gsub('(\n(%s*)cd "%$ui/Interface/AddOns"\n)', "%1%2ls\n", 1)
                 assert.are.same({ "prints unfiltered output:           ls" }, (scan(leaky)))
+            end)
+        end)
+
+        -- #360: the gaps #358's reviews found in the scan.
+        describe("closes the scan's gaps (#360)", function()
+            local function step(body) return "run: |\n  " .. body:gsub("\n", "\n  ") .. "\n" end
+
+            it("treats the publish step's shots folder as a source (red, white)", function()
+                for _, leak in ipairs({ "ls shots", "cat shots/*", "ls ./shots", 'head -c 8 "shots/a.png"',
+                    'ls "$GITHUB_WORKSPACE/shots"', "cd shots\nls" }) do
+                    assert.are.equal(1, #scan(step(leak)), leak)
+                end
+                assert.are.same({}, (scan(step("ls shots 2>&1 | shown"))))
+                -- Its real loop reads only names that passed the safe-name check.
+                assert.are.same({}, (scan(step("for f in shots/*.png; do\n  cp \"$f\" \"$out\"\ndone"))))
+                -- Words that only contain it aren't it.
+                assert.are.same({}, (scan(step("cat ui-screenshots/pr-1/README.md\nls shots-old"))))
+            end)
+
+            it("flags echo and printf with a glob, stat, the checksums, wc and du on a source or in a tree, and passes them filtered (red, white)",
+                function()
+                    for _, reader in ipairs({ 'echo "$RUNNER_TEMP"/shots/*', "printf '%s\\n' $ui/*", 'stat "$pin"',
+                        'sha256sum "$RUNNER_TEMP/shots/a.png"', 'wc -l "$manifest"', 'du -a "$ui"', "echo shots/*.pn?" }) do
+                        assert.are.equal(1, #scan(step(reader)), reader)
+                        assert.are.same({}, (scan(step(reader .. " 2>&1 | shown"))), reader)
+                    end
+                    for _, reader in ipairs({ "echo *", "printf '%s\\n' *", "stat x.lua", "sha256sum *.lua", "wc -l x.lua",
+                        "du", "echo Interface/*/x", "od -c x.lua", "sort x.txt" }) do
+                        assert.are.equal(1, #scan(step('cd "$ui"\n' .. reader)), reader)
+                        assert.are.same({}, (scan(step('cd "$ui"\n' .. reader .. " 2>&1 | shown"))), reader)
+                    end
+                    -- No glob: echo prints only what the step wrote. A quoted star isn't a glob.
+                    for _, line in ipairs({ 'echo "$ui"', 'echo "*"', "echo '$ui/*'", "echo \\*", 'echo "$?" "$*"', "echo $? $*" }) do
+                        assert.are.same({}, (scan(step('cd "$ui"\n' .. line))), line)
+                    end
+                end)
+
+            it("refuses runner.temp and the workspace as expressions anywhere but a path: input (red, white)", function()
+                assert.are.same({}, expressionsOutsidePaths(text))
+                for _, bad in ipairs({ 'cd "${{ runner.temp }}/blizzard-ui"', "ls ${{ runner.temp }}/shots",
+                    "ls ${{runner.temp}}", "cat ${{ github.workspace }}/shots/x", "ls ${{ env.RUNNER_TEMP }}/sim",
+                    "ls ${{ runner['temp'] }}" }) do
+                    assert.are.equal(1, #expressionsOutsidePaths("jobs:\n  a:\n    steps:\n      - run: |\n          " .. bad .. "\n"),
+                        bad)
+                end
+                -- An env: value would hide it behind a variable the scan doesn't know.
+                assert.are.equal(1, #expressionsOutsidePaths("      - env:\n          DIR: ${{ runner.temp }}/shots\n"))
+                assert.are.same({}, expressionsOutsidePaths("      - with:\n          path: ${{ runner.temp }}/shots\n"))
+            end)
+
+            it("counts a cd to $OLDPWD, $PWD, $DIRSTACK, ~+ or ~- as inside (red)", function()
+                for _, back in ipairs({ 'cd "$OLDPWD"', "cd $OLDPWD", 'cd "$PWD"', 'cd "${PWD}/x"', 'cd "${DIRSTACK[1]}"',
+                    "cd ~-", "cd ~+", 'pushd "$OLDPWD"' }) do
+                    assert.are.equal(1, #scan(step('cd "$ui"\ncd "$out"\n' .. back .. "\nls")), back)
+                end
+            end)
+
+            it("counts a variable set to a source as a source for the rest of the step (red, white)", function()
+                assert.are.equal(1, #scan(step('addons="$ui/Interface/AddOns"\ncd "$addons"\nls')))
+                assert.are.equal(1, #scan(step('addons="$ui/Interface/AddOns"\ncat "$addons/x"')))
+                assert.are.equal(1, #scan(step('export addons="${ui}/x"\nls "${addons}"')))
+                -- Through a second copy, and from $RUNNER_TEMP itself, which holds every tree.
+                assert.are.equal(1, #scan(step('a="$pin"\nb="$(dirname "$a")"\nls "$b"')))
+                assert.are.equal(1, #scan(step('t="$RUNNER_TEMP"\nls "$t/shots"')))
+                assert.are.equal(1, #scan(step("t=$RUNNER_TEMP/\ncat $t/sim/x")))
+                assert.are.equal(1, #scan(step('t="$RUNNER_TEMP/publish/.."\nls "$t/shots"')))
+                -- Another folder in $RUNNER_TEMP is inside when a cd goes there, as $RUNNER_TEMP/publish would be.
+                assert.are.equal(1, #scan(step('out="$RUNNER_TEMP/publish"\ncd "$out"\nls')))
+                assert.are.same({}, (scan(step('out="$RUNNER_TEMP/publish"\ncat "$out/README.md"'))))
+                -- Only for the rest of the step.
+                assert.are.same({}, (scan(step('ls "$addons"\naddons="$ui/x"'))))
+            end)
+
+            it("judges each command's filtering on its own, keeping a pipe into shown with its command (red, white)", function()
+                for _, line in ipairs({ "ls > /dev/null 2>&1; cat x", "cat x | shown; ls", "ls 2>&1 | shown && cat x",
+                    "true || cat x &> /dev/null; ls", 'ls > "$RUNNER_TEMP/a"; cat x', "ls 2>&1 | shown & cat x" }) do
+                    assert.are.equal(1, #scan(step('cd "$ui"\n' .. line)), line)
+                end
+                for _, line in ipairs({ "ls > /dev/null 2>&1; cat x 2>&1 | shown", "ls 2>&1 | shown && cat x 2>&1 | shown",
+                    "ls |& shown", 'echo "a; ls" > /dev/null 2>&1' }) do
+                    assert.are.same({}, (scan(step('cd "$ui"\n' .. line))), line)
+                end
+                -- Separators inside quotes or a command substitution don't split it.
+                assert.are.same({}, (scan(step('cd "$ui"\nn=$(ls | wc -l; true) > /dev/null 2>&1'))))
+            end)
+
+            it("keeps a checksum from the log only as hex digits in a variable, never by a relative file (white, red)", function()
+                assert.are.same({}, (scan(step([[h=$(sha256sum "$manifest" 2>&1 | cut -d' ' -f1 | tr -cd '0-9a-f')]]))))
+                assert.are.same({}, (scan(step([[h=$(sha256sum "$manifest" 2>/dev/null | cut -d' ' -f1 | tr -cd '0-9a-f')]]))))
+                -- Its errors would reach the log, naming the file (#364's testing review).
+                assert.are.equal(1, #scan(step([[h=$(sha256sum "$manifest" | cut -d' ' -f1 | tr -cd '0-9a-f')]])))
+                assert.are.equal(1, #scan(step('cd "$ui"\n' .. [[n=$(wc -l * | tail -n 1 | tr -cd '0-9')]])))
+                assert.are.same({}, (scan(step('cd "$ui"\n' .. [[n=$(wc -l * 2>/dev/null | tail -n 1 | tr -cd '0-9')]]))))
+                assert.are.equal(1, #scan(step([[h=$(sha256sum "$manifest" | cut -d' ' -f1 | tr -cd '0-9a-z:')]])))
+                assert.are.equal(1, #scan(step([[h=$(sha256sum "$manifest" | tr -cd '0-9a-f') && cat "$manifest"]])))
+                -- In a fetched tree, a relative file could be a link to /dev/stdout.
+                for _, line in ipairs({ "sha256sum x > .marker", "sha256sum x > out/marker.txt 2>&1", "sha256sum x > /dev/stdout",
+                    'sha256sum x > "$f"', "ls &> .log", "ls &> /dev/stdout" }) do
+                    assert.are.equal(1, #scan(step('cd "$ui"\n' .. line)), line)
+                end
+            end)
+
+            it("follows cd after builtin, command, exec, time's options, eval and NAME=value words (red)", function()
+                for _, prefix in ipairs({ "builtin", "command", "command -p", "exec", "time -p", "time", "X=1", 'X="a b"',
+                    "X=1 Y=2", "eval", "builtin command" }) do
+                    assert.are.equal(1, #scan(step('cd "$out"\n' .. prefix .. ' cd "$ui"\nls')), prefix)
+                end
+                assert.are.equal(1, #scan(step('cd "$out"\neval "cd $ui"\nls')))
+            end)
+
+            it("leaves a tree only on a cd that surely runs (red, white)", function()
+                for _, away in ipairs({ 'if c; then cd "$ui"; else cd "$HOME"; fi', 'cd "$ui"\ncd "$HOME" || true',
+                    'cd "$ui"\nif c; then\n  cd /tmp\nfi', 'cd "$ui"\nfalse && cd /tmp', 'cd "$ui"\n( cd /tmp )',
+                    'cd "$ui"\ncd /tmp | true', 'cd "$ui"\n! cd /tmp', 'cd "$ui"\ncase x in\n  y) cd /tmp ;;\nesac',
+                    'cd "$ui"\nwhile c; do cd /tmp; done', 'cd "$ui"\nf() { cd /tmp; }', 'cd "$ui"\nf() {\n  cd /tmp\n}',
+                    'cd "$ui"\ntrue &&\n  cd /tmp', 'cd "$ui"\ncd /tmp &', 'cd "$ui"\n( true; cd /tmp; true )',
+                    -- After || or a pipe (#364's testing review).
+                    'cd "$ui"\nfalse || cd /tmp', 'cd "$ui"\ntrue | cd /tmp', 'cd "$ui"\nfalse ||\n  cd /tmp' }) do
+                    assert.are.equal(1, #scan(step(away .. "\nls")), away)
+                end
+                for _, away in ipairs({ 'cd "$ui"\ncd /tmp', 'cd "$ui"\ncd "$HOME"; ls', 'cd "$ui"\nif c; then :; fi\ncd /tmp',
+                    'cd "$ui"\n{ cd /tmp; }', 'cd "$ui"\nf() { :; }\ncd /tmp', 'cd "$ui"\nfor d in a; do :; done\ncd "$HOME"' }) do
+                    assert.are.same({}, (scan(step(away .. "\nls"))), away)
+                end
+            end)
+
+            it("follows a pipe onto the next line (red, white)", function()
+                assert.are.equal(1, #scan(step('cat "$ui/x" |\n  tee y')))
+                assert.are.equal(1, #scan(step('cat "$ui/x" |')))
+                assert.are.same({}, (scan(step('cat "$ui/x" 2>&1 |\n  shown'))))
+            end)
+
+            -- The fetch step's marker records the file list's hash, taken
+            -- before its cd into Blizzard's tree.
+            it("records the file list's hash as 64 hex digits, or stops the fetch step (black)", function()
+                local fetch
+                for _, s in ipairs(jobs.simulator.steps) do
+                    if s.text:find("manifest_sha=", 1, true) then fetch = s end
+                end
+                assert.is_truthy(fetch, "no step hashes the file list")
+                local script = runOf(fetch, "the fetch step")
+                local hashing = script:match("\n(manifest_sha=[^\n]*\ntest [^\n]*\n)")
+                assert.is_truthy(hashing, "the hash isn't checked on the next line")
+                assert.is_truthy(script:find(hashing, 1, true) < script:find('\ncd "$ui/Interface/AddOns"\n'),
+                    "the hash is taken inside the tree")
+                local function run(output)
+                    local fake = "#!/bin/sh\nprintf '%s\\n' '" .. output .. "'\n"
+                    local code, out = runWithCurl("manifest=x\n" .. hashing .. 'echo "got=$manifest_sha"\n', {},
+                        { sha256sum = fake }, "-e")
+                    return code, out:match("got=(%S*)")
+                end
+                local hash = ("0123456789abcdef"):rep(4)
+                assert.are.same({ 0, hash }, { run(hash .. "  x") })
+                local failed, said = runWithCurl("manifest=x\n" .. hashing, {}, { sha256sum = "#!/bin/sh\nexit 1\n" }, "-e")
+                assert.are_not.equal(0, failed, "a failed hash was recorded")
+                assert.is_truthy(said:find("couldn't hash", 1, true), "the step stops without saying why")
+                assert.are_not.equal(0, (run("")), "an empty hash was recorded")
+                assert.are_not.equal(0, (run(hash:sub(2) .. "::  x")), "a hash with other characters was recorded")
+                assert.are_not.equal(0, (run("::error::" .. hash .. "  x")), "a planted line was cut down to a hash")
+            end)
+
+            -- The clean-up step's find names a file it can't delete on stderr.
+            it("marks what the shots clean-up's find prints, and keeps its failure (black)", function()
+                local clean
+                for _, s in ipairs(jobs.screenshots.steps) do
+                    if s.text:find("Keep only plain PNG files", 1, true) then clean = s end
+                end
+                assert.is_truthy(clean, "no clean-up step")
+                local script = runOf(clean, "the clean-up step")
+                local docker = "#!/bin/sh\nexit 0\n"
+                local find = "#!/bin/sh\nprintf 'find: cannot delete x\\n::error::planted\\n##[error]planted\\n' >&2\nexit 1\n"
+                local code, out = runWithCurl(script, { RUNNER_TEMP = "/nonexistent" }, { docker = docker, find = find }, "-e")
+                assert.are_not.equal(0, code, "a failed find didn't fail the step")
+                assert.is_truthy(out:find("planted", 1, true), "find's message didn't reach the log at all")
+                for _, line in ipairs(runnerLines(out)) do
+                    assert.is_falsy(line:match("^%s*::"), "a workflow command got through: " .. line)
+                    assert.is_falsy(line:find("##[", 1, true), "a workflow command got through: " .. line)
+                end
+                code = runWithCurl(script, { RUNNER_TEMP = "/nonexistent" }, { docker = docker, find = "#!/bin/sh\nexit 0\n" },
+                    "-e")
+                assert.are.equal(0, code)
+            end)
+
+            -- From #364's architecture review.
+            it("counts a for or select loop's variable over a source as a source (red)", function()
+                assert.are.equal(1, #scan(step('for f in "$RUNNER_TEMP"/shot-logs/*.log; do\n  tail -60 "$f"\ndone')))
+                assert.are.equal(1, #scan(step('for f in "$ui"/Interface/AddOns/*; do cat "$f"; done')))
+                assert.are.equal(1, #scan(step('select f in shots/*; do stat "$f"; done')))
+                assert.are.same({}, (scan(step('for f in a b; do cat "$f"; done'))))
+                -- An array of sources, and its elements however they're expanded (round 2).
+                assert.are.equal(1, #scan(step('logs=("$RUNNER_TEMP"/shot-logs/*.log)\ntail -n 60 "${logs[@]}"')))
+                assert.are.equal(1, #scan(step('logs=("$RUNNER_TEMP"/shot-logs/*.log)\nfor f in "${logs[@]}"; do tail -n 60 "$f"; done')))
+                assert.are.equal(1, #scan(step('logs=()\nlogs+=("$ui"/x)\ncat "${logs[0]}"')))
+                assert.are.equal(1, #scan(step('for f in shots/*; do cat "${f%.png}.txt"; done')))
+                assert.are.same({}, (scan(step('logs=(a b)\ncat "${logs[@]}"'))))
+                -- A source in a default value (round 3).
+                assert.are.equal(1, #scan(step('cat "${LOG:-$RUNNER_TEMP/shot-logs/a.log}"')))
+                assert.are.equal(1, #scan(step('dir="${SHOT_LOGS:-$RUNNER_TEMP/shot-logs}"\ntail -n 60 "$dir"/*.log')))
+                -- An assignment after then, do, else or a brace (round 3).
+                assert.are.equal(1, #scan(step('if [ -n "$x" ]; then f="$RUNNER_TEMP/shot-logs/a.log"; fi\ncat "$f"')))
+                assert.are.equal(1, #scan(step('{ f="$ui/x"; cat "$f"; }')))
+                assert.are.equal(1, #scan(step('for d in a; do f="$ui/$d"; done\ncat "$f"')))
+                -- $RUNNER_TEMP itself through an expansion form, and a loop after then, do or a brace (round 4).
+                assert.are.equal(1, #scan(step('t="${RUNNER_TEMP:-/tmp}"\ntail -n 60 "$t"/shot-logs/a.log')))
+                assert.are.equal(1, #scan(step('t="${RUNNER_TEMP%/}"\ntail -n 60 "$t"/shot-logs/a.log')))
+                -- $RUNNER_TEMP as one word of several (round 6).
+                assert.are.equal(1, #scan(step('t="$RUNNER_TEMP" n=60\ntail -n "$n" "$t"/shot-logs/a.log')))
+                assert.are.equal(1, #scan(step('t=$RUNNER_TEMP n=60\ntail -n "$n" "$t"/shot-logs/a.log')))
+                assert.are.equal(1, #scan(step('for d in "$RUNNER_TEMP" "$GITHUB_WORKSPACE"; do tail "$d"/shot-logs/a.log; done')))
+                assert.are.equal(1, #scan(step('for d in "$GITHUB_WORKSPACE" "$RUNNER_TEMP"; do tail "$d"/shot-logs/a.log; done')))
+                -- After a command substitution's value.
+                assert.are.equal(1, #scan(step('sha=$(git rev-parse HEAD) f="$ui/x"\ncat "$f"')))
+                assert.are.equal(1, #scan(step('sha="$(git -C "$ui" rev-parse HEAD)" f="$ui/x"\ncat "$f"')))
+                -- Another folder in $RUNNER_TEMP that way is no source, only inside when a cd goes there.
+                assert.are.same({}, (scan(step('out="${RUNNER_TEMP:?}/build.log"\ncat "$out"'))))
+                for _, loop in ipairs({ 'if [ -d "$ui" ]; then for f in "$ui"/*.log; do tail "$f"; done; fi',
+                    'for d in a; do for f in "$ui"/$d/*; do cat "$f"; done; done', '{ for f in "$ui"/*; do cat "$f"; done; }',
+                    'if c; then :; else select f in shots/*; do cat "$f"; done; fi', 'if f="$ui/x"; then cat "$f"; fi',
+                    'while ! f="$ui/x"; do :; done\ncat "$f"',
+                    -- After another assignment, and in a function's body (round 5).
+                    'a=1 f="$ui/x"\ncat "$f"', 'X=1 f="$ui/x"; cat "$f"', 'a="1 2" f="$ui/x"\ncat "$f"', "a='1' f=\"$ui/x\"\ncat \"$f\"",
+                    'g() { f="$ui/x"; cat "$f"; }', 'function g { f="$ui/x"; cat "$f"; }', 'function g() { f="$ui/x"; cat "$f"; }',
+                    -- A $RUNNER_TEMP path through an expansion form, used directly (round 5).
+                    'cat "${RUNNER_TEMP:?}/shot-logs/a.log"', 'tail -n 60 "${RUNNER_TEMP:-/tmp}"/shot-logs/*.log',
+                    'cat "${RUNNER_TEMP%/}/report/x"' }) do
+                    assert.are.equal(1, #scan(step(loop)), loop)
+                end
+            end)
+
+            it("counts a read kept as digits or hex digits by its $( ) as printing nothing, and no other (white, red)", function()
+                local loop = 'for f in shots/*.png; do\n  %s\ndone'
+                -- Its reader's errors, which name the file, thrown away or sent down the pipe to the tr.
+                for _, quiet in ipairs({ [[[ "$(stat -c %s "$f" 2>/dev/null | tr -cd '0-9')" -le 5242880 ] || continue]],
+                    [[[ "$(head -c 8 "$f" 2> /dev/null | od -An -tx1 | tr -cd '0-9a-f')" = "89504e47" ] || continue]],
+                    [[n=$(cat "$f" 2>&1 | tr -cd '0-9')]], [[n=$(grep -o 'START [0-9]*' "$f" 2>/dev/null | tail -n 1 | tr -cd '0-9')]] }) do
+                    assert.are.same({}, (scan(step(loop:format(quiet)))), quiet)
+                    assert.are.same({}, (scan(step(loop:format(quiet)), true)), quiet)
+                end
+                for _, loud in ipairs({ [[[ "$(head -c 8 "$f" | od -An -tx1 | tr -d ' \n')" = "89504e47" ] || continue]],
+                    -- The reader's errors reach the log: head: error reading 'shots/##[error]x.png' (#364's testing review).
+                    [[[ "$(head -c 8 "$f" | od -An -tx1 | tr -cd '0-9a-f')" = "89504e47" ] || continue]],
+                    [[[ "$(stat -c %s "$f" | tr -cd '0-9')" -le 5242880 ] || continue]],
+                    -- The commands after the reader read only the pipe.
+                    [[n=$(true 2>/dev/null | cat "$f" | tr -cd '0-9')]], [[n=$(ls shots 2>/dev/null | xargs cat | tr -cd '0-9')]],
+                    [[n=$(echo 2>/dev/null | cat shots/* | tr -cd '0-9')]], [[n=$(cat "$f" 2>&1 | sh | tr -cd '0-9')]],
+                    [[n=$(cat "$f" 2>/dev/null | bash | tr -cd '0-9')]], [[n=$(cat "$f" 2>/dev/null | env awk 1 | tr -cd '0-9')]],
+                    [[n=$(cat "$f" 2>/dev/null | exec cat | tr -cd '0-9')]], [[n=$(cat "$f" 2>/dev/null | eval cat | tr -cd '0-9')]],
+                    -- The reader is the first command: its errors handled later on don't count (round 2 of the testing review).
+                    [[[ "$(head -c 8 "$f" | od -An -tx1 2>/dev/null | tr -cd '0-9a-f')" = "89504e47" ] || continue]],
+                    [[n=$(cat "$f" | wc -c 2>&1 | tr -cd '0-9')]], [[n=$(true 2>/dev/null | cat "$f" | wc -c | tr -cd '0-9')]],
+                    [[[ "$(stat -c %s "$f")" -le 5242880 ] || continue]], [[echo "$(cat "$f" | tr -cd '0-9')" "$(cat "$f")"]],
+                    -- Only one pipeline, ending in the tr: anything before it in the $( ) escapes it.
+                    -- (Each with its errors handled, so only the rule named is at stake.)
+                    [[n=$(cat "$f" 2>/dev/null ; cat x | tr -cd '0-9')]], [[n=$(cat "$f" 2>/dev/null && cat x | tr -cd '0-9')]],
+                    [[n=$(cat "$f" 2>/dev/null || cat x | tr -cd '0-9')]], [[n=$(cat "$f" 2>/dev/null ; cat x | tr -cd '0-9a-f')]],
+                    [[n=$(cat "$f" 2>/dev/null & cat x | tr -cd '0-9a-f')]], [[n=$(cat "$f" 2>/dev/null || cat x | tr -cd '0-9a-f')]],
+                    -- Nor a copy to stderr, a tee or a device on the way (round 2).
+                    [[n=$(cat "$f" 2>/dev/null | tee /dev/stderr | wc -l | tr -cd '0-9')]],
+                    [[n=$(head -c 8 "$f" 2>/dev/null >/dev/stderr | tr -cd '0-9a-f')]], [[n=$(cat "$f" 2>&1 | tee x | tr -cd '0-9')]],
+                    [[n=$(dd if="$f" of=/dev/stderr 2>/dev/null | tr -cd '0-9')]], [[n=$(cat "$f" 2>/dev/null >&2 | tr -cd '0-9')]],
+                    [[n=$(cat "$f" 2>/dev/null | tee /dev/stderr | tr -cd '0-9')]],
+                    -- A redirect to a variable could name a device.
+                    [[n=$(cat "$f" 2>/dev/null > "$out" | tr -cd '0-9')]], [[n=$(cat "$f" 2>/dev/null >/dev/stderr | tr -cd '0-9')]],
+                    [[n=$(cat "$f" 2>/dev/nullx | tr -cd '0-9')]],
+                    -- A < opened before the 2>/dev/null applies, and a 2 glued to the word before it (round 8).
+                    [[n=$(wc -l < "$f" 2>/dev/null | tr -cd '0-9')]], [[n=$(od -An -tx1 -N8 < "$f" 2>&1 | tr -cd '0-9a-f')]],
+                    [[n=$(stat -c %s "$f"2>/dev/null | tr -cd '0-9')]], [[n=$(cat "$f"2>&1 | tr -cd '0-9')]] }) do
+                    assert.are.equal(1, #scan(step(loop:format(loud))), loud)
+                end
+                -- A glob after the reader is a reader of its own, inside a tree.
+                assert.are.equal(1, #scan(step('cd "$ui"\n' .. [[n=$(true 2>/dev/null | cat * | tr -cd '0-9')]])))
+            end)
+
+            it("starts a job's steps inside when it downloads an artifact into the workspace (red, white)", function()
+                assert.is_true(startsInside(jobs["publish-screenshots"]))
+                for _, name in ipairs({ "changes", "simulator", "ui-sim", "screenshots" }) do
+                    assert.is_false(startsInside(jobs[name]), name)
+                end
+                for _, reader in ipairs({ "find . -name '*.png'", "ls -R", "du -a", "echo *" }) do
+                    assert.are.equal(1, #scan(step(reader), true), reader)
+                    assert.are.same({}, (scan(step(reader))), reader)
+                end
+                local fixture = parseText("jobs:\n  a:\n    steps:\n      - uses: actions/download-artifact@x\n"
+                    .. "        with:\n          path: ${{ runner.temp }}/x\n  b:\n    steps:\n"
+                    .. "      - uses: actions/download-artifact@x\n        with:\n          path: out\n")
+                assert.is_false(startsInside(fixture.a))
+                assert.is_true(startsInside(fixture.b))
+                -- The workspace by another name is the workspace (round 2).
+                local named = parseText("jobs:\n  c:\n    steps:\n      - uses: actions/download-artifact@x\n"
+                    .. "        with:\n          path: ${{ github.workspace }}/shots\n")
+                assert.is_true(startsInside(named.c))
+            end)
+
+            it("reads only a step's run: block as shell (white, red)", function()
+                assert.are.same({}, (scan("- env:\n    HEAD_SHA: x\n    LS: shots\n  run: |\n    echo hi\n")))
+                assert.are.equal(1, #scan("- name: x\n  run: ls shots\n"))
+                assert.are.equal(1, #scan("- run: |\n    echo hi\n    ls shots\n  env:\n    A: b\n"))
+                assert.are.same({}, (scan("- run: |\n    echo hi\n  env:\n    LS: ls shots\n")))
+            end)
+
+            it("allows the two expressions in a path: | block's lines, and only there (white, red)", function()
+                assert.are.same({}, expressionsOutsidePaths("      - with:\n          path: |\n            ${{ runner.temp }}/a\n"
+                    .. "            ${{ runner.temp }}/b\n"))
+                assert.are.equal(1, #expressionsOutsidePaths("      - with:\n          path: |\n            ${{ runner.temp }}/a\n"
+                    .. "          key: ${{ runner.temp }}\n"))
+            end)
+
+            it("counts archive tools and verbose copies as printing the names they touch (red, white)", function()
+                for _, reader in ipairs({ 'rsync -a "$ui/" x', 'tar -cf x.tar -C "$RUNNER_TEMP" shots', 'zip -r x.zip shots',
+                    'unzip "$RUNNER_TEMP/shots/a.zip"', 'cp -v "$ui/x" y', 'cp -av "$pin" y', 'rm --verbose "$RUNNER_TEMP/shots/a"',
+                    'mv -v shots/a b' }) do
+                    assert.are.equal(1, #scan(step(reader)), reader)
+                    assert.are.same({}, (scan(step(reader .. " 2>&1 | shown"))), reader)
+                end
+                assert.are.equal(1, #scan(step('cd "$ui"\nchmod -Rv a+r .')))
+                assert.are.same({}, (scan(step('cp "$ui/x" y\nrm -rf "$RUNNER_TEMP/shots"\nmkdir -p "$RUNNER_TEMP/shots"'))))
+            end)
+
+            it("counts a reader in a loop that enters a tree later in its body as inside (red)", function()
+                assert.are.equal(1, #scan(step('for d in a b; do\n  ls\n  cd "$ui/$d"\ndone')))
+                assert.are.equal(1, #scan(step('while c; do\n  if d; then cat x; fi\n  cd "$ui"\ndone')))
+                assert.are.same({}, (scan(step('for d in a b; do\n  ls\ndone\ncd "$ui"'))))
+                assert.are.equal(1, #scan(step('for d in a b; do ls; cd "$ui"; done')))
+                assert.are.same({}, (scan(step('ls; cd "$ui"'))))
             end)
         end)
 
