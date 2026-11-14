@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -2111,8 +2111,19 @@ describe("UI simulator workflow", function()
         -- read however they're quoted: "$RUNNER_TEMP"/shots, ${RUNNER_TEMP}/shots.
         -- git subcommands that print what the fetched repositories hold (#317).
         local GIT_PRINTS = { "ls%-tree", "ls%-files", "show", "log", "status", "diff", "cat%-file", "ls%-remote", "grep" }
-        local function printsOutput(line)
+        -- Readers that, run inside a fetched tree, print what it holds with
+        -- no path on the line at all: a bare ls, or cat on a relative name (#356).
+        local BARE_READERS = { "ls", "cat", "find", "head", "tail" }
+        -- inTree: the step has cd'd into a fetched tree by this line (#356).
+        local function printsOutput(line, inTree)
             if line:match("^%s*grep%s+%-q") then return false end
+            if inTree then
+                for _, reader in ipairs(BARE_READERS) do
+                    if line:find("%f[%w]" .. reader .. "%f[%W]") or line:find("%f[%w]" .. reader .. "$") then
+                        return true
+                    end
+                end
+            end
             -- (Output a command substitution captures never reaches the log.)
             if line:find("%f[%w]git%s") and not line:find("%$%([^)]*%f[%w]git%s") then
                 for _, sub in ipairs(GIT_PRINTS) do
@@ -2160,51 +2171,148 @@ describe("UI simulator workflow", function()
             return list
         end
 
+        -- Where a step's shell is, after a line: a cd or pushd into a fetched
+        -- tree (a target naming one of SOURCES) puts it inside; one to any
+        -- other variable or absolute path, or a bare cd (home), takes it out.
+        -- A relative one (cd .., cd -, cd sub) can't be followed, so it
+        -- leaves the shell where it was: inside stays inside (#356).
+        -- Each command of a line is read in turn: a line splits at ;, &&,
+        -- ||, | and parentheses.
+        local function treeAfter(line, inTree)
+            for command in (line:gsub("[;&|()]", "\n") .. "\n"):gmatch("%s*([^\n]-)%s*\n") do
+                local target = command == "cd" and "" or command:match("^cd%s+(.+)$") or command:match("^pushd%s+(.+)$")
+                if target then
+                    local plain = target:gsub("%${([%w_]+)}", "$%1"):gsub('"(%$[%w_]+)"/', "%1/")
+                    local into = false
+                    for _, source in ipairs(SOURCES) do
+                        if plain:find(source) then into = true end
+                    end
+                    if into then
+                        inTree = true
+                    elseif target == "" or target:match('^"?[%$/~]') then
+                        inTree = false
+                    end
+                end
+            end
+            return inTree
+        end
+
+        -- The lines of a step that print shot or simulator output without a
+        -- filter, and how many printing lines it checked. Lines in a { ... }
+        -- block count as filtered only if the block ends "} 2>&1 | shown",
+        -- or goes to the step summary, a page the runner doesn't read for
+        -- commands.
+        local function scan(stepText)
+            local problems, seen = {}, 0
+            local block, inFunction, inTree
+            local function check(line, filtered)
+                seen = seen + 1
+                -- To a file, or both streams thrown away: nothing reaches the log (#356).
+                local toFile = line:find('%s>%s*"%$RUNNER_TEMP/')
+                    or line:find("%s>%s*/dev/null%s+2>&1") or line:find("&>%s*/dev/null")
+                -- Kept as digits only, in a variable (#173): no command can be made of those.
+                filtered = filtered or line:find("^%s*[%w_]+=%$%([^);&]*| tr %-cd '0%-9'%)%s*|| true%s*$") ~= nil
+                    or line:find("^%s*[%w_]+=%$%([^);&]*| tr %-cd '0%-9'%)%s*$") ~= nil
+                if not (filtered or toFile or line:find("| shown", 1, true)) then
+                    problems[#problems + 1] = "prints unfiltered output: " .. line
+                -- docker logs replays the container's stderr on its own.
+                elseif not filtered and not toFile and line:find("docker %l+ ") and not line:find("2>&1 |", 1, true) then
+                    problems[#problems + 1] = "filters only stdout: " .. line
+                end
+            end
+            for _, line in ipairs(splitLines((stepText:gsub("\\\n%s*", " ")))) do
+                if line:match("^%s*sandbox%(%) {%s*$") or line:match("^%s*sized%(%) {%s*$") then
+                    -- Their callers send all of it to a file: the next test.
+                    inFunction = true
+                elseif inFunction and line:match("^%s*}%s*$") then
+                    inFunction = nil
+                elseif inFunction and line:find("docker run", 1, true) then
+                    seen = seen + 1
+                elseif line:match("^%s*{%s*$") then
+                    block = {}
+                elseif block and line:match("^%s*}") then
+                    local filtered = line:match("^%s*} 2>&1 | shown%s*$")
+                        or line:match('^%s*} >> "%$GITHUB_STEP_SUMMARY"%s*$')
+                    for _, held in ipairs(block) do check(held, filtered ~= nil) end
+                    block = nil
+                -- A reader after a cd on the same line runs inside too.
+                elseif printsOutput(line, inTree or treeAfter(line, inTree)) then
+                    if block then block[#block + 1] = line else check(line, false) end
+                end
+                inTree = treeAfter(line, inTree)
+            end
+            if block then problems[#problems + 1] = "a { block that never ends" end
+            return problems, seen
+        end
+
         it("filters every tail, head, grep, ls or docker logs of shot or simulator output before the log", function()
             local seen = 0
             for _, job in ipairs(order) do
                 for _, step in ipairs(job.steps) do
-                    -- Lines in a { ... } block count as filtered only if the
-                    -- block ends "} 2>&1 | shown", or goes to the step
-                    -- summary, a page the runner doesn't read for commands.
-                    local block, inFunction
-                    local function check(line, filtered)
-                        seen = seen + 1
-                        local toFile = line:find('%s>%s*"%$RUNNER_TEMP/')
-                        -- Kept as digits only, in a variable (#173): no command can be made of those.
-                        filtered = filtered or line:find("^%s*[%w_]+=%$%([^);&]*| tr %-cd '0%-9'%)%s*|| true%s*$") ~= nil
-                            or line:find("^%s*[%w_]+=%$%([^);&]*| tr %-cd '0%-9'%)%s*$") ~= nil
-                        assert.is_truthy(filtered or toFile or line:find("| shown", 1, true),
-                            job.name .. " prints unfiltered output: " .. line)
-                        -- docker logs replays the container's stderr on its own.
-                        if not filtered and not toFile and line:find("docker %l+ ") then
-                            assert.is_truthy(line:find("2>&1 |", 1, true),
-                                job.name .. " filters only stdout: " .. line)
-                        end
-                    end
-                    for _, line in ipairs(splitLines((step.text:gsub("\\\n%s*", " ")))) do
-                        if line:match("^%s*sandbox%(%) {%s*$") or line:match("^%s*sized%(%) {%s*$") then
-                            -- Their callers send all of it to a file: the next test.
-                            inFunction = true
-                        elseif inFunction and line:match("^%s*}%s*$") then
-                            inFunction = nil
-                        elseif inFunction and line:find("docker run", 1, true) then
-                            seen = seen + 1
-                        elseif line:match("^%s*{%s*$") then
-                            block = {}
-                        elseif block and line:match("^%s*}") then
-                            local filtered = line:match("^%s*} 2>&1 | shown%s*$")
-                                or line:match('^%s*} >> "%$GITHUB_STEP_SUMMARY"%s*$')
-                            for _, held in ipairs(block) do check(held, filtered ~= nil) end
-                            block = nil
-                        elseif printsOutput(line) then
-                            if block then block[#block + 1] = line else check(line, false) end
-                        end
-                    end
-                    assert.is_nil(block, job.name .. " has a { block that never ends")
+                    local problems, count = scan(step.text)
+                    assert.are.same({}, problems, job.name)
+                    seen = seen + count
                 end
             end
             assert.is_true(seen >= 10, "expected the report, digest, shot log and docker logs prints, found " .. seen)
+            -- A step that starts elsewhere would escape treeAfter (#356).
+            assert.is_falsy(text:find("working%-directory:"), "a step starts in another directory")
+        end)
+
+        -- #356: after a cd into a fetched tree, a reader prints what the tree
+        -- holds with no source on its line, so the scan follows the step's cd.
+        describe("follows a cd into a fetched tree (#356)", function()
+            it("flags a bare ls after a cd into the tree, and passes it filtered (red)", function()
+                local problems = scan('run: |\n  cd "$ui/Interface/AddOns"\n  ls\n')
+                assert.are.same({ "prints unfiltered output:   ls" }, problems)
+                assert.are.same({}, (scan('run: |\n  cd "$ui/Interface/AddOns"\n  ls 2>&1 | shown\n')))
+            end)
+
+            it("flags each of ls, cat, find, head and tail in the tree, however the cd is written (red)", function()
+                for _, cd in ipairs({ 'cd "$ui/Interface/AddOns"', "cd $ui", 'cd "${RUNNER_TEMP}/sim"', 'cd "$RUNNER_TEMP"/sim/data',
+                    'pushd "$ui"', "cd $RUNNER_TEMP/shots" }) do
+                    for _, reader in ipairs({ "ls -la", "cat Blizzard.toc", "find . -name '*.lua'", "head -n 5 x.lua",
+                        "tail x.lua", "ls" }) do
+                        local problems = scan("run: |\n  " .. cd .. "\n  echo moving\n  " .. reader .. "\n")
+                        assert.are.equal(1, #problems, cd .. " / " .. reader)
+                    end
+                end
+            end)
+
+            it("follows a cd anywhere in a line, and a reader after it on the same line (red)", function()
+                assert.are.equal(1, #scan('run: |\n  cd "$ui" && ls\n'))
+                assert.are.equal(1, #scan('run: |\n  ( cd "$ui"; cat x )\n'))
+                assert.are.equal(1, #scan('run: |\n  mkdir -p x && cd "$ui"\n  ls\n'))
+                -- tr -cd and a word starting "cd" aren't a cd.
+                assert.are.same({}, (scan('run: |\n  cd "$out"\n  n=$(tr -cd a-z < f)\n  cdrecord $ui\n  ls\n')))
+            end)
+
+            it("stays inside after a relative cd, and leaves on a cd elsewhere (red, white)", function()
+                assert.are.equal(1, #scan('run: |\n  cd "$ui"\n  cd Interface/AddOns\n  cd ..\n  ls\n'))
+                assert.are.equal(1, #scan('run: |\n  cd "$ui"\n  cd -\n  cat x\n'))
+                assert.are.same({}, (scan('run: |\n  cd "$ui"\n  cd "$out"\n  ls\n')))
+                assert.are.same({}, (scan('run: |\n  cd "$ui"\n  cd /tmp\n  ls\n')))
+                assert.are.same({}, (scan('run: |\n  cd "$ui"\n  cd\n  ls\n')))
+                -- Outside any fetched tree, a bare reader is the existing rules' business.
+                assert.are.same({}, (scan('run: |\n  cd "$out"\n  ls\n  cat README.md\n')))
+            end)
+
+            it("counts output thrown away, both streams, as filtered, and stdout alone as not (white, red)", function()
+                assert.are.same({}, (scan('run: |\n  cd "$ui"\n  ls > /dev/null 2>&1\n  cat x &> /dev/null\n')))
+                assert.are.equal(1, #scan('run: |\n  cd "$ui"\n  ls > /dev/null\n'))
+                assert.are.equal(1, #scan('run: |\n  cd "$ui"\n  ls 2> /dev/null\n'))
+            end)
+
+            it("checks the fetch step's real cd into Blizzard's tree (white)", function()
+                local fetch
+                for _, step in ipairs(jobs.simulator.steps) do
+                    if step.text:find('\n%s*cd "%$ui/Interface/AddOns"\n') then fetch = step.text end
+                end
+                assert.is_truthy(fetch, "no step cds into Blizzard's tree")
+                assert.are.same({}, (scan(fetch)))
+                local leaky = fetch:gsub('(\n(%s*)cd "%$ui/Interface/AddOns"\n)', "%1%2ls\n", 1)
+                assert.are.same({ "prints unfiltered output:           ls" }, (scan(leaky)))
+            end)
         end)
 
         -- #164: the simulator's runs print only into files: sandbox() and
