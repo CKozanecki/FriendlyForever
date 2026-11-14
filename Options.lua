@@ -15,6 +15,13 @@ Options.TABS_PER_ROW = 4
 local panel, category, startPage, generalPage, ledgerPage
 local currentType = Config.TYPES[1]
 local widgets = { tabs = {}, edits = {}, steppers = {}, general = {}, ledger = {}, start = {} }
+-- Every number box a Stepper makes, so ClearEditFocus can't miss one (#171).
+local numberBoxes = {}
+
+-- The tab's settings section: never a damaged one (Config.Section, #166).
+local function Current()
+    return Config.Section(currentType)
+end
 Options.widgets = widgets -- exposed for tests
 
 Options.LEDGER_ROWS = 25
@@ -175,14 +182,14 @@ local function TextBox(parent, width, maxLetters)
 end
 
 -- Label, [-] [number] [+], bound to settings()[field] within limits;
--- settings defaults to ns.db[currentType]. Does nothing on a type without
+-- settings defaults to the tab's section (Current). Does nothing on a type without
 -- that field (its stepper is hidden there). font: the label's, if not the
 -- usual one.
 local function Stepper(parent, text, field, settings, font, step)
     local limits = Config.LIMITS[field]
     step = step or 1
     local s = {}
-    settings = settings or function() return ns.db[currentType] end
+    settings = settings or Current
 
     local function Set(value)
         local cfg = settings()
@@ -208,6 +215,7 @@ local function Stepper(parent, text, field, settings, font, step)
     s.box:SetJustifyH("CENTER")
     s.box:SetPoint("LEFT", s.minus, "RIGHT", 8, 0)
     s.box:SetScript("OnEditFocusLost", function(self) Set(tonumber(self:GetText())) end)
+    numberBoxes[#numberBoxes + 1] = s.box
     s.plus = Button(parent, "+", 24, function() Step(step) end)
     s.plus:SetPoint("LEFT", s.box, "RIGHT", 4, 0)
     return s
@@ -220,13 +228,11 @@ local function FillBox(box, text)
 end
 
 -- Finish any edit in progress (a number box saves when it loses focus)
--- before a tab switch or reset gives the boxes new contents.
+-- before a tab switch or reset gives the boxes new contents. Every number
+-- box is in numberBoxes, so a new one can't be left out (#171).
 local function ClearEditFocus()
-    local boxes = { widgets.steppers.delay.box, widgets.steppers.repeatCooldown.box,
-        widgets.steppers.owedMinutes.box, widgets.steppers.renewPercent.box,
-        widgets.steppers.topUpMinutes.box, widgets.steppers.groupEnough.box,
-        widgets.steppers.maxGreeters.box,
-        widgets.unknownName }
+    local boxes = { widgets.unknownName }
+    for _, box in ipairs(numberBoxes) do boxes[#boxes + 1] = box end
     for _, edit in ipairs(widgets.edits) do boxes[#boxes + 1] = edit end
     if widgets.who then
         boxes[#boxes + 1] = widgets.who.always
@@ -547,6 +553,9 @@ local function FillAuto(shown)
 end
 
 local function Fill()
+    -- A section damaged mid-session heals as the panel fills, whichever tab
+    -- shows, and reads as its defaults (#166).
+    for _, msgType in ipairs(Config.TYPES) do Config.Section(msgType) end
     local cfg = ns.db[currentType]
     local info = Config.TYPE_INFO[currentType]
     local isBuff = currentType == "buff"
@@ -743,7 +752,7 @@ function Options.Create()
 
     -- Row 1: enabled, delay
     widgets.enabled = Checkbox(content, "Enabled", function(on)
-        ns.db[currentType].enabled = on
+        Current().enabled = on
         ns.RefreshEvents()
         ns.BuffButton.Refresh()
     end)
@@ -1025,14 +1034,14 @@ function Options.Create()
         edit:SetPoint("LEFT", num, "RIGHT", 10, 0)
         edit:SetPoint("RIGHT", content, "RIGHT", -24, 0)
         edit:SetScript("OnTextChanged", function(self, userInput)
-            if userInput then ns.db[currentType].messages[i] = Config.CleanMessage(self:GetText()) end
+            if userInput then Current().messages[i] = Config.CleanMessage(self:GetText()) end
         end)
         widgets.edits[i] = edit
         anchor = num
     end
 
     widgets.preview = Button(content, "Preview random", 130, function()
-        local template = ns.Messages.Preview(ns.db[currentType].messages)
+        local template = ns.Messages.Preview(Current().messages)
         local vars = ns.Config.NameVars(currentType, ns.Util.UnitFullName("player") or "Nikki-Shifts")
         vars.buff = "Power Word: Fortitude and Arcane Intellect"
         local text = template and ns.Util.Render(template, ns.Flavour.Vars(vars))
@@ -1042,6 +1051,7 @@ function Options.Create()
 
     widgets.reset = Button(content, "Reset this tab to defaults", 190, function()
         ClearEditFocus()
+        Current() -- a damaged section is healed first: the reset keeps its local-only fields
         ns.ResetType(currentType)
         Options.Refresh()
     end)
@@ -1052,7 +1062,7 @@ function Options.Create()
         ClearEditFocus()
         local lines = {}
         for i, line in ipairs(set[currentType]) do lines[i] = line end
-        ns.db[currentType].messages = lines
+        Current().messages = lines
         Options.Refresh()
     end
     widgets.loadFantasy = Button(content, "Load fantasy lines", 150, function() LoadLines(ns.DefaultMessages) end)
