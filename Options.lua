@@ -837,8 +837,9 @@ function Options.Create()
     local maxGreeters = Stepper(content, "Most players with Friendly Forever who greet one login:", "maxGreeters")
     maxGreeters.label:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", 0, -16)
     widgets.steppers.maxGreeters = maxGreeters
-    widgets.greetersHelp = Label(content, "Everyone with the addon greets a guildmate who logs in, a few "
-        .. "seconds apart and with different lines, up to this many. Copies that can't reach the others "
+    widgets.greetersHelp = Label(content, "Everyone with the addon greets a guildmate who logs in, 15 seconds "
+        .. "after they come online by default and a few seconds apart and "
+        .. "with different lines, up to this many. Copies that can't reach the others "
         .. "(inside an instance, say) greet anyway.", "GameFontHighlightSmall")
     widgets.greetersHelp:SetPoint("TOPLEFT", maxGreeters.label, "BOTTOMLEFT", 0, -10)
     widgets.greetersHelp:SetPoint("RIGHT", content, "RIGHT", -24, 0)
