@@ -1,4 +1,4 @@
--- Spec: #52, #64, #112, #197, #208, #41, #209, #270
+-- Spec: #52, #64, #112, #197, #208, #41, #209, #270, #346
 -- Layout: the buff-back button's text stays inside the button, and on each
 -- options tab the message list follows the last row that tab shows. The
 -- checks work from the simulated client's own anchors and text widths
@@ -96,12 +96,13 @@ describe("Layout", function()
             wow.state.items[wow.ITEM.sacredCandle] = 5
             slash("buffmode on")
             local names = {}
-            for i = 1, 40 do names[i] = "Nam" .. string.char(96 + i % 20 + 1) .. string.char(96 + math.floor(i / 20) + 1) .. "-Surname" end
+            -- A full raid: 39 others, and you in raid40 (#346: one slot is always you).
+            for i = 1, 39 do names[i] = "Nam" .. string.char(96 + i % 20 + 1) .. string.char(96 + math.floor(i / 20) + 1) .. "-Surname" end
             wow.setGroup("raid", names)
             for i = 1, 40 do wow.state.units["raid" .. i].subgroup = 8 end
             wow.fire("GROUP_ROSTER_UPDATE")
             wow.advance(0)
-            assert.are.equal("Group 8 (40 missing)", button.title:GetText(), button.subtitle:GetText())
+            assert.are.equal("Group 8 (39 missing)", button.title:GetText(), button.subtitle:GetText())
             assert.are.equal("Prayer of Shadow Protection", button.subtitle:GetText())
             for _, fs in ipairs({ button.title, button.subtitle }) do
                 local drawn = assertInside(button, fs, "the group cast")

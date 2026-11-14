@@ -96,14 +96,36 @@ local round
 -- since) is in step with everyone's and isn't recast (#256, the owner).
 GroupBuffs.SYNCED_SECONDS = 300
 
+-- Whether you're in a raid, as far as the game's answer can be believed:
+-- true or false, or nil when IsInRaid() can't be read (#322) or the group's
+-- slots disagree with it (#335, #346). In a party (or no group) raid1 is
+-- empty, and in a raid one of raid1..40 is you. A raid taken for a party
+-- would have only your own subgroup looked at (party1..4), and a party
+-- taken for a raid would read 40 empty slots as nobody missing.
+local function RaidAnswer()
+    local inRaid = Read(IsInRaid)
+    if inRaid == false then
+        if Read(UnitExists, "raid1") ~= false then return nil end
+        return false
+    end
+    if inRaid ~= true then return nil end
+    for _, unit in ipairs(RAID_UNITS) do
+        if Read(UnitIsUnit, unit, "player") == true then return true end
+    end
+    return nil
+end
+
 -- The slots to look through: raid1..40 in a raid (one of them is you),
 -- party1..4 in a party. Empty when you're in no group. Also whether the
--- game said which (#322): when IsInRaid() or IsInGroup() can't be read, a
--- raid may be taken for a party (party1..4 are only your own subgroup), so
--- Next is never settled then and offers no group version.
+-- game said which: when IsInRaid() or IsInGroup() can't be read (#322), or
+-- IsInRaid()'s answer and the slots disagree (#346: RaidAnswer), a raid may
+-- be taken for a party (party1..4 are only your own subgroup), so Next is
+-- never settled then and offers no group version. An answer that can't be
+-- believed is treated as one that can't be read: party1..4, when you're in
+-- a group.
 local function GroupUnits()
-    local inRaid, inGroup = Read(IsInRaid), Read(IsInGroup)
-    local known = (inRaid == true or inRaid == false) and (inGroup == true or inGroup == false)
+    local inRaid, inGroup = RaidAnswer(), Read(IsInGroup)
+    local known = inRaid ~= nil and (inGroup == true or inGroup == false)
     if inRaid == true then return RAID_UNITS, known end
     if inGroup == true then return PARTY_UNITS, known end
     return {}, known
@@ -131,28 +153,19 @@ end
 -- slots disagree (#335). Buff mode's wait in a dungeon or raid (BuffModeAuto.lua) and the
 -- PvP rule below share this one test.
 function GroupBuffs.EveryoneInside()
-    -- Which slots hold your group has to be readable too (#306): a raid
-    -- taken for a party would have only your own subgroup looked at.
-    local inRaid = Read(IsInRaid)
-    if inRaid ~= true and inRaid ~= false then return false end
-    -- And believed only when the slots agree (#335): in a party raid1 is
-    -- empty, and in a raid one of raid1..40 is you. A party taken for a raid
-    -- would read 40 empty slots as nobody missing.
-    if not inRaid and Read(UnitExists, "raid1") ~= false then return false end
-    local sawYou = not inRaid
+    -- Which slots hold your group has to be readable too (#306), and
+    -- believed only when the slots agree (#335): RaidAnswer.
+    local inRaid = RaidAnswer()
+    if inRaid == nil then return false end
     for _, unit in ipairs(inRaid and RAID_UNITS or PARTY_UNITS) do
         local exists = Read(UnitExists, unit)
-        if exists ~= false then
-            if Read(UnitIsUnit, unit, "player") == true then
-                sawYou = true
-            else
-                if exists ~= true then return false end
-                if Read(UnitIsConnected, unit) ~= true then return false end
-                if Read(UnitIsVisible, unit) ~= true then return false end
-            end
+        if exists ~= false and Read(UnitIsUnit, unit, "player") ~= true then
+            if exists ~= true then return false end
+            if Read(UnitIsConnected, unit) ~= true then return false end
+            if Read(UnitIsVisible, unit) ~= true then return false end
         end
     end
-    return sawYou
+    return true
 end
 
 -- Whether a member flagged for PvP may be buffed now. When you're flagged
@@ -461,7 +474,8 @@ end
 -- nil, why not, and whether that's settled: nothing left that a buff of
 -- yours could fix now or soon (not in a group, or everyone you could buff
 -- has them; nobody dead, out of reach or unreadable; never while the game
--- won't say whether you're in a raid or a group, #322); when that's because
+-- won't say whether you're in a raid or a group, #322, or its answer and the
+-- slots disagree, #346); when that's because
 -- your water buff waits for water, that buff too. Your first buff
 -- goes to everyone missing it before your second buff goes to anyone.
 -- With a list (#43), each member the button would offer to is appended to
@@ -567,7 +581,9 @@ function GroupBuffs.Next(out)
         needs[nkey] = result
         return result
     end
-    local groupCtx = { units = units, inRaid = Read(IsInRaid) == true, InRange = InSpellRange,
+    -- Raid or party as GroupUnits read it, never asked again (#346): a second
+    -- answer that disagreed would read a raid's slots as one party.
+    local groupCtx = { units = units, inRaid = units == RAID_UNITS, InRange = InSpellRange,
         flaggedOk = flaggedOk }
     -- The buffs for one list of members, in your buff order (the first
     -- buff goes to all of them before the second goes to any).
