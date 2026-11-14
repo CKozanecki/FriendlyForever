@@ -41,6 +41,8 @@ read_globals = {
     "SetOverrideBindingClick", "ClearOverrideBindings", "GetBindingText", "GetBindingAction", "GetBindingKey",
     "IsShiftKeyDown", "IsControlKeyDown", "IsAltKeyDown",
     "UnitInRange", "UnitIsConnected", "UnitIsVisible", "IsSpellInRange",
+    -- Self-buffs (#44): whether you can have one now.
+    "IsMounted", "UnitOnTaxi", "GetShapeshiftForm", "IsUsableSpell", "UnitPowerType",
     "UnitGroupRolesAssigned", "GetPartyAssignment", "GetBattlefieldWinner",
     "CreateSettingsListSectionHeaderInitializer",
 }

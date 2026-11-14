@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296
+-- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -858,5 +858,117 @@ describe("The simulated client's fidelity fixes (#255, #260, #265, #296)", funct
             wow.advance(wow.BREATH_REFILL_SECONDS + 1)
             assert.is_nil(wow.state.breath)
         end)
+    end)
+end)
+
+describe("The simulated client's self-buffs (#44)", function()
+    local HAWK, MONKEY, DEVOTION, ICE, MAGE_ARMOR, INNER_FIRE = 25296, 13163, 10293, 10220, 22783, 10952
+    before_each(function()
+        wow.boot({ before = function(state)
+            state.knownSpells = { [HAWK] = true, [MONKEY] = true, [DEVOTION] = true, [ICE] = true,
+                [MAGE_ARMOR] = true, [INNER_FIRE] = true }
+        end })
+    end)
+
+    local function mine()
+        local out = {}
+        for _, a in ipairs(wow.state.playerAuras) do out[#out + 1] = a.spellId end
+        return out
+    end
+
+    it("answers what you're doing from its state, and as secrets when asked (white)", function()
+        assert.is_false(_G.IsMounted())
+        assert.is_false(_G.UnitOnTaxi("player"))
+        assert.are.equal(0, _G.GetShapeshiftForm())
+        assert.are.equal("MANA", select(2, _G.UnitPowerType("player")))
+        wow.state.mounted, wow.state.onTaxi, wow.state.form, wow.state.powerType = true, true, 1, "RAGE"
+        assert.is_true(_G.IsMounted())
+        assert.is_true(_G.UnitOnTaxi("player"))
+        assert.are.equal(1, _G.GetShapeshiftForm())
+        assert.are.same({ 1, "RAGE" }, { _G.UnitPowerType("player") })
+        wow.state.selfSecrets = { mounted = true, taxi = true, form = true, power = true }
+        assert.is_true(_G.issecretvalue(_G.IsMounted()))
+        assert.is_true(_G.issecretvalue(_G.UnitOnTaxi("player")))
+        assert.is_true(_G.issecretvalue(_G.GetShapeshiftForm()))
+        assert.is_true(_G.issecretvalue(select(2, _G.UnitPowerType("player"))))
+    end)
+
+    it("answers the usable check by ID or known name, from state.unusable (white)", function()
+        assert.are.same({ true, false }, { _G.C_Spell.IsSpellUsable(INNER_FIRE) })
+        assert.are.same({ true, false }, { _G.IsUsableSpell("Inner Fire") })
+        wow.state.unusable["Inner Fire"] = "power"
+        assert.are.same({ false, true }, { _G.C_Spell.IsSpellUsable(INNER_FIRE) })
+        wow.state.unusable["Inner Fire"] = "other"
+        assert.are.same({ false, false }, { _G.C_Spell.IsSpellUsable(INNER_FIRE) })
+        assert.are.same({ false, false }, { _G.C_Spell.IsSpellUsable(10220 + 1) }, "a spell nobody knows")
+        wow.state.selfSecrets.usable = true
+        assert.is_true(_G.issecretvalue(_G.C_Spell.IsSpellUsable(INNER_FIRE)))
+    end)
+
+    it("fails the cast of a spell the game says can't be cast now (white)", function()
+        wow.state.unusable["Inner Fire"] = "power"
+        wow.runMacro("/cast [@player,nodead] Inner Fire")
+        assert.are.equal("Not enough mana", wow.casts[#wow.casts].failed)
+        assert.are.same({}, mine())
+    end)
+
+    it("puts a self-buff on you, from you, replacing others of its family (white)", function()
+        wow.runMacro("/cast [@player,nodead] Ice Armor")
+        assert.are.same({ ICE }, mine())
+        assert.are.equal("player", wow.state.playerAuras[1].sourceUnit)
+        assert.are.equal(wow.now + 1800, wow.state.playerAuras[1].expirationTime)
+        wow.runMacro("/cast [@player,nodead] Mage Armor")
+        assert.are.same({ MAGE_ARMOR }, mine())
+        wow.runMacro("/cast [@player,nodead] Inner Fire")
+        assert.are.same({ MAGE_ARMOR, INNER_FIRE }, mine())
+    end)
+
+    it("a toggle never runs out; \"!\" casts nothing while it's on, and without it the cast switches it off (white)",
+        function()
+        wow.runMacro("/cast [@player,nodead] !Aspect of the Hawk")
+        assert.are.same({ HAWK }, mine())
+        assert.are.equal(0, wow.state.playerAuras[1].expirationTime)
+        local casts = #wow.casts
+        wow.runMacro("/cast [@player,nodead] !Aspect of the Hawk")
+        assert.are.equal(casts, #wow.casts)
+        assert.are.same({ HAWK }, mine())
+        wow.runMacro("/cast [@player,nodead] !Aspect of the Monkey")
+        assert.are.same({ MONKEY }, mine(), "one Aspect at a time")
+        wow.runMacro("/cast [@player,nodead] Aspect of the Monkey")
+        assert.is_true(wow.casts[#wow.casts].toggledOff)
+        assert.are.same({}, mine())
+    end)
+
+    it("shows the aura only after the server's answer, and later still with state.auraDelay (white)", function()
+        wow.state.auraDelay = 2
+        wow.runMacro("/cast [@player,nodead] Inner Fire")
+        assert.are.same({}, mine())
+        wow.advance(2)
+        assert.are.same({ INNER_FIRE }, mine())
+    end)
+
+    it("drops your own buff past its time only when state.expirePlayerAuras is set (white)", function()
+        wow.runMacro("/cast [@player,nodead] Inner Fire")
+        wow.advance(601)
+        assert.is_not_nil(_G.C_UnitAuras.GetAuraDataByIndex("player", 1, "HELPFUL"))
+        wow.state.expirePlayerAuras = true
+        assert.is_nil(_G.C_UnitAuras.GetAuraDataByIndex("player", 1, "HELPFUL"))
+    end)
+
+    it("selfBuffTable adds the self-buffs at Classic's IDs, highest rank first, and Cheetah, Pack and Beast "
+        .. "as Aspects (white)", function()
+        local t = wow.selfBuffTable()
+        local keys = {}
+        for _, list in pairs(t.classes) do
+            for _, buff in ipairs(list) do keys[buff.key] = buff end
+        end
+        assert.are.same({ 10952, 10951, 1006, 602, 7128, 588 }, keys.innerfire.ranks)
+        assert.are.same({ 10220, 10219, 7320, 7302, 7301, 7300, 168 }, keys.icearmor.ranks)
+        assert.is_true(keys.devotion.toggle)
+        assert.are.equal("aura", keys.devotion.family)
+        assert.is_true(keys.righteousfury.defaultNever)
+        assert.are.same({ 5118, 13159, 13161 }, t.familyAuras.aspect)
+        for _, key in ipairs(t.absent) do assert.is_nil(keys[key], key) end
+        assert.are_not.equal(t, wow.selfBuffTable(), "a fresh copy each call")
     end)
 end)
