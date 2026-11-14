@@ -2174,21 +2174,26 @@ describe("UI simulator workflow", function()
         -- Where a step's shell is, after a line: a cd or pushd into a fetched
         -- tree (a target naming one of SOURCES) or into $RUNNER_TEMP, which
         -- holds them all, puts it inside. A relative one (cd .., cd -, cd sub)
-        -- can't be followed, so it counts as inside too, wherever it started.
-        -- Only one to another variable or an absolute path, or a bare cd
+        -- can't be followed, so it counts as inside too, wherever it started,
+        -- and so do a command substitution (cd "$(dirname "$pin")"), popd and
+        -- a bare pushd, which go back to a place the scan doesn't track. Only
+        -- one to another named variable or an absolute path, or a bare cd
         -- (home), takes it out (#356).
         -- Each command of a line is read in turn: a line splits at ;, &&,
         -- ||, | and parentheses.
         local function treeAfter(line, inTree)
             for command in (line:gsub("[;&|()]", "\n") .. "\n"):gmatch("%s*([^\n]-)%s*\n") do
                 local target = command == "cd" and "" or command:match("^cd%s+(.+)$") or command:match("^pushd%s+(.+)$")
-                if target then
+                if command:match("^popd%f[%W]") or command == "popd" or command == "pushd"
+                    or command:match("^pushd%s+[%-+]") then
+                    inTree = true
+                elseif target then
                     local plain = target:gsub("%${([%w_]+)}", "$%1"):gsub('"(%$[%w_]+)"/', "%1/")
                     local into = plain:find("%$RUNNER_TEMP%f[^%w_]") ~= nil
                     for _, source in ipairs(SOURCES) do
                         if plain:find(source) then into = true end
                     end
-                    if into or not (target == "" or target:match('^"?[%$/~]')) then
+                    if into or not (target == "" or target:match('^"?%$[%a_{]') or target:match('^"?[/~]')) then
                         inTree = true
                     else
                         inTree = false
@@ -2297,6 +2302,16 @@ describe("UI simulator workflow", function()
                     assert.are.equal(1, #scan("run: |\n  " .. cd .. "\n  find . -name x\n"), cd)
                 end
                 assert.are.equal(1, #scan('run: |\n  cd shots\n  ls\n'))
+                -- A command substitution can lead anywhere (#356's round-3 review).
+                for _, cd in ipairs({ 'cd "$(dirname "$pin")"', 'cd "$(dirname "$manifest")"',
+                    'cd "$(git -C "$ui" rev-parse --show-toplevel)"', "cd $(dirname $RUNNER_TEMP/shots/x)", "cd `pwd`" }) do
+                    assert.are.equal(1, #scan('run: |\n  cd "$out"\n  ' .. cd .. "\n  ls\n"), cd)
+                end
+                -- popd and a bare or numbered pushd go back to a place the scan doesn't track.
+                for _, back in ipairs({ "popd > /dev/null", "popd", "pushd", "pushd +1", "popd -n" }) do
+                    assert.are.equal(1, #scan('run: |\n  cd "$ui"\n  pushd "$out" > /dev/null\n  ' .. back .. "\n  ls\n"),
+                        back)
+                end
                 assert.are.equal(1, #scan('run: |\n  cd "$out"\n  cd -\n  ls\n'))
                 assert.are.same({}, (scan('run: |\n  cd "$RUNNER_TEMP_X"\n  ls\n')))
             end)
