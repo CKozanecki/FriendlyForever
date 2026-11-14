@@ -679,6 +679,45 @@ function Config.Section(msgType)
     return ns.db[msgType]
 end
 
+-- Whether a field's checked value is the live one, tables by contents. The
+-- checked value comes first: it is never cyclic, so the walk ends whatever
+-- the live value holds.
+local function Same(checked, live)
+    if type(checked) ~= "table" or type(live) ~= "table" then return checked == live end
+    for key, value in pairs(checked) do
+        if not Same(value, live[key]) then return false end
+    end
+    for key in pairs(live) do
+        if checked[key] == nil then return false end
+    end
+    return true
+end
+
+-- One field of a message type's live section, for the options panel to show
+-- and write (#330). A field damaged mid-session (the wrong type, or a table
+-- holding junk) would make it raise an error. So a field its check would
+-- change asks for the whole-file repair, and if that didn't heal it (one ran
+-- under a second ago), gets its checked value at once: its default, for
+-- junk. A field the type doesn't have is nil.
+function Config.Field(msgType, field)
+    local default = Config.DEFAULTS[msgType][field]
+    if default == nil then return nil end
+    local validate = Config.FIELD_VALIDATORS[field]
+    local cfg = Config.Section(msgType)
+    if Same(validate(cfg[field], default), cfg[field]) then return cfg[field] end
+    Config.Repair()
+    cfg = Config.Section(msgType) -- the repair puts a new section in place
+    local checked = validate(cfg[field], default)
+    if not Same(checked, cfg[field]) then cfg[field] = checked end
+    return cfg[field]
+end
+
+-- Check every field of a message type's live section (Config.Field), for
+-- the options panel to fill from (#330).
+function Config.CheckedSection(msgType)
+    for field in pairs(Config.DEFAULTS[msgType]) do Config.Field(msgType, field) end
+end
+
 -- Fresh copy of one type's defaults.
 function Config.DefaultsFor(msgType)
     return ValidateType(nil, Config.DEFAULTS[msgType])
