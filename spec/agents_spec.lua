@@ -228,6 +228,8 @@ describe("the review-saving rules", function()
             assert.is_truthy(text:find(LINK, 1, true), path .. " doesn't point to the rules")
             assert.is_falsy(text:find("A docs-only pull request: CI plus one review", 1, true), path .. " restates")
             assert.is_falsy(text:find("A merge that touches none of the PR's files: CI only", 1, true), path .. " restates")
+            assert.is_falsy(text:find("One combined pass for a merge whose changes don't overlap", 1, true), path .. " restates")
+            assert.is_falsy(text:find("Parallel reviews for a PR that isn't safety-critical", 1, true), path .. " restates")
         end
     end)
 
