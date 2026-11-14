@@ -124,6 +124,9 @@ function BuffRules.IsTank(unit)
     roleRead = roleRead and type(role) == "string"
     local mainTank, mainTankRead = Answer(GetPartyAssignment, "MAINTANK", unit)
     if (roleRead and role == "TANK") or (mainTankRead and mainTank and mainTank ~= 0) then return true end
+    -- Both read, and neither says tank: raid or not, nobody can hide a tank.
+    -- (Asked first, as the raid answer looks through raid1..40.)
+    if roleRead and mainTankRead then return false end
     if ns.GroupBuffs.RaidAnswer() == false then
         if roleRead then return false end
         return nil
