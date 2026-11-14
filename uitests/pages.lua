@@ -258,9 +258,10 @@ end
 -- spec/uitests_pages_spec.lua checks: the paladin's buffs for others only.
 -- The paladin's self-buffs (#44: Righteous Fury and the auras) aren't in the
 -- simulator's spell data yet, so it can't name them and their rows show
--- their keys ("retribution"; Devotion Aura is named because the simulator's
--- own source gives its player that spell, 465, at the start, though 465
--- isn't in the downloaded list). Listing them here would fail every tab's layout
+-- their keys ("retribution"). Devotion Aura is named, though its rank 1,
+-- 465, isn't in the downloaded list: the simulator falls back to its own
+-- spell catalog for a name, and its paladin's spellbook lists 465
+-- (docs/ui-simulator.md). Listing them here would fail every tab's layout
 -- scenarios on UnnamedBuff. #343 gives the simulator their spells, and then
 -- this list takes them too. Until then spec/layout_spec.lua checks every
 -- class's rows, self-buffs included, with their real names.
