@@ -366,7 +366,9 @@ local function ArmButton()
     if not button or InCombatLockdown() then return end
     ShowMode()
     local showingResult = ShowRecentResult()
-    if ns.db.buffBack.unlocked then
+    -- Buff Back's section lost mid-session reads as locked (#384).
+    local buffBack = ns.db.buffBack
+    if type(buffBack) == "table" and buffBack.unlocked then
         alreadyDone = nil -- its fade mustn't dim the move labels
         Empty("the button is unlocked for moving", true)
         SetLabels("Buff back", "Drag, then /friendly move")
