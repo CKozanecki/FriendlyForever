@@ -1,4 +1,4 @@
--- Spec: #71, #32, #290, #330, #370
+-- Spec: #71, #32, #290, #330, #370, #392
 -- Battlegrounds: buffing in the preparation phase, then quiet until you
 -- leave or the battleground ends.
 local wow = require("spec.support.wow")

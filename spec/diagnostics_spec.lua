@@ -1,4 +1,4 @@
--- Spec: #101, #46, #47
+-- Spec: #101, #46, #47, #392
 local wow = require("spec.support.wow")
 
 describe("Diagnostics", function()

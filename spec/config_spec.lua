@@ -1,4 +1,4 @@
--- Spec: #52, #80, #101, #47, #273
+-- Spec: #52, #80, #101, #47, #273, #392
 local wow = require("spec.support.wow")
 
 describe("Config", function()
@@ -200,7 +200,10 @@ describe("Config", function()
             assert.are.equal(3, db.buff.delay)
             assert.are.equal(3, db.partyHello.delay)
             assert.are.equal(15, db.guildLogin.delay)
-            assert.are.equal(15, Config.Load({ schemaVersion = 6, guildLogin = "junk" }).guildLogin.delay)
+            for _, junk in ipairs({ "junk", true, 42 }) do
+                assert.are.equal(15, Config.Load({ schemaVersion = 6, guildLogin = junk }).guildLogin.delay,
+                    tostring(junk))
+            end
         end)
 
         it("repairs a damaged saved delay to 15", function()

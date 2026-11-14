@@ -1,4 +1,4 @@
--- Spec: #35, #101, #46
+-- Spec: #35, #101, #46, #392
 -- The lines-per-minute cap: a hard ceiling on what the addon says in each
 -- chat type, so a crowded launch can't make it spam.
 local wow = require("spec.support.wow")

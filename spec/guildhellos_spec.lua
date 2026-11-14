@@ -779,6 +779,7 @@ describe("Guild hellos (#38)", function()
                 c.ns.db.guildLogin.repeatCooldown = random.random(0, 1) * 30
                 -- Mostly short, now and then up to the setting's limit of 60 (#392).
                 c.ns.db.guildLogin.delay = random.random() < 0.3 and random.random(0, 60) or random.random(0, 4)
+                c.delay = c.ns.db.guildLogin.delay
             end
             -- The game relays a guild message to everyone or no one (confirmed
             -- in game at launch): each message is lost whole, echo included.
@@ -813,7 +814,7 @@ describe("Guild hellos (#38)", function()
 
         local SEEDS = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 38, 138, 2026 }
         for _, seed in ipairs(SEEDS) do
-            it("never sends more than K hellos for one login (seed " .. seed .. ")", function()
+            it("with delays from 0 to 60, never greets one login twice (at most K hellos) and never after it is forgotten (seed " .. seed .. ")", function()
                 local clients, logins, cap, hellos = storm(seed)
                 -- A hello greets a login of the name it says, at most `reach`
                 -- seconds before it: the longest delay, random wait and wait
@@ -847,7 +848,23 @@ describe("Guild hellos (#38)", function()
         it("reached every outcome it guards, across the seeds", function()
             -- Its own storms: no test depends on another's order.
             reached = { capAtEcho = 0, capBefore = 0, lost = 0 }
-            for _, seed in ipairs(SEEDS) do storm(seed) end
+            local longDelay, relogInWait = 0, 0
+            for _, seed in ipairs(SEEDS) do
+                local _, logins, _, hellos = storm(seed)
+                for _, h in ipairs(hellos) do
+                    if h.client.delay >= 45 then longDelay = longDelay + 1 end
+                    local name = h.text:match("^Hi (%a+) #%d+$")
+                    local first
+                    for _, l in ipairs(logins) do
+                        if l.name == name and l.at <= h.time then
+                            if first and l.at > first.at then relogInWait = relogInWait + 1; break end
+                            first = first or l
+                        end
+                    end
+                end
+            end
+            assert.is_true(longDelay > 0, "hellos from copies with a delay of 45 to 60")
+            assert.is_true(relogInWait > 0, "hellos sent after the same player logged in again")
             assert.is_true(reached.capAtEcho > 0, "copies that announced together, cut to K")
             assert.is_true(reached.capBefore > 0, "copies that heard K and stayed quiet")
             assert.is_true(reached.lost > 0, "lost GREETs")

@@ -1,4 +1,4 @@
--- Spec: #101, #196, #281
+-- Spec: #101, #196, #281, #392
 -- WoW Forever names are a first name plus a mandatory surname, and the pair
 -- is the player's identity. These tests use names in both shapes the client
 -- may report them: "First-Surname" in one string, or the first name with the
