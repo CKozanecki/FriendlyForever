@@ -77,7 +77,7 @@ function handlers.ADDON_LOADED(name)
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
         "BuffTable", "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
         "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "OptionsIndex", "Colours", "Walkthrough",
-        "BuffList", "GroupCasts", "RaidSplit", "LevelUps", "Requests" }) do
+        "BuffList", "GroupCasts", "RaidSplit", "LevelUps", "SelfBuffs", "Requests" }) do
         if ns[module] == nil then
             local text = "this update added files. Restart the game (not /reload) to finish updating."
             ns.Print(ns.Colours and ns.Colours.Text("bad", text) or text)

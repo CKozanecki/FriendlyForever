@@ -229,8 +229,13 @@ Config.DEFAULTS = {
         -- Unending Breath and Water Breathing only near water (Water.lua, #136).
         -- Off: offered anywhere, as before.
         breathNearWater = true,
+        -- Self-buffs (SelfBuffs.lua, #44): in buff mode, after everyone
+        -- else, offer your own missing self-buffs. On by default (the owner).
+        selfBuffs = true,
         -- buffOrder: buff keys, offered first in this order (empty: each
-        -- class's own order). neverOffer: [buff key] = true. They hold keys
+        -- class's own order). neverOffer: [buff key] = true, or false for a
+        -- buff that's "Never offer" by default and you unticked (Righteous
+        -- Fury, #44); unset follows the buff's default. They hold keys
         -- of any class, so one profile serves all your characters.
         buffOrder = {},
         neverOffer = {},
@@ -307,6 +312,7 @@ Config.FIELD_VALIDATORS = {
     bgPrepBuff = Bool,
     breathNearWater = Bool,
     requests = Bool,
+    selfBuffs = Bool,
     unlocked = Bool,
     listBuffNames = Bool,
     quietInCities = Bool,
@@ -342,7 +348,10 @@ Config.FIELD_VALIDATORS = {
         local clean = {}
         if type(value) ~= "table" then return clean end
         for key, on in pairs(value) do
-            if type(key) == "string" and ns.BuffData.KEYS[key] and on == true then clean[key] = true end
+            -- false is kept too: it unticks a buff that's never offered by default (#44).
+            if type(key) == "string" and ns.BuffData.KEYS[key] and (on == true or on == false) then
+                clean[key] = on
+            end
         end
         return clean
     end,

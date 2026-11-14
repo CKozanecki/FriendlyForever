@@ -80,11 +80,17 @@ end
 -- Nothing left to do: no favours owed, and no group member missing your buffs
 -- that you could see and reach (GroupBuffs never calls an unreadable member done).
 -- inside: waiting for everyone in a dungeon or raid, so also everyone in
--- there with you (#256). Also why, for the message.
-local function Settled(inside)
+-- there with you (#256). withSelf: your self-buffs too (#44): "everyone has
+-- your buffs" waits for them, but a missing self-buff alone never turns buff
+-- mode on (the owner, #44 Q6). Also why, for the message.
+local function Settled(inside, withSelf)
     if ns.Offers.Count() > 0 then return false end
     local offer, _, settled, held = ns.GroupBuffs.Next()
     if offer ~= nil or settled ~= true then return false end
+    if withSelf then
+        local mine, _, mineSettled = ns.SelfBuffs.Next()
+        if mine ~= nil or mineSettled ~= true then return false end
+    end
     if inside and not EveryoneInside() then return false end
     -- Your water buff waits for water (Water.lua): nobody has it, so say so.
     if held then return true, ns.Water.HeldReason(held) end
@@ -113,7 +119,7 @@ function Auto.Check(timedOutAfter)
     end
     if InCombatLockdown() then return end
     if cfg.autoOffDone ~= true then return end
-    local done, why = Settled(insideWait)
+    local done, why = Settled(insideWait, true)
     if done then
         ns.BuffMode.Set(false, { why = why })
         if not ns.BuffMode.IsAuto() then ns.Diag.Log("buffMode", "auto turned off: %s", why) end

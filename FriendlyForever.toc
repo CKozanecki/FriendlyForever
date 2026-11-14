@@ -48,6 +48,7 @@ BuffList.lua
 BuffMode.lua
 GroupBuffs.lua
 GroupCasts.lua
+SelfBuffs.lua
 BuffModeAuto.lua
 Battleground.lua
 OptionsIndex.lua
