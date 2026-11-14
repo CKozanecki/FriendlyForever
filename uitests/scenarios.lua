@@ -324,13 +324,19 @@ end
 
 -- How far a text line's text reaches across: left, right, and a note if
 -- it is cut short. A line pinned on its left only grows to its text, so its
--- text ends where its width says. One pinned on its right too stops at that
+-- text ends where its width says, whatever width the line itself was given
+-- (a label 220 wide reads as its text, so a name much narrower or wider
+-- than the label shows, #177). One pinned on its right too stops at that
 -- edge (GetStringWidth still reports the whole width): cut short there, or
 -- wrapped onto more lines when wraps says so.
 local function DrawnAcross(region, left, right, wraps)
     local width = Measure(region, "GetStringWidth")
     if not width then return left, right, "" end
-    if not AnchoredOn(region, "RIGHT") then return left, math.max(right, left + width), "" end
+    if not AnchoredOn(region, "RIGHT") then
+        -- Pinned at one point, its width is the one it was given.
+        if Measure(region, "GetNumPoints") == 1 then return left, left + width, "" end
+        return left, math.max(right, left + width), ""
+    end
     if width > right - left + 1 and not wraps then
         return left, right, (", cut short (its text is %.0f wide)"):format(width)
     end
@@ -375,10 +381,12 @@ local function DrawnUpDown(region, top, bottom, growth)
 end
 
 -- Checks that a text line's drawn text stays inside frame, across and up
--- and down, and on at most maxLines lines when that is given. Prints a
--- LAYOUT line, which names any edges or count the client can't give, and
--- returns it.
-local function TextInside(frame, region, label, maxLines)
+-- and down, and on at most maxLines lines when that is given. A line with
+-- oneLine set, pinned on its left only (its width is the one it was given),
+-- also fails if its text is wider than that width: the game wraps it onto a
+-- second line, into the row below (#177). Prints a LAYOUT line, which names
+-- any edges or count the client can't give, and returns it.
+local function TextInside(frame, region, label, maxLines, oneLine)
     local fl, fr = Edges(frame, "GetLeft", "GetRight")
     local tl, tr = Edges(region, "GetLeft", "GetRight")
     if not (fl and tl) then
@@ -395,6 +403,10 @@ local function TextInside(frame, region, label, maxLines)
     if wrapped and wrapped <= (count or 0) then wrapped = nil end
     local inside = textLeft >= fl - 1 and textRight <= fr + 1
     local line = ("LAYOUT %s: text %.0f..%.0f, frame %.0f..%.0f%s"):format(label, textLeft, textRight, fl, fr, cut)
+    -- Wider than the width the line was given, so the game wraps it.
+    local setWidth, textWidth = tr - tl, Measure(region, "GetStringWidth")
+    local tooWide = oneLine and textWidth and not AnchoredOn(region, "RIGHT") and textWidth > setWidth + 1
+    if tooWide then line = line .. (", wider than its width of %.0f"):format(setWidth) end
 
     local ft, fb = Edges(frame, "GetTop", "GetBottom")
     local tt, tb = Edges(region, "GetTop", "GetBottom")
@@ -421,6 +433,7 @@ local function TextInside(frame, region, label, maxLines)
 
     report(line)
     check(inside, line .. ": spills out of its frame")
+    check(not tooWide, line .. ": wider than its width, so it wraps onto a second line")
     check(not lines or lines <= maxLines, line .. ": wraps onto more lines than " .. tostring(maxLines))
     return line
 end
@@ -1176,9 +1189,9 @@ end)
 -- wraps. Every line is checked and printed before any failure is raised.
 local function TabTextInside(content, label)
     local checks = {}
-    local function Add(frame, region, what, maxLines)
+    local function Add(frame, region, what, maxLines, oneLine)
         checks[#checks + 1] = function()
-            TextInside(frame, region, ("%s %s\"%s\""):format(label, what, Short(region:GetText())), maxLines)
+            TextInside(frame, region, ("%s %s\"%s\""):format(label, what, Short(region:GetText())), maxLines, oneLine)
         end
     end
     local function Texts(frame)
@@ -1190,7 +1203,13 @@ local function TabTextInside(content, label)
         end
         return found
     end
-    for _, region in ipairs(Texts(content)) do Add(content, region, "", nil) end
+    -- A line pinned at one point has the width it was given (the Buff Back
+    -- rows' names, 220), so a name wider than that wraps into the next row
+    -- (#177). Lines pinned on two sides may wrap on purpose.
+    for _, region in ipairs(Texts(content)) do
+        local oneLine = Measure(region, "GetNumPoints") == 1 and not AnchoredOn(region, "RIGHT")
+        Add(content, region, "", nil, oneLine)
+    end
     for _, child in ipairs({ content:GetChildren() }) do
         if child:IsVisible() then
             local kind = child:GetObjectType()

@@ -1,4 +1,4 @@
--- Spec: #35, #52, #90, #112, #148, #158, #47, #173, #208, #160
+-- Spec: #35, #52, #90, #112, #148, #158, #47, #173, #208, #160, #177
 -- The UI simulator's layout check (uitests/scenarios.lua), run here against
 -- stand-in regions whose edges, anchors and text sizes each test sets
 -- itself, so the expected answer comes from those numbers and not from the
@@ -472,9 +472,10 @@ describe("UI simulator layout check for an options tab (TabTextInside, #112)", f
     before_each(function() checks, printed = loadChecks() end)
 
     -- A text line pinned on its left only, at left, one line high from top
-    -- 280: it grows to its text, width wide.
-    local function text(label, left, width, visible)
-        return region({ left = left, right = left + 10, top = 280, bottom = 268, points = { "TOPLEFT" } }, {
+    -- 280: it grows to its text, width wide, unless it was given a width
+    -- (set), as the Buff Back rows' names are (#177).
+    local function text(label, left, width, visible, set)
+        return region({ left = left, right = left + (set or width), top = 280, bottom = 268, points = { "TOPLEFT" } }, {
             GetObjectType = function() return "FontString" end,
             IsVisible = function() return visible ~= false end,
             GetText = function() return label end,
@@ -615,6 +616,41 @@ describe("UI simulator layout check for an options tab (TabTextInside, #112)", f
         assert.truthy(err:find('LAYOUT Buff Back tab "2. Blessing of Wisdom": text 480..627, frame 0..600', 1, true),
             err)
         assert.truthy(err:find("spills out of its frame", 1, true), err)
+    end)
+
+    -- #177: a name is drawn as wide as its text, not as its fixed-width label.
+    -- A stand-in row 220 wide, as Options.lua's names are, from 480 to 700 (past the
+    -- panel's edge at 600 only in the last two tests).
+    it("reports a Buff Back row's name at its drawn width, not its label's 220 (white)", function()
+        checks.TabTextInside(content({ text("1. Blessing of Wisdom", 100, 150, true, 220) }), "Buff Back tab")
+        assert.are.equal('LAYOUT Buff Back tab "1. Blessing of Wisdom": text 100..250, frame 0..600; '
+            .. "up and down: text 268..280, frame 0..300", printed[1])
+    end)
+
+    it("fails a row whose name is wider than its label, though it's inside the panel (black)", function()
+        local err = fails(function()
+            checks.TabTextInside(content({ text("5. Blessing of Salvation (not known yet)", 100, 240, true, 220) }),
+                "Buff Back tab")
+        end)
+        assert.truthy(err:find('LAYOUT Buff Back tab "5. Blessing of Salvation (not known yet)": text 100..340, '
+            .. "frame 0..600, wider than its width of 220", 1, true), err)
+        assert.truthy(err:find("wider than its width, so it wraps onto a second line", 1, true), err)
+        assert.is_nil(err:find("spills out of its frame", 1, true), err)
+    end)
+
+    it("passes a row whose name fills its label exactly, and panel text that wraps on purpose (white)", function()
+        -- The note is pinned on its left and right (16..576) and wraps onto two lines.
+        local note = region({ left = 16, right = 576, top = 280, bottom = 256, points = { "TOPLEFT", "RIGHT" } }, {
+            GetObjectType = function() return "FontString" end,
+            IsVisible = function() return true end,
+            GetText = function() return "A note that wraps at the panel's right edge" end,
+            GetStringWidth = function() return 700 end,
+            GetNumLines = function() return 2 end,
+            CanWordWrap = function() return true end,
+            GetStringHeight = function() return 24 end,
+        })
+        checks.TabTextInside(content({ text("2. Blessing of Might", 100, 221, true, 220), note }), "Buff Back tab")
+        assert.are.equal(2, #printed)
     end)
 
     it("fails a tab that shows no text at all, rather than passing it (black)", function()
