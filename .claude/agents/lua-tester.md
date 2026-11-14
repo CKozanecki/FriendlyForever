@@ -14,6 +14,7 @@ CONTRIBUTING.md is the source of truth. Read it, AGENTS.md and CLAUDE.md before 
 
 - the **worktree path** to review in;
 - the **diff range** (`<base>..<head>`), and the issue's acceptance criteria;
+- the **developer's mutation list** from the PR (each mutation and its result), or "none" if the PR has no safety-critical code;
 - for a PR that changes what players see, the **PR number**, once its UI simulator run is in;
 - for a re-review, what changed since your last verdict (a fix, a test-only change, a merge of `main`). A merge that is clean and shares no file with the PR isn't sent to you (CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops)).
 

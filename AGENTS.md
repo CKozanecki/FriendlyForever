@@ -116,7 +116,7 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
   - New behaviour must be realistic. Document it in the ASSUMPTIONS block, with the new `quality` issue that says what to verify in game, if it isn't confirmed.
   - When unsure, choose the pessimistic behaviour.
   - Test-wide defaults go in `wow.boot` with an opt-out, like `autoBuffMode`. Read the given saved settings before loading fills in defaults.
-- **Mutation checks:** for safety-critical code only (casting, secret values, saved settings: CONTRIBUTING.md's [Review loops](CONTRIBUTING.md#review-loops) says what counts), change each new line of it temporarily before calling tests done, confirm a test fails, and list each mutation and its result in the PR (the reviewer checks the list and doesn't repeat it). Restore the file exactly afterwards. A merge confirmation mutates only the lines the merge changed or resolved.
+- **Mutation checks:** for safety-critical code only (casting, secret values, saved settings: CONTRIBUTING.md's [Review loops](CONTRIBUTING.md#review-loops) says what counts), change each new or changed line of it temporarily before calling tests done, confirm a test fails, and list each mutation and its result in the PR (the reviewer checks the list and doesn't repeat it). Restore the file exactly afterwards. A merge confirmation mutates only the lines the merge changed or resolved.
 - **`make check`:**
   - **Every change:** docs, art and config too. An asset missing from `.pkgmeta`'s ignore list once broke the build on a no-code change.
   - **After `git add`:** the repo spec checks tracked files, so a new file has to be tracked before the check can see it.
