@@ -40,7 +40,7 @@ Each pull request with a change players (or the release) should hear about write
 
 ### Review loops
 
-Pull requests written by an agent (Claude or Codex) go through two review loops before the maintainer's review: a Lua architecture review, then a Lua testing review, each repeated until it approves. Every finding is fixed. Reviewers report only real problems, things that would actually go wrong for the addon, its players or its releases, and never invent issues or stretch for unrealistic edge cases to keep a loop going. "Everything is OK" is a perfectly good review when it's true. Claude runs them with the `lua-architect` and `lua-tester` agents in `.claude/agents/`, which point back here; for a Codex pull request, Claude's coordinating session runs them.
+Pull requests written by an agent go through two review loops before the maintainer's review: a Lua architecture review, then a Lua testing review, each repeated until it approves. Every finding is fixed. Reviewers report only real problems, things that would actually go wrong for the addon, its players or its releases, and never invent issues or stretch for unrealistic edge cases to keep a loop going. "Everything is OK" is a perfectly good review when it's true. Claude runs them with the `lua-architect` and `lua-tester` agents in `.claude/agents/`, which point back here.
 
 Two cases need less review (#217). An approved review is never repeated; only a change it hasn't seen goes back.
 
@@ -58,7 +58,7 @@ A pull request is **ready for review** when all of these hold:
 - CI is green on the latest commit;
 - the description matches the final code;
 - the branch is up to date with `main` and has no conflicts (a branch that is only behind `main` counts as up to date: see [Only behind `main`](#only-behind-main));
-- for pull requests written by an agent (Claude or Codex): both of its review loops (Lua architecture, then Lua testing) have approved, with every finding fixed (a docs-only pull request needs its one review, and a merge that touches none of its files needs only CI: see [Review loops](#review-loops));
+- for pull requests written by an agent: both of its review loops (Lua architecture, then Lua testing) have approved, with every finding fixed (a docs-only pull request needs its one review, and a merge that touches none of its files needs only CI: see [Review loops](#review-loops));
 - it has no open question for the maintainer (#215).
 
 **A pull request with an open question for the maintainer is not ready.** Whoever drives it asks the maintainer first (a session does so through the coordinator) and marks it ready only after the answer is applied. Its description has no "decisions for the maintainer" section when it is ready. A choice the driver made by following the spec is written plainly as a decision taken, not as a question. If the driver is unsure, that is a question, and the pull request waits. The coordinator doesn't call a pull request ready to merge while a question on it is open.

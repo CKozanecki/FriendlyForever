@@ -451,9 +451,10 @@ end
 -- With a list (#43), each member the button would offer to is appended to
 -- it once, in the order the button would reach them, with what it would
 -- offer, instead of stopping at the first: the clickable list is made by
--- these same rules. A group offer is an entry of its own, by its aim and
--- buff, beside its aim's single offer (#252) and any other group offer aimed
--- at them (#305); the button keeps one row per player (BuffButton.lua).
+-- these same rules. Each offer is an entry of its own, by its player and
+-- buff: a member's every single buff (#313), and a group offer beside its
+-- aim's single offer (#252) and any other group offer aimed at them (#305);
+-- the button keeps one row per player (BuffButton.lua).
 function GroupBuffs.Next(out)
     local units = GroupUnits()
     local first, listed = nil, {}
@@ -461,13 +462,16 @@ function GroupBuffs.Next(out)
     local function Found(offer)
         if not out then return true end
         first = first or offer
-        -- Missing lists each buff a member lacks; the button's list, each member's
-        -- single offer once, and each group offer by its aim and buff: its aim keeps
-        -- their single row too, for when the button drops the group cast (its macro
-        -- can't be built, #252), and a second group cast aimed at them keeps its
-        -- own, for when the first is dropped (#305). In Missing a group offer and
-        -- its aim's single offer are one entry, the pair.
-        local id = (presentOnly or offer.cast) and (offer.name .. "\1" .. offer.buff.key) or offer.name
+        -- Every offer is listed once by its player and buff. In the button's list
+        -- a group offer is an entry apart from its aim's single offer of that
+        -- buff, so the aim keeps their single row when the button drops the
+        -- group cast (its macro can't be built, #252); a second group cast aimed
+        -- at them keeps its own when the first is dropped (#305); and a member's
+        -- later single buff keeps its own when their first is dropped (#313).
+        -- The button keeps one row per player (BuffButton.lua). In Missing a
+        -- group offer and its aim's single offer are one entry, the pair.
+        local id = offer.name .. "\1" .. offer.buff.key
+        if offer.cast and not presentOnly then id = id .. "\1group" end
         if not listed[id] then
             listed[id] = true
             out[#out + 1] = offer
@@ -676,12 +680,17 @@ end
 -- The game's refusals that are about the target, not you: the client's own
 -- strings where it has them, and their English text otherwise. A refusal
 -- about you (the global cooldown, mana, being stunned) moves no one back.
+-- "A more powerful spell is already active" (SPELL_FAILED_AURA_BOUNCED) is
+-- on the safe side (#253): not seen in game, but if a top-up of a group
+-- version is ever refused with it, that member waits like any refusal.
 local TARGET_REFUSAL_GLOBALS = {
     "SPELL_FAILED_LINE_OF_SIGHT", "SPELL_FAILED_OUT_OF_RANGE", "ERR_OUT_OF_RANGE",
     "SPELL_FAILED_BAD_TARGETS", "SPELL_FAILED_BAD_IMPLICIT_TARGETS", "SPELL_FAILED_TARGETS_DEAD",
+    "SPELL_FAILED_AURA_BOUNCED",
 }
 local TARGET_REFUSAL_TEXT = {
     "target not in line of sight", "out of range", "invalid target", "no target", "target is dead",
+    "a more powerful spell is already active",
 }
 
 local function Normalise(text)

@@ -29,7 +29,7 @@ See [Ready for review](https://github.com/CKozanecki/FriendlyForever/blob/main/C
 - [ ] CI is green on the latest commit
 - [ ] This description matches the final code
 - [ ] The branch is up to date with `main` and has no conflicts
-- [ ] Written by an agent (Claude or Codex): both review loops approved, or the one review / CI only that CONTRIBUTING.md's Review loops allows for this PR; every finding fixed
+- [ ] Written by an agent: both review loops approved, or the one review / CI only that CONTRIBUTING.md's Review loops allows for this PR; every finding fixed
 - [ ] No open question for the owner: this description has no "decisions for the owner" section, and choices made by following the spec are stated as decisions taken
 
 <!-- Written by Claude: the model that served each review loop's final verdict, with the effort as configured (`high`, passed in the Agent call), never a reviewer's own report of it (CLAUDE.md's Review records). A review served by another family than its agent names doesn't count: run it again, or flag it to the owner. -->
