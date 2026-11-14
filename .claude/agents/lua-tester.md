@@ -77,6 +77,7 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 - Run confirmation checks one review loop at a time, or in separate worktrees: two `make check` runs in one worktree share `dist/` and can give a false failure (#178, #172, #176).
 
 **Chaos tests**
+- A storm that picks a setup (a class, a role) per seed must show each setup was played, with a reach counter per setup: on #342 the first draw after seeding gave five of six seeds the same class, so four classes never met the storm.
 - Invariants come from the simulated client's own records (`wow.sent`, `wow.casts`, auras, the roster, `wow.state`), never from the addon's rule functions. A storm that asks the rules whether the rules were kept proves nothing (#73; done this way since in #74, #88).
 - A storm must be able to catch the regression its criterion names: include time-only steps so a timeout has to fire, check the step that starts a fight, keep departed members targetable so a stale choice would land outside the group (#63, #67).
 - A storm asserts that it reached each outcome it's for (counters), and the committed seeds still reach them; swap a seed that never does (#21, #60, #67, #87). That covers every path the invariant guards, side paths included, and a default that starves a path (a long repeat cooldown, a short time window) is changed in the storm (#101: the storm never returned a favour, so the buff-back line's /say went unchecked, and the 180 s cooldown let a failed-whisper fallback happen in 2 seeds of 6).
@@ -92,7 +93,6 @@ Checks that caught real bugs in past reviews. Each cites where it came from. Add
 
 **Tests that can fail**
 - A mutant the developer calls equivalent needs a probe that tries to tell it apart: on #342 (#44) `SelfFamilyOf` without its `selfCast` check passed every spec and was listed as equivalent, but a Blessing worn with an unreadable caster then stopped every self-buff.
-- A storm that picks a setup (a class, a role) per seed must show each setup was played, with a reach counter per setup: on #342 the first draw after seeding gave five of six seeds the same class, so four classes never met the storm.
 - Mutation-check every new or changed safety-critical line (casting, secret values, saved settings). Other code needs only its tests and your review. Each survivor gets a test, or a stated reason it can't be caught (an equivalent mutant; a guard the simulated client can't reach, such as `Util.IsSecret`, since Lua 5.1 compares a table without error). A survivor that shows code can't be reached means delete the code (#21, #54, #61, #62, #88).
 - A spec that runs a workflow step's script runs it as the runner does: `bash -e` for a step with no `shell:` key, and it checks the step names none. Under plain `bash`, a removed `|| fallback` guard can still end in the same answer, while on the runner the step dies instead (#241's review: four of `verify`'s fail-open guards were untested).
 - Code moved or extracted into a new function counts as changed: if it is safety-critical, mutate its lines too (#116: `Config.ValidIgnore`'s cap, moved in #113, had no test with more names than the cap).
