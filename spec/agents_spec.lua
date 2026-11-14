@@ -228,6 +228,8 @@ describe("the review-saving rules", function()
             assert.is_truthy(text:find(LINK, 1, true), path .. " doesn't point to the rules")
             assert.is_falsy(text:find("A docs-only pull request: CI plus one review", 1, true), path .. " restates")
             assert.is_falsy(text:find("A merge that touches none of the PR's files: CI only", 1, true), path .. " restates")
+            assert.is_falsy(text:find("One combined pass for a merge whose changes don't overlap", 1, true), path .. " restates")
+            assert.is_falsy(text:find("Parallel reviews for a PR that isn't safety-critical", 1, true), path .. " restates")
         end
     end)
 
@@ -268,5 +270,35 @@ describe("the review-saving rules", function()
         assert.is_truthy(flat(".claude/skills/after-merge/SKILL.md"):find("mutates only the lines the merge changed"
             .. " or resolved", 1, true))
         assert.is_truthy(flat("AGENTS.md"):find("mutates only the lines the merge changed or resolved", 1, true))
+    end)
+
+    it("write the owner's review speed-ups of 2026-11-14 once, and point to them (#217)", function()
+        for _, text in ipairs({
+            "**One combined pass for a merge whose changes don't overlap:**",
+            "Overlapping hunks, or a conflict that was resolved, keep both loops.",
+            "**Parallel reviews for a PR that isn't safety-critical.**",
+            "the architecture and testing reviews may run at the same time",
+            "If the architect requests changes, the tester re-checks only what changed.",
+            "keeps the strict order: architecture first, then testing",
+            "For a PR that changes only docs, CI, the test harness or UI text",
+            "This list is wider than the mutation-check definition below",
+            "a PR that changes anything beyond those four kinds keeps the strict order too",
+            "`make setup` in a session is a no-op check",
+        }) do
+            local _, count = contributing:gsub(text:gsub("%p", "%%%0"), "")
+            assert.are.equal(1, count, text)
+        end
+        local agents = flat("AGENTS.md")
+        assert.is_truthy(agents:find("**Quick loops while coding:**", 1, true))
+        assert.is_truthy(agents:find("Then run the full `make check`, with every spec and every seed, before the"
+            .. " reviews", 1, true))
+        assert.is_truthy(agents:find("except where CONTRIBUTING.md's [Review loops](CONTRIBUTING.md#review-loops) lets both run"
+            .. " at once", 1, true))
+        assert.is_falsy(agents:find("may have both run at once", 1, true), "AGENTS.md doesn't widen the rule")
+        local tester = flat(".claude/agents/lua-tester.md")
+        assert.is_falsy(tester:find("It comes after the Lua architect has approved.", 1, true), "the tester may run in parallel")
+        assert.is_truthy(tester:find("it may run at the same time", 1, true))
+        assert.is_truthy(flat(".claude/skills/after-merge/SKILL.md"):find("one combined pass confirms it instead", 1, true))
+        assert.is_falsy(agents:find("keeps the strict order", 1, true), "AGENTS.md points to the rule, not restates it")
     end)
 end)

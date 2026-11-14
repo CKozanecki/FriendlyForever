@@ -20,6 +20,9 @@
 -- reach them" picks a "friend" line in /say, a /thank instead, or nothing (#101).
 -- In capital cities nothing is sent, unless buff mode is on (Cities.lua).
 -- Every favour goes into the ledger (Ledger.lua), thanked or not.
+-- In a fight the game hides aura updates from addons (#268): a buff that
+-- lands then is read once the fight is over, or at the first update the
+-- addon can read out of one, as if it had just landed (#245).
 local _, ns = ...
 local Util = ns.Util
 
@@ -471,13 +474,16 @@ local function Active()
     return BuffTracker.Watching() and ns.Announcer.IsWatching() and not ns.Battleground.Quiet()
 end
 
-local function HandleAddedAura(aura, now)
+-- grace (catching up, #245): seconds the addon couldn't read aura updates
+-- for; a buff cast in them is new, not one we already had. Returns true
+-- when the aura's data is locked, so it can be read again later.
+local function HandleAddedAura(aura, now, grace)
     if not IsReadable(aura) then
         local id = ReadAuraId(aura)
         aura = QueryAura(id)
         if not aura then
             ns.Diag.Log("buff", "skipped aura %s: its data is locked (restricted)", id)
-            return
+            return true
         end
     end
 
@@ -493,7 +499,7 @@ local function HandleAddedAura(aura, now)
 
     ns.Diag.Count("buffsSeen")
     local age = BuffTracker.AuraAge(aura, now)
-    if age and age > BuffTracker.STALE_AFTER then
+    if age and age > BuffTracker.STALE_AFTER + (grace or 0) then
         ns.Diag.Log("buff", "%s (spell %s): cast %ds ago, so I already had it -> skip", spellName or "?", spellId, age)
         return
     end
@@ -531,21 +537,26 @@ local function HandleAddedAura(aura, now)
 end
 
 -- Instance IDs of the player's current buffs; calls onNew(aura) for each one
--- not in knownAuraIds. Unreadable entries are skipped.
+-- not in knownAuraIds. Unreadable entries are skipped. Also whether the game
+-- gave the whole list (false: no API, or it raised an error part way), and
+-- whether every entry on it could be read.
 local function ScanBuffs(onNew)
-    local current = {}
+    local current, readable = {}, true
     local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
-    if not api then return current end
+    if not api then return current, false, false end
     for i = 1, 255 do
         local ok, aura = pcall(api, "player", i, "HELPFUL")
-        if not ok or aura == nil then break end
+        if not ok then return current, false, false end
+        if aura == nil then break end
         local id = IsReadable(aura) and ReadAuraId(aura)
         if id then
             current[id] = true
             if onNew and not knownAuraIds[id] then onNew(aura) end
+        else
+            readable = false
         end
     end
-    return current
+    return current, true, readable
 end
 
 -- The restricted-update line is logged once, for the first of a run; the
@@ -554,6 +565,54 @@ end
 -- The "payload is locked" line is folded the same way, with its own run (#294).
 local restrictedRun = 0
 local lockedRun = 0
+-- When the addon first couldn't read a buff (an update or an aura hidden
+-- from it) since it last looked at them all, or nil (#245).
+local missedSince
+
+-- A buff may have come that the addon couldn't read: look at them all later.
+local function Missed(now)
+    missedSince = missedSince or now
+end
+
+-- Take in a look at all your buffs (ScanBuffs' three values). Returns true
+-- when it saw them all, so they replace what was known. Otherwise (the game
+-- refused the list, or in a fight an entry it can't read yet) it keeps what
+-- was known, adds what it saw, and notes the moment as missed, so nothing
+-- read is read again as new and the rest is looked at later (#245). Out of
+-- a fight, what can't be read is let go, as it always was.
+local function Remember(current, listed, readable, now)
+    if listed and (readable or not InCombatLockdown()) then
+        knownAuraIds = current
+        return true
+    end
+    for id in pairs(current) do knownAuraIds[id] = true end
+    Missed(now)
+    return false
+end
+
+-- Look at every buff you wear for the ones that came while the addon
+-- couldn't read them (#245), and handle each as if it had just landed: one
+-- cast since then isn't one you already had. Called as a fight ends and at
+-- the next update the addon can read. In a fight, a buff it still can't
+-- read is looked at again later; out of one, what can't be read is let go,
+-- as it always was. Returns true when the game gave the whole list, which
+-- then covers the update that called it.
+function BuffTracker.CatchUp()
+    if not missedSince or not ns.db then return false end
+    local now = GetTime()
+    local grace = math.max(0, now - missedSince)
+    local active, caught = Active(), 0
+    local current, listed, readable = ScanBuffs(active and function(aura)
+        caught = caught + 1
+        HandleAddedAura(aura, now, grace)
+    end or nil)
+    if caught > 0 then
+        ns.Diag.Log("buff", "caught up on %d buff%s that came while aura updates were hidden", caught,
+            caught == 1 and "" or "s")
+    end
+    if Remember(current, listed, readable, now) then missedSince = nil end
+    return listed
+end
 
 function BuffTracker.FlushRestricted()
     local more = restrictedRun - 1
@@ -573,6 +632,7 @@ function BuffTracker.OnPlayerAura(updateInfo)
     if Util.IsSecret(updateInfo) or type(updateInfo) ~= "table" then
         lockedRun = lockedRun + 1
         if lockedRun == 1 then ns.Diag.Log("buff", "aura update payload is locked (restricted); skipped") end
+        Missed(GetTime())
         return
     end
 
@@ -585,9 +645,12 @@ function BuffTracker.OnPlayerAura(updateInfo)
         ns.Diag.Count("restrictedAuraUpdates")
         restrictedRun = restrictedRun + 1
         if restrictedRun == 1 then ns.Diag.Log("buff", "aura update is restricted (combat?); skipped") end
+        Missed(GetTime())
         return
     end
     if restrictedRun > 0 or lockedRun > 0 then BuffTracker.FlushRestricted() end
+    -- Buffs it couldn't read before: looking at them all covers this update too.
+    if BuffTracker.CatchUp() then return end
 
     -- A battle under way: buffs you get aren't thanked or owed (Battleground.lua),
     -- but are still noted as known, so they aren't new once you leave.
@@ -597,7 +660,8 @@ function BuffTracker.OnPlayerAura(updateInfo)
     -- A full update gives no list of what is new, so compare against the
     -- buffs we already knew about (zoning re-sends everything you have).
     if fullUpdate then
-        knownAuraIds = ScanBuffs(active and function(aura) HandleAddedAura(aura, now) end or nil)
+        local current, listed, readable = ScanBuffs(active and function(aura) HandleAddedAura(aura, now) end or nil)
+        Remember(current, listed, readable, now)
         return
     end
 
@@ -612,6 +676,10 @@ function BuffTracker.OnPlayerAura(updateInfo)
     for _, aura in ipairs(added) do
         local id = ReadAuraId(aura)
         if id then knownAuraIds[id] = true end
-        if active then HandleAddedAura(aura, now) end
+        -- One whose data is locked is read again later (#245).
+        if active and HandleAddedAura(aura, now) and id then
+            knownAuraIds[id] = nil
+            Missed(now)
+        end
     end
 end

@@ -1,4 +1,4 @@
--- Spec: #316
+-- Spec: #316, #335
 -- The owner's rule (#306) for buff back: a favour owed to a member of your
 -- group who is flagged for PvP is offered when you're inside a dungeon or
 -- raid and every member of the group is in there with you. A flagged player
@@ -379,7 +379,8 @@ describe("Buff back to a PvP-flagged group member once the whole group is inside
             "a dungeon, one offline", "a raid, one outside", "a dungeon the game won't name",
             "a dungeon, a slot unreadable", "a dungeon, a connection unreadable", "a dungeon, sight unreadable",
             "the open world, your flag unreadable", "the open world, their flag unreadable",
-            "a dungeon, not in your group", "a dungeon, their name in the group unreadable" }
+            "a dungeon, not in your group", "a dungeon, their name in the group unreadable",
+            "a dungeon, one outside, IsInRaid lying", "a raid, one outside, IsInRaid lying" }
         local INSIDE = { "a dungeon", "a raid", "a dungeon, their flag unreadable" }
 
         it("a storm of favours, joins, leaves and zone changes never offers a favour to a flagged player outside the rule", function()
@@ -415,6 +416,18 @@ describe("Buff back to a PvP-flagged group member once the whole group is inside
                 _G.UnitIsPVP = function(unit)
                     if unit == "player" and myFlagHidden then return wow.secret(true) end
                     return realFlag(unit)
+                end
+                -- Whether IsInRaid() sometimes lies (#335): while set, each
+                -- call flips the true answer half the time, from a generator
+                -- of its own so the storm's own sequence isn't moved.
+                local raidLies, lieState = false, seed
+                local realRaid = _G.IsInRaid
+                _G.IsInRaid = function()
+                    local truth = realRaid()
+                    if not raidLies then return truth end
+                    lieState = (lieState * 48271) % 2147483647
+                    if lieState % 2 == 0 then return not truth end
+                    return truth
                 end
                 local per = { returned = 0, refused = {}, scenes = {}, insideScenes = 0, storm = 0 }
                 local staging = false -- inside a staged scene
@@ -605,6 +618,7 @@ describe("Buff back to a PvP-flagged group member once the whole group is inside
                     function() hiddenSlot = random.random() < 0.3 and anyone() or nil end,
                     function() hiddenName = random.random() < 0.3 and anyone() or nil end,
                     function() myFlagHidden = random.random() < 0.2 end,
+                    function() raidLies = random.random() < 0.4 end,
                     function() wow.loseBuff(INTELLECT) end,
                     function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
                     function() if wow.state.inCombat then wow.leaveCombat() end end,
@@ -624,7 +638,7 @@ describe("Buff back to a PvP-flagged group member once the whole group is inside
                 local function stage(step, kind)
                     staged = staged + 1
                     staging = true
-                    hiddenSlot, hiddenName, myFlagHidden = nil, nil, false
+                    hiddenSlot, hiddenName, myFlagHidden, raidLies = nil, nil, false, false
                     if wow.state.inCombat then wow.leaveCombat() end
                     wow.state.inInstanceSecret, wow.state.unitsRestricted, wow.state.pvp = false, false, false
                     wow.leaveDungeon()
@@ -659,7 +673,7 @@ describe("Buff back to a PvP-flagged group member once the whole group is inside
                     end
                     if kind == "an arena" then
                         wow.enterDungeon(nil, nil, "arena")
-                    elseif kind == "a dungeon, one outside" or kind == "a raid, one outside" then
+                    elseif kind:find("one outside") then
                         wow.zoneOut(otherSlot)
                     elseif kind == "a dungeon, one offline" then
                         wow.state.units[otherSlot].offline = true
@@ -674,6 +688,7 @@ describe("Buff back to a PvP-flagged group member once the whole group is inside
                     if kind == "a dungeon, a slot unreadable" then hiddenSlot = otherSlot end
                     if kind == "a dungeon, their name in the group unreadable" then hiddenName = flaggedSlot end
                     if kind == "the open world, your flag unreadable" then myFlagHidden = true end
+                    if kind:find("IsInRaid lying") then raidLies = true end
                     local reachedFlagged, reachedControl = false, false
                     local label = step .. " (" .. kind .. ")"
                     for _ = 1, 8 do
