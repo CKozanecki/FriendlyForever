@@ -2301,7 +2301,8 @@ describe("UI simulator workflow", function()
                 -- After a reserved word or a brace (#356's testing review).
                 for _, step in ipairs({ 'if cd "$ui/Interface/AddOns"; then\n  ls\n  fi', 'if [ -d "$ui" ]; then cd "$ui"; fi\n  ls',
                     '{ cd "$ui" && ls; }', 'for d in a b; do cd "$ui/$d"; done\n  ls', 'while ! cd "$ui"; do sleep 1; done\n  ls',
-                    'if true; then :; else cd "$ui"; fi\n  ls', 'time cd "$ui"\n  ls', '! cd "$ui"\n  ls' }) do
+                    'if true; then :; else cd "$ui"; fi\n  ls', 'time cd "$ui"\n  ls', '! cd "$ui"\n  ls',
+                    'if false; then :; elif cd "$ui"; then :; fi\n  ls', 'until cd "$ui"; do sleep 1; done\n  ls' }) do
                     assert.are.equal(1, #scan('run: |\n  cd "$out"\n  ' .. step .. "\n"), step)
                 end
                 -- tr -cd and a word starting "cd" aren't a cd.
