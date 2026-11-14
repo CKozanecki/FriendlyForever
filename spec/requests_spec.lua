@@ -375,6 +375,38 @@ describe("Buff requests in chat", function()
             assert.are.same({ "Gil-Moss", "Fyn-Moss", "Eda-Moss", "Dov-Moss", "Cal-Moss" }, who)
         end)
 
+        it("an ignored player's request takes no room: it never pushes out another's, nor counts (#353)", function()
+            local names = { "Ann", "Bea", "Cal", "Dov", "Eda" }
+            for i, first in ipairs(names) do
+                stranger("nameplate" .. i, { name = first, surname = "Moss" })
+                wow.whisper("mark pls", first .. "-Moss")
+            end
+            -- Put on the list without Ignore.Add (another addon, a /run), in another case.
+            ns.db.ignore["cal-moss"] = "CAL-MOSS"
+            assert.are.equal(4, ns.Offers.RequestCount())
+            stranger("nameplate6", { name = "Fyn", surname = "Moss" })
+            wow.whisper("mark pls", "Fyn-Moss")
+            local list, who = {}, {}
+            ns.Offers.Current(list)
+            for _, offer in ipairs(list) do who[#who + 1] = offer.name end
+            assert.are.same({ "Fyn-Moss", "Eda-Moss", "Dov-Moss", "Bea-Moss", "Ann-Moss" }, who,
+                "the oldest stays: Cal's went, not Ann's")
+        end)
+
+        it("an ignored player's favour takes no room on a full button: a request still fits (#353)", function()
+            for i = 1, ns.Offers.MAX do
+                local first = "Fav" .. string.char(96 + i)
+                stranger("nameplate" .. i, { name = first, surname = "Owed" })
+                wow.gainBuff({ sourceUnit = "nameplate" .. i, name = "Arcane Intellect", spellId = 10157 })
+            end
+            assert.are.equal(ns.Offers.MAX, ns.Offers.Count())
+            ns.db.ignore["fava-owed"] = "Fava-Owed"
+            stranger("nameplate30", { name = "Ask", surname = "Late" })
+            wow.whisper("mark pls", "Ask-Late")
+            assert.are.equal(1, ns.Offers.RequestCount(), "queued: the ignored favour made room")
+            assert.are.equal(ns.Offers.MAX, ns.Offers.Count())
+        end)
+
         it("favours, then requests, then more favours up to the button's limit: every favour stays", function()
             local function owe(i)
                 local first = "Fav" .. string.char(96 + i)
@@ -594,12 +626,12 @@ describe("Buff requests in chat", function()
             ns.Ignore.Add("bob stone")
             assert.is_nil(offered(), "ignored as typed in any case: nothing held")
             assert.are.equal(0, ns.Offers.Count(), "and theirs is let go (#353)")
-            -- Put on the list without Ignore.Add (another addon, a /run): kept, never offered.
+            -- Put on the list without Ignore.Add (another addon, a /run): never offered.
             ns.Ignore.Remove("bob stone")
             wow.whisper("mark pls", "Bob-Stone")
             ns.db.ignore["bob-stone"] = "BOB-STONE"
             assert.is_nil(offered(), "on the list in another case: nothing held (#353)")
-            assert.are.equal(1, ns.Offers.Count())
+            assert.are.equal(0, ns.Offers.Count(), "and theirs is let go")
         end)
 
         it("not while snoozed", function()

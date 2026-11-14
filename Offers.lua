@@ -310,6 +310,18 @@ local function Expire(now)
     return any
 end
 
+-- Let go, without a note, of anything owed to a player on the ignore list,
+-- whatever the case of either name (Ignore.Has, #353). Ignore.Add lets
+-- theirs go itself (Offers.Forget), but an import, another addon or a /run
+-- can put them on the list without it. Run wherever the favours are read,
+-- as Expire is, so nothing counts or offers a favour that is never given:
+-- not the button, not buff mode's "nothing left to do", not the status.
+local function DropIgnored()
+    for i = #favours, 1, -1 do
+        if ns.Ignore.Has(favours[i].name) then table.remove(favours, i) end
+    end
+end
+
 -- Whether the game says your buff can't reach them (out of range).
 local function OutOfReach(buff, unit)
     local spell = buff and ns.BuffData.SpellName(buff)
@@ -323,8 +335,10 @@ end
 -- a request never pushes out a favour. Returns true if queued, or false and
 -- why not.
 function Offers.Request(name, buff)
-    -- An expired request mustn't block a fresh one, or count against the limit.
+    -- An expired request mustn't block a fresh one, or count against the
+    -- limit; nor one of an ignored player's.
     Expire(GetTime())
+    DropIgnored()
     local i = IndexOf(name)
     if i then
         local favour = favours[i]
@@ -372,6 +386,7 @@ end
 
 -- How many of the entries waiting are requests in chat (#40).
 function Offers.RequestCount()
+    DropIgnored()
     local count = 0
     for _, favour in ipairs(favours) do
         if favour.request then count = count + 1 end
@@ -429,7 +444,7 @@ local function ChooseBuff(favour, myBuffs, held, visible)
     -- whose asked-for buff can't be given now gets the usual choice. With
     -- the setting off (or damaged), a request holds nothing, and a favour's
     -- asked-for buff is passed over. (A player ignored since never gets
-    -- here: Offers.Current passes them over, #353.)
+    -- here: Offers.Current lets theirs go first, #353.)
     if favour.request and not ns.Requests.Listening() then return nil, nil, true end
     if favour.requested and ns.Requests.Listening() then
         local buff, reason, away = Requested(favour, unit)
@@ -470,41 +485,34 @@ end
 -- first, so the clickable list is made by these same rules. A favour whose
 -- player has left gives no reason (#270); when every favour is so, the
 -- third value is true: nothing owed is worth the button's face.
---
--- A favour or request whose player is on the ignore list is never offered
--- and gives no reason, however they got there (#353): Ignore.Add lets
--- theirs go, but an import, another addon or a /run can put them on it
--- without. When every one waiting is so, it's as if nobody were owed.
+-- A favour or request whose player is on the ignore list is let go first,
+-- however they got there (DropIgnored, #353): it's never offered.
 function Offers.Current(list)
     if not ns.db or not ns.db.enabled then return nil, "the addon is off" end
     if not ns.db.buffBack.enabled then return nil, "buff back is off" end
     -- No Changed() here: the button is the caller, and would re-enter.
     Expire(GetTime())
+    DropIgnored()
     if #favours == 0 then return nil, "nobody is owed a buff" end
     -- Water breathing waits for water (Water.lua).
     local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
     local visible = VisiblePlayers()
-    local firstReason, first, owed
+    local firstReason, first
     for i = #favours, 1, -1 do
         local favour = favours[i]
-        -- Whatever the case their name was put on the list in (Ignore.Has).
-        if not ns.Ignore.Has(favour.name) then
-            owed = true
-            local buff, reason, away = ChooseBuff(favour, myBuffs, held, visible)
-            local spell = buff and ns.BuffData.SpellName(buff)
-            if spell then
-                local offer = { name = favour.name, buff = buff, spell = spell, request = favour.request }
-                if not list then return offer end
-                first = first or offer
-                list[#list + 1] = offer
-            elseif not away then
-                firstReason = firstReason
-                    or (Util.DisplayName(favour.name) .. ": " .. (reason or "the spell's name isn't known"))
-            end
+        local buff, reason, away = ChooseBuff(favour, myBuffs, held, visible)
+        local spell = buff and ns.BuffData.SpellName(buff)
+        if spell then
+            local offer = { name = favour.name, buff = buff, spell = spell, request = favour.request }
+            if not list then return offer end
+            first = first or offer
+            list[#list + 1] = offer
+        elseif not away then
+            firstReason = firstReason
+                or (Util.DisplayName(favour.name) .. ": " .. (reason or "the spell's name isn't known"))
         end
     end
     if first then return first end
-    if not owed then return nil, "nobody is owed a buff" end
     if not firstReason then return nil, "everyone you owe is out of sight or out of range", true end
     return nil, firstReason
 end
@@ -652,6 +660,8 @@ function Offers.Forget(name)
     if any then Changed() end
 end
 
+-- How many are owed: none to a player on the ignore list.
 function Offers.Count()
+    DropIgnored()
     return #favours
 end
