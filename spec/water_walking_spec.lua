@@ -359,14 +359,22 @@ describe("Water Walking, offered only on request", function()
             ["WATER WALKING"] = true, ["ww?!"] = true }
         local PLAYERS = { { "Bob", "Stone" }, { "Ann", "Vale" }, { "Cid", "Rock" } }
         local function pick(list) return list[random.random(#list)] end
+        -- Each reaches a Water Walking offer to a player who asked, a cast of
+        -- it, and a press while 546 is renamed or unknown with a player
+        -- waiting (the storm counts and checks all three).
+        local STORM_SEEDS = { 3, 17, 41, 77, 350 }
 
         it("random requests, favours, renamed spells and spellbook changes never error, never cast anything "
             .. "but Water Walking by its name, and never offer it unasked", function()
-            for _, seed in ipairs({ 3, 17, 41, 77, 350 }) do
+            for _, seed in ipairs(STORM_SEEDS) do
                 random.seed(seed)
+                -- Each seed starts from the real name: one seed's rename mustn't reach the next.
+                wow.SPELL_NAMES[WATER_WALKING] = "Water Walking"
                 boot()
                 -- Who has asked for Water Walking, readably: the client's own record.
                 local askedWW = {}
+                -- What the seed reaches, counted so a seed that stops reaching it fails.
+                local reached = { offers = 0, casts = 0, unnamedPresses = 0 }
                 for step = 1, 150 do
                     local r = random.random(100)
                     local p = pick(PLAYERS)
@@ -390,6 +398,9 @@ describe("Water Walking, offered only on request", function()
                         wow.state.knownSpells[WATER_WALKING] = random.random(10) <= 7 or nil
                         ns.BuffData.SpellsChanged()
                     elseif r <= 75 then
+                        local named = wow.SPELL_NAMES[WATER_WALKING] == "Water Walking"
+                            and wow.state.knownSpells[WATER_WALKING] == true
+                        if not named and next(askedWW) then reached.unnamedPresses = reached.unnamedPresses + 1 end
                         wow.press(button)
                     elseif r <= 85 then
                         if wow.inWater() then wow.leaveWater() else wow.swim() end
@@ -401,6 +412,7 @@ describe("Water Walking, offered only on request", function()
                     ns.Offers.Current(list)
                     for _, offer in ipairs(list) do
                         if offer.buff.key == "waterwalking" then
+                            reached.offers = reached.offers + 1
                             assert.is_true(askedWW[offer.name], where .. ": offered only to a player who asked")
                             assert.are.equal("Water Walking", wow.SPELL_NAMES[WATER_WALKING], where)
                             assert.is_true(wow.state.knownSpells[WATER_WALKING], where)
@@ -409,12 +421,19 @@ describe("Water Walking, offered only on request", function()
                     end
                     for _, cast in ipairs(wow.casts) do
                         assert.are_not.equal("Earth Shock", cast.spell, where .. ": never another spell")
+                        if cast.spell == "Water Walking" and not cast.counted then
+                            cast.counted = true
+                            reached.casts = reached.casts + 1
+                        end
                         if cast.spell == "Water Walking" then
                             assert.is_true(askedWW[cast.target], where .. ": cast only for a player who asked")
                         end
                     end
                 end
                 assert.are.same({}, wow.errors, "seed " .. seed)
+                for what, n in pairs(reached) do
+                    assert.is_true(n > 0, ("seed %d reaches no %s"):format(seed, what))
+                end
             end
         end)
     end)

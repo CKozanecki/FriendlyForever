@@ -752,18 +752,23 @@ describe("The generated buff table", function()
         before_each(function() dir = tmpdir() end)
         after_each(function() os.execute('rm -rf "' .. dir .. '"') end)
 
-        -- Spell data with Water Breathing (131) and, when given, a spell at 546.
-        local function data(at546)
+        -- Spell data with Water Breathing (131) and, when given, a spell at 546
+        -- and a made-up group version, "Mass Water Walking" at 600.
+        local function data(at546, mass)
             local spell, names = '{"ID":131,"NameSubtext_lang":""}', '{"ID":131,"Name_lang":"Water Breathing"}'
             if at546 then
                 spell = spell .. ',{"ID":546,"NameSubtext_lang":""}'
                 names = names .. ',{"ID":546,"Name_lang":"' .. at546 .. '"}'
             end
+            if mass then
+                spell = spell .. ',{"ID":600,"NameSubtext_lang":""}'
+                names = names .. ',{"ID":600,"Name_lang":"Mass Water Walking"}'
+            end
             return '{"schema":1,"build":"1.60.1.70685","tables":{"Spell":{"rows":[' .. spell
                 .. ']},"SpellName":{"rows":[' .. names .. ']}}}'
         end
-        local function run(entry, at546)
-            write(dir .. "/spells.json", data(at546))
+        local function run(entry, at546, mass)
+            write(dir .. "/spells.json", data(at546, mass))
             write(dir .. "/buffs.json", '{"format":1,"classes":{"SHAMAN":[{"key":"waterbreathing",'
                 .. '"name":"Water Breathing"},' .. entry .. ']},"removed":[]}')
             write(dir .. "/out.lua", "KEEP")
@@ -794,31 +799,42 @@ describe("The generated buff table", function()
 
         it("refuses a hand-listed ID that is another spell in the data, a bad hand list, and a request-only buff "
             .. "with a self-cast, water, group cast or buff mode rule; it writes nothing (black)", function()
+            -- { definition, the name of 546 in the data, the reason it must give }:
+            -- each refused for its own reason, not another check's (#350's testing review).
+            local function ww(fields) return '{"key":"ww","name":"Water Walking",' .. fields .. '}' end
             local refused = {
-                { WW, "Earth Shock" },
-                { '{"key":"ww","name":"Water Walking","handIds":[]}' },
-                { '{"key":"ww","name":"Water Walking","handIds":546}' },
-                { '{"key":"ww","name":"Water Walking","handIds":[546,546]}' },
-                { '{"key":"ww","name":"Water Walking","handIds":[0]}' },
-                { '{"key":"ww","name":"Water Walking","handIds":["546"]}' },
-                { '{"key":"ww","name":"Water Walking","handIds":[546.5]}' },
-                { '{"key":"ww","name":"Water Walking","handIds":[131]}' },
-                { '{"key":"ww","name":"Water Walking","alsoNames":["Water Breathing"],"handIds":[546]}' },
-                { '{"key":"ww","name":"Water Walking","handIds":[546],"requestOnly":true,"selfCast":true}' },
-                { '{"key":"ww","name":"Water Walking","handIds":[546],"requestOnly":true,"water":true}' },
-                { '{"key":"ww","name":"Water Walking","handIds":[546],"requestOnly":true,'
-                    .. '"defaultRule":"tanks"}' },
-                { '{"key":"ww","name":"Water Walking","handIds":[546],"requestOnly":true,'
-                    .. '"defaultClasses":["WARRIOR"]}' },
-                { '{"key":"ww","name":"Water Breathing","requestOnly":true,"groupCast":{"scope":"party",'
-                    .. '"spells":[{"name":"Water Breathing","reagent":17020}]}}' },
+                { WW, "Earth Shock", "hand-listed ID 546 is 'Earth Shock' in the data" },
+                { ww('"handIds":[]'), nil, "handIds must be a list of spell IDs, each once" },
+                { ww('"handIds":546'), nil, "handIds must be a list of spell IDs, each once" },
+                { ww('"handIds":[546,546]'), nil, "handIds must be a list of spell IDs, each once" },
+                { ww('"handIds":[0]'), nil, "ww handIds: spell ID 0 is not a whole number" },
+                { ww('"handIds":["546"]'), nil, "ww handIds: spell ID '546' is not a whole number" },
+                { ww('"handIds":[546.5]'), nil, "ww handIds: spell ID 546.5 is not a whole number" },
+                { ww('"handIds":[131]'), nil, "hand-listed ID 131 is 'Water Breathing' in the data" },
+                { ww('"alsoNames":["Water Breathing"],"handIds":[546]'), nil, "handIds can't be used with alsoNames" },
+                { ww('"handIds":[546],"requestOnly":true,"selfCast":true'), nil,
+                    "a request-only buff can't have selfCast" },
+                { ww('"handIds":[546],"requestOnly":true,"water":true'), nil, "a request-only buff can't have water" },
+                { ww('"handIds":[546],"requestOnly":true,"defaultRule":"tanks"'), nil,
+                    "a request-only buff can't have defaultRule" },
+                { ww('"handIds":[546],"requestOnly":true,"defaultClasses":["WARRIOR"]'), nil,
+                    "a request-only buff can't have defaultClasses" },
+                -- A group version that is otherwise valid: only the request-only rule refuses it.
+                { ww('"requestOnly":true,"group":["Mass Water Walking"],"groupCast":{"scope":"party",'
+                    .. '"spells":[{"name":"Mass Water Walking","reagent":17020}]}'), "Water Walking",
+                    "a request-only buff can't have groupCast", true },
             }
             for _, case in ipairs(refused) do
-                local code, text, out = run(case[1], case[2])
+                local code, text, out = run(case[1], case[2], case[4])
                 assert.are.equal(1, code, case[1] .. ": " .. text)
                 assert.is_truthy(text:find("nothing written", 1, true), case[1])
+                assert.is_truthy(text:find(case[3], 1, true), case[1] .. " gives the wrong reason: " .. text)
                 assert.are.equal("KEEP", out, case[1])
             end
+            -- The same group version on a buff for others is written: the rule is request-only's.
+            local code, text = run(ww('"group":["Mass Water Walking"],"groupCast":{"scope":"party",'
+                .. '"spells":[{"name":"Mass Water Walking","reagent":17020}]}'), "Water Walking", true)
+            assert.are.equal(0, code, text)
         end)
 
         it("keeps the hand-listed blockers, IDs above a million included, and refuses a bad one (white, black)",
@@ -834,12 +850,22 @@ describe("The generated buff table", function()
                 assert.are.equal(0, code, text)
                 assert.is_truthy(out:find("ranks = { 546 },\n%s+blockers = { 11319 },"), out)
                 -- Refused: another spell in the data (131), its own rank (546), a bad ID or list.
-                for _, blockers in ipairs({ "[131]", "[546]", "[0]", "[10000001]", '["11319"]', "11319", "{}", "[11319.5]",
-                    "[11319,11319]" }) do
+                for _, case in ipairs({
+                    { "[131]", "hand-listed blocker 131 is 'Water Breathing' in the data" },
+                    { "[546]", "hand-listed blocker 546 is one of its own ranks" },
+                    { "[0]", "waterwalking handBlockerIds: spell ID 0 is not a whole number" },
+                    { "[10000001]", "spell ID 10000001 is not a whole number from 1 to 10000000" },
+                    { '["11319"]', "spell ID '11319' is not a whole number" },
+                    { "11319", "handBlockerIds must be a list of spell IDs" },
+                    { "{}", "handBlockerIds must be a list of spell IDs" },
+                    { "[11319.5]", "spell ID 11319.5 is not a whole number" },
+                    { "[11319,11319]", "duplicate ID in blockers" },
+                }) do
                     code, text, out = run('{"key":"waterwalking","name":"Water Walking","handIds":[546],'
-                        .. '"handBlockerIds":' .. blockers .. '}')
-                    assert.are.equal(1, code, blockers .. ": " .. text)
-                    assert.are.equal("KEEP", out, blockers)
+                        .. '"handBlockerIds":' .. case[1] .. '}')
+                    assert.are.equal(1, code, case[1] .. ": " .. text)
+                    assert.is_truthy(text:find(case[2], 1, true), case[1] .. " gives the wrong reason: " .. text)
+                    assert.are.equal("KEEP", out, case[1])
                 end
             end)
 
