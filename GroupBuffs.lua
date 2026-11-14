@@ -479,7 +479,10 @@ function GroupBuffs.Next(out)
     local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
     if #myBuffs == 0 then
         if held then return nil, ns.Water.HeldReason(held), true, held end
-        return nil, "you have no buffs to offer", true
+        -- Self-buffs (#44) are never the group's: SelfBuffs.lua offers them.
+        local why = "you have no buffs to offer"
+        if #ns.BuffData.MySelfBuffs() > 0 then why = "you have no buffs for your group" end
+        return nil, why, true
     end
     local members, firstReason, open, flaggedOk = Candidates(units)
     local unreadable, outOfRange = {}, {}

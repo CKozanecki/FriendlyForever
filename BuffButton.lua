@@ -92,18 +92,22 @@ end
 
 -- The macro that casts spellName on the player playerFullName and leaves
 -- you with the target you had (hadTarget) or none. Returns nil when a part isn't safe or it would be too long.
+-- toggle (on yourself only): a self-buff that stays on until switched (an
+-- Aspect, a paladin aura, #44), cast as "!<spell>", so a press that comes
+-- after it is already on can't switch it off.
 --
 -- /cleartarget first makes your current target the "last target", so
 -- /targetlasttarget brings it back whether or not /targetexact found them;
 -- [help,nodead] casts only on a friendly, living target, so a failed
 -- /targetexact casts nothing rather than on someone else.
-function BuffButton.BuildCastMacro(playerFullName, spellName, hadTarget, onSelf)
+function BuffButton.BuildCastMacro(playerFullName, spellName, hadTarget, onSelf, toggle)
     -- On yourself (#198): [@player] aims the cast without targeting anyone,
     -- so there is no name to find and your target stays as it is. The same
     -- secure macro button as for others; only its text differs.
     if onSelf then
         if not BuffButton.IsSafeMacroArgument(spellName) then return nil end
-        local selfText = "/cast [@player,nodead] " .. spellName
+        -- "!" only in front of a name already checked safe: it can't start a command.
+        local selfText = "/cast [@player,nodead] " .. (toggle == true and "!" or "") .. spellName
         if #selfText > BuffButton.MACRO_MAX_LENGTH then return nil end
         return selfText
     end
@@ -245,18 +249,23 @@ local function NextOffer()
         reason = "nobody is owed a buff"
     end
     if ns.BuffMode.LentKey() then
-        local _
+        local _, selfReason
         _, groupReason = ns.GroupBuffs.Next(list)
         -- In a raid split (#70), say what's yours ("Your share: Divine Spirit").
         local share = groupReason and ns.RaidSplit.ShareText(false)
         if share then groupReason = groupReason .. ". " .. share end
+        -- Your self-buffs (#44) come after everyone else, so after the group's
+        -- offers in the list: the button takes the first.
+        _, selfReason = ns.SelfBuffs.Next(list)
+        if selfReason then groupReason = (groupReason and (groupReason .. "; ") or "") .. "You: " .. selfReason end
     end
     -- One offer per player: the first, which is the one the button would
     -- make (a player owed a favour who is also in your group appears in both,
     -- and one group cast aimed at a player is listed beside another, #305).
     local castable, seen = {}, {}
     for _, offer in ipairs(list) do
-        if not seen[offer.name] and BuffButton.BuildCastMacro(offer.name, offer.spell, true, offer.self) then
+        if not seen[offer.name]
+            and BuffButton.BuildCastMacro(offer.name, offer.spell, true, offer.self, offer.toggle) then
             seen[offer.name] = true
             castable[#castable + 1] = offer
             -- A group cast that is kept is one row for everyone it covers
@@ -369,12 +378,12 @@ local function ArmButton()
     ns.BuffList.Update(button, offerList, offer.name)
 
     local hadTarget = HasTarget()
-    local macroText = BuffButton.BuildCastMacro(offer.name, offer.spell, hadTarget, offer.self)
+    local macroText = BuffButton.BuildCastMacro(offer.name, offer.spell, hadTarget, offer.self, offer.toggle)
     if not macroText then return Empty("the name or spell can't be put in a macro safely", showingResult) end
 
     SetSecureMacro(macroText)
     armedOffer = { name = offer.name, spell = offer.spell, buff = offer.buff, group = offer.group,
-        cast = offer.cast, hint = offer.hint, self = offer.self, macroText = macroText }
+        cast = offer.cast, hint = offer.hint, self = offer.self, selfBuff = offer.selfBuff, macroText = macroText }
     notArmedReason = nil
     button.icon:SetTexture(ns.BuffData.Icon(offer.buff) or BuffButton.PLACEHOLDER_ICON)
     if offer.cast then
@@ -485,7 +494,11 @@ local function Unanswered(press)
             ShowResult(string.format("%s went to %s, not %s.", press.spell,
                 Util.StripChat(press.elsewhere.name), who), true)
         else
-            if press.group then ns.GroupBuffs.NoteRefused(press.name) end
+            if press.selfBuff then
+                ns.SelfBuffs.NoteRefused(press.buff)
+            elseif press.group then
+                ns.GroupBuffs.NoteRefused(press.name)
+            end
             ShowResult("No answer: couldn't find " .. who .. " (out of sight?).", true)
         end
     else
@@ -508,6 +521,7 @@ end
 local function TakeArmedOffer(press)
     press.name, press.spell, press.buff = armedOffer.name, armedOffer.spell, armedOffer.buff
     press.group, press.self, press.cast = armedOffer.group, armedOffer.self, armedOffer.cast
+    press.selfBuff = armedOffer.selfBuff
     ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
     return press
 end
@@ -589,7 +603,12 @@ local function OnPostClick(_, mouseButton, isDown)
     -- Kept: changing a Never list re-arms the button.
     local offer = armedOffer
     local name = offer.name
-    if offer.cast then
+    if offer.selfBuff then
+        -- Your self-buffs (#44): all of them, for a while. Shift too: who
+        -- gets a buff doesn't apply to them.
+        ns.SelfBuffs.Skip()
+        ShowResult(string.format("Skipping your self-buffs for %d minutes.", ns.SelfBuffs.SKIP_SECONDS / 60))
+    elseif offer.cast then
         -- A group version: only that cast is left out; its members are
         -- still offered the single buff. Shift adds nobody to a Never list.
         ns.GroupCasts.Skip(offer.cast.key)
@@ -729,7 +748,12 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
     local who = press.self and "you" or Util.DisplayName(press.name)
     -- castTargetName is only ever the intended player's (OnSpellcastSent).
     local reachedThem = press.castTargetName and BuffButton.IsIntendedPlayer(press.castTargetName, press.name)
-    if reachedThem == nil then
+    if press.selfBuff then
+        -- A self-buff (#44) can only be cast on you: no favour, no line, no
+        -- thanks, and nobody else to note.
+        ns.SelfBuffs.NoteGiven(press.buff)
+        ShowResult("Cast " .. press.spell .. " on you.")
+    elseif reachedThem == nil then
         -- The dungeon-or-raid round (#256) counts it as given anyway.
         if press.cast then
             for _, covered in ipairs(press.cast.covers) do ns.GroupBuffs.NoteRoundCast(covered, press.buff) end
@@ -766,7 +790,13 @@ local unclaimedError
 
 local function ReportRefusal(press, text)
     ForgetPress(press)
-    if press.group and ns.GroupBuffs.IsTargetRefusal(text) then ns.GroupBuffs.NoteRefused(press.name) end
+    -- A refused self-buff (#44) waits a moment, whatever the reason: the
+    -- usable check should have caught it, so the next press tries the next.
+    if press.selfBuff then
+        ns.SelfBuffs.NoteRefused(press.buff)
+    elseif press.group and ns.GroupBuffs.IsTargetRefusal(text) then
+        ns.GroupBuffs.NoteRefused(press.name)
+    end
     ShowResult("Couldn't buff " .. (press.self and "you" or Util.DisplayName(press.name))
         .. ": " .. Util.StripChat(text), true)
     BuffButton.Refresh()
