@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -427,6 +427,128 @@ describe("Test shards", function()
         assert.is_falsy(slice(1):find("spec/repo_spec.lua", 1, true))
     end)
 end)
+
+-- A step's run: | block, as the shell gets it (comment-only lines are
+-- already gone: the parser drops them).
+local function runOf(step, name)
+    local body, indent = {}, nil
+    local inRun = false
+    for _, line in ipairs(splitLines(step.text)) do
+        if inRun then
+            if not line:match("^%s*$") then
+                indent = indent or indentOf(line)
+                if indentOf(line) < indent then break end
+            end
+            body[#body + 1] = line:sub((indent or 0) + 1)
+        elseif line:match("^%s*run: |%s*$") then
+            inRun = true
+        end
+    end
+    assert.is_true(#body > 0, name .. " has no run: | block")
+    return (table.concat(body, "\n"):gsub("%s+$", "")) .. "\n"
+end
+
+local function quote(value) return "'" .. value:gsub("'", "'\\''") .. "'" end
+
+local function writeText(file, content)
+    local handle = assert(io.open(file, "w"))
+    handle:write(content)
+    handle:close()
+end
+
+local function readText(file)
+    local handle = io.open(file, "r")
+    if not handle then return "" end
+    local content = handle:read("*a")
+    handle:close()
+    return content
+end
+
+-- A stand-in for curl that answers like GitHub's API from files in its
+-- folder, and logs each call ("METHOD URL") and the config it read. Like
+-- curl, it reads its config from stdin only with -K -, writes the body
+-- unless -o /dev/null (and, with -f, not for a status of 400 or more),
+-- writes the status only with -w '%{http_code}', and with -f exits 22 on
+-- a status of 400 or more. A request without the token gets 401; a pull
+-- request whose file says "unreachable" fails as curl does with no route.
+local fakeCurl = [=[#!/bin/bash
+dir=$(dirname "$0")
+method=GET url= config= out= format= fail=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -X) method=$2; shift ;;
+    -K) [ "$2" = - ] && config=$(cat); shift ;;
+    -o) out=$2; shift ;;
+    -w) format=$2; shift ;;
+    -H) shift ;;
+    --*) ;;
+    -*f*) fail=1 ;;
+    -*) ;;
+    *) url=$1 ;;
+  esac
+  shift
+done
+echo "$method $url" >> "$dir/calls"
+[ -n "$config" ] && printf '%s\n' "$config" >> "$dir/stdin"
+body= status=404
+if [ "$config" != 'header = "Authorization: Bearer secret-token-123"' ]; then
+  status=401 body='{"message":"Requires authentication"}'
+else
+  case "$method $url" in
+    "DELETE "*/git/refs/heads/ui-screenshots/pr-*)
+      n=${url##*/pr-}
+      status=204
+      if [ -f "$dir/delete-$n" ]; then status=$(cat "$dir/delete-$n"); fi
+      if [ "$status" = unreachable ]; then
+        [ "$format" = '%{http_code}' ] && printf 000
+        exit 7
+      fi
+      [ "$status" = 204 ] || body='{"message":"Reference does not exist"}' ;;
+    "GET "*/git/matching-refs/heads/ui-screenshots/)
+      if [ -f "$dir/refs.json" ]; then status=200 body=$(cat "$dir/refs.json"); fi ;;
+    "GET "*/pulls/*)
+      n=${url##*/pulls/}
+      [ "$(cat "$dir/pr-$n" 2>/dev/null)" = unreachable ] && exit 7
+      if [ -f "$dir/pr-$n" ]; then
+        status=200 body=$(printf '{"number":%s,"state":"%s"}' "$n" "$(cat "$dir/pr-$n")")
+      fi ;;
+  esac
+fi
+[ "$status" -ge 400 ] && [ -z "$body" ] && body='{"message":"Not Found"}'
+if [ "$out" != /dev/null ] && ! { [ -n "$fail" ] && [ "$status" -ge 400 ]; }; then printf '%s' "$body"; fi
+[ "$format" = '%{http_code}' ] && printf '%s' "$status"
+if [ -n "$fail" ] && [ "$status" -ge 400 ]; then exit 22; fi
+exit 0
+]=]
+
+-- Runs a script as GitHub Actions runs a step with shell: bash (bash
+-- --noprofile --norc -eo pipefail), or with flags, such as "-e" for a step
+-- with no shell:, with the fake curl first on PATH.
+-- files are written next to it first.
+-- Returns the exit code, the output, the curl calls, what curl read on
+-- stdin, and the step summary.
+local function runWithCurl(script, env, files, flags)
+    local dir = os.tmpname()
+    os.remove(dir)
+    os.execute('mkdir -p "' .. dir .. '/bin"')
+    writeText(dir .. "/bin/curl", fakeCurl)
+    os.execute('chmod +x "' .. dir .. '/bin/curl"')
+    for name, content in pairs(files or {}) do writeText(dir .. "/bin/" .. name, content) end
+    local exports = { 'export PATH="' .. dir .. '/bin:$PATH"', "export GITHUB_API_URL=https://api.test",
+        'export GITHUB_STEP_SUMMARY="' .. dir .. '/summary"', "export REPO=owner/repo",
+        "export TOKEN=secret-token-123" }
+    for key, value in pairs(env or {}) do exports[#exports + 1] = "export " .. key .. "=" .. quote(value) end
+    writeText(dir .. "/step.sh", table.concat(exports, "\n") .. "\n" .. script)
+    local p = io.popen('bash --noprofile --norc ' .. (flags or "-eo pipefail") .. ' "' .. dir
+        .. '/step.sh" < /dev/null 2>&1; echo "exit=$?"')
+    local output = p:read("*a")
+    p:close()
+    local code = tonumber(output:match("exit=(%d+)\n$"))
+    output = output:gsub("exit=%d+\n$", "")
+    local calls, stdin, summary = readText(dir .. "/bin/calls"), readText(dir .. "/bin/stdin"), readText(dir .. "/summary")
+    os.execute('rm -rf "' .. dir .. '"')
+    return code, output, calls, stdin, summary
+end
 
 describe("UI simulator workflow", function()
     local path = ".github/workflows/ui-sim.yml"
@@ -1790,6 +1912,82 @@ describe("UI simulator workflow", function()
             assert.is_falsy(publish.text:find(banned), "the publish job runs " .. banned)
         end
         assert.is_truthy(publish.text:find("89504e470d0a1a0a", 1, true), "the publish job doesn't check for PNGs")
+        -- Its access: writing the branch, and reading pull requests for the open check (#347).
+        local access = publish.text:match("\n    permissions:\n(.-)\n    steps:")
+        assert.are.equal("      contents: write\n      pull-requests: read", access, "the publish job's access")
+    end)
+
+    -- #347: a run still going when its pull request closes put back the
+    -- branch the clean-up had just deleted (pr-324 came back nine minutes
+    -- after its deletion). The publish step now asks GitHub, just before the
+    -- push, whether the pull request is still open.
+    describe("publishes only while its pull request is open (#347)", function()
+        local function publishRun()
+            local publish = jobs["publish-screenshots"]
+            local i = indexOf(publish.steps, "push %-q")
+            assert.is_truthy(i, "no push in the publish job")
+            return publish.steps[i], runOf(publish.steps[i], "the publish step")
+        end
+
+        -- The open check: from the lookup to the end of its if, which the
+        -- auth line follows.
+        local function openCheck()
+            local _, run = publishRun()
+            local check = run:match("\n(state=%$%(printf .-\nfi\n)auth=")
+            assert.is_truthy(check, "no open check just before the push")
+            return check
+        end
+
+        it("checks just before the push, after the commit, with nothing between (white)", function()
+            local step, run = publishRun()
+            local check = openCheck()
+            local at = run:find(check, 1, true)
+            local commit = run:find("\n%s*commit %-q ")
+            local push = run:find("\nauth=[^\n]*\ngit %-c http%.extraheader=[^\n]*\n%s*push %-q [^\n]*\n")
+            assert.is_truthy(commit and commit < at, "the open check comes before the commit")
+            assert.are.equal(at + #check - 1, push, "something runs between the open check and the push")
+            assert.are.equal(1, select(2, run:gsub("%f[%w]push%f[%W]", "")), "more than one push")
+            assert.is_truthy(check:find('"$GITHUB_API_URL/repos/$REPO/pulls/$PR"', 1, true),
+                "the check doesn't look up this pull request")
+            -- Run below as GitHub runs it: the workflow names no shell (checked above), so bash -e.
+            assert.is_falsy(step.text:find("shell:"), "the publish step names a shell")
+        end)
+
+        local function guarded(state)
+            -- What follows the check stands in for the push.
+            return runWithCurl(openCheck() .. "echo PUSHED\n", { PR = "347" }, state and { ["pr-347"] = state } or nil,
+                "-e")
+        end
+
+        it("pushes while the pull request is open, asking with the token on stdin only (white)", function()
+            local code, output, calls, stdin, summary = guarded("open")
+            assert.are.equal(0, code, output)
+            assert.are.equal("PUSHED\n", output)
+            assert.are.equal("GET https://api.test/repos/owner/repo/pulls/347\n", calls)
+            assert.are.equal('header = "Authorization: Bearer secret-token-123"\n', stdin)
+            assert.are.equal("", summary)
+        end)
+
+        it("publishes nothing once the pull request is closed, says so, and doesn't fail (white)", function()
+            local code, output, _, _, summary = guarded("closed")
+            assert.are.equal(0, code, output)
+            assert.are.equal("not publishing: pull request #347 is closed\n", output)
+            assert.are.equal("## UI screenshots\n\nNot published: pull request #347 is closed.\n", summary)
+        end)
+
+        it("publishes nothing when the lookup fails or says anything else, and prints none of it (black)", function()
+            -- Not found, no route, an answer that isn't JSON, and states that
+            -- aren't "open", one of them a workflow command.
+            for _, state in ipairs({ false, "unreachable", 'x"}', "", "Open", "open ", "::warning::hostile" }) do
+                local code, output, calls, _, summary = guarded(state or nil)
+                local label = tostring(state)
+                assert.are.equal(0, code, label)
+                assert.are.equal("not publishing: pull request #347 couldn't be looked up\n", output, label)
+                assert.are.equal("## UI screenshots\n\nNot published: pull request #347 couldn't be looked up.\n",
+                    summary, label)
+                assert.are.equal("GET https://api.test/repos/owner/repo/pulls/347\n", calls, label)
+            end
+        end)
     end)
 
     -- #148: the layout checks and the screenshots run at the narrowest layout
@@ -2228,24 +2426,10 @@ describe("UI screenshots clean-up workflow", function()
         jobs, order = parseWorkflow(path)
     end)
 
-    -- A step's run: | block, as the shell gets it.
+    -- The job's one step's run: | block, as the shell gets it.
     local function runBlock(job)
         assert.are.equal(1, #job.steps, job.name .. " should have one step")
-        local body, indent = {}, nil
-        local inRun = false
-        for _, line in ipairs(splitLines(job.steps[1].text)) do
-            if inRun then
-                if not line:match("^%s*$") then
-                    indent = indent or indentOf(line)
-                    if indentOf(line) < indent then break end
-                end
-                body[#body + 1] = line:sub((indent or 0) + 1)
-            elseif line:match("^%s*run: |%s*$") then
-                inRun = true
-            end
-        end
-        assert.is_true(#body > 0, job.name .. " has no run: | block")
-        return (table.concat(body, "\n"):gsub("%s+$", "")) .. "\n"
+        return runOf(job.steps[1], job.name)
     end
 
     local function nameCheck(job)
@@ -2253,104 +2437,6 @@ describe("UI screenshots clean-up workflow", function()
         local block = runBlock(job):match("pr_of_branch%(%) {\n.-\ndelete_branch%(%) {\n.-\n}\n")
         assert.is_truthy(block, job.name .. " has no name check")
         return block
-    end
-
-    local function quote(value) return "'" .. value:gsub("'", "'\\''") .. "'" end
-
-    local function write(file, content)
-        local handle = assert(io.open(file, "w"))
-        handle:write(content)
-        handle:close()
-    end
-
-    local function read(file)
-        local handle = io.open(file, "r")
-        if not handle then return "" end
-        local content = handle:read("*a")
-        handle:close()
-        return content
-    end
-
-    -- A stand-in for curl that answers like GitHub's API from files in its
-    -- folder, and logs each call ("METHOD URL") and the config it read. Like
-    -- curl, it reads its config from stdin only with -K -, writes the body
-    -- unless -o /dev/null (and, with -f, not for a status of 400 or more),
-    -- writes the status only with -w '%{http_code}', and with -f exits 22 on
-    -- a status of 400 or more. A request without the token gets 401.
-    local fakeCurl = [=[#!/bin/bash
-dir=$(dirname "$0")
-method=GET url= config= out= format= fail=
-while [ $# -gt 0 ]; do
-  case "$1" in
-    -X) method=$2; shift ;;
-    -K) [ "$2" = - ] && config=$(cat); shift ;;
-    -o) out=$2; shift ;;
-    -w) format=$2; shift ;;
-    -H) shift ;;
-    --*) ;;
-    -*f*) fail=1 ;;
-    -*) ;;
-    *) url=$1 ;;
-  esac
-  shift
-done
-echo "$method $url" >> "$dir/calls"
-[ -n "$config" ] && printf '%s\n' "$config" >> "$dir/stdin"
-body= status=404
-if [ "$config" != 'header = "Authorization: Bearer secret-token-123"' ]; then
-  status=401 body='{"message":"Requires authentication"}'
-else
-  case "$method $url" in
-    "DELETE "*/git/refs/heads/ui-screenshots/pr-*)
-      n=${url##*/pr-}
-      status=204
-      if [ -f "$dir/delete-$n" ]; then status=$(cat "$dir/delete-$n"); fi
-      if [ "$status" = unreachable ]; then
-        [ "$format" = '%{http_code}' ] && printf 000
-        exit 7
-      fi
-      [ "$status" = 204 ] || body='{"message":"Reference does not exist"}' ;;
-    "GET "*/git/matching-refs/heads/ui-screenshots/)
-      if [ -f "$dir/refs.json" ]; then status=200 body=$(cat "$dir/refs.json"); fi ;;
-    "GET "*/pulls/*)
-      n=${url##*/pulls/}
-      if [ -f "$dir/pr-$n" ]; then
-        status=200 body=$(printf '{"number":%s,"state":"%s"}' "$n" "$(cat "$dir/pr-$n")")
-      fi ;;
-  esac
-fi
-[ "$status" -ge 400 ] && [ -z "$body" ] && body='{"message":"Not Found"}'
-if [ "$out" != /dev/null ] && ! { [ -n "$fail" ] && [ "$status" -ge 400 ]; }; then printf '%s' "$body"; fi
-[ "$format" = '%{http_code}' ] && printf '%s' "$status"
-if [ -n "$fail" ] && [ "$status" -ge 400 ]; then exit 22; fi
-exit 0
-]=]
-
-    -- Runs a script as GitHub Actions runs a step with shell: bash (bash
-    -- --noprofile --norc -eo pipefail), with the fake curl first on PATH.
-    -- files are written next to it first.
-    -- Returns the exit code, the output, the curl calls, what curl read on
-    -- stdin, and the step summary.
-    local function runStep(script, env, files)
-        local dir = os.tmpname()
-        os.remove(dir)
-        os.execute('mkdir -p "' .. dir .. '/bin"')
-        write(dir .. "/bin/curl", fakeCurl)
-        os.execute('chmod +x "' .. dir .. '/bin/curl"')
-        for name, content in pairs(files or {}) do write(dir .. "/bin/" .. name, content) end
-        local exports = { 'export PATH="' .. dir .. '/bin:$PATH"', "export GITHUB_API_URL=https://api.test",
-            'export GITHUB_STEP_SUMMARY="' .. dir .. '/summary"', "export REPO=owner/repo",
-            "export TOKEN=secret-token-123" }
-        for key, value in pairs(env or {}) do exports[#exports + 1] = "export " .. key .. "=" .. quote(value) end
-        write(dir .. "/step.sh", table.concat(exports, "\n") .. "\n" .. script)
-        local p = io.popen('bash --noprofile --norc -eo pipefail "' .. dir .. '/step.sh" < /dev/null 2>&1; echo "exit=$?"')
-        local output = p:read("*a")
-        p:close()
-        local code = tonumber(output:match("exit=(%d+)\n$"))
-        output = output:gsub("exit=%d+\n$", "")
-        local calls, stdin, summary = read(dir .. "/bin/calls"), read(dir .. "/bin/stdin"), read(dir .. "/summary")
-        os.execute('rm -rf "' .. dir .. '"')
-        return code, output, calls, stdin, summary
     end
 
     it("runs on closed pull requests and by hand, never on pull_request_target", function()
@@ -2443,7 +2529,7 @@ exit 0
 
     describe("close-time job", function()
         local function close(pr, files)
-            return runStep(runBlock(jobs["delete-on-close"]), { PR = pr }, files)
+            return runWithCurl(runBlock(jobs["delete-on-close"]), { PR = pr }, files)
         end
 
         it("deletes the closed pull request's branch, passing the token on stdin only", function()
@@ -2487,7 +2573,7 @@ exit 0
     describe("name check", function()
         local function prOf(branch)
             local script = nameCheck(jobs.sweep) .. "pr_of_branch " .. quote(branch) .. "\n"
-            local code, output = runStep(script)
+            local code, output = runWithCurl(script)
             return code == 0 and output:gsub("\n$", "") or nil
         end
 
@@ -2513,7 +2599,7 @@ exit 0
         end
 
         local function sweep(files)
-            return runStep(runBlock(jobs.sweep), {}, files)
+            return runWithCurl(runBlock(jobs.sweep), {}, files)
         end
 
         it("deletes the branches of closed pull requests only, and keeps the rest", function()
