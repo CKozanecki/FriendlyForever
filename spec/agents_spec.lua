@@ -1,4 +1,4 @@
--- Spec: #183, #186, #217, #237
+-- Spec: #183, #186, #217, #237, #345
 -- The drift check for the agents' instruction files. AGENTS.md holds the rules
 -- every product follows; CLAUDE.md imports it and adds only Claude's own.
 -- Codex reads AGENTS.md (or an AGENTS.override.md, which Claude never reads)
@@ -300,5 +300,142 @@ describe("the review-saving rules", function()
         assert.is_truthy(tester:find("it may run at the same time", 1, true))
         assert.is_truthy(flat(".claude/skills/after-merge/SKILL.md"):find("one combined pass confirms it instead", 1, true))
         assert.is_falsy(agents:find("keeps the strict order", 1, true), "AGENTS.md points to the rule, not restates it")
+    end)
+end)
+
+-- The process trial (#345, owner, 2026-11-14): area batches, three or four
+-- sessions, and drivers updating and merging their own PRs (auto-merge, or a
+-- guarded squash merge). The rules are written once in CONTRIBUTING.md; the
+-- others point there.
+describe("the process trial (#345)", function()
+    local function flat(path) return (wow.readFile(path):gsub("%s+", " ")) end
+    local contributing = flat("CONTRIBUTING.md")
+    local function once(text)
+        local _, count = contributing:gsub(text:gsub("%p", "%%%0"), "")
+        return count
+    end
+    local OTHERS = { "AGENTS.md", "CLAUDE.md", ".claude/skills/after-merge/SKILL.md",
+        ".claude/skills/coordinator/SKILL.md", ".claude/skills/merge-order/SKILL.md",
+        ".claude/agents/lua-architect.md", ".claude/agents/lua-tester.md" }
+
+    it("CONTRIBUTING.md writes area batches once, as a trial, with the full safety rules once per batch (white)", function()
+        local batches = contributing:match("### Area batches (.-) ## ") or ""
+        for _, text in ipairs({
+            "**A trial (#345, the maintainer's decision of 2026-11-14).**",
+            "**One session, one area, one branch.**",
+            "works a list of related issues on one branch",
+            "**One pull request, one review at the end.**",
+            "lists each issue under its own heading, with its keyword",
+            "and its acceptance criteria as a checklist",
+            "The review loops run once, on the whole batch, and check each issue against its criteria.",
+            "**Safety-critical areas keep the full rules, once per batch.**",
+            "Both review loops, in order, and the mutation checks of [Review loops](#review-loops) apply",
+            "the mutation list covers every safety-critical line any issue in it changed",
+            "About three or four sessions run at a time, each on an area chosen so that no two batches change the same file.",
+        }) do
+            assert.is_truthy(batches:find(text, 1, true), "Area batches lost: " .. text)
+            assert.are.equal(1, once(text), text)
+        end
+    end)
+
+    it("CONTRIBUTING.md lets a driver merge only its own PR, and only when every stop holds (white, black)", function()
+        local who = contributing:match("#### Who merges (.-) ## ") or ""
+        for _, text in ipairs({
+            "The maintainer; the coordinator, under its delegation on #182; and, for a trial (#345, the maintainer's"
+                .. " decision of 2026-11-14), the session that drives an agent's pull request, for that pull request only.",
+            "Each merges only when all of these stops hold:",
+            "- the required `check` is green on the pull request's latest commit;",
+            "- the branch is up to date with `main`, updated as [Only behind `main`](#only-behind-main) says;",
+            "- both review loops have approved, or what [Review loops](#review-loops) allows for it, with every finding fixed;",
+            "- it has no open question for the maintainer (#215);",
+            "- it is [ready for review](#ready-for-review), and every review conversation is resolved.",
+            "How a pull request merges, always as a squash merge:",
+            "**Auto-merge first.** The driver turns on auto-merge once every stop holds except the green `check`,"
+                .. " which GitHub then waits for",
+            -- #351's second architecture review: a push made while auto-merge is
+            -- on would merge unreviewed once `check` passed.
+            "Auto-merge stays on only while those stops hold: the driver turns it off before any push to the branch"
+                .. " (a fix, a merge of `main`), and turns it on again only when the stops hold once more.",
+            "The one push it may stay on for is **Update branch** on a pull request only behind `main`, which brings in"
+                .. " no file the pull request changes.",
+            "**Already clean: merge directly.** When GitHub won't turn on auto-merge because the pull request can"
+                .. " already merge, the driver merges it directly once every stop holds, giving the head commit it"
+                .. " checked the stops on (`expectedHeadSha`), so a push made since then stops the merge.",
+            "**The coordinator merges** when the only job still pending is a report-only one, or a session's own"
+                .. " permission check blocks its merge. It checks every stop itself first and gives the head commit it"
+                .. " checked (`expectedHeadSha`) too.",
+            "Nobody approves, goes around the ruleset, or merges a pull request the stops don't cover. A driver merges"
+                .. " only its own pull request.",
+        }) do
+            assert.is_truthy(who:find(text, 1, true), "Who merges lost: " .. text)
+            assert.are.equal(1, once(text), text)
+        end
+    end)
+
+    it("the other rule files point to the trial's rules instead of restating them (black)", function()
+        for _, path in ipairs(OTHERS) do
+            local text = flat(path)
+            for _, copy in ipairs({ "Safety-critical areas keep the full rules", "One pull request, one review at the end",
+                "the required `check` is green on the pull request's latest commit", "Who merges." }) do
+                assert.is_falsy(text:find(copy, 1, true), path .. " restates: " .. copy)
+            end
+        end
+        for _, path in ipairs({ "AGENTS.md", ".claude/skills/coordinator/SKILL.md" }) do
+            local text = flat(path)
+            assert.is_truthy(text:find("CONTRIBUTING.md#area-batches", 1, true), path .. " doesn't point to Area batches")
+            assert.is_truthy(text:find("three or four sessions", 1, true), path .. " lost the session cap")
+            assert.is_truthy(text:find("(a trial, #345)", 1, true), path .. " doesn't mark the trial")
+        end
+        assert.is_truthy(flat("AGENTS.md"):find("About three or four sessions run at once, on areas chosen so that no"
+            .. " two share a file.", 1, true))
+        assert.is_truthy(flat(".claude/skills/coordinator/SKILL.md"):find("hold back a batch that overlaps a running"
+            .. " one", 1, true))
+    end)
+
+    it("CLAUDE.md merges only its own PR, by auto-merge or a guarded squash merge, and never another way (white, black)",
+        function()
+        local claude = flat("CLAUDE.md")
+        for _, text in ipairs({
+            "- **Merging your PR** (a trial, #345), your own PR only, as CONTRIBUTING.md's [Who merges](CONTRIBUTING.md#who-merges)"
+                .. " says. When it is only behind `main`, update it with the GitHub tool `update_pull_request_branch`,"
+                .. " giving `expectedHeadSha`. Then:",
+            "- **auto-merge:** once every stop holds except the green `check`, turn it on with `enable_pr_auto_merge`,"
+                .. " `mergeMethod: SQUASH`. Turn it off (`disable_pr_auto_merge`) before any other push to the branch;",
+            "- **already clean:** if that tool refuses because the PR can already merge, and every stop holds, call"
+                .. " `merge_pull_request` with `merge_method: squash` and `expectedHeadSha` set to the head you checked the"
+                .. " stops on;",
+            "- **anything else:** if a report-only job is the only one pending, or your permission check blocks the"
+                .. " merge, don't find another way: tell the coordinator, which merges it.",
+            "you turned on auto-merge or merged your PR, or it needs the coordinator to merge it (say why);",
+        }) do
+            assert.is_truthy(claude:find(text, 1, true), text)
+        end
+        -- The coordinator merges only the two delegated cases, guarded the same
+        -- way, and steps in on auto-merge without its stops (#351's testing review).
+        local coordinator = flat(".claude/skills/coordinator/SKILL.md")
+        for _, text in ipairs({
+            "and merges a PR itself only when a report-only job is the only one pending or the driver's permission check"
+                .. " blocks the merge, after checking every stop, with `merge_pull_request`, `merge_method: squash` and"
+                .. " `expectedHeadSha` set to the head it checked.",
+            "It steps in when something's off (auto-merge on while a stop other than the pending `check` fails, or on"
+                .. " for two PRs that share a file): it turns that PR's auto-merge off (`disable_pr_auto_merge`) and tells"
+                .. " its driver why.",
+        }) do
+            assert.is_truthy(coordinator:find(text, 1, true), "coordinator lost: " .. text)
+        end
+        assert.is_truthy(flat(".claude/skills/after-merge/SKILL.md"):find("8. **Merge:** once every stop in"
+            .. " CONTRIBUTING.md's [Who merges](../../../CONTRIBUTING.md#who-merges) holds, turn auto-merge on again, or"
+            .. " merge as CLAUDE.md's \"Merging your PR\" says.", 1, true), "after-merge merges before the stops hold")
+        -- Every rule file that names the merge or update tool gives it the head
+        -- it checked, so a push made since then stops it.
+        for _, path in ipairs(OTHERS) do
+            local text = flat(path)
+            for _, tool in ipairs({ "merge_pull_request", "update_pull_request_branch" }) do
+                for at in text:gmatch("()" .. tool) do
+                    assert.is_truthy(text:sub(at, at + 140):find("`expectedHeadSha`", 1, true),
+                        path .. " names " .. tool .. " without expectedHeadSha")
+                end
+            end
+        end
     end)
 end)
