@@ -1,4 +1,4 @@
--- Spec: #41, #233, #256, #302
+-- Spec: #41, #233, #256, #302, #346
 -- Greater Blessings in buff mode (Kings, Wisdom, Might): in a raid, a
 -- paladin is offered the Greater Blessing for a class when enough of that
 -- class are missing the Blessing, they all can have it under your rules, and
@@ -233,7 +233,13 @@ describe("Greater Blessings in buff mode (#41)", function()
             boot()
             raid(WARRIORS)
             wow.wearBuff("raid3", MIGHT_1, { source = "player" })
-            _G.UnitIsUnit = function() return nil end
+            -- Only whether the caster is you can't be read: the raid's own
+            -- slots still read, so one of them is you (#346).
+            local realIsUnit = _G.UnitIsUnit
+            _G.UnitIsUnit = function(a, b)
+                if a == "player" then return nil end
+                return realIsUnit(a, b)
+            end
             assert.are.equal("Ann Vale: Blessing of Kings", armed())
             assert.is_truthy(button.subtitle:GetText():find("can't tell whose Blessing", 1, true))
         end)
