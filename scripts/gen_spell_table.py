@@ -5,7 +5,7 @@ Run by a maintainer or a session, never by players, never in CI against
 Blizzard, and never shipped (scripts/ is in .pkgmeta's ignore list).
 
     python3 scripts/gen_spell_table.py \
-        --spells scripts/data/forever-spells.json \
+        --spells scripts/data/forever-spells-extended.json \
         --buffs scripts/spell-buffs.json \
         --out BuffTable.lua
 
@@ -410,7 +410,7 @@ def render(build_id, digest, source_name, classes, absent, removed_ids, families
         for family in sorted(families):
             lines.append(f"        {family} = {lua_list(families[family])},")
         lines.append("    },")
-    lines.append("    -- Spells of buffs Blizzard removed: an aura with one is passed over.")
+    lines.append("    -- Spells of buffs the game no longer has (the removed list): an aura with one is passed over.")
     lines.append("    removedSpells = " + lua_list(removed_ids) + ",")
     lines.append("}")
     return "\n".join(lines) + "\n"

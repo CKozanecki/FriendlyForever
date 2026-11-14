@@ -49,7 +49,9 @@ describe("Buff order and never offer", function()
             local buffs = ns.BuffData.CLASSES.PALADIN
             local keys = {}
             for i, buff in ipairs(ns.BuffData.InOrder(buffs, { "wisdom", "might" })) do keys[i] = buff.key end
-            assert.are.same({ "wisdom", "might", "kings" }, keys)
+            -- Then the self-buffs (#44), in the class's order too.
+            assert.are.same({ "wisdom", "might", "kings", "righteousfury", "devotion", "retribution", "concentration",
+                "shadowaura", "frostaura", "fireaura", "sanctity" }, keys)
         end)
 
         it("goes by a key's first place when an order damaged mid-session names it twice", function()

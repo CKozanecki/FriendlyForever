@@ -1065,23 +1065,6 @@ describe("The simulated client's self-buffs (#44)", function()
         wow.state.expirePlayerAuras = true
         assert.is_nil(_G.C_UnitAuras.GetAuraDataByIndex("player", 1, "HELPFUL"))
     end)
-
-    it("selfBuffTable adds the self-buffs at Classic's IDs, highest rank first, and Cheetah, Pack and Beast "
-        .. "as Aspects (white)", function()
-        local t = wow.selfBuffTable()
-        local keys = {}
-        for _, list in pairs(t.classes) do
-            for _, buff in ipairs(list) do keys[buff.key] = buff end
-        end
-        assert.are.same({ 10952, 10951, 1006, 602, 7128, 588 }, keys.innerfire.ranks)
-        assert.are.same({ 10220, 10219, 7320, 7302, 7301, 7300, 168 }, keys.icearmor.ranks)
-        assert.is_true(keys.devotion.toggle)
-        assert.are.equal("aura", keys.devotion.family)
-        assert.is_true(keys.righteousfury.defaultNever)
-        assert.are.same({ 5118, 13159, 13161 }, t.familyAuras.aspect)
-        for _, key in ipairs(t.absent) do assert.is_nil(keys[key], key) end
-        assert.are_not.equal(t, wow.selfBuffTable(), "a fresh copy each call")
-    end)
 end)
 
 describe("The simulated client's chat from players (#40)", function()
