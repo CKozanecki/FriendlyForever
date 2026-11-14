@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.1
+
+- **Shamans answer requests for Water Walking:** when buff requests are on, a player who asks for "water walking", "ww" or "walk on water" in a whisper, /say or party chat is offered Water Walking on the buff-back button, unless they already have it, from the spell, an item or a potion. It's offered only when asked for: buff back and buff mode never offer it unasked, and it isn't held back away from water. The Buff Back tab lists it as "(when asked)", and "never offer" stops requests for it. For now it's offered only when the game names the spell "Water Walking", so a game client in another language doesn't offer it. (#350)
+- **My Blessings in this raid** is now forgotten when you go straight from one raid into another: when the raid's leader changes, or most of the members it had when you chose have gone. A raid filling up, or a few people swapping, keeps it. In a battleground it isn't used, and it applies again when you're back in your raid. (#376)
+- **Buff mode** entering a dungeon or raid with your group now starts the round and the "with your group" trigger even when the game can't say at the loading screen whether you're in a group: it goes by your group as last seen. (#377)
+- **Buff mode survives lost Buff Back settings:** if another addon or a `/run` wipes Buff Back's settings while buff mode is on, buff mode now ends and hands its key back, instead of raising an error; choosing a buff mode key then repairs them. (#384)
+- **Guild Login hello waits longer by default:** the delay is now 15 seconds (it was 3), so a guildmate who logs in sees your hello after they've loaded in, about 16 to 23 seconds after they come online. If your Guild Login delay was still 3, it moves to 15 once; a delay you set yourself stays. (#392)
+
 ## 1.3.0
 
 - **Buff requests in chat (off by default):** a player who whispers you, or says in /say or party chat, a short request for one of your buffs, such as "mark pls", "int please" or "can I get fort?", now shows on the buff-back button with "asked for" and that buff. It never casts by itself (you still press the button) and nothing is said in chat. Only your own class's buffs that you know and offer count, the message has to be just the request, one request per player waits at a time, at most 5 wait at once without ever pushing out a favour, and they run out like favours. Your ignore list, snooze, and the quiet in capital cities and battlegrounds apply. Turn it on with **Offer my buffs to players who ask in chat** on the Buff Back tab. The walkthrough's What's new shows it. (#40)
