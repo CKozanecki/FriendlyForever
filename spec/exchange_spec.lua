@@ -379,6 +379,28 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             end
         end)
 
+        it("one named late that came after the thank-you's first buff leaves its longest wait alone (#349)", function()
+            -- A delay of 4: still running when the receipt names it. Of 0: the
+            -- thank-you is already held by then.
+            for _, delay in ipairs({ 4, 0 }) do
+                pair()
+                setDelay(delay)
+                handCast(a, "Power Word: Fortitude") -- named by the game: the thank-you starts
+                wow.use(b)
+                local firstAt = wow.now
+                advance(1.5)
+                unseen()
+                handCast(a, "Divine Spirit") -- only her receipt names it, WAIT later
+                advance(b.ns.Receipts.WAIT)
+                stalePlan()
+                advance(E.MAX_DELAY)
+                local where = "a delay of " .. delay
+                assert.are.equal(1, #thanks(b), where)
+                assert.are.equal("Thanks Ann: Power Word: Fortitude and Divine Spirit", thanks(b)[1].text, where)
+                assert.are.equal(firstAt + E.MAX_DELAY, thanks(b)[1].time, where)
+            end
+        end)
+
         it("a new exchange after a quiet gap has its own thank-you", function()
             pair({ db = { repeatCooldown = 0 } })
             handCast(a, "Power Word: Fortitude")
