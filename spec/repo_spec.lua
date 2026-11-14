@@ -2456,14 +2456,17 @@ describe("UI simulator workflow", function()
             if not name then return end
             local alias = "%$" .. name .. "%f[^%w_]"
             local p = plain(value, true):gsub('"', "")
-            if namesOne(value, sources) or p:match("^%$RUNNER_TEMP/?$") or p:find("%$RUNNER_TEMP/.*%.%.") then
+            -- ($RUNNER_TEMP as one word of several: t="$RUNNER_TEMP" n=60, for d in x "$RUNNER_TEMP", round 6.)
+            if namesOne(value, sources) or p:match("^%$RUNNER_TEMP/?$") or p:match("^%$RUNNER_TEMP/?%s")
+                or p:find("%s%$RUNNER_TEMP/?%f[%s%z]") or p:find("%$RUNNER_TEMP/.*%.%.") then
                 sources[#sources + 1] = alias
             elseif p:find("%$RUNNER_TEMP%f[^%w_]") or namesOne(value, temps) then
                 temps[#temps + 1] = alias
             end
             -- More words after an assignment: another assignment (a=1 f=...), or a command (round 5).
             if command:match("^[%a_][%w_]*%+?=") then
-                local more = value:match('^"[^"]*"%s+(%S.*)$') or value:match("^'[^']*'%s+(%S.*)$")
+                local more = value:match('^"%$%b()"%s+(%S.*)$') or value:match("^%$%b()%s+(%S.*)$")
+                    or value:match('^"[^"]*"%s+(%S.*)$') or value:match("^'[^']*'%s+(%S.*)$")
                     or value:match("^[^%s\"']+%s+(%S.*)$")
                 if more then capture(more, sources, temps) end
             end
@@ -2918,6 +2921,14 @@ describe("UI simulator workflow", function()
                 -- $RUNNER_TEMP itself through an expansion form, and a loop after then, do or a brace (round 4).
                 assert.are.equal(1, #scan(step('t="${RUNNER_TEMP:-/tmp}"\ntail -n 60 "$t"/shot-logs/a.log')))
                 assert.are.equal(1, #scan(step('t="${RUNNER_TEMP%/}"\ntail -n 60 "$t"/shot-logs/a.log')))
+                -- $RUNNER_TEMP as one word of several (round 6).
+                assert.are.equal(1, #scan(step('t="$RUNNER_TEMP" n=60\ntail -n "$n" "$t"/shot-logs/a.log')))
+                assert.are.equal(1, #scan(step('t=$RUNNER_TEMP n=60\ntail -n "$n" "$t"/shot-logs/a.log')))
+                assert.are.equal(1, #scan(step('for d in "$RUNNER_TEMP" "$GITHUB_WORKSPACE"; do tail "$d"/shot-logs/a.log; done')))
+                assert.are.equal(1, #scan(step('for d in "$GITHUB_WORKSPACE" "$RUNNER_TEMP"; do tail "$d"/shot-logs/a.log; done')))
+                -- After a command substitution's value.
+                assert.are.equal(1, #scan(step('sha=$(git rev-parse HEAD) f="$ui/x"\ncat "$f"')))
+                assert.are.equal(1, #scan(step('sha="$(git -C "$ui" rev-parse HEAD)" f="$ui/x"\ncat "$f"')))
                 -- Another folder in $RUNNER_TEMP that way is no source, only inside when a cd goes there.
                 assert.are.same({}, (scan(step('out="${RUNNER_TEMP:?}/build.log"\ncat "$out"'))))
                 for _, loop in ipairs({ 'if [ -d "$ui" ]; then for f in "$ui"/*.log; do tail "$f"; done; fi',
