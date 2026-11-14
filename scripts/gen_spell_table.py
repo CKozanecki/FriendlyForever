@@ -29,17 +29,27 @@ import sys
 import tempfile
 
 FORMAT = 1
-MAX_SPELL_ID = 1_000_000
+# Forever adds spells at IDs above a million (Water Walking's item effect,
+# 1299351: owner, #350).
+MAX_SPELL_ID = 10_000_000
 MAX_NAME = 100
 BUILD_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 KEY_RE = re.compile(r"^[a-z][a-z0-9]{0,31}$")
 CLASS_RE = re.compile(r"^[A-Z]{3,12}$")
 # selfCast: a self-buff (#44), cast on yourself only; toggle: one that stays on
 # until switched (an Aspect, a paladin aura); defaultNever: "Never offer" until
-# you choose (Righteous Fury).
-FLAGS = ("manaOnly", "selfCast", "water", "toggle", "defaultNever")
+# you choose (Righteous Fury); requestOnly: offered only to a player who asks
+# for it in chat (#40), never by buff back or buff mode unasked (Water
+# Walking, #350).
+FLAGS = ("manaOnly", "selfCast", "water", "toggle", "defaultNever", "requestOnly")
 # Flags that only a self-buff may carry.
 SELF_ONLY_FLAGS = ("toggle", "defaultNever")
+# What a request-only buff can't have: it is never cast on yourself, never
+# held for water, never given to a group and has no buff mode rule.
+NOT_FOR_REQUEST_ONLY = ("selfCast", "water", "groupCast", "defaultRule", "defaultClasses")
+# Written to the table, after FLAGS: handListed is set by the generator, for
+# a buff whose IDs are hand-listed (handIds), never by the definitions.
+OUT_FLAGS = FLAGS + ("handListed",)
 
 
 class Problem(Exception):
@@ -256,6 +266,31 @@ def build(spells, classes, removed, family_auras=None):
                     report.append(f"NOT FOUND  {key}: also-named spell {also_name!r}")
                 if ranks:
                     ranks = ranks + found
+            # handIds (#350): IDs hand-listed, from a Forever source the owner
+            # gave, for a spell the extraction doesn't have (Water Walking,
+            # 546), used only while the data has no spell of that name. None
+            # may be another spell in the data. The table marks the buff
+            # handListed, and the addon then offers it only when the client
+            # names its spell exactly as `name` (BuffData.lua): the tools never
+            # checked the ID.
+            hand_listed = False
+            if "handIds" in spec:
+                hand = spec["handIds"]
+                if not isinstance(hand, list) or not hand or len(set(map(repr, hand))) != len(hand):
+                    raise Problem(f"{key}: handIds must be a list of spell IDs, each once")
+                for i in hand:
+                    check_id(i, f"{key} handIds")
+                    if i in spells and spells[i][0] != name:
+                        raise Problem(f"{key}: hand-listed ID {i} is {spells[i][0]!r} in the data, not {name!r}")
+                if also:
+                    raise Problem(f"{key}: handIds can't be used with alsoNames")
+                if ranks:
+                    report.append(f"FOUND  {key}: the data has {name!r} now; remove its handIds {hand}")
+                else:
+                    ranks = list(hand)
+                    hand_listed = True
+                    report.append(f"HAND-LISTED  {cls} {key}: {name!r} is not in the data; "
+                                  f"hand-listed IDs {hand} are used, offered only when the client names them {name!r}")
             if not ranks:
                 absent.append(key)
                 report.append(f"NOT FOUND  {key}: no spell named {name!r} in the data; the buff is left out")
@@ -273,6 +308,21 @@ def build(spells, classes, removed, family_auras=None):
                 if not found:
                     report.append(f"NOT FOUND  {key}: blocker {blocker_name!r}")
                 blockers.extend(found)
+            # handBlockerIds (#350): other spells that do the same job, from a
+            # Forever source the owner gave, kept whether or not the data has
+            # them (Water Walking's item and potion effects). One the data has
+            # must carry the buff's own name.
+            hand_blockers = spec.get("handBlockerIds", [])
+            if not isinstance(hand_blockers, list):
+                raise Problem(f"{key}: handBlockerIds must be a list of spell IDs")
+            for blocker_id in hand_blockers:
+                check_id(blocker_id, f"{key} handBlockerIds")
+                if blocker_id in ranks:
+                    raise Problem(f"{key}: hand-listed blocker {blocker_id} is one of its own ranks")
+                if blocker_id in spells and spells[blocker_id][0] != name:
+                    raise Problem(f"{key}: hand-listed blocker {blocker_id} is {spells[blocker_id][0]!r} in the data")
+                blockers.append(blocker_id)
+                report.append(f"HAND-LISTED  {key}: blocker spell {blocker_id}")
             for blocker_id in spec.get("blockerIds", []):
                 check_id(blocker_id, f"{key} blocker")
                 if blocker_id in spells:
@@ -305,6 +355,12 @@ def build(spells, classes, removed, family_auras=None):
             for flag in FLAGS:
                 if spec.get(flag) is True:
                     buff[flag] = True
+            if hand_listed:
+                buff["handListed"] = True
+            if buff.get("requestOnly"):
+                for field in NOT_FOR_REQUEST_ONLY:
+                    if field in buff:
+                        raise Problem(f"{key}: a request-only buff can't have {field}")
             for flag in SELF_ONLY_FLAGS:
                 if buff.get(flag) and not buff.get("selfCast"):
                     raise Problem(f"{key}: {flag} is for self-buffs (selfCast) only")
@@ -317,8 +373,9 @@ def build(spells, classes, removed, family_auras=None):
             for field in ("group", "blockers"):
                 if len(set(buff.get(field, []))) != len(buff.get(field, [])):
                     raise Problem(f"{key}: duplicate ID in {field}")
-            used = ", ".join(f"{i} ({spells[i][0]}{', rank ' + str(spells[i][1]) if spells[i][1] else ''})" for i in ranks)
-            report.append(f"FOUND  {cls} {key}: ranks {used}")
+            if not hand_listed:
+                used = ", ".join(f"{i} ({spells[i][0]}{', rank ' + str(spells[i][1]) if spells[i][1] else ''})" for i in ranks)
+                report.append(f"FOUND  {cls} {key}: ranks {used}")
             if group:
                 report.append(f"FOUND  {key} group versions {group}")
             if blockers:
@@ -379,7 +436,7 @@ def render(build_id, digest, source_name, classes, absent, removed_ids, families
             if "defaultClasses" in buff:
                 parts.append("defaultClasses = {\n" + "\n".join(
                     f"                    {c} = true," for c in buff["defaultClasses"]) + "\n                }")
-            for flag in FLAGS:
+            for flag in OUT_FLAGS:
                 if buff.get(flag):
                     parts.append(f"{flag} = true")
             lines.append("            {")

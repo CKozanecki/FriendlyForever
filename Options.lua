@@ -394,11 +394,16 @@ end
 -- Who button you clicked last, else the first in your order.
 local whoKey
 
--- Self-buffs (#44) have no "who gets it": only you do.
+-- Self-buffs (#44) have no "who gets it": only you do. Nor has a buff
+-- offered only when asked for (Water Walking, #350): whoever asks does.
+local function HasWho(buff)
+    return not buff.selfCast and not buff.requestOnly
+end
+
 local function WhoBuff(buffs)
     local first
     for _, buff in ipairs(buffs) do
-        if not buff.selfCast then
+        if HasWho(buff) then
             if buff.key == whoKey then return buff end
             first = first or buff
         end
@@ -410,7 +415,7 @@ end
 function Options.CycleWho(key)
     local buff
     for _, b in ipairs(OrderedClassBuffs()) do
-        if b.key == key and not b.selfCast then buff = b end
+        if b.key == key and HasWho(b) then buff = b end
     end
     if not buff then return end
     ClearEditFocus() -- a name box being typed in saves to its own buff first
@@ -518,19 +523,21 @@ local function FillBuffRows(shown)
     for i, row in ipairs(widgets.buffRows) do
         local buff = buffs[i]
         for _, part in ipairs({ row.name, row.up, row.down, row.never }) do part:SetShown(buff ~= nil) end
-        -- A self-buff (#44) has no Who button: only you get it.
-        row.who:SetShown(buff ~= nil and not buff.selfCast)
+        -- A self-buff (#44) has no Who button: only you get it; nor has a
+        -- buff offered only when asked for (#350).
+        row.who:SetShown(buff ~= nil and HasWho(buff))
         row.key = buff and buff.key
         if buff then
             local name = ns.BuffData.SpellName(buff) or buff.key
             if buff.selfCast then name = name .. " " .. ns.Colours.Text("muted", "(you only)") end
+            if buff.requestOnly then name = name .. " " .. ns.Colours.Text("muted", "(when asked)") end
             if not ns.BuffData.IsKnown(buff) then name = name .. " " .. ns.Colours.Text("muted", "(not known yet)") end
             row.name:SetText(i .. ". " .. name)
             row.up:SetEnabled(i > 1)
             row.down:SetEnabled(i < #buffs)
             -- Read only for the Buff Back tab: the other tabs mustn't depend on its settings.
             row.never:SetChecked(ns.BuffData.NeverOffered(buff))
-            if not buff.selfCast then row.who:SetText("Who: " .. ns.BuffRules.RULE_TEXT[ns.BuffRules.Rule(buff)]) end
+            if HasWho(buff) then row.who:SetText("Who: " .. ns.BuffRules.RULE_TEXT[ns.BuffRules.Rule(buff)]) end
         end
     end
     if shown and #buffs == 0 then
