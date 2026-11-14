@@ -455,6 +455,10 @@ nameSpell("Blessing of Might", { 25291, 19838, 19837, 19836, 19835, 19834, 19740
 nameSpell("Blessing of Wisdom", { 25290, 19854, 19853, 19852, 19850, 19742 })
 nameSpell("Unending Breath", { 5697 })
 nameSpell("Water Breathing", { 131 })
+-- Water Walking: the shaman's spell, 546, and the item and potions' effects
+-- that give it too (Forever's IDs from Wowhead's Forever pages: owner, #350).
+-- Not in the extracted spell data: the addon hand-lists them.
+nameSpell("Water Walking", { 546, 1299351, 11319, 1310296 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 
 -- Self-buffs (#44), by their IDs and names: Forever's spell data has each at

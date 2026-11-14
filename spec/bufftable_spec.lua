@@ -1,4 +1,4 @@
--- Spec: #209, #44
+-- Spec: #209, #44, #350
 -- The buff table (BuffTable.lua) is generated from Forever's own spell data
 -- by scripts/gen_spell_table.py, once per game version. The addon never looks
 -- IDs up while you play. This spec checks the committed table is valid, that
@@ -9,7 +9,7 @@
 local wow = require("spec.support.wow")
 
 local ROOT = wow.ROOT
-local MAX_SPELL_ID = 1000000
+local MAX_SPELL_ID = 10000000
 -- The generator's source: upstream's extraction with the self-buffs' spells
 -- added to its ID list (#44; docs/forever-facts.md has how it was made).
 local SOURCE = ROOT .. "/scripts/data/forever-spells-extended.json"
@@ -172,15 +172,26 @@ describe("The generated buff table", function()
             for id in p:read("*a"):gmatch("%d+") do inSource[tonumber(id)] = true end
             p:close()
             for id in pairs(extra) do assert.is_true(inSource[id], "listed but not extracted: " .. id) end
+            -- Hand-listed from a Forever source the owner gave (#350): Water
+            -- Walking (546) and the other spells that give it. Not in the
+            -- extraction; used only while it lacks them.
+            local HAND = { [546] = true, [1299351] = true, [11319] = true, [1310296] = true }
+            local handListed = {}
             for _, list in pairs(ns.BuffTable.classes) do
                 for _, buff in ipairs(list) do
                     for _, field in ipairs({ "ranks", "group", "blockers" }) do
                         for _, id in ipairs(buff[field] or {}) do
-                            assert.is_true(inSource[id], buff.key .. " " .. id .. " is not in the source")
+                            if HAND[id] then
+                                assert.is_nil(inSource[id], buff.key .. " " .. id .. " is in the source now")
+                            else
+                                assert.is_true(inSource[id], buff.key .. " " .. id .. " is not in the source")
+                            end
                         end
                     end
+                    if buff.handListed then handListed[buff.key] = { buff.ranks, buff.blockers } end
                 end
             end
+            assert.are.same({ waterwalking = { { 546 }, { 1299351, 11319, 1310296 } } }, handListed)
         end)
 
         it("names each self-buff (#44) at the IDs the simulated client gives its spells, highest rank first", function()
@@ -275,7 +286,8 @@ describe("The generated buff table", function()
             assert.are.equal(0, code, text)
             for _, class in pairs(ns.BuffTable.classes) do
                 for _, buff in ipairs(class) do
-                    assert.is_truthy(text:find("FOUND  %u+ " .. buff.key .. ":"), buff.key)
+                    local found = buff.handListed and "HAND%-LISTED  %u+ " or "FOUND  %u+ "
+                    assert.is_truthy(text:find(found .. buff.key .. ":"), buff.key)
                 end
             end
             assert.is_truthy(text:find("REMOVED  light:", 1, true))
@@ -328,10 +340,29 @@ describe("The generated buff table", function()
                 for _, buff in ipairs(ns.BuffData.Offerable()) do keys[#keys + 1] = buff.key end
                 -- Self-buffs (#44) after them, in the class's order too.
                 for _, buff in ipairs(ns.BuffData.SelfOfferable()) do keys[#keys + 1] = buff.key end
-                -- Righteous Fury is "Never offer" until you choose (#44, owner's Q4).
-                for _, buff in ipairs(made.classes[class]) do
-                    if not buff.defaultNever then want[#want + 1] = buff.key end
+                -- Then those offered only when asked for (#350), as a request finds them.
+                local asked = {}
+                for _, buff in ipairs(ns.BuffData.Requestable()) do asked[buff.key] = true end
+                for _, buff in ipairs(ns.BuffData.Offerable()) do
+                    assert.is_true(asked[buff.key], buff.key .. " can be asked for")
+                    asked[buff.key] = nil
                 end
+                for key in pairs(asked) do keys[#keys + 1] = key end
+                -- Righteous Fury is "Never offer" until you choose (#44, owner's Q4).
+                local wantSelf, wantAsked = {}, {}
+                for _, buff in ipairs(made.classes[class]) do
+                    if buff.defaultNever then
+                        assert.is_nil(buff.requestOnly)
+                    elseif buff.requestOnly then
+                        wantAsked[#wantAsked + 1] = buff.key
+                    elseif buff.selfCast then
+                        wantSelf[#wantSelf + 1] = buff.key
+                    else
+                        want[#want + 1] = buff.key
+                    end
+                end
+                for _, key in ipairs(wantSelf) do want[#want + 1] = key end
+                for _, key in ipairs(wantAsked) do want[#want + 1] = key end
                 assert.are.same(want, keys, class)
             end
             -- A pressed cast, by name.
@@ -713,6 +744,136 @@ describe("The generated buff table", function()
                 assert.are.equal(1, code, buffs .. ": " .. text)
                 assert.are.equal("KEEP", out, buffs)
             end
+        end)
+    end)
+
+    describe("the generator's request-only buffs and hand-listed IDs (#350)", function()
+        local dir
+        before_each(function() dir = tmpdir() end)
+        after_each(function() os.execute('rm -rf "' .. dir .. '"') end)
+
+        -- Spell data with Water Breathing (131) and, when given, a spell at 546
+        -- and a made-up group version, "Mass Water Walking" at 600.
+        local function data(at546, mass)
+            local spell, names = '{"ID":131,"NameSubtext_lang":""}', '{"ID":131,"Name_lang":"Water Breathing"}'
+            if at546 then
+                spell = spell .. ',{"ID":546,"NameSubtext_lang":""}'
+                names = names .. ',{"ID":546,"Name_lang":"' .. at546 .. '"}'
+            end
+            if mass then
+                spell = spell .. ',{"ID":600,"NameSubtext_lang":""}'
+                names = names .. ',{"ID":600,"Name_lang":"Mass Water Walking"}'
+            end
+            return '{"schema":1,"build":"1.60.1.70685","tables":{"Spell":{"rows":[' .. spell
+                .. ']},"SpellName":{"rows":[' .. names .. ']}}}'
+        end
+        local function run(entry, at546, mass)
+            write(dir .. "/spells.json", data(at546, mass))
+            write(dir .. "/buffs.json", '{"format":1,"classes":{"SHAMAN":[{"key":"waterbreathing",'
+                .. '"name":"Water Breathing"},' .. entry .. ']},"removed":[]}')
+            write(dir .. "/out.lua", "KEEP")
+            local code, text = generate(dir .. "/spells.json", dir .. "/buffs.json", dir .. "/out.lua")
+            return code, text, read(dir .. "/out.lua")
+        end
+        local WW = '{"key":"waterwalking","name":"Water Walking","requestOnly":true,"handIds":[546]}'
+
+        it("uses the hand-listed ID while the data lacks the spell, marked hand-listed and request-only, "
+            .. "and says so (white)", function()
+            local code, text, out = run(WW)
+            assert.are.equal(0, code, text)
+            assert.is_truthy(out:find('key = "waterwalking",\n%s+name = "Water Walking",\n%s+ranks = { 546 },'
+                .. '\n%s+requestOnly = true,\n%s+handListed = true,'), out)
+            assert.is_truthy(text:find("HAND-LISTED  SHAMAN waterwalking: 'Water Walking' is not in the data", 1, true),
+                text)
+        end)
+
+        it("uses the data, not the hand list, once the data has the spell, and says to drop the list (white)",
+            function()
+                local code, text, out = run(WW, "Water Walking")
+                assert.are.equal(0, code, text)
+                assert.is_truthy(out:find("ranks = { 546 },", 1, true), out)
+                assert.is_falsy(out:find("handListed", 1, true), out)
+                assert.is_truthy(text:find("remove its handIds [546]", 1, true), text)
+                assert.is_truthy(text:find("FOUND  SHAMAN waterwalking: ranks 546 (Water Walking)", 1, true), text)
+            end)
+
+        it("refuses a hand-listed ID that is another spell in the data, a bad hand list, and a request-only buff "
+            .. "with a self-cast, water, group cast or buff mode rule; it writes nothing (black)", function()
+            -- { definition, the name of 546 in the data, the reason it must give }:
+            -- each refused for its own reason, not another check's (#350's testing review).
+            local function ww(fields) return '{"key":"ww","name":"Water Walking",' .. fields .. '}' end
+            local refused = {
+                { WW, "Earth Shock", "hand-listed ID 546 is 'Earth Shock' in the data" },
+                { ww('"handIds":[]'), nil, "handIds must be a list of spell IDs, each once" },
+                { ww('"handIds":546'), nil, "handIds must be a list of spell IDs, each once" },
+                { ww('"handIds":[546,546]'), nil, "handIds must be a list of spell IDs, each once" },
+                { ww('"handIds":[0]'), nil, "ww handIds: spell ID 0 is not a whole number" },
+                { ww('"handIds":["546"]'), nil, "ww handIds: spell ID '546' is not a whole number" },
+                { ww('"handIds":[546.5]'), nil, "ww handIds: spell ID 546.5 is not a whole number" },
+                { ww('"handIds":[131]'), nil, "hand-listed ID 131 is 'Water Breathing' in the data" },
+                { ww('"alsoNames":["Water Breathing"],"handIds":[546]'), nil, "handIds can't be used with alsoNames" },
+                { ww('"handIds":[546],"requestOnly":true,"selfCast":true'), nil,
+                    "a request-only buff can't have selfCast" },
+                { ww('"handIds":[546],"requestOnly":true,"water":true'), nil, "a request-only buff can't have water" },
+                { ww('"handIds":[546],"requestOnly":true,"defaultRule":"tanks"'), nil,
+                    "a request-only buff can't have defaultRule" },
+                { ww('"handIds":[546],"requestOnly":true,"defaultClasses":["WARRIOR"]'), nil,
+                    "a request-only buff can't have defaultClasses" },
+                -- A group version that is otherwise valid: only the request-only rule refuses it.
+                { ww('"requestOnly":true,"group":["Mass Water Walking"],"groupCast":{"scope":"party",'
+                    .. '"spells":[{"name":"Mass Water Walking","reagent":17020}]}'), "Water Walking",
+                    "a request-only buff can't have groupCast", true },
+            }
+            for _, case in ipairs(refused) do
+                local code, text, out = run(case[1], case[2], case[4])
+                assert.are.equal(1, code, case[1] .. ": " .. text)
+                assert.is_truthy(text:find("nothing written", 1, true), case[1])
+                assert.is_truthy(text:find(case[3], 1, true), case[1] .. " gives the wrong reason: " .. text)
+                assert.are.equal("KEEP", out, case[1])
+            end
+            -- The same group version on a buff for others is written: the rule is request-only's.
+            local code, text = run(ww('"group":["Mass Water Walking"],"groupCast":{"scope":"party",'
+                .. '"spells":[{"name":"Mass Water Walking","reagent":17020}]}'), "Water Walking", true)
+            assert.are.equal(0, code, text)
+        end)
+
+        it("keeps the hand-listed blockers, IDs above a million included, and refuses a bad one (white, black)",
+            function()
+                local code, text, out = run('{"key":"waterwalking","name":"Water Walking","requestOnly":true,'
+                    .. '"handIds":[546],"handBlockerIds":[1299351,11319,1310296]}')
+                assert.are.equal(0, code, text)
+                assert.is_truthy(out:find("blockers = { 1299351, 11319, 1310296 },", 1, true), out)
+                assert.is_truthy(text:find("HAND-LISTED  waterwalking: blocker spell 1299351", 1, true), text)
+                -- Kept when the data has the spell itself, too.
+                code, text, out = run('{"key":"waterwalking","name":"Water Walking","handIds":[546],'
+                    .. '"handBlockerIds":[11319]}', "Water Walking")
+                assert.are.equal(0, code, text)
+                assert.is_truthy(out:find("ranks = { 546 },\n%s+blockers = { 11319 },"), out)
+                -- Refused: another spell in the data (131), its own rank (546), a bad ID or list.
+                for _, case in ipairs({
+                    { "[131]", "hand-listed blocker 131 is 'Water Breathing' in the data" },
+                    { "[546]", "hand-listed blocker 546 is one of its own ranks" },
+                    { "[0]", "waterwalking handBlockerIds: spell ID 0 is not a whole number" },
+                    { "[10000001]", "spell ID 10000001 is not a whole number from 1 to 10000000" },
+                    { '["11319"]', "spell ID '11319' is not a whole number" },
+                    { "11319", "handBlockerIds must be a list of spell IDs" },
+                    { "{}", "handBlockerIds must be a list of spell IDs" },
+                    { "[11319.5]", "spell ID 11319.5 is not a whole number" },
+                    { "[11319,11319]", "duplicate ID in blockers" },
+                }) do
+                    code, text, out = run('{"key":"waterwalking","name":"Water Walking","handIds":[546],'
+                        .. '"handBlockerIds":' .. case[1] .. '}')
+                    assert.are.equal(1, code, case[1] .. ": " .. text)
+                    assert.is_truthy(text:find(case[2], 1, true), case[1] .. " gives the wrong reason: " .. text)
+                    assert.are.equal("KEEP", out, case[1])
+                end
+            end)
+
+        it("never writes handListed from the definitions: only the generator sets it (black)", function()
+            local code, text, out = run('{"key":"ww","name":"Water Walking","handListed":true}', "Water Walking")
+            assert.are.equal(0, code, text)
+            assert.is_truthy(out:find("ranks = { 546 },", 1, true), out)
+            assert.is_falsy(out:find("handListed", 1, true), out)
         end)
     end)
 

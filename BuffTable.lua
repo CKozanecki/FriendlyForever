@@ -272,6 +272,14 @@ ns.BuffTable = {
                 water = true,
             },
             {
+                key = "waterwalking",
+                name = "Water Walking",
+                ranks = { 546 },
+                blockers = { 1299351, 11319, 1310296 },
+                requestOnly = true,
+                handListed = true,
+            },
+            {
                 key = "lightningshield",
                 name = "Lightning Shield",
                 ranks = { 10432, 10431, 8134, 945, 905, 325, 324 },

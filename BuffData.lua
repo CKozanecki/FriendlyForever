@@ -34,6 +34,16 @@
 --             { CLASS = true }; used until you tick your own (#219)
 --   water     only helps underwater: offered only near water, when the
 --             setting says so (Water.lua, #136)
+--   requestOnly  offered only to a player who asks for it in chat (#40):
+--             never by buff back or buff mode unasked (Water Walking, the
+--             owner's decision on #350). Not in Mine or Offerable: Requestable
+--   handListed  its IDs are hand-listed, from a Forever source the owner
+--             gave, not from Forever's extracted spell data (Water Walking,
+--             546, #350): a rank counts as known, and the buff is named,
+--             only when the client names that spell exactly as `name`. So an
+--             ID that isn't the spell is never offered or cast as it ("/cast"
+--             casts by that name), and a client in another language doesn't
+--             offer it
 local _, ns = ...
 -- BuffTable.lua is a file added in #209: after an update that added it, /reload
 -- runs this file without it. Define nothing, so Core's check asks for a restart.
@@ -185,13 +195,23 @@ function BuffData.ForCast(spellId)
     return byRankId[spellId]
 end
 
+-- The client's name for spell id as a rank of buff, or nil. A hand-listed
+-- buff's (#350) counts only when it is exactly the buff's own name: no tool
+-- checked its ID.
+local function RankName(buff, id)
+    local name = Read(C_Spell and C_Spell.GetSpellName, id) or Read(GetSpellInfo, id)
+    if type(name) ~= "string" or name == "" then return nil end
+    if buff.handListed and name ~= buff.name then return nil end
+    return name
+end
+
 -- The buff's name as the game spells it ("Mark of the Wild"), for /cast and
 -- for showing. Every rank has the same name, so the first one the client
 -- knows. (A self-buff of two spells has two: CastName.)
 function BuffData.SpellName(buff)
     for _, id in ipairs(buff.ranks) do
-        local name = Read(C_Spell and C_Spell.GetSpellName, id) or Read(GetSpellInfo, id)
-        if type(name) == "string" and name ~= "" then return name end
+        local name = RankName(buff, id)
+        if name then return name end
     end
 end
 
@@ -220,10 +240,17 @@ function BuffData.IsKnown(buff)
     return BuffData.KnownRank(buff) ~= nil
 end
 
+-- Whether you know spell id as a rank of buff: a hand-listed buff's only
+-- when the client names it as the buff (RankName, #350).
+local function KnownAs(buff, id)
+    if not Known(id) then return false end
+    return not buff.handListed or RankName(buff, id) ~= nil
+end
+
 -- The highest rank of buff you know (its spell ID), or nil.
 function BuffData.KnownRank(buff)
     for _, id in ipairs(buff.ranks) do
-        if Known(id) then return id end
+        if KnownAs(buff, id) then return id end
     end
     return nil
 end
@@ -235,8 +262,7 @@ end
 function BuffData.CastName(buff)
     local id = BuffData.KnownRank(buff)
     if id == nil then return nil end
-    local name = Read(C_Spell and C_Spell.GetSpellName, id) or Read(GetSpellInfo, id)
-    if type(name) == "string" and name ~= "" then return name end
+    return RankName(buff, id)
 end
 
 -- The group version of buff you can cast, or nil: { id, reagent, equals,
@@ -290,37 +316,46 @@ function BuffData.CanReplace(buff, spellId)
     local at = BuffData.RankOf(buff, spellId)
     if at == nil then return false end
     for i = 1, at do
-        if Known(buff.ranks[i]) then return true end
+        if KnownAs(buff, buff.ranks[i]) then return true end
     end
     return false
 end
 
 -- Your class's buffs for others that you know, in order: not your
--- self-buffs (MySelfBuffs, #44). Kept until your spells change
+-- self-buffs (MySelfBuffs, #44), and not those offered only on request
+-- (MyAskable, #350). Kept until your spells change
 -- (BuffData.SpellsChanged), since it takes a spellbook call per rank.
-local mine, mineSelf
-local function KnownOfKind(wantSelf)
+local KINDS = {
+    others = function(buff) return not buff.selfCast and not buff.requestOnly end,
+    self = function(buff) return buff.selfCast == true end,
+    -- What a player may ask for in chat: every buff for others.
+    asked = function(buff) return not buff.selfCast end,
+}
+local cache = {}
+local function KnownOfKind(kind)
+    if cache[kind] then return cache[kind] end
     local _, class = Read(UnitClass, "player")
     local out = {}
     for _, buff in ipairs(class and BuffData.CLASSES[class] or {}) do
-        if (buff.selfCast == true) == wantSelf and BuffData.IsKnown(buff) then out[#out + 1] = buff end
+        if KINDS[kind](buff) and BuffData.IsKnown(buff) then out[#out + 1] = buff end
     end
     -- An unreadable class isn't remembered: the next call asks again.
-    return out, class ~= nil
+    if class ~= nil then cache[kind] = out end
+    return out
 end
 function BuffData.Mine()
-    if mine then return mine end
-    local out, keep = KnownOfKind(false)
-    if keep then mine = out end
-    return out
+    return KnownOfKind("others")
 end
 
 -- Your self-buffs that you know, in your class's order (#44).
 function BuffData.MySelfBuffs()
-    if mineSelf then return mineSelf end
-    local out, keep = KnownOfKind(true)
-    if keep then mineSelf = out end
-    return out
+    return KnownOfKind("self")
+end
+
+-- Your buffs for others that you know, those offered only on request
+-- (Water Walking, #350) included, in your class's order.
+function BuffData.MyAskable()
+    return KnownOfKind("asked")
 end
 
 -- Your class's buffs, known or not, in the class's own order.
@@ -383,9 +418,16 @@ function BuffData.SelfOfferable()
     return OfferableOf(BuffData.MySelfBuffs())
 end
 
+-- The buffs a player may ask you for in chat (#40): those of Offerable,
+-- and those offered only on request (#350), in your order, less any marked
+-- "never offer". Never a self-buff.
+function BuffData.Requestable()
+    return OfferableOf(BuffData.MyAskable())
+end
+
 -- Call when the spellbook changes (SPELLS_CHANGED, a spell learned).
 function BuffData.SpellsChanged()
-    mine, mineSelf = nil, nil
+    cache = {}
 end
 
 -- Whether a class wants this buff. class: their file name ("WARRIOR") or nil

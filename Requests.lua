@@ -35,6 +35,8 @@ Requests.MAX_TEXT_BYTES = 64
 -- punctuation is dropped before comparing). The game's own spelling of the
 -- spell's name counts too (BuffData.SpellName), whatever the client's
 -- language. Battle Shout has none: it only reaches your own party.
+-- Water Walking is offered only when asked for (the owner, on #350); a
+-- warlock has no spell for it, so it shares no names.
 Requests.NICKNAMES = {
     motw = { "mark", "motw", "mark of the wild", "gotw", "gift", "gift of the wild" },
     thorns = { "thorns" },
@@ -49,6 +51,7 @@ Requests.NICKNAMES = {
     -- job, so players ask for either by either name (the owner, on #40).
     waterbreathing = "breathing",
     breath = "breathing",
+    waterwalking = { "water walking", "ww", "walk on water" },
 }
 -- Lists more than one buff shares, by name: a buff above may name one.
 Requests.SHARED_NICKNAMES = {
@@ -117,10 +120,11 @@ local function Spoken(name)
 end
 
 -- The buff of yours that a phrase names, or nil: one you know and offer
--- (BuffData.Offerable, which holds no self-buff such as Battle Shout: #44).
+-- when asked (BuffData.Requestable: those of buff back and those offered
+-- only on request, #350; never a self-buff such as Battle Shout, #44).
 function Requests.BuffFor(phrase)
     if type(phrase) ~= "string" then return nil end
-    for _, buff in ipairs(ns.BuffData.Offerable()) do
+    for _, buff in ipairs(ns.BuffData.Requestable()) do
         for _, nick in ipairs(Requests.NamesFor(buff.key)) do
             if nick == phrase then return buff end
         end
