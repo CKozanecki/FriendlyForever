@@ -445,7 +445,9 @@ end
 function Offers.OnCastSent(unit, castTargetName, castGUID, spellId)
     if unit ~= "player" or Util.IsSecret(spellId) or type(spellId) ~= "number" then return end
     local buff = ns.BuffData.ForCast(spellId)
-    if not buff then return end
+    -- A self-buff (#44) reaches nobody's favour, whoever the game names as
+    -- its target (your target, say: unconfirmed, #326).
+    if not buff or buff.selfCast then return end
     local guid, name = ReadableText(castGUID), Offers.CastTarget(castTargetName)
     if not guid or not name then
         ns.Diag.Log("buffBack", "a buff cast by hand: can't tell which player it went to")

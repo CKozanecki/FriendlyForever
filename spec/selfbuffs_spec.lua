@@ -1039,6 +1039,77 @@ describe("Self-buffs in buff mode", function()
         end)
     end)
 
+    describe("found by the architecture review (#44)", function()
+        it("with more helpful buffs on you than the addon looks through, still works and never errors (black)",
+            function()
+            for i = 1, ns.Offers.MAX_AURAS + 5 do wear(900000 + i, 3600, false) end
+            refresh()
+            assert.are.same({}, wow.errors)
+            assert.are.equal("/cast [@player,nodead] Inner Fire", macro())
+            assert.is_not_nil(ns.SelfBuffs.Next())
+        end)
+
+        it("a clicked \"You\" row for your group buff doesn't carry over to your self-buffs ahead of a favour (red)",
+            function()
+            boot({ known = { INNER_FIRE, FORT } })
+            party({ "Ann-Vale" })
+            wow.wearBuff("party1", FORT, { source = "player" })
+            refresh()
+            -- The "You" row offers your Fortitude (#198): click it, and press.
+            local rows = ns.BuffList.Rows()
+            local youRow
+            for i, offer in ipairs(ns.BuffList.ShownOffers()) do
+                if offer.self then youRow = rows[i] end
+            end
+            if youRow then youRow.scripts.OnClick(youRow) end
+            assert.are.equal("/cast [@player,nodead] Power Word: Fortitude", macro())
+            press()
+            -- Then a stranger buffs you: the favour comes before Inner Fire.
+            wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", id = "Bob-Stone", class = "WARRIOR" })
+            wow.gainBuff({ sourceUnit = "nameplate1", spellId = INTELLECT })
+            refresh()
+            assert.are.equal(1, ns.Offers.Count())
+            assert.is_truthy(macro():find("/targetexact Bob Stone", 1, true), macro())
+        end)
+
+        it("a clicked self-buff row picks that self-buff (white)", function()
+            boot({ known = { INNER_FIRE, FORT } })
+            party({ "Ann-Vale" })
+            wear(FORT, 3600)
+            refresh()
+            ns.BuffButton.Choose(ns.SelfBuffs.Next().name, true)
+            assert.are.equal("/cast [@player,nodead] Inner Fire", macro())
+        end)
+
+        it("logs each reason once while it holds, whoever asks (black)", function()
+            boot({ class = "PALADIN", known = { DEVOTION, RIGHTEOUS_FURY },
+                before = function(s) s.unusable["Devotion Aura"] = "power" end })
+            ns.Options.SetNeverOffer("righteousfury", false)
+            for _ = 1, 10 do
+                refresh()
+                ns.SelfBuffs.Next()
+                wow.advance(5)
+            end
+            assert.are.equal("/cast [@player,nodead] Righteous Fury", macro())
+            assert.are.equal(1, logged("not enough mana for Devotion Aura"))
+        end)
+
+        it("a self-buff the game says went to another player never returns their favour (black)", function()
+            wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", id = "Bob-Stone", class = "WARRIOR" })
+            wow.gainBuff({ sourceUnit = "nameplate1", spellId = INTELLECT })
+            ns.db.buffBack.selfBuffs = false
+            refresh()
+            assert.are.equal(1, ns.Offers.Count())
+            -- A hand cast whose SENT names Bob, your target (#326 says how
+            -- Forever names a self-only spell's target).
+            wow.state.units.target = wow.state.units.nameplate1
+            ns.BuffButton.OnSpellcastSent("player", "Bob", "Cast-hand", INNER_FIRE)
+            ns.BuffButton.OnSpellcastSucceeded("player", "Cast-hand", INNER_FIRE)
+            assert.are.equal(1, ns.Offers.Count())
+            assert.are.same({}, wow.addonSent)
+        end)
+    end)
+
     describe("an update that adds SelfBuffs.lua (black)", function()
         it("asks for a restart, not erroring, after only a /reload", function()
             wow.reset()

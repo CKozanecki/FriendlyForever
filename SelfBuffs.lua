@@ -144,7 +144,9 @@ local function Worn()
             end
         end
     end
-    return worn
+    -- More buffs than the addon looks through: what it saw is what counts
+    -- (a self-buff past them is cast again, which only renews it).
+    return worn, nil, low
 end
 
 -- Whether the game says you can cast buff now: true; false, and why, and
@@ -230,10 +232,9 @@ function SelfBuffs.Next(out)
                     if usable == true then
                         local offer = { name = me, buff = buff, spell = spell, group = true, self = true,
                             selfBuff = true, toggle = buff.toggle == true }
-                        if not out then
-                            Say(reasons)
-                            return offer
-                        end
+                        -- A look that stops at the first offer saw only some
+                        -- of the reasons: only a full look says them (#44).
+                        if not out then return offer end
                         first = first or offer
                         out[#out + 1] = offer
                     else

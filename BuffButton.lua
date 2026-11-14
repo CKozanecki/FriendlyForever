@@ -70,6 +70,7 @@ local lastResultText = "nothing pressed yet"
 local notArmedReason      -- why the button is empty, for /friendly buffback
 local recheckScheduled = false
 local chosenName          -- the player a row of the list was clicked for: the next offer if still offered (#43)
+local chosenSelfBuff      -- and whether that row was one of your self-buffs (#44)
 local alreadyDone         -- the "Already done by" note showing (#256): { title, spell, icon, shownAt, round, over }
 local offerList = {}      -- everyone the button would offer to now, in order (BuffList.lua shows it)
 
@@ -282,8 +283,12 @@ local function NextOffer()
     local pick = castable[1]
     if chosenName then
         local chosen
+        -- Your group copy and your self-buffs share your name: a clicked row
+        -- stays chosen only while an offer of its own kind is there, so a
+        -- self-buff never takes a clicked group buff's place ahead of a
+        -- favour (#44).
         for _, offer in ipairs(castable) do
-            if offer.name == chosenName then chosen = offer break end
+            if offer.name == chosenName and (offer.selfBuff == true) == chosenSelfBuff then chosen = offer break end
         end
         if chosen then pick = chosen else chosenName = nil end
     end
@@ -1038,10 +1043,12 @@ end
 function BuffButton.Frame() return button end
 
 -- A row of the list was clicked (BuffList.lua): this player is the next
--- offer, if they're still offered. Out of combat only.
-function BuffButton.Choose(name)
+-- offer, if they're still offered (selfBuff: the row was one of your
+-- self-buffs, #44). Out of combat only.
+function BuffButton.Choose(name, selfBuff)
     if InCombatLockdown() then return end
     chosenName = name
+    chosenSelfBuff = selfBuff == true
     BuffButton.Refresh()
 end
 function BuffButton.ArmedOffer() return armedOffer end
