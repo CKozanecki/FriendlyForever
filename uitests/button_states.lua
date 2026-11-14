@@ -492,7 +492,8 @@ States.AlreadyDone = {
 -- mode, alone, and a favour owed to a player with a long name whose PvP flag the game won't
 -- read (UnitIsPVP answers nothing for anyone but you while this is set):
 -- "<name>: can't see whether they're flagged for PvP (target them, or show
--- friendly nameplates); you're not in a group". Undo puts UnitIsPVP back,
+-- friendly nameplates); you have your buffs" (alone, the stranger's
+-- Fortitude on you counts as yours, #329). Undo puts UnitIsPVP back,
 -- which arms the favour, and lets it go with a right-click.
 States.LONGSTRANGER = "Wolfgangamad Featherstonx"
 local savedPVP
