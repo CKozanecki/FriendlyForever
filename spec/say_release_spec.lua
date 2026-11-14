@@ -1,4 +1,4 @@
--- Spec: #271
+-- Spec: #271, #285
 -- A /say line held for a hardware event goes out on a press of the buff
 -- button, on any binding (the mouse wheel too) or mouse button, as well as
 -- on a key press; never without one.
@@ -75,15 +75,22 @@ describe("A held /say goes on a buff-button press (#271)", function()
         assert.are.equal(0, #wow.blocked)
     end)
 
-    it("a click from code is no hardware event: the line stays held", function()
+    it("a click from code on the buff-back button casts nothing and sends no held /say", function()
+        ns = wow.boot({ before = function(state)
+            state.class = "DRUID"
+            state.knownSpells = { [1126] = true, [9885] = true }
+        end })
+        Q, button = ns.ChatQueue, ns.BuffButton.Frame()
+        wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", class = "WARRIOR", id = "Bob-Stone" })
+        wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = 10157 })
+        assert.is_truthy(ns.BuffButton.ArmedOffer(), "a favour is shown, so a press would cast")
         holdSay("thanks")
         wow.advance(10)
         -- Button:Click from code: an up half only (the game's down argument
         -- defaults to false), with its PreClick and PostClick.
         button:Click("LeftButton")
-        wow.run(button, "PreClick", "LeftButton", false)
-        wow.run(button, "PostClick", "LeftButton", false)
-        wow.run(button, "PostClick", "RightButton", false)
+        button:Click("RightButton")
+        assert.are.equal(0, #wow.casts, "a click from code casts nothing")
         assert.are.equal(0, #wow.sent)
         assert.are.equal(0, #wow.blocked, "never attempts /say without a hardware event")
         assert.is_true(Q.IsWaitingForHardware())
@@ -138,7 +145,6 @@ describe("A held /say goes on a buff-button press (#271)", function()
             elseif roll == 4 then wow.keyDown("W")
             elseif roll == 5 then
                 button:Click("LeftButton")
-                wow.run(button, "PostClick", "LeftButton", false)
                 if outdoorsHeld then
                     reach.codeClickWhileHeld = reach.codeClickWhileHeld + 1
                     assert.are.equal(before, says(), "a click from code sent a held line")
