@@ -80,7 +80,7 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 ## Pull requests
 
 - **Branches:** name each one `claude/<issue>-<what-it-does>`. Make a new one per PR from the latest `main`.
-- **Commit trailers:** each commit names the product that wrote it, in its last lines. they carry `Claude-Session: <session link>`.
+- **Commit trailers:** each commit names the product that wrote it in its last lines, with a `Claude-Session: <session link>` trailer.
 - **Easy to miss** (#75 missed the first two):
   - `Closes #<issue>` with the criteria checklist;
   - [marking the PR ready yourself](CONTRIBUTING.md#ready-for-review), with a comment;
