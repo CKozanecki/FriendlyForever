@@ -26,6 +26,7 @@ BuffData.lua
 Water.lua
 BuffRules.lua
 Offers.lua
+Requests.lua
 Serialize.lua
 Profiles.lua
 Nameplates.lua

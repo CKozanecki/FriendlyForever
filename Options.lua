@@ -550,6 +550,8 @@ local function FillAuto(shown)
     widgets.waterHeader:SetShown(shown)
     widgets.breathNearWater:SetShown(shown)
     if shown then widgets.breathNearWater:SetChecked(ns.db.buffBack.breathNearWater == true) end
+    widgets.buffRequests:SetShown(shown)
+    if shown then widgets.buffRequests:SetChecked(ns.db.buffBack.requests == true) end
 end
 
 local function Fill()
@@ -622,7 +624,7 @@ local function Fill()
     -- takes its space, so following one would leave an empty gap.
     local above, x, y = widgets.steppers.repeatCooldown.label, 0, -18
     if isBuffBack then
-        above, x, y = widgets.breathNearWater, 4, -14
+        above, x, y = widgets.buffRequests, 4, -14
     elseif isGuildLogin then
         above = widgets.greetersHelp
     elseif warn then
@@ -1022,6 +1024,10 @@ function Options.Create()
     end)
     widgets.breathNearWater:SetPoint("TOPLEFT", widgets.waterHeader, "BOTTOMLEFT", -4, -2)
     Tooltip(widgets.breathNearWater, Options.BREATH_TOOLTIP)
+    -- Buff requests in chat (Requests.lua, #40).
+    widgets.buffRequests = Checkbox(content, ns.Requests.LABEL, function(on) ns.Requests.SetEnabled(on) end)
+    widgets.buffRequests:SetPoint("TOPLEFT", widgets.breathNearWater, "BOTTOMLEFT", 0, -10)
+    Tooltip(widgets.buffRequests, ns.Requests.TOOLTIP)
 
     local anchor = msgHeader
     for i = 1, Config.NUM_MESSAGES do

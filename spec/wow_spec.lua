@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296
+-- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #40
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -858,5 +858,41 @@ describe("The simulated client's fidelity fixes (#255, #260, #265, #296)", funct
             wow.advance(wow.BREATH_REFILL_SECONDS + 1)
             assert.is_nil(wow.state.breath)
         end)
+    end)
+end)
+
+describe("The simulated client's chat from players (#40)", function()
+    it("fires a whisper and a /say with the game's argument list, text then sender", function()
+        wow.boot()
+        local seen = {}
+        local frame = CreateFrame("Frame")
+        frame:RegisterEvent("CHAT_MSG_WHISPER")
+        frame:RegisterEvent("CHAT_MSG_SAY")
+        frame:SetScript("OnEvent", function(_, event, ...)
+            seen[#seen + 1] = { event = event, n = select("#", ...), text = (...), sender = select(2, ...),
+                sender2 = select(5, ...) }
+        end)
+        wow.whisper("mark pls", "Bob-Stone")
+        wow.say("int pls", "Ann-Vale")
+        assert.are.equal(2, #seen)
+        assert.are.same({ event = "CHAT_MSG_WHISPER", n = 17, text = "mark pls", sender = "Bob-Stone",
+            sender2 = "Bob-Stone" }, seen[1])
+        assert.are.same({ event = "CHAT_MSG_SAY", n = 17, text = "int pls", sender = "Ann-Vale",
+            sender2 = "Ann-Vale" }, seen[2])
+    end)
+
+    it("reaches only frames registered for the event", function()
+        wow.boot()
+        local count = 0
+        local frame = CreateFrame("Frame")
+        frame:RegisterEvent("CHAT_MSG_SAY")
+        frame:SetScript("OnEvent", function() count = count + 1 end)
+        wow.whisper("mark pls", "Bob-Stone")
+        assert.are.equal(0, count)
+        wow.say("mark pls", "Bob-Stone")
+        assert.are.equal(1, count)
+        frame:UnregisterEvent("CHAT_MSG_SAY")
+        wow.say("mark pls", "Bob-Stone")
+        assert.are.equal(1, count)
     end)
 end)

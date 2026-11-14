@@ -222,6 +222,10 @@ Config.DEFAULTS = {
         -- Battlegrounds (Battleground.lua): buff before the gates open. Off,
         -- the preparation phase is as quiet as the battle.
         bgPrepBuff = true,
+        -- Buff requests in chat (Requests.lua, #40): a whisper or /say asking
+        -- for one of your buffs queues that player on the button. Off by
+        -- default (the owner's decision on #40).
+        requests = false,
         -- Unending Breath and Water Breathing only near water (Water.lua, #136).
         -- Off: offered anywhere, as before.
         breathNearWater = true,
@@ -302,6 +306,7 @@ Config.FIELD_VALIDATORS = {
     raidSplit = Bool,
     bgPrepBuff = Bool,
     breathNearWater = Bool,
+    requests = Bool,
     unlocked = Bool,
     listBuffNames = Bool,
     quietInCities = Bool,
@@ -547,7 +552,7 @@ end
 -- version as its `since` and raise the version to match: players who finished
 -- an older one then see only the new steps (#169). A spec checks that
 -- they agree (spec/walkthrough_spec.lua).
-Config.WALKTHROUGH_VERSION = 1
+Config.WALKTHROUGH_VERSION = 2
 
 -- A checked copy of the saved walkthrough state. None at all (settings from
 -- before it): seen 0, so every step shows once, and not a first run, so the

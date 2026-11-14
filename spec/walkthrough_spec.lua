@@ -1,4 +1,4 @@
--- Spec: #47, #169
+-- Spec: #47, #169, #40
 -- The Start here page and the walkthrough: the page's controls change the
 -- same settings as their full pages, the walkthrough reaches buff mode's key
 -- and triggers, skipping or finishing it is remembered, it can be replayed,
@@ -225,18 +225,18 @@ describe("The walkthrough", function()
             end
         end)
 
-        it("opens each step's page: Buff Back, Buff Thanks, Guild Join, then Start here", function()
+        it("opens each step's page: Buff Back, Buff Thanks, Guild Join, buff requests, then Start here", function()
             local seen = {}
             while ns.Walkthrough.Step() < #ns.Walkthrough.STEPS do
                 wow.run(tour.next, "OnClick")
                 seen[#seen + 1] = wow.settings.opened == 4242 and ns.Options.CurrentType() or wow.settings.opened
             end
-            assert.are.same({ "buffBack", "buffBack", "buffBack", "buff", "guildJoin", "Start here" }, seen)
+            assert.are.same({ "buffBack", "buffBack", "buffBack", "buff", "guildJoin", "buffBack", "Start here" }, seen)
             assert.are.equal("Finish", tour.next:GetText())
             assert.is_false(tour.skip:IsShown())
             wow.run(tour.back, "OnClick")
             assert.are.equal(#ns.Walkthrough.STEPS - 1, ns.Walkthrough.Step())
-            assert.are.equal("guildJoin", ns.Options.CurrentType())
+            assert.are.equal("buffBack", ns.Options.CurrentType())
         end)
 
         it("scrolls the panel to the step's rows, within its range, now and once laid out", function()

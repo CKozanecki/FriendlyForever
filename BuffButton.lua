@@ -388,6 +388,9 @@ local function ArmButton()
     elseif offer.note then
         -- The single buff, and why not its group version.
         SetLabels(offer.self and "You" or Util.DisplayName(offer.name), offer.note)
+    elseif offer.request then
+        -- They asked for it in chat (Requests.lua, #40).
+        SetLabels(Util.DisplayName(offer.name), "asked for " .. offer.spell)
     else
         SetLabels(offer.self and "You" or Util.DisplayName(offer.name),
             (offer.group and "missing your " or "buffed you - give ") .. offer.spell)
@@ -752,7 +755,11 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
     else
         -- Their copy hears it was you, in case their game can't say (#138).
         ns.Receipts.Send(press.name, press.buff)
-        if ns.Offers.MarkReturned(press.name, press.spell) then
+        local returned, asked = ns.Offers.MarkReturned(press.name, press.spell)
+        if returned and asked then
+            -- A request in chat (#40): no favour, so no buff-back line.
+            ShowResult("Gave " .. press.spell .. " to " .. who .. ", who asked for it.")
+        elseif returned then
             ShowResult("Returned " .. press.spell .. " to " .. who .. ".")
             SayLineFor(press)
         else
