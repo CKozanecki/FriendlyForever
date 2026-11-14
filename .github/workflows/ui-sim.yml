@@ -297,6 +297,9 @@ jobs:
       - name: Fetch the simulator and Blizzard's UI code at their pinned commits
         if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
+          # File names from the two outside repositories are untrusted (#153,
+          # #317): see the ui-sim job's shown.
+          shown() { tr '\r' '\n' | sed -e "s/^/${1:-| }/" -e 's/##\[/##(/g'; }
           git init -q "$RUNNER_TEMP/sim"
           git -C "$RUNNER_TEMP/sim" fetch -q --depth 1 "$SIM_REPO" "$SIM_COMMIT"
           git -C "$RUNNER_TEMP/sim" checkout -q --detach FETCH_HEAD
@@ -316,8 +319,16 @@ jobs:
           # As SIM_COMMIT's Dockerfile does: the tree must be exactly the
           # file list the simulator was built for.
           manifest="$RUNNER_TEMP/sim/data/blizzard-ui-files/$SIM_PROFILE.txt"
+          # The difference is written out first, and the job log gets only its
+          # start, marked by shown (#317): bash -e has no pipefail here, so a
+          # pipe straight into shown would hide the failure.
           diff -u <(LC_ALL=C sort "$manifest") \
-            <(git -C "$ui" ls-tree -r --name-only HEAD Interface/AddOns/ | cut -d/ -f3- | LC_ALL=C sort)
+            <(git -C "$ui" ls-tree -r --name-only HEAD Interface/AddOns/ | cut -d/ -f3- | LC_ALL=C sort) \
+            > "$RUNNER_TEMP/tree-diff.txt" || {
+            echo "Blizzard's UI tree and the simulator's list of files differ (the start of the difference):"
+            head -n 200 "$RUNNER_TEMP/tree-diff.txt" | head -c 20000 | shown
+            exit 1
+          }
           # The markers the simulator's own image writes, so it uses this
           # cache and never tries to fetch game files itself.
           cd "$ui/Interface/AddOns"
@@ -345,16 +356,25 @@ jobs:
       - name: Download the simulator's locked dependencies
         if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
+          # The crates' own output is untrusted (#153, #164): see the ui-sim
+          # job's shown. pipefail keeps the download's exit status through it.
+          shown() { tr '\r' '\n' | sed -e "s/^/${1:-| }/" -e 's/##\[/##(/g'; }
+          set -o pipefail
           docker run --rm --cap-drop ALL --security-opt no-new-privileges \
             --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/cargo -e RUSTUP_TOOLCHAIN="$BUILD_TOOLCHAIN" \
             -v "$RUNNER_TEMP/sim:/build:ro" -v "$RUNNER_TEMP/cargo-home:/cargo" -w /build \
-            ff-build cargo fetch --locked
+            ff-build cargo fetch --locked 2>&1 | shown
 
       # wow-sim is the simulator; wow-cli is its tool, built here only for
       # the spell data step below.
       - name: Build the simulator with its renderer (no network, sources read-only)
         if: steps.sim-cache.outputs.cache-hit != 'true'
         run: |
+          # The build runs the simulator's build scripts and macros, so its
+          # output is untrusted (#153, #164): see the ui-sim job's shown.
+          # pipefail keeps the build's exit status through it.
+          shown() { tr '\r' '\n' | sed -e "s/^/${1:-| }/" -e 's/##\[/##(/g'; }
+          set -o pipefail
           docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
             --user "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/cargo -e CARGO_TARGET_DIR=/target \
             -e CARGO_PROFILE_RELEASE_STRIP="$BUILD_STRIP" -e RUSTUP_TOOLCHAIN="$BUILD_TOOLCHAIN" \
@@ -362,7 +382,7 @@ jobs:
             -v "$RUNNER_TEMP/sim:/build:ro" -v "$RUNNER_TEMP/cargo-home:/cargo:ro" \
             -v "$RUNNER_TEMP/sim-target:/target" -w /build \
             ff-build cargo build --release --locked --offline --bin wow-sim --bin wow-cli \
-              --no-default-features --features "$BUILD_FEATURES"
+              --no-default-features --features "$BUILD_FEATURES" 2>&1 | shown
 
       # The Forever profile needs Forever's spell data, which only the
       # simulator's own tool makes, by downloading five tables from
@@ -971,7 +991,10 @@ jobs:
             done
             shoot copy-window --exec-lua "if FriendlyForeverWalkthrough and FriendlyForeverWalkthrough:IsShown() then FriendlyForeverWalkthrough.skip:Click() end; SlashCmdList.FRIENDLYFOREVER('export')"
             # The palette (#46): chat lines in each colour, and the minimap tooltip.
-            shoot palette --exec-lua "if FriendlyForeverWalkthrough and FriendlyForeverWalkthrough:IsShown() then FriendlyForeverWalkthrough.skip:Click() end; for _, c in ipairs({ 'off', 'on', 'debug', 'debug', 'ignore Bob' }) do SlashCmdList.FRIENDLYFOREVER(c) end; FriendlyForeverMinimapButton:GetScript('OnEnter')(FriendlyForeverMinimapButton)"
+            # The chat frame is cleared first and the commands are few, so every line stays in
+            # view (#190): muted (debug on, then its log lines), bad ("disabled"), good
+            # ("enabled") and warn (ignoring a name with no surname).
+            shoot palette --exec-lua "if FriendlyForeverWalkthrough and FriendlyForeverWalkthrough:IsShown() then FriendlyForeverWalkthrough.skip:Click() end; DEFAULT_CHAT_FRAME:Clear(); for _, c in ipairs({ 'debug', 'off', 'on', 'ignore Bob' }) do SlashCmdList.FRIENDLYFOREVER(c) end; FriendlyForeverMinimapButton:GetScript('OnEnter')(FriendlyForeverMinimapButton)"
           }
           for size in $LAYOUT_SIZES; do
             WIDTH="${size%x*}"; HEIGHT="${size#*x}"

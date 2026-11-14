@@ -1635,7 +1635,7 @@ describe("Buff back", function()
 
         it("survives random storms of events, presses, fights and settings changes", function()
             local received, casts, returned, said, elsewhere, gone, redirected = 0, 0, 0, 0, 0, 0, 0
-            -- Seeds 6 and 51 once sent a redirected cast to a dead unit (#84).
+            -- Before #165's warm-up, seeds 6 and 51 sent a redirected cast to a dead unit (#84).
             for _, seed in ipairs({ 1, 6, 7, 21, 35, 42, 51, 99, 404, 2026, 4242, 31337 }) do
                 local s, lines, hand, nothingWaiting, wentTo = storm(seed)
                 received, casts, returned = received + s.received, casts + #wow.casts, returned + s.returned
