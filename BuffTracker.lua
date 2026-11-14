@@ -574,6 +574,22 @@ local function Missed(now)
     missedSince = missedSince or now
 end
 
+-- Take in a look at all your buffs (ScanBuffs' three values). Returns true
+-- when it saw them all, so they replace what was known. Otherwise (the game
+-- refused the list, or in a fight an entry it can't read yet) it keeps what
+-- was known, adds what it saw, and notes the moment as missed, so nothing
+-- read is read again as new and the rest is looked at later (#245). Out of
+-- a fight, what can't be read is let go, as it always was.
+local function Remember(current, listed, readable, now)
+    if listed and (readable or not InCombatLockdown()) then
+        knownAuraIds = current
+        return true
+    end
+    for id in pairs(current) do knownAuraIds[id] = true end
+    Missed(now)
+    return false
+end
+
 -- Look at every buff you wear for the ones that came while the addon
 -- couldn't read them (#245), and handle each as if it had just landed: one
 -- cast since then isn't one you already had. Called as a fight ends and at
@@ -594,12 +610,7 @@ function BuffTracker.CatchUp()
         ns.Diag.Log("buff", "caught up on %d buff%s that came while aura updates were hidden", caught,
             caught == 1 and "" or "s")
     end
-    if listed and (readable or not InCombatLockdown()) then
-        knownAuraIds, missedSince = current, nil
-    else
-        -- Not all of them: keep what was seen, and look again later.
-        for id in pairs(current) do knownAuraIds[id] = true end
-    end
+    if Remember(current, listed, readable, now) then missedSince = nil end
     return listed
 end
 
@@ -650,18 +661,7 @@ function BuffTracker.OnPlayerAura(updateInfo)
     -- buffs we already knew about (zoning re-sends everything you have).
     if fullUpdate then
         local current, listed, readable = ScanBuffs(active and function(aura) HandleAddedAura(aura, now) end or nil)
-        if listed then
-            knownAuraIds = current
-            -- In a fight, a buff it can't read yet is looked at again later,
-            -- as CatchUp does (#245).
-            if not readable and InCombatLockdown() then Missed(now) end
-        else
-            -- The game refused the list (#245): forgetting the buffs we knew
-            -- would read them again as new. Keep them, add what was seen, and
-            -- look at them all later.
-            for id in pairs(current) do knownAuraIds[id] = true end
-            Missed(now)
-        end
+        Remember(current, listed, readable, now)
         return
     end
 

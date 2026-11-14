@@ -931,6 +931,24 @@ describe("Buff mode turning on and off by itself", function()
             assert.is_true(ns.BuffMode.IsAuto())
         end)
 
+        it("a full update in a fight that can't read a buff already read doesn't forget it: read once", function()
+            ns.db.buff.thankStyle = "whisper"
+            bob()
+            wow.enterCombat()
+            local aura = landHidden({ sourceUnit = "nameplate1" })
+            wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = {} }) -- caught up: Bob is owed
+            wow.advance(ns.db.buff.delay + 1) -- the thank-you goes: a second read would be a new favour
+            local id = aura.auraInstanceID
+            aura.auraInstanceID = wow.secret(id) -- the entry can't be read now
+            wow.fire("UNIT_AURA", "player", { isFullUpdate = true })
+            aura.auraInstanceID = id
+            wow.advance(2)
+            wow.leaveCombat()
+            assert.are.equal(1, owedLines("Bob-Stone"))
+            assert.are.equal(1, #wow.sentTo("WHISPER"))
+            assert.are.equal(1, #ns.db.ledger.entries)
+        end)
+
         it("when the game won't list your buffs, a readable update's new buff is still read", function()
             bob()
             wow.fire("UNIT_AURA", "player", wow.secret({})) -- something was missed
