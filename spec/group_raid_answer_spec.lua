@@ -26,13 +26,11 @@ describe("Buff mode's group look believes IsInRaid() only when the slots agree (
     end
 
     -- A raid: Ann, Bo and Eve in your subgroup 1, Cid and Dot in subgroup 2,
-    -- you in raid6. In the game a raid also gives your own subgroup's other
-    -- members as party1..4; the simulated client doesn't yet (#322's harness
-    -- PR, #337, adds it), so they are added here.
+    -- you in raid6. As in the game, the simulated client also gives your own
+    -- subgroup's other members as party1..4 in a raid (#322).
     local function raid()
         wow.setGroup("raid", { "Ann-Vale", "Bo-Fern", "Eve-Hill", "Cid-Rock", "Dot-Moss" })
         for i = 4, 5 do wow.state.units["raid" .. i].subgroup = 2 end
-        for i = 1, 3 do wow.state.units["party" .. i] = wow.state.units["raid" .. i] end
         wow.fire("GROUP_ROSTER_UPDATE")
         wow.advance(0)
     end
@@ -264,13 +262,13 @@ describe("Buff mode's group look believes IsInRaid() only when the slots agree (
     end)
 
     -- red: a storm of regroups, buffs, range and zone changes, with an
-    -- IsInRaid() that tells the truth, flips half its answers, or always
-    -- lies. Whenever Next says settled, or buff mode ends itself as done,
+    -- IsInRaid() that tells the truth, flips half its answers, always lies,
+    -- or can't be read (the client's state.inRaidUnreadable). Whenever Next says settled, or buff mode ends itself as done,
     -- every other member the client's own state shows in reach wears your
     -- Arcane Intellect. Nobody presses: no cast counts as just given.
     it("a storm with an IsInRaid() that sometimes lies never ends buff mode as done while a member in reach is missing your buff (red)", function()
         local POOL = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed", "Gus-Lane", "Hal-Pine" }
-        local MODES = { "truth", "flips", "inverted" }
+        local MODES = { "truth", "flips", "inverted", "unreadable" }
         local total = { looks = 0, settled = 0, ended = 0, settledLying = 0 }
         for _, seed in ipairs({ 7, 41, 313, 2026, 8191, 65537 }) do
             random.seed(seed)
@@ -283,13 +281,14 @@ describe("Buff mode's group look believes IsInRaid() only when the slots agree (
             _G.IsInRaid = function()
                 local truth = realRaid()
                 if mode == "inverted" then return not truth end
-                if mode == "truth" then return truth end
+                if mode == "truth" or mode == "unreadable" then return truth end
                 lieState = (lieState * 48271) % 2147483647
                 if lieState % 2 == 0 then return not truth end
                 return truth
             end
 
-            -- The other members' slots (party aliases too).
+            -- The other members' slots (the client gives a raid's party1..4
+            -- on demand, never as keys, so each member is seen once).
             local function others()
                 local out = {}
                 for token, u in pairs(wow.state.units) do
@@ -343,17 +342,8 @@ describe("Buff mode's group look believes IsInRaid() only when the slots agree (
                 end
                 if #names > 4 or random.random(2) == 1 then
                     wow.setGroup("raid", names)
-                    local mine = random.random(2)
-                    wow.state.units.player.subgroup = mine
-                    local slot = 0
-                    for i = 1, #names do
-                        local u = wow.state.units["raid" .. i]
-                        u.subgroup = random.random(2)
-                        if u.subgroup == mine and slot < 4 then
-                            slot = slot + 1
-                            wow.state.units["party" .. slot] = u
-                        end
-                    end
+                    wow.state.units.player.subgroup = random.random(2)
+                    for i = 1, #names do wow.state.units["raid" .. i].subgroup = random.random(2) end
                 else
                     wow.setGroup("party", names)
                 end
@@ -397,7 +387,10 @@ describe("Buff mode's group look believes IsInRaid() only when the slots agree (
                         if wow.state.units[token].hidden then wow.zoneIn(token) else wow.zoneOut(token) end
                     end
                 end,
-                lie = function() mode = MODES[random.random(#MODES)] end,
+                lie = function()
+                    mode = MODES[random.random(#MODES)]
+                    wow.state.inRaidUnreadable = mode == "unreadable"
+                end,
             }
             local NAMES = { "regroup", "wear", "wearAll", "wearAll", "strip", "range", "zone", "lie", "lie" }
 

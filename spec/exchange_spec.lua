@@ -798,7 +798,17 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
         lag = function() return random.random(0, 3) end
         net.lose = function() return random.random() < 0.3 end
         local other = { [a] = b, [b] = a }
-        local reach = { thanks = 0, maxDelay = 0, newExchanges = 0, lost = 0, afterThanks = 0 }
+        -- Count the favours let go, by the addon's own call (each client's copy).
+        local letGoCalls = 0
+        for _, c in ipairs({ a, b }) do
+            local real = c.ns.Offers.LetGo
+            c.ns.Offers.LetGo = function(...)
+                local ok = real(...)
+                if ok then letGoCalls = letGoCalls + 1 end
+                return ok
+            end
+        end
+        local reach = { thanks = 0, maxDelay = 0, newExchanges = 0, lost = 0, afterThanks = 0, letGo = 0 }
         local lose = net.lose
         net.lose = function(...)
             local lost = lose(...)
@@ -881,7 +891,11 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
             elseif roll < 0.5 then
                 press(x)
             elseif roll < 0.55 then
+                -- A right-click on an armed favour lets it go (#165: counted,
+                -- so the storm can't quietly stop reaching it).
+                local before = letGoCalls
                 press(x, "RightButton")
+                if letGoCalls > before then reach.letGo = reach.letGo + 1 end
             elseif roll < 0.6 then
                 wow.use(x)
                 if wow.state.units.nameplate1 then
@@ -928,8 +942,10 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
     end
 
     it("a chaos storm of exchanges with random message loss never gives two thank-yous from one side in one exchange (red)", function()
-        local total = { thanks = 0, maxDelay = 0, newExchanges = 0, lost = 0, afterThanks = 0 }
-        for _, seed in ipairs({ 1, 2, 3, 4, 5, 6, 7, 8 }) do
+        local total = { thanks = 0, maxDelay = 0, newExchanges = 0, lost = 0, afterThanks = 0, letGo = 0 }
+        -- 24 reaches a favour let go (#165: counted below). Seeds 10 and 33 break "one thank-you per
+        -- exchange" and 23 and 28 a thank-you's delay: see #349.
+        for _, seed in ipairs({ 1, 2, 3, 4, 5, 6, 7, 8, 24 }) do
             for k, v in pairs(storm(seed)) do total[k] = total[k] + v end
         end
         lag = nil
@@ -937,6 +953,7 @@ describe("Buff exchanges between two copies of the addon (#36)", function()
         assert.is_true(total.newExchanges > 10, "new exchanges after a gap: " .. total.newExchanges)
         assert.is_true(total.maxDelay > 0, "some thank-yous waited the longest wait")
         assert.is_true(total.lost > 10, "messages were lost: " .. total.lost)
+        assert.is_true(total.letGo > 0, "a favour was let go: " .. total.letGo)
         assert.is_true(total.afterThanks > 10, "their buffs came after a thank-you, inside its exchange: "
             .. total.afterThanks)
     end)
