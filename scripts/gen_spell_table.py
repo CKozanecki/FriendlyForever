@@ -34,7 +34,12 @@ MAX_NAME = 100
 BUILD_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 KEY_RE = re.compile(r"^[a-z][a-z0-9]{0,31}$")
 CLASS_RE = re.compile(r"^[A-Z]{3,12}$")
-FLAGS = ("manaOnly", "selfCast", "water")
+# selfCast: a self-buff (#44), cast on yourself only; toggle: one that stays on
+# until switched (an Aspect, a paladin aura); defaultNever: "Never offer" until
+# you choose (Righteous Fury).
+FLAGS = ("manaOnly", "selfCast", "water", "toggle", "defaultNever")
+# Flags that only a self-buff may carry.
+SELF_ONLY_FLAGS = ("toggle", "defaultNever")
 
 
 class Problem(Exception):
@@ -130,7 +135,10 @@ def read_buffs(data):
     removed = data.get("removed", [])
     if not isinstance(removed, list):
         raise Problem("buff definitions: removed must be a list")
-    return classes, removed
+    family_auras = data.get("familyAuras", {})
+    if not isinstance(family_auras, dict):
+        raise Problem("buff definitions: familyAuras must be an object")
+    return classes, removed, family_auras
 
 
 def group_cast(key, spec, buff, spells, index, report):
@@ -168,7 +176,33 @@ def group_cast(key, spec, buff, spells, index, report):
     return {"scope": spec["scope"], "spells": out} if out else None
 
 
-def build(spells, classes, removed):
+def family_auras_of(family_auras, spells, index, rank_owner, report):
+    """{family: [IDs]}: spells that count as wearing a family of self-buffs
+    but are never offered (Aspect of the Cheetah, of the Pack and of the
+    Beast, #44). Only those found are kept."""
+    out = {}
+    for family in sorted(family_auras):
+        names = family_auras[family]
+        if not KEY_RE.match(family) or not isinstance(names, list):
+            raise Problem(f"familyAuras {family!r}: bad family or list")
+        ids = []
+        for name in names:
+            if not isinstance(name, str) or not name:
+                raise Problem(f"familyAuras {family}: a spell needs a name")
+            found = ids_named(name, index, spells)
+            if not found:
+                report.append(f"NOT FOUND  family {family}: {name!r}")
+            for i in found:
+                if i in rank_owner:
+                    raise Problem(f"spell {i} is a rank of {rank_owner[i]} and in family {family}'s other spells")
+            ids.extend(found)
+        if ids:
+            out[family] = ids
+            report.append(f"FOUND  family {family}: other spells {ids}")
+    return out
+
+
+def build(spells, classes, removed, family_auras=None):
     index = by_name(spells)
     report = []
     out_classes = {}
@@ -211,6 +245,17 @@ def build(spells, classes, removed):
             if not isinstance(name, str) or not name:
                 raise Problem(f"{key}: needs the spell's name")
             ranks = ids_named(name, index, spells)
+            # One buff made of two spells (#44): Ice Armor then Frost Armor,
+            # Demon Armor then Demon Skin. Their ranks follow the main name's.
+            also = spec.get("alsoNames", [])
+            if not isinstance(also, list) or not all(isinstance(n, str) and n for n in also):
+                raise Problem(f"{key}: alsoNames must be a list of spell names")
+            for also_name in also:
+                found = ids_named(also_name, index, spells)
+                if not found:
+                    report.append(f"NOT FOUND  {key}: also-named spell {also_name!r}")
+                if ranks:
+                    ranks = ranks + found
             if not ranks:
                 absent.append(key)
                 report.append(f"NOT FOUND  {key}: no spell named {name!r} in the data; the buff is left out")
@@ -260,6 +305,11 @@ def build(spells, classes, removed):
             for flag in FLAGS:
                 if spec.get(flag) is True:
                     buff[flag] = True
+            for flag in SELF_ONLY_FLAGS:
+                if buff.get(flag) and not buff.get("selfCast"):
+                    raise Problem(f"{key}: {flag} is for self-buffs (selfCast) only")
+            if buff.get("selfCast") and ("group" in buff or "groupCast" in buff or "defaultRule" in buff):
+                raise Problem(f"{key}: a self-buff has no group version and no rule for who gets it")
             for i in ranks:
                 if i in rank_owner:
                     raise Problem(f"spell {i} is a rank of both {rank_owner[i]} and {key}")
@@ -274,11 +324,15 @@ def build(spells, classes, removed):
             if blockers:
                 report.append(f"FOUND  {key} blockers {blockers}")
             buffs.append(buff)
-        out_classes[cls] = buffs
+        # A class none of whose buffs are in the data has no list (#44: the
+        # hunter's Aspects before their spells are extracted).
+        if buffs:
+            out_classes[cls] = buffs
     for i in removed_ids:
         if i in rank_owner:
             raise Problem(f"spell {i} is both removed and a rank of {rank_owner[i]}")
-    return out_classes, absent, sorted(set(removed_ids)), report
+    families = family_auras_of(family_auras or {}, spells, index, rank_owner, report)
+    return out_classes, absent, sorted(set(removed_ids)), report, families
 
 
 def lua_list(ids):
@@ -289,7 +343,7 @@ def lua_string(text):
     return json.dumps(text, ensure_ascii=True)
 
 
-def render(build_id, digest, source_name, classes, absent, removed_ids):
+def render(build_id, digest, source_name, classes, absent, removed_ids, families=None):
     lines = [
         "-- GENERATED by scripts/gen_spell_table.py (#209). Do not edit by hand:",
         "-- change scripts/spell-buffs.json or re-run the extraction, then re-run the",
@@ -334,7 +388,28 @@ def render(build_id, digest, source_name, classes, absent, removed_ids):
         lines.append("        },")
     lines.append("    },")
     lines.append("    -- Buffs left out: their keys stay known so saved settings still load.")
-    lines.append("    absent = { " + ", ".join(lua_string(k) for k in sorted(absent)) + " },")
+    # Wrapped, so the file stays within the lint's line length (#44 added many).
+    words = [lua_string(k) + "," for k in sorted(absent)]
+    rows, row = [], ""
+    for word in words:
+        if row and len(row) + 1 + len(word) > 100:
+            rows.append(row)
+            row = word
+        else:
+            row = word if not row else row + " " + word
+    if len(rows) == 0:
+        lines.append("    absent = { " + row.rstrip(",") + " },")
+    else:
+        rows.append(row)
+        lines.append("    absent = {")
+        lines.extend("        " + r for r in rows)
+        lines.append("    },")
+    if families:
+        lines.append("    -- Spells that count as wearing a family of self-buffs, never offered (#44).")
+        lines.append("    familyAuras = {")
+        for family in sorted(families):
+            lines.append(f"        {family} = {lua_list(families[family])},")
+        lines.append("    },")
     lines.append("    -- Spells of buffs Blizzard removed: an aura with one is passed over.")
     lines.append("    removedSpells = " + lua_list(removed_ids) + ",")
     lines.append("}")
@@ -352,10 +427,10 @@ def main(argv):
         raw, spell_json = load_json(args.spells)
         _, buff_json = load_json(args.buffs)
         build_id, spells = read_spells(spell_json)
-        classes, removed = read_buffs(buff_json)
-        out_classes, absent, removed_ids, report = build(spells, classes, removed)
+        classes, removed, family_auras = read_buffs(buff_json)
+        out_classes, absent, removed_ids, report, families = build(spells, classes, removed, family_auras)
         text = render(build_id, hashlib.sha256(raw).hexdigest(), os.path.basename(args.spells),
-                      out_classes, absent, removed_ids)
+                      out_classes, absent, removed_ids, families)
     except Problem as err:
         print(f"gen_spell_table: {err}", file=sys.stderr)
         print("gen_spell_table: nothing written", file=sys.stderr)
