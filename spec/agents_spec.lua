@@ -1,4 +1,4 @@
--- Spec: #186, #217, #237
+-- Spec: #183, #186, #217, #237
 -- The drift check for the agents' instruction files. AGENTS.md holds the rules
 -- every product follows; CLAUDE.md imports it and adds only Claude's own.
 -- Codex reads AGENTS.md (or an AGENTS.override.md, which Claude never reads)
@@ -90,14 +90,15 @@ describe("the agents' instruction files", function()
             "Issues and specs", "Pull requests", "Several sessions at once", "Reviews", "Tests" }) do
             assert.is_truthy(agents:find("\n## " .. heading .. "\n", 1, true), heading)
         end
-        assert.is_falsy(agents:find("\n## Codex\n", 1, true), "no Codex section while the trial is paused")
+        assert.is_falsy(agents:find("\n#+%s*Codex%s*\n"), "no Codex section, at any heading level, while the trial is paused")
         assert.is_truthy(agents:find("### Handoff · <product> <model as served> · <UTC time>\n"
             .. "  - State: done | partial | blocked\n  - Branch / commit / PR:\n  - Done:\n  - Left:\n"
             .. "  - Next session must know:\n", 1, true), "the handoff format")
         assert.is_truthy(agents:find("**[CONTRIBUTING.md](CONTRIBUTING.md) is the source of truth.**", 1, true))
         assert.is_truthy(agents:find("the Codex trial is paused", 1, true), "the pause is recorded")
         assert.is_falsy(agents:find("Agent: codex", 1, true), "no Codex commit trailer")
-        assert.is_falsy(agents:find("`codex/`", 1, true), "no codex/ branch prefix")
+        assert.is_falsy(agents:find("codex/", 1, true), "no codex/ branch rule, however it is written")
+        assert.is_falsy(claude:find("AGENTS.md's \"Codex\"", 1, true), "CLAUDE.md points to no Codex section")
         assert.is_truthy(agents:find("name each one `claude/<issue>-<what-it-does>`", 1, true), "the branch prefix")
     end)
 
