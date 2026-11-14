@@ -56,6 +56,8 @@ local joinedAt           -- when you joined a group out in the world, while it w
 local lastMissing = {}   -- [name .. "\1" .. buff key] = true: missing at the last look (#272);
                          -- nil after a login: the first look only notes who is
 local watching = false   -- the look for missing buffs is scheduled
+local groupUnsure = false -- a roster update couldn't read IsInGroup() (#373): the
+                          -- looks read it again until an answer decides
 
 local function Cfg() return ns.db.buffBack end
 
@@ -257,21 +259,33 @@ local function CheckMissing(fightEnded)
     TurnOn(fightEnded and ("the fight ended and " .. why) or why)
 end
 
--- Look again every WATCH_SECONDS while in a group, or while it isn't yet
--- known after a login (#370). The next look is scheduled first, so one that
--- fails doesn't end them.
+local GroupChanged -- below: a join or a leave, as a roster update read it
+
+-- Look again every WATCH_SECONDS while in a group, while it isn't yet known
+-- after a login (#370), or while a roster update couldn't read it (#373).
+-- The next look is scheduled first, so one that fails doesn't end them.
 local function Watch()
     if watching then return end
     watching = true
     C_Timer.After(Auto.WATCH_SECONDS, ns.Diag.Wrap(function()
         watching = false
-        -- Not yet known after a login (#370): read IsInGroup() again, so the
-        -- triggers don't wait for a roster update that a group that doesn't
-        -- change may not send (#373). The first answer is where we start, as
-        -- at the login, not a group joined; still unreadable, try again.
-        if inGroup == nil then
-            inGroup = GroupAnswer()
-            if inGroup == nil then Watch() end
+        -- Read IsInGroup() again, so the triggers don't wait for a roster
+        -- update the game may not send (#373): a group that doesn't change
+        -- sends none, and neither does being alone after leaving one. Not yet
+        -- known after a login (#370): the first answer is where we start, as
+        -- at the login, not a group joined. After a roster update that
+        -- couldn't read it: the first answer decides, as that update would
+        -- have (a leave or a join). Still unreadable: try again.
+        if inGroup == nil or groupUnsure then
+            local answer = GroupAnswer()
+            if answer == nil then
+                Watch()
+            elseif inGroup == nil then
+                inGroup = answer
+            else
+                groupUnsure = false
+                GroupChanged(answer)
+            end
         end
         -- Out of a group: no look. Leaving the group forgot who was missing
         -- (OnRosterUpdate), and joining one or the login starts afresh, so
@@ -385,10 +399,22 @@ function Auto.OnRosterUpdate()
     end
     -- An update that can't read IsInGroup() changes nothing (#373): no join,
     -- no leave. Taken as leaving, it forgot who was missing your buffs, so a
-    -- buff missing all along counted as new once it could be read again; the
-    -- next update that can read it decides.
+    -- buff missing all along counted as new once it could be read again. The
+    -- next answer decides: the next update that can read it, or the next
+    -- look (Watch), since a leave or a join may send no other update.
     local nowIn = GroupAnswer()
-    if nowIn == nil then return end
+    if nowIn == nil then
+        groupUnsure = true
+        Watch()
+        return
+    end
+    groupUnsure = false
+    GroupChanged(nowIn)
+end
+
+-- A roster update's answer, or a look's after one that couldn't read it
+-- (#373): joining, leaving, or the same group.
+function GroupChanged(nowIn)
     if nowIn and not inGroup then
         pulled, joinedAt = false, nil
         lastMissing = {} -- a group joined: everyone missing a buff is new (#272)
@@ -426,7 +452,7 @@ function Auto.OnEnteringWorld(isLogin, isReload)
     ready = true
     inGroup = GroupAnswer()
     pulled, deathSeen, pendingWhy, pendingInside, insideWait, joinedAt = false, false, nil, nil, false, nil
-    lastMissing = nil
+    lastMissing, groupUnsure = nil, false
     ns.GroupBuffs.EndRound()
     NoteWhoIsDead()
     -- In a group, or not yet known (#370): the looks read it again (#373).
