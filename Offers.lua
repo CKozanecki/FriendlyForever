@@ -412,7 +412,8 @@ local function FlaggedMayBeBuffed(favour)
 end
 
 -- The buff a request asks for, if it can be given now: one you still know
--- and offer (you may have marked it "never offer" since: a water buff
+-- and offer when asked (BuffData.Requestable: you may have marked it "never
+-- offer" since; one offered only on request, #350, counts; a water buff
 -- isn't held for water, as they asked), and not one they wear, unless
 -- theirs is partly worn off (#269). nil and why not; away is true, with no
 -- reason, when the game says your buff can't reach them.
@@ -420,7 +421,7 @@ local function Requested(favour, unit)
     local buff = favour.requested
     local spell = ns.BuffData.SpellName(buff) or buff.key
     local offered = false
-    for _, mine in ipairs(ns.BuffData.Offerable()) do
+    for _, mine in ipairs(ns.BuffData.Requestable()) do
         if mine == buff then
             offered = true
             break

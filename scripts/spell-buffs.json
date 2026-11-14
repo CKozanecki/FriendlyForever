@@ -48,6 +48,8 @@
     ],
     "SHAMAN": [
       { "key": "waterbreathing", "name": "Water Breathing", "blockers": ["Unending Breath"], "water": true },
+      { "key": "waterwalking", "name": "Water Walking", "requestOnly": true, "handIds": [546],
+        "handBlockerIds": [1299351, 11319, 1310296] },
       { "key": "lightningshield", "name": "Lightning Shield", "selfCast": true }
     ],
     "WARLOCK": [

@@ -177,10 +177,11 @@ local function MyClass()
     if type(class) == "string" and ns.BuffData.CLASSES[class] then return class end
 end
 
--- Whether buff is one the split shares: your class's, and not cast on
--- yourself (Battle Shout reaches only your party: never shared).
+-- Whether buff is one the split shares: your class's, not cast on
+-- yourself (Battle Shout reaches only your party: never shared), and not
+-- one offered only when asked for (Water Walking, #350).
 local function Shared(buff)
-    return buff ~= nil and not buff.selfCast
+    return buff ~= nil and not buff.selfCast and not buff.requestOnly
 end
 
 -- [key] = buff for your class's shared buffs.

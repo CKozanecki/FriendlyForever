@@ -1,4 +1,4 @@
--- Spec: #40, #353
+-- Spec: #40, #353, #350
 -- Buff requests in chat: a whisper or /say asking for one of your buffs
 -- queues that player on the buff-back button, for that buff. It never casts,
 -- says nothing in chat, and is off by default. Chat text is untrusted:
@@ -14,7 +14,7 @@ local SPELLS = {
     MAGE = { intellect = 10157 },
     PALADIN = { kings = 20217, wisdom = 25290, might = 25291 },
     PRIEST = { fortitude = 10938, spirit = 27841, shadow = 10958 },
-    SHAMAN = { waterbreathing = 131 },
+    SHAMAN = { waterbreathing = 131, waterwalking = 546 },
     WARLOCK = { breath = 5697 },
     WARRIOR = { battleshout = 25289 },
 }
@@ -34,7 +34,9 @@ local ASKED = {
         spirit = { "spirit", "ds", "divine spirit", "Divine Spirit" },
         shadow = { "shadow prot", "shadow protection", "sprot", "Shadow Protection" } },
     -- Either breathing buff by either name (the owner, on #40).
-    SHAMAN = { waterbreathing = { "water breathing", "wb", "unending breath", "ub", "breath", "Water Breathing" } },
+    -- Water Walking, offered only when asked for (#350): shamans only.
+    SHAMAN = { waterbreathing = { "water breathing", "wb", "unending breath", "ub", "breath", "Water Breathing" },
+        waterwalking = { "water walking", "ww", "walk on water", "Water Walking" } },
     WARLOCK = { breath = { "unending breath", "ub", "breath", "water breathing", "wb", "Unending Breath" } },
 }
 
