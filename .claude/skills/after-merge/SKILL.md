@@ -13,10 +13,11 @@ Only the driver of a PR does this to it. If it isn't your PR, message its driver
 
 When the owner or the coordinator says a PR has merged. GitHub doesn't notify sessions of merges, and the coordinator watches for them (#172), so don't poll for them yourself.
 
-Only for a PR that needs a developer. If the PR shares no file with the merge and has no conflict, do nothing: the owner clicks Update branch (CONTRIBUTING.md's [Only behind `main`](../../../CONTRIBUTING.md#only-behind-main), #229).
+Only for a PR that needs a developer. If the PR shares no file with the merge and has no conflict, do nothing: it goes into, or stays in, the merge queue, which tests it on the latest `main` (CONTRIBUTING.md's [Merge queue](../../../CONTRIBUTING.md#merge-queue), #345). Also when the merge queue removes your PR for a conflict with `main`.
 
 ## Steps
 
+0. **Out of the queue first.** If your PR has auto-merge on, turn it off (`disable_pr_auto_merge`), so it can't merge before the reviewers have confirmed the merge.
 1. **Merge, don't rebase.** In your own worktree:
    ```
    git fetch origin main
@@ -30,3 +31,4 @@ Only for a PR that needs a developer. If the PR shares no file with the merge an
 5. **Push** (`git push -u origin <branch>`) and wait for CI to go green on the merge commit.
 6. **Update the description:** the merge, what conflicted and how it was resolved, both file lists or the reviewers' confirmations, any new test count, and the ready checklist.
 7. **Announce ready again** with a comment on the PR, and send the coordinator a one-line notice if one is running.
+8. **Back in the queue:** once every stop in CONTRIBUTING.md's [Merge queue](../../../CONTRIBUTING.md#merge-queue) holds, turn auto-merge on again (CLAUDE.md's "Enqueueing your PR").

@@ -15,7 +15,8 @@ The rules every agent session follows, whatever the product, are in AGENTS.md, i
   - to restore every mutation and leave `git status` clean;
   - to end with APPROVED or CHANGES REQUESTED.
 - **Launching a reviewer:** pass `effort: high` in the Agent call, along with `subagent_type`. The agent file's `effort: high` frontmatter should apply on its own, but the per-call parameter overrides it and is the explicit, documented way (Claude Code v2.1.292 or later); only the `CLAUDE_CODE_EFFORT_LEVEL` environment variable beats both. Never pass a lower level (#318).
-- **Skills:** procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `merge-order` and `coordinator` (running several sessions for the owner). They carry out the rules in AGENTS.md's "Several sessions at once" and "Coordinating sessions" below; where they differ, those rules win. A PR that is only behind `main` is not theirs to merge: CONTRIBUTING.md's [Only behind `main`](CONTRIBUTING.md#only-behind-main) (#229).
+- **Skills:** procedures are skills in [`.claude/skills/`](.claude/skills/): `after-merge`, `merge-order` and `coordinator` (running several sessions for the owner). They carry out the rules in AGENTS.md's "Several sessions at once" and "Coordinating sessions" below; where they differ, those rules win. A PR that is only behind `main` needs no merge from them: the merge queue tests it on the latest `main` (CONTRIBUTING.md's [Merge queue](CONTRIBUTING.md#merge-queue), #345).
+- **Enqueueing your PR** (a trial, #345): once every stop in CONTRIBUTING.md's [Merge queue](CONTRIBUTING.md#merge-queue) holds, turn on auto-merge for your own PR with the GitHub tool `enable_pr_auto_merge`, `mergeMethod: SQUASH`. That adds it to the queue. Never call `merge_pull_request`, and never enqueue another session's PR. If the tool refuses (for example because the PR is already mergeable), don't merge it another way: tell the coordinator.
 - **Knowledge files:** AGENTS.md's "Shared knowledge" lists them: [`docs/forever-facts.md`](docs/forever-facts.md), [`docs/simulated-client.md`](docs/simulated-client.md), [`docs/ui-simulator.md`](docs/ui-simulator.md), [`docs/visual-style.md`](docs/visual-style.md) and [`docs/agent-facts.md`](docs/agent-facts.md).
 
 ## Coordinating sessions
@@ -24,6 +25,7 @@ Claude sessions reach each other with the remote-session tools (`send_message` a
 
 - **Tell the coordinator:** when a coordinating session is running, send it one or two lines (the issue, the PR link, what's needed) the moment one of these happens, without waiting to be asked:
   - a PR is marked ready, or ready again after a merge of `main`;
+  - you turned on auto-merge, so your PR is in the merge queue, or the queue removed it (say why);
   - you need the owner: a question (one you ask in your own session too), a decision or a blocker. Ask before you mark the PR ready: it waits for the answer (#215);
   - you're done: your PR merged and nothing is left;
   - something failed that you can't fix.

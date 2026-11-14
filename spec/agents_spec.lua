@@ -1,4 +1,4 @@
--- Spec: #183, #186, #217, #237
+-- Spec: #183, #186, #217, #237, #345
 -- The drift check for the agents' instruction files. AGENTS.md holds the rules
 -- every product follows; CLAUDE.md imports it and adds only Claude's own.
 -- Codex reads AGENTS.md (or an AGENTS.override.md, which Claude never reads)
@@ -268,5 +268,97 @@ describe("the review-saving rules", function()
         assert.is_truthy(flat(".claude/skills/after-merge/SKILL.md"):find("mutates only the lines the merge changed"
             .. " or resolved", 1, true))
         assert.is_truthy(flat("AGENTS.md"):find("mutates only the lines the merge changed or resolved", 1, true))
+    end)
+end)
+
+-- The process trial (#345, owner, 2026-11-14): area batches, three or four
+-- sessions, and drivers enqueueing their own PRs in the merge queue. The
+-- rules are written once in CONTRIBUTING.md; the others point there.
+describe("the process trial (#345)", function()
+    local function flat(path) return (wow.readFile(path):gsub("%s+", " ")) end
+    local contributing = flat("CONTRIBUTING.md")
+    local function once(text)
+        local _, count = contributing:gsub(text:gsub("%p", "%%%0"), "")
+        return count
+    end
+    local OTHERS = { "AGENTS.md", "CLAUDE.md", ".claude/skills/after-merge/SKILL.md",
+        ".claude/skills/coordinator/SKILL.md", ".claude/skills/merge-order/SKILL.md",
+        ".claude/agents/lua-architect.md", ".claude/agents/lua-tester.md" }
+
+    it("CONTRIBUTING.md writes area batches once, as a trial, with the full safety rules once per batch (white)", function()
+        local batches = contributing:match("### Area batches (.-) ## ") or ""
+        for _, text in ipairs({
+            "**A trial (#345, the maintainer's decision of 2026-11-14).**",
+            "**One session, one area, one branch.**",
+            "works a list of related issues on one branch",
+            "**One pull request, one review at the end.**",
+            "lists each issue under its own heading, with its keyword",
+            "and its acceptance criteria as a checklist",
+            "The review loops run once, on the whole batch, and check each issue against its criteria.",
+            "**Safety-critical areas keep the full rules, once per batch.**",
+            "Both review loops, in order, and the mutation checks of [Review loops](#review-loops) apply",
+            "the mutation list covers every safety-critical line any issue in it changed",
+            "About three or four sessions run at a time, each on an area chosen so that no two batches change the same file.",
+        }) do
+            assert.is_truthy(batches:find(text, 1, true), "Area batches lost: " .. text)
+            assert.are.equal(1, once(text), text)
+        end
+    end)
+
+    it("CONTRIBUTING.md lets a driver enqueue only its own PR, and only when every stop holds (white, black)", function()
+        local queue = contributing:match("#### Merge queue (.-) ## ") or ""
+        for _, text in ipairs({
+            "**Who enqueues.** The maintainer, or, for the trial, the session that drives an agent's pull request (the"
+                .. " maintainer's merge delegation on #182, extended to developer sessions under the same stops).",
+            "A driver enables auto-merge, as a squash merge, on its own pull request only, and only when all of these hold:",
+            "- the required `check` is green on the pull request's latest commit;",
+            "- both review loops have approved, or what [Review loops](#review-loops) allows for it, with every finding fixed;",
+            "- it has no open question for the maintainer (#215);",
+            "- it is [ready for review](#ready-for-review), and every review conversation is resolved.",
+            "It never merges directly, approves, or goes around the queue.",
+            "The coordinator watches the queue and steps in when something's off",
+        }) do
+            assert.is_truthy(queue:find(text, 1, true), "Merge queue lost: " .. text)
+            assert.are.equal(1, once(text), text)
+        end
+    end)
+
+    it("the other rule files point to the trial's rules instead of restating them (black)", function()
+        for _, path in ipairs(OTHERS) do
+            local text = flat(path)
+            for _, copy in ipairs({ "Safety-critical areas keep the full rules", "One pull request, one review at the end",
+                "the required `check` is green on the pull request's latest commit", "Who enqueues." }) do
+                assert.is_falsy(text:find(copy, 1, true), path .. " restates: " .. copy)
+            end
+        end
+        for _, path in ipairs({ "AGENTS.md", ".claude/skills/coordinator/SKILL.md" }) do
+            local text = flat(path)
+            assert.is_truthy(text:find("CONTRIBUTING.md#area-batches", 1, true), path .. " doesn't point to Area batches")
+            assert.is_truthy(text:find("three or four sessions", 1, true), path .. " lost the session cap")
+            assert.is_truthy(text:find("(a trial, #345)", 1, true), path .. " doesn't mark the trial")
+        end
+        assert.is_truthy(flat("AGENTS.md"):find("About three or four sessions run at once, on areas chosen so that no"
+            .. " two share a file.", 1, true))
+        assert.is_truthy(flat(".claude/skills/coordinator/SKILL.md"):find("hold back a batch that overlaps a running"
+            .. " one", 1, true))
+    end)
+
+    it("CLAUDE.md enqueues with auto-merge, own PR only, and never merges another way (white, black)", function()
+        local claude = flat("CLAUDE.md")
+        assert.is_truthy(claude:find("- **Enqueueing your PR** (a trial, #345): once every stop in CONTRIBUTING.md's"
+            .. " [Merge queue](CONTRIBUTING.md#merge-queue) holds, turn on auto-merge for your own PR with the GitHub"
+            .. " tool `enable_pr_auto_merge`, `mergeMethod: SQUASH`.", 1, true))
+        assert.is_truthy(claude:find("Never call `merge_pull_request`, and never enqueue another session's PR.", 1, true))
+        assert.is_truthy(claude:find("If the tool refuses (for example because the PR is already mergeable), don't"
+            .. " merge it another way: tell the coordinator.", 1, true))
+        assert.is_truthy(claude:find("you turned on auto-merge, so your PR is in the merge queue, or the queue"
+            .. " removed it (say why);", 1, true), "the coordinator hears about the queue")
+        -- No rule file names the direct-merge tool except to forbid it.
+        for _, path in ipairs(OTHERS) do
+            local text = flat(path)
+            for at in text:gmatch("()merge_pull_request") do
+                assert.are.equal("Never call `", text:sub(at - 12, at - 1), path .. " names merge_pull_request")
+            end
+        end
     end)
 end)

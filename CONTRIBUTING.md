@@ -11,7 +11,17 @@ Ideas, bug reports and pull requests are welcome. Every change starts from an is
 3. Make the change, with a test in `spec/` for any behavior change.
 4. Run `make check` locally.
 5. Open the pull request as a **draft** and fill in the template, with `Closes #<issue>` for each spec it completes. Mark it ready for review when it is (see [Ready for review](#ready-for-review)). CI must pass and review conversations must be resolved before it can merge. **A pull request can merge as soon as the required `check` is green** (#241): the report-only jobs (the UI simulator, screenshots, CodeQL) never gate a merge, and nobody waits for them unless the change is a UI change the maintainer wants to look at. (An agent's UI change still has its screenshots looked at by the testing review before it is ready.) The maintainer reviews outside pull requests. Their own get an automated review, because GitHub doesn't let authors approve their own pull requests, so `main` requires passing CI rather than an approval.
-6. Merges are squash merges, so each PR becomes one commit on `main`, its title ending with the pull request's number, as in `(#54)`. Numbers in commit titles are pull requests; numbers at the end of changelog entries are issues.
+6. Merges are squash merges, so each PR becomes one commit on `main`, its title ending with the pull request's number, as in `(#54)`. Numbers in commit titles are pull requests; numbers at the end of changelog entries are issues. They go through GitHub's merge queue, which tests each pull request on the latest `main` before it merges (see [Merge queue](#merge-queue)).
+
+### Area batches
+
+**A trial (#345, the maintainer's decision of 2026-11-14).** Agent sessions work in area batches, not one pull request per issue. The trial's result is recorded on #345, and the maintainer decides there whether to keep it.
+
+- **One session, one area, one branch.** A session owns an area for a batch, such as "buff targeting" or "options panel", and works a list of related issues on one branch, named after the batch's first issue and the area, such as `claude/301-options-panel`.
+- **One pull request, one review at the end.** The batch is one pull request. Its description lists each issue under its own heading, with its keyword (`Closes #<issue>`, or `Refs #<issue>` for a spec it only starts) and its acceptance criteria as a checklist. The review loops run once, on the whole batch, and check each issue against its criteria.
+- **Everything else is per issue,** as before: each spec file names the issues it tests (`-- Spec: #301, #305`), and each user-visible change has its own note, `changes/<issue>.md`.
+- **Safety-critical areas keep the full rules, once per batch.** Both review loops, in order, and the mutation checks of [Review loops](#review-loops) apply as for any code pull request, once for the batch instead of once per issue: the mutation list covers every safety-critical line any issue in it changed.
+- **Areas don't share files.** About three or four sessions run at a time, each on an area chosen so that no two batches change the same file.
 
 ## Specs and traceability
 
@@ -57,7 +67,7 @@ A pull request is **ready for review** when all of these hold:
 
 - CI is green on the latest commit;
 - the description matches the final code;
-- the branch is up to date with `main` and has no conflicts (a branch that is only behind `main` counts as up to date: see [Only behind `main`](#only-behind-main));
+- the branch has no conflicts with `main`. Being only behind `main` is fine: the merge queue tests it on the latest `main` (see [Merge queue](#merge-queue));
 - for pull requests written by an agent: both of its review loops (Lua architecture, then Lua testing) have approved, with every finding fixed (a docs-only pull request needs its one review, and a merge that touches none of its files needs only CI: see [Review loops](#review-loops));
 - it has no open question for the maintainer (#215).
 
@@ -67,14 +77,21 @@ Then whoever drives it marks it ready (GitHub's **Ready for review** button, out
 
 It is **ready to merge** when, on top of that, every review conversation is resolved.
 
-#### Only behind `main`
+#### Merge queue
 
-When another pull request merges, GitHub marks the next ready one out of date (#229). The maintainer decided on 2026-11-09 that the cheaper fix is for them to click GitHub's **Update branch** button themselves. It depends on the two file lists of the file-disjoint rule in [Review loops](#review-loops):
+`main` requires GitHub's merge queue instead of branches that are up to date (#345, a trial the maintainer decided on 2026-11-14; it starts when the maintainer switches the ruleset after the pull request that wrote this merges, and until then a pull request only behind `main` waits for the maintainer's **Update branch**, #229).
 
-- **No file in both lists and no conflict: update branch only.** The developer does nothing: no merge, no push, no reviewer re-run. The "up to date with `main`" box counts as met; the coordinator's message to the maintainer, naming the pull request and the two file lists, is the record. The maintainer clicks **Update branch**, CI runs on the new head, and they merge when `check` is green.
-- **A file in both lists, or any conflict: developer must merge.** Unchanged: the developer merges `main`, resolves, and the reviewers confirm the merge and the resolutions.
+- **What it does:** a pull request added to the queue (GitHub's auto-merge, **Merge when ready**) is built on a temporary branch on top of the latest `main` and of every pull request queued ahead of it. CI's `merge_group` trigger runs the required `check` there, and the queue squash-merges the pull request only when it passes. If it fails, or the pull request conflicts, the queue removes it and nothing merges. Nobody clicks **Update branch**.
+- **Only behind `main`: just enqueue.** When no file is in both of the two lists of [Review loops](#review-loops) and there is no conflict, the driver does nothing: no merge, no push, no reviewer re-run. The queue's `check` is the test on the latest `main`.
+- **A file in both lists, or a conflict: the driver merges first.** Unchanged: the driver merges `main`, resolves, and the reviewers confirm the merge as [Review loops](#review-loops) says, before the pull request goes back in the queue. Two ready pull requests that share a file are never queued together: the second waits, out of the queue, until the first merges.
+- **Removed from the queue:** GitHub turns auto-merge off. The driver reads why in the `merge_group` run, fixes it on the branch like any other change (the review rules apply to the fix), and enqueues again once the stops below hold.
+- **Who enqueues.** The maintainer, or, for the trial, the session that drives an agent's pull request (the maintainer's merge delegation on #182, extended to developer sessions under the same stops). A driver enables auto-merge, as a squash merge, on its own pull request only, and only when all of these hold:
+  - the required `check` is green on the pull request's latest commit;
+  - both review loops have approved, or what [Review loops](#review-loops) allows for it, with every finding fixed;
+  - it has no open question for the maintainer (#215);
+  - it is [ready for review](#ready-for-review), and every review conversation is resolved.
 
-The coordinator tells the maintainer which case each waiting pull request is in, naming it, so the maintainer never has to work it out.
+  It never merges directly, approves, or goes around the queue. The coordinator watches the queue and steps in when something's off, turning auto-merge off and telling the driver why.
 
 ## Local setup
 

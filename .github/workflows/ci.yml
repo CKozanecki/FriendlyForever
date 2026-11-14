@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue (#345): GitHub tests each queued pull request on top of
+  # the latest main (and of anything queued ahead of it) and merges it only
+  # when `check` passes there. Nothing else runs in the queue: the report-only
+  # workflows never gate a merge.
+  merge_group:
+    types: [checks_requested]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -59,10 +65,12 @@ jobs:
       #
       # A pull request that changes the TOC version is a release PR: it must
       # have gathered every changelog note into the new version (#261), or
-      # its notes would leave them out. Other PRs only preview the notes.
+      # its notes would leave them out. Other PRs only preview the notes. In
+      # the merge queue the base is what the PR lands on, so a note merged
+      # ahead of a release PR is caught there too (#345).
       - name: Write this version's release notes
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: |
           toc_at() { git show "$1:FriendlyForever.toc" 2>/dev/null | sed -n 's/^## Version:[[:space:]]*\([^[:space:]]*\).*/\1/p'; }
           before="$(toc_at "$BASE" || true)"

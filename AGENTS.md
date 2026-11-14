@@ -39,7 +39,7 @@ An orientation for a new session (#182). It points to the detail rather than rep
   - read-only mounts;
   - no secrets.
 - **Secrets never pass through an agent.** The CurseForge key lives only in the `release` environment, as `CF_API_KEY`. Never ask for it, print it or commit it.
-- **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale branches for the owner, and say which they are.
+- **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale branches for the owner, and say which they are. One exception, a trial (#345): the driver of a PR enables auto-merge on its own PR, which adds it to the merge queue, once the stops in CONTRIBUTING.md's [Merge queue](CONTRIBUTING.md#merge-queue) hold, and never merges any other way.
 - **Merged branches:** GitHub deletes a PR's branch when it merges, and `ui-screenshots/pr-<n>` when PR n closes (#115), so don't list those (#119). A stale branch is one still there after its PR merged or closed, or one with no PR.
 - **Force-pushing:** never. Push a rebased branch under a new name and flag the old one for the owner to delete.
 
@@ -79,23 +79,24 @@ Facts sessions kept rediscovering, each with its source. Read the one you need b
 
 ## Pull requests
 
-- **Branches:** name each one `claude/<issue>-<what-it-does>`. Make a new one per PR from the latest `main`.
+- **Branches:** name each one `claude/<issue>-<what-it-does>`. Make a new one per PR from the latest `main`. An area batch's branch is named after its first issue and its area (CONTRIBUTING.md's [Area batches](CONTRIBUTING.md#area-batches)).
 - **Commit trailers:** each commit names the product that wrote it in its last lines, with a `Claude-Session: <session link>` trailer.
 - **Easy to miss** (#75 missed the first two):
   - `Closes #<issue>` with the criteria checklist;
   - [marking the PR ready yourself](CONTRIBUTING.md#ready-for-review), with a comment;
   - a user-visible change's note as `changes/<issue>.md`, never a line in `CHANGELOG.md` ([Changelog notes](CONTRIBUTING.md#changelog-notes), #261).
 - **No open question when ready** (#215): a PR with an open question for the owner is not ready. Ask first, and mark it ready only after the answer is applied (CONTRIBUTING.md's "Ready for review").
-- **Merging and patch releases** (#241): a PR can merge once the required `check` is green; nobody waits for the report-only jobs. A patch release of documentation-only fixes is one PR with the fix (CONTRIBUTING.md's "How changes land" and "Releasing").
+- **Merging and patch releases** (#241): a PR can merge once the required `check` is green; nobody waits for the report-only jobs. It merges through the merge queue, which runs `check` again on the latest `main` (CONTRIBUTING.md's [Merge queue](CONTRIBUTING.md#merge-queue), #345). A patch release of documentation-only fixes is one PR with the fix (CONTRIBUTING.md's "How changes land" and "Releasing").
 - **Part of a spec:** say `Refs #<issue>`, list which acceptance criteria the PR covers, and name the parts still to come. Only the PR that completes the spec says `Closes`. #73 and #74 did this for #68.
 - **Stacked work:** never open a PR on another PR's branch. Build on it locally if you need to. Once the first PR merges (as a squash), rebase onto `main` and open the PR from the rebased branch.
 
 ## Several sessions at once
 
 - **Your own worktree:** other sessions share the main checkout and switch its branches. Work in a worktree of your own, never switch branches in the shared checkout, and remove your worktree when you're done.
+- **Area batches, three or four at a time** (a trial, #345): each session owns an area and works its issues on one branch, with one review at the end (CONTRIBUTING.md's [Area batches](CONTRIBUTING.md#area-batches)). About three or four sessions run at once, on areas chosen so that no two share a file.
 - **One driver per PR:** only the session driving a PR pushes to its branch, updates its description or announces it ready. Anyone else sends that session a message. Never push to a branch with another product's prefix.
-- **Merge order:** when several PRs are ready, trial-merge every pair locally. Recommend an order to the owner, with the reasons and which pairs conflict. Note what you ran in the descriptions of your own PRs, and send it to the drivers of the others.
-- **After each merge:** GitHub doesn't notify sessions of merges, so wait for the owner or the coordinator to say so; don't poll. The coordinator watches GitHub for merges and tells each PR's session (#172). Then the driver of each ready PR merges `main` into it and resolves any conflicts. Next comes `make check`, and the reviewers confirm the merge, unless it touches none of the PR's files (CONTRIBUTING.md's [Review loops](CONTRIBUTING.md#review-loops)). Then CI, an updated description, and the PR announced ready again. A ready PR that is only behind `main` (no shared file, no conflict) is not for the driver: the owner clicks Update branch (CONTRIBUTING.md's [Only behind `main`](CONTRIBUTING.md#only-behind-main), #229).
+- **Merge order:** when several PRs are ready, trial-merge every pair locally. Recommend an order to the owner, with the reasons and which pairs conflict or share a file: those two never sit in the merge queue together. Note what you ran in the descriptions of your own PRs, and send it to the drivers of the others.
+- **After each merge:** GitHub doesn't notify sessions of merges, so wait for the owner or the coordinator to say so; don't poll. The coordinator watches GitHub for merges and tells each PR's session (#172). A ready PR that is only behind `main` (no shared file, no conflict) is not for the driver: it is simply enqueued, and the merge queue tests it on the latest `main` (CONTRIBUTING.md's [Merge queue](CONTRIBUTING.md#merge-queue), #345). Otherwise the driver of each ready PR merges `main` into it and resolves any conflicts. Next comes `make check`, and the reviewers confirm the merge, unless it touches none of the PR's files (CONTRIBUTING.md's [Review loops](CONTRIBUTING.md#review-loops)). Then CI, an updated description, the PR announced ready again, and back in the queue once the stops hold.
 
 ## Reviews
 
