@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -431,6 +431,10 @@ end)
 describe("UI simulator workflow", function()
     local path = ".github/workflows/ui-sim.yml"
     local text, jobs, order
+    -- scripts/data/forever-spells.json's SHA-256: the one the simulator's own
+    -- spec records for its 72-spell selection (#209, #160).
+    -- spec/bufftable_spec.lua checks the file has it.
+    local COMMITTED_SPELLS_SHA256 = "13122873d813481e85815946ddf964068b04132d4d2b2b44ba5ce61491595ad0"
 
     setup(function()
         text = withoutComments(wow.readFile(path))
@@ -575,6 +579,9 @@ describe("UI simulator workflow", function()
                 { { ".pkgmeta" }, "true" },
                 { { "scripts/package.sh" }, "true" },
                 { { "scripts/ui-sim-harness.lua" }, "true" },
+                -- The spell data check and the copy it checks against (#160).
+                { { "scripts/sim-spell-check.py" }, "true" },
+                { { "scripts/data/forever-spells.json" }, "true" },
                 { { "scripts/other.sh", "Makefile" }, "false" },
                 { { "docs/new.md", "spec/x_spec.lua", "CHANGELOG.md" }, "false" },
                 -- Only the root files count, not a same-named file in a folder.
@@ -765,20 +772,46 @@ describe("UI simulator workflow", function()
         -- the fetched sources are checked against theirs.
         local bases = {}
         for base in text:gmatch("\n%s*FROM%s+(%S+)") do bases[#bases + 1] = base end
-        assert.are.same({ "$BUILD_BASE", "$RENDER_BASE", "$RENDER_BASE" }, bases)
+        -- The build image, the spell data step's proxy, and one render
+        -- image in each job that runs the simulator.
+        assert.are.same({ "$BUILD_BASE", "$RENDER_BASE", "$RENDER_BASE", "$RENDER_BASE" }, bases)
         assert.is_truthy(text:find('rev-parse HEAD)" = "$SIM_COMMIT"', 1, true), "the simulator's commit isn't checked")
         assert.is_truthy(text:find('rev-parse HEAD)" = "$BLIZZARD_UI_COMMIT"', 1, true), "Blizzard's commit isn't checked")
+        -- #160: Blizzard's UI pin is the one the simulator's own source names
+        -- for the profile, at the version it names, and its tree is exactly
+        -- the simulator's file list.
+        assert.is_truthy(text:find('pin="$RUNNER_TEMP/sim/data/blizzard-ui-builds/$SIM_PROFILE.json"', 1, true),
+            "the pin isn't read from the simulator's source")
+        assert.is_truthy(text:find([[grep -qF "\"gethe_revision\": \"$BLIZZARD_UI_COMMIT\"" "$pin"]], 1, true),
+            "Blizzard's commit isn't checked against the simulator's own pin")
+        assert.is_truthy(text:find([[grep -qF "\"version\": \"$BLIZZARD_UI_VERSION\"" "$pin"]], 1, true),
+            "Blizzard's version isn't checked against the simulator's own pin")
+        assert.is_truthy(text:find('manifest="$RUNNER_TEMP/sim/data/blizzard-ui-files/$SIM_PROFILE.txt"', 1, true),
+            "the file list isn't the profile's")
+        assert.is_truthy(text:find('diff -u <(LC_ALL=C sort "$manifest")', 1, true), "the tree isn't checked against the file list")
     end)
 
-    -- Only cargo fetch gets network, to download the locked crates; it runs
-    -- none of their code. Everything else that runs the simulator's code
-    -- (its build scripts, macros and the simulator) has none.
-    it("sandboxes every container: no capabilities, read-only sources, network only to download crates", function()
-        local found, fetches, builds = 0, 0, 0
+    -- Building and running the simulator have no network. Two containers
+    -- have some, and neither builds or runs the simulator: cargo fetch, which
+    -- downloads the locked crates and runs none of their code, and the spell
+    -- data download (#160), which reaches only a proxy. The proxy is ours.
+    local function kind(command)
+        if command:find("ff%-build cargo fetch %-%-locked%s*$") then return "fetch" end
+        if command:find("%sff%-proxy tinyproxy %-d %-c /proxy/tinyproxy%.conf%s*$") then return "proxy" end
+        if command:find("%sff%-build /cli/wow%-cli casc sync%-forever%-spells %-%-source cdn %-%-output /spells/spells%.json%s") then
+            return "spells"
+        end
+        return "sandboxed"
+    end
+
+    it("sandboxes every container: no capabilities, read-only sources, network only to download crates and spell data", function()
+        local found, builds = 0, 0
+        local count = { fetch = 0, proxy = 0, spells = 0, sandboxed = 0 }
         for _, job in ipairs(order) do
             for _, command in ipairs(dockerRuns(job)) do
                 found = found + 1
-                local fetch = command:find("ff%-build cargo fetch %-%-locked%s*$") ~= nil
+                local what = kind(command)
+                count[what] = count[what] + 1
                 for _, flag in ipairs({ "--cap-drop ALL", "--security-opt no-new-privileges" }) do
                     assert.is_truthy(command:find(flag, 1, true), job.name .. ": docker run without " .. flag)
                 end
@@ -786,31 +819,187 @@ describe("UI simulator workflow", function()
                 -- check below sees them all.
                 for _, banned in ipairs({ "%-%-privileged", "docker%.sock", "%-%-net[%w]*[ =]host", "%-%-pid[ =]",
                     "%-%-ipc", "%-%-userns", "%-%-uts", "%-%-cap%-add", "%-%-device", "unconfined", "%-%-mount",
-                    "%-%-volume" }) do
+                    "%-%-volume", "%-%-add%-host", "%-%-dns", "%-%-link", "%-%-publish", "%s%-p%s", "%s%-P%s" }) do
                     assert.is_falsy(command:find(banned), job.name .. ": docker run with " .. banned)
                 end
-                if fetch then
-                    fetches = fetches + 1
-                else
+                if what == "sandboxed" then
                     assert.is_truthy(command:find("--network none", 1, true), job.name .. ": docker run with network")
+                elseif what == "spells" then
+                    -- Its own network, which has no route out.
+                    assert.is_truthy(command:find("%-%-network ff%-cdn%s"), "the spell data download isn't on the closed network")
+                    assert.are.equal(1, select(2, command:gsub("%-%-net", "")), "the spell data download names two networks")
+                else
+                    assert.is_falsy(command:find("--net", 1, true), job.name .. ": " .. what .. " names a network")
                 end
+                -- Only the simulator job's own steps may have any network.
+                assert.is_true(what == "sandboxed" or job.name == "simulator", job.name .. " has a container with network")
                 if command:find("cargo build", 1, true) then
                     builds = builds + 1
+                    assert.are.equal("sandboxed", what)
                     assert.is_truthy(command:find("--offline", 1, true), "the simulator build may download")
+                end
+                -- Nothing with network runs the simulator, or builds anything.
+                if what ~= "sandboxed" then
+                    assert.is_falsy(command:find("wow-sim", 1, true), "the simulator runs with network")
+                    assert.is_falsy(command:find("cargo build", 1, true) or command:find("cargo run", 1, true)
+                        or command:find("cargo test", 1, true), "cargo runs the simulator's code with network")
                 end
                 for mount in command:gmatch("%-v%s+(%S+)") do
                     local writable = mount:find(":/shots\"?$") or mount:find(":/target\"?$")
-                        or (fetch and mount:find(":/cargo\"?$"))
+                        or (what == "fetch" and mount:find(":/cargo\"?$"))
+                        or (what == "spells" and mount:find(":/spells\"?$"))
                     assert.is_truthy(mount:find(":ro\"?$") or writable, job.name .. ": " .. mount .. " is mounted writable")
                 end
             end
         end
-        assert.is_true(found >= 5, "expected the simulator's docker runs")
-        assert.are.equal(1, fetches, "expected one dependency download")
+        assert.is_true(found >= 7, "expected the simulator's docker runs")
+        assert.are.equal(1, count.fetch, "expected one dependency download")
+        assert.are.equal(1, count.proxy, "expected one proxy")
+        assert.are.equal(1, count.spells, "expected one spell data download")
         assert.are.equal(1, builds, "expected the simulator to be built in a container")
         -- Anywhere outside a docker run, cargo would run on the runner.
         local outside = text:gsub("\\\n%s*", " "):gsub("docker run[^\n]*", "")
         assert.is_falsy(outside:find("%f[%w]cargo%s"), "cargo runs on the runner, outside a container")
+    end)
+
+    -- #160: the spell data download is the one run of the simulator's code
+    -- with network. Its network has no route out; the proxy is the only way,
+    -- and lets through only the listed hosts on port 443.
+    describe("the spell data download (#160)", function()
+        local step, job
+
+        setup(function()
+            job = jobs.simulator
+            for _, candidate in ipairs(job.steps) do
+                if candidate.text:find("name: Download Forever's spell data", 1, true) then step = candidate end
+            end
+        end)
+
+        it("lists only Blizzard's discovery host and CDN, by plain name (black)", function()
+            local hosts = {}
+            for host in (text:match("\n%s*SPELL_DATA_HOSTS: ([^\n]+)") or ""):gmatch("%S+") do hosts[#hosts + 1] = host end
+            table.sort(hosts)
+            assert.are.same({ "kr.cdn.blizzard.com", "level3.ssl.blizzard.com", "us.cdn.blizzard.com", "us.version.battle.net" }, hosts)
+        end)
+
+        it("gives the tool a closed network whose only way out is the proxy (black)", function()
+            assert.is_truthy(step, "no spell data step")
+            local joined = step.text:gsub("\\\n%s*", " ")
+            -- One network, made closed; nothing else is ever made or joined.
+            local made = {}
+            for line in text:gmatch("docker network [^\n]*") do made[#made + 1] = line end
+            assert.are.same({ "docker network create --internal ff-cdn", "docker network connect ff-cdn ff-proxy",
+                "docker network rm ff-cdn >/dev/null" }, made)
+            -- The proxy starts on the default network, then joins the closed
+            -- one; only then does the tool run, and both are removed after.
+            local proxyAt = joined:find("docker run %-d %-%-name ff%-proxy ")
+            local connectAt = joined:find("docker network connect ff-cdn ff-proxy", 1, true)
+            local toolAt = joined:find("/cli/wow-cli casc sync-forever-spells", 1, true)
+            local removeAt = joined:find("docker rm -f ff-proxy", 1, true)
+            assert.is_truthy(proxyAt and connectAt and toolAt and removeAt and proxyAt < connectAt and connectAt < toolAt
+                and toolAt < removeAt, "the proxy isn't started, joined, used and removed in that order")
+            local tool
+            for _, command in ipairs(dockerRuns(job)) do
+                if kind(command) == "spells" then tool = command end
+            end
+            assert.is_truthy(tool, "no spell data download")
+            -- The proxy is the tool's only setting for reaching anything, for
+            -- HTTPS only: plain HTTP has no proxy and no route.
+            assert.is_truthy(tool:find("-e HTTPS_PROXY=http://ff-proxy:8888 ", 1, true), "the tool isn't given the proxy")
+            for _, banned in ipairs({ "HTTP_PROXY", "ALL_PROXY", "http_proxy", "all_proxy", "NO_PROXY", "no_proxy" }) do
+                assert.is_falsy(tool:gsub("HTTPS_PROXY", ""):find(banned, 1, true), "the tool is given " .. banned)
+            end
+            -- Stopped at a time limit, with the tool read-only and one folder to write.
+            assert.is_truthy(joined:find("timeout %-s TERM %-k 10 %d+ docker run %-%-rm %-%-init %-%-network ff%-cdn "),
+                "the download has no time limit")
+            assert.is_truthy(tool:find('-v "$RUNNER_TEMP/spell-cli:/cli:ro" -v "$RUNNER_TEMP/spell-out:/spells" ', 1, true),
+                "the tool's mounts changed")
+            assert.is_truthy(tool:find("-e WOW_SIM_CASC=0 ", 1, true), "the tool may look for game files")
+            -- The tool is copied as a plain file before it's mounted.
+            assert.is_truthy(step.text:find('\n%s*test %-f "%$cli"\n%s*test ! %-L "%$cli"\n'), "the tool isn't checked as a plain file")
+            -- A failed download fails the step, after the proxy is removed.
+            assert.is_truthy(step.text:find('\n%s*%[ "%$status" %-eq 0 %]%s*$'), "a failed download doesn't fail the step")
+        end)
+
+        -- The step's own shell, with a stand-in docker: what it writes for
+        -- the proxy, and what it does when the tool fails.
+        local function runStep(env, toolExit)
+            local block = step.text:match("run: |\n(.*)$")
+            local dir = os.tmpname()
+            os.remove(dir)
+            assert.is_true(os.execute("mkdir -p '" .. dir .. "/bin' '" .. dir .. "/sim-target/release'"
+                .. " && echo tool > '" .. dir .. "/sim-target/release/wow-cli'") == 0)
+            local fake = assert(io.open(dir .. "/bin/docker", "w"))
+            fake:write("#!/bin/sh\necho \"docker $*\" >> '" .. dir .. "/docker.log'\n",
+                "case \"$*\" in\n  *wow-cli*) echo '::error::from the tool'; exit " .. (toolExit or 0) .. " ;;\n",
+                "  logs*) echo 'CONNECT Request (file descriptor 4): CONNECT us.version.battle.net:443 HTTP/1.1' ;;\nesac\n")
+            fake:close()
+            os.execute("chmod +x '" .. dir .. "/bin/docker'")
+            local indent = block:match("^( *)")
+            local body = {}
+            for line in (block .. "\n"):gmatch("([^\n]*)\n") do body[#body + 1] = (line:gsub("^" .. indent, "", 1)) end
+            local f = assert(io.open(dir .. "/run.sh", "wb"))
+            f:write("set -eo pipefail\nRUNNER_TEMP='" .. dir .. "'\nPATH='" .. dir .. "/bin':\"$PATH\"\nsleep() { :; }\n")
+            for name, value in pairs(env) do f:write(name .. "='" .. value .. "'\n") end
+            f:write(table.concat(body, "\n"), "\n")
+            f:close()
+            local status = os.execute("bash '" .. dir .. "/run.sh' > '" .. dir .. "/step.log' 2>&1")
+            local function read(name)
+                local file = io.open(dir .. "/" .. name, "rb")
+                local content = file and file:read("*a") or ""
+                if file then file:close() end
+                return content
+            end
+            local result = { ok = status == 0 or status == true, log = read("step.log"), docker = read("docker.log"),
+                conf = read("spell-proxy/tinyproxy.conf"), filter = read("spell-proxy/filter") }
+            os.execute("chmod -R u+w '" .. dir .. "'; rm -rf '" .. dir .. "'")
+            return result
+        end
+        local ENV = { RENDER_BASE = "debian@sha256:0", SPELL_DATA_HOSTS = "us.version.battle.net level3.ssl.blizzard.com" }
+
+        -- What these settings do was tried against tinyproxy 1.11.1 (Debian
+        -- bookworm's), by this PR's driver and its architecture review:
+        -- with FilterURLs the filter reads "host:port" for a CONNECT and the
+        -- whole URL for a plain request, so "^host:443$" passes only an
+        -- HTTPS tunnel to that host. Without FilterURLs it read the host
+        -- alone, and plain HTTP to a listed host passed on any port.
+        it("writes a proxy filter of exactly the listed hosts on port 443, read against the whole request (white)", function()
+            local r = runStep(ENV)
+            assert.is_true(r.ok, r.log)
+            assert.are.equal("^us\\.version\\.battle\\.net:443$\n^level3\\.ssl\\.blizzard\\.com:443$\n", r.filter)
+            for _, line in ipairs({ "ConnectPort 443", "FilterDefaultDeny Yes", "FilterType ere", "FilterURLs On",
+                'Filter "/proxy/filter"' }) do
+                assert.is_truthy(("\n" .. r.conf):find("\n" .. line .. "\n", 1, true), "the proxy's settings lack " .. line)
+            end
+            -- Every filter line is one host, anchored at both ends, with its port.
+            for line in r.filter:gmatch("[^\n]+") do
+                assert.is_truthy(line:find("^%^[a-z0-9%.\\%-]+:443%$$"), "a filter line isn't a host on port 443: " .. line)
+            end
+            assert.are.equal(1, select(2, r.conf:gsub("ConnectPort", "")), "the proxy allows another port")
+            assert.is_falsy(r.conf:find("Upstream", 1, true) or r.conf:find("Allow", 1, true), "the proxy has settings nobody reviewed")
+            -- The tool's output and the proxy's log reach the job log marked, never as commands (#153).
+            assert.is_truthy(r.log:find("\n| ::error::from the tool\n", 1, true) or r.log:find("^| ::error::from the tool\n"), r.log)
+            assert.is_falsy(r.log:find("\n::", 1, true), "a line of the tool's reads as a workflow command")
+            assert.is_truthy(r.log:find("proxy> CONNECT Request", 1, true), "the proxy's log isn't shown")
+            -- The proxy and its network are removed.
+            assert.is_truthy(r.docker:find("docker rm -f ff-proxy\ndocker network rm ff-cdn\n", 1, true), r.docker)
+        end)
+
+        it("fails when the tool fails, after removing the proxy and its network (black)", function()
+            local r = runStep(ENV, 3)
+            assert.is_false(r.ok, "a failed download passes the step")
+            assert.is_truthy(r.log:find("wow-cli: exit 3", 1, true), r.log)
+            assert.is_truthy(r.docker:find("docker rm -f ff-proxy\ndocker network rm ff-cdn\n", 1, true), r.docker)
+        end)
+
+        it("refuses a host that isn't a plain name, before anything runs (black)", function()
+            for _, hosts in ipairs({ "us.cdn.blizzard.com .*", "us.cdn.blizzard.com|evil.example", "US.cdn.blizzard.com",
+                "us.cdn.blizzard.com:8080", "http://us.cdn.blizzard.com", "" }) do
+                local r = runStep({ RENDER_BASE = "debian@sha256:0", SPELL_DATA_HOSTS = hosts })
+                assert.is_false(r.ok, "the step ran with SPELL_DATA_HOSTS='" .. hosts .. "'")
+                assert.is_falsy(r.docker:find("docker run", 1, true), "a container ran with SPELL_DATA_HOSTS='" .. hosts .. "'")
+            end
+        end)
     end)
 
     -- Containers only ever run the pinned image or the two images built here
@@ -818,7 +1007,7 @@ describe("UI simulator workflow", function()
     -- (that would run its build scripts on the runner's Docker, with network).
     it("runs only the pinned image and the images it builds from the pinned bases", function()
         local allowed = { run = true, build = true, inspect = true, stats = true, logs = true,
-            kill = true, rm = true, top = true, ps = true }
+            kill = true, rm = true, top = true, ps = true, network = true }
         for command in text:gmatch("docker (%l+)") do
             assert.is_true(allowed[command] == true, "the workflow runs docker " .. command)
         end
@@ -828,11 +1017,13 @@ describe("UI simulator workflow", function()
             assert.is_truthy(name, "docker build doesn't build the workflow's own Dockerfile: " .. line)
             built[#built + 1] = name
         end
-        -- ff-render is built in each job that runs the simulator.
-        assert.are.same({ "ff-build", "ff-render", "ff-render" }, built)
+        -- ff-proxy is the spell data step's (#160); ff-render is built in
+        -- each job that runs the simulator.
+        assert.are.same({ "ff-build", "ff-proxy", "ff-render", "ff-render" }, built)
         for _, job in ipairs(order) do
             for _, command in ipairs(dockerRuns(job)) do
                 local image = command:find("%sff%-build%s") or command:find("%sff%-render%s")
+                    or (kind(command) == "proxy" and command:find("%sff%-proxy%s"))
                 assert.is_truthy(image, job.name .. ": docker run of an image that isn't pinned: " .. command)
                 assert.is_falsy(command:find("ghcr%.io") or command:find("@sha256"), job.name .. ": docker run names an image")
             end
@@ -859,12 +1050,15 @@ describe("UI simulator workflow", function()
             local used = {}
             for _, step in ipairs(build.steps) do
                 if step ~= keyStep then
-                    for var in step.text:gmatch("%$[{]?([A-Z][A-Z_]+)") do
-                        if var:find("^SIM_") or var:find("^BUILD_") or var:find("^BLIZZARD_") then used[var] = true end
+                    for var in step.text:gmatch("%$[{]?([A-Z][A-Z_0-9]+)") do
+                        if var:find("^SIM_") or var:find("^BUILD_") or var:find("^BLIZZARD_") or var:find("^SPELL_") then
+                            used[var] = true
+                        end
                     end
                 end
             end
-            for _, var in ipairs({ "SIM_COMMIT", "BLIZZARD_UI_COMMIT", "BUILD_BASE", "BUILD_PACKAGES", "BUILD_FEATURES", "BUILD_STRIP" }) do
+            for _, var in ipairs({ "SIM_COMMIT", "SIM_PROFILE", "BLIZZARD_UI_COMMIT", "BLIZZARD_UI_VERSION", "BUILD_BASE",
+                "BUILD_TOOLCHAIN", "BUILD_PACKAGES", "BUILD_FEATURES", "BUILD_STRIP", "SPELL_DATA_HOSTS", "SPELL_DATA_SHA256" }) do
                 assert.is_true(used[var], var .. " is no longer used by the build; update this check")
             end
             for var in pairs(used) do
@@ -877,7 +1071,12 @@ describe("UI simulator workflow", function()
             -- build step, even a literal flag, misses the cache.
             assert.is_truthy(keyStep.text:find("hashFiles('.github/workflows/ui-sim.yml')", 1, true), "the key leaves out the workflow file's hash")
             assert.is_truthy(keyStep.text:find('"workflow=$WORKFLOW_HASH"', 1, true), "the workflow hash isn't in the key's inputs")
-            assert.is_truthy(build.text:find("sparse-checkout: .github/workflows/ui-sim.yml", 1, true), "the workflow file isn't checked out for the hash")
+            -- So are the spell data check and the copy it checks against (#160).
+            assert.is_truthy(keyStep.text:find("SPELL_CHECK_HASH: ${{ hashFiles('scripts/sim-spell-check.py', 'scripts/data/forever-spells.json') }}", 1, true),
+                "the key leaves out the spell data check's files")
+            assert.is_truthy(keyStep.text:find('"spell-check=$SPELL_CHECK_HASH"', 1, true), "the spell data check isn't in the key's inputs")
+            assert.is_truthy(build.text:find("sparse-checkout: |\n            .github/workflows/ui-sim.yml\n            scripts/sim-spell-check.py\n"
+                .. "            scripts/data/forever-spells.json\n", 1, true), "the files the key hashes aren't the ones checked out")
             assert.is_truthy(build.text:find("sparse-checkout-cone-mode: false", 1, true), "the sparse checkout reads the path as a folder")
             local checkoutAt, keyAt
             for i, step in ipairs(build.steps) do
@@ -925,7 +1124,8 @@ describe("UI simulator workflow", function()
 
         it("really changes the key when any one input changes (black)", function()
             local base = { SIM_COMMIT = "a", BLIZZARD_UI_COMMIT = "b", BUILD_BASE = "c", BUILD_PACKAGES = "d",
-                BUILD_FEATURES = "e", BUILD_STRIP = "f", WORKFLOW_HASH = "g" }
+                BUILD_FEATURES = "e", BUILD_STRIP = "f", WORKFLOW_HASH = "g", SIM_PROFILE = "h", BLIZZARD_UI_VERSION = "i",
+                BUILD_TOOLCHAIN = "j", SPELL_DATA_HOSTS = "k l", SPELL_DATA_SHA256 = "m", SPELL_CHECK_HASH = "n" }
             local function key(env)
                 local r = runBlock(keyStep, env)
                 assert.is_true(r.status == 0 or r.status == true, "the key step failed: " .. r.log)
@@ -933,11 +1133,13 @@ describe("UI simulator workflow", function()
                 assert.is_truthy(hash and #hash == 64, "the key isn't a 64-character hash: " .. r.out)
                 return hash
             end
-            local empty = {}
-            for k, v in pairs(base) do empty[k] = v end
-            empty.WORKFLOW_HASH = ""
-            local refused = runBlock(keyStep, empty)
-            assert.is_false(refused.status == 0 or refused.status == true, "an empty workflow hash gives a key anyway")
+            for _, hash in ipairs({ "WORKFLOW_HASH", "SPELL_CHECK_HASH" }) do
+                local empty = {}
+                for k, v in pairs(base) do empty[k] = v end
+                empty[hash] = ""
+                local refused = runBlock(keyStep, empty)
+                assert.is_false(refused.status == 0 or refused.status == true, "an empty " .. hash .. " gives a key anyway")
+            end
             local first = key(base)
             assert.are.equal(first, key(base), "the same inputs give another key")
             -- WORKFLOW_HASH is named in the step's env: block, from the file's hash.
@@ -956,20 +1158,26 @@ describe("UI simulator workflow", function()
             for _, step in ipairs(build.steps) do
                 if step.text:find("Check the staged files", 1, true) then check = step end
             end
+            -- The spell data is our committed copy, so the check against it passes.
+            local committed = wow.ROOT .. "/scripts/data/forever-spells.json"
             local function tree(dir)
                 local o = dir .. "/ui-sim-build"
                 assert.is_true(os.execute("mkdir -p '" .. o .. "/sim/Interface/AddOns/TestFramework' '" .. o
-                    .. "/blizzard-ui/AddOns/Blizzard_X' && touch '" .. o .. "/sim/wow-sim' '" .. o
-                    .. "/blizzard-ui/AddOns/Blizzard_X/a.lua' '" .. o .. "/blizzard-ui/AddOns/.marker'") == 0)
+                    .. "/blizzard-ui/AddOns/Blizzard_X' '" .. o .. "/sim/spells/wowforever' && touch '" .. o .. "/sim/wow-sim' '" .. o
+                    .. "/blizzard-ui/AddOns/Blizzard_X/a.lua' '" .. o .. "/blizzard-ui/AddOns/.marker' && cp '" .. committed
+                    .. "' '" .. o .. "/sim/spells/wowforever/spells.json'") == 0)
             end
-            local function result(extra)
-                local r = runBlock(check, {}, function(dir)
+            local function run(extra, hash)
+                return runBlock(check, { SIM_PROFILE = "wowforever", SPELL_DATA_SHA256 = hash or COMMITTED_SPELLS_SHA256 }, function(dir)
                     tree(dir)
                     if extra then assert.is_true(os.execute(extra:gsub("OUT", dir .. "/ui-sim-build")) == 0, "fixture failed: " .. extra) end
                 end)
+            end
+            local function result(extra, hash)
+                local r = run(extra, hash)
                 return r.status == 0 or r.status == true
             end
-            assert.is_true(result(), "a complete tree of plain files is refused")
+            assert.is_true(result(), "a complete tree of plain files is refused: " .. run().log)
             local bad = {
                 "rm OUT/sim/wow-sim && ln -s /bin/sh OUT/sim/wow-sim",
                 "rm OUT/sim/wow-sim",
@@ -978,12 +1186,78 @@ describe("UI simulator workflow", function()
                 "mkfifo OUT/sim/Interface/AddOns/TestFramework/pipe",
                 "rmdir OUT/sim/Interface/AddOns/TestFramework",
                 "rm -r OUT/blizzard-ui/AddOns",
+                -- The spell data (#160): missing, a link to the right file, or the wrong folder.
+                "rm OUT/sim/spells/wowforever/spells.json",
+                "rm OUT/sim/spells/wowforever/spells.json && ln -s '" .. committed .. "' OUT/sim/spells/wowforever/spells.json",
+                "mv OUT/sim/spells/wowforever OUT/sim/spells/retail",
             }
             for _, extra in ipairs(bad) do
                 assert.is_false(result(extra), "the check passes for: " .. extra)
             end
             assert.is_falsy(check.text:find("||", 1, true), "the check can be made to pass with ||")
             assert.is_falsy(check.text:find("%f[%w]if:") or check.text:find("continue%-on%-error"), "the check can be skipped or made non-blocking")
+        end)
+
+        -- #160: the spell data must be the pinned download, byte for byte,
+        -- whether it was just downloaded or came out of the cache.
+        it("refuses spell data whose hash isn't the pinned one, and names the hash it has (black)", function()
+            local check
+            for _, step in ipairs(build.steps) do
+                if step.text:find("Check the staged files", 1, true) then check = step end
+            end
+            local committed = wow.ROOT .. "/scripts/data/forever-spells.json"
+            local function run(change, hash)
+                return runBlock(check, { SIM_PROFILE = "wowforever", SPELL_DATA_SHA256 = hash }, function(dir)
+                    local o = dir .. "/ui-sim-build"
+                    assert.is_true(os.execute("mkdir -p '" .. o .. "/sim/Interface/AddOns/TestFramework' '" .. o
+                        .. "/blizzard-ui/AddOns' '" .. o .. "/sim/spells/wowforever' && touch '" .. o .. "/sim/wow-sim' && cp '"
+                        .. committed .. "' '" .. o .. "/sim/spells/wowforever/spells.json'"
+                        .. (change and (" && " .. change:gsub("FILE", o .. "/sim/spells/wowforever/spells.json")) or "")) == 0)
+                end)
+            end
+            local function ok(r) return r.status == 0 or r.status == true end
+            assert.is_true(ok(run(nil, COMMITTED_SPELLS_SHA256)), "the pinned file is refused")
+            -- One byte more: another hash, named in an annotation, in hex only.
+            local r = run("printf ' ' >> FILE", COMMITTED_SPELLS_SHA256)
+            assert.is_false(ok(r), "a changed file passes")
+            local named = r.log:match("\n?::error title=UI simulator: Forever spell data is not the pinned download::Its SHA%-256 is (%x+), ")
+            assert.is_truthy(named and #named == 64 and named ~= COMMITTED_SPELLS_SHA256, "the annotation doesn't name the file's hash: " .. r.log)
+            assert.is_falsy(r.log:find("spell data check", 1, true), "a file with the wrong hash was read")
+            -- The placeholder the pin starts from, and an empty pin, match nothing.
+            assert.is_false(ok(run(nil, ("0"):rep(64))), "the placeholder hash passes")
+            assert.is_false(ok(run(nil, "")), "an empty pin passes")
+            -- Too big to be the spell data: refused before it's hashed or read.
+            local big = run("head -c 1048577 /dev/zero > FILE", COMMITTED_SPELLS_SHA256)
+            assert.is_false(ok(big), "a file over 1 MiB passes")
+            assert.is_falsy(big.log:find("SHA-256 is", 1, true), "a file over 1 MiB was hashed")
+            -- The right hash for a file that differs from our committed copy:
+            -- the row check stops it.
+            local changed = "sed -i 's/Waterbreathing\\./Waterbreathing!/' FILE"
+            local hashOf = runBlock({ text = "run: |\n  " .. changed:gsub("FILE", '"$RUNNER_TEMP/f"') .. '\n  sha256sum "$RUNNER_TEMP/f"\n' }, {},
+                function(dir) assert.is_true(os.execute("cp '" .. committed .. "' '" .. dir .. "/f'") == 0) end)
+            local other = hashOf.log:match("^(%x+) ")
+            assert.is_truthy(other and #other == 64 and other ~= COMMITTED_SPELLS_SHA256, "the fixture didn't change the file: " .. hashOf.log)
+            local wrongRows = run(changed, other)
+            assert.is_false(ok(wrongRows), "spell data that differs from our committed copy passes")
+            assert.is_truthy(wrongRows.log:find("spell data check failed", 1, true), wrongRows.log)
+        end)
+
+        it("pins a real hash for the spell data, and checks it before the row check reads the file (black)", function()
+            -- In quotes: YAML reads an unquoted value of digits as a number (the
+            -- placeholder of zeros reached the first run as 0).
+            local pinned = text:match('\n%s*SPELL_DATA_SHA256: "(%x+)"\n')
+            assert.is_truthy(pinned and #pinned == 64 and not pinned:find("[^0-9a-f]"), "SPELL_DATA_SHA256 isn't a quoted SHA-256")
+            assert.are_not.equal(("0"):rep(64), pinned, "SPELL_DATA_SHA256 is still the placeholder")
+            local check
+            for _, step in ipairs(build.steps) do
+                if step.text:find("Check the staged files", 1, true) then check = step end
+            end
+            local hashAt = check.text:find('if [ "$actual" != "$SPELL_DATA_SHA256" ]; then', 1, true)
+            local readAt = check.text:find('python3 -I scripts/sim-spell-check.py "$spells" scripts/data/forever-spells.json', 1, true)
+            assert.is_truthy(hashAt and readAt and hashAt < readAt, "the spell data is read before its hash is checked")
+            assert.is_truthy(check.text:find('spells="$out/sim/spells/$SIM_PROFILE/spells.json"', 1, true), "the checked file isn't the staged one")
+            -- Nothing else in the workflow reads it on the runner.
+            assert.are.equal(1, select(2, text:gsub("sim%-spell%-check%.py \"", "")), "the row check runs somewhere else too")
         end)
 
         it("restores only the exact key, never a prefix (black)", function()
@@ -1003,9 +1277,14 @@ describe("UI simulator workflow", function()
                 error("no step " .. fragment)
             end
             assert.is_truthy(restore.text:find("\n%s*id:%s*sim%-cache\n"), "the skip conditions read an id the restore step doesn't have")
-            for _, fragment in ipairs({ "Fetch the simulator", "Build a build image", "Download the simulator", "Build the simulator", "Stage the simulator", "Save the staged" }) do
+            for _, fragment in ipairs({ "Fetch the simulator", "Build a build image", "Download the simulator", "Build the simulator",
+                "Download Forever's spell data", "Stage the simulator", "Save the staged" }) do
                 assert.is_true(find(fragment).skipped, fragment .. " runs on a cache hit")
             end
+            -- The spell data is downloaded with the tool the build made, and staged after.
+            assert.is_true(find("Build the simulator").index < find("Download Forever's spell data").index
+                and find("Download Forever's spell data").index < find("Stage the simulator").index,
+                "the spell data isn't downloaded between the build and the staging")
             for _, fragment in ipairs({ "Work out the cache key", "Restore the staged", "Check the staged files", "actions/upload-artifact" }) do
                 assert.is_false(find(fragment).skipped, fragment .. " is skipped on a hit")
             end
@@ -1030,16 +1309,35 @@ describe("UI simulator workflow", function()
         end)
     end)
 
-    -- #154: the maintainer's fixes, reviewed on #154 before the pin moved.
-    -- There's no published image at that commit, and release binaries are
-    -- never used, so the simulator job builds it and the others run that.
-    it("pins wow-ui-sim at the reviewed ac893c6 and runs only the build made from it (black)", function()
-        assert.is_truthy(text:find("\n%s*SIM_COMMIT: ac893c6659d5152965352bfeb725fad89b9bc0d5\n"),
+    -- #160: upstream's master of 2026-11-13, reviewed on #160 before the pin
+    -- moved (#154 moved it before). There's no published image at that
+    -- commit, and release binaries are never used, so the simulator job
+    -- builds it and the others run that.
+    it("pins wow-ui-sim at the reviewed 936d5f5 and runs only the build made from it (black)", function()
+        assert.is_truthy(text:find("\n%s*SIM_COMMIT: 936d5f53841ee620384b7f05a0f8d5e861835c3d\n"),
             "the simulator isn't pinned at the reviewed commit")
-        assert.is_truthy(text:find("\n%s*BUILD_BASE: rust@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2%s"),
+        assert.is_truthy(text:find("\n%s*BUILD_BASE: rust@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c%s"),
             "the build base isn't the reviewed digest")
         assert.is_truthy(text:find("\n%s*RENDER_BASE: debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3%s"),
             "the render base isn't the reviewed digest")
+        -- Forever (#160, the owner's decision): the profile, its features and
+        -- Blizzard's UI at the commit the simulator's source names.
+        assert.is_truthy(text:find("\n%s*SIM_PROFILE: wowforever\n"), "the simulator doesn't play Forever")
+        assert.is_truthy(text:find("\n%s*BUILD_FEATURES: gui client%-wowforever tools\n"), "the build isn't the Forever one")
+        assert.is_truthy(text:find("\n%s*BLIZZARD_UI_COMMIT: aff0d8cd53bf4d9ef1c1dd2786b94461a276fb16\n"),
+            "Blizzard's UI isn't at the reviewed commit")
+        assert.is_truthy(text:find("\n%s*BLIZZARD_UI_VERSION: 1%.60%.1%.70707\n"), "Blizzard's UI isn't the reviewed version")
+        -- The image's own toolchain, the one the source asks for, so rustup
+        -- never downloads another: in the download and in the build.
+        assert.is_truthy(text:find("\n%s*BUILD_TOOLCHAIN: 1%.99%.1\n"), "the toolchain isn't the one the source asks for")
+        local toolchains = 0
+        for _, command in ipairs(dockerRuns(jobs.simulator)) do
+            if command:find("%sff%-build cargo ") then
+                toolchains = toolchains + 1
+                assert.is_truthy(command:find('-e RUSTUP_TOOLCHAIN="$BUILD_TOOLCHAIN" ', 1, true), "cargo may fetch a toolchain: " .. command)
+            end
+        end
+        assert.are.equal(2, toolchains, "expected cargo fetch and cargo build")
         for _, banned in ipairs({ "ghcr%.io", "docker pull", "IMAGE:", "releases/download", "%.dmg", "%.tar%.gz" }) do
             assert.is_falsy(text:find(banned), "a published image or release binary is used: " .. banned)
         end
@@ -1063,6 +1361,15 @@ describe("UI simulator workflow", function()
         end
         assert.is_truthy(build.text:find('\n%s*test %-f "%$bin"\n%s*test ! %-L "%$bin"\n%s*cp %-P "%$bin" '),
             "the binary is copied without checking it's a plain file")
+        -- So is the spell data, into the folder the simulator reads beside its binary.
+        assert.is_truthy(build.text:find('\n%s*test %-f "%$spells"\n%s*test ! %-L "%$spells"\n%s*mkdir %-p "%$out/sim/spells/%$SIM_PROFILE"\n'
+            .. '%s*cp %-P "%$spells" "%$out/sim/spells/%$SIM_PROFILE/spells%.json"\n'), "the spell data is copied without checking it's a plain file")
+        -- wow-cli is built for the spell data step only: it never reaches the other jobs.
+        local stage
+        for _, step in ipairs(build.steps) do
+            if step.text:find("name: Stage the simulator", 1, true) then stage = step end
+        end
+        assert.is_falsy(stage.text:find("wow-cli", 1, true), "wow-cli is staged for the other jobs")
         for _, name in ipairs({ "ui-sim", "screenshots" }) do
             local job = jobs[name]
             assert.is_truthy(job, "no " .. name .. " job")
@@ -1072,6 +1379,16 @@ describe("UI simulator workflow", function()
                 assert.is_truthy(command:find("%-v \"%$RUNNER_TEMP/ui%-sim%-build/sim:/sim:ro\""),
                     name .. ": runs a simulator that isn't the build's, or mounts it writable: " .. command)
                 assert.is_truthy(command:find("ff%-render /sim/wow%-sim "), name .. ": runs something else: " .. command)
+                -- Forever's UI code where the Forever profile looks for it, unless the run loads no UI (the probe).
+                if command:find("blizzard-ui", 1, true) then
+                    assert.is_truthy(command:find('-v "$RUNNER_TEMP/ui-sim-build/blizzard-ui/AddOns:/tmp/.cache/wow-ui-sim/blizzard-ui/$SIM_PROFILE/AddOns:ro"', 1, true),
+                        name .. ": Blizzard's UI isn't where the profile looks: " .. command)
+                else
+                    assert.is_truthy(command:find("/sim/wow-sim --help", 1, true), name .. ": a run without Blizzard's UI: " .. command)
+                end
+                -- The profile's interface version is our TOC's, so the addon
+                -- must load without the game's "Load out of date AddOns".
+                assert.is_falsy(command:find("OUT_OF_DATE", 1, true), name .. ": loads the addon as out of date")
             end
         end
     end)

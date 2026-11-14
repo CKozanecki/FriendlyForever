@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47, #169, #208, #209, #254
+-- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -146,9 +146,10 @@ describe("the UI simulator's options tabs", function()
     end)
 end)
 
--- The Buff Back tab's buffs by their Forever names (#158): the simulator's
--- spell data has none of Forever's buffs, so the fixture answers their
--- names, and the tab's LAYOUT lines measure what a player reads.
+-- The Buff Back tab's buffs by their Forever names (#158), so the tab's
+-- LAYOUT lines measure what a player reads. The simulator has Forever's
+-- spell data since #160 and names them itself; pages.lua lists the names
+-- the tab must show and checks the client gives them.
 describe("the UI simulator's Buff Back names", function()
     local ns, Pages, original
 
@@ -185,9 +186,29 @@ describe("the UI simulator's Buff Back names", function()
         end
     end)
 
-    it("shows each row of the tab with its Forever name, the longest Blessing of Wisdom (white)", function()
-        local seen
-        Pages.WithBuffNames(function() seen = rows() end)
+    -- #160: the simulator names Forever's buffs itself now, so nothing here
+    -- answers for it. UnnamedBuff says whether the client does, and the tab
+    -- scenarios fail on its message: rows of buff keys would pass every
+    -- layout check on text far shorter than a player reads (#158).
+    it("says nothing is unnamed when the client names every rank as on Forever (white)", function()
+        _G.C_Spell.GetSpellName = function(id)
+            for _, buff in ipairs(Pages.BUFF_NAMES) do
+                for _, rank in ipairs(buff.ranks) do
+                    if rank == id then return buff.name end
+                end
+            end
+        end
+        assert.is_nil(Pages.UnnamedBuff())
+    end)
+
+    it("shows each row of the tab with the name the client gives, the longest Blessing of Wisdom (white)", function()
+        local names = {}
+        for _, buff in ipairs(Pages.BUFF_NAMES) do
+            for _, rank in ipairs(buff.ranks) do names[rank] = buff.name end
+        end
+        _G.C_Spell.GetSpellName = function(id) return names[id] end
+        assert.is_nil(Pages.UnnamedBuff())
+        local seen = rows()
         assert.are.equal(3, #seen)
         for i, buff in ipairs(Pages.BUFF_NAMES) do
             assert.are.equal(i .. ". " .. buff.name, seen[i]:match("^(.-) |c") or seen[i])
@@ -195,60 +216,50 @@ describe("the UI simulator's Buff Back names", function()
         assert.are.equal("2. Blessing of Wisdom", seen[2]:match("^(.-) |c") or seen[2])
     end)
 
-    it("leaves the tab on the buff keys without it, which is what it fixes (white)", function()
-        -- The simulator knows none of Forever's buffs; the test client knows
-        -- Might's name, so take it away for this look.
-        local saved = {}
-        for _, id in ipairs(ns.BuffData.ByKey("might").ranks) do saved[id], wow.SPELL_NAMES[id] = wow.SPELL_NAMES[id], nil end
-        local seen = rows()
-        for id, name in pairs(saved) do wow.SPELL_NAMES[id] = name end
-        assert.is_truthy(seen[3]:find("^3%. might"), seen[3])
+    it("names the first rank the client has no name for, or another name, with what it should be (black)", function()
+        local names = {}
+        for _, buff in ipairs(Pages.BUFF_NAMES) do
+            for _, rank in ipairs(buff.ranks) do names[rank] = buff.name end
+        end
+        _G.C_Spell.GetSpellName = function(id) return names[id] end
+        -- Each rank in turn: nothing, the buff key (what the tab showed
+        -- before #158), a number, and the name of another buff.
+        for _, buff in ipairs(Pages.BUFF_NAMES) do
+            for _, rank in ipairs(buff.ranks) do
+                local right = names[rank]
+                for _, wrong in ipairs({ false, buff.key, 7, "Blessing of Sanctuary" }) do
+                    names[rank] = wrong or nil
+                    local said = Pages.UnnamedBuff()
+                    assert.is_truthy(said, "rank " .. rank .. " named " .. tostring(wrong) .. " passes")
+                    assert.is_truthy(said:find("spell " .. rank .. " ", 1, true), said)
+                    assert.is_truthy(said:find('not "' .. buff.name .. '"', 1, true), said)
+                    if type(wrong) == "string" then
+                        assert.is_truthy(said:find('"' .. wrong .. '"', 1, true), said)
+                    else
+                        assert.is_truthy(said:find("nothing", 1, true), said)
+                    end
+                end
+                names[rank] = right
+            end
+        end
+        assert.is_nil(Pages.UnnamedBuff())
     end)
 
-    it("passes every other spell, and anything that isn't a spell ID, to the client's own (black)", function()
-        local asked = {}
-        _G.C_Spell.GetSpellName = function(...)
-            asked[#asked + 1] = { ... }
-            return "client's " .. tostring((...))
-        end
-        local undo = Pages.NameBuffs()
-        assert.are.equal("Blessing of Wisdom", _G.C_Spell.GetSpellName(25290))
-        assert.are.equal(0, #asked)
-        for _, spell in ipairs({ 10938, 999999, "Blessing of Wisdom", 0, -1, 19742.5, true, {} }) do
-            assert.are.equal("client's " .. tostring(spell), _G.C_Spell.GetSpellName(spell, "extra"))
-            assert.are.same({ spell, "extra" }, asked[#asked])
-        end
-        assert.are.equal("client's nil", _G.C_Spell.GetSpellName(nil))
-        undo()
-    end)
-
-    it("answers nothing for other spells when the client has no GetSpellName (black)", function()
+    it("says a buff is unnamed when the client has no GetSpellName, or it errors, and changes nothing (black)", function()
         _G.C_Spell.GetSpellName = nil
-        local undo = Pages.NameBuffs()
-        assert.are.equal("Blessing of Kings", _G.C_Spell.GetSpellName(20217))
-        assert.is_nil(_G.C_Spell.GetSpellName(10938))
-        undo()
+        assert.is_truthy(Pages.UnnamedBuff():find("spell 20217 nothing", 1, true))
         assert.is_nil(_G.C_Spell.GetSpellName)
+        local erroring = function() error("no spell data") end
+        _G.C_Spell.GetSpellName = erroring
+        assert.is_truthy(Pages.UnnamedBuff():find("spell 20217 nothing", 1, true))
+        assert.are.equal(erroring, _G.C_Spell.GetSpellName)
     end)
 
-    it("puts the client's GetSpellName back afterwards (white)", function()
-        Pages.WithBuffNames(function()
-            assert.are_not.equal(original, _G.C_Spell.GetSpellName)
-        end)
+    it("no longer answers for the client: showing a tab leaves its GetSpellName alone (white)", function()
+        assert.is_nil(Pages.NameBuffs)
+        assert.is_nil(Pages.WithBuffNames)
+        Pages.ShowTab("buff-back")
         assert.are.equal(original, _G.C_Spell.GetSpellName)
-        assert.is_truthy(rows()[3]:find("Blessing of Might", 1, true), "the test client's own name")
-    end)
-
-    it("puts the client's GetSpellName back even when the scenario fails, and raises its error (white)", function()
-        for _, failure in ipairs({ "a layout check failed", { reason = "a table" } }) do
-            local ok, err = pcall(Pages.WithBuffNames, function()
-                assert.are.equal("Blessing of Wisdom", _G.C_Spell.GetSpellName(19742))
-                error(failure, 0)
-            end)
-            assert.is_false(ok)
-            assert.are.equal(failure, err)
-            assert.are.equal(original, _G.C_Spell.GetSpellName)
-        end
     end)
 
     -- The workflow's staging commands, run as it runs them (comments dropped)
@@ -466,5 +477,108 @@ describe("the UI simulator's walkthrough steps", function()
         for _, name in ipairs(names) do
             assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowWalkthrough("' .. name .. '")\n', written[name])
         end
+    end)
+end)
+
+-- #160: the simulator's Forever profile prints the game's "Interface action
+-- failed because of an AddOn" line in the shots that open the main panel.
+-- pages.lua says who was blamed: the two events the client fires, and the
+-- callers of Blizzard's own function for the line, which fires neither.
+describe("the UI simulator's blocked-action report (#160)", function()
+    local Pages, printed, shown
+
+    before_each(function()
+        wow.boot()
+        printed, shown = {}, {}
+        _G.A_Print = function(text) printed[#printed + 1] = text end
+        _G.DisplayInterfaceActionBlockedMessage = function(...) shown[#shown + 1] = select("#", ...) end
+        _G.debugstack = function(start, top, bottom)
+            return ("first caller %d %d %d\nsecond caller\r\n\n"):format(start, top, bottom)
+        end
+    end)
+
+    after_each(function()
+        _G.FriendlyForeverUIPages = nil
+        _G.A_Print = nil
+        _G.DisplayInterfaceActionBlockedMessage = nil
+        _G.debugstack = nil
+    end)
+
+    local function load()
+        dofile("uitests/pages.lua")
+        Pages = _G.FriendlyForeverUIPages
+    end
+
+    it("records each blocked or forbidden action in order, counts repeats and prints a new one once (white)", function()
+        load()
+        wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", "Button:Show()")
+        wow.fire("ADDON_ACTION_FORBIDDEN", "OtherAddon", "CastSpellByName()")
+        wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", "Button:Show()")
+        assert.are.same({ "ADDON_ACTION_BLOCKED FriendlyForever Button:Show()",
+            "ADDON_ACTION_FORBIDDEN OtherAddon CastSpellByName()" }, Pages.blocked.order)
+        assert.are.equal(2, Pages.blocked.count["ADDON_ACTION_BLOCKED FriendlyForever Button:Show()"])
+        assert.are.equal(1, Pages.blocked.count["ADDON_ACTION_FORBIDDEN OtherAddon CastSpellByName()"])
+        assert.are.same({ "FACT sim blocked action, as it happens: ADDON_ACTION_BLOCKED FriendlyForever Button:Show()",
+            "FACT sim blocked action, as it happens: ADDON_ACTION_FORBIDDEN OtherAddon CastSpellByName()" }, printed)
+    end)
+
+    it("records nothing while nothing is blocked (black)", function()
+        load()
+        wow.fire("PLAYER_REGEN_DISABLED")
+        assert.are.same({}, Pages.blocked.order)
+        assert.are.same({}, Pages.blockedMessage)
+        assert.are.same({}, printed)
+    end)
+
+    it("prints who called the client's chat line, from the caller up, and still shows the line (white)", function()
+        local original = _G.DisplayInterfaceActionBlockedMessage
+        load()
+        assert.are_not.equal(original, _G.DisplayInterfaceActionBlockedMessage)
+        _G.DisplayInterfaceActionBlockedMessage("one", "two")
+        assert.are.same({ 2 }, shown, "the client's function ran once, with what it was given")
+        assert.are.same({ "first caller 2 12 0", "second caller" }, Pages.blockedMessage)
+        assert.are.same({ "FACT sim the blocked-action chat line, called from: first caller 2 12 0",
+            "FACT sim the blocked-action chat line, called from: second caller" }, printed)
+    end)
+
+    it("puts the client's function back before running it, so only the first call is reported (white)", function()
+        local original = _G.DisplayInterfaceActionBlockedMessage
+        load()
+        _G.DisplayInterfaceActionBlockedMessage()
+        assert.are.equal(original, _G.DisplayInterfaceActionBlockedMessage)
+        _G.DisplayInterfaceActionBlockedMessage()
+        assert.are.same({ 0, 0 }, shown)
+        assert.are.equal(2, #Pages.blockedMessage)
+    end)
+
+    it("keeps a replacement the client's function makes of itself, as Blizzard's does (white)", function()
+        local quiet = function() end
+        _G.DisplayInterfaceActionBlockedMessage = function()
+            shown[#shown + 1] = 0
+            _G.DisplayInterfaceActionBlockedMessage = quiet
+        end
+        load()
+        _G.DisplayInterfaceActionBlockedMessage()
+        assert.are.equal(quiet, _G.DisplayInterfaceActionBlockedMessage)
+        assert.are.same({ 0 }, shown)
+    end)
+
+    it("says so when the client gives no call stack, and still shows the line (black)", function()
+        for _, broken in ipairs({ false, function() error("no stack") end, function() return "" end, function() return 7 end }) do
+            printed, shown = {}, {}
+            _G.DisplayInterfaceActionBlockedMessage = function() shown[#shown + 1] = 0 end
+            _G.debugstack = broken or nil
+            load()
+            _G.DisplayInterfaceActionBlockedMessage()
+            assert.are.same({ "(the client gave no call stack)" }, Pages.blockedMessage)
+            assert.are.same({ 0 }, shown)
+        end
+    end)
+
+    it("loads where the client has no such function, and reports no caller (black)", function()
+        _G.DisplayInterfaceActionBlockedMessage = nil
+        load()
+        assert.is_nil(_G.DisplayInterfaceActionBlockedMessage)
+        assert.are.same({}, Pages.blockedMessage)
     end)
 end)
