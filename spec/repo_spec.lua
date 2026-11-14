@@ -2243,8 +2243,9 @@ describe("UI simulator workflow", function()
             -- thrown away (2>/dev/null) or sent down the pipe (2>&1); the
             -- commands after it read only the pipe: no file, glob or command
             -- runner of their own (#364's testing review).
-            local ERRORS = "%f[%d]2>%s*/dev/null%f[%s%z]"
-            local INTO_PIPE = "%f[%d]2>&1%f[%s%z]"
+            -- (A word of its own: "$f"2>/dev/null is the argument "$f"2.)
+            local ERRORS = "%s2>%s*/dev/null%f[%s%z]"
+            local INTO_PIPE = "%s2>&1%f[%s%z]"
             local function keep(inside)
                 local first, later = inside:match("^([^|]*)(.*)$")
                 if not (first:find(ERRORS) or first:find(INTO_PIPE)) then return nil end
@@ -2254,9 +2255,11 @@ describe("UI simulator workflow", function()
                     return nil
                 end
                 -- (Nor a copy to stderr, a tee or a device on the way to the tr,
-                -- nor a command run beside it with & or &&.)
+                -- nor a command run beside it with & or &&, nor a < redirect:
+                -- bash opens it, and names its file on failure, before a later
+                -- 2>/dev/null applies, round 8.)
                 inside = inside:gsub(ERRORS, ""):gsub(INTO_PIPE, "")
-                if inside:find("&", 1, true) or inside:find("||", 1, true) or inside:find(">", 1, true) or inside:find("%f[%w]tee%f[%W]")
+                if inside:find("<", 1, true) or inside:find("&", 1, true) or inside:find("||", 1, true) or inside:find(">", 1, true) or inside:find("%f[%w]tee%f[%W]")
                     or inside:find("/dev/", 1, true) or inside:find("/proc/", 1, true) then
                     return nil
                 end
@@ -2997,7 +3000,10 @@ describe("UI simulator workflow", function()
                     [[n=$(cat "$f" 2>/dev/null | tee /dev/stderr | tr -cd '0-9')]],
                     -- A redirect to a variable could name a device.
                     [[n=$(cat "$f" 2>/dev/null > "$out" | tr -cd '0-9')]], [[n=$(cat "$f" 2>/dev/null >/dev/stderr | tr -cd '0-9')]],
-                    [[n=$(cat "$f" 2>/dev/nullx | tr -cd '0-9')]] }) do
+                    [[n=$(cat "$f" 2>/dev/nullx | tr -cd '0-9')]],
+                    -- A < opened before the 2>/dev/null applies, and a 2 glued to the word before it (round 8).
+                    [[n=$(wc -l < "$f" 2>/dev/null | tr -cd '0-9')]], [[n=$(od -An -tx1 -N8 < "$f" 2>&1 | tr -cd '0-9a-f')]],
+                    [[n=$(stat -c %s "$f"2>/dev/null | tr -cd '0-9')]], [[n=$(cat "$f"2>&1 | tr -cd '0-9')]] }) do
                     assert.are.equal(1, #scan(step(loop:format(loud))), loud)
                 end
                 -- A glob after the reader is a reader of its own, inside a tree.
