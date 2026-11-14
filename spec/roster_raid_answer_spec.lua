@@ -1,9 +1,10 @@
--- Spec: #359, #370
+-- Spec: #359, #370, #373
 -- Buff mode's triggers read the group's slots the way its group look does
 -- (#346): IsInRaid() is believed only when the slots agree. While it can't
 -- be, the "someone is missing your buff" trigger forgets nobody it
 -- remembers (#272), the death trigger forgets nobody it saw dead, and the
--- join trigger counts nobody close.
+-- join trigger counts nobody close. A roster update that can't read
+-- IsInGroup() is neither a join nor a leave (#373).
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
@@ -262,6 +263,324 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
         end)
     end)
 
+    -- #373: in the middle of a session, a roster update that can't read
+    -- IsInGroup() changes nothing: no join, no leave. The next one that can
+    -- decides. While the group isn't known after a login (#370), the looks
+    -- read IsInGroup() again, so they don't wait for a roster update.
+    describe("a roster update that can't read IsInGroup() (#373)", function()
+        local function unreadableUpdate()
+            wow.state.inGroupUnreadable = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+        end
+        local function readableUpdate()
+            wow.state.inGroupUnreadable = nil
+            wow.fire("GROUP_ROSTER_UPDATE")
+        end
+        local function leave()
+            wow.setGroup(nil, {})
+            wow.fire("GROUP_ROSTER_UPDATE")
+        end
+
+        -- Cid's Mark fades, buff mode turns on, and the player turns it off.
+        local function fadedAndOff(group, token)
+            boot("autoOnMissing")
+            group()
+            coverAll()
+            look()
+            wow.state.units[token].auras = {}
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "Cid's Mark faded")
+            slash("buffmode off")
+        end
+
+        local GROUPS = {
+            { "party", party, "party2", "party1", "(Ann Vale is missing your Mark of the Wild)" },
+            { "raid", raid, "raid4", "raid5", "(Dot Moss is missing your Mark of the Wild)" },
+        }
+
+        it("joining and leaving behave as before: a group joined counts everyone missing a buff as new, and leaving forgets (white)", function()
+            for _, case in ipairs(GROUPS) do
+                local what, group = case[1], case[2]
+                -- The missing-buff trigger: Cid's fade, off by hand, stays off.
+                fadedAndOff(group, case[3])
+                for _ = 1, 3 do look() end
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": Cid was missing at the last look")
+                -- Leaving forgets; joining again, Cid missing is new.
+                leave()
+                look()
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": out of the group")
+                group()
+                coverAll()
+                wow.state.units[case[3]].auras = {}
+                look()
+                assert.is_true(ns.BuffMode.IsAuto(), what .. ": the group joined again: Cid is missing, as new")
+                -- The join trigger: on at a join, off by hand, on at the next join.
+                boot("autoOnJoin")
+                group()
+                assert.is_true(ns.BuffMode.IsAuto(), what .. ": joined with someone close")
+                slash("buffmode off")
+                leave()
+                group()
+                assert.is_true(ns.BuffMode.IsAuto(), what .. ": joined again")
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
+        it("one roster update that can't read IsInGroup(), in a party or a raid, forgets no missing buff (black)", function()
+            for _, case in ipairs(GROUPS) do
+                local what = case[1]
+                fadedAndOff(case[2], case[3])
+                unreadableUpdate()
+                look()
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": the look after the update that can't read the group")
+                readableUpdate()
+                for _ = 1, 4 do look() end
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": Cid was missing all along, not new")
+                -- A new fade still counts.
+                wow.state.units[case[4]].auras = {}
+                look()
+                assert.is_true(ns.BuffMode.IsAuto(), what .. ": a new fade still counts")
+                assert.is_true(printedHas(case[5]), what)
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
+        it("one roster update that can't read IsInGroup() isn't a join: buff mode turned off stays off, in the world or a dungeon (black)", function()
+            for _, case in ipairs(GROUPS) do
+                for _, where in ipairs({ "world", "dungeon" }) do
+                    local what = case[1] .. " in the " .. where
+                    boot("autoOnJoin")
+                    if where == "dungeon" then wow.enterDungeon(33, "Shadowfang Keep") end
+                    case[2]()
+                    assert.is_true(ns.BuffMode.IsAuto(), what .. ": joined")
+                    slash("buffmode off")
+                    unreadableUpdate()
+                    readableUpdate()
+                    assert.is_false(ns.BuffMode.IsOn(), what .. ": the same group, not a join")
+                    for _ = 1, 3 do look() end
+                    assert.is_false(ns.BuffMode.IsOn(), what .. ": and nothing later either")
+                    assert.are.same({}, wow.errors, what)
+                end
+            end
+        end)
+
+        it("one roster update that can't read IsInGroup() isn't a leave: the group's first pull holds, so a death still counts (black)", function()
+            for _, case in ipairs(GROUPS) do
+                local what = case[1]
+                boot("autoOnDeath")
+                case[2]()
+                wow.enterCombat()
+                wow.leaveCombat()
+                unreadableUpdate()
+                readableUpdate()
+                wow.state.units[case[3]].dead = true
+                wow.fire("UNIT_HEALTH", case[3])
+                assert.is_true(ns.BuffMode.IsAuto(), what .. ": Cid died after the group's first pull")
+                assert.is_true(printedHas("(someone in your group died)"), what)
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
+        it("a real leave read while IsInGroup() can't be read: the next update that can read it leaves (black)", function()
+            for _, case in ipairs(GROUPS) do
+                local what = case[1]
+                fadedAndOff(case[2], case[3])
+                wow.setGroup(nil, {})
+                unreadableUpdate()
+                readableUpdate()
+                look()
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": out of the group")
+                -- Joining again: Cid missing is new, so leaving forgot.
+                case[2]()
+                coverAll()
+                wow.state.units[case[3]].auras = {}
+                look()
+                assert.is_true(ns.BuffMode.IsAuto(), what .. ": the group joined again: Cid is missing, as new")
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
+        it("one roster update that can't read IsInGroup() still notes who is dead: their release isn't a new death (black)", function()
+            for _, case in ipairs(GROUPS) do
+                local what = case[1]
+                boot("autoOnDeath")
+                case[2]()
+                wow.enterCombat()
+                wow.leaveCombat()
+                -- Cid died where the game sent no health change.
+                wow.state.units[case[3]].dead = true
+                unreadableUpdate()
+                wow.state.inGroupUnreadable = nil
+                wow.enterCombat()
+                wow.fire("UNIT_HEALTH", case[3])
+                wow.leaveCombat()
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": Cid's release isn't a new death")
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
+        it("out of a group, a look while IsInGroup() can't be read keeps you out: joining later is still a join (black)", function()
+            for _, case in ipairs(GROUPS) do
+                local what = case[1]
+                boot("autoOnJoin")
+                case[2]()
+                assert.is_true(ns.BuffMode.IsAuto(), what .. ": joined")
+                slash("buffmode off")
+                leave()
+                -- The look already scheduled comes while the game can't say.
+                wow.state.inGroupUnreadable = true
+                for _ = 1, 3 do look() end
+                -- Readable again at the join itself.
+                wow.state.inGroupUnreadable = nil
+                case[2]()
+                assert.is_true(ns.BuffMode.IsAuto(), what .. ": joined again, with someone close")
+                assert.is_true(printedHas("(you joined a group)"), what)
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
+        -- Leaving or joining can send one roster update and no other: when
+        -- that one can't read IsInGroup(), the next look reads it again and
+        -- decides (the architecture review of PR #378).
+        local function leaveUnread()
+            wow.setGroup(nil, {})
+            unreadableUpdate()
+            look()
+            wow.state.inGroupUnreadable = nil
+        end
+
+        it("a leave whose only roster update can't read IsInGroup() is seen at a later look: the next group is a join (black)", function()
+            for _, case in ipairs(GROUPS) do
+                local what = case[1]
+                boot("autoOnJoin")
+                case[2]()
+                slash("buffmode off")
+                leaveUnread()
+                for _ = 1, 4 do look() end
+                -- A new group: Bo and Dot, out in the world, close by.
+                wow.setGroup("party", { "Bo-Fern", "Dot-Moss" })
+                wow.fire("GROUP_ROSTER_UPDATE")
+                assert.is_true(ns.BuffMode.IsAuto(), what .. ": joining Bo and Dot's party is a join")
+                assert.is_true(printedHas("(you joined a group)"), what)
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
+        it("a leave whose only roster update can't read IsInGroup() ends the group's first pull: a death in the next group before its pull doesn't count (black)", function()
+            for _, case in ipairs(GROUPS) do
+                local what = case[1]
+                boot("autoOnDeath")
+                case[2]()
+                wow.enterCombat()
+                wow.leaveCombat()
+                leaveUnread()
+                for _ = 1, 4 do look() end
+                wow.setGroup("party", { "Bo-Fern", "Dot-Moss" })
+                wow.fire("GROUP_ROSTER_UPDATE")
+                wow.state.units.party1.dead = true
+                wow.fire("UNIT_HEALTH", "party1")
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": the new group hasn't fought yet")
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
+        it("a join whose only roster update can't read IsInGroup() is seen at the next look that can (black)", function()
+            for _, case in ipairs(GROUPS) do
+                local what = case[1]
+                boot("autoOnJoin")
+                wow.state.inGroupUnreadable = true
+                case[2]()
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": the update that can't read the group")
+                look()
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": the look that can't read it either")
+                wow.state.inGroupUnreadable = nil
+                look()
+                assert.is_true(ns.BuffMode.IsAuto(), what .. ": the next look reads the join")
+                assert.is_true(printedHas("(you joined a group)"), what)
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
+        it("once a look decides after an update that couldn't read IsInGroup(), someone coming close is checked only at the next roster change (black)", function()
+            -- Joining out in the world with nobody close: the join trigger
+            -- waits for a roster change with someone close (#256).
+            local function joinedFar()
+                boot("autoOnJoin")
+                wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+                wow.state.units.party1.outOfRange = true
+                wow.state.units.party2.outOfRange = true
+                wow.fire("GROUP_ROSTER_UPDATE")
+                assert.is_false(ns.BuffMode.IsOn(), "nobody close at the join")
+            end
+            for _, how in ipairs({ "a look", "a roster update" }) do
+                joinedFar()
+                unreadableUpdate()
+                if how == "a look" then
+                    wow.state.inGroupUnreadable = nil
+                    look()
+                else
+                    readableUpdate()
+                end
+                -- The same group, decided by `how`. Ann comes close; the game
+                -- sends no roster change.
+                wow.state.units.party1.outOfRange = nil
+                for _ = 1, 3 do look() end
+                assert.is_false(ns.BuffMode.IsOn(), how .. ": the looks don't check who is close")
+                wow.fire("GROUP_ROSTER_UPDATE")
+                assert.is_true(ns.BuffMode.IsAuto(), how .. ": the next roster change does")
+                assert.is_true(printedHas("(you joined a group)"), how)
+                assert.are.same({}, wow.errors, how)
+            end
+        end)
+
+        it("after a reload that can't read IsInGroup(), the looks read it again without a roster update (black)", function()
+            for _, case in ipairs(GROUPS) do
+                local what = case[1]
+                fadedAndOff(case[2], case[3])
+                wow.state.inGroupUnreadable = true
+                wow.reloadInPlace(false, { keepTimers = true })
+                for _ = 1, 3 do look() end
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": while the group can't be read")
+                -- Readable again, and no roster update comes.
+                wow.state.inGroupUnreadable = nil
+                for _ = 1, 4 do look() end
+                assert.is_false(ns.BuffMode.IsOn(), what .. ": Cid was missing all along, not new")
+                wow.state.units[case[4]].auras = {}
+                look()
+                assert.is_true(ns.BuffMode.IsAuto(), what .. ": the looks run again, and a new fade counts")
+                assert.is_true(printedHas(case[5]), what)
+                assert.are.same({}, wow.errors, what)
+            end
+            -- Out of a group: the look that reads it stops there, and joining
+            -- one later is a join (everyone missing a buff is new, #272).
+            boot("autoOnMissing")
+            wow.state.inGroupUnreadable = true
+            wow.reloadInPlace(false, { keepTimers = true })
+            look()
+            wow.state.inGroupUnreadable = nil
+            look()
+            party()
+            wow.wearBuff("party1", MOTW, { source = "player" })
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "Cid is missing your Mark in the group you joined")
+            assert.is_true(printedHas("(Cid Rock is missing your Mark of the Wild)"))
+            assert.are.same({}, wow.errors)
+            -- And with the join trigger: the look's "not in a group" is kept,
+            -- so the party joined later is a join.
+            boot("autoOnJoin")
+            wow.state.inGroupUnreadable = true
+            wow.reloadInPlace(false, { keepTimers = true })
+            look()
+            wow.state.inGroupUnreadable = nil
+            for _ = 1, 2 do look() end
+            wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(ns.BuffMode.IsAuto(), "joining after the look read no group is a join")
+            assert.is_true(printedHas("(you joined a group)"))
+            assert.are.same({}, wow.errors)
+        end)
+    end)
+
     describe("the death trigger", function()
         -- Cid joins dead; later, in a fight, Cid releases as a ghost (their
         -- health changes, still dead): not a new death.
@@ -368,8 +687,9 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
 
     -- red: regroups, buffs worn and lost, range and sight changes, an
     -- IsInRaid() that tells the truth, flips half its answers, always lies,
-    -- or can't be read, and an IsInGroup() that sometimes can't be read
-    -- (#370). The missing-buff trigger never turns buff mode on
+    -- or can't be read, an IsInGroup() that sometimes can't be read
+    -- (#370), and roster updates that come while it can't (#373). The
+    -- missing-buff trigger never turns buff mode on
     -- for a member the client's state shows was already missing at an
     -- earlier look the addon could see them at, and hasn't been seen wearing
     -- it or left since. Buff mode is turned off by hand after each turn-on,
@@ -378,7 +698,7 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
         local POOL = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed", "Gus-Lane", "Hal-Pine" }
         local MODES = { "truth", "flips", "inverted", "unreadable" }
         local total = { looks = 0, turnedOn = 0, raidAsParty = 0, partyAsRaid = 0, reloads = 0, freshLies = 0,
-            freshNoGroup = 0, noGroup = 0 }
+            freshNoGroup = 0, noGroup = 0, unreadableRoster = 0, unreadableRosterHeld = 0 }
         local perSeed = {}
         for _, seed in ipairs({ 11, 359, 1024, 4242, 31337, 77777 }) do
             random.seed(seed)
@@ -543,12 +863,21 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
                 group = function()
                     wow.state.inGroupUnreadable = not wow.state.inGroupUnreadable or nil
                 end,
+                -- A roster update with the group unchanged (#373): when
+                -- IsInGroup() can't be read, it's neither a join nor a leave.
+                roster = function()
+                    if wow.state.inGroupUnreadable and wow.state.groupType then
+                        total.unreadableRoster = total.unreadableRoster + 1
+                        if next(known) then total.unreadableRosterHeld = total.unreadableRosterHeld + 1 end
+                    end
+                    wow.fire("GROUP_ROSTER_UPDATE")
+                end,
             }
             local NAMES = { "regroup", "wear", "strip", "strip", "range", "sight", "lie", "lie", "lie", "reload",
-                "group", "group" }
+                "group", "group", "roster", "roster" }
 
             regroup()
-            for step = 1, 150 do
+            for step = 1, 250 do
                 local action = NAMES[random.random(#NAMES)]
                 ACTIONS[action]()
                 local where = ("seed %d, step %d (%s, IsInRaid %s)"):format(seed, step, action, mode)
@@ -610,5 +939,9 @@ describe("Buff mode's triggers believe IsInRaid() only when the slots agree (#35
         assert.is_true(total.noGroup > 0, "a look in a group with IsInGroup() unreadable")
         assert.is_true(total.freshNoGroup > 0, "a first look after a reload with IsInGroup() unreadable, someone missing: "
             .. total.freshNoGroup)
+        -- #373: roster updates that couldn't read IsInGroup(), in a group,
+        -- some while a member was held as missing.
+        assert.is_true(total.unreadableRosterHeld > 0, ("roster updates with IsInGroup() unreadable: %d, %d with a member held missing")
+            :format(total.unreadableRoster, total.unreadableRosterHeld))
     end)
 end)
