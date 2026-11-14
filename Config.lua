@@ -232,6 +232,10 @@ Config.DEFAULTS = {
         -- Self-buffs (SelfBuffs.lua, #44): in buff mode, after everyone
         -- else, offer your own missing self-buffs. On by default (the owner).
         selfBuffs = true,
+        -- Your own buffs when solo (GroupBuffs.lua, #329): in buff mode, in
+        -- no group, offer you your own copy of the buffs you give, as #198
+        -- does in a group. On by default (the owner).
+        soloOwnBuffs = true,
         -- buffOrder: buff keys, offered first in this order (empty: each
         -- class's own order). neverOffer: [buff key] = true, or false for a
         -- buff that's "Never offer" by default and you unticked (Righteous
@@ -313,6 +317,7 @@ Config.FIELD_VALIDATORS = {
     breathNearWater = Bool,
     requests = Bool,
     selfBuffs = Bool,
+    soloOwnBuffs = Bool,
     unlocked = Bool,
     listBuffNames = Bool,
     quietInCities = Bool,

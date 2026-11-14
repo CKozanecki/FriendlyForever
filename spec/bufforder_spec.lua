@@ -190,7 +190,8 @@ describe("Buff order and never offer", function()
             local w = ns.Options.widgets
             wow.run(w.tabs.buffBack, "OnClick")
             assert.are.equal(w.buffRows[2].up, select(2, w.selfBuffs:GetPoint()), "self-buffs follow the list (#44)")
-            assert.are.equal(w.selfBuffs, select(2, w.who.header:GetPoint()), "then who gets each")
+            assert.are.equal(w.selfBuffs, select(2, w.soloOwnBuffs:GetPoint()), "then your own buffs solo (#329)")
+            assert.are.equal(w.soloOwnBuffs, select(2, w.who.header:GetPoint()), "then who gets each")
             assert.are.equal(w.who.neverLabel, select(2, w.autoHeader:GetPoint()), "then buff mode's rows")
             assert.are.equal(w.steppers.autoOffMinutes.label, select(2, w.steppers.topUpMinutes.label:GetPoint()),
                 "then top-up timing (#42)")

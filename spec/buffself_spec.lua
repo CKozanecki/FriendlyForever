@@ -1,4 +1,4 @@
--- Spec: #198, #44
+-- Spec: #198, #44, #329
 -- Buff mode also buffs you: your own copy of each buff you give is offered
 -- on you, after the group's, under the same rules.
 local wow = require("spec.support.wow")
@@ -154,7 +154,10 @@ describe("Buff mode buffing you too", function()
             assert.is_nil(macro())
         end)
 
-        it("is not offered when you're in no group", function()
+        it("is offered when you're in no group too (#329)", function()
+            ns.BuffButton.Refresh()
+            assert.are.equal("me: Mark of the Wild", armed())
+            ns.db.buffBack.soloOwnBuffs = false
             ns.BuffButton.Refresh()
             assert.is_nil(macro())
             local _, why, settled = ns.GroupBuffs.Next()
@@ -495,7 +498,11 @@ describe("Buff mode buffing you too", function()
                             local where = ("seed %d, step %d: %s on you"):format(seed, step, cast.spell)
                             assert.is_falsy(wasDead, where .. ", dead")
                             assert.is_falsy(wasHidden, where .. ", name unreadable")
-                            assert.is_truthy(grouped, where .. ", outside a group")
+                            -- Solo too (#329), but only ever a single version.
+                            if not grouped then
+                                assert.is_truthy(cast.spell == "Mark of the Wild" or cast.spell == "Thorns",
+                                    where .. ", solo")
+                            end
                             assert.is_falsy(wears[cast.spell], where .. ", already on you")
                             selfCasts = selfCasts + 1
                         end

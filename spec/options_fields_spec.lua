@@ -352,6 +352,7 @@ describe("Options panel", function()
             add("battleground preparation", toggle(w.bgPrepBuff, "buffBack", "bgPrepBuff"))
             add("water breathing", toggle(w.breathNearWater, "buffBack", "breathNearWater"))
             add("self-buffs", toggle(w.selfBuffs, "buffBack", "selfBuffs"))
+            add("own buffs solo", toggle(w.soloOwnBuffs, "buffBack", "soloOwnBuffs"))
             for _, field in ipairs(ns.Options.AUTO_SWITCHES) do add(field, toggle(w.auto[field], "buffBack", field)) end
             for _, name in ipairs({ "owedMinutes", "renewPercent", "autoOffMinutes", "topUpMinutes", "groupEnough" }) do
                 add(name, stepper(name, "buffBack"))
