@@ -415,6 +415,14 @@ describe("Each setting's page is where its control is (#179)", function()
         ns.db.buff.fallback = "say"
         -- the nameplate button shows only while friendly nameplates are off
         wow.state.cvars.nameplateShowFriendlyPlayers = "0"
+        -- the class tick boxes show once the first buff's Who rule is "classes"
+        ns.Options.widgets.tabs.buffBack:Click()
+        local key = ns.Options.widgets.buffRows[1].key
+        for _ = 1, 4 do
+            if ns.Options.widgets.who.classes.PRIEST:IsShown() then break end
+            ns.Options.CycleWho(key)
+        end
+        assert.is_true(ns.Options.widgets.who.classes.PRIEST:IsShown(), "the class boxes didn't open")
     end)
 
     -- One checkbox is "Enabled" on most tabs and another setting's name on
@@ -452,12 +460,13 @@ describe("Each setting's page is where its control is (#179)", function()
         local general, ledger = ns.Options.Pages()
         local pages = {}
         CurrentEntry = entry
-        local unshown, total = 0, 0
         for _, path in ipairs(entry.controls) do
             local frames = FramesAt(widgets, path)
             assert.is_true(#frames > 0, entry.name .. ": no control at " .. path)
+            local shownAny = false
             for _, frame in ipairs(frames) do
-                total = total + 1
+                shownAny = shownAny or not (not Under(frame, general) and not Under(frame, ledger)
+                    and not Under(frame, ns.Options.StartPage()) and #TabsShowing(frame) == 0)
                 if Under(frame, general) then pages["the General page"] = true
                 elseif Under(frame, ledger) then pages["the Favour Ledger page"] = true
                 elseif Under(frame, ns.Options.StartPage()) then pages["the Start here page"] = true
@@ -478,14 +487,14 @@ describe("Each setting's page is where its control is (#179)", function()
                         for _, msgType in ipairs(tabs) do
                             pages["the " .. Config.TYPE_INFO[msgType].label .. " tab"] = true
                         end
-                        if #tabs == 0 then unshown = unshown + 1 end
                     end
                 end
             end
+            -- A list's spare rows hide (a class with fewer buffs), so a frame
+            -- shown nowhere is fine while another at its path is shown; a
+            -- path with none shown means the setup forgot to open it.
+            if not shownAny then pages["no page (never shown)"] = true end
         end
-        -- A list's spare rows hide (a class with fewer buffs), so a frame
-        -- shown nowhere only counts when all of the entry's are.
-        if unshown == total then pages["no page (never shown)"] = true end
         return pages
     end
 
