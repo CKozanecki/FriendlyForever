@@ -2991,7 +2991,7 @@ describe("UI simulator workflow", function()
                     [[n=$(cat "$f" 2>/dev/null | exec cat | tr -cd '0-9')]], [[n=$(cat "$f" 2>/dev/null | eval cat | tr -cd '0-9')]],
                     -- The reader is the first command: its errors handled later on don't count (round 2 of the testing review).
                     [[[ "$(head -c 8 "$f" | od -An -tx1 2>/dev/null | tr -cd '0-9a-f')" = "89504e47" ] || continue]],
-                    [[n=$(cat "$f" | wc -c 2>&1 | tr -cd '0-9')]],
+                    [[n=$(cat "$f" | wc -c 2>&1 | tr -cd '0-9')]], [[n=$(true 2>/dev/null | cat "$f" | wc -c | tr -cd '0-9')]],
                     [[[ "$(stat -c %s "$f")" -le 5242880 ] || continue]], [[echo "$(cat "$f" | tr -cd '0-9')" "$(cat "$f")"]],
                     -- Only one pipeline, ending in the tr: anything before it in the $( ) escapes it.
                     -- (Each with its errors handled, so only the rule named is at stake.)
