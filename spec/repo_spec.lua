@@ -2180,12 +2180,21 @@ describe("UI simulator workflow", function()
         -- one to another named variable or an absolute path, or a bare cd
         -- (home), takes it out (#356).
         -- Each command of a line is read in turn: a line splits at ;, &&,
-        -- ||, | and parentheses.
+        -- ||, | and parentheses, and the reserved words and braces that can
+        -- come before a command (if cd ..., then cd ..., { cd ...) are dropped.
+        local KEYWORDS = { ["if"] = true, ["then"] = true, ["else"] = true, ["elif"] = true, ["do"] = true,
+            ["while"] = true, ["until"] = true, ["time"] = true }
         local function treeAfter(line, inTree)
             for command in (line:gsub("[;&|()]", "\n") .. "\n"):gmatch("%s*([^\n]-)%s*\n") do
+                repeat
+                    local before = command
+                    command = command:gsub("^[{!]%s*", "")
+                    local word, rest = command:match("^(%a+)%s+(.*)$")
+                    if word and KEYWORDS[word] then command = rest end
+                until command == before
                 local target = command == "cd" and "" or command:match("^cd%s+(.+)$") or command:match("^pushd%s+(.+)$")
-                if command:match("^popd%f[%W]") or command == "popd" or command == "pushd"
-                    or command:match("^pushd%s+[%-+]") then
+                -- A numbered pushd (+1, -1) is a relative target: inside, below.
+                if command:match("^popd%f[%W]") or command == "pushd" then
                     inTree = true
                 elseif target then
                     local plain = target:gsub("%${([%w_]+)}", "$%1"):gsub('"(%$[%w_]+)"/', "%1/")
@@ -2289,6 +2298,12 @@ describe("UI simulator workflow", function()
                 assert.are.equal(1, #scan('run: |\n  cd "$ui" && ls\n'))
                 assert.are.equal(1, #scan('run: |\n  ( cd "$ui"; cat x )\n'))
                 assert.are.equal(1, #scan('run: |\n  mkdir -p x && cd "$ui"\n  ls\n'))
+                -- After a reserved word or a brace (#356's testing review).
+                for _, step in ipairs({ 'if cd "$ui/Interface/AddOns"; then\n  ls\n  fi', 'if [ -d "$ui" ]; then cd "$ui"; fi\n  ls',
+                    '{ cd "$ui" && ls; }', 'for d in a b; do cd "$ui/$d"; done\n  ls', 'while ! cd "$ui"; do sleep 1; done\n  ls',
+                    'if true; then :; else cd "$ui"; fi\n  ls', 'time cd "$ui"\n  ls', '! cd "$ui"\n  ls' }) do
+                    assert.are.equal(1, #scan('run: |\n  cd "$out"\n  ' .. step .. "\n"), step)
+                end
                 -- tr -cd and a word starting "cd" aren't a cd.
                 assert.are.same({}, (scan('run: |\n  cd "$out"\n  n=$(tr -cd a-z < f)\n  cdrecord $ui\n  ls\n')))
             end)
