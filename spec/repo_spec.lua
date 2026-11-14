@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -1873,8 +1873,11 @@ describe("UI simulator workflow", function()
 
     -- #310: the one font every run draws and measures in.
     it("pins the simulator's fallback font on every run, and fails if the file is missing (white, black)", function()
-        local font = text:match("\n%s*RENDER_FONT: (/[^\n]+%.ttf)\n")
-        assert.is_truthy(font, "no RENDER_FONT")
+        -- In the workflow's own env, so every job has it: an empty one would
+        -- pass an unquoted or empty test -f and pin nothing.
+        local top = wow.readFile(path):match("^(.-)\njobs:")
+        local font = top:match("\n  RENDER_FONT: (/[^\n]+%.ttf)\n")
+        assert.is_truthy(font, "no RENDER_FONT in the workflow's env")
         local runs = 0
         for _, job in ipairs({ "ui-sim", "shoot" }) do
             local j = jobs[job == "shoot" and "screenshots" or job]
@@ -1887,7 +1890,7 @@ describe("UI simulator workflow", function()
                 end
             end
             -- The render image holds the file, or its build stops.
-            assert.is_truthy(j.text:find("fonts%-dejavu%-core[^\n]*\n[^\n]*\n%s*&& test %-f $RENDER_FONT\n"),
+            assert.is_truthy(j.text:find("fonts%-dejavu%-core[^\n]*\n[^\n]*\n%s*&& test %-f \"$RENDER_FONT\"\n"),
                 job .. "'s render image doesn't check the font file exists")
         end
         -- sandbox(), sized() and shoot(), however often they're called.

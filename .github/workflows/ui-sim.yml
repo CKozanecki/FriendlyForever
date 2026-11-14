@@ -567,7 +567,7 @@ jobs:
           RUN apt-get update -q && apt-get install -yq --no-install-recommends \
                 libicu72 libegl1 libgl1-mesa-dri libglx-mesa0 mesa-vulkan-drivers fonts-dejavu-core \
               && rm -rf /var/lib/apt/lists/* \
-              && test -f $RENDER_FONT
+              && test -f "$RENDER_FONT"
           DOCKERFILE
 
       - name: Run the simulator (no network, addon read-only)
@@ -842,7 +842,7 @@ jobs:
           RUN apt-get update -q && apt-get install -yq --no-install-recommends \
                 libicu72 libegl1 libgl1-mesa-dri libglx-mesa0 mesa-vulkan-drivers fonts-dejavu-core \
               && rm -rf /var/lib/apt/lists/* \
-              && test -f $RENDER_FONT
+              && test -f "$RENDER_FONT"
           DOCKERFILE
 
       - name: Take screenshots (no network, addon read-only)
