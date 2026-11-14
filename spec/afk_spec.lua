@@ -1,3 +1,4 @@
+-- Spec: #392
 local wow = require("spec.support.wow")
 
 describe("Don't send messages while I'm AFK", function()
@@ -35,7 +36,7 @@ describe("Don't send messages while I'm AFK", function()
         it("drops a guild greeting that comes due while AFK, and logs why", function()
             wow.state.afk = true
             online("Thrall")
-            wow.advance(10)
+            wow.advance(30)
             assert.are.equal(0, #wow.sent)
             assert.are.equal(0, ns.ChatQueue.Count(), "dropped, not held")
             assert.is_true(logHas("dropped guildLogin for Thrall: you are AFK"))
@@ -93,7 +94,7 @@ describe("Don't send messages while I'm AFK", function()
             wow.state.afk = true
             wow.state.unitsRestricted = true
             online("Thrall")
-            wow.advance(10)
+            wow.advance(30)
             assert.are.equal(1, #wow.sentTo("GUILD"))
         end)
 
@@ -111,7 +112,7 @@ describe("Don't send messages while I'm AFK", function()
             ns.db.skipWhileAFK = false
             wow.state.afk = true
             online("Thrall")
-            wow.advance(10)
+            wow.advance(30)
             assert.are.equal(1, #wow.sentTo("GUILD"))
         end)
 
@@ -123,7 +124,7 @@ describe("Don't send messages while I'm AFK", function()
             assert.is_false(ns.db.skipWhileAFK)
             wow.state.afk = true
             online("Thrall")
-            wow.advance(10)
+            wow.advance(30)
             assert.are.equal(1, #wow.sentTo("GUILD"))
         end)
     end)
