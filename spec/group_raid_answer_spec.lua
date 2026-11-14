@@ -270,10 +270,10 @@ describe("Buff mode's group look believes IsInRaid() only when the slots agree (
         local POOL = { "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss", "Eve-Hill", "Fay-Reed", "Gus-Lane", "Hal-Pine" }
         local MODES = { "truth", "flips", "inverted", "unreadable" }
         -- How often the storm reached the cases the red criterion is about,
-        -- counted from the client's own state: a raid taken for a party (a
-        -- lying answer, your subgroup all buffed, someone in reach in another
-        -- subgroup missing it) and a party taken for a raid (always lying, in
-        -- a party, someone in reach missing it). By seed too.
+        -- counted from the client's own state while every IsInRaid() answer
+        -- lies: a raid taken for a party (your subgroup all buffed, someone in
+        -- reach in another subgroup missing it) and a party taken for a raid
+        -- (someone in reach missing it). By seed too.
         local total = { looks = 0, settled = 0, ended = 0, raidAsParty = 0, partyAsRaid = 0 }
         local perSeed = {}
         for _, seed in ipairs({ 7, 41, 313, 2026, 8191, 65537 }) do
@@ -327,9 +327,10 @@ describe("Buff mode's group look believes IsInRaid() only when the slots agree (
             end
 
             -- Whether the client's state is a raid taken for a party, or a
-            -- party taken for a raid, while IsInRaid() is lying.
+            -- party taken for a raid, while every IsInRaid() answer lies
+            -- ("inverted": in "flips" a look may have been told the truth).
             local function raidAsParty()
-                if wow.state.groupType ~= "raid" or (mode ~= "inverted" and mode ~= "flips") then return false end
+                if wow.state.groupType ~= "raid" or mode ~= "inverted" then return false end
                 local mine, oursAll, theirsMissing = wow.state.units.player.subgroup or 1, true, false
                 for _, token in ipairs(others()) do
                     local u = wow.state.units[token]
