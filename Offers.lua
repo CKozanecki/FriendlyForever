@@ -22,6 +22,15 @@
 --
 -- Favours are kept in memory only: a /reload or logout forgets them.
 --
+-- Requests (#40, Requests.lua): a player who asks for one of your buffs in
+-- chat waits here too, as an entry with the buff they asked for
+-- (requested) and no ledger entry. It is offered by the same rules as a
+-- favour (seen, in reach, the PvP rule), but only with that buff, which they
+-- mustn't already wear. One per player; at most MAX_REQUESTS at once, the
+-- oldest going first; they expire like favours. A favour already owed to
+-- them keeps its place and notes the buff they asked for. Returning a
+-- request tells their copy nothing (it answers no buff of theirs).
+--
 -- Someone who has left (#270, the owner's decision): a favour whose player
 -- the game doesn't show right now, or whom the game says your buff can't
 -- reach, doesn't hold the button. The next favour is offered, or the button
@@ -53,8 +62,9 @@ Offers.MAX_CASTS_WAITING = 8    -- hand-cast buffs remembered as sent; the oldes
 -- either order: they belong together within this many seconds.
 Offers.MARK_SECONDS = 30
 Offers.MAX_MARKS = 50           -- marks waiting for their buff at once; the oldest goes first
+Offers.MAX_REQUESTS = 5         -- requests in chat waiting at once (#40); the oldest goes first
 
-local favours = {}          -- newest last: { name, unit, class, owedAt, ledgerEntry }
+local favours = {}          -- newest last: { name, unit, class, owedAt, ledgerEntry, requested, request }
 local buffedAt = {}         -- [full name] = GetTime() a buff of yours last reached them
 local marks = {}            -- [full name] = GetTime() their copy said their buff answers yours
 local castsWaiting = {}     -- newest last: { guid, name, buff, spell, at }, hand-cast buffs sent
@@ -85,15 +95,31 @@ end
 -- Tokens that may show them, in the order they're checked: you can target
 -- or mouse over them, and they may show on a nameplate (whose numbers the
 -- game hands out afresh all the time).
+-- Last, your group's slots (#40: a group member may ask for a buff in
+-- chat), which name a member wherever they are: they count only while the
+-- game says it shows them (UnitIsVisible).
 local LOOKUP_TOKENS = { "target", "mouseover", "focus" }
 for i = 1, Offers.MAX_NAMEPLATES do LOOKUP_TOKENS[#LOOKUP_TOKENS + 1] = "nameplate" .. i end
+local GROUP_TOKENS = {}
+for i = 1, 4 do GROUP_TOKENS["party" .. i] = true end
+for i = 1, 40 do GROUP_TOKENS["raid" .. i] = true end
+for i = 1, 4 do LOOKUP_TOKENS[#LOOKUP_TOKENS + 1] = "party" .. i end
+for i = 1, 40 do LOOKUP_TOKENS[#LOOKUP_TOKENS + 1] = "raid" .. i end
+
+-- The full name of the player token shows now, or nil. A group slot that
+-- the game doesn't say is shown (out of sight, another zone, or it won't
+-- say) shows nobody.
+local function Shown(token)
+    if GROUP_TOKENS[token] and Read(UnitIsVisible, token) ~= true then return nil end
+    return Util.UnitFullName(token)
+end
 
 -- Who the game shows right now: [full name] = the unit tokens showing them.
 -- Read once per check of the favours, not once per favour.
 local function VisiblePlayers()
     local visible = {}
     for _, token in ipairs(LOOKUP_TOKENS) do
-        local name = Util.UnitFullName(token)
+        local name = Shown(token)
         if name then
             visible[name] = visible[name] or {}
             table.insert(visible[name], token)
@@ -107,7 +133,7 @@ end
 -- Empty if none is.
 local function LiveUnits(favour, visible)
     local units = {}
-    if favour.unit and Util.UnitFullName(favour.unit) == favour.name then units[1] = favour.unit end
+    if favour.unit and Shown(favour.unit) == favour.name then units[1] = favour.unit end
     for _, token in ipairs((visible or VisiblePlayers())[favour.name] or {}) do
         if token ~= units[1] then units[#units + 1] = token end
     end
@@ -226,6 +252,18 @@ local function Within(at, maxAge, now)
     return at ~= nil and now >= at and now - at <= maxAge
 end
 
+-- Let go, without a note, of anything owed to a player on the ignore list,
+-- whatever the case of either name (Ignore.Has, #353). Ignore.Add lets
+-- theirs go itself (Offers.Forget), but an import, another addon or a /run
+-- can put them on the list without it. Run wherever the favours are read,
+-- as Expire is, so nothing counts or offers a favour that is never given:
+-- not the button, not buff mode's "nothing left to do", not the status.
+local function DropIgnored()
+    for i = #favours, 1, -1 do
+        if ns.Ignore.Has(favours[i].name) then table.remove(favours, i) end
+    end
+end
+
 -- Someone outside your group buffed you. unit: the token they were seen
 -- under, if any; ledgerEntry: their ledger entry, marked when you return it.
 function Offers.Owe(name, unit, ledgerEntry)
@@ -240,12 +278,28 @@ function Offers.Owe(name, unit, ledgerEntry)
             marked and " (their copy said so)" or "")
         return
     end
+    -- An ignored player's favour takes no room (#353): it goes before a
+    -- real one is pushed out.
+    DropIgnored()
     local i = IndexOf(name)
-    if i then table.remove(favours, i) end
-    local favour = { name = name, unit = unit, owedAt = now, ledgerEntry = ledgerEntry }
+    local old = i and table.remove(favours, i)
+    -- A buff they asked for in chat (#40) is still the one they'd like.
+    local favour = { name = name, unit = unit, owedAt = now, ledgerEntry = ledgerEntry,
+        requested = old and old.requested or nil }
     Observe(favour)
     favours[#favours + 1] = favour
-    while #favours > Offers.MAX do table.remove(favours, 1) end
+    -- Over the limit, the oldest request goes first (#40: requests never
+    -- take a favour's room), then the oldest favour.
+    while #favours > Offers.MAX do
+        local oldest = 1
+        for j, entry in ipairs(favours) do
+            if entry.request then
+                oldest = j
+                break
+            end
+        end
+        table.remove(favours, oldest)
+    end
     ns.Diag.Log("buffBack", "you owe %s a buff", name)
     Changed()
     for _, fn in ipairs(oweListeners) do fn() end
@@ -277,6 +331,73 @@ local function OutOfReach(buff, unit)
     return spell ~= nil and Util.InSpellRange(spell, unit) == false
 end
 
+-- A player asked for buff in chat (Requests.lua, #40). One request per
+-- player: a second one while theirs waits is refused, so asking again never
+-- moves them up. A favour already owed to them keeps its place and notes
+-- the buff. At most MAX_REQUESTS wait at once (the oldest goes first), and
+-- a request never pushes out a favour. Returns true if queued, or false and
+-- why not.
+function Offers.Request(name, buff)
+    -- An expired request mustn't block a fresh one, or count against the
+    -- limit; nor one of an ignored player's. Both go before the index below
+    -- is taken: removing an entry ahead of theirs would move it.
+    Expire(GetTime())
+    DropIgnored()
+    local i = IndexOf(name)
+    if i then
+        local favour = favours[i]
+        if favour.requested then return false, "they already have a request waiting" end
+        favour.requested = buff
+        Changed()
+        return true
+    end
+    local count, oldest = 0, nil
+    for j, favour in ipairs(favours) do
+        if favour.request then
+            count = count + 1
+            oldest = oldest or j
+        end
+    end
+    if count >= Offers.MAX_REQUESTS then
+        local dropped = table.remove(favours, oldest)
+        ns.Diag.Log("requests", "dropped %s's request: %d are waiting", dropped.name, count)
+    elseif #favours >= Offers.MAX then
+        return false, "the button already holds as many as it keeps"
+    end
+    local favour = { name = name, owedAt = GetTime(), requested = buff, request = true }
+    Observe(favour)
+    favours[#favours + 1] = favour
+    Changed()
+    return true
+end
+
+-- Let every request in chat go (#40: requests were turned off, by any
+-- path: ns.RefreshEvents). A favour that noted a request keeps its place,
+-- without the asked-for buff.
+function Offers.DropRequests()
+    local any = false
+    for i = #favours, 1, -1 do
+        local favour = favours[i]
+        if favour.request then
+            table.remove(favours, i)
+            any = true
+        elseif favour.requested then
+            favour.requested = nil
+        end
+    end
+    if any then Changed() end
+end
+
+-- How many of the entries waiting are requests in chat (#40).
+function Offers.RequestCount()
+    DropIgnored()
+    local count = 0
+    for _, favour in ipairs(favours) do
+        if favour.request then count = count + 1 end
+    end
+    return count
+end
+
 -- Whether a favour may go to them though they're flagged for PvP, or their
 -- flag can't be read: you're flagged too, or by the owner's rule (#316)
 -- they're a member of your group and GroupBuffs.FlaggedMayBeBuffed holds
@@ -290,6 +411,28 @@ local function FlaggedMayBeBuffed(favour)
     return ns.GroupBuffs.FlaggedMayBeBuffed() == true and ns.Greeter.IsInMyGroup(favour.name) == true
 end
 
+-- The buff a request asks for, if it can be given now: one you still know
+-- and offer (you may have marked it "never offer" since: a water buff
+-- isn't held for water, as they asked), and not one they wear, unless
+-- theirs is partly worn off (#269). nil and why not; away is true, with no
+-- reason, when the game says your buff can't reach them.
+local function Requested(favour, unit)
+    local buff = favour.requested
+    local spell = ns.BuffData.SpellName(buff) or buff.key
+    local offered = false
+    for _, mine in ipairs(ns.BuffData.Offerable()) do
+        if mine == buff then
+            offered = true
+            break
+        end
+    end
+    if not offered then return nil, "they asked for " .. spell .. ", which you don't offer" end
+    -- Unknown (hidden in a fight) counts as not wearing it, as for favours.
+    if Offers.Wears(unit, buff, WornOff) == true then return nil, "they already have " .. spell end
+    if OutOfReach(buff, unit) then return nil, nil, true end
+    return buff
+end
+
 -- The buff to give this favour, or nil and why not. away is true, with no
 -- reason, when they've left (#270): the game doesn't show them, or says
 -- your buff can't reach them.
@@ -300,6 +443,16 @@ local function ChooseBuff(favour, myBuffs, held, visible)
     if flagged ~= false and not FlaggedMayBeBuffed(favour) then
         if flagged then return nil, "they're flagged for PvP and you aren't" end
         return nil, "can't see whether they're flagged for PvP (target them, or show friendly nameplates)"
+    end
+    -- The buff they asked for (#40): only that one for a request; a favour
+    -- whose asked-for buff can't be given now gets the usual choice. With
+    -- the setting off (or damaged), a request holds nothing, and a favour's
+    -- asked-for buff is passed over. (A player ignored since never gets
+    -- here: Offers.Current lets theirs go first, #353.)
+    if favour.request and not ns.Requests.Listening() then return nil, nil, true end
+    if favour.requested and ns.Requests.Listening() then
+        local buff, reason, away = Requested(favour, unit)
+        if buff or favour.request then return buff, reason, away end
     end
     if #myBuffs == 0 then
         if held then return nil, ns.Water.HeldReason(held) end
@@ -336,11 +489,14 @@ end
 -- first, so the clickable list is made by these same rules. A favour whose
 -- player has left gives no reason (#270); when every favour is so, the
 -- third value is true: nothing owed is worth the button's face.
+-- A favour or request whose player is on the ignore list is let go first,
+-- however they got there (DropIgnored, #353): it's never offered.
 function Offers.Current(list)
     if not ns.db or not ns.db.enabled then return nil, "the addon is off" end
     if not ns.db.buffBack.enabled then return nil, "buff back is off" end
     -- No Changed() here: the button is the caller, and would re-enter.
     Expire(GetTime())
+    DropIgnored()
     if #favours == 0 then return nil, "nobody is owed a buff" end
     -- Water breathing waits for water (Water.lua).
     local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
@@ -351,7 +507,7 @@ function Offers.Current(list)
         local buff, reason, away = ChooseBuff(favour, myBuffs, held, visible)
         local spell = buff and ns.BuffData.SpellName(buff)
         if spell then
-            local offer = { name = favour.name, buff = buff, spell = spell }
+            local offer = { name = favour.name, buff = buff, spell = spell, request = favour.request }
             if not list then return offer end
             first = first or offer
             list[#list + 1] = offer
@@ -369,6 +525,8 @@ end
 -- buff back within RETURNED_RECENTLY answers it. If you owed them, the
 -- favour is returned and their copy is told this buff answers theirs.
 -- false if they weren't owed (it expired or was let go before the cast landed).
+-- A request in chat (#40) counts as returned too, with true second: it
+-- answers no buff of theirs, so their copy isn't told it does.
 function Offers.MarkReturned(name, spell)
     local now = GetTime()
     MakeRoom(buffedAt, name, Offers.MAX_REMEMBERED)
@@ -378,9 +536,13 @@ function Offers.MarkReturned(name, spell)
     if not i then return false end
     local favour = table.remove(favours, i)
     if favour.ledgerEntry then ns.Ledger.Returned(favour.ledgerEntry, spell) end
+    if favour.request then
+        Changed()
+        return true, true
+    end
     ns.Comm.SendAnswer(name)
     Changed()
-    return true
+    return true, false
 end
 
 -- Their copy says the buff they just gave you answers yours (Comm.lua's
@@ -390,7 +552,8 @@ end
 function Offers.OnAnswerMark(name)
     local now = GetTime()
     local i = IndexOf(name)
-    if i and Within(favours[i].owedAt, Offers.MARK_SECONDS, now) then
+    -- A request in chat (#40) is no buff of theirs: their mark can't answer it.
+    if i and not favours[i].request and Within(favours[i].owedAt, Offers.MARK_SECONDS, now) then
         local favour = table.remove(favours, i)
         if favour.ledgerEntry then ns.Ledger.NoteNotReturned(favour.ledgerEntry, "it answered your buff to them") end
         ns.Diag.Log("buffBack", "not owing %s: their copy says their buff answers yours", name)
@@ -486,15 +649,23 @@ function Offers.LetGo(name)
     return true
 end
 
--- Drop a favour without a note (the player was ignored).
+-- Drop what is owed to a player without a note (they were ignored): their
+-- favour or request, matched as the ignore list matches names, whatever
+-- their case (#353: "bob-stone" lets Bob-Stone's go).
 function Offers.Forget(name)
-    local i = IndexOf(name)
-    if not i then return false end
-    table.remove(favours, i)
-    Changed()
-    return true
+    local key = ns.Config.IgnoreKey(name)
+    local any = false
+    for i = #favours, 1, -1 do
+        if ns.Config.IgnoreKey(favours[i].name) == key then
+            table.remove(favours, i)
+            any = true
+        end
+    end
+    if any then Changed() end
 end
 
+-- How many are owed: none to a player on the ignore list.
 function Offers.Count()
+    DropIgnored()
     return #favours
 end

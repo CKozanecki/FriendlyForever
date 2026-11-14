@@ -1,4 +1,4 @@
--- Spec: #71, #32, #290, #330
+-- Spec: #71, #32, #290, #330, #370
 -- Battlegrounds: buffing in the preparation phase, then quiet until you
 -- leave or the battleground ends.
 local wow = require("spec.support.wow")
@@ -214,6 +214,8 @@ describe("Battlegrounds", function()
             local reads = 0
             local function counted(fn) return function(...) reads = reads + 1 return fn(...) end end
             ns.GroupBuffs.Next = counted(ns.GroupBuffs.Next)
+            -- Buff mode's missing-buff look reads the group without Next (#370).
+            ns.GroupBuffs.Missing = counted(ns.GroupBuffs.Missing)
             ns.Offers.Current = counted(ns.Offers.Current)
             ns.BuffTracker.Classify = counted(ns.BuffTracker.Classify)
             strangerBuffs()
