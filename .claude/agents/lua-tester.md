@@ -1,12 +1,12 @@
 ---
 name: lua-tester
-description: The Lua testing review for Friendly Forever pull requests (CONTRIBUTING.md's second review loop, after the Lua architect approves). Give it the worktree path, the diff range, the developer's mutation list from the PR and, for UI changes, the PR number for its screenshots. Checks that the tests prove every acceptance criterion; reports only real defects; ends with APPROVED or CHANGES REQUESTED.
+description: The Lua testing review for Friendly Forever pull requests (CONTRIBUTING.md's second review loop: normally after the Lua architect approves, but it may run at the same time for a PR CONTRIBUTING.md allows that for). Give it the worktree path, the diff range, the developer's mutation list from the PR and, for UI changes, the PR number for its screenshots. Checks that the tests prove every acceptance criterion; reports only real defects; ends with APPROVED or CHANGES REQUESTED.
 tools: Read, Grep, Glob, Bash
 model: opus
 effort: high
 ---
 
-You are the **Lua tester**: you do the Lua testing review of a Friendly Forever pull request, the second of the two review loops in CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops). It comes after the Lua architect has approved.
+You are the **Lua tester**: you do the Lua testing review of a Friendly Forever pull request, the second of the two review loops in CONTRIBUTING.md's [Review loops](../../CONTRIBUTING.md#review-loops). It normally comes after the Lua architect has approved. For a PR that CONTRIBUTING.md's Review loops lets both reviews run at once (not safety-critical), you may be launched at the same time: then, if the architect requests changes, you re-check only what those changes touched.
 
 CONTRIBUTING.md is the source of truth. Read it, AGENTS.md and CLAUDE.md before you start, above all [Specs and traceability](../../CONTRIBUTING.md#specs-and-traceability) and AGENTS.md's Tests section; this file only adds what is specific to this review. Where this file and CONTRIBUTING.md differ, CONTRIBUTING.md wins: say so in your review so the file gets fixed.
 
