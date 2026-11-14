@@ -479,3 +479,106 @@ describe("the UI simulator's walkthrough steps", function()
         end
     end)
 end)
+
+-- #160: the simulator's Forever profile prints the game's "Interface action
+-- failed because of an AddOn" line in the shots that open the main panel.
+-- pages.lua says who was blamed: the two events the client fires, and the
+-- callers of Blizzard's own function for the line, which fires neither.
+describe("the UI simulator's blocked-action report (#160)", function()
+    local Pages, printed, shown
+
+    before_each(function()
+        wow.boot()
+        printed, shown = {}, {}
+        _G.A_Print = function(text) printed[#printed + 1] = text end
+        _G.DisplayInterfaceActionBlockedMessage = function(...) shown[#shown + 1] = select("#", ...) end
+        _G.debugstack = function(start, top, bottom)
+            return ("first caller %d %d %d\nsecond caller\r\n\n"):format(start, top, bottom)
+        end
+    end)
+
+    after_each(function()
+        _G.FriendlyForeverUIPages = nil
+        _G.A_Print = nil
+        _G.DisplayInterfaceActionBlockedMessage = nil
+        _G.debugstack = nil
+    end)
+
+    local function load()
+        dofile("uitests/pages.lua")
+        Pages = _G.FriendlyForeverUIPages
+    end
+
+    it("records each blocked or forbidden action in order, counts repeats and prints a new one once (white)", function()
+        load()
+        wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", "Button:Show()")
+        wow.fire("ADDON_ACTION_FORBIDDEN", "OtherAddon", "CastSpellByName()")
+        wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", "Button:Show()")
+        assert.are.same({ "ADDON_ACTION_BLOCKED FriendlyForever Button:Show()",
+            "ADDON_ACTION_FORBIDDEN OtherAddon CastSpellByName()" }, Pages.blocked.order)
+        assert.are.equal(2, Pages.blocked.count["ADDON_ACTION_BLOCKED FriendlyForever Button:Show()"])
+        assert.are.equal(1, Pages.blocked.count["ADDON_ACTION_FORBIDDEN OtherAddon CastSpellByName()"])
+        assert.are.same({ "FACT sim blocked action, as it happens: ADDON_ACTION_BLOCKED FriendlyForever Button:Show()",
+            "FACT sim blocked action, as it happens: ADDON_ACTION_FORBIDDEN OtherAddon CastSpellByName()" }, printed)
+    end)
+
+    it("records nothing while nothing is blocked (black)", function()
+        load()
+        wow.fire("PLAYER_REGEN_DISABLED")
+        assert.are.same({}, Pages.blocked.order)
+        assert.are.same({}, Pages.blockedMessage)
+        assert.are.same({}, printed)
+    end)
+
+    it("prints who called the client's chat line, from the caller up, and still shows the line (white)", function()
+        local original = _G.DisplayInterfaceActionBlockedMessage
+        load()
+        assert.are_not.equal(original, _G.DisplayInterfaceActionBlockedMessage)
+        _G.DisplayInterfaceActionBlockedMessage("one", "two")
+        assert.are.same({ 2 }, shown, "the client's function ran once, with what it was given")
+        assert.are.same({ "first caller 2 12 0", "second caller" }, Pages.blockedMessage)
+        assert.are.same({ "FACT sim the blocked-action chat line, called from: first caller 2 12 0",
+            "FACT sim the blocked-action chat line, called from: second caller" }, printed)
+    end)
+
+    it("puts the client's function back before running it, so only the first call is reported (white)", function()
+        local original = _G.DisplayInterfaceActionBlockedMessage
+        load()
+        _G.DisplayInterfaceActionBlockedMessage()
+        assert.are.equal(original, _G.DisplayInterfaceActionBlockedMessage)
+        _G.DisplayInterfaceActionBlockedMessage()
+        assert.are.same({ 0, 0 }, shown)
+        assert.are.equal(2, #Pages.blockedMessage)
+    end)
+
+    it("keeps a replacement the client's function makes of itself, as Blizzard's does (white)", function()
+        local quiet = function() end
+        _G.DisplayInterfaceActionBlockedMessage = function()
+            shown[#shown + 1] = 0
+            _G.DisplayInterfaceActionBlockedMessage = quiet
+        end
+        load()
+        _G.DisplayInterfaceActionBlockedMessage()
+        assert.are.equal(quiet, _G.DisplayInterfaceActionBlockedMessage)
+        assert.are.same({ 0 }, shown)
+    end)
+
+    it("says so when the client gives no call stack, and still shows the line (black)", function()
+        for _, broken in ipairs({ false, function() error("no stack") end, function() return "" end, function() return 7 end }) do
+            printed, shown = {}, {}
+            _G.DisplayInterfaceActionBlockedMessage = function() shown[#shown + 1] = 0 end
+            _G.debugstack = broken or nil
+            load()
+            _G.DisplayInterfaceActionBlockedMessage()
+            assert.are.same({ "(the client gave no call stack)" }, Pages.blockedMessage)
+            assert.are.same({ 0 }, shown)
+        end
+    end)
+
+    it("loads where the client has no such function, and reports no caller (black)", function()
+        _G.DisplayInterfaceActionBlockedMessage = nil
+        load()
+        assert.is_nil(_G.DisplayInterfaceActionBlockedMessage)
+        assert.are.same({}, Pages.blockedMessage)
+    end)
+end)

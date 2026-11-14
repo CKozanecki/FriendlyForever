@@ -46,6 +46,9 @@ local blockedOrder, blockedActions = {}, {}
 if type(FriendlyForeverUIPages) == "table" and type(FriendlyForeverUIPages.blocked) == "table" then
     blockedOrder, blockedActions = FriendlyForeverUIPages.blocked.order, FriendlyForeverUIPages.blocked.count
 end
+-- The lines that called the client's own blocked-action chat line, which
+-- fires no event (pages.lua's hook, #160).
+local blockedMessage = type(FriendlyForeverUIPages) == "table" and FriendlyForeverUIPages.blockedMessage or {}
 
 -- Fails the test with message, unlike assertTrue, which drops its message.
 local function check(ok, message)
@@ -1602,6 +1605,13 @@ test("reports the actions the client blocked while the scenarios ran", function(
     if #blockedOrder == 0 then report("FACT sim blocked actions: none") end
     for _, what in ipairs(blockedOrder) do
         report(("FACT sim blocked action: %s (%d time(s))"):format(what, blockedActions[what]))
+    end
+    -- The chat line's other source, which fires no event (pages.lua).
+    if #blockedMessage == 0 then
+        report("FACT sim the blocked-action chat line: not printed by the client's own function")
+    end
+    for i, line in ipairs(blockedMessage) do
+        report(("FACT sim the blocked-action chat line, caller %d: %s"):format(i, line))
     end
     assertTrue(true)
 end)

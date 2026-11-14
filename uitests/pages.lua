@@ -47,6 +47,29 @@ if type(CreateFrame) == "function" then
     end)
 end
 
+-- That chat line has a second source, which fires no event: Blizzard's own
+-- DisplayInterfaceActionBlockedMessage, which its panel and gamepad
+-- navigation code call directly (Blizzard_UIParentPanelManager and
+-- Blizzard_GamepadSmartNavigation at 1.60.1.70707). So its first call after
+-- this file loads is printed with the lines that called it, and kept in
+-- Pages.blockedMessage for the scenarios' last test (#160). The client's
+-- function is put back before it runs, so it is called exactly as it was.
+Pages.blockedMessage = {}
+if type(_G.DisplayInterfaceActionBlockedMessage) == "function" then
+    local original = _G.DisplayInterfaceActionBlockedMessage
+    _G.DisplayInterfaceActionBlockedMessage = function(...)
+        _G.DisplayInterfaceActionBlockedMessage = original
+        local say = type(A_Print) == "function" and A_Print or print
+        local ok, stack = pcall(function() return _G.debugstack(2, 12, 0) end)
+        if not ok or type(stack) ~= "string" or stack == "" then stack = "(the client gave no call stack)" end
+        for line in stack:gmatch("[^\r\n]+") do
+            Pages.blockedMessage[#Pages.blockedMessage + 1] = line
+            say("FACT sim the blocked-action chat line, called from: " .. line)
+        end
+        return original(...)
+    end
+end
+
 -- The frames' names (Options.GENERAL_PAGE, Options.LEDGER_PAGE,
 -- Options.START_PAGE, Window.NAME and Walkthrough.NAME).
 Pages.GENERAL = "FriendlyForeverGeneralPage"
