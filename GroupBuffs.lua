@@ -97,11 +97,16 @@ local round
 GroupBuffs.SYNCED_SECONDS = 300
 
 -- The slots to look through: raid1..40 in a raid (one of them is you),
--- party1..4 in a party. Empty when you're in no group.
+-- party1..4 in a party. Empty when you're in no group. Also whether the
+-- game said which (#322): when IsInRaid() or IsInGroup() can't be read, a
+-- raid may be taken for a party (party1..4 are only your own subgroup), so
+-- Next is never settled then and offers no group version.
 local function GroupUnits()
-    if Read(IsInRaid) == true then return RAID_UNITS end
-    if Read(IsInGroup) == true then return PARTY_UNITS end
-    return {}
+    local inRaid, inGroup = Read(IsInRaid), Read(IsInGroup)
+    local known = (inRaid == true or inRaid == false) and (inGroup == true or inGroup == false)
+    if inRaid == true then return RAID_UNITS, known end
+    if inGroup == true then return PARTY_UNITS, known end
+    return {}, known
 end
 
 local function Recently(at, seconds)
@@ -122,22 +127,32 @@ end
 -- (#256), and neither is a slot that can't be read as holding someone or
 -- empty, or as you or someone else (#306); a member whose name can't be
 -- read leaves Next unsettled anyway. When the game won't say whether you're
--- in a raid, nobody is taken to be inside. Buff mode's wait in a dungeon or raid (BuffModeAuto.lua) and the
+-- in a raid, nobody is taken to be inside, nor when its answer and the
+-- slots disagree (#335). Buff mode's wait in a dungeon or raid (BuffModeAuto.lua) and the
 -- PvP rule below share this one test.
 function GroupBuffs.EveryoneInside()
     -- Which slots hold your group has to be readable too (#306): a raid
     -- taken for a party would have only your own subgroup looked at.
     local inRaid = Read(IsInRaid)
     if inRaid ~= true and inRaid ~= false then return false end
+    -- And believed only when the slots agree (#335): in a party raid1 is
+    -- empty, and in a raid one of raid1..40 is you. A party taken for a raid
+    -- would read 40 empty slots as nobody missing.
+    if not inRaid and Read(UnitExists, "raid1") ~= false then return false end
+    local sawYou = not inRaid
     for _, unit in ipairs(inRaid and RAID_UNITS or PARTY_UNITS) do
         local exists = Read(UnitExists, unit)
-        if exists ~= false and Read(UnitIsUnit, unit, "player") ~= true then
-            if exists ~= true then return false end
-            if Read(UnitIsConnected, unit) ~= true then return false end
-            if Read(UnitIsVisible, unit) ~= true then return false end
+        if exists ~= false then
+            if Read(UnitIsUnit, unit, "player") == true then
+                sawYou = true
+            else
+                if exists ~= true then return false end
+                if Read(UnitIsConnected, unit) ~= true then return false end
+                if Read(UnitIsVisible, unit) ~= true then return false end
+            end
         end
     end
-    return true
+    return sawYou
 end
 
 -- Whether a member flagged for PvP may be buffed now. When you're flagged
@@ -445,7 +460,8 @@ end
 -- The next group member to buff: { name, buff, spell, group = true }, or
 -- nil, why not, and whether that's settled: nothing left that a buff of
 -- yours could fix now or soon (not in a group, or everyone you could buff
--- has them; nobody dead, out of reach or unreadable); when that's because
+-- has them; nobody dead, out of reach or unreadable; never while the game
+-- won't say whether you're in a raid or a group, #322); when that's because
 -- your water buff waits for water, that buff too. Your first buff
 -- goes to everyone missing it before your second buff goes to anyone.
 -- With a list (#43), each member the button would offer to is appended to
@@ -456,7 +472,7 @@ end
 -- aim's single offer (#252) and any other group offer aimed at them (#305);
 -- the button keeps one row per player (BuffButton.lua).
 function GroupBuffs.Next(out)
-    local units = GroupUnits()
+    local units, groupKnown = GroupUnits()
     local first, listed = nil, {}
     -- One offer found: the first is returned at once, or with a list kept.
     local function Found(offer)
@@ -478,16 +494,20 @@ function GroupBuffs.Next(out)
         end
         return false
     end
-    if #units == 0 then return nil, "you're not in a group", true end
+    local unknownWhy = "the game won't say whether you're in a raid or a group"
+    if #units == 0 then
+        if not groupKnown then return nil, unknownWhy, false end
+        return nil, "you're not in a group", true
+    end
     -- Water breathing waits for water (Water.lua): nothing to do now, and
     -- the buff held back is named (4th value) for buff mode's message.
     local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
     if #myBuffs == 0 then
-        if held then return nil, ns.Water.HeldReason(held), true, held end
+        if held then return nil, ns.Water.HeldReason(held), groupKnown, held end
         -- Self-buffs (#44) are never the group's: SelfBuffs.lua offers them.
         local why = "you have no buffs to offer"
         if #ns.BuffData.MySelfBuffs() > 0 then why = "you have no buffs for your group" end
-        return nil, why, true
+        return nil, why, groupKnown
     end
     local members, firstReason, open, flaggedOk = Candidates(units)
     local unreadable, outOfRange = {}, {}
@@ -561,7 +581,7 @@ function GroupBuffs.Next(out)
             -- buff carries the reason. You still come first (#198) unless
             -- the group version covers you too.
             local note, quiet
-            if spell then
+            if spell and groupKnown then
                 groupCtx.Needs = function(member) return Needs(buff, member) end
                 groupCtx.Blocked = function(entry, equals) return CoverBlocked(entry, buff, units, equals) end
                 local groupOffer
@@ -609,6 +629,7 @@ function GroupBuffs.Next(out)
     local offer = Pass(list)
     if offer then return offer end
     if first then return first end
+    if not groupKnown then return nil, firstReason or unknownWhy, false end
     return nil, firstReason or "everyone in your group has your buffs", not open
 end
 
