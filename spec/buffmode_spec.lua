@@ -433,6 +433,7 @@ describe("Buff mode", function()
         it("never leaves a stray key lent and never changes a binding in a fight", function()
             local keys = { "MOUSEWHEELUP", "MOUSEWHEELDOWN", "SHIFT-F", "BUTTON4", "ESCAPE", 42, "F" }
             local lostWhileLent = 0 -- #384: damage that met a lent key out of a fight
+            local pressedWhileLost = 0 -- #384: a lent key pressed before the refresh that ends buff mode
             for _, seed in ipairs({ 3, 28, 99, 512, 2026 }) do
                 random.seed(seed)
                 boot()
@@ -450,7 +451,12 @@ describe("Buff mode", function()
                 local actions = {
                     function() slash(({ "buffmode", "buffmode on", "buffmode off" })[random.random(3)]) end,
                     function() _G.FriendlyForever_ToggleBuffMode() end,
-                    function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
+                    function()
+                        if wow.state.inCombat then return wow.leaveCombat() end
+                        -- A fight starting with the section lost raises an error
+                        -- outside buff mode (BuffModeAuto.lua, #387), which heals it.
+                        if intact() then wow.enterCombat() end
+                    end,
                     function() ns.BuffMode.SetKey(keys[random.random(#keys)]) end,
                     function()
                         if not intact() then return end
@@ -470,9 +476,16 @@ describe("Buff mode", function()
                         owed(({ "Bob", "Ann" })[random.random(2)])
                     end,
                     function()
-                        -- #384: the whole section lost mid-session, then a refresh.
+                        -- #384: the whole section lost mid-session, then a refresh,
+                        -- sometimes after a press of the lent key that comes first.
                         local wasLent = ns.BuffMode.LentKey() ~= nil
                         ns.db.buffBack = ({ nil, "x", 42, true })[random.random(4)]
+                        local key = next(wow.state.overrides)
+                        if key and random.random() < 0.5 then
+                            wow.pressKey(key)
+                            assert.are.same({}, wow.errors, "seed " .. seed .. ": a press with the section lost")
+                            pressedWhileLost = pressedWhileLost + 1
+                        end
                         ns.BuffButton.Refresh()
                         if not wow.state.inCombat then
                             assert.is_false(ns.BuffMode.IsOn(), "seed " .. seed .. ": on with the section lost")
@@ -488,8 +501,11 @@ describe("Buff mode", function()
                     end,
                 }
                 for step = 1, 400 do
-                    actions[random.random(#actions)]()
-                    local where = ("seed %d, step %d"):format(seed, step)
+                    local which = random.random(#actions)
+                    actions[which]()
+                    local where = ("seed %d, step %d (action %d)"):format(seed, step, which)
+                    -- Every step: a reload (boot) would clear what came before it.
+                    assert.are.same({}, wow.errors, where)
                     local count, owner = 0, nil
                     for _, o in pairs(wow.state.overrides) do
                         count = count + 1
@@ -513,6 +529,7 @@ describe("Buff mode", function()
                 assert.are.same({}, wow.errors, "seed " .. seed)
             end
             assert.is_true(lostWhileLent > 0, "the section was never lost while a key was lent")
+            assert.is_true(pressedWhileLost > 0, "the lent key was never pressed with the section lost")
         end)
     end)
 end)

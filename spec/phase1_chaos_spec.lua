@@ -346,7 +346,7 @@ describe("Phase 1 chaos (red tests)", function()
             saved = nil,       -- { line, ignored } from the last export
         }
         local seen = { greeted = 0, thanked = 0, ignoredOnline = 0, imports = 0, undos = 0, switches = 0,
-            reloads = 0, snoozedSteps = 0, buffModeSteps = 0 }
+            reloads = 0, snoozedSteps = 0, offWhileLent = 0 }
         local thanksSinceClear = 0
         local sentBefore = 0
 
@@ -570,15 +570,18 @@ describe("Phase 1 chaos (red tests)", function()
             local snoozeEnds = snoozedBefore and m.snoozeUntil
             local ignoredBefore = {}
             for who in pairs(m.ignored) do ignoredBefore[who] = true end
+            local lentBefore = next(wow.state.overrides) ~= nil
             local which = random.random(#actions)
             actions[which]()
             assert.are.same({}, wow.errors, at .. " (action " .. which .. ")")
-            if ns.BuffMode.LentKey() then
-                seen.buffModeSteps = seen.buffModeSteps + 1
+            -- Read from the simulated client's bindings, not the addon's own record.
+            if next(wow.state.overrides) and not wow.state.inCombat then
                 local buffBack = ns.db.buffBack
-                assert.is_true(ns.db.enabled == true and type(buffBack) == "table" and buffBack.enabled == true,
-                    at .. ": a key lent while the addon or Buff Back is off")
+                local on = ns.db.enabled == true and type(buffBack) == "table" and buffBack.enabled == true
+                assert.is_true(on, at .. ": a key lent while the addon or Buff Back is off")
             end
+            -- The case that matters: the addon switched off while a key was lent.
+            if lentBefore and not m.enabled then seen.offWhileLent = seen.offWhileLent + 1 end
 
             -- What went out this step, read from the simulated client.
             local snoozedNow = snoozed()
@@ -642,7 +645,7 @@ describe("Phase 1 chaos (red tests)", function()
         end
         -- The storms really reached what they test, not just the edges.
         for _, key in ipairs({ "greeted", "thanked", "ignoredOnline", "imports", "undos", "switches", "reloads",
-            "snoozedSteps", "buffModeSteps" }) do
+            "snoozedSteps", "offWhileLent" }) do
             assert.is_true((total[key] or 0) > 0, key .. ": " .. tostring(total[key]))
         end
     end)
