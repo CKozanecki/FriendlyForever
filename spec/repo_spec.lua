@@ -2172,10 +2172,11 @@ describe("UI simulator workflow", function()
         end
 
         -- Where a step's shell is, after a line: a cd or pushd into a fetched
-        -- tree (a target naming one of SOURCES) puts it inside; one to any
-        -- other variable or absolute path, or a bare cd (home), takes it out.
-        -- A relative one (cd .., cd -, cd sub) can't be followed, so it
-        -- leaves the shell where it was: inside stays inside (#356).
+        -- tree (a target naming one of SOURCES) or into $RUNNER_TEMP, which
+        -- holds them all, puts it inside. A relative one (cd .., cd -, cd sub)
+        -- can't be followed, so it counts as inside too, wherever it started.
+        -- Only one to another variable or an absolute path, or a bare cd
+        -- (home), takes it out (#356).
         -- Each command of a line is read in turn: a line splits at ;, &&,
         -- ||, | and parentheses.
         local function treeAfter(line, inTree)
@@ -2183,13 +2184,13 @@ describe("UI simulator workflow", function()
                 local target = command == "cd" and "" or command:match("^cd%s+(.+)$") or command:match("^pushd%s+(.+)$")
                 if target then
                     local plain = target:gsub("%${([%w_]+)}", "$%1"):gsub('"(%$[%w_]+)"/', "%1/")
-                    local into = false
+                    local into = plain:find("%$RUNNER_TEMP%f[^%w_]") ~= nil
                     for _, source in ipairs(SOURCES) do
                         if plain:find(source) then into = true end
                     end
-                    if into then
+                    if into or not (target == "" or target:match('^"?[%$/~]')) then
                         inTree = true
-                    elseif target == "" or target:match('^"?[%$/~]') then
+                    else
                         inTree = false
                     end
                 end
@@ -2285,6 +2286,19 @@ describe("UI simulator workflow", function()
                 assert.are.equal(1, #scan('run: |\n  mkdir -p x && cd "$ui"\n  ls\n'))
                 -- tr -cd and a word starting "cd" aren't a cd.
                 assert.are.same({}, (scan('run: |\n  cd "$out"\n  n=$(tr -cd a-z < f)\n  cdrecord $ui\n  ls\n')))
+            end)
+
+            it("counts a cd into $RUNNER_TEMP, or a relative cd from anywhere, as inside (red)", function()
+                -- $RUNNER_TEMP holds every fetched and sandboxed tree: shots, sim, blizzard-ui.
+                for _, cd in ipairs({ 'cd "$RUNNER_TEMP"', "cd $RUNNER_TEMP", 'cd "${RUNNER_TEMP}"', 'cd "$RUNNER_TEMP"/x',
+                    'pushd "$RUNNER_TEMP" > /dev/null 2>&1' }) do
+                    assert.are.equal(1, #scan("run: |\n  " .. cd .. "\n  cd shots\n  ls\n"), cd)
+                    assert.are.equal(1, #scan("run: |\n  " .. cd .. "\n  ls -laq shots shot-logs\n"), cd)
+                    assert.are.equal(1, #scan("run: |\n  " .. cd .. "\n  find . -name x\n"), cd)
+                end
+                assert.are.equal(1, #scan('run: |\n  cd shots\n  ls\n'))
+                assert.are.equal(1, #scan('run: |\n  cd "$out"\n  cd -\n  ls\n'))
+                assert.are.same({}, (scan('run: |\n  cd "$RUNNER_TEMP_X"\n  ls\n')))
             end)
 
             it("stays inside after a relative cd, and leaves on a cd elsewhere (red, white)", function()
