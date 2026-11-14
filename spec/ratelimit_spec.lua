@@ -184,7 +184,7 @@ describe("The chat rate limit (#35)", function()
             for i = 1, 8 do buffedBy(i) end
             pressFor(20)
             online("Thrall")
-            pressFor(10)
+            pressFor(30) -- past the 15 s delay and the random wait (#392)
             assert.are.equal(1, #sentIn("GUILD"))
         end)
 

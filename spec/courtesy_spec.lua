@@ -85,7 +85,7 @@ describe("Ignore list", function()
         wow.rosterUpdate({ "Bob-Stone", "Ann-Vale" })
         wow.systemMessage("|Hplayer:Bob-Stone|h[Bob-Stone]|h has come online.")
         wow.systemMessage("|Hplayer:Ann-Vale|h[Ann-Vale]|h has come online.")
-        wow.advance(10)
+        wow.advance(30)
         assert.are.same({ "Hello Ann Vale" }, wow.sentTo("GUILD"))
     end)
 

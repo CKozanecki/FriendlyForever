@@ -255,7 +255,7 @@ describe("Battlegrounds", function()
 
         it("still greets guildmates in guild chat", function()
             guildmateLogsIn()
-            wow.advance(10)
+            wow.advance(30)
             assert.are.equal(1, #wow.sentTo("GUILD"))
         end)
 
