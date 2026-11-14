@@ -216,14 +216,21 @@ describe("Buff mode when solo: your own buffs (#329)", function()
         end)
 
         it("a paladin is offered only the first Blessing in their order, and none while wearing one of theirs", function()
+            -- With the defaults, Wisdom (a mana class's, paladins ticked) is first.
             boot({ class = "PALADIN", known = { MIGHT, WISDOM }, buffDefaults = true })
-            local first = armed()
-            assert.is_truthy(first == "Blessing of Might" or first == "Blessing of Wisdom", first)
+            assert.are.equal("Blessing of Wisdom", armed())
             press()
             assert.is_nil(armed(), "one Blessing each")
+            -- Paladins unticked for Wisdom: its default classes leave you out, so Might.
+            boot({ class = "PALADIN", known = { MIGHT, WISDOM }, buffDefaults = true })
+            ns.BuffRules.SetClass("wisdom", "PALADIN", false)
+            assert.are.equal("Blessing of Might", armed())
+            -- And the order decides between the two.
             boot({ class = "PALADIN", known = { MIGHT, WISDOM } })
-            ns.Options.MoveBuff(first == "Blessing of Might" and "wisdom" or "might", -1)
-            assert.are_not.equal(first, armed(), "the order decides")
+            ns.Options.MoveBuff("might", -1)
+            assert.are.equal("Blessing of Might", armed(), "Might moved first")
+            ns.Options.MoveBuff("might", 1)
+            assert.are.equal("Blessing of Wisdom", armed(), "Wisdom moved back first")
         end)
 
         it("Unending Breath waits for water", function()
@@ -391,7 +398,7 @@ describe("Buff mode when solo: your own buffs (#329)", function()
             end
         end)
 
-        it("secret or junk times never compare: it isn't running low", function()
+        it("secret or junk times never compare: it counts as worn, never renewed, and is settled (#42's rule)", function()
             for _, times in ipairs({
                 { duration = wow.secret(1800), expirationTime = wow.secret(60) },
                 { duration = "x", expirationTime = {} },
@@ -402,6 +409,10 @@ describe("Buff mode when solo: your own buffs (#329)", function()
                 local aura = wear(FORT)
                 aura.duration, aura.expirationTime = times.duration, times.expirationTime
                 assert.is_nil(armed())
+                local none, why, settled = ns.GroupBuffs.Next()
+                assert.is_nil(none)
+                assert.are.equal("you have your buffs", why)
+                assert.is_true(settled)
                 assert.are.same({}, wow.errors)
             end
         end)
@@ -482,13 +493,18 @@ describe("Buff mode when solo: your own buffs (#329)", function()
     describe("chaos (red)", function()
         it("auras, deaths, combat, settings, spells and groups in a storm: never errors, never casts in combat, "
             .. "solo only single versions on you, and heals to the right offer", function()
-            local selfCasts = 0
             for _, seed in ipairs({ 7, 23, 329, 4096 }) do
+                local selfCasts = 0
                 random.seed(seed)
                 boot({ known = { FORT, SPIRIT, PRAYER_FORT }, items = { [ITEM.sacredCandle] = 20 } })
                 ns.db.buffBack.groupEnough = 1
                 local sources = { "player", false, "nameplate1", wow.secret("player") }
+                -- Each damaging state is drawn afresh often and is the rarer
+                -- answer, so the storm spends most of its presses solo, out of
+                -- combat, with something to cast, where the solo rules bite.
                 local actions = {
+                    function() wow.state.playerAuras = {} end,
+                    function() wow.state.playerAuras = {} end,
                     function() wow.state.playerAuras = {} end,
                     function()
                         local id = ({ FORT, SPIRIT, PRAYER_FORT, FORT_1 })[random.random(4)]
@@ -496,35 +512,48 @@ describe("Buff mode when solo: your own buffs (#329)", function()
                         wear(id, sources[random.random(#sources)], left)
                     end,
                     function() wow.state.playerAuras[#wow.state.playerAuras + 1] = wow.secret({ spellId = FORT }) end,
-                    function() wow.state.aurasRestricted = random.random() < 0.2 end,
-                    function() wow.state.units.player.dead = random.random() < 0.15 end,
+                    function()
+                        -- Junk: a spell ID or times that aren't numbers, or NaN.
+                        local junk = ({
+                            { spellId = "x", isHelpful = true },
+                            { spellId = FORT, isHelpful = true, sourceUnit = "player", duration = "x", expirationTime = {} },
+                            { spellId = SPIRIT, isHelpful = true, sourceUnit = "player", duration = 0 / 0,
+                                expirationTime = 0 / 0 },
+                        })[random.random(3)]
+                        wow.state.playerAuras[#wow.state.playerAuras + 1] = junk
+                    end,
+                    function() wow.state.aurasRestricted = random.random() < 0.1 end,
+                    function() wow.state.units.player.dead = random.random() < 0.1 end,
                     function() wow.state.units.player.role = ({ "TANK", "NONE", nil })[random.random(3)] end,
                     function()
                         ns.db.buffBack.topUpMinutes = ({ 0, 5, 30, "junk", -4 })[random.random(5)]
                     end,
-                    function() ns.db.buffBack.soloOwnBuffs = ({ true, false, "junk" })[random.random(3)] end,
+                    function() ns.db.buffBack.soloOwnBuffs = ({ true, true, true, true, true, false, "junk" })[random.random(7)] end,
                     function() ns.BuffRules.SetRule("fortitude", ns.BuffRules.RULES[random.random(4)]) end,
                     function()
                         wow.state.knownSpells[SPIRIT] = random.random() < 0.7 or nil
                         wow.fire("SPELLS_CHANGED")
                     end,
                     function()
-                        if random.random() < 0.6 then
+                        if random.random() < 0.75 then
                             wow.setGroup(nil, {})
                         else
                             wow.setGroup("party", { "Ann-Vale" })
                         end
                         wow.fire("GROUP_ROSTER_UPDATE")
                     end,
-                    function() if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end end,
+                    function()
+                        if wow.state.inCombat then wow.leaveCombat() elseif random.random() < 0.4 then wow.enterCombat() end
+                    end,
                     function() press() end,
                     function() press() end,
                     function() press() end,
-                    function() wow.press(button, random.random() < 0.8 and "LeftButton" or "RightButton") end,
-                    function() slash(random.random() < 0.85 and "buffmode on" or "buffmode off") end,
+                    function() press() end,
+                    function() wow.press(button, random.random() < 0.95 and "LeftButton" or "RightButton") end,
+                    function() slash(random.random() < 0.95 and "buffmode on" or "buffmode off") end,
                     function() wow.advance(random.random() * 8) end,
                 }
-                for step = 1, 600 do
+                for step = 1, 1000 do
                     local before = #wow.casts
                     -- Worked out from the client's own state before the step.
                     local fighting = wow.state.inCombat
@@ -541,8 +570,18 @@ describe("Buff mode when solo: your own buffs (#329)", function()
                             selfCasts = selfCasts + 1
                         end
                     end
+                    -- What the button holds now, solo: never a group version,
+                    -- and never you by name (a cast on you is [@player]).
+                    local text = macro()
+                    if text and wow.state.groupType == nil then
+                        local where = ("seed %d, step %d: armed %q"):format(seed, step, text)
+                        assert.is_falsy(text:find("Prayer of Fortitude", 1, true), where)
+                        assert.is_falsy(text:find("/targetexact Me\n", 1, true), where)
+                    end
                 end
                 assert.are.same({}, wow.errors, "seed " .. seed)
+                -- The solo checks above saw enough casts to mean something.
+                assert.is_true(selfCasts >= 10, ("seed %d: casts on you solo: %d"):format(seed, selfCasts))
 
                 -- Heals: everything put right, solo, and the offer is the
                 -- first buff you're missing, by the client's own state.
@@ -567,7 +606,6 @@ describe("Buff mode when solo: your own buffs (#329)", function()
                 assert.is_nil(armed(), "seed " .. seed .. ": healed")
                 assert.are.equal("you have your buffs", subtitle(), "seed " .. seed)
             end
-            assert.is_true(selfCasts > 10, "casts on you solo: " .. selfCasts)
         end)
     end)
 end)
