@@ -38,6 +38,11 @@ Comm.SEND_BURST = 5
 Comm.SEND_REFILL = 2
 Comm.MAX_QUEUE = 8
 Comm.MAX_QUEUE_AGE = 10
+-- The shortest wait for the next token (#325). Rounding can leave the
+-- bucket a hair under a whole token, and a wait of about 1e-13 s then
+-- lands back on the same GetTime(), refilling nothing. Waiting longer
+-- never lets a message out sooner, so the limit stays as strict.
+Comm.MIN_WAIT = 0.05
 
 -- Incoming: per sender, a burst of PEER_BURST then one every PEER_REFILL
 -- seconds; from everyone together, a burst of ALL_BURST then one every
@@ -378,7 +383,7 @@ function Comm.Pump()
             table.remove(queue, 1)
             Transmit(item)
         else
-            local wait = (1 - sendBucket.tokens) * Comm.SEND_REFILL
+            local wait = math.max(Comm.MIN_WAIT, (1 - sendBucket.tokens) * Comm.SEND_REFILL)
             pumpScheduled = true
             C_Timer.After(wait, ns.Diag.Wrap(Comm.Pump))
             return
