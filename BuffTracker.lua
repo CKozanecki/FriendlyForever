@@ -165,7 +165,9 @@ local function AddToBatch(batch, buffKey, spellName)
     if batch.seen[buffKey] then return end
     batch.seen[buffKey] = true
     batch.count = batch.count + 1
-    if spellName then batch.names[#batch.names + 1] = spellName end
+    -- A name blank once cleaned for chat names nothing: {buff} would read
+    -- "the , Bob" or "the and Fort" (#319).
+    if spellName and Util.StripChat(spellName) ~= "" then batch.names[#batch.names + 1] = spellName end
 end
 
 local function FallbackName()

@@ -68,14 +68,24 @@ function Util.JoinList(items, conjunction)
     return table.concat(items, ", ", 1, n - 1) .. " " .. (conjunction or "and") .. " " .. items[n]
 end
 
--- Fill {placeholders} in a template. Unknown placeholders are left as typed.
+-- What a known placeholder says when a message has no value for it (or only
+-- a blank one), so it never reaches chat unfilled (#319). The flavour
+-- placeholders have their own (Flavour.FALLBACK).
+Util.PLACEHOLDER_FALLBACKS = { buff = "buff", name = "friend", fullname = "friend" }
+
+-- Fill {placeholders} in a template, whatever their case: {Buff}, {BUFF} and
+-- {buff} are one placeholder (#319). Every var is named in lower case.
+-- Unknown placeholders are left as typed, so a typo shows in the preview.
 -- Values are inserted literally (no pattern or escape interpretation), and
 -- the result is sanitised and cut to the chat length limit.
 function Util.Render(template, vars)
     if type(template) ~= "string" then return nil end
     local out = template:gsub("{(%a+)}", function(key)
+        key = key:lower()
         local value = vars[key]
-        if value ~= nil then return Util.StripChat(tostring(value)) end
+        if value ~= nil then value = Util.StripChat(tostring(value)) end
+        if value == nil or value == "" then return Util.PLACEHOLDER_FALLBACKS[key] or value end
+        return value
     end)
     out = Util.StripChat(out)
     if out == "" then return nil end
