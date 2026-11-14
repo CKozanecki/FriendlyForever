@@ -1,4 +1,4 @@
--- Spec: #44
+-- Spec: #44, #329
 -- Self-buffs: in buff mode, once the favours you owe and your group are
 -- done, the button offers your own missing self-buffs (Inner Fire, armors,
 -- Aspects, auras, Battle Shout...), one per press, on you, through the same
@@ -216,6 +216,10 @@ describe("Self-buffs in buff mode", function()
             local cast = press()
             assert.are.equal("Bob-Stone", cast.target)
             refresh()
+            -- Solo, your own copy of your buffs comes between them (#329).
+            assert.are.equal("/cast [@player,nodead] Power Word: Fortitude", macro())
+            wow.gainBuff({ spellId = FORT, sourceUnit = "player" })
+            refresh()
             assert.are.equal("/cast [@player,nodead] Inner Fire", macro())
         end)
     end)
@@ -381,6 +385,8 @@ describe("Self-buffs in buff mode", function()
 
         it("offers a self-buff you've just learned", function()
             boot({ known = { FORT } })
+            wow.gainBuff({ spellId = FORT, sourceUnit = "player" })
+            refresh()
             assert.is_nil(macro())
             wow.state.knownSpells[INNER_FIRE] = true
             wow.fire("SPELLS_CHANGED")

@@ -163,6 +163,10 @@ Options.GROUP_VERSIONS_TOOLTIP = "In buff mode, offer the group version of a buf
 Options.SELF_BUFFS_TOOLTIP = "In buff mode, once your favours and your group are done, offer the self-buffs "
     .. "you're missing (\"you only\" in the list above: Inner Fire, armors, Aspects, auras...), in your buff "
     .. "order. Not while you're dead, mounted, flying or in a form, or the game says the spell can't be cast now."
+Options.SOLO_OWN_BUFFS_TOOLTIP = "In buff mode, when you're not in a group, offer your own buffs on you "
+    .. "(Fortitude, Arcane Intellect, Mark of the Wild, a Blessing...) when you're missing them or they're "
+    .. "running low, by your buff order, Never offer and who gets each buff. Single buffs only, never a "
+    .. "group version. Someone else's copy on you counts until it runs low."
 Options.BREATH_TOOLTIP = "Offer Unending Breath and Water Breathing only while you're swimming or underwater, "
     .. "for 2 minutes after, or in an underwater dungeon."
 
@@ -539,6 +543,14 @@ local function FillBuffRows(shown)
     if shown then
         widgets.selfBuffs:SetChecked(ns.db.buffBack.selfBuffs == true)
         last = widgets.selfBuffs
+    end
+    -- Your own buffs when solo (#329): below the self-buffs' switch.
+    widgets.soloOwnBuffs:SetShown(shown)
+    widgets.soloOwnBuffs:ClearAllPoints()
+    widgets.soloOwnBuffs:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -4)
+    if shown then
+        widgets.soloOwnBuffs:SetChecked(ns.db.buffBack.soloOwnBuffs == true)
+        last = widgets.soloOwnBuffs
     end
     last = FillWho(shown, buffs, last)
     last = FillRaidBlessings(shown, last)
@@ -950,6 +962,12 @@ function Options.Create()
         ns.BuffButton.Refresh()
     end)
     Tooltip(widgets.selfBuffs, Options.SELF_BUFFS_TOOLTIP)
+    -- Buff Back tab only, below it: your own buffs when solo (#329).
+    widgets.soloOwnBuffs = Checkbox(content, "Offer my own buffs when I'm not in a group", function(on)
+        BuffBack().soloOwnBuffs = on
+        ns.BuffButton.Refresh()
+    end)
+    Tooltip(widgets.soloOwnBuffs, Options.SOLO_OWN_BUFFS_TOOLTIP)
 
     -- Buff Back tab only, below the buff list: who gets the chosen buff in
     -- buff mode (BuffRules.lua). Anchored in FillWho.
