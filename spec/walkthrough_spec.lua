@@ -1,4 +1,4 @@
--- Spec: #47, #169
+-- Spec: #47, #169, #330
 -- The Start here page and the walkthrough: the page's controls change the
 -- same settings as their full pages, the walkthrough reaches buff mode's key
 -- and triggers, skipping or finishing it is remembered, it can be replayed,
@@ -873,7 +873,12 @@ describe("The walkthrough", function()
             ns.Options.FillStart()
             assert.is_truthy(w.thanks:GetText():find("Buff Thanks is off", 1, true), "a damaged section reads as empty")
             ns.db.buff = ns.Config.DefaultsFor("buff")
-            goTo(stepTitled("turns on and off"))
+            -- Damaged again just before the step: the steps before it open the
+            -- Buff Back tab, which repairs the file as it fills (#330).
+            goTo(stepTitled("turns on and off") - 1)
+            ns.db.buffBack.autoOnJoin = "yes"
+            ns.db.buffBack.autoOffMinutes = "soon"
+            wow.run(tour.next, "OnClick")
             local off = ns.Options.AUTO_TEXT.autoOnJoin .. ": " .. ns.Colours.Text("bad", "off")
             assert.is_truthy(tour.stepText:GetText():find(off, 1, true),
                 "a switch that isn't true reads as off")
