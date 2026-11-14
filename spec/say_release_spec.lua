@@ -81,9 +81,8 @@ describe("A held /say goes on a buff-button press (#271)", function()
         -- Button:Click from code: an up half only (the game's down argument
         -- defaults to false), with its PreClick and PostClick.
         button:Click("LeftButton")
-        wow.run(button, "PreClick", "LeftButton", false)
-        wow.run(button, "PostClick", "LeftButton", false)
-        wow.run(button, "PostClick", "RightButton", false)
+        button:Click("RightButton")
+        assert.are.equal(0, #wow.casts, "a click from code casts nothing")
         assert.are.equal(0, #wow.sent)
         assert.are.equal(0, #wow.blocked, "never attempts /say without a hardware event")
         assert.is_true(Q.IsWaitingForHardware())
@@ -138,7 +137,6 @@ describe("A held /say goes on a buff-button press (#271)", function()
             elseif roll == 4 then wow.keyDown("W")
             elseif roll == 5 then
                 button:Click("LeftButton")
-                wow.run(button, "PostClick", "LeftButton", false)
                 if outdoorsHeld then
                     reach.codeClickWhileHeld = reach.codeClickWhileHeld + 1
                     assert.are.equal(before, says(), "a click from code sent a held line")

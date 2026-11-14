@@ -166,10 +166,16 @@ function methods:UnlockHighlight() self.highlightLocked = false end
 function methods:SetChecked(on) self.checked = on and true or false end
 function methods:GetChecked() return self.checked end
 function methods:SetEnabled(on) self.enabled = on and true or false end
--- A click from code, as the game's Button:Click: runs OnClick, unless the
--- button is disabled.
-function methods:Click(mouseButton)
-    if self.enabled and self.scripts.OnClick then self.scripts.OnClick(self, mouseButton or "LeftButton") end
+-- A click from code, as the game's Button:Click(button, down) (#285): runs
+-- PreClick, OnClick and PostClick, in that order, each with
+-- (mouseButton or "LeftButton", down == true), unless the button is disabled.
+-- It is no hardware event (M.hardware stays false) and runs no secure action.
+function methods:Click(mouseButton, down)
+    if not self.enabled then return end
+    mouseButton, down = mouseButton or "LeftButton", down == true
+    if self.scripts.PreClick then self.scripts.PreClick(self, mouseButton, down) end
+    if self.scripts.OnClick then self.scripts.OnClick(self, mouseButton, down) end
+    if self.scripts.PostClick then self.scripts.PostClick(self, mouseButton, down) end
 end
 function methods:IsEnabled() return self.enabled end
 -- A protected frame's size is locked in combat too (#270).
@@ -491,7 +497,13 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --   A press of a button (M.press, and so a key or the wheel bound to it) is
 --                         one hardware event, its PreClick and PostClick
 --                         included: /say may go from either half (#271).
---                         A click from code (Button:Click) is none.
+--                         A click from code (Button:Click) is none: it runs
+--                         PreClick, OnClick and PostClick, with down false
+--                         unless given, and no secure action (#285). That a
+--                         code click runs PreClick and PostClick follows the
+--                         game's API docs; check it in game with
+--                         /run FriendlyForeverBuffButton:Click() while
+--                         /friendly debug on shows the press hooks.
 --                         UNCONFIRMED in game: #275 says how to check it.
 --   state.errorBeforeFailed  a refused cast's error text (UI_ERROR_MESSAGE)
 --                         comes before UNIT_SPELLCAST_FAILED instead of after
@@ -546,6 +558,13 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         spell you know (likewise GetSpellInfo(name)), as the
 --                         game's name lookup goes through your spellbook; by
 --                         ID it answers for any spell.
+--   In a raid, party1..4 are the other members of your own subgroup (#322;
+--                         the game's documented unit tokens: "partyN" stays
+--                         valid in a raid for your subgroup). They answer as
+--                         the same unit as the member's raidN slot, and follow
+--                         unit.subgroup. UNCONFIRMED in game: #322's check.
+--                         state.inRaidUnreadable and
+--                         state.inGroupUnreadable make IsInRaid() and IsInGroup() secrets.
 --   UnitGroupRolesAssigned and GetPartyAssignment("MAINTANK") both exist and
 --                         answer for group units (unit.role, unit.mainTank;
 --                         Main Tank answers false outside a raid);
@@ -1316,6 +1335,29 @@ function M.reset()
         cvars = { nameplateShowFriendlyPlayers = "1", nameplateShowOnlyNameForFriendlyPlayerUnits = "0",
             ActionButtonUseKeyDown = "1" },
     }
+    -- In a raid, party1..4 are the other members of your own subgroup (#322):
+    -- the same unit tables as their raidN slots, found when asked for, so a
+    -- spec that moves someone to another subgroup moves them out of partyN
+    -- too. They are never keys of state.units, so nothing that walks the
+    -- table sees them twice.
+    setmetatable(M.state.units, { __index = function(units, token)
+        local n = type(token) == "string" and tonumber(token:match("^party([1-4])$"))
+        if not n or M.state.groupType == nil or M.state.groupType == "party"
+            or not (M.state.groupType == "raid" or M.state.raidSized) then
+            return nil
+        end
+        local me = rawget(units, "player")
+        local mine = me and me.subgroup or 1
+        local found = 0
+        for i = 1, 40 do
+            local u = rawget(units, "raid" .. i)
+            if u and u ~= me and (u.subgroup or 1) == mine then
+                found = found + 1
+                if found == n then return u end
+            end
+        end
+        return nil
+    end })
     M.addUnit("player", { name = "Me" })
     for _, g in ipairs(ADDON_GLOBALS) do _G[g] = nil end
 
@@ -1406,6 +1448,7 @@ function M.reset()
     end)
     _G.UnitExists = restricted(function(unit) return M.state.units[unit] ~= nil end)
     _G.IsInGroup = function(category)
+        if M.state.inGroupUnreadable then return M.secret(true) end
         -- IsInGroup(nil) is any group, as in the game.
         if category ~= nil and category == _G.LE_PARTY_CATEGORY_INSTANCE then return M.state.groupType == "instance" end
         if category ~= nil and category == _G.LE_PARTY_CATEGORY_HOME then
@@ -1413,7 +1456,13 @@ function M.reset()
         end
         return M.state.groupType ~= nil
     end
-    _G.IsInRaid = function() return M.state.groupType == "raid" or (M.state.groupType == "instance" and M.state.raidSized == true) end
+    -- state.inRaidUnreadable: IsInRaid() answers a secret (#322; not known to
+    -- happen, but nothing may break if it does).
+    _G.IsInRaid = function()
+        local inRaid = M.state.groupType == "raid" or (M.state.groupType == "instance" and M.state.raidSized == true)
+        if M.state.inRaidUnreadable then return M.secret(inRaid) end
+        return inRaid
+    end
     -- state.isLeader: I lead. state.leader: full name of the group member who does.
     -- state.leaderUnreadable: other members' leadership reads as a secret.
     -- state.isLeaderUnreadable: so does mine.
