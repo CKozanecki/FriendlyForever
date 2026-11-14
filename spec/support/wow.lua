@@ -451,6 +451,42 @@ nameSpell("Unending Breath", { 5697 })
 nameSpell("Water Breathing", { 131 })
 nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 
+-- Self-buffs (#44), by their Classic Era IDs (Forever's are unconfirmed:
+-- #326). M.SELF_SPELLS[id] = { duration (seconds, 0 for a toggle that never
+-- runs out), toggle, family }: cast on yourself, each puts its aura on you
+-- from you (see cast), replacing one of the same spell and, for a family,
+-- any other of that family of yours (the game keeps one Aspect, one aura,
+-- one armor). Durations are Classic Era's (#326, item 6).
+M.SELF_SPELLS = {}
+M.SELF_RANKS = {} -- [name] = its IDs, highest rank first
+local function selfSpell(name, ids, info)
+    nameSpell(name, ids)
+    M.SELF_RANKS[name] = ids
+    for _, id in ipairs(ids) do M.SELF_SPELLS[id] = info end
+end
+selfSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 }, { duration = 120 })
+selfSpell("Inner Fire", { 10952, 10951, 1006, 602, 7128, 588 }, { duration = 600 })
+selfSpell("Ice Armor", { 10220, 10219, 7320, 7302 }, { duration = 1800, family = "armor" })
+selfSpell("Frost Armor", { 7301, 7300, 168 }, { duration = 1800, family = "armor" })
+selfSpell("Mage Armor", { 22783, 22782, 6117 }, { duration = 1800, family = "armor" })
+selfSpell("Demon Armor", { 11735, 11734, 11733, 1086, 706 }, { duration = 1800, family = "demon" })
+selfSpell("Demon Skin", { 696, 687 }, { duration = 1800, family = "demon" })
+selfSpell("Lightning Shield", { 10432, 10431, 8134, 945, 905, 325, 324 }, { duration = 600 })
+selfSpell("Righteous Fury", { 25780 }, { duration = 1800 })
+selfSpell("Omen of Clarity", { 16864 }, { duration = 600 })
+for name, ids in pairs({
+    ["Aspect of the Hawk"] = { 25296, 14322, 14321, 14320, 14319, 14318, 13165 },
+    ["Aspect of the Monkey"] = { 13163 }, ["Aspect of the Wild"] = { 20190, 20043 },
+    ["Aspect of the Cheetah"] = { 5118 }, ["Aspect of the Pack"] = { 13159 }, ["Aspect of the Beast"] = { 13161 },
+}) do selfSpell(name, ids, { duration = 0, toggle = true, family = "aspect" }) end
+selfSpell("Trueshot Aura", { 20906, 20905, 19506 }, { duration = 0, toggle = true })
+for name, ids in pairs({
+    ["Devotion Aura"] = { 10293, 10292, 1032, 10291, 643, 10290, 465 },
+    ["Retribution Aura"] = { 10301, 10300, 10299, 10298, 7294 }, ["Concentration Aura"] = { 19746 },
+    ["Shadow Resistance Aura"] = { 19896, 19895, 19876 }, ["Frost Resistance Aura"] = { 19898, 19897, 19888 },
+    ["Fire Resistance Aura"] = { 19900, 19899, 19891 }, ["Sanctity Aura"] = { 20218 },
+}) do selfSpell(name, ids, { duration = 0, toggle = true, family = "aura" }) end
+
 ------------------------------------------------------------------------
 -- ASSUMPTIONS ABOUT WOW FOREVER. Each is a state setting so specs can try the
 -- alternatives; the defaults are guesses, not facts. The launch test pass
@@ -481,6 +517,28 @@ nameSpell("Battle Shout", { 25289, 11551, 11550, 11549, 6192, 5242, 6673 })
 --                         An empty condition list after the @ is fine. SENT
 --                         names the unit by its first name, as for any target.
 --                         UNCONFIRMED in game: #213 says how to check it.
+--   Self-buffs (#44; UNCONFIRMED in game, #326 says how to check each):
+--                         the spells in M.SELF_SPELLS, by Classic Era IDs,
+--                         names and durations. A toggle (Aspect, paladin aura,
+--                         Trueshot Aura) never runs out (duration and
+--                         expirationTime 0). Cast on you, the aura goes on from
+--                         you, replacing your others of its family. "/cast
+--                         !Spell" casts nothing while that toggle of yours is
+--                         on; "/cast Spell" without "!" switches it off (the
+--                         pessimistic reading). C_Spell.IsSpellUsable and
+--                         IsUsableSpell answer from state.unusable[spell name]:
+--                         "power" gives false, true (not enough rage or mana),
+--                         "other" false, false (Shadowform, a form); the cast
+--                         of an unusable spell fails with the game's error. An
+--                         unknown spell is not usable. IsMounted, UnitOnTaxi,
+--                         GetShapeshiftForm and UnitPowerType answer from
+--                         state.mounted, state.onTaxi, state.form (0: none)
+--                         and state.powerType ("MANA" unless set);
+--                         state.selfSecrets = { mounted, taxi, form, power,
+--                         usable } makes those answers secrets. Your own
+--                         buffs stay listed past their time unless
+--                         state.expirePlayerAuras is set (then, as a group
+--                         member's, one whose time has come is gone).
 --   /cleartarget then /targetexact X leaves your old target as the "last
 --                         target", so /targetlasttarget brings it back (setTarget)
 --   Mouse clicks, like key presses, act on the half the key-down setting
@@ -848,6 +906,9 @@ local function cast(args)
     else
         name = args
     end
+    -- "!Spell" (#44): never switches off a toggle that's already on.
+    local bang = name:sub(1, 1) == "!"
+    if bang then name = name:sub(2) end
     local id = knownRank(name)
     if not id then
         M.uiError("Unknown spell")
@@ -856,9 +917,31 @@ local function cast(args)
     -- A helpful spell with no friendly target lands on yourself.
     local target = aimed or M.state.units.target
     if not (target and not target.hostile) then target = M.state.units.player end
+    -- A self-buff (#44) always lands on you. A toggle of yours already on:
+    -- with "!" nothing is cast; without, the cast switches it off.
+    local own = M.SELF_SPELLS[id]
+    local toggledOff = false
+    if own then
+        target = M.state.units.player
+        if own.toggle then
+            for _, a in ipairs(M.state.playerAuras) do
+                if not isSecret(a) and M.SPELL_NAMES[a.spellId] == name and a.sourceUnit == "player" then
+                    if bang then return end
+                    toggledOff = true
+                end
+            end
+        end
+    end
     local redirected = elsewhere ~= nil and elsewhere.id ~= target.id -- another player, not another token
     if elsewhere then target = elsewhere end
     local failure = M.state.castFailures[target.id]
+    -- A spell the game says can't be cast now fails (#44).
+    local unusable = M.state.unusable[name]
+    if not failure and unusable == "power" then
+        failure = "Not enough " .. (({ RAGE = "rage", ENERGY = "energy", FOCUS = "focus" })[M.state.powerType] or "mana")
+    elseif not failure and unusable then
+        failure = "You can't do that right now."
+    end
     -- The game refuses a cast on someone out of range or out of sight (#260).
     -- Hidden wins: a member you can't see is out of sight whatever their range.
     if not failure and target ~= M.state.units.player then
@@ -882,7 +965,8 @@ local function cast(args)
     end
     M.fire("UNIT_SPELLCAST_SENT", "player", sentTo, guid, id)
     local record = { spell = name, id = id, target = target.id, failed = failure,
-        targetDead = target.dead or nil, targetHostile = target.hostile or nil }
+        targetDead = target.dead or nil, targetHostile = target.hostile or nil, bang = bang or nil,
+        toggledOff = toggledOff or nil, inCombat = M.state.inCombat or nil }
     if covered then
         -- Who it reaches, and what each wore before: for the specs' invariants.
         record.covered, record.before = {}, {}
@@ -958,6 +1042,27 @@ local function cast(args)
         end
         M.landed[#M.landed + 1] = { spell = name, id = id, target = target.id, at = M.now }
         M.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, id)
+        if own then
+            -- Your own: the same spell, and the rest of its family, give way
+            -- (#44); a toggle cast again without "!" is simply off. After the
+            -- server's answer, and later still with state.auraDelay.
+            local function wearSelf()
+                for i = #M.state.playerAuras, 1, -1 do
+                    local a = M.state.playerAuras[i]
+                    local other = not isSecret(a) and M.SELF_SPELLS[a.spellId]
+                    if other and (M.SPELL_NAMES[a.spellId] == name
+                        or (own.family and other.family == own.family and a.sourceUnit == "player")) then
+                        table.remove(M.state.playerAuras, i)
+                    end
+                end
+                if not toggledOff then
+                    local seconds = own.duration
+                    M.gainBuff({ spellId = id, sourceUnit = "player", duration = seconds,
+                        expirationTime = seconds > 0 and M.now + seconds or 0 })
+                end
+            end
+            if (M.state.auraDelay or 0) > 0 then M.gameAfter(M.state.auraDelay, wearSelf) else wearSelf() end
+        end
     end
     local latency = M.state.castLatency or 0
     if latency > 0 then
@@ -1309,6 +1414,9 @@ function M.reset()
         playerAuras = {}, aurasRestricted = false,
         today = "2026-10-26", clock = 1793000000,
         knownSpells = {}, castFailures = {}, items = {}, targetNameForm = "space", sentTargetForm = "first",
+        -- Self-buffs (#44; see ASSUMPTIONS): what you're doing, and the spells
+        -- the game says can't be cast now ([name] = "power" or "other").
+        mounted = false, onTaxi = false, form = 0, powerType = "MANA", unusable = {}, selfSecrets = {},
         -- overrides: [key] = { owner, button, mouseButton, priority } (SetOverrideBindingClick).
         -- bindings: [key] = the key's own binding action. mods: modifier keys held now.
         overrides = {}, bindings = {}, mods = {},
@@ -1608,6 +1716,40 @@ function M.reset()
     _G.C_SpellBook = {
         IsSpellInSpellBook = function(id) return M.state.knownSpells[id] == true end,
     }
+    -- Self-buffs (#44; see ASSUMPTIONS).
+    local function selfRead(field, value)
+        if M.state.selfSecrets[field] then return M.secret(value) end
+        return value
+    end
+    _G.IsMounted = function() return selfRead("mounted", M.state.mounted == true) end
+    _G.UnitOnTaxi = function(unit)
+        if unit ~= "player" then return false end
+        return selfRead("taxi", M.state.onTaxi == true)
+    end
+    _G.GetShapeshiftForm = function() return selfRead("form", M.state.form or 0) end
+    _G.UnitPowerType = function(unit)
+        if unit ~= "player" then return 0, "MANA" end
+        local token = M.state.powerType or "MANA"
+        local index = ({ MANA = 0, RAGE = 1, FOCUS = 2, ENERGY = 3 })[token] or 0
+        return selfRead("power", index), selfRead("power", token)
+    end
+    -- isUsable, insufficientPower: by spell ID or (a spell you know) by name.
+    local function usable(spell)
+        local id = spell
+        if type(spell) == "string" then id = knownRank(spell) end
+        local name = id and M.SPELL_NAMES[id]
+        local yes, noPower = true, false
+        if not name or not M.state.knownSpells[id] then
+            yes = false
+        elseif M.state.unusable[name] == "power" then
+            yes, noPower = false, true
+        elseif M.state.unusable[name] then
+            yes = false
+        end
+        return selfRead("usable", yes), selfRead("usable", noPower)
+    end
+    _G.C_Spell.IsSpellUsable = usable
+    _G.IsUsableSpell = usable
     _G.UnitIsDeadOrGhost = restricted(function(unit)
         local u = M.state.units[unit]
         return u ~= nil and u.dead == true
@@ -1753,7 +1895,10 @@ function M.reset()
             end
             local helpful = {}
             for _, a in ipairs(M.state.playerAuras) do
-                if a.isHelpful == true then helpful[#helpful + 1] = a end
+                -- Your own buff whose time has come, when the spec asks for it (#44).
+                local over = M.state.expirePlayerAuras and not isSecret(a) and type(a.expirationTime) == "number"
+                    and not isSecret(a.expirationTime) and a.expirationTime > 0 and M.now >= a.expirationTime
+                if a.isHelpful == true and not over then helpful[#helpful + 1] = a end
             end
             return helpful[index]
         end,
@@ -1836,6 +1981,70 @@ function M.parseToc()
         end
     end
     return meta, files
+end
+
+-- The committed buff table with the self-buffs (#44) added at the Classic
+-- Era IDs M.SELF_SPELLS names, as the generator would make it from
+-- scripts/spell-buffs.json once their spells are extracted. For specs:
+-- wow.boot({ buffTable = wow.selfBuffTable() }). A fresh copy each call.
+function M.selfBuffTable()
+    local loaded = {}
+    assert(loadfile(M.ROOT .. "BuffTable.lua"))(M.ADDON_NAME, loaded)
+    local function copy(v)
+        if type(v) ~= "table" then return v end
+        local c = {}
+        for k, x in pairs(v) do c[k] = copy(x) end
+        return c
+    end
+    local tableCopy = copy(loaded.BuffTable)
+    local function idsOf(...)
+        local out = {}
+        for _, name in ipairs({ ... }) do
+            for _, id in ipairs(assert(M.SELF_RANKS[name], name)) do out[#out + 1] = id end
+        end
+        return out
+    end
+    local function selfBuff(key, names, fields)
+        local buff = { key = key, name = names[1], ranks = idsOf(unpack(names)), selfCast = true }
+        for k, v in pairs(fields or {}) do buff[k] = v end
+        return buff
+    end
+    local add = {
+        PRIEST = { selfBuff("innerfire", { "Inner Fire" }) },
+        MAGE = { selfBuff("icearmor", { "Ice Armor", "Frost Armor" }, { family = "armor" }),
+            selfBuff("magearmor", { "Mage Armor" }, { family = "armor" }) },
+        DRUID = { selfBuff("omen", { "Omen of Clarity" }) },
+        PALADIN = { selfBuff("righteousfury", { "Righteous Fury" }, { defaultNever = true }) },
+        SHAMAN = { selfBuff("lightningshield", { "Lightning Shield" }) },
+        WARLOCK = { selfBuff("demonarmor", { "Demon Armor", "Demon Skin" }) },
+        HUNTER = {},
+    }
+    for _, aura in ipairs({ { "devotion", "Devotion Aura" }, { "retribution", "Retribution Aura" },
+        { "concentration", "Concentration Aura" }, { "shadowaura", "Shadow Resistance Aura" },
+        { "frostaura", "Frost Resistance Aura" }, { "fireaura", "Fire Resistance Aura" },
+        { "sanctity", "Sanctity Aura" } }) do
+        table.insert(add.PALADIN, selfBuff(aura[1], { aura[2] }, { family = "aura", toggle = true }))
+    end
+    for _, aspect in ipairs({ { "hawk", "Aspect of the Hawk" }, { "monkey", "Aspect of the Monkey" },
+        { "wildaspect", "Aspect of the Wild" } }) do
+        table.insert(add.HUNTER, selfBuff(aspect[1], { aspect[2] }, { family = "aspect", toggle = true }))
+    end
+    table.insert(add.HUNTER, selfBuff("trueshot", { "Trueshot Aura" }, { toggle = true }))
+    for class, list in pairs(add) do
+        tableCopy.classes[class] = tableCopy.classes[class] or {}
+        for _, buff in ipairs(list) do table.insert(tableCopy.classes[class], buff) end
+    end
+    local absent = {}
+    for _, key in ipairs(tableCopy.absent) do
+        local present = false
+        for _, list in pairs(add) do
+            for _, buff in ipairs(list) do present = present or buff.key == key end
+        end
+        if not present then absent[#absent + 1] = key end
+    end
+    tableCopy.absent = absent
+    tableCopy.familyAuras = { aspect = idsOf("Aspect of the Cheetah", "Aspect of the Pack", "Aspect of the Beast") }
+    return tableCopy
 end
 
 function M.load()
