@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -796,7 +796,7 @@ describe("UI simulator workflow", function()
     -- downloads the locked crates and runs none of their code, and the spell
     -- data download (#160), which reaches only a proxy. The proxy is ours.
     local function kind(command)
-        if command:find("ff%-build cargo fetch %-%-locked%s*$") then return "fetch" end
+        if command:find("ff%-build cargo fetch %-%-locked 2>&1 | shown%s*$", 1) then return "fetch" end
         if command:find("%sff%-proxy tinyproxy %-d %-c /proxy/tinyproxy%.conf%s*$") then return "proxy" end
         if command:find("%sff%-build /cli/wow%-cli casc sync%-forever%-spells %-%-source cdn %-%-output /spells/spells%.json%s") then
             return "spells"
@@ -1903,13 +1903,28 @@ describe("UI simulator workflow", function()
     -- spaces), or holding "##[" anywhere, as a workflow command.
     describe("shot and simulator output in the job log (black)", function()
         local SOURCES = { "%$report%f[^%w]", "%$RUNNER_TEMP/report", "%$RUNNER_TEMP/shots", "%$RUNNER_TEMP/shot%-logs",
-            '"%$file"', '"%$log"' }
-        local READERS = { "%f[%w]tail%s", "%f[%w]head%s", "%f[%w]ls%s", "%f[%w]grep%s", "%f[%w]cat%s" }
+            '"%$file"', '"%$log"', "%$RUNNER_TEMP/tree%-diff", "%$manifest", "%$ui%f[^%w]",
+            "%$RUNNER_TEMP/sim%f[^%w]", "%$pin%f[^%w]" }
+        -- diff and ls-tree print fetched content (#317).
+        local READERS = { "%f[%w]tail%s", "%f[%w]head%s", "%f[%w]ls%s", "%f[%w]grep%s", "%f[%w]cat%s", "%f[%w]diff%s",
+            "ls%-tree%s" }
 
         -- Whether a command line prints shot or simulator output. Paths are
         -- read however they're quoted: "$RUNNER_TEMP"/shots, ${RUNNER_TEMP}/shots.
+        -- git subcommands that print what the fetched repositories hold (#317).
+        local GIT_PRINTS = { "ls%-tree", "ls%-files", "show", "log", "status", "diff", "cat%-file", "ls%-remote", "grep" }
         local function printsOutput(line)
+            if line:match("^%s*grep%s+%-q") then return false end
+            -- (Output a command substitution captures never reaches the log.)
+            if line:find("%f[%w]git%s") and not line:find("%$%([^)]*%f[%w]git%s") then
+                for _, sub in ipairs(GIT_PRINTS) do
+                    if line:find("%f[%w]git%s+[^\n]-%f[%w]" .. sub .. "%f[%W]") then return true end
+                end
+            end
             if line:find("docker logs", 1, true) or line:find("docker top", 1, true) then return true end
+            -- A container run in the foreground (and so cargo in it) prints
+            -- straight to the log (#164). One started with -d prints only its ID.
+            if line:find("docker run", 1, true) and not line:find("docker run -d ", 1, true) then return true end
             local plain = line:gsub("%${([%w_]+)}", "$%1"):gsub('"(%$[%w_]+)"/', "%1/")
             for _, reader in ipairs(READERS) do
                 if plain:find(reader) then
@@ -1954,7 +1969,7 @@ describe("UI simulator workflow", function()
                     -- Lines in a { ... } block count as filtered only if the
                     -- block ends "} 2>&1 | shown", or goes to the step
                     -- summary, a page the runner doesn't read for commands.
-                    local block
+                    local block, inFunction
                     local function check(line, filtered)
                         seen = seen + 1
                         local toFile = line:find('%s>%s*"%$RUNNER_TEMP/')
@@ -1970,7 +1985,14 @@ describe("UI simulator workflow", function()
                         end
                     end
                     for _, line in ipairs(splitLines((step.text:gsub("\\\n%s*", " ")))) do
-                        if line:match("^%s*{%s*$") then
+                        if line:match("^%s*sandbox%(%) {%s*$") or line:match("^%s*sized%(%) {%s*$") then
+                            -- Their callers send all of it to a file: the next test.
+                            inFunction = true
+                        elseif inFunction and line:match("^%s*}%s*$") then
+                            inFunction = nil
+                        elseif inFunction and line:find("docker run", 1, true) then
+                            seen = seen + 1
+                        elseif line:match("^%s*{%s*$") then
                             block = {}
                         elseif block and line:match("^%s*}") then
                             local filtered = line:match("^%s*} 2>&1 | shown%s*$")
@@ -1985,6 +2007,163 @@ describe("UI simulator workflow", function()
                 end
             end
             assert.is_true(seen >= 10, "expected the report, digest, shot log and docker logs prints, found " .. seen)
+        end)
+
+        -- #164: the simulator's runs print only into files: sandbox() and
+        -- sized() are only ever called by attempt(), which sends both of
+        -- their streams to its files.
+        it("runs the simulator and its layout passes only through attempt, which sends their output to files (black)", function()
+            local step
+            for _, job in ipairs(order) do
+                for _, candidate in ipairs(job.steps) do
+                    if candidate.text:find("\n%s*sandbox%(%) {") then step = candidate end
+                end
+            end
+            assert.is_truthy(step, "no step defines sandbox()")
+            assert.is_truthy(step.text:find('"$@" > "$out" 2> "$err"', 1, true), "attempt doesn't send both streams to files")
+            assert.is_truthy(step.text:find('"$@" > "$out" 2>&1', 1, true), "attempt doesn't send both streams to a file")
+            local calls = 0
+            for _, line in ipairs(splitLines(step.text)) do
+                if (line:find("%f[%w]sandbox%s+%S") or line:find("%f[%w]sized%s+%S")) and not line:find("%(%)") then
+                    calls = calls + 1
+                    assert.is_truthy(line:match("^%s*attempt%s"), "called outside attempt: " .. line)
+                end
+            end
+            assert.is_true(calls >= 4, "expected the simulator's runs, found " .. calls)
+        end)
+
+        -- #164: foreground docker runs, cargo in them, and diff or ls-tree of
+        -- fetched content are caught by the scan (the cases it must not miss).
+        it("counts a foreground docker run, cargo, diff and ls-tree as printing output (black)", function()
+            assert.is_true(printsOutput("docker run --rm ff-build cargo build --release"))
+            assert.is_true(printsOutput('timeout 300 docker run --rm ff-build cargo fetch --locked'))
+            assert.is_true(printsOutput('diff -u <(sort "$manifest") <(sort "$other")'))
+            assert.is_true(printsOutput('git -C "$ui" ls-tree -r --name-only HEAD Interface/AddOns/'))
+            assert.is_true(printsOutput('git -C "$ui" ls-files Interface/AddOns/'))
+            assert.is_true(printsOutput("git ls-files"))
+            assert.is_true(printsOutput("  git log --oneline"))
+            assert.is_true(printsOutput("git diff"))
+            assert.is_true(printsOutput("git status"))
+            assert.is_true(printsOutput('git -C "$RUNNER_TEMP/sim" show HEAD:README'))
+            assert.is_true(printsOutput('ls "$RUNNER_TEMP/sim/data/blizzard-ui-files"'))
+            assert.is_true(printsOutput('cat "$pin"'))
+            assert.is_false(printsOutput('grep -qF "\\"version\\": 1" "$pin"'))
+            assert.is_false(printsOutput('git -C "$ui" checkout -q --detach FETCH_HEAD'))
+            assert.is_false(printsOutput('list=$(git -c core.quotePath=false diff --name-only "$base" HEAD) || true'))
+            assert.is_false(printsOutput('docker run -d --name ff-proxy --cap-drop ALL ff-proxy'))
+        end)
+
+        -- #164, #317: the fetch and build steps, which print what outside code
+        -- chooses, filter it, and keep the exit status through the filter.
+        it("filters the build steps' output and keeps their exit status (black)", function()
+            local filtered = 0
+            for _, job in ipairs(order) do
+                for _, step in ipairs(job.steps) do
+                    if step.text:find("ff%-build cargo ") then
+                        filtered = filtered + 1
+                        assert.is_truthy(step.text:find("\n%s*set %-o pipefail\n"), "a step pipes cargo into shown without pipefail")
+                        local joined = step.text:gsub("\\\n%s*", " ")
+                        assert.is_truthy(joined:find("ff%-build cargo %w+[^\n]* 2>&1 | shown\n"), "cargo's output isn't filtered")
+                    end
+                end
+            end
+            assert.are.equal(2, filtered, "expected cargo fetch and cargo build")
+        end)
+
+        -- #317: the fetch step compares Blizzard's tree with the simulator's
+        -- file list. Run its own shell on a made-up tree and list.
+        describe("the fetch step's tree comparison", function()
+            local function compare(manifestText, files)
+                local fetch
+                for _, step in ipairs(jobs.simulator.steps) do
+                    if step.text:find("tree-diff.txt", 1, true) then fetch = step.text end
+                end
+                assert.is_truthy(fetch, "no fetch step compares the tree")
+                local definition = fetch:match("\n%s*(shown%(%) {[^\n]*})\n")
+                local snippet = fetch:match('\n(%s*manifest="%$RUNNER_TEMP[^\n]*\n.-\n%s*exit 1\n%s*})')
+                assert.is_truthy(definition, "no shown() in the fetch step")
+                assert.is_truthy(snippet, "the comparison isn't where this test looks")
+                local dir = os.tmpname()
+                os.remove(dir)
+                local ui = dir .. "/ui"
+                local manifest = dir .. "/sim/data/blizzard-ui-files/p.txt"
+                os.execute("mkdir -p '" .. dir .. "/sim/data/blizzard-ui-files' '" .. ui .. "'")
+                local m = assert(io.open(manifest, "wb"))
+                m:write(manifestText)
+                m:close()
+                local list = {}
+                for _, name in ipairs(files) do
+                    list[#list + 1] = "mkdir -p \"$(dirname 'Interface/AddOns/" .. name .. "')\" && : > 'Interface/AddOns/" .. name .. "'"
+                end
+                local script = dir .. "/run.sh"
+                local f = assert(io.open(script, "w"))
+                f:write("set -e\ncd '", ui, "'\ngit init -q .\n", table.concat(list, "\n"),
+                    "\ngit add -A\ngit -c user.name=t -c user.email=t@t commit -q -m t\n",
+                    "export RUNNER_TEMP='", dir, "' SIM_PROFILE=p\nui='", ui, "'\n", definition, "\n", snippet, "\necho reached-end\n")
+                f:close()
+                local p = io.popen("bash -e '" .. script .. "' 2>&1; echo \"exit $?\"")
+                local out = p:read("*a")
+                p:close()
+                os.execute("rm -rf '" .. dir .. "'")
+                return out
+            end
+
+            it("passes and prints nothing when the file list and the tree match (white)", function()
+                local out = compare("Blizzard_A/a.lua\nBlizzard_B/b.lua\n", { "Blizzard_A/a.lua", "Blizzard_B/b.lua" })
+                assert.are.equal("reached-end\nexit 0\n", out)
+            end)
+
+            it("fails when they differ, and marks every name it prints (black)", function()
+                local out = compare("Blizzard_A/a.lua\nBlizzard_B/b.lua\n", { "Blizzard_A/a.lua", "Blizzard_C/c.lua" })
+                assert.is_truthy(out:find("exit 1\n$"), "the step didn't fail: " .. out)
+                assert.is_falsy(out:find("reached-end", 1, true), "the step went on after a difference")
+                assert.is_truthy(out:find("| -Blizzard_B/b.lua", 1, true), "a missing name isn't shown, marked: " .. out)
+                assert.is_truthy(out:find("| +Blizzard_C/c.lua", 1, true), "an extra name isn't shown, marked: " .. out)
+            end)
+
+            it("never lets a hostile name be read as a workflow command (black)", function()
+                local manifestText = "::error::one.lua\n   ::warning::two.lua\nx##[set-env name=A;]y.lua\nsplit\r::error::three.lua\n"
+                local out = compare(manifestText, { "Blizzard_A/a.lua" })
+                assert.is_truthy(out:find("exit 1\n$"), "the step didn't fail: " .. out)
+                for _, word in ipairs({ "one.lua", "two.lua", "set-env", "three.lua" }) do
+                    assert.is_truthy(out:find(word, 1, true), "a name was lost: " .. word)
+                end
+                for i, line in ipairs(runnerLines(out)) do
+                    assert.is_falsy(line:match("^%s*::"), "output line " .. i .. " is read as a command")
+                    assert.is_falsy(line:find("##[", 1, true), "output line " .. i .. " is read as an old-style command")
+                end
+            end)
+
+            it("cuts a difference of a few very long lines to a sane size (black)", function()
+                local names = {}
+                for i = 1, 10 do names[#names + 1] = "Blizzard_A/" .. ("n"):rep(5000) .. i .. ".lua" end
+                local out = compare(table.concat(names, "\n") .. "\n", { "Blizzard_Z/z.lua" })
+                assert.is_true(#out < 21000, "the difference isn't cut by size: " .. #out .. " bytes")
+                assert.is_truthy(out:find("exit 1\n$"), "the step didn't fail")
+            end)
+
+            it("cuts a long difference to a sane size (black)", function()
+                local names = {}
+                for i = 1, 2000 do names[#names + 1] = "Blizzard_A/" .. ("n"):rep(40) .. i .. ".lua" end
+                local out = compare(table.concat(names, "\n") .. "\n", { "Blizzard_Z/z.lua" })
+                assert.is_true(#out < 21000, "the difference isn't cut: " .. #out .. " bytes")
+                assert.is_truthy(out:find("exit 1\n$"), "the step didn't fail")
+            end)
+        end)
+
+        it("keeps a failing producer's exit status through shown, as the steps do (black)", function()
+            local definition = wow.readFile(path):match("\n%s*(shown%(%) {[^\n]*})\n")
+            local script = os.tmpname()
+            local f = assert(io.open(script, "w"))
+            f:write("set -e\n", definition, "\nset -o pipefail\n(echo '##[error]x'; exit 3) 2>&1 | shown\necho survived\n")
+            f:close()
+            local p = io.popen("bash '" .. script .. "' 2>&1; echo \"exit $?\"")
+            local out = p:read("*a")
+            p:close()
+            os.remove(script)
+            assert.is_truthy(out:find("exit 3", 1, true), "the producer's failure was hidden: " .. out)
+            assert.is_falsy(out:find("survived", 1, true), "the step went on after a failure")
+            assert.is_falsy(out:find("##[", 1, true), "a workflow command mark got through")
         end)
 
         it("defines shown() the same way in every step that uses it", function()
