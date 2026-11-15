@@ -133,8 +133,10 @@ end
 
 -- Turn buff mode on or off. In a fight, it happens when the fight ends.
 -- how (optional): { auto = true } when a trigger does it, and why = words
--- for the message ("you joined a group"). Turning it on or off yourself
--- makes it yours: triggers then never turn it off.
+-- for the message ("you joined a group"); { yours = true } when you did it
+-- (the key binding, /friendly buffmode). Turning it on or off yourself
+-- makes it yours: triggers then never turn it off. Turning it off yourself
+-- tells the missing-buff trigger what you dismissed (#397).
 function BuffMode.Set(on, how)
     on = on and true or false
     how = how or {}
@@ -147,6 +149,7 @@ function BuffMode.Set(on, how)
     local changed = wanted ~= on
     wanted = on
     auto = on and how.auto == true
+    if changed and not on and how.yours then ns.BuffModeAuto.OnTurnedOffByYou() end
     if InCombatLockdown() then
         if changed then
             ns.Print(on and "buff mode will turn on when this fight ends."
@@ -183,7 +186,7 @@ end
 function BuffMode.IsAuto() return wanted and auto end
 
 function BuffMode.Toggle()
-    BuffMode.Set(not wanted)
+    BuffMode.Set(not wanted, { yours = true })
 end
 
 -- A fight is starting: hand the key back while the game still allows it.
