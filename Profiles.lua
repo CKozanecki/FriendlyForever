@@ -71,7 +71,11 @@ local function Apply(snapshot)
     if snap.linesPerMinute ~= nil then candidate.linesPerMinute = snap.linesPerMinute end
     for msgType, keys in pairs(Profiles.LOCAL_ONLY) do
         if type(candidate[msgType]) == "table" then
-            for _, key in ipairs(keys) do candidate[msgType][key] = Copy(ns.db[msgType][key]) end
+            -- Your own section may be lost mid-session: then its defaults (#387).
+            local live = ns.db[msgType]
+            for _, key in ipairs(keys) do
+                candidate[msgType][key] = type(live) == "table" and Copy(live[key]) or nil
+            end
         end
     end
     candidate = ns.Config.Load(candidate)
@@ -117,7 +121,10 @@ end
 function Profiles.Export()
     local settings = Profiles.Snapshot(ns.db, true)
     for msgType, keys in pairs(Profiles.LOCAL_ONLY) do
-        for _, key in ipairs(keys) do settings[msgType][key] = nil end
+        local section = settings[msgType] -- not a table if lost mid-session (#387)
+        if type(section) == "table" then
+            for _, key in ipairs(keys) do section[key] = nil end
+        end
     end
     local text, why = ns.Serialize.Encode({ v = 1, settings = settings })
     if text and #text > ns.Serialize.MAX_BYTES then

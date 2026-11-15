@@ -35,8 +35,12 @@ end
 -- Whether a congratulation may go out now, and why not. Unreadable counts as
 -- quiet: the safe side.
 function LevelUps.Allowed()
-    if not IsInGroup() then return false, "you're not in a group" end
-    if IsInRaid() then return false, "in a raid" end
+    local inGroup = Util.ReadGameValues(IsInGroup)
+    if inGroup ~= true then
+        return false, inGroup == false and "you're not in a group" or "can't tell if you're in a group"
+    end
+    local inRaid = Util.ReadGameValues(IsInRaid)
+    if inRaid ~= false then return false, inRaid == true and "in a raid" or "can't tell if you're in a raid" end
     -- Not Greeter.InBattleground(): it counts every instance group, and a
     -- dungeon-finder group is a party here (owner's decision on #273).
     local inside, kind = Util.ReadGameValues(IsInInstance)

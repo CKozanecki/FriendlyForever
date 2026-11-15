@@ -635,7 +635,8 @@ function Offers.OnCastLanded(unit, castGUID)
         if cast.guid == guid and Within(cast.at, Offers.CAST_WAIT, GetTime()) then
             table.remove(castsWaiting, i)
             ns.Receipts.Send(cast.name, cast.buff)
-            if ns.db.buffBack.enabled and Offers.MarkReturned(cast.name, cast.spell) then
+            local buffBack = ns.db.buffBack -- lost mid-session reads as off (#387)
+            if type(buffBack) == "table" and buffBack.enabled and Offers.MarkReturned(cast.name, cast.spell) then
                 ns.Diag.Log("buffBack", "returned %s's favour by hand", cast.name)
             end
             return

@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353
+-- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353, #387
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -1928,10 +1928,9 @@ describe("Buff back", function()
             stranger()
             buffedBy()
             ns.db.buffBack = nil
-            slash("buffback") -- fails once (the error is caught), and the settings are repaired
-            assert.are.equal(1, #wow.errors)
+            slash("buffback") -- heals the section as it reads it, without an error (#387)
+            assert.are.same({}, wow.errors)
             assert.is_table(ns.db.buffBack)
-            wow.errors = {}
             slash("buffback")
             assert.are.same({}, wow.errors)
             wow.fire("PLAYER_TARGET_CHANGED")
