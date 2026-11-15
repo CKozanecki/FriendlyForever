@@ -1,7 +1,8 @@
--- Spec: #272, #330
+-- Spec: #272, #330, #397
 -- Buff mode comes back on by itself, in any group, out of combat, when a
--- member is missing one of your buffs outright: never cast, or fully faded,
--- not merely running low. It stays on until everyone is covered, or the next
+-- member is missing one of your buffs: never cast, or fully faded. Since
+-- #397 a buff running low counts too (spec/buffmode_low_spec.lua): low and
+-- then gone is one drop. It stays on until everyone is covered, or the next
 -- pull.
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
@@ -97,7 +98,7 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
             assert.is_true(ns.BuffMode.IsAuto())
         end)
 
-        it("a buff of yours fully fading from a member, out of combat, turns it on; a buff running low doesn't", function()
+        it("a buff of yours fully fading from a member, out of combat, turns it on; running low first counts once (#397)", function()
             -- Top-up time is 5 minutes (the default): under that is running low.
             assert.are.equal(5, ns.db.buffBack.topUpMinutes)
             joinCovered(1800)
@@ -106,8 +107,16 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
             assert.is_false(ns.BuffMode.IsOn())
             wow.advance(1800 - 120) -- Ann's has 2 minutes left: running low
             look()
-            assert.is_false(ns.BuffMode.IsOn(), "running low isn't missing")
+            assert.is_true(ns.BuffMode.IsAuto(), "running low turns it on (#397)")
+            assert.is_true(printedHas("(Ann Vale's Mark of the Wild is running low)"))
+            slash("buffmode off")
             wow.advance(120) -- and now it's gone, with no UNIT_AURA from the game
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "low, then gone, is the drop you turned it off for")
+            -- Recast and faded again: a new drop.
+            wow.wearBuff("party1", MOTW, { source = "player", duration = 1800 })
+            look()
+            strip("party1")
             look()
             assert.is_true(ns.BuffMode.IsAuto())
             assert.is_true(printedHas("(Ann Vale is missing your Mark of the Wild)"))
@@ -157,7 +166,7 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
             assert.are.equal("when someone's missing my buffs", box.label:GetText())
             assert.are.equal(ns.Options.AUTO_MISSING_TIP, box.tooltip)
             assert.is_truthy(box.tooltip:find("40 yards", 1, true))
-            assert.is_truthy(box.tooltip:find("not just running low", 1, true))
+            assert.is_truthy(box.tooltip:find("or has it running low", 1, true), "#397")
             box:SetChecked(false)
             wow.run(box, "OnClick")
             assert.is_false(ns.db.buffBack.autoOnMissing, "unticking it switches the trigger off")
@@ -657,6 +666,9 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
                         u.offline, u.dead, u.outOfRange, u.rangeUnknown, u.hidden, u.secrets = nil, nil, nil, nil, nil, nil
                         wow.wearBuff(token, MOTW, { source = "player", duration = 600 })
                     end
+                    -- Seen covered first: a member dismissed by an earlier
+                    -- "off" (#397) counts again once seen with a fresh copy.
+                    look()
                     slash("buffmode off")
                     local bare = wow.state.units[tokens[random.random(#tokens)]]
                     if random.random() < 0.5 then
@@ -737,6 +749,10 @@ describe("Buff mode coming back when a buff of yours is missing (#272)", functio
             slash("buffmode off")
             wow.setGroup("party", { "Ann-Vale" })
             wow.fire("GROUP_ROSTER_UPDATE")
+            -- Seen with a fresh copy (ending any dismissal, #397), then bare.
+            wow.wearBuff("party1", MOTW, { source = "player" })
+            look()
+            strip("party1")
             wow.enterCombat()
             wow.leaveCombat()
             assert.is_true(ns.BuffMode.IsAuto(), "seed " .. seed .. ": works again after the storm")

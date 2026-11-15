@@ -1,6 +1,7 @@
--- Spec: #42, #209, #206, #256, #269
+-- Spec: #42, #209, #206, #256, #269, #397
 -- Top-up timing: in buff mode, a group member's buff with less than the set
--- time left (default 5 minutes) counts as missing, so the button offers to
+-- time left (default 5 minutes; a minute for a buff of 10 minutes or less,
+-- #397) counts as missing, so the button offers to
 -- top it up. Group members only, never strangers; a time that can't be read
 -- never counts as missing.
 local wow = require("spec.support.wow")
@@ -179,13 +180,17 @@ describe("Top-up timing in buff mode (#42)", function()
             assert.are.equal("Ann Vale: Mark of the Wild", armed(), "Gift of the Wild, renewed")
         end)
 
-        it("never offers a buff no longer than the threshold, even near its end", function()
+        it("never offers a buff no longer than its threshold; one of 10 minutes or less runs low at a minute (#397)", function()
             ns.db.buffBack.topUpMinutes = 10
             annWears(MOTW, HALF_HOUR)
-            annWears(THORNS_1, 60, 600)
-            assert.is_nil(armed(), "10-minute Thorns with a 10-minute threshold")
+            annWears(THORNS_1, 120, 600)
+            assert.is_nil(armed(), "10-minute Thorns, 2 minutes left: not under a minute")
             ns.db.buffBack.topUpMinutes = 5
-            assert.are.equal("Ann Vale: Thorns", armed(), "with 5 minutes it is")
+            assert.is_nil(armed(), "nor with 5 minutes")
+            annWears(THORNS_1, 59, 600)
+            assert.are.equal("Ann Vale: Thorns", armed(), "under a minute it is")
+            annWears(THORNS_1, 59, 60)
+            assert.is_nil(armed(), "a buff no longer than a minute: a fresh one would be offered at once")
         end)
 
         it("leaves a buff that never runs out", function()
@@ -335,7 +340,10 @@ describe("Top-up timing in buff mode (#42)", function()
                     if u.secrets and u.secrets.auraTimes then return false end
                     if type(duration) ~= "number" or type(expires) ~= "number" then return false end
                     if duration ~= duration or expires ~= expires then return false end
-                    if duration <= threshold or expires <= 0 or expires - wow.now >= threshold then return false end
+                    -- A buff of 10 minutes or less runs low at a minute (#397).
+                    local limit = threshold
+                    if limit > 0 and duration <= 600 then limit = 60 end
+                    if duration <= limit or expires <= 0 or expires - wow.now >= limit then return false end
                 end
             end
             return true

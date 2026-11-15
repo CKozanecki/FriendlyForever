@@ -1,4 +1,4 @@
--- Spec: #206
+-- Spec: #206, #397
 -- Top-up timing for group versions: a group version you can cast (Arcane
 -- Brilliance, the Prayers, Gift of the Wild, the Greater Blessings) counts as
 -- the single rank of the same strength. When a member's has less than the
@@ -307,7 +307,10 @@ describe("Top-up timing renews group versions (#206)", function()
                     if u.secrets and u.secrets.auraTimes then return false end
                     if type(duration) ~= "number" or type(expires) ~= "number" then return false end
                     if duration ~= duration or expires ~= expires then return false end
-                    if duration <= threshold or expires <= 0 or expires - wow.now >= threshold then return false end
+                    -- A buff of 10 minutes or less runs low at a minute (#397).
+                    local limit = threshold
+                    if limit > 0 and duration <= 600 then limit = 60 end
+                    if duration <= limit or expires <= 0 or expires - wow.now >= limit then return false end
                 end
             end
             return true
@@ -331,9 +334,12 @@ describe("Top-up timing renews group versions (#206)", function()
             if u.secrets and u.secrets.auraTimes then return false end
             for i, id in ipairs(u.auras or {}) do
                 local duration, expires = u.auraDurations[i], u.auraExpires[i]
+                -- A buff of 10 minutes or less runs low at a minute (#397).
+                local limit = threshold
+                if limit > 0 and type(duration) == "number" and duration <= 600 then limit = 60 end
                 if STRENGTH[id] and STRENGTH[id] < strength and not wow.auraExpired(u, i)
                     and type(duration) == "number" and type(expires) == "number"
-                    and duration > threshold and expires > 0 and expires - wow.now < threshold then
+                    and duration > limit and expires > 0 and expires - wow.now < limit then
                     return true
                 end
             end
