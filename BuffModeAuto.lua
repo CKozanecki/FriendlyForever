@@ -292,10 +292,23 @@ local function CheckMissing(fightEnded)
 end
 
 -- You turned buff mode off yourself (BuffMode.Set): the members low on or
--- missing a buff of yours at the last look don't turn it back on until
--- they're seen with a fresh copy (#397), not even as a fight ends.
+-- missing a buff of yours now don't turn it back on until they're seen with
+-- a fresh copy (#397), not even as a fight ends. Now means a look taken at
+-- once, in a fight too (the last one may be as old as the pull), as well as
+-- the last look's (a member out of this one's reach keeps what they had).
+-- The look only reads (out of a group it lists nobody); one that fails
+-- dismisses no more than the last did.
+local function DismissNow()
+    local list, _, _, low = ns.GroupBuffs.Missing()
+    for _, offer in ipairs(list) do
+        local key = offer.name .. "\1" .. offer.buff.key
+        dismissed[key] = low[key] or true
+    end
+end
+
 function Auto.OnTurnedOffByYou()
     for key, was in pairs(lastMissing or {}) do dismissed[key] = was end
+    ns.Diag.Call(DismissNow)
 end
 
 local GroupChanged -- below: a join or a leave, as a roster update read it

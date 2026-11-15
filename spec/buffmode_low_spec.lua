@@ -223,6 +223,30 @@ describe("Buff mode and top-up for a buff running low (#397)", function()
             assert.is_true(ns.BuffMode.IsAuto())
         end)
 
+        it("turned off in a fight, what ran low in it doesn't bring it back as the fight ends", function()
+            joinTankAndAnn()
+            look()
+            slash("buffmode on") -- yours: the pull leaves it on
+            wow.enterCombat()
+            leave("party1", THORNS, 40) -- low mid-fight: no look in a fight
+            slash("buffmode off")
+            wow.leaveCombat()
+            assert.is_false(ns.BuffMode.IsOn(), "off, as you asked")
+            leave("party2", MOTW, 200) -- another buff running low still does
+            look()
+            assert.is_true(ns.BuffMode.IsAuto())
+        end)
+
+        it("what ran low since the last look, out of combat, is dismissed too", function()
+            joinTankAndAnn()
+            look()
+            slash("buffmode on")
+            leave("party1", THORNS, 40)
+            slash("buffmode off") -- before the next look
+            look()
+            assert.is_false(ns.BuffMode.IsOn())
+        end)
+
         it("a member out of range when you turn it off: the same Thorns still doesn't bring it back", function()
             joinTankAndAnn()
             look()
