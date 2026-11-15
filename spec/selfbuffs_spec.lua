@@ -162,7 +162,7 @@ describe("Self-buffs in buff mode", function()
             assert.are.equal("/cast [@player,nodead] Inner Fire", macro())
         end)
 
-        it("caps the top-up time at half the buff's full time: a 2-minute Battle Shout isn't low when it lands",
+        it("a 2-minute Battle Shout is low with under a minute left, not when it lands",
             function()
             boot({ class = "WARRIOR", known = { BATTLE_SHOUT }, power = "RAGE" })
             assert.are.equal("/cast [@player,nodead] Battle Shout", macro())
@@ -191,7 +191,7 @@ describe("Self-buffs in buff mode", function()
             assert.is_nil(macro(), "Top up 0 is never")
         end)
 
-        it("has no half-of-its-time cap on a long buff, and is low at exactly the limit's edge (#402)", function()
+        it("has no half-of-its-time cap on a long buff: 700 s left of 1200 is low at 15 minutes Top up (#402)", function()
             boot({ class = "HUNTER", known = { HAWK, TRUESHOT } })
             wear(HAWK, 0)
             wear(TRUESHOT, 1200)
