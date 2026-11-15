@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.3
+
+- **Self-buffs follow the short-buff rule.** A self-buff of 10 minutes or less (Inner Fire, Lightning Shield) is offered with 1 minute left, not half-way through; a longer one is offered at your Top up time, and Top up 0 still means never. (#402)
+
 ## 1.3.2
 
 - **Buff mode comes back when a buff runs low:** in a group, out of combat, buff mode now turns itself on when a buff of yours on a member close by is running low, not only once it has gone. A buff of 10 minutes or less, such as Thorns, counts as running low with under 1 minute left (it used to be offered at your Top up time, 5 minutes by default, half-way through); a longer buff keeps the Top up time. The button tops up by the same rule. If you turn buff mode off yourself, the buffs that were low or gone then don't bring it back until they've been cast again. (#397)
