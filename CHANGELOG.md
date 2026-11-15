@@ -2,6 +2,8 @@
 
 ## 1.3.3
 
+- **Buff Back settings lost mid-session no longer cause errors:** if another addon or a bad `/run` wipes Buff Back's settings while you play, a stranger's buff, a buff you return by hand, the line after a returned favour, buff mode's automatic triggers, dragging the button, `/friendly move`, `/friendly buffback`, `/friendly status` and sharing or switching settings now treat Buff Back as off or restore its defaults, instead of raising a Lua error. (#387)
+- **Greetings stay quiet when the game won't say what group you're in:** if the game can't tell the addon whether you're in a group, a raid, an instance group or a guild, party hellos, welcomes, level-up congratulations and guild greetings are held back rather than sent to a channel that may not accept them, and no Lua error is raised. (#400)
 - **Self-buffs follow the short-buff rule.** A self-buff of 10 minutes or less (Inner Fire, Lightning Shield) is offered with 1 minute left, not half-way through; a longer one is offered at your Top up time, and Top up 0 still means never. (#402)
 
 ## 1.3.2
