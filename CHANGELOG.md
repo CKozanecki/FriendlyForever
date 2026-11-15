@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.2
+
+- **Buff mode comes back when a buff runs low:** in a group, out of combat, buff mode now turns itself on when a buff of yours on a member close by is running low, not only once it has gone. A buff of 10 minutes or less, such as Thorns, counts as running low with under 1 minute left (it used to be offered at your Top up time, 5 minutes by default, half-way through); a longer buff keeps the Top up time. The button tops up by the same rule. If you turn buff mode off yourself, the buffs that were low or gone then don't bring it back until they've been cast again. (#397)
+
 ## 1.3.1
 
 - **Shamans answer requests for Water Walking:** when buff requests are on, a player who asks for "water walking", "ww" or "walk on water" in a whisper, /say or party chat is offered Water Walking on the buff-back button, unless they already have it, from the spell, an item or a potion. It's offered only when asked for: buff back and buff mode never offer it unasked, and it isn't held back away from water. The Buff Back tab lists it as "(when asked)", and "never offer" stops requests for it. For now it's offered only when the game names the spell "Water Walking", so a game client in another language doesn't offer it. (#350)
