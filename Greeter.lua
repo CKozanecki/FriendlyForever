@@ -14,19 +14,34 @@ local members = {} -- [full name] = their class as players read it ("warrior"), 
 local pendingOnline = {}
 local pendingCount = 0
 
+-- A yes-or-no answer from the game (IsInGroup, IsInRaid, IsInGuild): true,
+-- false, or nil when it can't be read (an error, a secret, anything but a
+-- boolean). A nil is never taken as either answer: each reader picks the
+-- pessimistic side for what it decides (#400).
+local function Flag(fn, ...)
+    local value = Util.ReadGameValues(fn, ...)
+    if type(value) == "boolean" then return value end
+end
+
 local function GuildChannel()
-    if IsInGuild() then return "GUILD" end
+    if Flag(IsInGuild) == true then return "GUILD" end
 end
 
 -- IsInGroup(nil) means any group, so a missing constant must not get there.
+-- True, false, or nil when the game's answer can't be read.
 local function InInstanceGroup()
-    return LE_PARTY_CATEGORY_INSTANCE ~= nil and IsInGroup(LE_PARTY_CATEGORY_INSTANCE)
+    if LE_PARTY_CATEGORY_INSTANCE == nil then return false end
+    return Flag(IsInGroup, LE_PARTY_CATEGORY_INSTANCE)
 end
 
+-- The group's chat route, or nil: not grouped, or a group the game won't
+-- describe, where a line could go to a route it doesn't accept (#400).
 function Greeter.GroupChannel()
-    if InInstanceGroup() then return "INSTANCE_CHAT" end
-    if IsInRaid() then return "RAID" end
-    if IsInGroup() then return "PARTY" end
+    local instance = InInstanceGroup()
+    if instance ~= false then return instance and "INSTANCE_CHAT" or nil end
+    local raid = Flag(IsInRaid)
+    if raid ~= false then return raid and "RAID" or nil end
+    if Flag(IsInGroup) == true then return "PARTY" end
 end
 
 local function IsMe(name)
@@ -40,8 +55,11 @@ local PARTY_UNITS, RAID_UNITS = {}, {}
 for i = 1, 4 do PARTY_UNITS[i] = "party" .. i end
 for i = 1, 40 do RAID_UNITS[i] = "raid" .. i end
 
+-- Nil when the game won't say whether this is a raid (#400).
 local function GroupUnits()
-    return IsInRaid() and RAID_UNITS or PARTY_UNITS
+    local raid = Flag(IsInRaid)
+    if raid == nil then return nil end
+    return raid and RAID_UNITS or PARTY_UNITS
 end
 
 -- Is this full name in my group right now? Walks the actual group slots
@@ -49,8 +67,10 @@ end
 -- which name format a by-name query happens to accept. Returns true, false,
 -- or nil when it can't tell (names are restricted, e.g. in combat).
 function Greeter.IsInMyGroup(name)
+    local units = GroupUnits()
+    if not units then return nil end
     local unreadable = false
-    for _, unit in ipairs(GroupUnits()) do
+    for _, unit in ipairs(units) do
         local exists, secret = Util.Readable(UnitExists(unit))
         if secret then
             unreadable = true
@@ -309,7 +329,7 @@ local loggedMembers -- the count the last logged roster line gave (#268)
 
 function Greeter.OnRosterUpdate()
     members = {}
-    if IsInGuild() then
+    if Flag(IsInGuild) == true then
         for i = 1, GetNumGuildMembers() or 0 do
             local rawName, _, _, _, class = GetGuildRosterInfo(i)
             local name = Util.FullName(rawName)
@@ -339,8 +359,9 @@ end
 
 -- Battlegrounds put you in an instance group, but Forever may not use the
 -- instance category for them, so the zone type is checked too.
+-- An instance group the game won't confirm or deny counts as one: quiet.
 function Greeter.InBattleground()
-    if InInstanceGroup() then return true end
+    if InInstanceGroup() ~= false then return true end
     return select(2, IsInInstance()) == "pvp"
 end
 
@@ -348,7 +369,7 @@ end
 -- the joiner, so watch the group appear: not grouped -> grouped, with someone
 -- else leading (when I lead, I invited them, and the party welcome covers it).
 -- No hello in battlegrounds.
-local wasInGroup = false
+local wasInGroup = false -- nil: the last answer couldn't be read (#400)
 local helloedLeaders = {}
 local groupChanges = 0 -- bumped on every join and leave, so a stale hello timer can tell
 
@@ -371,21 +392,27 @@ end
 local lastRaidWelcomeAt -- when the last raid welcome was sent; see RAID_MIN_INTERVAL
 
 local function TrackConversion(inGroup, wasGrouped)
-    local inRaid = IsInRaid() and true or false
-    if inRaid and not wasInRaid and inGroup and wasGrouped then
+    local inRaid = Flag(IsInRaid)
+    -- A party hidden by an answer that couldn't be read may have become
+    -- this raid: its members as last seen aren't welcomed again (#400).
+    if inRaid and not wasInRaid and inGroup and wasGrouped ~= false then
         convertedMembers, convertedAt = partyMembers, GetTime()
         ns.Diag.Log("partyJoin", "party became a raid; not welcoming its members again")
     end
     wasInRaid = inRaid
-    partyMembers = (inGroup and not inRaid) and PartyNames() or {}
+    -- Unreadable: the party as last seen stays, so its members still
+    -- aren't welcomed again if it turns out to have become a raid (#400).
+    if inRaid ~= nil then partyMembers = (inGroup and not inRaid) and PartyNames() or {} end
     -- A new raid needn't wait out the last one's interval.
     if not inGroup then lastRaidWelcomeAt = nil end
 end
 
 function Greeter.OnEnteringWorld()
-    wasInGroup = IsInGroup() and true or false
-    wasInRaid = IsInRaid() and true or false
-    partyMembers = (wasInGroup and not wasInRaid) and PartyNames() or {}
+    wasInGroup = Flag(IsInGroup)
+    wasInRaid = Flag(IsInRaid)
+    -- Party slots are empty out of a group; in a raid the game won't
+    -- confirm, they're kept, so nobody in them is welcomed again (#400).
+    partyMembers = wasInRaid ~= true and PartyNames() or {}
 end
 
 local function HelloOpts(delay, onDone)
@@ -396,7 +423,9 @@ local function HelloOpts(delay, onDone)
         channel = Greeter.GroupChannel,
         vars = function() return {} end,
         isValid = function()
-            if not IsInGroup() then return false, "you left the group" end
+            local inGroup = Flag(IsInGroup)
+            if inGroup == nil then return false, "can't tell if you're still in the group" end
+            if not inGroup then return false, "you left the group" end
             if Greeter.InBattleground() then return false, "in a battleground" end
             return true
         end,
@@ -438,11 +467,16 @@ local function SayHello(waited)
 end
 
 function Greeter.OnGroupRosterUpdate()
-    local inGroup = IsInGroup() and true or false
+    local inGroup = Flag(IsInGroup)
     local wasGrouped = wasInGroup
-    local joined = inGroup and not wasGrouped
     if inGroup ~= wasGrouped then groupChanges = groupChanges + 1 end
     wasInGroup = inGroup
+    if inGroup == nil then
+        ns.Diag.Log("partyHello", "can't tell whether you're in a group; no hello decided on it")
+        return
+    end
+    -- A join is only seen between two answers that could be read (#400).
+    local joined = inGroup and wasGrouped == false
     TrackConversion(inGroup, wasGrouped)
     if not joined then return end
 
@@ -477,7 +511,7 @@ end
 
 -- Full name of whoever leads my group, or nil if no slot can be read.
 function Greeter.GroupLeaderName()
-    for _, unit in ipairs(GroupUnits()) do
+    for _, unit in ipairs(GroupUnits() or {}) do
         local leads = Util.Readable(UnitIsGroupLeader(unit))
         if leads then
             local name = Util.UnitFullName(unit)
@@ -547,8 +581,9 @@ local function WelcomeJoin(name, raidLine)
         return
     end
     -- Every addon user in a raid sees the same join lines. Only the leader,
-    -- who sent the invites, welcomes, so each line goes out once.
-    local inRaid = raidLine or IsInRaid()
+    -- who sent the invites, welcomes, so each line goes out once. A group
+    -- the game won't say is a party counts as a raid here (#400).
+    local inRaid = raidLine or Flag(IsInRaid) ~= false
     if inRaid and not Util.Readable(UnitIsGroupLeader("player")) then
         ns.Diag.Log("partyJoin", "not welcoming %s: in a raid only the leader welcomes", name)
         return
@@ -634,7 +669,7 @@ function Greeter.OnSystemMessage(msg)
     if IsMe(name) then return end
 
     if kind == "guildOnline" then
-        if not IsInGuild() then
+        if Flag(IsInGuild) ~= true then
             ns.Diag.Log("guildLogin", "ignored %s: you are not in a guild", name)
             return
         end

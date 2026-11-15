@@ -231,7 +231,7 @@ local function StatusLines()
     end
     add("skip while AFK: " .. OnOff(db.skipWhileAFK) .. " (" .. afkText .. ")")
     for _, msgType in ipairs(ns.Config.TYPES) do
-        local cfg = db[msgType]
+        local cfg = ns.Config.Section(msgType) -- healed first if lost mid-session (#387)
         local info = ns.Config.TYPE_INFO[msgType]
         if info.noTiming then
             add(string.format("  %s: %s", info.label, OnOff(cfg.enabled)))
@@ -254,7 +254,13 @@ local function StatusLines()
     add("friendly player nameplates: " .. (shown == nil and "not available"
         or shown and ns.Colours.Text("good", "on") .. " (casters can be named)"
         or ns.Colours.Text("bad", "off") .. " (most casters can't be named; /friendly nameplates turns them on)"))
-    add("group chat channel: " .. (ns.Greeter.GroupChannel() or "none (not grouped)"))
+    -- No route: out of a group, or a group the game won't describe (#400).
+    local route = ns.Greeter.GroupChannel()
+    if not route then
+        route = ns.Util.ReadGameValues(IsInGroup) == false and "none (not grouped)"
+            or "none (the game won't say which group you're in)"
+    end
+    add("group chat channel: " .. route)
     add(string.format("chat: lockdown %s, %d waiting, waiting for key press %s, key listener %s",
         OnOff(Q.InChatLockdown()), Q.Count(), OnOff(Q.IsWaitingForHardware()), OnOff(Q.IsKeyboardReady())))
     add(string.format("seen: %d system messages (%d recognised), %d buffs, %d restricted buff updates skipped",
@@ -540,7 +546,7 @@ local function BlessingsCommand(args)
 end
 
 local function MoveCommand()
-    local unlock = not ns.db.buffBack.unlocked
+    local unlock = not ns.Config.Section("buffBack").unlocked -- healed first if lost (#387)
     local ok, why = ns.BuffButton.SetUnlocked(unlock)
     if not ok then return ns.Print("can't move the buff-back button: " .. why) end
     ns.Print(unlock and "buff-back button unlocked: drag it, then /friendly move again to lock it."

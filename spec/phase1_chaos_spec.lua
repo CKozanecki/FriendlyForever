@@ -1,4 +1,4 @@
--- Spec: #52, #281, #384
+-- Spec: #52, #281, #384, #387
 -- Phase 1 under damage and chaos: the ignore list, snooze, profiles,
 -- export/import with undo and the favour ledger, damaged mid-session (black)
 -- and in seeded random storms (red). Mid-session damage stands for another
@@ -204,6 +204,7 @@ describe("Phase 1 settings damaged mid-session (black)", function()
             importUndo = { 42, "x", true, { profile = "P1" }, { profile = "P1", settings = {}, ignoreAdded = 3 },
                 { profile = "P1", ignoreAdded = {} }, { settings = {}, ignoreAdded = {} },
                 { profile = "P1", settings = {} } },
+            buffBack = { 42, "x", true }, -- the whole section lost (#387); nil below
         }
         local line
         local DOES = {
@@ -246,6 +247,12 @@ describe("Phase 1 settings damaged mid-session (black)", function()
                         assert.are.same({}, wow.errors, ("%s = %s, then %s"):format(field, tostring(damage), does[1]))
                     end
                 end
+            end
+            for _, does in ipairs(DOES) do
+                ns = boot()
+                ns.db.buffBack = nil
+                does[2]()
+                assert.are.same({}, wow.errors, "buffBack = nil, then " .. does[1])
             end
         end)
     end)
@@ -538,6 +545,12 @@ describe("Phase 1 chaos (red tests)", function()
                 ns.db.importUndo = pick({ 42, "x", true, { profile = m.active } })
                 m.undo = nil
             end,
+            -- Buff Back's whole section lost (#387): every reader takes it as
+            -- off, or heals it first.
+            function()
+                ns.db.buffBack = pick({ "nil", "x", 42 })
+                if ns.db.buffBack == "nil" then ns.db.buffBack = nil end
+            end,
             function()
                 local ledger = ns.db.ledger
                 if random.random() < 0.5 then ns.db.ledger = pick({ 42, "x", {} })
@@ -574,10 +587,14 @@ describe("Phase 1 chaos (red tests)", function()
             local which = random.random(#actions)
             actions[which]()
             assert.are.same({}, wow.errors, at .. " (action " .. which .. ")")
+            local lost = type(ns.db.buffBack) ~= "table"
             -- Read from the simulated client's bindings, not the addon's own record.
-            if next(wow.state.overrides) and not wow.state.inCombat then
+            -- A section lost mid-session (#387) leaves a lent key until the
+            -- button's next refresh gives it back (#384); a press meanwhile
+            -- casts nothing (buffback_lost_spec: this storm never presses).
+            if next(wow.state.overrides) and not wow.state.inCombat and not lost then
                 local buffBack = ns.db.buffBack
-                local on = ns.db.enabled == true and type(buffBack) == "table" and buffBack.enabled == true
+                local on = ns.db.enabled == true and buffBack.enabled == true
                 assert.is_true(on, at .. ": a key lent while the addon or Buff Back is off")
             end
             -- The case that matters: the addon switched off while a key was lent.

@@ -713,6 +713,12 @@ function BuffButton.OnSpellcastSent(unit, castTargetName, castGUID, spellId)
     WatchForAnswer(press, BuffButton.SENT_ANSWER_SECONDS)
 end
 
+-- The setting; a section lost mid-session reads as off (#387).
+local function SayLineOn()
+    local cfg = ns.db.buffBack
+    return type(cfg) == "table" and cfg.sayLine == true
+end
+
 -- After a favour is returned: queue the optional line, sent the way Buff
 -- Thanks' "Thank them with" choice says (#101): in /say (also for "a line and an emote"),
 -- whispered to them, or, for the emote, a plain /thank aimed at them (or at
@@ -721,7 +727,7 @@ end
 -- press (a whisper or an emote goes at once), and drops it if it waits too long, or if the setting is
 -- turned off or they're ignored meanwhile.
 local function SayLineFor(press)
-    if ns.db.buffBack.sayLine ~= true then return end
+    if not SayLineOn() then return end
     local style = ns.db.buff.thankStyle
     local whisper, emote = style == "whisper", style == "emote"
     ns.Announcer.Schedule("buffBack", press.name, {
@@ -739,7 +745,7 @@ local function SayLineFor(press)
             return vars
         end,
         isValid = function()
-            if ns.db.buffBack.sayLine ~= true then return false, "the line is switched off" end
+            if not SayLineOn() then return false, "the line is switched off" end
             if ns.Ignore.Has(press.name) then return false, "on your ignore list" end
             return true
         end,
@@ -879,14 +885,16 @@ end
 function BuffButton.SetUnlocked(unlock)
     if not button then return false, "the button isn't ready yet" end
     if InCombatLockdown() then return false, "it can't be moved in combat" end
-    ns.db.buffBack.unlocked = unlock and true or false
+    -- Through Config.Section: a section lost mid-session is healed first (#387).
+    local cfg = ns.Config.Section("buffBack")
+    cfg.unlocked = unlock and true or false
     if unlock then
         button:RegisterForDrag("LeftButton")
     else
         button:RegisterForDrag()
         local point, _, _, x, y = button:GetPoint()
         if point then
-            ns.db.buffBack.position = ns.Config.CleanPosition({ point = point, x = x, y = y },
+            cfg.position = ns.Config.CleanPosition({ point = point, x = x, y = y },
                 ns.Config.DEFAULTS.buffBack.position)
         end
     end
@@ -1005,7 +1013,8 @@ function BuffButton.Create()
     button:SetScript("PreClick", ns.Diag.Wrap(OnPreClick))
     button:SetScript("PostClick", ns.Diag.Wrap(OnPostClick))
     button:SetScript("OnDragStart", function(self)
-        if ns.db.buffBack.unlocked and not InCombatLockdown() then self:StartMoving() end
+        local cfg = ns.db.buffBack -- lost mid-session reads as locked (#387)
+        if type(cfg) == "table" and cfg.unlocked and not InCombatLockdown() then self:StartMoving() end
     end)
     button:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
@@ -1067,7 +1076,8 @@ BuffButton.SECURE_ATTRIBUTE = SECURE_ATTRIBUTE
 
 function BuffButton.StatusLines()
     local out = {}
-    out[#out + 1] = string.format("buff back: %s, %d favour(s) owed", ns.db.buffBack.enabled and "on" or "off",
+    out[#out + 1] = string.format("buff back: %s, %d favour(s) owed",
+        ns.Config.Section("buffBack").enabled and "on" or "off",
         ns.Offers.Count())
     local names = {}
     for _, buff in ipairs(ns.BuffData.Mine()) do names[#names + 1] = ns.BuffData.SpellName(buff) or buff.key end
