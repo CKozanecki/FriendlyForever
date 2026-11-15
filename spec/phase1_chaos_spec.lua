@@ -353,7 +353,7 @@ describe("Phase 1 chaos (red tests)", function()
             saved = nil,       -- { line, ignored } from the last export
         }
         local seen = { greeted = 0, thanked = 0, ignoredOnline = 0, imports = 0, undos = 0, switches = 0,
-            reloads = 0, snoozedSteps = 0, offWhileLent = 0, lostSteps = 0 }
+            reloads = 0, snoozedSteps = 0, offWhileLent = 0 }
         local thanksSinceClear = 0
         local sentBefore = 0
 
@@ -584,22 +584,18 @@ describe("Phase 1 chaos (red tests)", function()
             local ignoredBefore = {}
             for who in pairs(m.ignored) do ignoredBefore[who] = true end
             local lentBefore = next(wow.state.overrides) ~= nil
-            local lostBefore, castsBefore = type(ns.db.buffBack) ~= "table", #wow.casts
             local which = random.random(#actions)
             actions[which]()
             assert.are.same({}, wow.errors, at .. " (action " .. which .. ")")
             local lost = type(ns.db.buffBack) ~= "table"
             -- Read from the simulated client's bindings, not the addon's own record.
             -- A section lost mid-session (#387) leaves a lent key until the
-            -- button's next refresh gives it back (#384), but nothing casts.
+            -- button's next refresh gives it back (#384); a press meanwhile
+            -- casts nothing (buffback_lost_spec: this storm never presses).
             if next(wow.state.overrides) and not wow.state.inCombat and not lost then
                 local buffBack = ns.db.buffBack
                 local on = ns.db.enabled == true and buffBack.enabled == true
                 assert.is_true(on, at .. ": a key lent while the addon or Buff Back is off")
-            end
-            if lostBefore and lost then
-                seen.lostSteps = seen.lostSteps + 1
-                assert.are.equal(castsBefore, #wow.casts, at .. ": a cast while Buff Back's settings were lost")
             end
             -- The case that matters: the addon switched off while a key was lent.
             if lentBefore and not m.enabled then seen.offWhileLent = seen.offWhileLent + 1 end
@@ -666,7 +662,7 @@ describe("Phase 1 chaos (red tests)", function()
         end
         -- The storms really reached what they test, not just the edges.
         for _, key in ipairs({ "greeted", "thanked", "ignoredOnline", "imports", "undos", "switches", "reloads",
-            "snoozedSteps", "offWhileLent", "lostSteps" }) do
+            "snoozedSteps", "offWhileLent" }) do
             assert.is_true((total[key] or 0) > 0, key .. ": " .. tostring(total[key]))
         end
     end)

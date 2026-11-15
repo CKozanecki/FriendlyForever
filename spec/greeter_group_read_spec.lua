@@ -337,64 +337,121 @@ describe("Greetings when the game's group answers can't be read (#400)", functio
         for way in pairs(UNREADABLE) do ways[#ways + 1] = way end
         table.sort(ways)
         local reads = { "group", "instance", "raid", "guild" }
-        local sentLines, unreadableSteps = 0, 0
+        -- Leaders and joiners from a pool, so repeat cooldowns don't silence
+        -- the storm after its first greeting.
+        local LEADERS = { "Alex-Roberts", "Bree-Stone", "Cid-Moss", "Dot-Reed", "Eve-Hart" }
+        local JOINERS = { "Anduin", "Jaina", "Varian" }
+        -- What went out, read from the simulated client: by kind and by route.
+        local seen = { hello = 0, welcome = 0, levelUp = 0, guild = 0, PARTY = 0, RAID = 0, INSTANCE_CHAT = 0,
+            unreadableGroupReads = 0, dueWhileUnreadable = 0 }
         for _, seed in ipairs({ 4, 400, 2026, 31337 }) do
             random.seed(seed)
             boot()
+            -- Every join greets, whoever leads.
+            ns.db.partyHello.repeatCooldown, ns.db.partyHelloAgain.repeatCooldown = 0, 0
+            -- Count IsInGroup() asked while it can't be read, from the wrapper's own state.
+            local wrapped = _G.IsInGroup
+            _G.IsInGroup = function(category, ...)
+                if category == nil and broken.group then seen.unreadableGroupReads = seen.unreadableGroupReads + 1 end
+                return wrapped(category, ...)
+            end
+            local levels = {}
             local sentBefore = 0
-            for step = 1, 300 do
-                local at = ("seed %d, step %d"):format(seed, step)
-                local roll = random.random(1, 12)
-                if roll <= 3 then
-                    local read = reads[random.random(#reads)]
-                    broken[read] = random.random() < 0.5 and ways[random.random(#ways)] or nil
-                elseif roll == 4 then
-                    joinGroup(({ "party", "raid", "instance" })[random.random(3)],
-                        { "Alex-Roberts", "Udders-Healz" })
-                elseif roll == 5 then
-                    leaveGroup()
-                elseif roll == 6 then
-                    wow.state.isLeader = true
-                    wow.systemMessage("Anduin joins the party.")
-                elseif roll == 7 then
-                    online("Thrall")
-                elseif roll == 8 then
-                    if wow.state.groupType then
-                        local token = (wow.state.groupType == "party") and "party1" or "raid1"
-                        if wow.state.units[token] then wow.levelUp(token, random.random(2, 59)) end
-                    end
-                elseif roll == 9 then
-                    wow.reloadInPlace(true)
-                    install()
-                else
-                    if broken.group or broken.instance or broken.raid then unreadableSteps = unreadableSteps + 1 end
-                    wow.advance(random.random(1, 20))
-                    wow.keyDown()
-                end
-                -- What went out this step, checked against the simulated
-                -- client's own group, and the answers the addon could read.
+            -- What went out since the last check, checked against the
+            -- simulated client's own group and the answers the addon could read.
+            local function checkSent(at)
                 local groupType = wow.state.groupType
                 for i = sentBefore + 1, #wow.sent do
-                    local channel = wow.sent[i].channel
+                    local record = wow.sent[i]
+                    local channel, text = record.channel, record.text or ""
                     if GROUP_CHANNELS[channel] then
-                        sentLines = sentLines + 1
-                        assert.is_nil(broken.group, at .. ": a group line while IsInGroup() couldn't be read")
+                        seen[channel] = seen[channel] + 1
+                        -- The reads each line depends on: its route (the
+                        -- instance answer, then raid, then group), and the
+                        -- group answer a hello or a level-up checks itself.
+                        local kind = "levelUp"
+                        if text:find("Thanks for the invite", 1, true) or text:find("again", 1, true) then
+                            kind = "hello"
+                        elseif text:find("Welcome", 1, true) then
+                            kind = "welcome"
+                        end
+                        seen[kind] = seen[kind] + 1
                         assert.is_nil(broken.instance, at .. ": a group line on an unreadable instance answer")
-                        assert.is_nil(broken.raid, at .. ": a group line on an unreadable raid answer")
+                        if channel ~= "INSTANCE_CHAT" or kind == "levelUp" then
+                            assert.is_nil(broken.raid, at .. ": a " .. kind .. " on an unreadable raid answer")
+                        end
+                        if channel == "PARTY" or kind ~= "welcome" then
+                            assert.is_nil(broken.group, at .. ": a " .. kind .. " while IsInGroup() couldn't be read")
+                        end
                         local want = (groupType == "instance") and "INSTANCE_CHAT"
                             or (groupType == "raid" and "RAID") or (groupType == "party" and "PARTY") or nil
-                        assert.are.equal(want, channel, at .. ": a line to " .. channel)
+                        assert.are.equal(want, channel, at .. ": a line to " .. channel .. ": " .. text)
                     elseif channel == "GUILD" then
+                        seen.guild = seen.guild + 1
                         assert.is_nil(broken.guild, at .. ": a guild line on an unreadable guild answer")
                     end
                 end
                 sentBefore = #wow.sent
+            end
+            for step = 1, 600 do
+                local at = ("seed %d, step %d"):format(seed, step)
+                -- Mostly time passing, so greetings fall due under every answer.
+                local roll = random.random(1, 24)
+                if roll <= 3 then
+                    local read = reads[random.random(#reads)]
+                    broken[read] = random.random() < 0.3 and ways[random.random(#ways)] or nil
+                elseif roll == 4 then
+                    local names = { LEADERS[random.random(#LEADERS)] }
+                    for _, joiner in ipairs(JOINERS) do names[#names + 1] = joiner end
+                    joinGroup(({ "party", "party", "raid", "instance" })[random.random(4)], names)
+                    levels = {}
+                elseif roll == 5 then
+                    leaveGroup()
+                elseif roll == 6 then
+                    -- Someone already in the group joins, as the game reports it.
+                    wow.state.isLeader = true
+                    local who = JOINERS[random.random(#JOINERS)]
+                    wow.systemMessage(wow.state.groupType == "raid" and (who .. " has joined the raid group.")
+                        or (who .. " joins the party."))
+                elseif roll == 7 then
+                    online("Thrall")
+                elseif roll == 8 then
+                    if wow.state.groupType then
+                        local token = (wow.state.groupType == "raid" or wow.state.raidSized) and "raid1" or "party1"
+                        local unit = wow.state.units[token]
+                        if unit then
+                            levels[token] = (levels[token] or unit.level or 10) + 1
+                            wow.levelUp(token, math.min(levels[token], 59))
+                        end
+                    end
+                elseif roll == 9 and random.random() < 0.3 then
+                    wow.reloadInPlace(true)
+                elseif roll == 10 then
+                    -- A hello falls due while one answer it needs can't be read:
+                    -- join cleanly, then one read breaks before it goes out.
+                    for read in pairs(broken) do broken[read] = nil end
+                    leaveGroup()
+                    local names = { LEADERS[random.random(#LEADERS)] }
+                    for _, joiner in ipairs(JOINERS) do names[#names + 1] = joiner end
+                    joinGroup(({ "party", "raid" })[random.random(2)], names)
+                    wow.advance(math.max(0, math.min(ns.db.partyHello.delay, ns.db.partyHelloAgain.delay) - 0.5))
+                    checkSent(at .. ", before the read breaks")
+                    broken[reads[random.random(3)]] = ways[random.random(#ways)]
+                    seen.dueWhileUnreadable = seen.dueWhileUnreadable + 1
+                else
+                    wow.advance(random.random(1, 20))
+                    wow.keyDown()
+                end
+                checkSent(at)
                 assert.are.same({}, wow.errors, at)
             end
             restore()
         end
-        -- Live: lines went out to groups, and unreadable answers came up.
-        assert.is_true(sentLines > 0, "group lines: " .. sentLines)
-        assert.is_true(unreadableSteps > 0, "steps with an unreadable answer: " .. unreadableSteps)
+        -- Live: every kind of greeting went out, on the party and raid
+        -- routes, and IsInGroup() was asked while it couldn't be read.
+        for _, key in ipairs({ "hello", "welcome", "levelUp", "guild", "PARTY", "RAID", "unreadableGroupReads",
+            "dueWhileUnreadable" }) do
+            assert.is_true(seen[key] > 0, key .. ": " .. seen[key])
+        end
     end)
 end)
