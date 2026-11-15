@@ -496,7 +496,7 @@ local function BuffModeCommand(args)
     local verb, rest = args:match("^(%S*)%s*(.-)$")
     verb = (verb or ""):lower()
     if verb == "on" or verb == "off" then
-        ns.BuffMode.Set(verb == "on")
+        ns.BuffMode.Set(verb == "on", { yours = true })
     elseif verb == "" then
         ns.BuffMode.Toggle()
     elseif verb == "key" then

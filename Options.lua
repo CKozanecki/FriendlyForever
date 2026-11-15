@@ -591,8 +591,15 @@ Options.AUTO_JOIN_TIP = "In a dungeon or raid with your group: it waits until ev
     .. "close by (about 40 yards), for 2 minutes after joining."
 
 Options.AUTO_MISSING_TIP = "In any group, out of combat: when someone close by (about 40 yards), you "
-    .. "included, has none of a buff you give: never cast, or faded away (not just running low). "
-    .. "Looked at as a fight ends, and every few seconds."
+    .. "included, has none of a buff you give (never cast, or faded away), or has it running low: a "
+    .. "minute left for a buff of 10 minutes or less (Thorns), your Top up time for a longer one. "
+    .. "Looked at as a fight ends, and every few seconds. Turned off yourself, it stays off for those "
+    .. "buffs until they're cast again; another one running low or fading turns it back on."
+
+-- Top-up timing (#42, #397): the stepper's mouse-over.
+Options.TOP_UP_TIP = "A buff you give with less than this many minutes left is offered again in buff mode, "
+    .. "so you can renew it before it runs out. A buff of 10 minutes or less (Thorns) waits until it has "
+    .. "under a minute left. 0: never; a buff is offered only once it's gone."
 
 local function FillAuto(shown)
     widgets.autoHeader:SetShown(shown)
@@ -1071,6 +1078,7 @@ function Options.Create()
     local topUp = Stepper(content, "Top up my buffs with under (minutes left, 0 = never):", "topUpMinutes")
     topUp.label:SetPoint("TOPLEFT", offMinutes.label, "BOTTOMLEFT", 0, -14)
     widgets.steppers.topUpMinutes = topUp
+    Tooltip(topUp.box, Options.TOP_UP_TIP)
     -- Group versions (GroupCasts.lua, #41): one cast for a whole party.
     widgets.groupVersions = Checkbox(content, "Use group versions (Arcane Brilliance, the Prayers, Gift of the Wild)",
         function(on)

@@ -34,7 +34,10 @@
 --
 -- Top-up timing (#42): a buff you give (whoever cast it) with less than the
 -- set time left (buffBack.topUpMinutes) counts as missing, so you can renew
--- it before it runs out. Only a rank you can replace, or a group version
+-- it before it runs out. A buff whose full time is SHORT_SECONDS or less
+-- (Thorns) counts at SHORT_LOW_SECONDS left instead (#397, the owner); a Top
+-- up of 0 still means never, for every buff. The same rule tells buff mode's
+-- trigger a buff is running low (GroupBuffs.Missing). Only a rank you can replace, or a group version
 -- (Prayers, Arcane Brilliance, Gift of the Wild, Greater Blessings) no
 -- stronger than a rank you know (#206; BuffData.CanReplace), and only when
 -- the game shows how long it has left: a time that can't be read (secret,
@@ -80,6 +83,12 @@ GroupBuffs.HELD_BACK_SECONDS = 15
 -- wow.boot). Only this line decides; the rest of the file follows it.
 GroupBuffs.SELF_ORDER = "first"
 
+-- Top-up timing for short buffs (#397, the owner): a buff whose full time
+-- is this long or shorter counts as running low with SHORT_LOW_SECONDS
+-- left, not the Top up time (which would offer Thorns half-way through).
+GroupBuffs.SHORT_SECONDS = 600
+GroupBuffs.SHORT_LOW_SECONDS = 60
+
 -- Solo (#329): what the button says once you have all your own buffs.
 GroupBuffs.SOLO_DONE = "you have your buffs"
 
@@ -102,10 +111,14 @@ local skipped = {}   -- [name] = GetTime() you right-clicked them
 local heldBack = {}  -- [name] = GetTime() the game refused a cast to them
 local lastSelfWhy        -- why you were last left out of the offers (said once in debug)
 -- While GroupBuffs.Missing asks (#272): any copy of a buff counts as worn
--- (running low, or anyone's), and only a member close by and known to be
--- online can be missing one. While it asks, this is the table of pairs
--- seen worn ([name .. "\1" .. buff key] = true); otherwise false.
+-- (anyone's), except one running low that the button would top up (#397),
+-- and only a member close by and known to be online can be missing one.
+-- While it asks, this is the table of pairs seen worn ([name .. "\1" ..
+-- buff key] = when the copy was put up, or true when that can't be read),
+-- and presentLow the pairs seen running low (= when put up); otherwise
+-- false.
 local presentOnly = false
+local presentLow = false
 -- The dungeon-or-raid round (#256), or nil: { started = GetTime(), given =
 -- { [name .. "\1" .. buff key] = true }, inStep = { [buff key] = { buff,
 -- at, by } } (the newest member's buff it left alone as in step), order = {
@@ -227,8 +240,9 @@ local function TopUpSeconds()
 end
 
 -- Whether aura (readable, wearing buff) is yours to top up now: a rank you
--- can replace with less than the top-up time left. Its duration must be
--- longer than that time, or a fresh one would be offered again at once.
+-- can replace with less than the top-up time left, or SHORT_LOW_SECONDS for
+-- a buff whose full time is SHORT_SECONDS or less (#397). Its duration must
+-- be longer than that time, or a fresh one would be offered again at once.
 -- No, whenever its times are secret or not numbers: they're never compared.
 local function RunningLow(aura, buff)
     -- 0 needs no test of its own: only a buff whose time has passed would count.
@@ -236,6 +250,8 @@ local function RunningLow(aura, buff)
     local duration, expires = aura.duration, aura.expirationTime
     if Util.IsSecret(duration) or Util.IsSecret(expires) then return false end
     if type(duration) ~= "number" or type(expires) ~= "number" then return false end
+    -- A short buff (#397): a minute left, unless top-up is off (0: never).
+    if threshold > 0 and duration <= GroupBuffs.SHORT_SECONDS then threshold = GroupBuffs.SHORT_LOW_SECONDS end
     -- Each test says yes only for a real number, so NaN is a no. An expiry
     -- of 0 is an aura that never runs out.
     if not (duration > threshold and expires > 0 and expires - GetTime() < threshold) then return false end
@@ -330,13 +346,22 @@ local function Wears(member, buff, units)
         local id = aura.spellId
         if Util.IsSecret(id) then return nil, "can't see their buffs" end
         if ns.BuffData.Covers(buff, id) then
-            -- Any copy at all is worn when only a missing buff counts (#272).
-            if presentOnly then return true end
             -- Running low, it's renewed (top-up, #42), but never over a
-            -- caster that can't be read (#256).
+            -- caster that can't be read (#256). For Missing too (#397):
+            -- what the button would top up is running low.
             local renews
             if RunningLow(aura, buff) then
                 renews = CasterOf(aura.sourceUnit, units) ~= nil or nil
+                if renews and presentOnly then
+                    -- When it was put up, so a recast can be told (#397).
+                    local key, at = member.name .. "\1" .. buff.key, AppliedAt(aura)
+                    if not presentLow[key] or (at and at > presentLow[key]) then presentLow[key] = at end
+                end
+            elseif presentOnly then
+                -- Any other copy at all is worn when only a missing (or
+                -- low) buff counts (#272), noting when it was put up.
+                presentOnly[member.name .. "\1" .. buff.key] = AppliedAt(aura) or true
+                return true
             else
                 renews = Renews(member, buff, aura, units)
             end
@@ -592,9 +617,7 @@ local function Look(out, units, groupKnown)
                 unreadable[member.name] = true
                 Why(member, wearsWhy)
             elseif wears then
-                -- A buff only running low is worn here: your top-up cast
-                -- still counts as just given (#272).
-                if presentOnly then presentOnly[key] = true else justGiven[key] = nil end
+                if presentOnly then presentOnly[key] = presentOnly[key] or true else justGiven[key] = nil end
             elseif allowed == nil then
                 -- The rules can't tell (an unreadable role or class):
                 -- said, and not settled, only for a member missing it.
@@ -691,10 +714,12 @@ function GroupBuffs.Next(out)
     return Look(out, GroupUnits())
 end
 
--- The members missing a buff of yours outright (#272), in the order the
--- button would reach them: { name, buff, ... } as Next lists them. Missing
--- means no copy at all, whoever cast it: never cast, or fully faded, and
--- not merely running low. Next's rules hold (your Buff Back rules, the raid
+-- The members missing a buff of yours (#272) or whose buff of yours is
+-- running low (#397), in the order the button would reach them: { name,
+-- buff, ... } as Next lists them. Missing means no copy at all, whoever cast
+-- it: never cast, or fully faded. Running low means every copy is one the
+-- button would top up (RunningLow: under the Top up time, or a minute for a
+-- short buff, with a caster that can be read). Next's rules hold (your Buff Back rules, the raid
 -- split, water, the one-Blessing rule), and a member counts only when close
 -- by, online and readable: one whose buffs, name, connection or range can't
 -- be read is never missing one. Each buff a member lacks is listed. Also
@@ -702,15 +727,25 @@ end
 -- out of this look (out of range, say) is in neither. And whether the group's
 -- slots were known (#370): false when IsInRaid() or IsInGroup() couldn't be
 -- read or believed (GroupUnits), so an empty list may only mean nobody was
--- looked at. Nothing here casts.
+-- looked at. Worn's values say when the copy seen was put up (GetTime()
+-- clock), or true when that can't be read. Last, the listed pairs that are
+-- only running low, { [name .. "\1" .. buff key] = when the newest low
+-- copy was put up }. Buff mode tells a recast by them (#397). Nothing here
+-- casts.
 function GroupBuffs.Missing()
-    local list, worn = {}, {}
+    local list, worn, low = {}, {}, {}
     local units, groupKnown = GroupUnits()
-    presentOnly = worn
+    presentOnly, presentLow = worn, low
     local ok, err = pcall(Look, list, units, groupKnown)
-    presentOnly = false
+    presentOnly, presentLow = false, false
     if not ok then error(err, 0) end
-    return list, worn, groupKnown == true
+    -- Only a listed pair: one seen low may also wear a fresh copy.
+    local listedLow = {}
+    for _, offer in ipairs(list) do
+        local key = offer.name .. "\1" .. offer.buff.key
+        listedLow[key] = low[key]
+    end
+    return list, worn, groupKnown == true, listedLow
 end
 
 -- Your buff reached them (the game said so).

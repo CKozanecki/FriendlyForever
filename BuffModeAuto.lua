@@ -12,14 +12,19 @@
 --   someone outside your group buffing you (a group member's buff isn't a
 --   favour, so it doesn't count), except where quiet mode holds in a capital
 --   city: there it would end quiet mode at the first stranger's buff (#34);
---   in any group, out of combat, a member missing a buff of yours outright
---   (#272: never cast, or fully faded; not merely running low; anyone's copy
---   counts as theirs): as a fight ends with one missing, and whenever one
---   goes missing that wasn't before (looked for every WATCH_SECONDS, as the
---   game says nothing when a buff runs out). Only a member close by (the
---   game's ~40-yard group range), online and readable counts
---   (GroupBuffs.Missing), and never in an arena or battleground. Buff mode
---   you turned off yourself stays off until the next one goes missing.
+--   in any group, out of combat, a member missing a buff of yours (#272:
+--   never cast, or fully faded; anyone's copy counts as theirs) or whose
+--   buff of yours is running low (#397: as the button would top it up, so
+--   a minute left for a buff of 10 minutes or less, the Top up time for a
+--   longer one): as a fight ends with one, and whenever one goes missing or
+--   runs low that wasn't before (looked for every WATCH_SECONDS, as the
+--   game says nothing when a buff runs out). Running low and then fading is
+--   one drop, not two. Only a member close by (the game's ~40-yard group
+--   range), online and readable counts (GroupBuffs.Missing), and never in
+--   an arena or battleground. Buff mode you turned off yourself stays off
+--   until another buff, or another member, goes missing or runs low: the
+--   pairs low or missing then are dismissed until they're seen recast,
+--   even as a fight ends (#397, the owner), or the member leaves the group.
 -- Turns off (on by default), but only buff mode a trigger turned on, never
 -- buff mode you turned on yourself:
 --   the first pull (PLAYER_REGEN_DISABLED);
@@ -54,8 +59,11 @@ local insideWait = false -- buff mode that trigger turned on waits for everyone 
 local timeoutToken = 0   -- bumps each auto start, so an old timer does nothing
 local quietWhy           -- a trigger refused while a battleground was quiet
 local joinedAt           -- when you joined a group out in the world, while it waits for someone close by
-local lastMissing = {}   -- [name .. "\1" .. buff key] = true: missing at the last look (#272);
-                         -- nil after a login: the first look only notes who is
+local lastMissing = {}   -- [name .. "\1" .. buff key] = true: missing at the last look (#272),
+                         -- or when the copy running low was put up (#397); nil after
+                         -- a login: the first look only notes who is
+local dismissed = {}     -- [name .. "\1" .. buff key] = as in lastMissing: low or missing
+                         -- when you turned buff mode off yourself, until recast (#397)
 local watching = false   -- the look for missing buffs is scheduled
 local groupUnsure = false -- a roster update couldn't read IsInGroup() (#373): the
                           -- looks read it again until an answer decides
@@ -237,18 +245,33 @@ local function CheckMissing(fightEnded)
         lastMissing = {}
         return
     end
-    local list, worn, groupKnown = ns.GroupBuffs.Missing()
+    local list, worn, groupKnown, low = ns.GroupBuffs.Missing()
+    -- A pair dismissed is forgotten once it's recast (#397): any copy, if
+    -- it was missing; one put up after the low one, if it was low. Not a
+    -- copy whose times can't be read, nor one that only stopped counting as
+    -- low (a Top up changed): that isn't a fresh copy.
+    for key, was in pairs(dismissed) do
+        local at = worn[key] or low[key]
+        if at and (was == true or (type(at) == "number" and at > was + 1)) then dismissed[key] = nil end
+    end
     local now, first = {}, nil
     for _, offer in ipairs(list) do
         local key = offer.name .. "\1" .. offer.buff.key
-        now[key] = true
-        if not first and (fightEnded or (lastMissing and not lastMissing[key])) then first = offer end
+        now[key] = low[key] or true
+        if not first and not dismissed[key] and (fightEnded or (lastMissing and not lastMissing[key])) then
+            first = offer
+        end
     end
     -- Carried over: missing before, not seen this time, still in the group.
     local roster = RosterNames()
     for key in pairs(lastMissing or {}) do
         local name = key:match("^(.-)\1")
-        if not worn[key] and (roster == nil or roster[name]) then now[key] = true end
+        if not worn[key] and (roster == nil or roster[name]) then now[key] = now[key] or lastMissing[key] end
+    end
+    -- A member who left the group is forgotten, dismissed or not: back in
+    -- it, they're new (#272).
+    for key in pairs(roster and dismissed or {}) do
+        if not roster[key:match("^(.-)\1")] then dismissed[key] = nil end
     end
     -- The first look after a login only notes who is missing; while the
     -- group can't be told it notes nothing, and the next look notes instead:
@@ -257,9 +280,35 @@ local function CheckMissing(fightEnded)
     -- note nobody, so a buff missing all along would count as new.
     if lastMissing ~= nil or (roster ~= nil and groupKnown) then lastMissing = now end
     if not first then return end
-    local who = first.self and "you're" or (ns.Util.DisplayName(first.name) .. " is")
-    local why = who .. " missing your " .. (ns.BuffData.SpellName(first.buff) or "buff")
+    local spell = ns.BuffData.SpellName(first.buff) or "buff"
+    local why
+    if low[first.name .. "\1" .. first.buff.key] then
+        why = (first.self and "your" or (ns.Util.DisplayName(first.name) .. "'s")) .. " " .. spell
+            .. " is running low"
+    else
+        why = (first.self and "you're" or (ns.Util.DisplayName(first.name) .. " is")) .. " missing your " .. spell
+    end
     TurnOn(fightEnded and ("the fight ended and " .. why) or why)
+end
+
+-- You turned buff mode off yourself (BuffMode.Set): the members low on or
+-- missing a buff of yours now don't turn it back on until they're seen with
+-- a fresh copy (#397), not even as a fight ends. Now means a look taken at
+-- once, in a fight too (the last one may be as old as the pull), as well as
+-- the last look's (a member out of this one's reach keeps what they had).
+-- The look only reads (out of a group it lists nobody); one that fails
+-- dismisses no more than the last did.
+local function DismissNow()
+    local list, _, _, low = ns.GroupBuffs.Missing()
+    for _, offer in ipairs(list) do
+        local key = offer.name .. "\1" .. offer.buff.key
+        dismissed[key] = low[key] or true
+    end
+end
+
+function Auto.OnTurnedOffByYou()
+    for key, was in pairs(lastMissing or {}) do dismissed[key] = was end
+    ns.Diag.Call(DismissNow)
 end
 
 local GroupChanged -- below: a join or a leave, as a roster update read it
@@ -420,7 +469,9 @@ end
 function GroupChanged(nowIn)
     if nowIn and not inGroup then
         pulled, joinedAt = false, nil
-        lastMissing = {} -- a group joined: everyone missing a buff is new (#272)
+        -- A group joined: everyone missing a buff is new (#272), and nothing
+        -- is dismissed (#397; a login or reload starts with nothing either).
+        lastMissing, dismissed = {}, {}
         if not InsideWithGroup() then
             joinedAt = GetTime()
             JoinedNearby()
