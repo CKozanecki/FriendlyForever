@@ -1,4 +1,4 @@
--- Spec: #44, #329
+-- Spec: #44, #329, #402
 -- Self-buffs: in buff mode, once the favours you owe and your group are
 -- done, the button offers your own missing self-buffs (Inner Fire, armors,
 -- Aspects, auras, Battle Shout...), one per press, on you, through the same
@@ -147,20 +147,22 @@ describe("Self-buffs in buff mode", function()
             assert.are.equal("/cast [@player,nodead] Ice Armor", macro())
         end)
 
-        it("doesn't offer one you wear with more than the top-up time left, and offers one running low", function()
+        it("offers a 10-minute self-buff only with under a minute left, not at the top-up time (#402)", function()
             wear(INNER_FIRE, 600)
             refresh()
             assert.is_nil(macro())
-            -- Top-up time is 5 minutes, under half of 10: 4:59 left is low.
-            wow.state.playerAuras[1].expirationTime = wow.now + 299
+            wow.state.playerAuras[1].expirationTime = wow.now + 120
+            refresh()
+            assert.is_nil(macro(), "2 minutes left: not low")
+            wow.state.playerAuras[1].expirationTime = wow.now + 61
+            refresh()
+            assert.is_nil(macro(), "61 seconds left: not low")
+            wow.state.playerAuras[1].expirationTime = wow.now + 59
             refresh()
             assert.are.equal("/cast [@player,nodead] Inner Fire", macro())
-            wow.state.playerAuras[1].expirationTime = wow.now + 301
-            refresh()
-            assert.is_nil(macro())
         end)
 
-        it("caps the top-up time at half the buff's full time: a 2-minute Battle Shout isn't low when it lands",
+        it("a 2-minute Battle Shout is low with under a minute left, not when it lands",
             function()
             boot({ class = "WARRIOR", known = { BATTLE_SHOUT }, power = "RAGE" })
             assert.are.equal("/cast [@player,nodead] Battle Shout", macro())
@@ -172,6 +174,52 @@ describe("Self-buffs in buff mode", function()
             wow.advance(2)
             refresh()
             assert.are.equal("/cast [@player,nodead] Battle Shout", macro(), "under a minute left of two")
+        end)
+
+        it("tops up a buff of more than 10 minutes at the top-up time, and never with 0 top-up minutes", function()
+            boot({ class = "HUNTER", known = { HAWK, TRUESHOT } })
+            wear(HAWK, 0)
+            wear(TRUESHOT, 1800)
+            wow.state.playerAuras[2].expirationTime = wow.now + 301
+            refresh()
+            assert.is_nil(macro())
+            wow.state.playerAuras[2].expirationTime = wow.now + 299
+            refresh()
+            assert.are.equal("/cast [@player,nodead] Trueshot Aura", macro())
+            ns.db.buffBack.topUpMinutes = 0
+            refresh()
+            assert.is_nil(macro(), "Top up 0 is never")
+        end)
+
+        it("has no half-of-its-time cap on a long buff: 700 s left of 1200 is low at 15 minutes Top up (#402)", function()
+            boot({ class = "HUNTER", known = { HAWK, TRUESHOT } })
+            wear(HAWK, 0)
+            wear(TRUESHOT, 1200)
+            ns.db.buffBack.topUpMinutes = 15
+            wow.state.playerAuras[2].expirationTime = wow.now + 700
+            refresh()
+            assert.are.equal("/cast [@player,nodead] Trueshot Aura", macro(),
+                "700 s left of 1200 is under 15 minutes, though more than half")
+        end)
+
+        it("is low with under, not exactly, a minute left, and never offers a fresh buff of a minute or less", function()
+            wear(INNER_FIRE, 600)
+            wow.state.playerAuras[1].expirationTime = wow.now + 60
+            refresh()
+            assert.is_nil(macro(), "exactly a minute left isn't under it")
+            strip()
+            wear(INNER_FIRE, 60)
+            wow.state.playerAuras[1].expirationTime = wow.now + 60
+            refresh()
+            assert.is_nil(macro(), "a fresh 60-second buff isn't low at once")
+            wow.state.playerAuras[1].expirationTime = wow.now + 59
+            refresh()
+            assert.is_nil(macro(), "a buff of a minute or less is never topped up: it's low from the start")
+            strip()
+            wear(INNER_FIRE, 30)
+            wow.state.playerAuras[1].expirationTime = wow.now + 30
+            refresh()
+            assert.is_nil(macro(), "nor a fresh 30-second one")
         end)
 
         it("tops up with 0 top-up minutes only once it's gone", function()
@@ -280,7 +328,7 @@ describe("Self-buffs in buff mode", function()
             assert.are.equal("/cast [@player,nodead] Trueshot Aura", macro())
             press()
             assert.is_nil(macro())
-            -- The top-up time (5 minutes, under half of 30): 5:01 left isn't low, 4:59 is.
+            -- The top-up time (5 minutes; 30 minutes is longer than 10): 5:01 left isn't low, 4:59 is.
             wow.advance(1800 - 301)
             refresh()
             assert.is_nil(macro())

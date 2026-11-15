@@ -15,9 +15,10 @@
 --
 -- Which are missing, from your own buffs (C_UnitAuras, "player"):
 --   timed (Inner Fire, the armors, Lightning Shield, Righteous Fury, Battle
---   Shout, Trueshot Aura): missing, or yours and running low: under the
---   top-up time (buffBack.topUpMinutes) and under half its full time (#44
---   Q5). Charges aren't counted (Q7). Anyone's copy counts as having it: another
+--   Shout, Trueshot Aura): missing, or yours and running low: with
+--   a minute left if its full time is 10 minutes or less, else under the
+--   top-up time (buffBack.topUpMinutes); 0 is never (#44 Q5, #402).
+--   Charges aren't counted (Q7). Anyone's copy counts as having it: another
 --   warrior's Battle Shout or another hunter's Trueshot Aura is never cast
 --   over (Trueshot Aura lasts 30 minutes on Forever: its spell data, #44);
 --   toggles (Aspects, paladin auras): never on a timer.
@@ -89,16 +90,6 @@ local function YouCant()
     end
 end
 
--- Your top-up time in seconds for buff, whose full time is duration: the
--- top-up minutes, capped at half its full time (#44 Q5), so a 2-minute
--- Battle Shout isn't "running low" the moment it lands. Read defensively.
-local function TopUpSeconds(duration)
-    local limits = ns.Config.LIMITS.topUpMinutes
-    local minutes = Util.ClampNumber(ns.db.buffBack.topUpMinutes, limits.min, limits.max,
-        ns.Config.DEFAULTS.buffBack.topUpMinutes)
-    return math.min(minutes * 60, duration / 2)
-end
-
 -- Whether a timed self-buff of yours (aura, readable) is running low. No,
 -- whenever its times are secret or not real numbers: they're never compared.
 local function RunningLow(aura, buff)
@@ -107,7 +98,11 @@ local function RunningLow(aura, buff)
     if type(duration) ~= "number" or type(expires) ~= "number" then return false end
     -- Each test says yes only for a real number, so NaN is a no. 0 never runs out.
     if not (duration > 0 and expires > 0) then return false end
-    if expires - GetTime() < TopUpSeconds(duration) then return ns.BuffData.CanReplace(buff, aura.spellId) end
+    -- The one rule for group buffs too (#397, #402): a minute left for a buff
+    -- of 10 minutes or less, else the Top up time; Top up 0 never.
+    -- Its full time must exceed that, or a fresh one would be offered at once.
+    local low = ns.GroupBuffs.LowSeconds(duration)
+    if duration > low and expires - GetTime() < low then return ns.BuffData.CanReplace(buff, aura.spellId) end
     return false
 end
 

@@ -239,6 +239,16 @@ local function TopUpSeconds()
         ns.Config.DEFAULTS.buffBack.topUpMinutes) * 60
 end
 
+-- The "running low" time in seconds for a buff whose full time is duration
+-- (a number): the Top up time, or SHORT_LOW_SECONDS for a buff of
+-- SHORT_SECONDS or less (#397); 0 when Top up is 0 (never). The one rule for
+-- group buffs and self-buffs (#402).
+function GroupBuffs.LowSeconds(duration)
+    local threshold = TopUpSeconds()
+    if threshold > 0 and duration <= GroupBuffs.SHORT_SECONDS then threshold = GroupBuffs.SHORT_LOW_SECONDS end
+    return threshold
+end
+
 -- Whether aura (readable, wearing buff) is yours to top up now: a rank you
 -- can replace with less than the top-up time left, or SHORT_LOW_SECONDS for
 -- a buff whose full time is SHORT_SECONDS or less (#397). Its duration must
@@ -246,12 +256,10 @@ end
 -- No, whenever its times are secret or not numbers: they're never compared.
 local function RunningLow(aura, buff)
     -- 0 needs no test of its own: only a buff whose time has passed would count.
-    local threshold = TopUpSeconds()
     local duration, expires = aura.duration, aura.expirationTime
     if Util.IsSecret(duration) or Util.IsSecret(expires) then return false end
     if type(duration) ~= "number" or type(expires) ~= "number" then return false end
-    -- A short buff (#397): a minute left, unless top-up is off (0: never).
-    if threshold > 0 and duration <= GroupBuffs.SHORT_SECONDS then threshold = GroupBuffs.SHORT_LOW_SECONDS end
+    local threshold = GroupBuffs.LowSeconds(duration)
     -- Each test says yes only for a real number, so NaN is a no. An expiry
     -- of 0 is an aura that never runs out.
     if not (duration > threshold and expires > 0 and expires - GetTime() < threshold) then return false end
