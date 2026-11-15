@@ -254,7 +254,13 @@ local function StatusLines()
     add("friendly player nameplates: " .. (shown == nil and "not available"
         or shown and ns.Colours.Text("good", "on") .. " (casters can be named)"
         or ns.Colours.Text("bad", "off") .. " (most casters can't be named; /friendly nameplates turns them on)"))
-    add("group chat channel: " .. (ns.Greeter.GroupChannel() or "none (not grouped)"))
+    -- No route: out of a group, or a group the game won't describe (#400).
+    local route = ns.Greeter.GroupChannel()
+    if not route then
+        route = ns.Util.ReadGameValues(IsInGroup) == false and "none (not grouped)"
+            or "none (the game won't say which group you're in)"
+    end
+    add("group chat channel: " .. route)
     add(string.format("chat: lockdown %s, %d waiting, waiting for key press %s, key listener %s",
         OnOff(Q.InChatLockdown()), Q.Count(), OnOff(Q.IsWaitingForHardware()), OnOff(Q.IsKeyboardReady())))
     add(string.format("seen: %d system messages (%d recognised), %d buffs, %d restricted buff updates skipped",

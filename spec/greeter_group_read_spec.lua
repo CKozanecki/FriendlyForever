@@ -119,6 +119,8 @@ describe("Greetings when the game's group answers can't be read (#400)", functio
 
         it("says the group chat route in /friendly status, and none out of a group", function()
             assert.is_nil(ns.Greeter.GroupChannel())
+            _G.SlashCmdList.FRIENDLYFOREVER("status")
+            assert.is_truthy(table.concat(wow.printed, "\n"):find("group chat channel: none (not grouped)", 1, true))
             joinGroup("party")
             assert.are.equal("PARTY", ns.Greeter.GroupChannel())
             joinGroup("raid")
@@ -211,6 +213,19 @@ describe("Greetings when the game's group answers can't be read (#400)", functio
                     assert.are.same({}, groupLines())
                     assert.are.same({}, wow.errors)
                 end)
+            end
+
+            for _, read in ipairs({ "group", "raid" }) do
+                it("the " .. read .. " read: /friendly status says the game won't say, not that you aren't grouped",
+                    function()
+                        joinGroup("party")
+                        broken[read] = way
+                        _G.SlashCmdList.FRIENDLYFOREVER("status")
+                        local printed = table.concat(wow.printed, "\n")
+                        assert.is_truthy(printed:find(
+                            "group chat channel: none (the game won't say which group you're in)", 1, true))
+                        assert.are.same({}, wow.errors)
+                    end)
             end
 
             it("the instance read: counted as a battleground, so greetings stay quiet", function()
