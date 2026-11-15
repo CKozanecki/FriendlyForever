@@ -76,8 +76,10 @@ function Announcer.ActiveState()
     return "active"
 end
 
+-- A type's section lost mid-session reads as switched off (#387).
 local function TypeEnabled(msgType)
-    return ns.db.enabled and ns.db[msgType].enabled
+    local cfg = ns.db[msgType]
+    return ns.db.enabled and type(cfg) == "table" and cfg.enabled
 end
 
 -- Re-checked just before a scheduled message is sent.
@@ -144,7 +146,9 @@ function Announcer.Schedule(msgType, key, opts)
     ns.Diag.Log(msgType, "scheduled for %s in %ss", key, delay)
 
     local function Queue(other)
-        local text = other and ns.db[msgType].messages[other]
+        local live = ns.db[msgType] -- may be lost by now (#387)
+        local lines = type(live) == "table" and live.messages
+        local text = other and type(lines) == "table" and lines[other]
         if type(text) == "string" and text:find("%S") then template = text end
         ns.ChatQueue.Push({
             channel = opts.emote and "EMOTE" or opts.channel,

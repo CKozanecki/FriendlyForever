@@ -103,12 +103,18 @@ local function PruneCasts(now)
     end
 end
 
+-- Buff Back's switch; a section lost mid-session reads as off (#387).
+local function BuffBackOn()
+    local cfg = ns.db.buffBack
+    return type(cfg) == "table" and cfg.enabled == true
+end
+
 -- This fires for every cast the client sees (nameplates in a city or a
 -- raid), so the cheap checks come first. Core only registers it while buff
 -- thanks are on; the enabled checks here cover the moment in between.
 -- Buffs are watched while either Buff Thanks or Buff Back is on.
 function BuffTracker.Watching()
-    return ns.db ~= nil and ns.db.enabled and (ns.db.buff.enabled or ns.db.buffBack.enabled)
+    return ns.db ~= nil and ns.db.enabled and (ns.db.buff.enabled or BuffBackOn())
 end
 
 function BuffTracker.OnSpellcastSucceeded(unit, _, spellId)
@@ -238,7 +244,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId, seenAt)
         return
     end
     -- A favour to return, whether or not a thank-you goes out.
-    if not unknown and ns.db.buffBack.enabled then ns.Offers.Owe(caster, unit, entry) end
+    if not unknown and BuffBackOn() then ns.Offers.Owe(caster, unit, entry) end
     local cfg = ns.db.buff
     if unknown and cfg.fallback == "none" then
         ns.Diag.Log("buff", "not thanking: caster can't be named, and no fallback is chosen")

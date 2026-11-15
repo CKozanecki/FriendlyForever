@@ -68,7 +68,14 @@ local watching = false   -- the look for missing buffs is scheduled
 local groupUnsure = false -- a roster update couldn't read IsInGroup() (#373): the
                           -- looks read it again until an answer decides
 
-local function Cfg() return ns.db.buffBack end
+-- Buff Back's settings, read only. A section lost mid-session reads as an
+-- empty one: every trigger off, the timeout at its default (#387).
+local LOST = setmetatable({}, { __newindex = function() error("Cfg() is read only") end })
+local function Cfg()
+    local cfg = ns.db.buffBack
+    if type(cfg) == "table" then return cfg end
+    return LOST
+end
 
 -- Out in the world, joining a group turns buff mode on only with someone
 -- close by (#256): checked when you join, and on roster changes this long after.

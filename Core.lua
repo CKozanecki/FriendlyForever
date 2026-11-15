@@ -231,7 +231,7 @@ local function StatusLines()
     end
     add("skip while AFK: " .. OnOff(db.skipWhileAFK) .. " (" .. afkText .. ")")
     for _, msgType in ipairs(ns.Config.TYPES) do
-        local cfg = db[msgType]
+        local cfg = ns.Config.Section(msgType) -- healed first if lost mid-session (#387)
         local info = ns.Config.TYPE_INFO[msgType]
         if info.noTiming then
             add(string.format("  %s: %s", info.label, OnOff(cfg.enabled)))
@@ -540,7 +540,7 @@ local function BlessingsCommand(args)
 end
 
 local function MoveCommand()
-    local unlock = not ns.db.buffBack.unlocked
+    local unlock = not ns.Config.Section("buffBack").unlocked -- healed first if lost (#387)
     local ok, why = ns.BuffButton.SetUnlocked(unlock)
     if not ok then return ns.Print("can't move the buff-back button: " .. why) end
     ns.Print(unlock and "buff-back button unlocked: drag it, then /friendly move again to lock it."
