@@ -334,18 +334,19 @@ end
 local queue = {}
 local pumpScheduled = false
 
--- Whether the game would accept this route right now. Unreadable answers
--- count as closed.
-local function Yes(value)
-    return not Util.IsSecret(value) and value == true
+-- Whether the game answers true. An answer that can't be read (a secret,
+-- an error, anything but true) counts as closed (#388).
+local function Yes(fn, ...)
+    return Util.ReadGameValues(fn, ...) == true
 end
 
+-- Whether the game would accept this route right now.
 local function RouteOpen(route)
     if route == "WHISPER" then return true end
-    if route == "GUILD" then return Yes(IsInGuild()) end
-    if route == "RAID" then return Yes(IsInRaid()) end
-    if route == "INSTANCE_CHAT" then return Yes(IsInGroup(LE_PARTY_CATEGORY_INSTANCE)) end
-    return Yes(IsInGroup(LE_PARTY_CATEGORY_HOME)) -- PARTY
+    if route == "GUILD" then return Yes(IsInGuild) end
+    if route == "RAID" then return Yes(IsInRaid) end
+    if route == "INSTANCE_CHAT" then return Yes(IsInGroup, LE_PARTY_CATEGORY_INSTANCE) end
+    return Yes(IsInGroup, LE_PARTY_CATEGORY_HOME) -- PARTY
 end
 
 local function Drop(item, counter, why)
