@@ -681,5 +681,98 @@ describe("Buff mode and top-up for a buff running low (#397)", function()
             assert.is_true(total.offs > 20, "turned off yourself: " .. total.offs)
             assert.is_true(total.guarded > 100, "a dismissed pair still low or gone: " .. total.guarded)
         end)
+
+        -- A focused storm: each round one pair runs low, buff mode turns on
+        -- (or you turned it on yourself and it runs low in a fight), and you
+        -- turn it off. Everyone else is fresh, so only that pair could bring
+        -- it back. Looks, fights, its fading, the member leaving range and
+        -- its times going hidden must all leave buff mode off; a fresh copy
+        -- running low again brings it back.
+        local function focused(seed)
+            random.seed(seed)
+            boot()
+            joinTankAndAnn()
+            look()
+            local PAIRS = { { "party1", THORNS, TEN_MINUTES, { 5, 30, 50 } },
+                { "party1", MOTW, HALF_HOUR, { 30, 120, 250 } }, { "party2", MOTW, HALF_HOUR, { 30, 120, 250 } } }
+            local count = { held = 0, heldLow = 0, back = 0 }
+            local function fresh(p)
+                wow.wearBuff(p[1], p[2], { source = "player", duration = p[3] })
+            end
+            local function lowNow(p) leave(p[1], p[2], p[4][random.random(#p[4])]) end
+            -- Whether p is still low (not gone) in the client's own state.
+            local function stillLow(p)
+                local u = wow.state.units[p[1]]
+                for i, id in ipairs(u.auras) do
+                    if id == p[2] then return not wow.auraExpired(u, i) end
+                end
+                return false
+            end
+            for round = 1, 30 do
+                local where = ("seed %d, round %d"):format(seed, round)
+                for _, p in ipairs(PAIRS) do fresh(p) end
+                local u1, u2 = wow.state.units.party1, wow.state.units.party2
+                u1.outOfRange, u2.outOfRange, u1.secrets, u2.secrets = nil, nil, nil, nil
+                look()
+                if ns.BuffMode.IsOn() then slash("buffmode off") end -- nothing low: dismisses nothing
+                local p = PAIRS[random.random(#PAIRS)]
+                if random.random() < 0.5 then
+                    lowNow(p)
+                    look()
+                    assert.is_true(ns.BuffMode.IsAuto(), where .. ": running low turns it on")
+                    if random.random() < 0.5 then slash("buffmode off") else _G.FriendlyForever_ToggleBuffMode() end
+                else
+                    slash("buffmode on") -- yours: a pull leaves it on
+                    wow.enterCombat()
+                    lowNow(p) -- low mid-fight, and turned off in it
+                    slash("buffmode off")
+                    wow.leaveCombat()
+                end
+                assert.is_false(ns.BuffMode.IsOn(), where .. ": off")
+                local u = wow.state.units[p[1]]
+                for _ = 1, random.random(4, 10) do
+                    local event = random.random(6)
+                    if event == 1 then
+                        look()
+                    elseif event == 2 then
+                        wow.enterCombat()
+                        wow.leaveCombat()
+                    elseif event == 3 then
+                        wow.advance(random.random() * 3)
+                    elseif event == 4 then
+                        if random.random() < 0.3 then leave(p[1], p[2], -1) end -- gone now
+                    elseif event == 5 then
+                        u.outOfRange = not u.outOfRange or nil
+                        look()
+                    else
+                        u.secrets = not u.secrets and { auraTimes = true } or nil
+                        look()
+                    end
+                    assert.is_false(ns.BuffMode.IsOn(), where .. ": the pair you dismissed brought it back")
+                    count.held = count.held + 1
+                    if stillLow(p) then count.heldLow = count.heldLow + 1 end
+                end
+                -- Back in reach and readable; a fresh copy, seen, then low again.
+                u.outOfRange, u.secrets = nil, nil
+                fresh(p)
+                look()
+                assert.is_false(ns.BuffMode.IsOn(), where .. ": a fresh copy isn't low")
+                lowNow(p)
+                look()
+                assert.is_true(ns.BuffMode.IsAuto(), where .. ": recast and low again brings it back")
+                count.back = count.back + 1
+                assert.are.same({}, wow.casts, where .. ": something cast without a press")
+            end
+            assert.are.same({}, wow.errors, "seed " .. seed)
+            return count
+        end
+
+        it("a pair you dismissed, low or gone, never brings it back before a recast; a recast does", function()
+            for _, seed in ipairs({ 397, 11, 2026, 4242, 90210 }) do
+                local count = focused(seed)
+                assert.is_true(count.heldLow > 40, ("seed %d: held while still low: %d"):format(seed, count.heldLow))
+                assert.are.equal(30, count.back, "seed " .. seed)
+            end
+        end)
     end)
 end)
