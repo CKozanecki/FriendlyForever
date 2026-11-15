@@ -426,8 +426,15 @@ local function FindCaster(aura, spellId, now)
     -- Party-wide buffs (totems, auras, shouts) can arrive with no caster unit
     -- at all, so in a group an unnamed buff may well be from a groupmate.
     -- Those buffs can't reach us when ungrouped, so only fall back then.
-    if IsInGroup() then
+    -- An answer that can't be read (a secret, an error, anything but a
+    -- boolean) may mean a group: the pessimistic choice, no thanks (#388).
+    local inGroup = Util.ReadGameValues(IsInGroup)
+    if inGroup == true then
         return nil, "no caster unit, and you're in a group (could be a groupmate's totem)", nil, true
+    end
+    if inGroup ~= false then
+        return nil, "no caster unit, and the game won't say whether you're in a group (could be a groupmate's)",
+            nil, true
     end
 
     local fromPlayer = aura.isFromPlayerOrPlayerPet
