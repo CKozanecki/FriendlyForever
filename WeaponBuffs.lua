@@ -51,8 +51,12 @@ WeaponBuffs.SKIP_SECONDS = 300
 WeaponBuffs.HELD_BACK_SECONDS = 15
 -- Refused this many times in a row for the same weapon and kind (a stone
 -- that doesn't suit the weapon, say: which suits which is #409), the hand is
--- left alone until its weapon or its kind changes, and counts as settled.
+-- left alone for STOP_SECONDS, or until its weapon or its kind changes, and
+-- counts as settled meanwhile. A refusal that passes by itself (pressed while
+-- moving) costs minutes, not the session: "in a row" ends whenever the hand
+-- reads as covered (put on by hand, say), and the stop runs out.
 WeaponBuffs.REFUSALS_TO_STOP = 2
+WeaponBuffs.STOP_SECONDS = 300
 
 -- The hands: inventory slot, the position of its "has an enchant" flag in
 -- GetWeaponEnchantInfo's answer, the words for it, and its setting.
@@ -347,6 +351,7 @@ function WeaponBuffs.Next(out)
         local hand, kind = chosen.hand, chosen.kind
         local has = HasEnchant(enchants, hand)
         local offer, why, waits, weapon
+        if has == true then refused[hand.slot] = nil end
         if has == nil then
             why, waits = "can't read your " .. hand.words .. "'s enchant", true
         elseif has == false and not Recently(justGiven[hand.slot], WeaponBuffs.JUST_GIVEN_SECONDS) then
@@ -356,9 +361,10 @@ function WeaponBuffs.Next(out)
             elseif weapon then
                 local refusal = refused[hand.slot]
                 if refusal and (refusal.weapon ~= weapon or refusal.kind ~= kind.key) then refusal = nil end
-                if refusal and refusal.count >= WeaponBuffs.REFUSALS_TO_STOP then
+                if refusal and refusal.count >= WeaponBuffs.REFUSALS_TO_STOP
+                    and Recently(refusal.at, WeaponBuffs.STOP_SECONDS) then
                     why, waits = "the game refused your " .. kind.label .. " on your " .. hand.words
-                        .. " weapon twice: change the weapon or the kind to try again", false
+                        .. " weapon twice: trying again in a few minutes, or change the weapon or the kind", false
                 elseif refusal and Recently(refusal.at, WeaponBuffs.HELD_BACK_SECONDS) then
                     why, waits = "the game refused your last " .. kind.label .. " on your " .. hand.words, true
                 elseif kind.items then

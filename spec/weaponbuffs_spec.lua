@@ -575,7 +575,7 @@ describe("Weapon buffs", function()
             assert.is_nil((button.result:GetText() or ""):find("Applied", 1, true))
         end)
 
-        it("leaves a stone the game keeps refusing for that weapon alone, until the weapon or the kind changes", function()
+        it("leaves a stone the game keeps refusing for that weapon alone a while, or until the weapon changes", function()
             boot({ main = "sharpening", items = { [W.denseSharpeningStone] = 5 },
                 before = function(s) s.equipped[16] = wow.GEAR.mace end })
             assert.are.equal("/use item:12404\n/use 16", macro())
@@ -588,15 +588,50 @@ describe("Weapon buffs", function()
             reasonShown("the game refused your Sharpening stone on your main hand weapon twice")
             local _, _, settled = ns.WeaponBuffs.Next()
             assert.is_true(settled, "nothing left to do: buff mode may end")
-            wow.advance(3600)
+            wow.advance(ns.WeaponBuffs.STOP_SECONDS - 30)
             refresh()
             assert.is_nil(macro(), "still left alone")
-            -- A blade in hand: offered again.
+            -- Then tried once more: refused again, and left alone again.
+            wow.advance(60)
+            refresh()
+            assert.are.equal("/use item:12404\n/use 16", macro())
+            press()
+            refresh()
+            assert.is_nil(macro())
+            -- A blade in hand: offered again at once.
             wow.state.equipped[16] = wow.GEAR.sword
             refresh()
             assert.are.equal("/use item:12404\n/use 16", macro())
             press()
             assert.are.equal(1643, wow.enchantOn(16).id)
+        end)
+
+        it("forgets a refusal that passed: one put on by hand in between, or after a while", function()
+            boot({ main = "instantPoison", class = "ROGUE", items = { [W.instantPoison6] = 5 } })
+            wow.state.weaponRefusal = "You can't do that while moving."
+            press()
+            -- Put on by hand meanwhile; hours later it runs out, and you're moving again.
+            wow.enchant(16, 625, 1800)
+            refresh()
+            wow.advance(7200)
+            refresh()
+            press()
+            wow.state.weaponRefusal = nil
+            wow.advance(ns.WeaponBuffs.HELD_BACK_SECONDS + 1)
+            refresh()
+            assert.are.equal("/use item:8928\n/use 16", macro(), "one refusal in a row, not two")
+            -- Twice in a row now: left alone, but only for a while.
+            wow.state.weaponRefusal = "You can't do that while moving."
+            press()
+            wow.state.weaponRefusal = nil
+            wow.advance(ns.WeaponBuffs.HELD_BACK_SECONDS + 1)
+            refresh()
+            assert.is_nil(macro())
+            local _, _, settled = ns.WeaponBuffs.Next()
+            assert.is_true(settled)
+            wow.advance(ns.WeaponBuffs.STOP_SECONDS)
+            refresh()
+            assert.are.equal("/use item:8928\n/use 16", macro())
         end)
 
         it("counts refusals in a row for one weapon and kind only", function()
