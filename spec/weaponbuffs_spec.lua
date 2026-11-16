@@ -899,57 +899,65 @@ describe("Weapon buffs", function()
         end
 
         -- The Use guard (Q6) under its own storm: a weapon with its own Use,
-        -- or one whose Use can't be read, in a bare hand you'd otherwise be
-        -- offered something for, again and again. Each seed must reach that
-        -- hazard often, worked out from the client's own state, and then no
-        -- weapon macro may be armed, for an item or an imbue.
+        -- or one whose Use can't be read, in a bare hand the addon would
+        -- otherwise arm, again and again. Stock is topped up every step, and
+        -- whether the Use can be read is drawn afresh, so each seed meets both
+        -- hazards, readable and hidden, and counts each apart, worked out from
+        -- the client's own state. Then no weapon macro may be armed for that
+        -- hand, for an item or an imbue.
         for _, seed in ipairs(SEEDS) do
             it("never arms a weapon buff for a weapon whose Use is there or can't be read (seed " .. seed .. ")",
                 function()
                 random.seed(seed)
                 local function int(m, n) return random.random(m, n) end
                 local shaman = seed % 2 == 0
-                local carried = {}
-                for _, item in ipairs(ITEMS) do carried[item] = 2 end
                 boot({ class = shaman and "SHAMAN" or "ROGUE", main = shaman and "rockbiter" or "deadlyPoison",
-                    offHand = shaman and "none" or "instantPoison", items = carried,
+                    offHand = shaman and "none" or "instantPoison",
                     known = { ROCKBITER_4, ROCKBITER_1, WINDFURY_4 },
                     before = function(st) st.equipped[17] = wow.GEAR.dagger end })
-                local reached = 0
+                local readable, hidden = 0, 0
                 for step = 1, 80 do
                     local s = wow.state
-                    local roll = int(1, 6)
+                    -- Always something to put on: only the Use guard can stop it.
+                    for _, item in ipairs(ITEMS) do s.items[item] = 2 end
+                    s.weaponSecrets.itemSpell = int(1, 2) == 1 or nil
+                    local roll = int(1, 5)
                     if roll == 1 then
                         s.equipped[int(16, 17)] = ({ wow.GEAR.useSword, wow.GEAR.sword, wow.GEAR.useSword })[int(1, 3)]
                     elseif roll == 2 then
-                        s.weaponSecrets.itemSpell = int(1, 3) > 1 or nil
-                    elseif roll == 3 then
                         s.weaponEnchants[int(16, 17)] = nil
-                    elseif roll == 4 then
+                    elseif roll == 3 then
                         s.imbuePicks = int(1, 2) == 1
-                    elseif roll == 5 then
+                    elseif roll == 4 then
                         wow.pressKey("MOUSEWHEELUP")
                     else
                         wow.advance(int(1, 30))
                     end
                     refresh()
-                    -- The hazard, from the client: a bare hand with a kind chosen
-                    -- for it, whose weapon has a Use or hides whether it has.
                     local text = macro() or ""
                     local used = text:match("^/use item:%d+\n/use (%d+)$") or (text:find("Weapon\n/use 16$") and "16")
-                    for _, slot in ipairs(shaman and { 16 } or { 16, 17 }) do
-                        local worn = s.equipped[slot]
-                        local useOrHidden = worn and (wow.GEAR_INFO[worn].use or s.weaponSecrets.itemSpell)
-                        if useOrHidden and not wow.enchantOn(slot) then
-                            reached = reached + 1
-                            assert.are_not.equal(tostring(slot), used,
-                                string.format("seed %d step %d: armed for slot %d: %s", seed, step, slot, text))
+                    -- The hand the addon would arm first: the main hand while it's
+                    -- bare, else the off hand (a rogue's).
+                    local slot = 16
+                    if wow.enchantOn(16) and not shaman then slot = 17 end
+                    local worn = s.equipped[slot]
+                    if worn and not wow.enchantOn(slot) then
+                        local hazard
+                        if s.weaponSecrets.itemSpell then
+                            hazard, hidden = "hidden", hidden + 1
+                        elseif wow.GEAR_INFO[worn].use then
+                            hazard, readable = "readable", readable + 1
+                        end
+                        if hazard then
+                            assert.are_not.equal(tostring(slot), used, string.format(
+                                "seed %d step %d: armed for slot %d, its Use %s: %s", seed, step, slot, hazard, text))
                         end
                     end
                     assert.are.equal(0, #wow.weaponUses, "seed " .. seed .. ": a weapon's own Use fired")
                     assert.are.same({}, wow.errors, "seed " .. seed .. " step " .. step)
                 end
-                assert.is_true(reached >= 20, "seed " .. seed .. " reached the hazard only " .. reached .. " times")
+                assert.is_true(readable >= 8, "seed " .. seed .. " met a readable Use only " .. readable .. " times")
+                assert.is_true(hidden >= 8, "seed " .. seed .. " met a hidden Use only " .. hidden .. " times")
             end)
         end
 

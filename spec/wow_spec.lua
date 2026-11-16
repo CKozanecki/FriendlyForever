@@ -1144,6 +1144,15 @@ describe("The simulated client's chat from players (#40)", function()
             assert.are.equal(1, #wow.weaponUses, "none left to use, so the weapon's own Use fired")
         end)
 
+        it("answers IsUsableItem from the item alone, never from how many you carry", function()
+            assert.is_true(_G.IsUsableItem(wow.WEAPON.brilliantWizardOil), "none carried, and still usable")
+            assert.is_true(_G.C_Item.IsUsableItem(wow.WEAPON.brilliantWizardOil))
+            wow.state.unusableItems[wow.WEAPON.brilliantWizardOil] = true
+            assert.is_false(_G.IsUsableItem(wow.WEAPON.brilliantWizardOil))
+            wow.state.weaponSecrets.usable = true
+            assert.is_true(_G.issecretvalue(_G.IsUsableItem(wow.WEAPON.brilliantWizardOil)))
+        end)
+
         it("refuses a stone on a weapon it doesn't suit, at once", function()
             wow.state.items[wow.WEAPON.roughWeightstone] = 1
             wow.runMacro("/use item:3239\n/use 16")
