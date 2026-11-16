@@ -50,6 +50,10 @@ BuffsTab.FIELDS = { "buffOrder", "neverOffer", "whoGets", "whoChoice", "whoStran
 -- (2 + 32), "Classes:" (4 + 12), three rows of classes (3 x (2 + 32)), Off
 -- (4 + 22) and a margin of 8. Its shade covers all it holds (#408's review).
 BuffsTab.LIST_HEIGHT = 6 + 32 + 2 + 32 + 4 + 12 + 3 * (2 + 32) + 4 + 22 + 8
+-- Its width, from the left: the class boxes start at 8, three columns of a
+-- box (32) and 90 between them put the third's label at about 286, and its
+-- longest ("Shaman", about 46) needs room to about 332, plus a margin.
+BuffsTab.LIST_WIDTH = 350
 BuffsTab.WHO_WIDTH = 200
 
 local area           -- the tab's frame
@@ -182,7 +186,7 @@ local function CreateList()
     local ui = UI()
     local list = CreateFrame("Frame", nil, area)
     list:SetFrameStrata("DIALOG")
-    list:SetSize(330, BuffsTab.LIST_HEIGHT)
+    list:SetSize(BuffsTab.LIST_WIDTH, BuffsTab.LIST_HEIGHT)
     list:Hide()
     -- Two layers of the palette's shade: dark enough to read over the rows.
     for _, layer in ipairs({ "BACKGROUND", "BORDER" }) do
