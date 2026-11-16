@@ -116,6 +116,28 @@ describe("The guild roster when the game's answers can't be read (#412)", functi
             assert.are.same({}, known())
         end)
 
+        it("a large guild (1000 members) is read to its last member", function()
+            -- Names of letters only, as player names are: "Member" plus a
+            -- three-letter tag, "Memberaaa" to "Memberbml".
+            local letters = "abcdefghijklmnopqrstuvwxyz"
+            local function tag(n)
+                local out = ""
+                for _ = 1, 3 do
+                    local i = n % 26 + 1
+                    out = letters:sub(i, i) .. out
+                    n = math.floor(n / 26)
+                end
+                return "Member" .. out
+            end
+            local roster = {}
+            for n = 0, 999 do roster[#roster + 1] = tag(n) end
+            wow.state.guildRoster = roster
+            update()
+            assert.are.equal(1000, ns.Greeter.MemberCount())
+            assert.is_true(ns.Greeter.IsGuildMember(tag(0)))
+            assert.is_true(ns.Greeter.IsGuildMember(tag(999)))
+        end)
+
         it("reads a count with a fraction as its whole rows", function()
             badCount = function() return 2.5 end
             update()
@@ -156,7 +178,8 @@ describe("The guild roster when the game's answers can't be read (#412)", functi
             badCount = function() return 1e12 end
             rowReads = 0
             update()
-            assert.are.equal(ns.Greeter.MAX_ROSTER_ROWS, rowReads)
+            -- The bound as a number, not the code's own constant (#191).
+            assert.are.equal(5000, rowReads)
             assert.are.same({ "Jaina", "Thrall" }, known())
         end)
 
