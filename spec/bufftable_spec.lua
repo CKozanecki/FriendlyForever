@@ -706,6 +706,11 @@ describe("The generated buff table", function()
                     text)
                 assert.is_truthy(text:find("19506 (Trueshot Aura, rank 3, duration 30: 30 minutes)", 1, true), text)
                 assert.is_truthy(text:find("WARNING  devotion: no SpellPower row (no cost)", 1, true), text)
+                -- Each index's text, as docs/forever-facts.md records it (#410's testing review).
+                assert.is_truthy(text:find("(Aspect of the Monkey, duration 21: never runs out)", 1, true), text)
+                assert.is_truthy(text:find("duration 42: 1 hour)", 1, true), text)
+                assert.is_truthy(text:find("duration 6: 10 minutes)", 1, true), text)
+                assert.is_truthy(text:find("duration 25: 2 minutes)", 1, true), text)
                 -- Nothing else the issue names applies to today's data.
                 assert.is_falsy(text:find("last differently", 1, true), text)
                 assert.is_falsy(text:find("a toggle whose", 1, true), text)

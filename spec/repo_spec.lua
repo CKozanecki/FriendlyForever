@@ -2227,7 +2227,9 @@ describe("UI simulator workflow", function()
         local SOURCES = { "%$report%f[^%w]", "%$RUNNER_TEMP/report", "%$RUNNER_TEMP/shots", "%$RUNNER_TEMP/shot%-logs",
             '"%$file"', '"%$log"', "%$RUNNER_TEMP/tree%-diff", "%$manifest", "%$ui%f[^%w]",
             "%$RUNNER_TEMP/sim%f[^%w]", "%$pin%f[^%w]", "%f[%w]shots%f[^%w_-]",
-            "%$RUNNER_TEMP[\"'%)|]", "%$RUNNER_TEMP$", "%$RUNNER_TEMP%s+[^:%%#/^,@%s]", "%$RUNNER_TEMP/[\"']?[*?%[]" }
+            "%$RUNNER_TEMP[\"'%)|]", "%$RUNNER_TEMP$", "%$RUNNER_TEMP%s+[^:%%#/^,@%s]", "%$RUNNER_TEMP/[\"']?[*?%[]",
+            -- And with a slash, or slash-dot, and nothing after (#410's testing review).
+            "%$RUNNER_TEMP/%.?[\"'%s%)|]", "%$RUNNER_TEMP/%.?$" }
         -- Commands that print the files they're given, or their names: diff
         -- and ls-tree print fetched content (#317); stat, the checksums, wc and
         -- du print names, and the rest print content (#360).
@@ -2724,12 +2726,17 @@ describe("UI simulator workflow", function()
         end
 
         -- A safe-name check on one line (#367): case "$x" in *[!A-Za-z0-9._-]*)
-        -- ... ;; esac, with continue, exit or return in that branch. Returns x.
+        -- ... ;; esac, whose branch runs continue, exit or return as a command
+        -- of its own: not a word in a message or a name such as exit_code
+        -- (#410's testing review). Returns x.
+        local SKIPS = { ["continue"] = true, ["exit"] = true, ["return"] = true }
         local function checkedName(line)
             local name, branch = line:match('^%s*case%s+"?%$([%a_][%w_]*)"?%s+in%s+%*%[!A%-Za%-z0%-9%._%-%]%*%)(.-);;%s*esac%s*$')
-            if name and (branch:find("%f[%w]continue%f[%W]") or branch:find("%f[%w]exit%f[%W]")
-                or branch:find("%f[%w]return%f[%W]")) then
-                return name
+            if not name then return nil end
+            local bare = branch:gsub("'[^']*'", "''"):gsub('"[^"]*"', '""')
+            for command in (bare:gsub("&&", ";"):gsub("||", ";"):gsub("[{}]", ";") .. ";"):gmatch("([^;]*);") do
+                local word = command:match("^%s*(%S+)")
+                if word and SKIPS[word] then return name end
             end
         end
 
@@ -2749,6 +2756,9 @@ describe("UI simulator workflow", function()
             -- Variables holding a name from a source (#367), and how deep in
             -- loops the line is, for a safe-name check that lasts its loop.
             local names, loops = {}, 0
+            -- How many if and case blocks are open inside the innermost loop
+            -- (or the step): a check inside one may not run (#410's review).
+            local nest = { 0 }
             local function unchecked()
                 local list = {}
                 for name, checked in pairs(names) do
@@ -2868,12 +2878,19 @@ describe("UI simulator workflow", function()
                 end
                 -- A safe-name check lasts the rest of its loop's body (#367).
                 local checked = checkedName(line)
-                if checked and names[checked] == true then names[checked] = loops end
+                if checked and names[checked] == true and nest[#nest] == 0 then names[checked] = loops end
                 for position, piece in ipairs(pieces) do
                     local info = stripped(piece.text)
                     for _, word in ipairs(info.opens) do
-                        if LOOPS[word] then loops = loops + 1 end
+                        if LOOPS[word] then
+                            loops = loops + 1
+                            nest[#nest + 1] = 0
+                        else
+                            nest[#nest] = nest[#nest] + 1
+                        end
                     end
+                    local closer = piece.text:match("^(%a+)%f[^%w_]")
+                    if closer == "fi" or closer == "esac" then nest[#nest] = math.max(0, nest[#nest] - 1) end
                     -- A read from a source: from a file or a printing command
                     -- (< <( )) given to it, or to the loop it's the condition of.
                     if info.command:match("^read%s") then
@@ -2932,6 +2949,7 @@ describe("UI simulator workflow", function()
                             if depth ~= true and depth >= loops then names[name] = true end
                         end
                         loops = math.max(0, loops - 1)
+                        if #nest > 1 then nest[#nest] = nil end
                     end
                 end
                 local last = pieces[#pieces]
@@ -3436,8 +3454,23 @@ describe("UI simulator workflow", function()
                     'case "$other" in *[!A-Za-z0-9._-]*) continue ;; esac',
                     'case "$name" in *[!A-Za-z0-9._:-]*) continue ;; esac',
                     ': no check',
+                    -- A skip only named, not run (#410's testing review).
+                    'case "$name" in *[!A-Za-z0-9._-]*) exit_code=1 ;; esac',
+                    'case "$name" in *[!A-Za-z0-9._-]*) echo "unsafe, cannot continue" ;; esac',
+                    'case "$name" in *[!A-Za-z0-9._-]*) echo "unsafe; exit 1 would end it" ;; esac',
+                    "case \"$name\" in *[!A-Za-z0-9._-]*) echo 'exit' ;; esac",
+                    'case "$name" in *[!A-Za-z0-9._-]*) returned=1 ;; esac',
+                    -- A check that may not run: inside an if.
+                    'if [ -n "$strict" ]; then\n    case "$name" in *[!A-Za-z0-9._-]*) continue ;; esac\n  fi',
                 }) do
                     assert.are.equal(1, #scan(loop(check)), check)
+                end
+                -- After a separator, or with a loop count, it runs.
+                for _, check in ipairs({ 'case "$name" in *[!A-Za-z0-9._-]*) bad=1 && continue ;; esac',
+                    'case "$name" in *[!A-Za-z0-9._-]*) { echo "unsafe"; continue; } ;; esac',
+                    'case "$name" in *[!A-Za-z0-9._-]*) continue 1 ;; esac',
+                    'if [ -n "$x" ]; then :; fi\n  case "$name" in *[!A-Za-z0-9._-]*) continue ;; esac' }) do
+                    assert.are.same({}, (scan(loop(check))), check)
                 end
             end)
 
@@ -3464,6 +3497,13 @@ describe("UI simulator workflow", function()
                     'ls $RUNNER_TEMP -la',
                     'cat "$RUNNER_TEMP/"*.log',
                     'du -a "$RUNNER_TEMP"',
+                    -- With a slash, or slash-dot, and nothing after (#410's testing review).
+                    'ls -la "$RUNNER_TEMP/"',
+                    'ls -la "$RUNNER_TEMP"/',
+                    'ls -la $RUNNER_TEMP/',
+                    'ls -R "${RUNNER_TEMP}/"',
+                    "find \"$RUNNER_TEMP/\" -name '*.log'",
+                    'ls -la "$RUNNER_TEMP/."',
                 }) do
                     assert.are.equal(1, #scan(step(body)), body)
                     assert.are.same({}, (scan(step(body .. " 2>&1 | shown"))), body)
