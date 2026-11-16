@@ -1,4 +1,4 @@
--- Spec: #68, #76, #208, #70, #368, #376
+-- Spec: #68, #76, #208, #70, #368, #376, #394, #408
 -- My Blessings in this raid (paladins): choose which of your Blessings you
 -- give in the raid you're in, so two paladins don't both give Kings. The
 -- choice is never saved and is forgotten once you're out of the raid, as the
@@ -225,9 +225,12 @@ describe("My Blessings in this raid", function()
         it("isn't saved", function()
             group("raid", { "Ann-Vale" })
             ns.BuffRules.SetRaidBlessings({ "might" })
-            -- raidSplit is the raid buff split's switch (#70), not this choice.
+            -- raidSplit is the raid buff split's switch (#70), and whoRaid who
+            -- gets each buff in a raid (#408), not this choice.
             for key in pairs(ns.db.buffBack) do
-                if key ~= "raidSplit" then assert.is_falsy(key:lower():find("raid", 1, true), key) end
+                if key ~= "raidSplit" and key ~= "whoRaid" then
+                    assert.is_falsy(key:lower():find("raid", 1, true), key)
+                end
             end
         end)
 
@@ -1136,7 +1139,7 @@ describe("My Blessings in this raid", function()
             raid(TEN, "Ann-Vale")
             ns.BuffRules.SetRaidBlessings({ "might" })
             enterBattleground()
-            assert.are.same({ false, "you're in a battleground (your raid's choice applies again when you're back)" },
+            assert.are.same({ false, "you're in a battleground or arena (your raid's choice applies again when you're back)" },
                 { ns.BuffRules.SetRaidBlessings({ "wisdom" }) })
             local n = #wow.printed
             slash("blessings")
@@ -1149,7 +1152,7 @@ describe("My Blessings in this raid", function()
             enterBattleground()
             assert.is_true(ns.BuffRules.SetRaidBlessings(nil))
             assert.is_false(ns.BuffRules.RaidBlessingsHeld())
-            assert.are.same({ false, "you're in a battleground" }, { ns.BuffRules.SetRaidBlessings({ "wisdom" }) })
+            assert.are.same({ false, "you're in a battleground or arena" }, { ns.BuffRules.SetRaidBlessings({ "wisdom" }) })
             backToRaid()
             assert.is_false(chosen(), "stopped in the battleground: stays stopped")
             assert.are.same({}, wow.errors)
@@ -1183,7 +1186,7 @@ describe("My Blessings in this raid", function()
         -- Blessing left to another paladin; another raid, seen plainly,
         -- forgets it.
         it("a regroup storm never forgets the choice within one raid, nor gives a Blessing left to another paladin (red)", function()
-            local total = { kept = 0, forgot = 0, keptUnreadable = 0, chosen = 0 }
+            local total = { kept = 0, forgot = 0, keptUnreadable = 0, chosen = 0, keptThroughArena = 0 }
             -- Looks with the choice kept while each hazard was on (#302: one counter each).
             local keptWith = { leader = 0, myLeader = 0, restricted = 0, inRaid = 0, unitIsUnit = 0,
                 oneSlot = 0, nameLoading = 0 }
@@ -1338,8 +1341,26 @@ describe("My Blessings in this raid", function()
                     wow.fire("PLAYER_ENTERING_WORLD", false, false)
                     show()
                 end
+                -- An arena and back (#394): its group is a party of others, which
+                -- a raid answer reads believably as "not a raid".
+                local function arena()
+                    local had = model ~= nil
+                    wow.state.leader = "Kit-Ash"
+                    wow.state.inInstance, wow.state.instanceType = true, "arena"
+                    wow.setGroup("party", { "Kit-Ash", "Lu-Bay" })
+                    for _ = 1, random.random(3) do wow.fire("GROUP_ROSTER_UPDATE") end
+                    ns.BuffRules.CheckRaid()
+                    if had then
+                        assert.is_true(ns.BuffRules.RaidBlessingsHeld(), "held, unused, in the arena")
+                        assert.is_false(ns.BuffRules.RaidBlessingsChosen(), "not used in the arena")
+                    end
+                    wow.state.inInstance, wow.state.instanceType = false, nil
+                    wow.fire("PLAYER_ENTERING_WORLD", false, false)
+                    show()
+                    if had and model then total.keptThroughArena = total.keptThroughArena + 1 end
+                end
                 local actions = { regroup, regroup, regroup, regroup, another, choose, choose, obscure, obscure,
-                    battleground,
+                    battleground, arena,
                     function() wow.fire("GROUP_ROSTER_UPDATE") end,
                     function() for i = 1, 40 do local u = wow.state.units["raid" .. i]
                         if u then u.auras, u.auraSources = {}, {} end end end }
@@ -1370,6 +1391,7 @@ describe("My Blessings in this raid", function()
             end
             assert.is_true(total.chosen > 10, "choices: " .. total.chosen)
             assert.is_true(total.kept > 100, "looks with the choice kept: " .. total.kept)
+            assert.is_true(total.keptThroughArena > 3, "choices kept through an arena: " .. total.keptThroughArena)
             assert.is_true(total.keptUnreadable > 10, "kept through looks that couldn't read: " .. total.keptUnreadable)
             for hazard, n in pairs(keptWith) do
                 assert.is_true(n > 3, "kept with " .. hazard .. " unreadable: " .. n)
