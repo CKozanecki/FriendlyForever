@@ -334,6 +334,62 @@ describe("Passers-by (#39)", function()
             assert.are.same({}, list)
         end)
 
+        it("offers nobody with the addon or Buff Back off", function()
+            stranger()
+            ns.db.enabled = false
+            assert.is_nil(offer(), "the addon off")
+            ns.db.enabled = true
+            ns.db.buffBack.enabled = false
+            assert.is_nil(offer(), "Buff Back off")
+            ns.db.buffBack.enabled = true
+            assert.is_truthy(offer())
+        end)
+
+        it("offers nobody when the game won't say whether you're in a fight, or who you are", function()
+            stranger()
+            local realLockdown, realName = _G.InCombatLockdown, _G.UnitName
+            _G.InCombatLockdown = function() return wow.secret(false) end
+            assert.is_nil(offer(), "the fight answer is a secret")
+            _G.InCombatLockdown = realLockdown
+            _G.UnitName = function(unit)
+                if unit == "player" then return wow.secret("Me") end
+                return realName(unit)
+            end
+            assert.is_nil(offer(), "your name is a secret")
+            _G.UnitName = realName
+            assert.is_truthy(offer())
+        end)
+
+        it("never offers someone on a nameplate with your own name", function()
+            wow.state.units.player.surname = wow.state.units.player.surname or "Self"
+            local me = wow.state.units.player
+            stranger("nameplate1", { name = me.name, surname = me.surname, id = "Another-Unit" })
+            wow.state.units.nameplate1.id = "Another-Unit"
+            assert.is_nil(offer())
+        end)
+
+        it("never offers a member of your raid, and offers nobody when a group slot can't be read", function()
+            stranger("nameplate1")
+            wow.setGroup("raid", { "Bob-Stone" })
+            wow.state.units.raid1.subgroup = 2 -- not in your party1..4
+            assert.is_nil(offer(), "Bob is in your raid")
+            wow.setGroup(nil, {})
+            assert.is_truthy(offer())
+            wow.setGroup("party", { "Dee-Moss" })
+            local real = _G.UnitExists
+            _G.UnitExists = function(unit)
+                if unit == "party1" then return wow.secret(true) end
+                return real(unit)
+            end
+            assert.is_nil(offer(), "party1 can't be read")
+        end)
+
+        it("lists a player shown on two nameplates once", function()
+            stranger("nameplate1")
+            stranger("nameplate2")
+            assert.are.same({ "Bob-Stone:Mark of the Wild" }, offered())
+        end)
+
         it("never offers the other faction, the dead, the offline, or a flagged player while you aren't", function()
             stranger("nameplate1", { name = "Orc", surname = "Grunt", cantAssist = true })
             stranger("nameplate2", { name = "Hos", surname = "Tile", hostile = true })
@@ -400,6 +456,24 @@ describe("Passers-by (#39)", function()
             stranger()
             wow.press(button)
             assert.are.equal(MOTW, lastCast().id)
+        end)
+
+        it("doesn't renew a group version you could match, nearly gone", function()
+            boot({ known = { [MOTW_1] = true, [MOTW] = true } })
+            ns.db.buffBack.neverOffer = { thorns = true }
+            local bob = stranger()
+            wow.wearBuff("nameplate1", GIFT, { duration = 3600 })
+            bob.auraExpires[1] = wow.now + 60
+            assert.is_nil(offer(), "Gift of the Wild lasts longer than your single cast")
+        end)
+
+        it("a cast the game didn't say reached them isn't offered to them again at every press", function()
+            wow.state.sentTargetForm = "none"
+            ns.db.buffBack.neverOffer = { thorns = true }
+            stranger()
+            wow.press(button)
+            assert.are.same({ "Mark of the Wild", "Bob-Stone" }, { lastCast().spell, lastCast().target })
+            assert.is_nil(offer())
         end)
 
         it("doesn't renew a copy with times it can't read, a group version, or a stronger rank", function()
@@ -574,6 +648,60 @@ describe("Passers-by (#39)", function()
                 wow.fire("UNIT_AURA", "player", {})
                 assert.is_true(ns.BuffMode.IsAuto(), how)
             end
+        end)
+
+        it("a read that can't tell keeps what the last one saw: still by the fire isn't gaining it again", function()
+            for _, how in ipairs({ "error", "secret aura", "secret id", "not a table" }) do
+                bootAuto()
+                stranger()
+                sitByFire()
+                assert.is_true(ns.BuffMode.IsAuto(), how)
+                slash("buffmode off")
+                local real = _G.C_UnitAuras.GetAuraDataByIndex
+                _G.C_UnitAuras.GetAuraDataByIndex = function(unit, i, filter)
+                    if unit ~= "player" then return real(unit, i, filter) end
+                    if how == "error" then error("restricted") end
+                    if how == "secret aura" then return wow.secret({ spellId = COZY }) end
+                    if how == "not a table" then return "Cozy Fire" end
+                    return { spellId = wow.secret(COZY) }
+                end
+                wow.fire("UNIT_AURA", "player", {})
+                _G.C_UnitAuras.GetAuraDataByIndex = real
+                wow.fire("UNIT_AURA", "player", {})
+                assert.is_false(ns.BuffMode.IsOn(), how .. ": you never left the fire")
+                assert.are.same({}, wow.errors, how)
+            end
+        end)
+
+        it("a login whose auras can't be read doesn't take a fire seen later as gained", function()
+            bootAuto()
+            wow.state.aurasRestricted = true
+            wow.reloadInPlace(true)
+            stranger()
+            wow.state.aurasRestricted = false
+            sitByFire()
+            assert.is_false(ns.BuffMode.IsOn(), "it may have been there all along")
+            wow.loseBuff(COZY)
+            sitByFire()
+            assert.is_true(ns.BuffMode.IsAuto(), "left and came back")
+        end)
+
+        it("no other trigger turns buff mode on for a passer-by", function()
+            bootAuto({ autoOnJoin = true })
+            stranger("nameplate1")
+            wow.setGroup("party", { "Dee-Moss" })
+            wow.wearBuff("party1", MOTW, { duration = 1800, source = "player" })
+            wow.wearBuff("party1", THORNS_1, { duration = 600, source = "player" })
+            local turnedOn = 0
+            local set = ns.BuffMode.Set
+            ns.BuffMode.Set = function(on, how)
+                if on then turnedOn = turnedOn + 1 end
+                return set(on, how)
+            end
+            wow.fire("GROUP_ROSTER_UPDATE")
+            ns.BuffMode.Set = set
+            assert.is_false(ns.BuffMode.IsOn(), "Dee has your buffs; Bob passing by doesn't count")
+            assert.are.equal(0, turnedOn, "not even for a moment")
         end)
 
         it("a damaged switch reads as off mid-session, and heals on load", function()

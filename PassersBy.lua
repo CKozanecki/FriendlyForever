@@ -128,13 +128,6 @@ local function GroupNames()
     return names
 end
 
--- Whether a buff of yours goes to a stranger of this class: any buff their
--- class can use, as a favour's today. (#408 replaces this with its Buff
--- Back rules for strangers.)
-local function StrangerGets(buff, class)
-    return ns.BuffData.Useful(buff, class)
-end
-
 -- A copy (readable, of buff) that is half gone: a single rank yours can
 -- replace, whose times the game shows, with under half its full time left
 -- (the owner, #39 Q4). It doesn't count as worn, so it's topped up.
@@ -159,9 +152,8 @@ local function Cheap(unit, group, me, meFlagged)
     local fighting = Read(UnitAffectingCombat, unit)
     if fighting ~= true and fighting ~= false then return nil, name, "can't tell whether they're in a fight" end
     local pvp = Read(UnitIsPVP, unit)
-    if pvp == nil then return nil, name, "can't see whether they're flagged for PvP" end
-    if pvp == true and not meFlagged then return nil, name, "flagged for PvP and you aren't" end
     if pvp ~= false and pvp ~= true then return nil, name, "can't see whether they're flagged for PvP" end
+    if pvp == true and not meFlagged then return nil, name, "flagged for PvP and you aren't" end
     local readClass, _, class = pcall(Util.UnitClassIf, unit, name)
     if not readClass or not class then return nil, name, "can't see their class" end
     if Recently(skipped[name], PassersBy.SKIP_SECONDS) then return nil, name, "skipped (you right-clicked them)" end
@@ -171,12 +163,14 @@ local function Cheap(unit, group, me, meFlagged)
     return { unit = unit, name = name, class = class, fighting = fighting }
 end
 
--- The buff to give a candidate, or nil and why not.
+-- The buff to give a candidate, or nil and why not. myBuffs never holds a
+-- self-buff or one only given when asked (BuffData.Offerable).
 local function Choose(candidate, myBuffs)
     local unit, wanted = candidate.unit, nil
     for _, buff in ipairs(myBuffs) do
-        if not buff.selfCast and not buff.requestOnly and ns.BuffData.Useful(buff, candidate.class)
-            and StrangerGets(buff, candidate.class)
+        -- Every buff their class can use, as a favour's (#408's Buff Back
+        -- rules for strangers join this when they arrive).
+        if ns.BuffData.Useful(buff, candidate.class)
             and not Recently(given[candidate.name .. "\1" .. buff.key], PassersBy.SKIP_SECONDS) then
             local wears = ns.Offers.Wears(unit, buff, HalfGone)
             if wears == nil then return nil, "can't read their buffs" end
