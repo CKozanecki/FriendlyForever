@@ -663,6 +663,11 @@ function Auto.OnPlayerAura(unit)
     local was = fireAuras
     fireAuras = now
     if was == nil or Cfg().autoOnCampfire ~= true then return end
+    -- Not where quiet mode holds in a capital city: there it would end
+    -- quiet mode at the first fire you pass (as for a stranger's buff, #34).
+    -- What it saw is kept, so leaving the city wearing a camp benefit isn't
+    -- gaining one.
+    if ns.Cities.ThanksQuiet() or ns.Cities.ButtonHidden() then return end
     for id in pairs(now) do
         if not was[id] then
             TurnOn("you're by a campfire", nil, true)

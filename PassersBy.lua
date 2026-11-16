@@ -27,8 +27,10 @@
 --
 -- Which buff: your buffs for others in your order (BuffData.Offerable, then
 -- Water.Filter), one their class can use and your rules for strangers give
--- them, that they're missing or whose copy has less than half its full time
--- left (the owner, #39 Q4: a single rank yours can replace, with times the
+-- them, not a Blessing while they wear another of yours (a paladin keeps one
+-- on each player, as GroupBuffs does; one you gave them a moment ago counts
+-- though it may not show yet), that they're missing or whose copy has less
+-- than half its full time left (the owner, #39 Q4: a single rank yours can replace, with times the
 -- game shows). Their auras must be readable, and the game must say your
 -- spell reaches them: a doubt never costs a cast. One buff per press.
 --
@@ -163,6 +165,21 @@ local function Cheap(unit, group, me, meFlagged)
     return { unit = unit, name = name, class = class, fighting = fighting }
 end
 
+-- Whether they have another buff of buff's family from you (a Blessing,
+-- when you'd give another): worn and cast by you, or given by the button
+-- within SKIP_SECONDS. true, false, or nil when the game won't say. A buff
+-- with no family has none.
+local function OtherOfFamily(candidate, buff, myBuffs)
+    if not buff.family then return false end
+    for _, other in ipairs(myBuffs) do
+        if other.family == buff.family and other.key ~= buff.key
+            and Recently(given[candidate.name .. "\1" .. other.key], PassersBy.SKIP_SECONDS) then
+            return true
+        end
+    end
+    return ns.GroupBuffs.WearsMyFamily(candidate.unit, buff.family, buff, true)
+end
+
 -- The buff to give a candidate, or nil and why not. myBuffs never holds a
 -- self-buff or one only given when asked (BuffData.Offerable).
 local function Choose(candidate, myBuffs)
@@ -170,8 +187,13 @@ local function Choose(candidate, myBuffs)
     for _, buff in ipairs(myBuffs) do
         -- Every buff their class can use, as a favour's (#408's Buff Back
         -- rules for strangers join this when they arrive).
+        local hasOther = true -- not a buff to give them, unless all below say so
         if ns.BuffData.Useful(buff, candidate.class)
             and not Recently(given[candidate.name .. "\1" .. buff.key], PassersBy.SKIP_SECONDS) then
+            hasOther = OtherOfFamily(candidate, buff, myBuffs)
+            if hasOther == nil then return nil, "can't tell whose Blessing they have" end
+        end
+        if hasOther == false then
             local wears = ns.Offers.Wears(unit, buff, HalfGone)
             if wears == nil then return nil, "can't read their buffs" end
             if wears == false then

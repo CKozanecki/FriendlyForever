@@ -390,6 +390,31 @@ describe("Passers-by (#39)", function()
             assert.are.same({ "Bob-Stone:Mark of the Wild" }, offered())
         end)
 
+        it("keeps one Blessing of yours on each passer-by, as for your group", function()
+            local KINGS, MIGHT = 20217, 19740
+            boot({ class = "PALADIN", known = { [KINGS] = true, [MIGHT] = true } })
+            stranger()
+            wow.press(button)
+            assert.are.same({ "Blessing of Kings", "Bob-Stone" }, { lastCast().spell, lastCast().target })
+            local casts = #wow.casts
+            wow.press(button)
+            assert.are.equal(casts, #wow.casts, "Might would replace the Kings you just gave")
+            -- Wearing your Kings (it shows now): still no Might, whatever the raid split says.
+            boot({ class = "PALADIN", known = { [KINGS] = true, [MIGHT] = true } })
+            stranger()
+            wow.wearBuff("nameplate1", KINGS, { duration = 3600, source = "player" })
+            local realCovers = ns.BuffRules.CoversInRaid
+            ns.BuffRules.CoversInRaid = function() return false end
+            assert.is_nil(offer(), "your Kings is on them")
+            ns.BuffRules.CoversInRaid = realCovers
+            -- Someone else's Kings: your Might is welcome.
+            wow.state.units.nameplate1.auraSources[1] = false
+            assert.are.equal("Blessing of Might", offer().spell)
+            -- Who cast it can't be read: skipped.
+            wow.state.units.nameplate1.auraSources[1] = wow.secret("player")
+            assert.is_nil(offer())
+        end)
+
         it("never offers the other faction, the dead, the offline, or a flagged player while you aren't", function()
             stranger("nameplate1", { name = "Orc", surname = "Grunt", cantAssist = true })
             stranger("nameplate2", { name = "Hos", surname = "Tile", hostile = true })
@@ -732,6 +757,38 @@ describe("Passers-by (#39)", function()
             assert.are.equal(0, turnedOn, "not even for a moment")
         end)
 
+        it("doesn't end quiet mode in a capital city, and leaving it wearing a camp benefit isn't gaining one", function()
+            bootAuto()
+            wow.setMap(wow.CAPITAL.stormwind)
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            wow.gainBuff({ sourceUnit = "nameplate2", name = "Arcane Intellect", spellId = INTELLECT })
+            assert.are.equal(1, ns.Offers.Count(), "a favour, held by quiet mode")
+            assert.is_true(ns.Cities.ButtonHidden())
+            wow.gainBuff({ spellId = 7353, name = "Cozy Fire" })
+            wow.gainBuff({ spellId = 1229741, name = "Camp Benefits", duration = 3600 })
+            assert.is_false(ns.BuffMode.IsOn(), "someone's cooking fire in Stormwind")
+            assert.is_true(ns.Cities.ButtonHidden(), "quiet mode holds")
+            wow.loseBuff(7353)
+            wow.setMap(1429)
+            wow.fire("UNIT_AURA", "player", {})
+            assert.is_false(ns.BuffMode.IsOn(), "Camp Benefits was added in the city, not now")
+        end)
+
+        it("in a capital, either half of quiet mode holding keeps it off", function()
+            for _, case in ipairs({ { thanks = true, button = false }, { thanks = false, button = true } }) do
+                bootAuto()
+                ns.db.buff.quietInCities = case.thanks
+                ns.db.buffBack.showInCities = not case.button
+                wow.setMap(wow.CAPITAL.stormwind)
+                stranger("nameplate2", { name = "Ann", surname = "Vale" })
+                wow.gainBuff({ sourceUnit = "nameplate2", name = "Arcane Intellect", spellId = INTELLECT })
+                assert.are.equal(case.thanks, ns.Cities.ThanksQuiet())
+                assert.are.equal(case.button, ns.Cities.ButtonHidden())
+                wow.gainBuff({ spellId = 7353, name = "Cozy Fire" })
+                assert.is_false(ns.BuffMode.IsOn(), case.thanks and "thanks quiet" or "button hidden")
+            end
+        end)
+
         it("a damaged switch reads as off mid-session, and heals on load", function()
             bootAuto()
             stranger()
@@ -742,6 +799,23 @@ describe("Passers-by (#39)", function()
                 noBuffMode = true, keepDefault = true })
             assert.is_true(ns.db.buffBack.autoOnCampfire)
             assert.is_false(ns.db.buffBack.passersBy)
+        end)
+    end)
+
+    describe("an update that adds PassersBy.lua (black)", function()
+        it("asks for a restart, not erroring, after only a /reload", function()
+            wow.reset()
+            local loaded = {}
+            local _, files = wow.parseToc()
+            for _, file in ipairs(files) do
+                if file ~= "PassersBy.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+            end
+            wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+            wow.fire("PLAYER_ENTERING_WORLD", true, false)
+            wow.advance(20)
+            assert.are.same({}, wow.errors)
+            assert.are.equal(0, #wow.casts)
+            assert.truthy(table.concat(wow.printed, "\n"):find("Restart the game (not /reload)", 1, true))
         end)
     end)
 
