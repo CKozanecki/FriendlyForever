@@ -72,13 +72,15 @@ Walkthrough.STEPS = {
     },
     {
         since = 1,
-        title = "Buff Back: buff order and \"Never offer\"",
-        open = function() ns.Options.OpenTab("buffBack", "buffOrderHeader") end,
+        title = "Buffs: buff order and \"Never offer\"",
+        open = function() ns.Options.OpenTab(ns.Options.BUFFS_TAB, "buffOrderHeader") end,
         text = function()
             return "When someone outside your group buffs you, a button offers to buff them back. It casts only "
                 .. "when you press it.\n\n"
-                .. "The buff order says which of your buffs it offers first: the first that suits them. Move a "
-                .. "buff with Up and Down, and tick \"Never offer\" for any you never want offered."
+                .. "On the Buffs tab, the buff order says which of your buffs it offers first: the first that "
+                .. "suits them. Move a buff with Up and Down, and tick \"Never offer\" for any you never want "
+                .. "offered. Below, who gets each buff: strangers (Buff Back), Party, Raid and PvP each have "
+                .. "their own."
         end,
     },
     {

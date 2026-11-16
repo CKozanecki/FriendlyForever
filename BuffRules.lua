@@ -38,7 +38,7 @@ local Read = Util.ReadGameValues
 local BuffRules = {}
 ns.BuffRules = BuffRules
 
--- In the order the Buff Back tab's button steps through them.
+-- 1.3.3's rules, in the order its Who button stepped through them.
 BuffRules.RULES = { "all", "tanks", "notTanks", "classes" }
 BuffRules.RULE_TEXT = {
     all = "Everyone", tanks = "Tanks only", notTanks = "Everyone but tanks", classes = "Chosen classes",
@@ -187,7 +187,9 @@ local function LegacyAllows(buff, member)
     return true
 end
 
--- Setters, for the Buff Back tab. Each refreshes the button.
+-- Setters for 1.3.3's rules (whoGets), which no tab shows now: the Buffs tab
+-- sets each place's (#408). Specs set the rules in force while pending with
+-- them. Each refreshes the button.
 
 function BuffRules.SetRule(key, rule)
     if not ns.BuffData.KEYS[key] or not BuffRules.IS_RULE[rule] then return end
@@ -321,6 +323,19 @@ function BuffRules.NamesText(key, list, place)
     local all = MapOf(place)
     local entry = all and all[key]
     return ListText(type(entry) == "table" and entry[list] or nil)
+end
+
+-- How many names buff key's Always and Never lists hold together, for place
+-- (nil: 1.3.3's whoGets, the lists in force while pending).
+function BuffRules.NamesCount(key, place)
+    local all = MapOf(place)
+    local entry = all and all[key]
+    local n = 0
+    for list in pairs(BuffRules.NAME_LISTS) do
+        local names = type(entry) == "table" and entry[list]
+        for _ in pairs(type(names) == "table" and names or {}) do n = n + 1 end
+    end
+    return n
 end
 
 -- entry's Always and Never lists, cleaned into out: names that are player
@@ -679,6 +694,9 @@ function BuffRules.Choose(choice)
     local b = ns.Config.Section("buffBack")
     local old = type(b.whoGets) == "table" and b.whoGets or {}
     local party, raid, narrowed, dropped, droppedFrom = {}, {}, {}, 0, {}
+    -- The Always and Never names in force, which "new" leaves behind.
+    local named = 0
+    for key in pairs(old) do named = named + BuffRules.NamesCount(key) end
     if choice == "kept" then
         local keys = {}
         for _, key in ipairs(SortedKeys(old)) do
@@ -745,6 +763,10 @@ function BuffRules.Choose(choice)
     else
         ns.Print("using the new buff defaults. In battlegrounds and arenas every buff starts off. "
             .. "Change them on the Buffs tab.")
+        if named > 0 then
+            ns.Print(("your %d Always and Never %s kept: the new defaults start without names.")
+                :format(named, named == 1 and "name wasn't" or "names weren't"))
+        end
     end
     ns.BuffButton.Refresh()
     return true

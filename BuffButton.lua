@@ -663,18 +663,20 @@ local function OnPostClick(_, mouseButton, isDown)
         -- The Never list of the place you're in (#408), where the offer was
         -- made, or of each place it could be when the game won't say;
         -- 1.3.3's while the choice waits.
-        local ok, why, tab = true, nil, "Buffs"
+        local ok, why = true, nil
         if ns.BuffRules.Pending() then
             ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name)
-            tab = "Buff Back"
         else
             for _, place in ipairs(ns.BuffRules.Place()) do
                 if ok then ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name, place) end
             end
         end
         if ok then
-            ShowResult(string.format("%s won't get %s (Never list, on the %s tab).",
-                offer.self and "You" or Util.DisplayName(name), offer.spell, tab))
+            -- While pending, the list isn't on the tab until you choose (#408's review).
+            ShowResult(string.format(ns.BuffRules.Pending()
+                and "%s won't get %s (Never list; \"Keep my settings\" keeps it)."
+                or "%s won't get %s (Never list, on the Buffs tab).",
+                offer.self and "You" or Util.DisplayName(name), offer.spell))
         else
             ShowResult("Couldn't add " .. (offer.self and "you" or Util.DisplayName(name))
                 .. " to the Never list: " .. why .. ".", true)

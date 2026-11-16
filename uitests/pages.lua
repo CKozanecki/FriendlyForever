@@ -255,6 +255,117 @@ function Pages.OpenTab(name)
     return button:GetParent(), tab
 end
 
+-- The Buffs tab (#408): not a message type, so not in TABS. Its places, in
+-- the tab's order, each shot on its own, and the shots with a buff's
+-- who-gets list open, its names open, and the choice before it's made.
+Pages.BUFFS_LABEL = "Buffs"
+Pages.BUFFS_PLACES = {
+    { name = "buff-back", label = "Buff Back" },
+    { name = "party", label = "Party" },
+    { name = "raid", label = "Raid" },
+    { name = "pvp", label = "PvP" },
+}
+Pages.BUFFS_SHOTS = { "buff-back", "party", "raid", "pvp", "party-list", "raid-names", "party-choice" }
+
+-- Every button under frame (to depth) whose text is label, in order.
+local function FindButtons(frame, label, depth, out)
+    out = out or {}
+    for _, child in ipairs({ frame:GetChildren() }) do
+        if child:GetObjectType() == "Button" and child.GetText and child:GetText() == label then
+            out[#out + 1] = child
+        end
+        if depth > 1 then FindButtons(child, label, depth - 1, out) end
+    end
+    return out
+end
+
+-- Opens the options panel at the Buffs tab, at the place called place (a
+-- BUFFS_PLACES name; Party when left out), by clicking their buttons as a
+-- player would. The place "Buff Back" shares its text with the Buff Back
+-- message tab, which is made first: a place's button is the last one with
+-- its text. Returns the panel's scrolling content, or nothing and why.
+function Pages.OpenBuffs(place)
+    Pages.SkipWalkthrough()
+    SlashCmdList.FRIENDLYFOREVER("")
+    local panel = _G[Pages.PANEL]
+    local tab = type(panel) == "table" and FindButtons(panel, Pages.BUFFS_LABEL, 3)[1]
+    if not tab then
+        report("the options panel has no Buffs tab button")
+        return nil, "no Buffs tab"
+    end
+    if tab:IsEnabled() then tab:Click() end
+    local content = tab:GetParent()
+    local label
+    for _, p in ipairs(Pages.BUFFS_PLACES) do
+        if p.name == (place or "party") then label = p.label end
+    end
+    if not label then
+        report("no Buffs place called " .. tostring(place))
+        return nil, "no such place"
+    end
+    local buttons = FindButtons(content, label, 1)
+    local button = buttons[#buttons]
+    if button and button:IsEnabled() then button:Click() end
+    return content
+end
+
+-- For the screenshot job: the Buffs tab at one of BUFFS_SHOTS. "party-list"
+-- opens the first buff's who-gets list, "raid-names" the first buff's names,
+-- and "party-choice" shows the choice as a player updating from 1.3.3 sees it.
+function Pages.ShowBuffs(shot)
+    local db = FriendlyForeverDB
+    local place, extra = shot:match("^([%a-]-)%-(%a+)$")
+    if not extra or extra == "back" then place, extra = shot, nil end
+    if extra == "choice" and type(db) == "table" and type(db.buffBack) == "table" then
+        db.buffBack.whoChoice = "pending"
+    elseif type(db) == "table" and type(db.buffBack) == "table" and db.buffBack.whoChoice == "pending" then
+        db.buffBack.whoChoice = "new"
+    end
+    local content = Pages.OpenBuffs(place)
+    if not content then return content end
+    -- The place's own button, its rows and options below it: scrolled near
+    -- the top of the view, as a player scrolls down to them (#408's testing
+    -- review: unscrolled, every shot showed only the buff order).
+    local label
+    for _, p in ipairs(Pages.BUFFS_PLACES) do
+        if p.name == place then label = p.label end
+    end
+    local buttons = FindButtons(content, label, 1)
+    local placeButton = buttons[#buttons]
+    -- The first buff's who-gets button (200 wide, the highest), or its Names.
+    local function First(isIt)
+        local found
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child:IsShown() and isIt(child) and (not found or (child:GetTop() or 0) > (found:GetTop() or 0)) then
+                found = child
+            end
+        end
+        return found
+    end
+    local function Arrange(again)
+        if placeButton then Pages.ShowFrameAt(content, placeButton, "top") end
+        if extra == "names" and not again then
+            local names = First(function(c)
+                local t = c.GetText and c:GetText() or ""
+                return c:GetObjectType() == "Button" and t:find("Names", 1, true) == 1
+            end)
+            if names then names:Click() end
+        elseif extra == "list" then
+            -- Opened (closed first, a frame later) once the row sits where the
+            -- shot draws it, so the list is placed against it.
+            local who = First(function(c) return c:GetObjectType() == "Button" and c:GetWidth() == 200 end)
+            local open = First(function(c) return c:GetObjectType() == "Frame" and c:GetFrameStrata() == "DIALOG" end)
+            if who then
+                if open then who:Click() end
+                who:Click()
+            end
+        end
+    end
+    Arrange(false)
+    if C_Timer and C_Timer.After then C_Timer.After(0, function() Arrange(true) end) end
+    return content
+end
+
 -- The Buff Back tab's buffs by their Forever names (#158). The simulator
 -- plays Forever with Forever's spell data (#160), so it names them itself;
 -- until then a fixture here answered for it, and without one the tab showed
@@ -338,6 +449,47 @@ local function FindRow(content, text)
     end
 end
 
+-- One edge pair of region (GetTop and GetBottom, say), if both are numbers.
+local function EdgePair(region, first, second)
+    local ok, a, b = pcall(function() return region[first](region), region[second](region) end)
+    if ok and type(a) == "number" and type(b) == "number" then return a, b end
+end
+
+-- Shows frame near the top ("top") or the bottom ("bottom") of the options
+-- panel's view, as a player scrolls a row into view to use it (#408). The
+-- client reads a scrolled child's regions unscrolled (docs/ui-simulator.md),
+-- so code that places a frame from a row's edges (the Buffs tab's who-gets
+-- list) would place it where the row sits unscrolled. The scroll child is
+-- moved up by the offset instead, as the game draws it scrolled: the row's
+-- edges, what the code reads from them and the shot then agree. Returns the
+-- offset and a function that puts the child back, or nothing when edges
+-- can't be read. The offset is worked out from the child's own top, so a
+-- second call (a frame later, once the panel has laid out) gives the same.
+function Pages.ShowFrameAt(content, frame, at)
+    local scroll = content:GetParent()
+    Settle(content)
+    local viewTop, viewBottom = EdgePair(scroll, "GetTop", "GetBottom")
+    local rowTop, rowBottom = EdgePair(frame, "GetTop", "GetBottom")
+    local contentTop = EdgePair(content, "GetTop", "GetBottom")
+    if not (viewTop and rowTop and contentTop) then return end
+    local offset = contentTop - rowTop - 12
+    if at == "bottom" then offset = (contentTop - viewTop) + viewBottom + 12 - rowBottom end
+    offset = math.max(0, offset)
+    local points = {}
+    for i = 1, (content.GetNumPoints and content:GetNumPoints() or 0) do points[i] = { content:GetPoint(i) } end
+    local left = EdgePair(content, "GetLeft", "GetRight")
+    local scrollLeft = EdgePair(scroll, "GetLeft", "GetRight")
+    content:ClearAllPoints()
+    content:SetPoint("TOPLEFT", scroll, "TOPLEFT", (left and scrollLeft) and (left - scrollLeft) or 0, offset)
+    Settle(content)
+    return offset, function()
+        content:ClearAllPoints()
+        for _, p in ipairs(points) do content:SetPoint(unpack(p, 1, 5)) end
+        if #points == 0 then scroll:SetScrollChild(content) end
+        Settle(content)
+    end
+end
+
 -- Scrolls the options panel so the row whose text starts with rowText sits
 -- near the top of its view (#254), as Options.lua's ScrollTo does for the
 -- walkthrough, and returns a function that puts the scroll back where it was.
@@ -377,26 +529,26 @@ function Pages.ScrollToRow(rowText)
     end
 end
 
--- The row the lower shot starts at: the group versions check box, the first
--- of the rows below the buff order and the turn-on triggers (#254).
-Pages.LOWER_ROW = "Use group versions"
+-- The row the lower shot starts at (#254): buff requests in chat, the last of
+-- the Buff Back tab's own rows before its lines (the buff rows moved to the
+-- Buffs tab, #408).
+Pages.LOWER_ROW = "Offer my buffs to players who ask in chat"
 
 -- For the screenshot job: a tab with its lower rows in view (#254), from the
--- group versions row down. Like ShowTab, it leaves the panel as it is for
+-- buff requests row down. Like ShowTab, it leaves the panel as it is for
 -- the shot.
 function Pages.ShowTabLower(name)
     Pages.ShowTab(name)
     return Pages.ScrollToRow(Pages.LOWER_ROW)
 end
 
--- The row the middle shot starts at (#383): the self-buffs check box, with
--- Who and its Always and Never rows, the raid Blessings, the buff-mode
--- switches and the top-up stepper below it, which the top and lower shots
--- leave out now that a paladin's Buff Back tab lists 11 buffs (#44).
-Pages.MIDDLE_ROW = "Offer my self-buffs"
+-- The row the middle shot starts at (#383): the first of buff mode's
+-- turn-on switches, with the turn-off switches and the top-up stepper below
+-- it (the buff rows moved to the Buffs tab, #408).
+Pages.MIDDLE_ROW = "with my group"
 
 -- For the screenshot job: a tab with its middle rows in view (#383), from the
--- self-buffs row down, scrolled as the lower shot is.
+-- turn-on switches down, scrolled as the lower shot is.
 function Pages.ShowTabMiddle(name)
     Pages.ShowTab(name)
     return Pages.ScrollToRow(Pages.MIDDLE_ROW)

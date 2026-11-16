@@ -2454,6 +2454,7 @@ end
 -- opts.db: saved variables to start with. opts.noGrace: stop after login.
 -- opts.autoBuffMode: keep buff mode's turn-on triggers at their defaults (see below).
 -- opts.buffDefaults: keep who gets Wisdom, Might and Thorns at their defaults (#219, see below).
+-- opts.newInstall: a first install stays on #408's rules by place ("new"), not pending (see below).
 -- opts.settingsClosed: keep the settings pages unopened, as in the game until
 -- the player opens them (#267, see below).
 -- opts.buffSelf: keep buff mode offering your own copy of your buffs (#198).
@@ -2502,6 +2503,13 @@ function M.boot(opts)
         for _, field in ipairs(M.TURN_ON_TRIGGERS) do
             if triggersGiven[field] == nil then ns.db.buffBack[field] = false end
         end
+    end
+    -- A first install starts on #408's rules by place ("new"), which most
+    -- specs, written against 1.3.3's rules, don't expect: they start pending
+    -- (1.3.3's rules) unless the given settings choose. spec/buffplaces_spec.lua
+    -- and spec/buffstab_spec.lua cover a first install (opts.newInstall keeps it).
+    if not opts.newInstall and not (givenBuffBack and givenBuffBack.whoChoice ~= nil) then
+        ns.db.buffBack.whoChoice = "pending"
     end
     -- Wisdom, Might and Thorns start on class and tank rules (#219), which
     -- would leave a spec's rogue or priest out of a buff it is checking for
