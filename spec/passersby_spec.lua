@@ -880,7 +880,11 @@ describe("Passers-by (#39)", function()
             wow.reloadInPlace(true)
             wow.state.aurasRestricted = false
             wow.fire("UNIT_AURA", "player", wow.secret({}))
+            -- The read at the fight's end fails too, and the next update is that fire's refresh.
+            wow.state.aurasRestricted = true
             wow.leaveCombat()
+            wow.state.aurasRestricted = false
+            wow.fire("UNIT_AURA", "player", { addedAuras = { { spellId = COZY, auraInstanceID = 90 } } })
             assert.is_false(ns.BuffMode.IsOn(), "it may have been there all along")
             -- Once a read has worked, a fire added later counts.
             wow.enterCombat()
@@ -890,6 +894,17 @@ describe("Passers-by (#39)", function()
             wow.fire("UNIT_AURA", "player", wow.secret({}))
             wow.leaveCombat()
             assert.is_true(ns.BuffMode.IsAuto(), "a second fire, added in the next fight")
+        end)
+
+        it("after a login whose read failed, the first read that works only notes the fire", function()
+            bootAuto()
+            stranger()
+            wearFire()
+            wow.state.aurasRestricted = true
+            wow.reloadInPlace(true)
+            wow.state.aurasRestricted = false
+            wow.fire("UNIT_AURA", "player", wow.secret({}))
+            assert.is_false(ns.BuffMode.IsOn())
         end)
 
         it("a fire you zone in beside is noted by the full update, so its refresh isn't new", function()

@@ -779,7 +779,9 @@ function Auto.TakeAuraUpdate(updateInfo)
             end
         end
     end
-    return new
+    -- Before any read has worked since the login, what you wear isn't
+    -- known, so nothing counts as added: the first read notes it (Resync).
+    return new and fireSeen.known
 end
 
 -- UNIT_AURA for you: a campfire aura added turns buff mode on (#39), if
