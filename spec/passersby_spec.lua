@@ -144,6 +144,16 @@ describe("Passers-by (#39)", function()
             assert.are.equal("Bob-Stone", lastCast().target, "the passer-by last")
         end)
 
+        it("comes after your self-buffs on the button too", function()
+            local INNER_FIRE, FORT = 10952, 10938
+            boot({ class = "PRIEST", known = { [INNER_FIRE] = true, [FORT] = true } })
+            stranger()
+            wow.press(button)
+            assert.are.same({ "Inner Fire", "Me" }, { lastCast().spell, lastCast().target }, "yours first")
+            wow.press(button)
+            assert.are.same({ "Power Word: Fortitude", "Bob-Stone" }, { lastCast().spell, lastCast().target })
+        end)
+
         it("puts a passer-by in a fight after everyone who isn't", function()
             stranger("nameplate1", { inCombat = true })
             stranger("nameplate2", { name = "Cid", surname = "Rock" })
@@ -227,8 +237,10 @@ describe("Passers-by (#39)", function()
             wow.press(button, "RightButton", { shift = true })
             assert.are.same({}, ns.Ignore.List(), "shift adds nobody to a list")
             assert.are.equal(0, #offered())
-            wow.advance(ns.PassersBy.SKIP_SECONDS)
-            assert.are.equal("Bob-Stone", offer().name)
+            wow.advance(599)
+            assert.are.equal(0, #offered(), "still skipped after 9 minutes 59 seconds")
+            wow.advance(1)
+            assert.are.equal("Bob-Stone", offer().name, "offered again after 10 minutes")
         end)
 
         it("a passer-by the game refuses waits a moment, and the next is tried", function()
@@ -661,6 +673,39 @@ describe("Passers-by (#39)", function()
             assert.is_false(ns.BuffMode.IsOn(), "Bob has both your buffs: everyone has your buffs")
         end)
 
+        it("a later trigger's buff mode doesn't keep counting passers-by after the campfire's", function()
+            bootAuto({ autoOnBuffed = true })
+            stranger("nameplate1")
+            sitByFire()
+            assert.is_true(ns.BuffMode.IsAuto())
+            slash("buffmode off")
+            stranger("nameplate2", { name = "Ann", surname = "Vale" })
+            wow.gainBuff({ sourceUnit = "nameplate2", name = "Arcane Intellect", spellId = INTELLECT })
+            assert.is_true(ns.BuffMode.IsAuto(), "the favour turned it on")
+            wow.press(button)
+            assert.are.equal("Ann-Vale", lastCast().target)
+            ns.BuffButton.Refresh()
+            assert.is_false(ns.BuffMode.IsOn(), "Bob passing by doesn't keep the favour's buff mode on")
+        end)
+
+        it("in a fight, the campfire counts passers-by whichever trigger fired first", function()
+            for _, fireFirst in ipairs({ false, true }) do
+                bootAuto({ autoOnBuffed = true })
+                stranger("nameplate1")
+                wow.enterCombat()
+                stranger("nameplate2", { name = "Ann", surname = "Vale" })
+                if fireFirst then sitByFire() end
+                wow.gainBuff({ sourceUnit = "nameplate2", name = "Arcane Intellect", spellId = INTELLECT })
+                if not fireFirst then sitByFire() end
+                wow.leaveCombat()
+                assert.is_true(ns.BuffMode.IsAuto())
+                wow.press(button)
+                assert.are.equal("Ann-Vale", lastCast().target)
+                ns.BuffButton.Refresh()
+                assert.is_true(ns.BuffMode.IsOn(), "Bob still waits: the campfire's buff mode")
+            end
+        end)
+
         it("its buff mode ends at the timeout, a passer-by or not", function()
             bootAuto()
             stranger()
@@ -681,62 +726,68 @@ describe("Passers-by (#39)", function()
             assert.is_false(ns.BuffMode.IsOn(), "Bob passing by doesn't keep it on")
         end)
 
-        it("a campfire aura that can't be read (an error, a secret list, aura or spell ID) turns nothing on", function()
-            for _, how in ipairs({ "error", "secret aura", "secret id", "not a table" }) do
+        it("an added aura it can't read (a secret payload, list, aura or spell ID, or the wrong type) turns nothing on",
+            function()
+            local cases = {
+                ["secret payload"] = function() return wow.secret({ addedAuras = { { spellId = COZY } } }) end,
+                ["secret list"] = function() return { addedAuras = wow.secret({ { spellId = COZY } }) } end,
+                ["locked aura"] = function() return { addedAuras = { wow.lockedAura(7) } } end,
+                ["secret spell ID"] = function() return { addedAuras = { { spellId = wow.secret(COZY) } } } end,
+                ["list not a table"] = function() return { addedAuras = "Cozy Fire" } end,
+                ["aura not a table"] = function() return { addedAuras = { "Cozy Fire" } } end,
+                ["spell ID a string"] = function() return { addedAuras = { { spellId = tostring(COZY) } } } end,
+                ["payload not a table"] = function() return "Cozy Fire" end,
+                ["payload a number"] = function() return 5 end,
+                ["list a number"] = function() return { addedAuras = 5 } end,
+                ["aura a number"] = function() return { addedAuras = { 5 } } end,
+            }
+            for how, payload in pairs(cases) do
                 bootAuto()
                 stranger()
-                local real = _G.C_UnitAuras.GetAuraDataByIndex
-                _G.C_UnitAuras.GetAuraDataByIndex = function(unit, i, filter)
-                    if unit ~= "player" then return real(unit, i, filter) end
-                    if how == "error" then error("restricted") end
-                    if how == "secret aura" then return wow.secret({ spellId = COZY }) end
-                    if how == "not a table" then return "Cozy Fire" end
-                    return { spellId = wow.secret(COZY) }
-                end
-                sitByFire()
+                wow.fire("UNIT_AURA", "player", payload())
                 assert.is_false(ns.BuffMode.IsOn(), how)
-                -- Readable again, still by the fire: the last read that could tell
-                -- said no fire, so this is gaining it.
-                _G.C_UnitAuras.GetAuraDataByIndex = real
-                wow.fire("UNIT_AURA", "player", {})
-                assert.is_true(ns.BuffMode.IsAuto(), how)
-            end
-        end)
-
-        it("a read that can't tell keeps what the last one saw: still by the fire isn't gaining it again", function()
-            for _, how in ipairs({ "error", "secret aura", "secret id", "not a table" }) do
-                bootAuto()
-                stranger()
-                sitByFire()
-                assert.is_true(ns.BuffMode.IsAuto(), how)
-                slash("buffmode off")
-                local real = _G.C_UnitAuras.GetAuraDataByIndex
-                _G.C_UnitAuras.GetAuraDataByIndex = function(unit, i, filter)
-                    if unit ~= "player" then return real(unit, i, filter) end
-                    if how == "error" then error("restricted") end
-                    if how == "secret aura" then return wow.secret({ spellId = COZY }) end
-                    if how == "not a table" then return "Cozy Fire" end
-                    return { spellId = wow.secret(COZY) }
-                end
-                wow.fire("UNIT_AURA", "player", {})
-                _G.C_UnitAuras.GetAuraDataByIndex = real
-                wow.fire("UNIT_AURA", "player", {})
-                assert.is_false(ns.BuffMode.IsOn(), how .. ": you never left the fire")
                 assert.are.same({}, wow.errors, how)
             end
         end)
 
-        it("a login whose auras can't be read doesn't take a fire seen later as gained", function()
+        it("a readable campfire aura after an unreadable one in the same list still counts", function()
             bootAuto()
-            wow.state.aurasRestricted = true
-            wow.reloadInPlace(true)
             stranger()
-            wow.state.aurasRestricted = false
-            sitByFire()
-            assert.is_false(ns.BuffMode.IsOn(), "it may have been there all along")
-            wow.loseBuff(COZY)
-            sitByFire()
-            assert.is_true(ns.BuffMode.IsAuto(), "left and came back")
+            wow.fire("UNIT_AURA", "player", { addedAuras = { wow.lockedAura(7), { spellId = COZY } } })
+            assert.is_true(ns.BuffMode.IsAuto())
+        end)
+
+        it("does nothing before the login has finished", function()
+            wow.reset()
+            local loaded = {}
+            local _, files = wow.parseToc()
+            for _, file in ipairs(files) do assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+            _G.FriendlyForeverDB = { enabled = true, buffBack = { autoOnCampfire = true, passersBy = true } }
+            -- Everything else a campfire would need: a passer-by, and a full name.
+            wow.state.units.player.surname = wow.state.units.player.surname or "Self"
+            wow.state.class, wow.state.knownSpells = "DRUID", { [MOTW_1] = true }
+            stranger()
+            wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+            loaded.BuffModeAuto.OnPlayerAura("player", { addedAuras = { { spellId = COZY } } })
+            assert.is_false(loaded.BuffMode.IsOn())
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("another unit's campfire aura isn't yours", function()
+            bootAuto()
+            stranger()
+            ns.BuffModeAuto.OnPlayerAura("target", { addedAuras = { { spellId = COZY } } })
+            assert.is_false(ns.BuffMode.IsOn())
+            ns.BuffModeAuto.OnPlayerAura("player", { addedAuras = { { spellId = COZY } } })
+            assert.is_true(ns.BuffMode.IsAuto(), "yours is")
+        end)
+
+        it("a full update (zoning, a login) adds nothing", function()
+            bootAuto()
+            stranger()
+            table.insert(wow.state.playerAuras, { isHelpful = true, spellId = COZY, auraInstanceID = 999 })
+            wow.fire("UNIT_AURA", "player", { isFullUpdate = true })
+            assert.is_false(ns.BuffMode.IsOn())
         end)
 
         it("no other trigger turns buff mode on for a passer-by", function()
@@ -891,17 +942,40 @@ describe("Passers-by (#39)", function()
             .. "or on yourself, never puts a fighter first, and never errors", function()
             local function chance(p) return random.random() < p end
             local function pick(list) return list[random.random(#list)] end
-            local castCount, fighterCount, calmSkipped = 0, 0, 0
+            local castCount, fighterCount, armedCount = 0, 0, 0
+            local present = { dead = 0, hostile = 0, erroring = 0 }
             for seed = 1, 6 do
                 random.seed(seed)
                 boot()
+                -- Some players' answers raise an error (unit.erroring).
+                for _, api in ipairs({ "UnitCanAssist", "UnitIsPVP", "UnitAffectingCombat" }) do
+                    local real = _G[api]
+                    _G[api] = function(a, b)
+                        local u = wow.state.units[api == "UnitCanAssist" and b or a]
+                        if u and u.erroring then error(api .. " failed") end
+                        return real(a, b)
+                    end
+                end
+                -- The player the armed button would target, by the macro's
+                -- /targetexact name, from the client's own units.
+                local function armedTarget()
+                    local text = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
+                    local name = text and text:match("/targetexact ([^\n]+)")
+                    if not name then return nil end
+                    for token, u in pairs(wow.state.units) do
+                        if token:find("^nameplate") and u.surname and (u.name .. " " .. u.surname) == name then
+                            return u
+                        end
+                    end
+                    return false
+                end
                 -- The storm's own record of what reached whom, kept apart from PassersBy.
                 local gave = {}
                 -- Whether the simulated client's own state says this nameplate is a
                 -- passer-by who may be buffed now and is missing a buff of yours.
                 local function eligible(u, me)
                     if not u or u == me or not u.isPlayer or not u.surname or u.hostile or u.cantAssist
-                        or u.dead or u.offline or u.secrets or u.outOfSpellRange then return false end
+                        or u.dead or u.offline or u.secrets or u.erroring or u.outOfSpellRange then return false end
                     if u.pvp and not wow.state.pvp then return false end
                     if wow.state.groupMembers[u.id] then return false end
                     local wears = {}
@@ -934,7 +1008,7 @@ describe("Passers-by (#39)", function()
                                     isPlayer = chance(0.9), hostile = chance(0.1),
                                     cantAssist = chance(0.1), dead = chance(0.1),
                                     offline = chance(0.05), pvp = chance(0.2),
-                                    inCombat = chance(0.3) })
+                                    inCombat = chance(0.3), erroring = chance(0.05) })
                                 if chance(0.1) then
                                     u.secrets = { [pick({ "pvp", "name", "canAssist", "combat", "auras",
                                         "isPlayer", "offline" })] = true }
@@ -967,6 +1041,12 @@ describe("Passers-by (#39)", function()
                     for i = 1, 13 do
                         local u = wow.state.units["nameplate" .. i]
                         if open and u and not u.inCombat and eligible(u, me) then calmWaiting = true end
+                        if open and u and u ~= me and u.isPlayer and not u.secrets then
+                            -- Reached: such a player was there to be wrongly offered.
+                            if u.dead then present.dead = present.dead + 1 end
+                            if u.hostile or u.cantAssist then present.hostile = present.hostile + 1 end
+                            if u.erroring then present.erroring = present.erroring + 1 end
+                        end
                     end
                     local before, flaggedBefore = #wow.casts, #wow.flaggedBy
                     local ok, err = pcall(wow.press, button)
@@ -994,13 +1074,28 @@ describe("Passers-by (#39)", function()
                         end
                         gave[cast.target .. "\1" .. cast.spell] = wow.now
                     end
-                    if calmWaiting and #wow.casts == before then calmSkipped = calmSkipped + 1 end
+                    -- What the button holds now, armed by the same rules at the
+                    -- press's state: never someone who may not be buffed.
+                    local armed = armedTarget()
+                    assert.are_not.equal(false, armed, "armed for someone not on a nameplate")
+                    if armed then
+                        armedCount = armedCount + 1
+                        assert.are_not.equal(me, armed, "armed for yourself")
+                        assert.is_falsy(armed.dead, "armed for the dead: " .. armed.id)
+                        assert.is_falsy(armed.hostile or armed.cantAssist, "armed for the hostile: " .. armed.id)
+                        assert.is_falsy(armed.erroring, "armed for an unreadable player: " .. armed.id)
+                        assert.is_falsy(armed.pvp and not wow.state.pvp, "armed for the flagged: " .. armed.id)
+                        assert.is_falsy(wow.state.groupMembers[armed.id], "armed for your group: " .. armed.id)
+                    end
+                    assert.are.same({}, wow.errors, "never an error, caught or not")
                     wow.advance(random.random(0, 3))
                 end
             end
             -- The storm did reach passers-by, fighters among them.
             assert.is_true(castCount > 50, castCount .. " casts")
             assert.is_true(fighterCount > 5, fighterCount .. " casts on fighters")
+            assert.is_true(armedCount > 50, armedCount .. " presses left the button armed")
+            for what, n in pairs(present) do assert.is_true(n > 20, what .. " passers-by present " .. n) end
         end)
     end)
 end)

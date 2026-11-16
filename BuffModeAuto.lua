@@ -25,14 +25,15 @@
 --   until another buff, or another member, goes missing or runs low: the
 --   pairs low or missing then are dismissed until they're seen recast,
 --   even as a fight ends (#397, the owner), or the member leaves the group;
---   a campfire aura added to you (#39, the owner): your auras show one of
---   CAMPFIRE_AURAS that the last read didn't, a near-the-fire aura or a
---   camp benefit, each ID on its own. For this trigger passers-by
+--   a campfire aura added to you (#39, the owner): UNIT_AURA's list of
+--   auras added to you holds one of CAMPFIRE_AURAS, a near-the-fire aura or
+--   a camp benefit. Only that list is read, never your whole aura list, and
+--   a full update (zoning, a login) adds nothing. For this trigger passers-by
 --   count as something to do (PassersBy.lua, when that switch is on), and
 --   the buff mode it turns on stays on while one waits for a buff: it ends
 --   when nobody, passers-by included, is missing one, at the pull or at the
---   timeout. No other trigger counts a passer-by. A read that errors or
---   gives a secret changes nothing.
+--   timeout. No other trigger counts a passer-by. A payload, list, aura or
+--   spell ID that is a secret, or not what it should be, is passed over.
 -- Turns off (on by default), but only buff mode a trigger turned on, never
 -- buff mode you turned on yourself:
 --   the first pull (PLAYER_REGEN_DISABLED);
@@ -75,8 +76,6 @@ local dismissed = {}     -- [name .. "\1" .. buff key] = as in lastMissing: low 
 local watching = false   -- the look for missing buffs is scheduled
 local groupUnsure = false -- a roster update couldn't read IsInGroup() (#373): the
                           -- looks read it again until an answer decides
-local fireAuras           -- the CAMPFIRE_AURAS the last read of your auras saw (#39):
-                          -- { [spell ID] = true }, or nil before the first read that could tell
 local pendingFire         -- the trigger that waits for a fight is the campfire's
 local fireMode = false    -- the buff mode a trigger turned on counts passers-by (#39)
 
@@ -215,8 +214,10 @@ local function TurnOn(why, inside, fire)
         -- The first trigger waits, but the dungeon-or-raid one outranks
         -- the others: after the fight it waits for everyone.
         if not pendingWhy or (inside and not pendingInside) then
-            pendingWhy, pendingInside, pendingFire = why, inside, fire
+            pendingWhy, pendingInside = why, inside
         end
+        -- The campfire counts passers-by (#39) whichever trigger came first.
+        pendingFire = pendingFire or fire
         return
     end
     if ns.BuffMode.IsOn() then
@@ -557,8 +558,6 @@ function Auto.OnEnteringWorld(isLogin, isReload)
     inGroup = GroupAnswer()
     pulled, deathSeen, pendingWhy, pendingInside, insideWait, joinedAt = false, false, nil, nil, false, nil
     lastMissing, groupUnsure, pendingFire = nil, false, nil
-    -- Already by a fire at a login isn't gaining its buff.
-    fireAuras = Auto.ReadCampfire()
     ns.GroupBuffs.EndRound()
     NoteWhoIsDead()
     -- In a group, or not yet known (#370): the looks read it again (#373).
@@ -634,46 +633,33 @@ function Auto.OnBuffed()
     if Cfg().autoOnBuffed == true then TurnOn("someone buffed you") end
 end
 
--- The campfire auras you wear (#39): { [spell ID] = true }, or nil when
--- your auras can't be read (an error, a secret list, aura or spell ID).
-function Auto.ReadCampfire()
-    local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
-    if type(api) ~= "function" then return nil end
-    local found = {}
+-- Whether UNIT_AURA's payload adds a campfire aura (#39). Anything secret,
+-- or not the type it should be, adds nothing; so does a full update.
+function Auto.AddsCampfire(updateInfo)
+    local Util = ns.Util
+    if Util.IsSecret(updateInfo) or type(updateInfo) ~= "table" then return false end
+    local added = Util.Readable(updateInfo.addedAuras)
+    if type(added) ~= "table" then return false end
     for i = 1, ns.Offers.MAX_AURAS do
-        local ok, aura = pcall(api, "player", i, "HELPFUL")
-        if not ok or ns.Util.IsSecret(aura) then return nil end
-        if aura == nil then return found end
-        if type(aura) ~= "table" then return nil end
-        local id = aura.spellId
-        if ns.Util.IsSecret(id) then return nil end
-        if type(id) == "number" and Auto.CAMPFIRE_AURAS[id] then found[id] = true end
+        local aura = added[i]
+        if aura == nil then return false end
+        if not Util.IsSecret(aura) and type(aura) == "table" then
+            local id = aura.spellId
+            -- A secret must never be a table key; anything else not in the set misses.
+            if not Util.IsSecret(id) and Auto.CAMPFIRE_AURAS[id] then return true end
+        end
     end
-    return found
+    return false
 end
 
 -- UNIT_AURA for you: a campfire aura added to you turns buff mode on (#39),
--- if that trigger is on: one the last read didn't see. A read that can't
--- tell keeps what the last one saw; before any read could (a login whose
--- auras couldn't be read), nothing counts as added.
-function Auto.OnPlayerAura(unit)
-    if unit ~= "player" or not ready then return end
-    local now = Auto.ReadCampfire()
-    if now == nil then return end
-    local was = fireAuras
-    fireAuras = now
-    if was == nil or Cfg().autoOnCampfire ~= true then return end
-    -- Not where quiet mode holds in a capital city: there it would end
-    -- quiet mode at the first fire you pass (as for a stranger's buff, #34).
-    -- What it saw is kept, so leaving the city wearing a camp benefit isn't
-    -- gaining one.
+-- if that trigger is on. Not where quiet mode holds in a capital city:
+-- there it would end quiet mode at the first fire you pass (as for a
+-- stranger's buff, #34).
+function Auto.OnPlayerAura(unit, updateInfo)
+    if unit ~= "player" or not ready or Cfg().autoOnCampfire ~= true then return end
     if ns.Cities.ThanksQuiet() or ns.Cities.ButtonHidden() then return end
-    for id in pairs(now) do
-        if not was[id] then
-            TurnOn("you're by a campfire", nil, true)
-            return
-        end
-    end
+    if Auto.AddsCampfire(updateInfo) then TurnOn("you're by a campfire", nil, true) end
 end
 
 function Auto.Create()
