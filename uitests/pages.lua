@@ -463,14 +463,17 @@ end
 -- moved up by the offset instead, as the game draws it scrolled: the row's
 -- edges, what the code reads from them and the shot then agree. Returns the
 -- offset and a function that puts the child back, or nothing when edges
--- can't be read.
+-- can't be read. The offset is worked out from the child's own top, so a
+-- second call (a frame later, once the panel has laid out) gives the same.
 function Pages.ShowFrameAt(content, frame, at)
     local scroll = content:GetParent()
     Settle(content)
     local viewTop, viewBottom = EdgePair(scroll, "GetTop", "GetBottom")
     local rowTop, rowBottom = EdgePair(frame, "GetTop", "GetBottom")
-    if not (viewTop and rowTop) then return end
-    local offset = at == "bottom" and (viewBottom + 12 - rowBottom) or (viewTop - 12 - rowTop)
+    local contentTop = EdgePair(content, "GetTop", "GetBottom")
+    if not (viewTop and rowTop and contentTop) then return end
+    local offset = contentTop - rowTop - 12
+    if at == "bottom" then offset = (contentTop - viewTop) + viewBottom + 12 - rowBottom end
     offset = math.max(0, offset)
     local points = {}
     for i = 1, (content.GetNumPoints and content:GetNumPoints() or 0) do points[i] = { content:GetPoint(i) } end

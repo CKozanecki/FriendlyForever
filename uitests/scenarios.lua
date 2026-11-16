@@ -1561,6 +1561,13 @@ test("the Buffs tab stays inside its page at its tallest, at every place, names 
                 else
                     local done, failed = pcall(function()
                         report(("LAYOUT %s: the panel scrolled by %.0f"):format(label, offset))
+                        -- Asked again (the shots ask again a frame later), it
+                        -- stays put: the offset is worked out from the content's
+                        -- own top, not from where the row now sits.
+                        local again = FriendlyForeverUIPages.ShowFrameAt(content, who, at)
+                        check(again ~= nil and math.abs(again - offset) <= 1,
+                            ("%s: asked again, the panel scrolled by %s, not %.0f"):format(label,
+                                tostring(again), offset))
                         -- Closed and opened again: the list is placed as it opens.
                         if OpenList(content) then who:GetScript("OnClick")(who) end
                         who:GetScript("OnClick")(who)
