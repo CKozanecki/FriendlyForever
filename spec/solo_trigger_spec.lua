@@ -308,6 +308,40 @@ describe("Buff mode turns on by itself solo (#426)", function()
         end)
     end)
 
+    describe("the looks solo (white)", function()
+        -- The addon's own timers waiting (the game's are kept apart).
+        local function ticking()
+            local n = 0
+            for _, t in ipairs(wow.timers) do
+                if not t.game then n = n + 1 end
+            end
+            return n
+        end
+
+        it("solo with the trigger off, nothing ticks from the login on; switched on, the looks start", function()
+            boot()
+            ns.db.buffBack.autoOnMissing = false
+            wow.reloadInPlace(true)
+            look()
+            assert.are.equal(0, ticking(), "nothing ticks")
+            ns.db.buffBack.autoOnMissing = true
+            ns.BuffButton.Refresh() -- as ticking its box does
+            look() -- the first look since the login only notes
+            fade(FORT)
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "the looks started again")
+        end)
+
+        it("switched off solo, the looks stop", function()
+            boot()
+            look()
+            ns.db.buffBack.autoOnMissing = false
+            look()
+            look()
+            assert.are.equal(0, ticking())
+        end)
+    end)
+
     describe("unreadable (black)", function()
         it("with your auras unreadable, nothing turns on and nothing errors", function()
             boot()
