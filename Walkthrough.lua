@@ -46,17 +46,24 @@ local function OnOff(value)
     return value == true and ns.Colours.Text("good", "on") or ns.Colours.Text("bad", "off")
 end
 
--- How many of your class's buffs have a rule of their own in 1.3.3's
--- settings (buffBack.whoGets: a buff is saved there only once changed,
--- #219), from settings that may be damaged.
+-- How many buffs have a rule of their own in 1.3.3's settings
+-- (buffBack.whoGets: a buff is saved there only once changed, #219), from
+-- settings that may be damaged: your class's, and the rest. The settings
+-- are shared by every character on the account (Config.lua), so the rest
+-- are rules changed on your other characters, which the choice covers too.
+-- A key kept known without a buff (BuffTable.absent, #209) isn't counted.
 local function RulesChanged()
     local saved = Section("buffBack").whoGets
-    local count = 0
-    if type(saved) ~= "table" then return 0 end
-    for _, buff in ipairs(ns.BuffData.ClassBuffs()) do
-        if type(saved[buff.key]) == "table" then count = count + 1 end
+    if type(saved) ~= "table" then return 0, 0 end
+    local mine, theirs = 0, 0
+    local own = {}
+    for _, buff in ipairs(ns.BuffData.ClassBuffs()) do own[buff.key] = true end
+    for key, rule in pairs(saved) do
+        if type(rule) == "table" and type(key) == "string" and ns.BuffData.ByKey(key) then
+            if own[key] then mine = mine + 1 else theirs = theirs + 1 end
+        end
     end
-    return count
+    return mine, theirs
 end
 
 -- Whether the step shown offers the choice of how buff rules start (#408).
@@ -198,15 +205,27 @@ Walkthrough.STEPS = {
                 .. "buff is off unless you turn it on. They're on the new Buffs tab.", "" }
             local choice = ns.BuffRules.Choice()
             if choice == "pending" then
-                local changed = RulesChanged()
-                lines[#lines + 1] = changed > 0
-                    and ("You changed who gets %d of your buffs. How would you like to start?"):format(changed)
-                    or "You've never changed who gets your buffs, so the new defaults are recommended."
+                local mine, theirs = RulesChanged()
+                local function Buffs(n) return n == 1 and "1 buff" or n .. " buffs" end
+                if mine + theirs == 0 then
+                    lines[#lines + 1] = "You've never changed who gets your buffs, so the new defaults are "
+                        .. "recommended."
+                elseif theirs == 0 then
+                    lines[#lines + 1] = ("You changed who gets %d of your buffs. How would you like to start?")
+                        :format(mine)
+                elseif mine == 0 then
+                    lines[#lines + 1] = ("You changed who gets %s on your other characters. How would you like "
+                        .. "to start?"):format(Buffs(theirs))
+                else
+                    lines[#lines + 1] = ("You changed who gets %d of your buffs, and %s on your other "
+                        .. "characters. How would you like to start?"):format(mine, Buffs(theirs))
+                end
                 lines[#lines + 1] = "  Keep my settings: your rules go to Party and Raid; PvP starts off."
                 lines[#lines + 1] = "  Use the new defaults: recommended if you never changed them, or aren't sure."
+                lines[#lines + 1] = "The choice is for all your characters."
                 lines[#lines + 1] = ""
-                lines[#lines + 1] = "Skipping changes nothing: your buffs work as before until you choose, and "
-                    .. "the choice waits on the Buffs tab."
+                lines[#lines + 1] = "Finishing, skipping or closing without choosing changes nothing: your buffs "
+                    .. "work as before until you choose, and the choice waits on the Buffs tab."
             elseif choice == "kept" then
                 lines[#lines + 1] = "You kept your settings: your rules apply in Party and Raid, and every buff "
                     .. "starts off in PvP. Change them on the Buffs tab."

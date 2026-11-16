@@ -1006,7 +1006,10 @@ describe("What's new: the Buffs tab and the keep-or-reset choice (#408)", functi
     local function boot(db, class)
         -- buffDefaults: the rules are the player's own, not the specs' Everyone.
         ns = wow.boot({ walkthrough = true, buffDefaults = true, db = db,
-            before = function(state) state.class = class or "DRUID" end })
+            before = function(state)
+                -- false: a class that can't be read.
+                if class == false then state.class = nil else state.class = class or "DRUID" end
+            end })
         tour = ns.Walkthrough.Frame()
     end
     local function said(fragment)
@@ -1040,9 +1043,12 @@ describe("What's new: the Buffs tab and the keep-or-reset choice (#408)", functi
             assert.is_true(choiceShown())
             assert.are.equal("Keep my settings", tour.keep:GetText())
             assert.are.equal("Use the new defaults (recommended)", tour.new:GetText())
-            assert.is_truthy(text():find("You changed who gets 2 of your buffs. How would you like to start?", 1, true))
+            assert.is_truthy(text():find("You changed who gets 2 of your buffs, and 1 buff on your other characters. "
+                .. "How would you like to start?", 1, true))
             assert.is_truthy(text():find("recommended if you never changed them, or aren't sure", 1, true))
-            assert.is_truthy(text():find("Skipping changes nothing", 1, true))
+            assert.is_truthy(text():find("Finishing, skipping or closing without choosing changes nothing", 1, true),
+                "What's new shows Finish here, not Skip: the text names both")
+            assert.is_truthy(text():find("The choice is for all your characters.", 1, true))
             assert.is_truthy(text():find("Buffs tab", 1, true))
             assert.are.equal(270, tour.height, "taller while the choice is offered")
             assert.are.equal("pending", ns.db.buffBack.whoChoice, "showing it chose nothing")
@@ -1059,20 +1065,51 @@ describe("What's new: the Buffs tab and the keep-or-reset choice (#408)", functi
             assert.is_true(choiceShown())
         end)
 
-        it("counts only your class's buffs with a rule of their own, damaged ones left out", function()
+        it("counts the buffs with a rule of their own, damaged ones left out", function()
             boot(legacy())
             -- Damaged while the step shows, before anything repairs it.
             ns.db.buffBack.whoGets.thorns = 7
             ns.Walkthrough.Refresh()
-            assert.is_truthy(text():find("You changed who gets 1 of your buffs", 1, true))
+            assert.is_truthy(text():find("You changed who gets 1 of your buffs, and 1 buff on your other characters.",
+                1, true))
             ns.db.buffBack.whoGets = "broken"
             ns.Walkthrough.Refresh()
             assert.is_truthy(text():find("You've never changed who gets your buffs", 1, true))
         end)
 
+        it("counts rules changed on your other characters: the settings are shared, and the choice covers them", function()
+            -- A rogue (no rules of its own changed) on an account whose
+            -- priest and mage changed theirs: never "never changed".
+            local db = legacy()
+            db.buffBack.whoGets = { fortitude = { rule = "tanks", always = { ["ann-vale"] = "Ann-Vale" } },
+                intellect = { rule = "classes", classes = { MAGE = true } } }
+            boot(db, "ROGUE")
+            assert.is_truthy(text():find("You changed who gets 2 buffs on your other characters. How would you like "
+                .. "to start?", 1, true))
+            assert.is_falsy(text():find("You've never changed", 1, true))
+            assert.is_true(choiceShown())
+            -- A druid with one of its own and one elsewhere.
+            db = legacy()
+            db.buffBack.whoGets = { motw = { rule = "tanks" }, fortitude = { rule = "tanks" } }
+            boot(db)
+            assert.is_truthy(text():find("You changed who gets 1 of your buffs, and 1 buff on your other characters.",
+                1, true))
+            -- A class that can't be read: every rule counts as another character's.
+            db = legacy()
+            boot(db, false)
+            assert.is_truthy(text():find("You changed who gets 3 buffs on your other characters.", 1, true))
+        end)
+
+        it("a rule kept for a buff that's gone from the game (#209) isn't counted", function()
+            local db = legacy()
+            db.buffBack.whoGets = { light = { rule = "notTanks" } }
+            boot(db)
+            assert.is_truthy(text():find("You've never changed who gets your buffs", 1, true))
+        end)
+
         it("a player who never changed a rule is told the new defaults are recommended", function()
             boot({ schemaVersion = 7, enabled = true, walkthrough = { seen = 2, firstRun = false },
-                buffBack = { whoGets = { intellect = { rule = "tanks" } } } })
+                buffBack = { whoGets = {} } })
             assert.is_truthy(text():find("You've never changed who gets your buffs, so the new defaults are "
                 .. "recommended.", 1, true))
             assert.is_true(choiceShown())
