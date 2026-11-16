@@ -22,7 +22,7 @@ describe("Buff mode turns on by itself solo (#426)", function()
     -- `wearing` (each of yours, 30 minutes) when the login's look notes it.
     local function boot(opts)
         opts = opts or {}
-        ns = wow.boot({ buffSelf = true, autoBuffMode = true, before = function(state)
+        ns = wow.boot({ db = opts.db, buffSelf = true, autoBuffMode = true, before = function(state)
             state.class = opts.class or "PRIEST"
             state.knownSpells = {}
             for _, id in ipairs(opts.known or { FORT, SPIRIT }) do state.knownSpells[id] = true end
@@ -319,9 +319,7 @@ describe("Buff mode turns on by itself solo (#426)", function()
         end
 
         it("solo with the trigger off, nothing ticks from the login on; switched on, the looks start", function()
-            boot()
-            ns.db.buffBack.autoOnMissing = false
-            wow.reloadInPlace(true)
+            boot({ db = { buffBack = { autoOnMissing = false } } })
             look()
             assert.are.equal(0, ticking(), "nothing ticks")
             ns.db.buffBack.autoOnMissing = true
