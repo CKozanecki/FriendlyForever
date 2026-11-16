@@ -275,6 +275,48 @@ describe("Layout", function()
             end
             assert.is_true(wrapped > 0, "no row is long enough to wrap: the test checks nothing")
         end)
+
+        -- The who-gets rows sit too close for a second line: every class's
+        -- names, "(not known yet)" included, stay on one, and each row ends
+        -- inside the panel (#408's UI simulator run: 170 pixels wrapped).
+        it("keep every class's who-gets names on one line, and each row inside the panel", function()
+            local checked = 0
+            for class in pairs(wow.boot().BuffData.CLASSES) do
+                local ns = wow.boot({ before = function(state)
+                    state.class = class
+                    state.knownSpells = {}
+                end })
+                local w = ns.Options.widgets
+                wow.run(w.tabs.buffs, "OnClick")
+                local width = w.content:GetWidth()
+                for _, place in ipairs({ "strangers", "party" }) do
+                    wow.run(w.placeTabs[place], "OnClick")
+                    for i, row in ipairs(w.whoRows) do
+                        if row.name:IsVisible() then
+                            local label = ("%s, %s row %d"):format(class, place, i)
+                            local drawn = wow.drawnText(row.name, w.content)
+                            assert.are.equal(1, drawn.lines, label .. ": " .. drawn.text .. " wraps")
+                            assert.is_true(drawn.text:find("(not known yet)", 1, true) ~= nil, label)
+                            local _, right = wow.horizontalEdges(row.names, w.content)
+                            assert.is_true(right <= width, ("%s: ends at %d, past %d"):format(label, right, width))
+                            checked = checked + 1
+                        end
+                    end
+                end
+            end
+            assert.is_true(checked > 0, "no who-gets row was shown: the test checks nothing")
+            -- The who-gets list opens inside the panel too.
+            local ns = wow.boot({ before = function(state) state.class = "PRIEST" end })
+            assert.is_true(ns.BuffRules.Choose("new"))
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.party, "OnClick")
+            wow.run(w.whoRows[1].who, "OnClick")
+            assert.is_true(w.whoList:IsVisible())
+            local left, right = wow.horizontalEdges(w.whoList, w.content)
+            assert.is_true(left >= 0 and right <= w.content:GetWidth(),
+                ("the list spans %d to %d, outside 0 to %d"):format(left, right, w.content:GetWidth()))
+        end)
     end)
 
     describe("the message list on each options tab", function()

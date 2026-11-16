@@ -55,6 +55,12 @@ BuffsTab.LIST_HEIGHT = 6 + 32 + 2 + 32 + 4 + 12 + 3 * (2 + 32) + 4 + 22 + 8
 -- longest ("Shaman", about 46) needs room to about 332, plus a margin.
 BuffsTab.LIST_WIDTH = 350
 BuffsTab.WHO_WIDTH = 200
+-- A who-gets row, from the content's left: the icon's 40, the name, the
+-- button (6 + 200) and Names (6 + 90): 572, inside the narrowest content
+-- (600). The name holds "Power Word: Fortitude (not known yet)" on one line,
+-- as the simulated client measures it: the rows are too close for two (the UI
+-- simulator, spec/layout_spec.lua). So "Who gets it:" heads the column once.
+BuffsTab.WHO_NAME_WIDTH = 230
 
 local area           -- the tab's frame
 local w              -- Options.widgets
@@ -169,7 +175,8 @@ local function FillList(row)
     local buff = ns.BuffData.ByKey(listKey)
     if not buff then return CloseList() end
     list:ClearAllPoints()
-    list:SetPoint("TOPLEFT", row.who, "BOTTOMLEFT", 0, -2)
+    -- Under the row's right end, so it stays inside the page (the UI simulator).
+    list:SetPoint("TOPRIGHT", row.names, "BOTTOMRIGHT", 0, -2)
     local entry = ns.BuffRules.PlaceEntry(buff, place)
     list.everyone:SetChecked(entry.everyone == true)
     local strangers = place == "strangers"
@@ -422,17 +429,17 @@ function BuffsTab.Create(content, tabsBottom)
         row.icon = Icon(area)
         row.name = ui.Label(area, "", "GameFontHighlightSmall")
         row.name:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
-        row.name:SetWidth(170)
-        row.label = ui.Label(area, "Who gets it:", "GameFontHighlightSmall")
-        row.label:SetPoint("LEFT", row.name, "RIGHT", 6, 0)
+        row.name:SetWidth(BuffsTab.WHO_NAME_WIDTH)
         row.who = ui.Button(area, "", BuffsTab.WHO_WIDTH, function()
             if row.key then BuffsTab.ToggleList(row.key) end
         end)
-        row.who:SetPoint("LEFT", row.label, "RIGHT", 6, 0)
+        row.who:SetPoint("LEFT", row.name, "RIGHT", 6, 0)
         row.names = ui.Button(area, "", 90, function() if row.key then BuffsTab.ToggleNames(row.key) end end)
         row.names:SetPoint("LEFT", row.who, "RIGHT", 6, 0)
         w.whoRows[i] = row
     end
+    -- The who-gets column's heading, over the first row's button (anchored in Fill).
+    w.whoHeader = ui.Label(area, "Who gets it:", "GameFontNormalSmall")
     CreateList()
 
     -- The Always and Never boxes, under their row (anchored in Fill).
@@ -552,12 +559,13 @@ local function FillRows(buffs, pending, last)
     local namesShown = false
     for i, row in ipairs(w.whoRows) do
         local buff = rules[i]
-        for _, part in ipairs({ row.icon, row.name, row.label, row.who }) do part:SetShown(buff ~= nil) end
+        for _, part in ipairs({ row.icon, row.name, row.who }) do part:SetShown(buff ~= nil) end
         row.names:SetShown(buff ~= nil and named == true)
         row.key = buff and buff.key
         if buff then
             row.icon:ClearAllPoints()
-            row.icon:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, i == 1 and -10 or -8)
+            -- The first row leaves room above it for the column's heading.
+            row.icon:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, i == 1 and -26 or -8)
             row.icon:SetTexture(ns.BuffData.Icon(buff))
             row.name:SetText(NameText(buff))
             local short, full
@@ -592,6 +600,11 @@ local function FillRows(buffs, pending, last)
         end
     end
     for _, part in ipairs({ who.alwaysLabel, who.always, who.neverLabel, who.never }) do part:SetShown(namesShown) end
+    w.whoHeader:SetShown(#rules > 0)
+    if #rules > 0 then
+        w.whoHeader:ClearAllPoints()
+        w.whoHeader:SetPoint("BOTTOMLEFT", w.whoRows[1].who, "TOPLEFT", 0, 3)
+    end
     if not namesShown then namesKey = nil end
     if pending or not listRow then CloseList() else FillList(listRow) end
     return last, #rules

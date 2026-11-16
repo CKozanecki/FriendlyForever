@@ -1518,6 +1518,7 @@ test("the Buffs tab stays inside its page at its tallest, at every place, names 
                 if child:GetObjectType() == "Frame" and child:IsShown() and child:GetFrameStrata() == "DIALOG" then
                     OnScreen(child, name .. " who-gets list")
                     ListHoldsAll(child, name .. " who-gets list")
+                    EndsInside(content, child, name .. " who-gets list")
                 end
             end
         end
