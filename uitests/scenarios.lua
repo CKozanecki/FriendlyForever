@@ -1501,34 +1501,10 @@ local function FirstWho(content)
     return found
 end
 
--- Scrolls the panel so frame sits near the top ("top") or the bottom
--- ("bottom") of its view, as a player scrolls a row into view to click it.
--- The client reads a scrolled child's regions unscrolled (docs/ui-simulator.md),
--- so the child is moved up by the offset instead, as the game draws it: the
--- row's edges, what the code reads from them and the shot then agree.
--- Returns the offset and a function that puts the child back, or nothing
--- when edges can't be read.
+-- Scrolls the panel so frame sits near the top or the bottom of its view,
+-- by moving the scroll child (uitests/pages.lua's ShowFrameAt says why).
 local function ShowRowAt(content, frame, at)
-    local scroll = content:GetParent()
-    Settle(content)
-    local viewTop, viewBottom = Edges(scroll, "GetTop", "GetBottom")
-    local rowTop, rowBottom = Edges(frame, "GetTop", "GetBottom")
-    if not (viewTop and rowTop) then return end
-    local offset = at == "top" and (viewTop - 12 - rowTop) or (viewBottom + 12 - rowBottom)
-    offset = math.max(0, offset)
-    local points = {}
-    for i = 1, (Measure(content, "GetNumPoints") or 0) do points[i] = { content:GetPoint(i) } end
-    local left = Edges(content, "GetLeft", "GetRight")
-    local scrollLeft = Edges(scroll, "GetLeft", "GetRight")
-    content:ClearAllPoints()
-    content:SetPoint("TOPLEFT", scroll, "TOPLEFT", (left and scrollLeft) and (left - scrollLeft) or 0, offset)
-    Settle(content)
-    return offset, function()
-        content:ClearAllPoints()
-        for _, p in ipairs(points) do content:SetPoint(unpack(p, 1, 5)) end
-        if #points == 0 then scroll:SetScrollChild(content) end
-        Settle(content)
-    end
+    return FriendlyForeverUIPages.ShowFrameAt(content, frame, at)
 end
 
 test("the Buffs tab stays inside its page at its tallest, at every place, names and list open (#408)", function()

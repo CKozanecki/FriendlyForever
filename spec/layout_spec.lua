@@ -318,6 +318,37 @@ describe("Layout", function()
                 ("the list spans %d to %d, outside 0 to %d"):format(left, right, w.content:GetWidth()))
         end)
 
+        -- #408's testing review: rows after an open Names box moved 24
+        -- pixels right, out of their column, and the place's options with them.
+        it("keeps the who-gets rows and the place's options in their column with a Names box open", function()
+            local ns = wow.boot({ before = function(state) state.class = "PRIEST" end })
+            assert.is_true(ns.BuffRules.Choose("new"))
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.raid, "OnClick")
+            local function lefts()
+                local out = {}
+                for _, row in ipairs(w.whoRows) do
+                    if row.icon:IsVisible() then out[#out + 1] = (wow.horizontalEdges(row.icon, w.content)) end
+                end
+                out[#out + 1] = (wow.horizontalEdges(w.raidSplit, w.content))
+                return out
+            end
+            local closed = lefts()
+            assert.is_true(#closed >= 3, "too few rows to check")
+            local shown = {}
+            for _, row in ipairs(w.whoRows) do
+                if row.icon:IsVisible() then shown[#shown + 1] = row end
+            end
+            for _, which in ipairs({ 1, #shown }) do
+                wow.run(shown[which].names, "OnClick")
+                assert.is_true(w.who.always:IsVisible(), "row " .. which .. "'s names open")
+                assert.are.same(closed, lefts(), "row " .. which .. "'s names open")
+                wow.run(shown[which].names, "OnClick")
+            end
+            assert.are.same(closed, lefts(), "closed again")
+        end)
+
         -- The UI simulator's run: a row near the bottom of the view hung its
         -- list off the screen. It opens above when there's more room there.
         it("opens the who-gets list above a row near the bottom of the view, below otherwise", function()

@@ -408,43 +408,113 @@ describe("The Buffs tab (#408)", function()
             boot({ choice = "new" })
             place("raid")
             wow.run(rowFor("motw").names, "OnClick")
+            -- The whole section: healed, and the tab shows it as healed.
             for _, damage in ipairs({ 7, "x", { whoParty = 3 } }) do
                 wow.advance(2)
                 ns.db.buffBack = damage
                 ns.Options.Refresh()
                 assert.are.equal("table", type(ns.db.buffBack))
+                assert.are.equal(ns.db.buffBack.groupVersions == true, w.groupVersions:GetChecked() == true)
                 assert.are.same({}, wow.errors)
             end
-            ns.db.buffBack.whoRaid = { motw = { everyone = "y", tanks = true } }
-            ns.Options.Refresh()
-            assert.are.same({}, wow.errors)
+            -- One field at a time, on a chosen place (#408's testing review):
+            -- each heals as the tab fills, and the tab shows what it healed to.
+            assert.is_true(ns.BuffRules.Choose("new"))
+            place("raid")
+            local cases = {
+                -- A damaged tick reads as Off, never as Everyone; a lost map,
+                -- the place's default.
+                { "whoRaid", { motw = { everyone = "y", tanks = true } }, { tanks = true } },
+                { "whoRaid", { motw = { classes = { MAGE = "yes", DRUID = true } } }, { classes = { DRUID = true } } },
+                { "whoRaid", 7, ns.BuffRules.DEFAULTS.raid.motw or { everyone = true } },
+                { "groupEnough", { 7 } },
+                { "groupVersions", "yes" },
+                { "selfBuffs", 3 },
+                { "breathNearWater", { true } },
+                { "raidSplit", "on" },
+            }
+            for _, case in ipairs(cases) do
+                local field, value = case[1], case[2]
+                local what = field .. " = " .. tostring(value)
+                wow.advance(2)
+                ns.db.buffBack[field] = value
+                local expected = ns.Config.Load({ buffBack = { [field] = value, whoChoice = "new" } }).buffBack[field]
+                ns.Options.Refresh()
+                local b = ns.db.buffBack
+                assert.are.same(expected, b[field], what .. " healed as the tab filled")
+                assert.are.equal("new", b.whoChoice, what)
+                assert.are.equal(tostring(b.groupEnough), w.steppers.groupEnough.box:GetText(), what)
+                for _, name in ipairs({ "selfBuffs", "breathNearWater", "groupVersions", "raidSplit" }) do
+                    local want = b[name] == true
+                    if name == "raidSplit" then want = ns.RaidSplit.Enabled() end
+                    assert.are.equal(want, w[name]:GetChecked() == true, what .. ": " .. name)
+                end
+                local entry = ns.BuffRules.PlaceEntry(ns.BuffData.ByKey("motw"), "raid")
+                if case[3] then assert.are.same(case[3], entry, what .. ": the rule read") end
+                assert.are.equal((ns.BuffsTab.Summary(entry)), rowFor("motw").who:GetText(), what)
+                assert.are.same({}, wow.errors, what)
+            end
         end)
 
+        -- Each seed must reach every kind of press (#408's testing review: the
+        -- list was ticked once and Off never pressed in 240 steps).
         it("pressing the tab's controls in any order never raises an error", function()
+            local PLACES = { "strangers", "party", "raid", "pvp" }
             for _, seed in ipairs({ 408, 1116, 77 }) do
                 random.seed(seed)
                 boot({ class = "PALADIN", known = { [KINGS] = true, [MIGHT_1] = true, [WISDOM_1] = true } })
+                local reach = { ticks = {}, off = 0, names = 0, choice = 0, blessing = 0 }
                 local function any(list) return list[random.random(#list)] end
+                local function onTab() wow.run(w.tabs.buffs, "OnClick") end
+                -- A shown row whose part (who or names) can be pressed, or nil.
+                local function pressable(part)
+                    local out = {}
+                    for _, row in ipairs(w.whoRows) do
+                        if row[part]:IsVisible() and row[part]:IsEnabled() then out[#out + 1] = row end
+                    end
+                    return #out > 0 and any(out) or nil
+                end
                 local actions = {
-                    function() place(any({ "strangers", "party", "raid", "pvp" })) end,
-                    function() wow.run(any({ w.choice.keep, w.choice.new }), "OnClick") end,
+                    function() place(any(PLACES)) end,
                     function()
-                        local row = w.whoRows[random.random(#w.whoRows)]
-                        wow.run(any({ row.who, row.names }), "OnClick")
+                        local was = ns.BuffRules.Pending()
+                        wow.run(any({ w.choice.keep, w.choice.new }), "OnClick")
+                        if was and not ns.BuffRules.Pending() then reach.choice = reach.choice + 1 end
                     end,
+                    -- Open a row's list, then tick a box in it or press Off.
                     function()
-                        if w.whoList:IsShown() then
-                            local boxes = { w.whoList.everyone, w.whoList.tanks, w.whoList.healers, w.whoList.damage,
-                                w.whoList.classes.MAGE, w.whoList.classes.WARRIOR }
+                        onTab()
+                        if random.random(2) == 1 then place(any(PLACES)) end
+                        local row = pressable("who")
+                        if not row then return end
+                        if not w.whoList:IsShown() then wow.run(row.who, "OnClick") end
+                        if not w.whoList:IsShown() then return end
+                        if random.random(4) == 1 then
+                            wow.run(w.whoList.off, "OnClick")
+                            reach.off = reach.off + 1
+                        else
+                            local boxes = {}
+                            for _, box in ipairs({ w.whoList.everyone, w.whoList.tanks, w.whoList.healers,
+                                w.whoList.damage, w.whoList.classes.MAGE, w.whoList.classes.WARRIOR }) do
+                                if box:IsShown() then boxes[#boxes + 1] = box end
+                            end
                             tick(any(boxes), random.random(2) == 1)
+                            local p = ns.BuffsTab.Place()
+                            reach.ticks[p] = (reach.ticks[p] or 0) + 1
                         end
                     end,
-                    function() if w.whoList:IsShown() then wow.run(w.whoList.off, "OnClick") end end,
+                    -- Open a row's names, then type in a box.
                     function()
+                        onTab()
+                        local row = pressable("names")
+                        if not row then return end
+                        if not w.who.always:IsVisible() then wow.run(row.names, "OnClick") end
+                        if not w.who.always:IsVisible() then return end
                         local box = any({ w.who.always, w.who.never })
                         box:SetFocus()
                         box:SetText(any({ "Ann Vale", "bad name!", "", "Cid Rock, Dot Fern" }))
                         box:ClearFocus()
+                        reach.names = reach.names + 1
                     end,
                     function()
                         local row = w.buffRows[random.random(3)]
@@ -452,13 +522,27 @@ describe("The Buffs tab (#408)", function()
                     end,
                     function() wow.run(any({ w.tabs.buffs, w.tabs.buffBack, w.tabs.buff }), "OnClick") end,
                     function() ns.db.buffBack.whoChoice = any({ "pending", "kept", 9 }) end,
-                    function() wow.run(w.who.raidBlessings[1], "OnClick") end,
+                    function()
+                        onTab()
+                        place("raid")
+                        local cb = w.who.raidBlessings[1]
+                        if cb:IsVisible() then
+                            wow.run(cb, "OnClick")
+                            reach.blessing = reach.blessing + 1
+                        end
+                    end,
                 }
-                for _ = 1, 80 do
+                for _ = 1, 200 do
                     any(actions)()
                     ns.Options.Refresh()
                 end
                 assert.are.same({}, wow.errors, "seed " .. seed)
+                for _, p in ipairs(PLACES) do
+                    assert.is_true((reach.ticks[p] or 0) > 0, ("seed %d: no list ticked at %s"):format(seed, p))
+                end
+                for _, kind in ipairs({ "off", "names", "choice", "blessing" }) do
+                    assert.is_true(reach[kind] > 0, ("seed %d: no %s reached"):format(seed, kind))
+                end
             end
         end)
     end)

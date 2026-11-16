@@ -322,17 +322,47 @@ function Pages.ShowBuffs(shot)
         db.buffBack.whoChoice = "new"
     end
     local content = Pages.OpenBuffs(place)
-    if not content or not extra or extra == "choice" then return content end
-    local text = extra == "list" and nil or "Names"
-    for _, child in ipairs({ content:GetChildren() }) do
-        local t = child.GetText and child:GetText() or ""
-        local who = extra == "list" and child:GetObjectType() == "Button" and child:GetWidth() == 200
-        local names = text and t:find(text, 1, true) == 1
-        if child:IsShown() and (who or names) then
-            child:Click()
-            break
+    if not content then return content end
+    -- The place's own button, its rows and options below it: scrolled near
+    -- the top of the view, as a player scrolls down to them (#408's testing
+    -- review: unscrolled, every shot showed only the buff order).
+    local label
+    for _, p in ipairs(Pages.BUFFS_PLACES) do
+        if p.name == place then label = p.label end
+    end
+    local buttons = FindButtons(content, label, 1)
+    local placeButton = buttons[#buttons]
+    -- The first buff's who-gets button (200 wide, the highest), or its Names.
+    local function First(isIt)
+        local found
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child:IsShown() and isIt(child) and (not found or (child:GetTop() or 0) > (found:GetTop() or 0)) then
+                found = child
+            end
+        end
+        return found
+    end
+    local function Arrange(again)
+        if placeButton then Pages.ShowFrameAt(content, placeButton, "top") end
+        if extra == "names" and not again then
+            local names = First(function(c)
+                local t = c.GetText and c:GetText() or ""
+                return c:GetObjectType() == "Button" and t:find("Names", 1, true) == 1
+            end)
+            if names then names:Click() end
+        elseif extra == "list" then
+            -- Opened (closed first, a frame later) once the row sits where the
+            -- shot draws it, so the list is placed against it.
+            local who = First(function(c) return c:GetObjectType() == "Button" and c:GetWidth() == 200 end)
+            local open = First(function(c) return c:GetObjectType() == "Frame" and c:GetFrameStrata() == "DIALOG" end)
+            if who then
+                if open then who:Click() end
+                who:Click()
+            end
         end
     end
+    Arrange(false)
+    if C_Timer and C_Timer.After then C_Timer.After(0, function() Arrange(true) end) end
     return content
 end
 
@@ -416,6 +446,44 @@ local function FindRow(content, text)
     for _, child in ipairs({ content:GetChildren() }) do
         local label = child.label
         if label and label.GetText and (label:GetText() or ""):find(text, 1, true) == 1 then return child end
+    end
+end
+
+-- One edge pair of region (GetTop and GetBottom, say), if both are numbers.
+local function EdgePair(region, first, second)
+    local ok, a, b = pcall(function() return region[first](region), region[second](region) end)
+    if ok and type(a) == "number" and type(b) == "number" then return a, b end
+end
+
+-- Shows frame near the top ("top") or the bottom ("bottom") of the options
+-- panel's view, as a player scrolls a row into view to use it (#408). The
+-- client reads a scrolled child's regions unscrolled (docs/ui-simulator.md),
+-- so code that places a frame from a row's edges (the Buffs tab's who-gets
+-- list) would place it where the row sits unscrolled. The scroll child is
+-- moved up by the offset instead, as the game draws it scrolled: the row's
+-- edges, what the code reads from them and the shot then agree. Returns the
+-- offset and a function that puts the child back, or nothing when edges
+-- can't be read.
+function Pages.ShowFrameAt(content, frame, at)
+    local scroll = content:GetParent()
+    Settle(content)
+    local viewTop, viewBottom = EdgePair(scroll, "GetTop", "GetBottom")
+    local rowTop, rowBottom = EdgePair(frame, "GetTop", "GetBottom")
+    if not (viewTop and rowTop) then return end
+    local offset = at == "bottom" and (viewBottom + 12 - rowBottom) or (viewTop - 12 - rowTop)
+    offset = math.max(0, offset)
+    local points = {}
+    for i = 1, (content.GetNumPoints and content:GetNumPoints() or 0) do points[i] = { content:GetPoint(i) } end
+    local left = EdgePair(content, "GetLeft", "GetRight")
+    local scrollLeft = EdgePair(scroll, "GetLeft", "GetRight")
+    content:ClearAllPoints()
+    content:SetPoint("TOPLEFT", scroll, "TOPLEFT", (left and scrollLeft) and (left - scrollLeft) or 0, offset)
+    Settle(content)
+    return offset, function()
+        content:ClearAllPoints()
+        for _, p in ipairs(points) do content:SetPoint(unpack(p, 1, 5)) end
+        if #points == 0 then scroll:SetScrollChild(content) end
+        Settle(content)
     end
 end
 

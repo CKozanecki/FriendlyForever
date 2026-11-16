@@ -88,17 +88,32 @@ describe("Options panel", function()
                                 what .. ": it asked for the whole-file repair, so the rest heals too")
                         end
                         ns.db.skipWhileAFK = ns.Config.DEFAULTS.skipWhileAFK
-                        for _, tab in ipairs(ns.Config.TYPES) do
+                        -- The Buffs tab too (#408's testing review): it fills from
+                        -- Buff Back's section, and returns before the message tabs do.
+                        local tabs = { ns.Options.BUFFS_TAB }
+                        for _, tab in ipairs(ns.Config.TYPES) do tabs[#tabs + 1] = tab end
+                        for _, tab in ipairs(tabs) do
                             ns.db[msgType][field] = value
                             wow.run(w.tabs[tab], "OnClick")
                             assert.are.same(expected, ns.db[msgType][field], what .. " healed on the " .. tab
                                 .. " tab")
                         end
-                        -- Its own tab shows it as it now is.
+                        -- Its own tab shows it as it now is: the Buffs tab for
+                        -- the Buff Back fields it shows (BuffsTab.FIELDS).
+                        local onBuffs = false
+                        for _, name in ipairs(msgType == "buffBack" and ns.BuffsTab.FIELDS or {}) do
+                            onBuffs = onBuffs or name == field
+                        end
                         ns.db[msgType][field] = value
-                        wow.run(w.tabs[msgType], "OnClick")
+                        wow.run(w.tabs[onBuffs and ns.Options.BUFFS_TAB or msgType], "OnClick")
                         local live = ns.db[msgType]
-                        for i, edit in ipairs(w.edits) do
+                        assert.are.same(expected, live[field], what .. " healed on its own tab")
+                        if onBuffs then
+                            for _, name in ipairs({ "selfBuffs", "breathNearWater", "groupVersions" }) do
+                                assert.are.equal(live[name] == true, w[name]:GetChecked() == true, what .. ": " .. name)
+                            end
+                        end
+                        for i, edit in ipairs(onBuffs and {} or w.edits) do
                             assert.are.equal(live.messages[i], edit:GetText(), what .. ": line " .. i)
                         end
                         for name, stepper in pairs(w.steppers) do

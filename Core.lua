@@ -31,7 +31,8 @@ end
 -- only (#408).
 function ns.ResetType(msgType)
     local fresh = ns.Config.DefaultsFor(msgType)
-    local live = type(ns.db[msgType]) == "table" and ns.db[msgType] or {}
+    -- The Reset button heals the section first (Options.lua), so it's a table.
+    local live = ns.db[msgType]
     local function Keep(keys)
         for _, key in ipairs(keys or {}) do fresh[key] = live[key] end
     end
