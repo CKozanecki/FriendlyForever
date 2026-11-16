@@ -4391,7 +4391,7 @@ describe("Release docs", function()
             assert.are.equal(1, queues, "CONTRIBUTING.md sends pull requests to a merge queue")
             assert.is_truthy(rule:find("**No file in both lists and no conflict: update branch only.**", 1, true), "update-branch case")
             assert.is_truthy(rule:find("No merge on the command line and no reviewer re-run. Whoever drives the pull request"
-                .. " clicks GitHub's **Update branch** on it (for the trial, #345, the driving session does this itself",
+                .. " clicks GitHub's **Update branch** on it (the driving session does this itself, #345",
                 1, true), "the driver updates")
             assert.is_truthy(rule:find("puts both file lists in the description as the record", 1, true), "the record")
             assert.is_truthy(rule:find("**A file in both lists, or any conflict: developer must merge.**", 1, true), "developer case")
@@ -5061,7 +5061,7 @@ describe("Claude sessions' agents, knowledge and skills", function()
             "\n- **The owner merges.** Never merge, approve or delete branches. Ask before deleting anything. Leave stale"
                 .. " branches for the owner, and say which they are. Two exceptions, under the stops in CONTRIBUTING.md's"
                 .. " [Who merges](CONTRIBUTING.md#who-merges): the coordinator, under the owner's delegation on #182, merges"
-                .. " in the cases that section names; and, a trial (#345), the driver of a PR merges its own PR, by"
+                .. " in the cases that section names; and, #345, the driver of a PR merges its own PR, by"
                 .. " auto-merge or, when GitHub won't turn that on because the PR is already clean, a direct squash merge."
                 .. " Neither ever approves, and a driver never merges another session's PR.\n",
             "\n- **Force-pushing:** never. Push a rebased branch under a new name and flag the old one for the owner"

@@ -169,4 +169,29 @@ describe("Forever first name + surname", function()
         assert.is_truthy(all:find("Friendly Forever uses: 'Nikki-Shifts'", 1, true))
         assert.is_truthy(all:find("guild roster #1: 'Thrall-Stormcaller'", 1, true))
     end)
+
+    it("/friendly names skips the guild roster, saying why, when the guild answer isn't yes or no (#406)", function()
+        local real = _G.IsInGuild
+        for label, answer in pairs({
+            secret = function() return wow.secret(true) end,
+            none = function() return nil end,
+            number = function() return 1 end,
+            error = function() error("boom") end,
+        }) do
+            _G.IsInGuild = answer
+            wow.printed = {}
+            slash("names")
+            local all = table.concat(wow.printed, "\n")
+            assert.is_truthy(all:find("guild roster: can't tell", 1, true), label)
+            assert.is_nil(all:find("guild roster #1", 1, true), label)
+        end
+        _G.IsInGuild = real
+    end)
+
+    it("/friendly names reads no roster when you're not in a guild", function()
+        wow.state.inGuild = false
+        slash("names")
+        local all = table.concat(wow.printed, "\n")
+        assert.is_nil(all:find("guild roster", 1, true))
+    end)
 end)

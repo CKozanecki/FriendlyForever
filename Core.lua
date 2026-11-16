@@ -248,8 +248,11 @@ local function StatusLines()
         db.buff.thankStyle, db.buff.fallback, ns.Diag.Safe(ns.Profiles.Active()), #ns.Ignore.List()))
     add(ns.Cities.StatusLine())
     add(ns.Water.StatusLine())
+    -- Read safely: an answer that isn't yes or no is "can't tell" (#406).
+    local inGuild = ns.Util.ReadGameValues(IsInGuild)
     add(string.format("guild: %s, %d members known, %d roster updates",
-        IsInGuild() and "yes" or "no", ns.Greeter.MemberCount(), c("rosterUpdates")))
+        inGuild == true and "yes" or inGuild == false and "no" or "can't tell",
+        ns.Greeter.MemberCount(), c("rosterUpdates")))
     local shown = ns.Nameplates.FriendlyShown()
     add("friendly player nameplates: " .. (shown == nil and "not available"
         or shown and ns.Colours.Text("good", "on") .. " (casters can be named)"
@@ -361,8 +364,14 @@ local function PrintNames()
         ns.Print("UnitName(target): " .. raw(UnitName("target")) .. " -> '"
             .. ns.Diag.Safe(ns.Util.UnitFullName("target")) .. "'")
     end
-    if IsInGuild() and GetNumGuildMembers() > 0 then
-        ns.Print("guild roster #1: " .. raw((GetGuildRosterInfo(1))))
+    local inGuild = ns.Util.ReadGameValues(IsInGuild)
+    if inGuild == true then
+        local members = ns.Util.ReadGameValues(GetNumGuildMembers)
+        if type(members) == "number" and members > 0 then
+            ns.Print("guild roster #1: " .. raw((GetGuildRosterInfo(1))))
+        end
+    elseif inGuild ~= false then
+        ns.Print("guild roster: can't tell if you're in a guild, so it was skipped")
     end
     ns.Diag.Log("names", "UnitName(player)=%s; we use %s", raw(UnitName("player")), ns.Util.UnitFullName("player"))
 end

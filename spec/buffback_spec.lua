@@ -477,8 +477,10 @@ describe("Buff back", function()
             buffedBy()
             assert.is_truthy(macro())
             assert.is_true(ns.Profiles.Import(line))
-            -- The import re-arms the button before it merges the list, so it
-            -- may still show them until its next re-check; a press re-arms first.
+            -- The import merges the list before it re-arms the button, so the
+            -- button is empty at once, with no wait for the re-check (#369).
+            assert.is_nil(macro(), "emptied by the import itself")
+            assert.is_false(button:IsShown())
             wow.press(button)
             assert.are.equal(0, #wow.casts, "a press casts nothing on them")
             assert.is_nil(macro(), "the press emptied it")
@@ -492,12 +494,14 @@ describe("Buff back", function()
             assert.is_true(printedHas("not armed: nobody is owed a buff"))
         end)
 
-        it("after such an import the button empties itself at its next re-check, without a press (black)", function()
+        it("after such an import the button is already empty, and stays so at the next re-check (black)", function()
             local settings = ns.Profiles.Snapshot(ns.db, true)
             settings.ignore = { ["bob-stone"] = "bob-stone" }
             stranger()
             buffedBy()
             assert.is_true(ns.Profiles.Import(ns.Serialize.Encode({ v = 1, settings = settings })))
+            assert.is_nil(macro(), "no wait for the re-check")
+            assert.is_false(button:IsShown())
             wow.advance(ns.BuffButton.RECHECK_SECONDS + 0.1)
             assert.is_nil(macro())
             assert.is_false(button:IsShown())
