@@ -175,7 +175,7 @@ jobs:
           # return inside a line could start another line, so it is doubt.
           version_only() {
             both "$1" || return 1
-            printf '%s\n%s\n' "$old" "$new" | awk '/\r[^\n]/ { exit 2 }' || return 1
+            printf '%s\n%s\n' "$old" "$new" | awk '/\r[^\n]/ { exit 2 }' > /dev/null 2>&1 || return 1
             [ "$(printf '%s\n' "$old" | grep -v '^## Version:')" = "$(printf '%s\n' "$new" | grep -v '^## Version:')" ]
           }
           # Lua without -- comments, blank lines and trailing spaces. A comment
@@ -330,10 +330,11 @@ jobs:
           manifest="$RUNNER_TEMP/sim/data/blizzard-ui-files/$SIM_PROFILE.txt"
           # The difference is written out first, and the job log gets only its
           # start, marked by shown (#317): bash -e has no pipefail here, so a
-          # pipe straight into shown would hide the failure.
-          diff -u <(LC_ALL=C sort "$manifest") \
-            <(git -C "$ui" ls-tree -r --name-only HEAD Interface/AddOns/ | cut -d/ -f3- | LC_ALL=C sort) \
-            > "$RUNNER_TEMP/tree-diff.txt" || {
+          # pipe straight into shown would hide the failure. Errors, which
+          # name files, go into it too (#375).
+          diff -u <(LC_ALL=C sort "$manifest" 2>&1) \
+            <(git -C "$ui" ls-tree -r --name-only HEAD Interface/AddOns/ 2>&1 | cut -d/ -f3- | LC_ALL=C sort) \
+            > "$RUNNER_TEMP/tree-diff.txt" 2>&1 || {
             echo "Blizzard's UI tree and the simulator's list of files differ (the start of the difference):"
             head -n 200 "$RUNNER_TEMP/tree-diff.txt" 2>&1 | head -c 20000 | shown
             exit 1
@@ -716,7 +717,11 @@ jobs:
           # its file, down the pipe too (2>&1, #375).
           shown() { tr '\r' '\n' | sed -e "s/^/${1:-| }/" -e 's/##\[/##(/g'; }
           for file in "$RUNNER_TEMP"/report/*; do
-            echo "::group::$(basename "$file")"
+            # The group's title is the file's name, printed only once it's
+            # plain (#153, #367); the run step names them all so.
+            name=$(basename "$file")
+            case "$name" in *[!A-Za-z0-9._-]*) echo "skipping a report with an unsafe name"; continue ;; esac
+            echo "::group::$name"
             head -c 60000 "$file" 2>&1 | shown
             echo
             echo "::endgroup::"
@@ -831,7 +836,8 @@ jobs:
             echo '```'
             grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
             echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+            # A reader's errors, which name its file, go to the summary too (#375).
+          } >> "$GITHUB_STEP_SUMMARY" 2>&1
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -1065,7 +1071,10 @@ jobs:
           done
           ls -laq "$RUNNER_TEMP/shots" "$RUNNER_TEMP/shot-logs" 2>&1 | shown
           for log in "$RUNNER_TEMP"/shot-logs/*.log; do
-            echo "::group::$(basename "$log")"; tail -60 "$log" 2>&1 | shown; echo "::endgroup::"
+            # Named by shoot(), but printed only once plain (#153, #367).
+            name=$(basename "$log")
+            case "$name" in *[!A-Za-z0-9._-]*) echo "skipping a shot log with an unsafe name"; continue ;; esac
+            echo "::group::$name"; tail -60 "$log" 2>&1 | shown; echo "::endgroup::"
           done
 
       # A shot could plant a link in its folder, and the upload would read

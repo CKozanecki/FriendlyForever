@@ -1,4 +1,4 @@
--- Spec: #35, #52, #90, #112, #148, #158, #47, #173, #208, #160, #177
+-- Spec: #35, #52, #90, #112, #148, #158, #47, #173, #208, #160, #177, #343
 -- The UI simulator's layout check (uitests/scenarios.lua), run here against
 -- stand-in regions whose edges, anchors and text sizes each test sets
 -- itself, so the expected answer comes from those numbers and not from the
@@ -607,14 +607,15 @@ describe("UI simulator layout check for an options tab (TabTextInside, #112)", f
         for _, buff in ipairs(names) do
             if #buff.name > #longest.name then longest = buff end
         end
-        assert.are.equal("Blessing of Wisdom", longest.name)
+        -- A self-buff since #343 put them in the list.
+        assert.are.equal("Shadow Resistance Aura", longest.name)
         local function row(name)
-            local label = "2. " .. name
+            local label = "8. " .. name
             return text(label, 480, 7 * #label)
         end
         checks.TabTextInside(content({ row(longest.key) }), "Buff Back tab")
         local err = fails(function() checks.TabTextInside(content({ row(longest.name) }), "Buff Back tab") end)
-        assert.truthy(err:find('LAYOUT Buff Back tab "2. Blessing of Wisdom": text 480..627, frame 0..600', 1, true),
+        assert.truthy(err:find('LAYOUT Buff Back tab "8. Shadow Resistance Aura": text 480..655, frame 0..600', 1, true),
             err)
         assert.truthy(err:find("spills out of its frame", 1, true), err)
     end)
