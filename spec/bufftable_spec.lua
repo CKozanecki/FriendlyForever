@@ -1,4 +1,4 @@
--- Spec: #209, #44, #350
+-- Spec: #209, #44, #350, #380
 -- The buff table (BuffTable.lua) is generated from Forever's own spell data
 -- by scripts/gen_spell_table.py, once per game version. The addon never looks
 -- IDs up while you play. This spec checks the committed table is valid, that
@@ -14,7 +14,8 @@ local MAX_SPELL_ID = 10000000
 -- added to its ID list (#44; docs/forever-facts.md has how it was made).
 local SOURCE = ROOT .. "/scripts/data/forever-spells-extended.json"
 local SOURCE_SHA = "43d0cfa0a207b9fc0bc9ae5ea76b70b3d2ecb8779f4b33b92e288ce45d7cc45b"
--- Upstream's own, smaller extraction, the copy the UI simulator checks (#160).
+-- Upstream's own, smaller extraction, the copy the UI simulator checked until
+-- #343 (#160); since then it checks SOURCE, which holds every row of this one.
 local UPSTREAM = ROOT .. "/scripts/data/forever-spells.json"
 local BUFFS = ROOT .. "/scripts/spell-buffs.json"
 local GENERATOR = ROOT .. "/scripts/gen_spell_table.py"
@@ -673,6 +674,160 @@ describe("The generated buff table", function()
             local out = read(dir .. "/out.lua")
             assert.is_falsy(out:find('key = "gone"', 1, true))
             assert.is_truthy(out:find('absent = { "gone" }', 1, true))
+        end)
+    end)
+
+    -- #380: the report shows each rank's duration and warns of what may mean
+    -- Forever changed a spell; the warnings never change the table.
+    describe("the generator's report of durations, passives and rank gaps (#380)", function()
+        local dir
+        before_each(function() dir = tmpdir() end)
+        after_each(function() os.execute('rm -rf "' .. dir .. '"') end)
+
+        it("shows every rank's duration and warns of Omen's passive and Trueshot's missing ranks, on the committed data (white)",
+            function()
+                local code, text = generate(SOURCE, BUFFS, dir .. "/BuffTable.lua")
+                assert.are.equal(0, code, text)
+                assert.is_true(read(dir .. "/BuffTable.lua") == read(ROOT .. "/BuffTable.lua"), "the warnings changed the table")
+                for _, class in pairs(ns.BuffTable.classes) do
+                    for _, buff in ipairs(class) do
+                        if not buff.handListed then
+                            local line = text:match("\nFOUND  %u+ " .. buff.key .. ": ([^\n]*)")
+                            assert.is_truthy(line, buff.key)
+                            for _, id in ipairs(buff.ranks) do
+                                assert.is_truthy(line:find("%f[%d]" .. id .. " %([^)]*, duration %d+: [^)]+%)"), buff.key .. " " .. id)
+                            end
+                        end
+                    end
+                end
+                assert.is_truthy(text:find("16864 (Omen of Clarity, duration 0: no duration)", 1, true), text)
+                assert.is_truthy(text:find("WARNING  omen: passive (Attributes_0 has 0x40), not a buff you cast: [16864]", 1, true), text)
+                assert.is_truthy(text:find("WARNING  trueshot: 'Trueshot Aura' has ranks [3, 4, 5]: rank 1, 2 not in the data", 1, true),
+                    text)
+                assert.is_truthy(text:find("19506 (Trueshot Aura, rank 3, duration 30: 30 minutes)", 1, true), text)
+                assert.is_truthy(text:find("WARNING  devotion: no SpellPower row (no cost)", 1, true), text)
+                -- Each index's text, as docs/forever-facts.md records it (#410's testing review).
+                assert.is_truthy(text:find("(Aspect of the Monkey, duration 21: never runs out)", 1, true), text)
+                assert.is_truthy(text:find("duration 42: 1 hour)", 1, true), text)
+                assert.is_truthy(text:find("duration 6: 10 minutes)", 1, true), text)
+                assert.is_truthy(text:find("duration 25: 2 minutes)", 1, true), text)
+                -- Nothing else the issue names applies to today's data.
+                assert.is_falsy(text:find("last differently", 1, true), text)
+                assert.is_falsy(text:find("a toggle whose", 1, true), text)
+                assert.is_falsy(text:find("a timed buff whose", 1, true), text)
+                assert.is_falsy(text:find("no SpellMisc", 1, true), text)
+            end)
+
+        -- Spell data with these { id, name, rank, durationIndex, attributes0, costed } rows.
+        local function data(rows, miscExtra)
+            local spell, names, misc, power = {}, {}, {}, {}
+            for _, r in ipairs(rows) do
+                spell[#spell + 1] = ('{"ID":%d,"NameSubtext_lang":"Rank %d"}'):format(r[1], r[3])
+                names[#names + 1] = ('{"ID":%d,"Name_lang":"%s"}'):format(r[1], r[2])
+                if r[4] ~= false then
+                    misc[#misc + 1] = ('{"SpellID":%d,"DifficultyID":0,"DurationIndex":%s,"Attributes_0":%s}')
+                        :format(r[1], tostring(r[4] or 42), tostring(r[5] or 0))
+                end
+                if r[6] ~= false then power[#power + 1] = ('{"SpellID":%d,"ManaCost":10}'):format(r[1]) end
+            end
+            if miscExtra then misc[#misc + 1] = miscExtra end
+            return '{"schema":1,"build":"1.60.1.70685","tables":{"Spell":{"rows":[' .. table.concat(spell, ",")
+                .. ']},"SpellName":{"rows":[' .. table.concat(names, ",") .. ']},"SpellMisc":{"rows":['
+                .. table.concat(misc, ",") .. ']},"SpellPower":{"rows":[' .. table.concat(power, ",") .. ']}}}'
+        end
+        local function run(rows, buffs, miscExtra)
+            write(dir .. "/spells.json", type(rows) == "string" and rows or data(rows, miscExtra))
+            write(dir .. "/buffs.json", buffs)
+            write(dir .. "/out.lua", "KEEP")
+            local code, text = generate(dir .. "/spells.json", dir .. "/buffs.json", dir .. "/out.lua")
+            return code, text, read(dir .. "/out.lua")
+        end
+        local THORNS = '{"format":1,"classes":{"DRUID":[{"key":"thorns","name":"Thorns"}]},"removed":[]}'
+
+        it("warns of a passive, a rank with no cost, ranks that last differently, and a rank gap, writing the table as before (white)",
+            function()
+                local code, text, out = run({ { 467, "Thorns", 1, 6, 64 }, { 782, "Thorns", 2, 42, 0, false },
+                    { 1075, "Thorns", 4, 6, -2147483584 } }, THORNS)
+                assert.are.equal(0, code, text)
+                assert.is_truthy(out:find("ranks = { 1075, 782, 467 }", 1, true), out)
+                assert.is_truthy(text:find("1075 (Thorns, rank 4, duration 6: 10 minutes), 782 (Thorns, rank 2, duration 42: 1 hour)", 1, true), text)
+                -- A signed attribute with the passive bit, as DB2 stores a set top bit, reads as passive too.
+                assert.is_truthy(text:find("WARNING  thorns: passive (Attributes_0 has 0x40), not a buff you cast: [467, 1075]", 1, true)
+                    or text:find("WARNING  thorns: passive (Attributes_0 has 0x40), not a buff you cast: [1075, 467]", 1, true), text)
+                assert.is_truthy(text:find("WARNING  thorns: no SpellPower row (no cost) for [782]", 1, true), text)
+                assert.is_truthy(text:find("WARNING  thorns: its ranks last differently: 6 (10 minutes), 42 (1 hour)", 1, true), text)
+                assert.is_truthy(text:find("WARNING  thorns: 'Thorns' has ranks [1, 2, 4]: rank 3 not in the data", 1, true), text)
+            end)
+
+        it("warns of a toggle that runs out, a timed buff that doesn't, an unknown index, a rank twice and a missing row (white)",
+            function()
+                local code, text = run({ { 10293, "Devotion Aura", 1, 30 }, { 25780, "Righteous Fury", 1, 21 },
+                    { 467, "Thorns", 1, 367 }, { 782, "Thorns", 1, 367 }, { 1126, "Mark of the Wild", 1, false } },
+                    '{"format":1,"classes":{"PALADIN":[{"key":"devotion","name":"Devotion Aura","selfCast":true,"toggle":true},'
+                    .. '{"key":"righteousfury","name":"Righteous Fury","selfCast":true}],'
+                    .. '"DRUID":[{"key":"thorns","name":"Thorns"},{"key":"motw","name":"Mark of the Wild"}]},"removed":[]}')
+                assert.are.equal(0, code, text)
+                assert.is_truthy(text:find("WARNING  devotion: a toggle whose duration isn't 'never runs out' ([30])", 1, true), text)
+                assert.is_truthy(text:find("WARNING  righteousfury: a timed buff whose duration is 'never runs out'", 1, true), text)
+                assert.is_truthy(text:find("(Thorns, rank 1, duration 367: unknown)", 1, true), text)
+                assert.is_truthy(text:find("'Thorns' has ranks [1, 1]: rank 1 more than once", 1, true), text)
+                assert.is_truthy(text:find("1126 (Mark of the Wild, rank 1, duration unknown: no SpellMisc row)", 1, true), text)
+                assert.is_truthy(text:find("WARNING  motw: no SpellMisc row for [1126]", 1, true), text)
+            end)
+
+        it("says so, and still writes the table, when the data has no SpellMisc or SpellPower table (white)", function()
+            local code, text, out = run('{"schema":1,"build":"1.60.1.70685","tables":{"Spell":{"rows":[{"ID":467,'
+                .. '"NameSubtext_lang":"Rank 1"}]},"SpellName":{"rows":[{"ID":467,"Name_lang":"Thorns"}]}}}', THORNS)
+            assert.are.equal(0, code, text)
+            assert.is_truthy(out:find("ranks = { 467 }", 1, true))
+            assert.is_truthy(text:find("WARNING  the data has no SpellMisc table", 1, true), text)
+            assert.is_truthy(text:find("WARNING  the data has no SpellPower table", 1, true), text)
+            assert.is_truthy(text:find("FOUND  DRUID thorns: ranks 467 (Thorns, rank 1)\n", 1, true), text)
+        end)
+
+        it("stops, writing nothing, on a junk DurationIndex, Attributes_0 or DifficultyID, or a damaged row or table (black)", function()
+            local junk = { '"6"', "6.5", "6.0", "-1", "65536", "99999999999", "true", "null", "[6]" }
+            for _, value in ipairs(junk) do
+                for _, column in ipairs({ "DurationIndex", "DifficultyID" }) do
+                    local row = ('{"SpellID":467,"DifficultyID":0,"DurationIndex":6,"Attributes_0":0}')
+                        :gsub('"' .. column .. '":%d', '"' .. column .. '":' .. value)
+                    local code, text, out = run({ { 467, "Thorns", 1, false } }, THORNS, row)
+                    assert.are.equal(1, code, column .. " " .. value .. ": " .. text)
+                    assert.are.equal("KEEP", out, column .. " " .. value)
+                    assert.is_truthy(text:find("nothing written", 1, true), text)
+                end
+            end
+            for _, value in ipairs({ '"64"', "64.5", "2147483648", "-2147483649", "99999999999", "false", "null" }) do
+                local row = '{"SpellID":467,"DifficultyID":0,"DurationIndex":6,"Attributes_0":' .. value .. "}"
+                local code, text, out = run({ { 467, "Thorns", 1, false } }, THORNS, row)
+                assert.are.equal(1, code, "Attributes_0 " .. value .. ": " .. text)
+                assert.are.equal("KEEP", out, "Attributes_0 " .. value)
+            end
+            -- A missing column, a row for an unknown spell, two default rows, a bad SpellID, a row that isn't an object.
+            for _, row in ipairs({ '{"SpellID":467,"DifficultyID":0,"Attributes_0":0}',
+                '{"SpellID":999,"DifficultyID":0,"DurationIndex":6,"Attributes_0":0}',
+                '{"SpellID":467,"DifficultyID":0,"DurationIndex":6,"Attributes_0":0}',
+                '{"SpellID":"467","DifficultyID":0,"DurationIndex":6,"Attributes_0":0}', '[1]' }) do
+                local code, text, out = run({ { 467, "Thorns", 1 } }, THORNS, row)
+                assert.are.equal(1, code, row .. ": " .. text)
+                assert.are.equal("KEEP", out, row)
+            end
+            -- A table that isn't one, and a SpellPower row for an unknown spell.
+            local base = '{"schema":1,"build":"1.60.1.70685","tables":{"Spell":{"rows":[{"ID":467,"NameSubtext_lang":"Rank 1"}]},'
+                .. '"SpellName":{"rows":[{"ID":467,"Name_lang":"Thorns"}]},'
+            for _, tail in ipairs({ '"SpellMisc":[]}}', '"SpellMisc":{"rows":{}}}}', '"SpellPower":{"rows":[{"SpellID":999}]}}}',
+                '"SpellPower":{"rows":[{"SpellID":1.5}]}}}', '"SpellPower":{"rows":["x"]}}}' }) do
+                local code, text, out = run(base .. tail, THORNS)
+                assert.are.equal(1, code, tail .. ": " .. text)
+                assert.are.equal("KEEP", out, tail)
+            end
+            -- A non-default row is checked too, and otherwise ignored; a signed attribute is fine.
+            local code, text = run({ { 467, "Thorns", 1, 6, -2013265920 } }, THORNS,
+                '{"SpellID":467,"DifficultyID":1,"DurationIndex":42,"Attributes_0":0}')
+            assert.are.equal(0, code, text)
+            assert.is_truthy(text:find("(Thorns, rank 1, duration 6: 10 minutes)", 1, true), text)
+            local bad = run({ { 467, "Thorns", 1 } }, THORNS, '{"SpellID":467,"DifficultyID":1,"DurationIndex":-5,"Attributes_0":0}')
+            assert.are.equal(1, bad)
         end)
     end)
 

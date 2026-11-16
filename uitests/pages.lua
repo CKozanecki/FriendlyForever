@@ -250,25 +250,26 @@ function Pages.OpenTab(name)
 end
 
 -- The Buff Back tab's buffs by their Forever names (#158). The simulator
--- plays Forever with Forever's spell data (wow-ui-sim 936d5f5, #160), so it
--- names them itself; until then a fixture here answered for it, and without
--- one the tab showed the buff keys ("wisdom"), much shorter than what a
--- player reads. This list is what the tab must show: UnnamedBuff checks the
--- simulator against it. The ranks are BuffData.lua's PALADIN ranks, which
--- spec/uitests_pages_spec.lua checks: the paladin's buffs for others only.
--- The paladin's self-buffs (#44: Righteous Fury and the auras) aren't in the
--- simulator's spell data yet, so it can't name them and their rows show
--- their keys ("retribution"). Devotion Aura is named, though its rank 1,
--- 465, isn't in the downloaded list: the simulator falls back to its own
--- spell catalog for a name, and its paladin's spellbook lists 465
--- (docs/ui-simulator.md). Listing them here would fail every tab's layout
--- scenarios on UnnamedBuff. #343 gives the simulator their spells, and then
--- this list takes them too. Until then spec/layout_spec.lua checks every
--- class's rows, self-buffs included, with their real names.
+-- plays Forever with Forever's spell data (#160), so it names them itself;
+-- until then a fixture here answered for it, and without one the tab showed
+-- the buff keys ("wisdom"), much shorter than what a player reads. This list
+-- is what the tab must show: UnnamedBuff checks the simulator against it.
+-- The ranks are BuffData.lua's PALADIN ranks, which
+-- spec/uitests_pages_spec.lua checks: every paladin buff, the self-buffs
+-- (#44) included, since the workflow adds their spells to the simulator's
+-- spell data (#343).
 Pages.BUFF_NAMES = {
     { key = "kings", name = "Blessing of Kings", ranks = { 20217 } },
     { key = "wisdom", name = "Blessing of Wisdom", ranks = { 25290, 19854, 19853, 19852, 19850, 19742 } },
     { key = "might", name = "Blessing of Might", ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 } },
+    { key = "righteousfury", name = "Righteous Fury", ranks = { 25780 } },
+    { key = "devotion", name = "Devotion Aura", ranks = { 10293, 10292, 1032, 10291, 643, 10290, 465 } },
+    { key = "retribution", name = "Retribution Aura", ranks = { 10301, 10300, 10299, 10298, 7294 } },
+    { key = "concentration", name = "Concentration Aura", ranks = { 19746 } },
+    { key = "shadowaura", name = "Shadow Resistance Aura", ranks = { 19896, 19895, 19876 } },
+    { key = "frostaura", name = "Frost Resistance Aura", ranks = { 19898, 19897, 19888 } },
+    { key = "fireaura", name = "Fire Resistance Aura", ranks = { 19900, 19899, 19891 } },
+    { key = "sanctity", name = "Sanctity Aura", ranks = { 20218 } },
 }
 
 -- The first rank in BUFF_NAMES the client doesn't give its Forever name, as
@@ -382,18 +383,52 @@ function Pages.ShowTabLower(name)
     return Pages.ScrollToRow(Pages.LOWER_ROW)
 end
 
+-- The row the middle shot starts at (#383): the self-buffs check box, with
+-- Who and its Always and Never rows, the raid Blessings, the buff-mode
+-- switches and the top-up stepper below it, which the top and lower shots
+-- leave out now that a paladin's Buff Back tab lists 11 buffs (#44).
+Pages.MIDDLE_ROW = "Offer my self-buffs"
+
+-- For the screenshot job: a tab with its middle rows in view (#383), from the
+-- self-buffs row down, scrolled as the lower shot is.
+function Pages.ShowTabMiddle(name)
+    Pages.ShowTab(name)
+    return Pages.ScrollToRow(Pages.MIDDLE_ROW)
+end
+
 -- The walkthrough's steps the screenshots show (#47), each named by a
 -- word in its title: the first, and buff mode's key and triggers, which
--- the walkthrough must reach.
+-- the walkthrough must reach, taken again from Start here. whatsNew: the
+-- step as a returning player sees it after an update, titled "What's new:"
+-- (#169): buff requests in chat, added in walkthrough version 2 (#40, #362).
 Pages.WALKTHROUGH_STEPS = {
     { name = "welcome", title = "Welcome" },
     { name = "buff-mode-key", title = "its key" },
     { name = "buff-mode-triggers", title = "turns on and off" },
+    { name = "whats-new-requests", title = "Buff requests in chat", whatsNew = true },
 }
+-- The walkthrough version a returning player last finished, for a What's new
+-- run: the one before the buff requests step's (Walkthrough.lua's since = 2).
+Pages.WHATS_NEW_SEEN = 1
+
+-- A What's new run, the way the game starts one: a player who finished an
+-- older walkthrough logs in (Walkthrough.OnLogin, on PLAYER_ENTERING_WORLD
+-- with isLogin). The saved state says which version they finished. Nothing
+-- else answers for the addon. Finishing or skipping it saves the current
+-- version again, as before.
+local function StartWhatsNew()
+    Pages.SkipWalkthrough()
+    FriendlyForeverDB.walkthrough = { seen = Pages.WHATS_NEW_SEEN, firstRun = false }
+    if type(A_Admin) ~= "table" or type(A_Admin.FireEvent) ~= "function" then
+        error("the simulator has no A_Admin.FireEvent")
+    end
+    A_Admin.FireEvent("PLAYER_ENTERING_WORLD", true, false)
+end
 
 -- Takes the walkthrough again from the Start here page, as a player would,
--- and clicks Next up to the step called name (a Pages.WALKTHROUGH_STEPS
--- name). Returns the walkthrough's frame, or nothing and why not.
+-- or (a whatsNew step) as a returning player logging in, and clicks Next up
+-- to the step called name (a Pages.WALKTHROUGH_STEPS name). Returns the
+-- walkthrough's frame, or nothing and why not.
 function Pages.OpenWalkthrough(name)
     local wanted
     for _, step in ipairs(Pages.WALKTHROUGH_STEPS) do
@@ -404,8 +439,12 @@ function Pages.OpenWalkthrough(name)
         report(why)
         return nil, why
     end
-    local start = Pages.Open("start")
-    start.widgets.tour:Click()
+    if wanted.whatsNew then
+        StartWhatsNew()
+    else
+        local start = Pages.Open("start")
+        start.widgets.tour:Click()
+    end
     local walkthrough = _G[Pages.WALKTHROUGH]
     -- At most one click a step, so a title never found can't loop forever.
     for _ = 1, 20 do

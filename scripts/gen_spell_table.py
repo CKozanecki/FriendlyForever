@@ -18,7 +18,15 @@ Output:
   leaves the existing file untouched.
 
 Everything in the spell data is untrusted: IDs must be whole numbers in a sane
-range, names strings of bounded length, and no spell may appear twice.
+range, names strings of bounded length, and no spell may appear twice. The
+SpellMisc and SpellPower rows, read for the report only, are checked the same
+way: whole numbers in range, or nothing is written.
+
+The report also shows each rank's duration and warns of what may mean Forever
+changed a spell (#380): a passive, a spell with no cost, ranks that last
+differently, a toggle that runs out or a timed buff that doesn't, and rank
+numbers with gaps (ranks the ID-selected extraction missed). Warnings never
+change the table.
 """
 import argparse
 import hashlib
@@ -50,6 +58,16 @@ NOT_FOR_REQUEST_ONLY = ("selfCast", "water", "groupCast", "defaultRule", "defaul
 # Written to the table, after FLAGS: handListed is set by the generator, for
 # a buff whose IDs are hand-listed (handIds), never by the definitions.
 OUT_FLAGS = FLAGS + ("handListed",)
+# SpellMisc's DurationIndex, by what it stands for, read from spells whose
+# duration is known (docs/forever-facts.md, #380). Others are shown unknown.
+NEVER_RUNS_OUT = 21
+DURATIONS = {0: "no duration", 6: "10 minutes", 21: "never runs out", 25: "2 minutes", 30: "30 minutes", 42: "1 hour"}
+# Attributes_0's passive bit (SPELL_ATTR0_PASSIVE).
+PASSIVE = 0x40
+# SpellMisc's columns, as the extraction writes them: DB2 stores the
+# attributes as signed 32-bit numbers, so a set top bit reads negative.
+MAX_INDEX = 65535
+INT32 = (-(2 ** 31), 2 ** 31 - 1)
 
 
 class Problem(Exception):
@@ -121,6 +139,111 @@ def read_spells(data):
     if set(names) != set(ranks):
         raise Problem("spell data: Spell and SpellName list different spells")
     return build, {i: (names[i], ranks[i]) for i in names}
+
+
+def is_int(value, low, high):
+    # bool is an int in Python; floats (even 3.0) are refused.
+    return type(value) is int and low <= value <= high
+
+
+def read_misc(data, spells):
+    """{id: (DurationIndex, Attributes_0)} from each spell's default SpellMisc
+    row (DifficultyID 0), or None when the data has no SpellMisc table. Every
+    row is checked, default or not."""
+    table = data["tables"].get("SpellMisc")
+    if table is None:
+        return None
+    if not isinstance(table, dict) or not isinstance(table.get("rows"), list):
+        raise Problem("spell data: no SpellMisc rows")
+    misc = {}
+    for row in table["rows"]:
+        if not isinstance(row, dict):
+            raise Problem("spell data: a SpellMisc row is not an object")
+        spell_id = check_id(row.get("SpellID"), "SpellMisc")
+        if spell_id not in spells:
+            raise Problem(f"SpellMisc {spell_id}: a row for a spell the data doesn't name")
+        for column, (low, high) in (("DifficultyID", (0, MAX_INDEX)), ("DurationIndex", (0, MAX_INDEX)),
+                                    ("Attributes_0", INT32)):
+            if not is_int(row.get(column), low, high):
+                raise Problem(f"SpellMisc {spell_id}: {column} {row.get(column)!r} is not a whole number "
+                              f"from {low} to {high}")
+        if row["DifficultyID"] != 0:
+            continue
+        if spell_id in misc:
+            raise Problem(f"SpellMisc {spell_id}: two default rows")
+        misc[spell_id] = (row["DurationIndex"], row["Attributes_0"])
+    return misc
+
+
+def read_costed(data, spells):
+    """The IDs with a SpellPower row (a cost), or None when the data has no
+    SpellPower table."""
+    table = data["tables"].get("SpellPower")
+    if table is None:
+        return None
+    if not isinstance(table, dict) or not isinstance(table.get("rows"), list):
+        raise Problem("spell data: no SpellPower rows")
+    costed = set()
+    for row in table["rows"]:
+        if not isinstance(row, dict):
+            raise Problem("spell data: a SpellPower row is not an object")
+        spell_id = check_id(row.get("SpellID"), "SpellPower")
+        if spell_id not in spells:
+            raise Problem(f"SpellPower {spell_id}: a row for a spell the data doesn't name")
+        costed.add(spell_id)
+    return costed
+
+
+def duration_text(spell_id, misc):
+    """", duration 30: 30 minutes" for a rank's FOUND entry; empty without SpellMisc."""
+    if misc is None:
+        return ""
+    if spell_id not in misc:
+        return ", duration unknown: no SpellMisc row"
+    index = misc[spell_id][0]
+    return f", duration {index}: {DURATIONS.get(index, 'unknown')}"
+
+
+def warnings_for(key, buff, spells, misc, costed, report):
+    """The report's warnings for one buff's ranks (#380). They never change the table."""
+    ranks = buff["ranks"]
+    if misc is not None:
+        missing = [i for i in ranks if i not in misc]
+        if missing:
+            report.append(f"WARNING  {key}: no SpellMisc row for {missing}, so its duration is unknown")
+        passive = [i for i in ranks if i in misc and misc[i][1] & PASSIVE]
+        if passive:
+            report.append(f"WARNING  {key}: passive (Attributes_0 has 0x40), not a buff you cast: {passive}")
+        durations = sorted({misc[i][0] for i in ranks if i in misc})
+        if len(durations) > 1:
+            shown = ", ".join(f"{d} ({DURATIONS.get(d, 'unknown')})" for d in durations)
+            report.append(f"WARNING  {key}: its ranks last differently: {shown}")
+        if buff.get("toggle") and any(d != NEVER_RUNS_OUT for d in durations):
+            report.append(f"WARNING  {key}: a toggle whose duration isn't 'never runs out' ({durations})")
+        if not buff.get("toggle") and NEVER_RUNS_OUT in durations:
+            report.append(f"WARNING  {key}: a timed buff whose duration is 'never runs out': a toggle?")
+    if costed is not None:
+        free = [i for i in ranks if i not in costed]
+        if free:
+            report.append(f"WARNING  {key}: no SpellPower row (no cost) for {free}")
+    # Rank numbers by spell name: each from 1 up, with no gap.
+    by_spell = {}
+    for i in ranks:
+        name, number = spells[i]
+        if number:
+            by_spell.setdefault(name, []).append(number)
+    for name in sorted(by_spell):
+        numbers = sorted(by_spell[name])
+        expected = list(range(1, numbers[-1] + 1))
+        if numbers != expected:
+            absent = [n for n in expected if n not in numbers]
+            twice = sorted({n for n in numbers if numbers.count(n) > 1})
+            said = []
+            if absent:
+                said.append("rank " + ", ".join(map(str, absent)) + " not in the data")
+            if twice:
+                said.append("rank " + ", ".join(map(str, twice)) + " more than once")
+            report.append(f"WARNING  {key}: {name!r} has ranks {numbers}: " + "; ".join(said))
 
 
 def by_name(spells):
@@ -212,7 +335,7 @@ def family_auras_of(family_auras, spells, index, rank_owner, report):
     return out
 
 
-def build(spells, classes, removed, family_auras=None):
+def build(spells, classes, removed, family_auras=None, misc=None, costed=None):
     index = by_name(spells)
     report = []
     out_classes = {}
@@ -237,8 +360,10 @@ def build(spells, classes, removed, family_auras=None):
             absent.append(entry["key"])
         removed_ids.extend(ids)
         for i in ids:
-            shown = spells[i][0] if i in spells else "not in the data"
+            shown = (spells[i][0] + duration_text(i, misc)) if i in spells else "not in the data"
             report.append(f"REMOVED  {entry['key']}: {i} ({shown}) is in the removed list: {entry['reason']}")
+            if misc is not None and i in misc and misc[i][1] & PASSIVE:
+                report.append(f"WARNING  {entry['key']}: passive (Attributes_0 has 0x40), not a buff you cast: [{i}]")
 
     for cls in sorted(classes):
         if not CLASS_RE.match(cls) or not isinstance(classes[cls], list):
@@ -374,8 +499,10 @@ def build(spells, classes, removed, family_auras=None):
                 if len(set(buff.get(field, []))) != len(buff.get(field, [])):
                     raise Problem(f"{key}: duplicate ID in {field}")
             if not hand_listed:
-                used = ", ".join(f"{i} ({spells[i][0]}{', rank ' + str(spells[i][1]) if spells[i][1] else ''})" for i in ranks)
+                used = ", ".join(f"{i} ({spells[i][0]}{', rank ' + str(spells[i][1]) if spells[i][1] else ''}"
+                                 f"{duration_text(i, misc)})" for i in ranks)
                 report.append(f"FOUND  {cls} {key}: ranks {used}")
+                warnings_for(key, buff, spells, misc, costed, report)
             if group:
                 report.append(f"FOUND  {key} group versions {group}")
             if blockers:
@@ -484,15 +611,22 @@ def main(argv):
         raw, spell_json = load_json(args.spells)
         _, buff_json = load_json(args.buffs)
         build_id, spells = read_spells(spell_json)
+        misc = read_misc(spell_json, spells)
+        costed = read_costed(spell_json, spells)
         classes, removed, family_auras = read_buffs(buff_json)
-        out_classes, absent, removed_ids, report, families = build(spells, classes, removed, family_auras)
+        out_classes, absent, removed_ids, report, families = build(spells, classes, removed, family_auras, misc, costed)
         text = render(build_id, hashlib.sha256(raw).hexdigest(), os.path.basename(args.spells),
                       out_classes, absent, removed_ids, families)
     except Problem as err:
         print(f"gen_spell_table: {err}", file=sys.stderr)
         print("gen_spell_table: nothing written", file=sys.stderr)
         return 1
-    report_text = f"Forever build {build_id}, source SHA-256 {hashlib.sha256(raw).hexdigest()}\n" + "\n".join(report) + "\n"
+    header = f"Forever build {build_id}, source SHA-256 {hashlib.sha256(raw).hexdigest()}\n"
+    if misc is None:
+        header += "WARNING  the data has no SpellMisc table: no durations or passives shown\n"
+    if costed is None:
+        header += "WARNING  the data has no SpellPower table: no costs checked\n"
+    report_text = header + "\n".join(report) + "\n"
     directory = os.path.dirname(os.path.abspath(args.out))
     handle, temp = tempfile.mkstemp(dir=directory, prefix=".bufftable-")
     try:

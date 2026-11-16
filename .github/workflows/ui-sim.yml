@@ -7,7 +7,7 @@ name: UI simulator
 #
 # Safety:
 # - The simulator is built here from one reviewed commit of its source
-#   (936d5f5, #160), with every base image pinned by digest, so it can't
+#   (9c48956, #308), with every base image pinned by digest, so it can't
 #   change under us; read the source at a new commit before moving the pin.
 #   There's no published image at that commit, and we never use the
 #   project's release binaries.
@@ -22,7 +22,9 @@ name: UI simulator
 #     with no route out. It reaches only a proxy, which lets through only
 #     HTTPS tunnels to the hosts in SPELL_DATA_HOSTS, on port 443. What it
 #     writes must match SPELL_DATA_SHA256, or the job stops before anything
-#     is cached, uploaded or run.
+#     is cached, uploaded or run. The only change we make to the
+#     simulator's source is data: our self-buffs' spell IDs, appended to
+#     its list of spells to extract before the build (#343).
 # - We don't use the project's own Action: it pulls a moving tag, mounts
 #   the repository read-write and puts an input into a shell command
 #   unquoted.
@@ -58,9 +60,10 @@ env:
   # most players use. spec/repo_spec.lua checks both are listed.
   LAYOUT_SIZES: 1024x768 1920x1080
   SIM_REPO: https://github.com/Osso/wow-ui-sim.git
-  # The head of their master on 2026-11-13, with the Forever profile, its
-  # spell data and our three contributions (#100); reviewed on #160.
-  SIM_COMMIT: 936d5f53841ee620384b7f05a0f8d5e861835c3d
+  # The head of their master on 2026-11-14, with the Forever profile, its
+  # spell data and our three contributions (#100). #160 reviewed the source
+  # up to 936d5f5, and #308 the 517 commits from there to here.
+  SIM_COMMIT: 9c48956c9c85ddb345ebe4fd477ff1b63a8e0943
   # The client the simulator plays: WoW Forever, the game the addon ships
   # for (#160, the owner's decision). It names the Blizzard UI cache folder
   # and the spell data folder.
@@ -85,10 +88,13 @@ env:
   # what it must write. The simulator's own code checks every downloaded
   # chunk against keys pinned in its source before decoding it.
   SPELL_DATA_HOSTS: us.version.battle.net level3.ssl.blizzard.com us.cdn.blizzard.com kr.cdn.blizzard.com
-  # Taken from this workflow's first run on #314, after #160's review of the
-  # download code; the row check below ties it to our committed copy. In
-  # quotes: YAML would read a hash of digits as a number.
-  SPELL_DATA_SHA256: "baafb9369a8214a5d793fba12cadec875f7f4a0c4ff8e569d6faac21b2bcac7b"
+  # The download with our self-buffs' IDs added to upstream's list (#343):
+  # byte for byte scripts/data/forever-spells-extended.json, which #44 made
+  # by hand with the same tool and list at 936d5f5, after #160's review of
+  # the download code (unchanged up to 9c48956, #308). The row check below
+  # ties it to that committed copy. In quotes: YAML would read a hash of
+  # digits as a number.
+  SPELL_DATA_SHA256: "43d0cfa0a207b9fc0bc9ae5ea76b70b3d2ecb8779f4b33b92e288ce45d7cc45b"
   RENDER_BASE: debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 # bookworm-slim
   # The one font file every wow-sim run draws and measures text in (#310).
   # With no game fonts the simulator would use the first system face its font
@@ -110,8 +116,9 @@ jobs:
   # *.lua), the ones the options panel is built from, Colours.lua (the palette
   # every colour comes from), BuffData.lua and BuffRules.lua (they decide text
   # the Buff Back tab shows, #226), the scenarios, the
-  # art, the packaging inputs, the simulator harness, the spell data check
-  # and the copy it checks against (#160), and this workflow. A
+  # art, the packaging inputs, the simulator harness, the spell data check,
+  # the copy it checks against (#160) and the spell IDs we add to the
+  # simulator's list (#343), and this workflow. A
   # change to anything else, such as Greeter.lua or GroupBuffs.lua, skips the
   # jobs below; a skipped job counts as passing.
   #
@@ -168,7 +175,7 @@ jobs:
           # return inside a line could start another line, so it is doubt.
           version_only() {
             both "$1" || return 1
-            printf '%s\n%s\n' "$old" "$new" | awk '/\r[^\n]/ { exit 2 }' || return 1
+            printf '%s\n%s\n' "$old" "$new" | awk '/\r[^\n]/ { exit 2 }' > /dev/null 2>&1 || return 1
             [ "$(printf '%s\n' "$old" | grep -v '^## Version:')" = "$(printf '%s\n' "$new" | grep -v '^## Version:')" ]
           }
           # Lua without -- comments, blank lines and trailing spaces. A comment
@@ -190,7 +197,8 @@ jobs:
               */*)
                 case "$file" in
                   uitests/* | Media/* | .github/workflows/ui-sim.yml | scripts/package.sh | scripts/ui-sim-harness.lua \
-                    | scripts/sim-spell-check.py | scripts/data/forever-spells.json) hit=yes ;;
+                    | scripts/sim-spell-check.py | scripts/data/forever-spells-extended.json \
+                    | scripts/data/forever-spell-ids-extra.txt) hit=yes ;;
                 esac ;;
               *)
                 case "$file" in
@@ -248,14 +256,15 @@ jobs:
       # staging step (a flag, a marker, a copied folder) misses the cache and
       # is built and checked in the run that changes it, never hidden by a
       # hit. Only this file is checked out, with the two the spell data
-      # check reads (#160).
+      # check reads (#160) and the spell IDs we add (#343).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           sparse-checkout: |
             .github/workflows/ui-sim.yml
             scripts/sim-spell-check.py
-            scripts/data/forever-spells.json
+            scripts/data/forever-spells-extended.json
+            scripts/data/forever-spell-ids-extra.txt
           sparse-checkout-cone-mode: false
 
       # One hash over every input of the build below. Change any of them and
@@ -265,12 +274,12 @@ jobs:
         id: key
         env:
           WORKFLOW_HASH: ${{ hashFiles('.github/workflows/ui-sim.yml') }}
-          SPELL_CHECK_HASH: ${{ hashFiles('scripts/sim-spell-check.py', 'scripts/data/forever-spells.json') }}
+          SPELL_FILES_HASH: ${{ hashFiles('scripts/sim-spell-check.py', 'scripts/data/forever-spells-extended.json', 'scripts/data/forever-spell-ids-extra.txt') }}
         run: |
           # hashFiles gives '' when the file wasn't checked out; refuse that
           # rather than cache without it.
           test -n "$WORKFLOW_HASH"
-          test -n "$SPELL_CHECK_HASH"
+          test -n "$SPELL_FILES_HASH"
           inputs="$(printf '%s\n' \
             "workflow=$WORKFLOW_HASH" \
             "sim=$SIM_COMMIT" \
@@ -284,7 +293,7 @@ jobs:
             "strip=$BUILD_STRIP" \
             "spell-hosts=$SPELL_DATA_HOSTS" \
             "spell-data=$SPELL_DATA_SHA256" \
-            "spell-check=$SPELL_CHECK_HASH")"
+            "spell-files=$SPELL_FILES_HASH")"
           echo "key=wow-ui-sim-build-$(printf '%s' "$inputs" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the staged simulator build
@@ -321,12 +330,13 @@ jobs:
           manifest="$RUNNER_TEMP/sim/data/blizzard-ui-files/$SIM_PROFILE.txt"
           # The difference is written out first, and the job log gets only its
           # start, marked by shown (#317): bash -e has no pipefail here, so a
-          # pipe straight into shown would hide the failure.
-          diff -u <(LC_ALL=C sort "$manifest") \
-            <(git -C "$ui" ls-tree -r --name-only HEAD Interface/AddOns/ | cut -d/ -f3- | LC_ALL=C sort) \
-            > "$RUNNER_TEMP/tree-diff.txt" || {
+          # pipe straight into shown would hide the failure. Errors, which
+          # name files, go into it too (#375).
+          diff -u <(LC_ALL=C sort "$manifest" 2>&1) \
+            <(git -C "$ui" ls-tree -r --name-only HEAD Interface/AddOns/ 2>&1 | cut -d/ -f3- | LC_ALL=C sort) \
+            > "$RUNNER_TEMP/tree-diff.txt" 2>&1 || {
             echo "Blizzard's UI tree and the simulator's list of files differ (the start of the difference):"
-            head -n 200 "$RUNNER_TEMP/tree-diff.txt" | head -c 20000 | shown
+            head -n 200 "$RUNNER_TEMP/tree-diff.txt" 2>&1 | head -c 20000 | shown
             exit 1
           }
           # The markers the simulator's own image writes, so it uses this
@@ -340,6 +350,44 @@ jobs:
             "$SIM_PROFILE" "$BLIZZARD_UI_VERSION" "$BLIZZARD_UI_COMMIT" "$manifest_sha" \
             > .wow-ui-sim-blizzard-ui-provenance
           touch .wow-ui-sim-blizzard-ui-complete
+
+      # Our self-buffs' spell IDs (#343), added to the list of spells the
+      # simulator extracts and loads: upstream's data/forever-spell-ids.txt,
+      # which both wow-cli (the download) and wow-sim (which refuses spell
+      # data holding any spell not on it) compile in. So it runs before the
+      # build, and changes no code: the list is read as whole numbers, one a
+      # line, and a repeated one is refused. Our file must hold only such
+      # lines, none already on upstream's list; anything else stops the job.
+      - name: Add our self-buff spell IDs to the simulator's list (#343)
+        if: steps.sim-cache.outputs.cache-hit != 'true'
+        run: |
+          # Upstream's list is in the fetched tree, so what's read from it is
+          # kept as digits only, its errors thrown away (#153, #360).
+          extra=scripts/data/forever-spell-ids-extra.txt
+          list="$RUNNER_TEMP/sim/data/forever-spell-ids.txt"
+          for listed in "$extra" "$list"; do
+            test -f "$listed"
+            test ! -L "$listed"
+            test -s "$listed"
+            # Its last line ended, or the next ID would join it.
+            [ "$(tail -c 1 "$listed" 2>/dev/null | od -An -tx1 | tr -cd '0-9a-f')" = 0a ]
+          done
+          # Digits only, no leading zero, at most nine: a u32 to the simulator.
+          if grep -qvE '^[1-9][0-9]{0,8}$' "$extra"; then
+            echo "$extra holds a line that isn't a spell ID"
+            exit 1
+          fi
+          repeated=$(cat "$list" "$extra" 2>/dev/null | LC_ALL=C sort | uniq -d | wc -l | tr -cd '0-9')
+          if [ "$repeated" != 0 ]; then
+            echo "$repeated spell ID(s) listed twice, by us or by us and upstream"
+            exit 1
+          fi
+          before=$(cat "$list" 2>/dev/null | wc -l | tr -cd '0-9')
+          added=$(cat "$extra" 2>/dev/null | wc -l | tr -cd '0-9')
+          while IFS= read -r id; do
+            printf '%s\n' "$id"
+          done < "$extra" >> "$list"
+          echo "added $added spell IDs to upstream's $before"
 
       - name: Build a build image (the Dockerfile's build tools)
         if: steps.sim-cache.outputs.cache-hit != 'true'
@@ -449,7 +497,7 @@ jobs:
             --memory 2g --memory-swap 2g --pids-limit 512 \
             -v "$RUNNER_TEMP/spell-cli:/cli:ro" -v "$RUNNER_TEMP/spell-out:/spells" \
             ff-build /cli/wow-cli casc sync-forever-spells --source cdn --output /spells/spells.json > "$RUNNER_TEMP/spell-data.log" 2>&1 || status=$?
-          head -c 20000 "$RUNNER_TEMP/spell-data.log" | shown
+          head -c 20000 "$RUNNER_TEMP/spell-data.log" 2>&1 | shown
           echo "wow-cli: exit $status (124: stopped at the time limit)"
           echo "what the proxy was asked for:"
           docker logs ff-proxy 2>&1 | grep -E 'Request \(|refused' | head -200 | shown "proxy> " || true
@@ -492,8 +540,8 @@ jobs:
       # anything is saved, uploaded or run. A mismatch is named in an
       # annotation, which holds only the hash, in hex. Only a file with the
       # pinned hash is then read: scripts/sim-spell-check.py proves that
-      # every spell in scripts/data/forever-spells.json, the copy whose hash
-      # the simulator's own spec records (#209), has the same rows here.
+      # every spell in scripts/data/forever-spells-extended.json, the copy
+      # the buff table is generated from (#44, #343), has the same rows here.
       - name: Check the staged files are plain files, and the spell data is the pinned one
         run: |
           out="$RUNNER_TEMP/ui-sim-build"
@@ -512,7 +560,7 @@ jobs:
             echo "::error title=UI simulator: Forever spell data is not the pinned download::Its SHA-256 is $actual, which is not SPELL_DATA_SHA256. Nothing was cached, uploaded or run."
             exit 1
           fi
-          python3 -I scripts/sim-spell-check.py "$spells" scripts/data/forever-spells.json
+          python3 -I scripts/sim-spell-check.py "$spells" scripts/data/forever-spells-extended.json
 
       # Saved as soon as it is staged and checked, so a later failure or a
       # cancelled run still keeps it.
@@ -664,11 +712,17 @@ jobs:
           # before each line, so the runner, which skips leading spaces, never
           # reads one as a workflow command (::); turns carriage returns, which
           # also end a line for the runner, into new lines; and breaks the old
-          # ##[ command, which the runner finds anywhere in a line.
+          # ##[ command, which the runner finds anywhere in a line. A pipe
+          # carries only stdout, so each reader sends its errors, which name
+          # its file, down the pipe too (2>&1, #375).
           shown() { tr '\r' '\n' | sed -e "s/^/${1:-| }/" -e 's/##\[/##(/g'; }
           for file in "$RUNNER_TEMP"/report/*; do
-            echo "::group::$(basename "$file")"
-            head -c 60000 "$file" | shown
+            # The group's title is the file's name, printed only once it's
+            # plain (#153, #367); the run step names them all so.
+            name=$(basename "$file")
+            case "$name" in *[!A-Za-z0-9._-]*) echo "skipping a report with an unsafe name"; continue ;; esac
+            echo "::group::$name"
+            head -c 60000 "$file" 2>&1 | shown
             echo
             echo "::endgroup::"
           done
@@ -747,11 +801,11 @@ jobs:
               echo
               echo "Stopped after $seconds s, on attempt $try of 2. The last scenario it started:"
               echo '```'
-              grep 'START [0-9]' "$file" | tail -n 1 | shown || true
+              grep 'START [0-9]' "$file" 2>&1 | tail -n 1 | shown || true
               echo '```'
               echo "The end of its log:"
               echo '```'
-              tail -n 15 "$file" | shown || true
+              tail -n 15 "$file" 2>&1 | shown || true
               echo '```'
             done < "$RUNNER_TEMP/runs.txt"
           }
@@ -782,7 +836,8 @@ jobs:
             echo '```'
             grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
             echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+            # A reader's errors, which name its file, go to the summary too (#375).
+          } >> "$GITHUB_STEP_SUMMARY" 2>&1
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -803,7 +858,7 @@ jobs:
       # The walkthrough's steps shot (#47): uitests/pages.lua's
       # Pages.WALKTHROUGH_STEPS names (spec/uitests_pages_spec.lua checks
       # they match).
-      WALKTHROUGH_STEPS: welcome buff-mode-key buff-mode-triggers
+      WALKTHROUGH_STEPS: welcome buff-mode-key buff-mode-triggers whats-new-requests
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -826,7 +881,7 @@ jobs:
         run: |
           states="$RUNNER_TEMP/shot-lua"
           mkdir -p "$states"
-          for state in favour buffmode bufflist buffgroup alreadydone longreason; do
+          for state in favour buffmode bufflist buffgroup alreadydone longreason asked; do
             { cat uitests/button_states.lua; printf '\nFriendlyForeverUIStates.Show("%s")\n' "$state"; } \
               > "$states/$state.lua"
           done
@@ -844,6 +899,9 @@ jobs:
           # The Buff Back tab scrolled to its lower rows, from "Use group versions" down (#254).
           { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowTabLower("buff-back")\n'; } \
             > "$states/tab-buff-back-lower.lua"
+          # And to its middle rows, from "Offer my self-buffs" down (#383).
+          { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowTabMiddle("buff-back")\n'; } \
+            > "$states/tab-buff-back-middle.lua"
           # The walkthrough at each step shot, taken again from Start here (#47).
           for step in $WALKTHROUGH_STEPS; do
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowWalkthrough("%s")\n' "$step"; } \
@@ -872,8 +930,8 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Every shot
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so a pass of 27 shots can take about 90 minutes in the
-        # worst case, and both passes together about 180. No shot starts
+        # clean-up, so a pass of 30 shots can take about 100 minutes in the
+        # worst case, and both passes together about 200. No shot starts
         # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
         # so the last one ends by about 4400 s with the probe: inside this
         # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a
@@ -964,6 +1022,9 @@ jobs:
             for tab in $OPTIONS_TABS; do
               shoot "options-$tab" --exec-lua "@/shot-lua/tab-$tab.lua"
             done
+            # The Buff Back tab scrolled to "Offer my self-buffs" (#383): the self-buffs, Who, the raid
+            # Blessings, the buff-mode switches and the top-up stepper, between the top and lower shots.
+            shoot options-buff-back-middle --exec-lua "@/shot-lua/tab-buff-back-middle.lua"
             # The Buff Back tab scrolled to "Use group versions" (#254): the rows below the turn-on triggers.
             shoot options-buff-back-lower --exec-lua "@/shot-lua/tab-buff-back-lower.lua"
             # The Buff Thanks tab (#101), with the longest "Thank them with" choice.
@@ -984,11 +1045,14 @@ jobs:
             shoot button-alreadydone --exec-lua @/shot-lua/alreadydone.lua
             # A long reason the button shows (#270): wrapped whole, the button grown to hold it.
             shoot button-longreason --exec-lua @/shot-lua/longreason.lua
+            # A buff asked for in chat (#362): who asked, over "asked for Power Word: Fortitude".
+            shoot button-asked --exec-lua @/shot-lua/asked.lua
             # The General and Favour Ledger pages, filled with long names and
             # many entries, and the copy window as /friendly export opens it (#52).
             shoot options-general --exec-lua @/shot-lua/page-general.lua
             shoot options-ledger --exec-lua @/shot-lua/page-ledger.lua
-            # Start here, and the walkthrough at each step in WALKTHROUGH_STEPS (#47).
+            # Start here, and the walkthrough at each step in WALKTHROUGH_STEPS (#47), the last as
+            # What's new shows it to a returning player (#362).
             shoot options-start --exec-lua @/shot-lua/page-start.lua
             for step in $WALKTHROUGH_STEPS; do
               shoot "walkthrough-$step" --exec-lua "@/shot-lua/walkthrough-$step.lua"
@@ -1007,7 +1071,10 @@ jobs:
           done
           ls -laq "$RUNNER_TEMP/shots" "$RUNNER_TEMP/shot-logs" 2>&1 | shown
           for log in "$RUNNER_TEMP"/shot-logs/*.log; do
-            echo "::group::$(basename "$log")"; tail -60 "$log" | shown; echo "::endgroup::"
+            # Named by shoot(), but printed only once plain (#153, #367).
+            name=$(basename "$log")
+            case "$name" in *[!A-Za-z0-9._-]*) echo "skipping a shot log with an unsafe name"; continue ;; esac
+            echo "::group::$name"; tail -60 "$log" 2>&1 | shown; echo "::endgroup::"
           done
 
       # A shot could plant a link in its folder, and the upload would read

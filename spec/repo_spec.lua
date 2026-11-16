@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #360, #345
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #360, #345, #308, #343, #367, #371, #375
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -557,10 +557,12 @@ end
 describe("UI simulator workflow", function()
     local path = ".github/workflows/ui-sim.yml"
     local text, jobs, order
-    -- scripts/data/forever-spells.json's SHA-256: the one the simulator's own
-    -- spec records for its 72-spell selection (#209, #160).
-    -- spec/bufftable_spec.lua checks the file has it.
-    local COMMITTED_SPELLS_SHA256 = "13122873d813481e85815946ddf964068b04132d4d2b2b44ba5ce61491595ad0"
+    -- scripts/data/forever-spells-extended.json's SHA-256: upstream's
+    -- selection with our self-buffs' IDs added (#44, #343), which the
+    -- simulator's download must match byte for byte. docs/forever-facts.md
+    -- records it, and a test below checks the file has it.
+    local COMMITTED_SPELLS = "scripts/data/forever-spells-extended.json"
+    local COMMITTED_SPELLS_SHA256 = "43d0cfa0a207b9fc0bc9ae5ea76b70b3d2ecb8779f4b33b92e288ce45d7cc45b"
 
     setup(function()
         text = withoutComments(wow.readFile(path))
@@ -705,9 +707,13 @@ describe("UI simulator workflow", function()
                 { { ".pkgmeta" }, "true" },
                 { { "scripts/package.sh" }, "true" },
                 { { "scripts/ui-sim-harness.lua" }, "true" },
-                -- The spell data check and the copy it checks against (#160).
+                -- The spell data check, the copy it checks against (#160) and
+                -- the spell IDs added to the simulator's list (#343).
                 { { "scripts/sim-spell-check.py" }, "true" },
-                { { "scripts/data/forever-spells.json" }, "true" },
+                { { "scripts/data/forever-spells-extended.json" }, "true" },
+                { { "scripts/data/forever-spell-ids-extra.txt" }, "true" },
+                -- Upstream's own selection: the simulator no longer reads it (#343).
+                { { "scripts/data/forever-spells.json" }, "false" },
                 { { "scripts/other.sh", "Makefile" }, "false" },
                 { { "docs/new.md", "spec/x_spec.lua", "CHANGELOG.md" }, "false" },
                 -- Only the root files count, not a same-named file in a folder.
@@ -914,7 +920,7 @@ describe("UI simulator workflow", function()
             "Blizzard's version isn't checked against the simulator's own pin")
         assert.is_truthy(text:find('manifest="$RUNNER_TEMP/sim/data/blizzard-ui-files/$SIM_PROFILE.txt"', 1, true),
             "the file list isn't the profile's")
-        assert.is_truthy(text:find('diff -u <(LC_ALL=C sort "$manifest")', 1, true), "the tree isn't checked against the file list")
+        assert.is_truthy(text:find('diff -u <(LC_ALL=C sort "$manifest" 2>&1)', 1, true), "the tree isn't checked against the file list")
     end)
 
     -- Building and running the simulator have no network. Two containers
@@ -1197,12 +1203,15 @@ describe("UI simulator workflow", function()
             -- build step, even a literal flag, misses the cache.
             assert.is_truthy(keyStep.text:find("hashFiles('.github/workflows/ui-sim.yml')", 1, true), "the key leaves out the workflow file's hash")
             assert.is_truthy(keyStep.text:find('"workflow=$WORKFLOW_HASH"', 1, true), "the workflow hash isn't in the key's inputs")
-            -- So are the spell data check and the copy it checks against (#160).
-            assert.is_truthy(keyStep.text:find("SPELL_CHECK_HASH: ${{ hashFiles('scripts/sim-spell-check.py', 'scripts/data/forever-spells.json') }}", 1, true),
-                "the key leaves out the spell data check's files")
-            assert.is_truthy(keyStep.text:find('"spell-check=$SPELL_CHECK_HASH"', 1, true), "the spell data check isn't in the key's inputs")
+            -- So are the spell data check, the copy it checks against (#160)
+            -- and the spell IDs the build adds to the simulator's list (#343).
+            assert.is_truthy(keyStep.text:find("SPELL_FILES_HASH: ${{ hashFiles('scripts/sim-spell-check.py', "
+                .. "'scripts/data/forever-spells-extended.json', 'scripts/data/forever-spell-ids-extra.txt') }}", 1, true),
+                "the key leaves out the spell data check's files or the added spell IDs")
+            assert.is_truthy(keyStep.text:find('"spell-files=$SPELL_FILES_HASH"', 1, true), "the spell files aren't in the key's inputs")
             assert.is_truthy(build.text:find("sparse-checkout: |\n            .github/workflows/ui-sim.yml\n            scripts/sim-spell-check.py\n"
-                .. "            scripts/data/forever-spells.json\n", 1, true), "the files the key hashes aren't the ones checked out")
+                .. "            scripts/data/forever-spells-extended.json\n            scripts/data/forever-spell-ids-extra.txt\n", 1, true),
+                "the files the key hashes aren't the ones checked out")
             assert.is_truthy(build.text:find("sparse-checkout-cone-mode: false", 1, true), "the sparse checkout reads the path as a folder")
             local checkoutAt, keyAt
             for i, step in ipairs(build.steps) do
@@ -1251,7 +1260,7 @@ describe("UI simulator workflow", function()
         it("really changes the key when any one input changes (black)", function()
             local base = { SIM_COMMIT = "a", BLIZZARD_UI_COMMIT = "b", BUILD_BASE = "c", BUILD_PACKAGES = "d",
                 BUILD_FEATURES = "e", BUILD_STRIP = "f", WORKFLOW_HASH = "g", SIM_PROFILE = "h", BLIZZARD_UI_VERSION = "i",
-                BUILD_TOOLCHAIN = "j", SPELL_DATA_HOSTS = "k l", SPELL_DATA_SHA256 = "m", SPELL_CHECK_HASH = "n" }
+                BUILD_TOOLCHAIN = "j", SPELL_DATA_HOSTS = "k l", SPELL_DATA_SHA256 = "m", SPELL_FILES_HASH = "n" }
             local function key(env)
                 local r = runBlock(keyStep, env)
                 assert.is_true(r.status == 0 or r.status == true, "the key step failed: " .. r.log)
@@ -1259,7 +1268,7 @@ describe("UI simulator workflow", function()
                 assert.is_truthy(hash and #hash == 64, "the key isn't a 64-character hash: " .. r.out)
                 return hash
             end
-            for _, hash in ipairs({ "WORKFLOW_HASH", "SPELL_CHECK_HASH" }) do
+            for _, hash in ipairs({ "WORKFLOW_HASH", "SPELL_FILES_HASH" }) do
                 local empty = {}
                 for k, v in pairs(base) do empty[k] = v end
                 empty[hash] = ""
@@ -1285,7 +1294,7 @@ describe("UI simulator workflow", function()
                 if step.text:find("Check the staged files", 1, true) then check = step end
             end
             -- The spell data is our committed copy, so the check against it passes.
-            local committed = wow.ROOT .. "/scripts/data/forever-spells.json"
+            local committed = wow.ROOT .. "/" .. COMMITTED_SPELLS
             local function tree(dir)
                 local o = dir .. "/ui-sim-build"
                 assert.is_true(os.execute("mkdir -p '" .. o .. "/sim/Interface/AddOns/TestFramework' '" .. o
@@ -1331,7 +1340,7 @@ describe("UI simulator workflow", function()
             for _, step in ipairs(build.steps) do
                 if step.text:find("Check the staged files", 1, true) then check = step end
             end
-            local committed = wow.ROOT .. "/scripts/data/forever-spells.json"
+            local committed = wow.ROOT .. "/" .. COMMITTED_SPELLS
             local function run(change, hash)
                 return runBlock(check, { SIM_PROFILE = "wowforever", SPELL_DATA_SHA256 = hash }, function(dir)
                     local o = dir .. "/ui-sim-build"
@@ -1379,11 +1388,117 @@ describe("UI simulator workflow", function()
                 if step.text:find("Check the staged files", 1, true) then check = step end
             end
             local hashAt = check.text:find('if [ "$actual" != "$SPELL_DATA_SHA256" ]; then', 1, true)
-            local readAt = check.text:find('python3 -I scripts/sim-spell-check.py "$spells" scripts/data/forever-spells.json', 1, true)
+            local readAt = check.text:find('python3 -I scripts/sim-spell-check.py "$spells" scripts/data/forever-spells-extended.json', 1, true)
             assert.is_truthy(hashAt and readAt and hashAt < readAt, "the spell data is read before its hash is checked")
             assert.is_truthy(check.text:find('spells="$out/sim/spells/$SIM_PROFILE/spells.json"', 1, true), "the checked file isn't the staged one")
             -- Nothing else in the workflow reads it on the runner.
             assert.are.equal(1, select(2, text:gsub("sim%-spell%-check%.py \"", "")), "the row check runs somewhere else too")
+        end)
+
+        -- #343: the pin is our committed extraction's hash, so the simulator's
+        -- download must be that file, byte for byte.
+        it("pins the hash of the committed extraction the buff table comes from (black)", function()
+            assert.are.equal(COMMITTED_SPELLS_SHA256, text:match('\n%s*SPELL_DATA_SHA256: "(%x+)"\n'), "the pin isn't the committed file's hash")
+            local p = io.popen("sha256sum '" .. wow.ROOT .. "/" .. COMMITTED_SPELLS .. "'")
+            local actual = p:read("*l"):match("^(%x+) ")
+            p:close()
+            assert.are.equal(COMMITTED_SPELLS_SHA256, actual, COMMITTED_SPELLS .. " changed without the pin")
+        end)
+
+        -- #343: our self-buffs' IDs, appended to upstream's list before the
+        -- build, with the step's own shell run on a copy of each list.
+        describe("adds our self-buff spell IDs to the simulator's list (#343)", function()
+            local step, stepIndex
+            local EXTRA = "scripts/data/forever-spell-ids-extra.txt"
+
+            setup(function()
+                for i, candidate in ipairs(build.steps) do
+                    if candidate.text:find("name: Add our self-buff spell IDs", 1, true) then step, stepIndex = candidate, i end
+                end
+            end)
+
+            -- Runs the step in a folder holding upstream's list (one ID a
+            -- line, as given) and ours; change(dir) can alter either first.
+            local function run(upstream, ours, change)
+                -- In the folder, where the step finds scripts/data as in the checkout.
+                local inDir = { text = step.text:gsub("run: |\n", 'run: |\n          cd "$RUNNER_TEMP"\n', 1) }
+                return runBlock(inDir, {}, function(dir)
+                    assert.is_true(os.execute("mkdir -p '" .. dir .. "/sim/data' '" .. dir .. "/scripts/data'") == 0)
+                    writeText(dir .. "/sim/data/forever-spell-ids.txt", upstream)
+                    writeText(dir .. "/" .. EXTRA, ours)
+                    if change then change(dir) end
+                end)
+            end
+            local function ok(r) return r.status == 0 or r.status == true end
+
+            it("runs before the build, on a miss, and runs nothing from the simulator (black)", function()
+                assert.is_truthy(step, "no step adds our spell IDs")
+                local function at(fragment)
+                    for i, candidate in ipairs(build.steps) do
+                        if candidate.text:find(fragment, 1, true) then return i end
+                    end
+                end
+                assert.is_true(at("Fetch the simulator") < stepIndex and stepIndex < at("Download the simulator's locked")
+                    and stepIndex < at("Build the simulator"), "the IDs aren't added after the fetch and before the build")
+                assert.is_truthy(step.text:find("if: steps.sim-cache.outputs.cache-hit != 'true'", 1, true), "the step runs on a hit")
+                assert.is_falsy(step.text:find("docker", 1, true), "the step runs a container")
+                assert.is_falsy(step.text:find("continue%-on%-error") or step.text:find("||", 1, true), "a failure can be passed over")
+                -- It reads our list from the checkout and writes only upstream's copy.
+                assert.is_truthy(step.text:find("extra=" .. EXTRA .. "\n", 1, true), "it doesn't read our committed list")
+                assert.is_truthy(step.text:find('list="$RUNNER_TEMP/sim/data/forever-spell-ids.txt"', 1, true), "it doesn't change upstream's list")
+                assert.is_truthy(step.text:find('done < "$extra" >> "$list"\n', 1, true), "our list isn't appended")
+                assert.are.equal(1, select(2, step.text:gsub(">>", "")), "the step writes somewhere else too")
+            end)
+
+            it("appends our committed list to upstream's, so the build reads both (white)", function()
+                local ours = wow.readFile(EXTRA)
+                -- The step, then the list as the build will read it.
+                local shown = { text = step.text:gsub("run: |\n", 'run: |\n          cd "$RUNNER_TEMP"\n', 1)
+                    .. '\n          echo "LIST"; cat "$list"\n' }
+                local r = runBlock(shown, {}, function(dir)
+                    assert.is_true(os.execute("mkdir -p '" .. dir .. "/sim/data' '" .. dir .. "/scripts/data'") == 0)
+                    writeText(dir .. "/sim/data/forever-spell-ids.txt", "1\n2\n")
+                    writeText(dir .. "/" .. EXTRA, ours)
+                end)
+                assert.is_true(ok(r), "the committed list is refused: " .. r.log)
+                local count = select(2, ours:gsub("\n", ""))
+                assert.is_true(count > 0, "the committed list is empty")
+                assert.is_truthy(r.log:find("added " .. count .. " spell IDs to upstream's 2\n", 1, true), r.log)
+                assert.are.equal("1\n2\n" .. ours, r.log:match("LIST\n(.*)$"), "the list the build reads isn't upstream's, then ours")
+            end)
+
+            it("refuses a line that isn't a spell ID, a repeated ID, or a list it can't safely join (black)", function()
+                local good = "10\n20\n"
+                assert.is_true(ok(run("1\n2\n", good)), "a good pair of lists is refused")
+                local bad = {
+                    { "1\n2\n", "10\nabc\n", "a word" },
+                    { "1\n2\n", "10\n 20\n", "a leading space" },
+                    { "1\n2\n", "10\n20 \n", "a trailing space" },
+                    { "1\n2\n", "10\r\n20\n", "a carriage return" },
+                    { "1\n2\n", "10\n-20\n", "a negative number" },
+                    { "1\n2\n", "10\n020\n", "a leading zero" },
+                    { "1\n2\n", "10\n1234567890\n", "ten digits" },
+                    { "1\n2\n", "10\n\n20\n", "a blank line" },
+                    { "1\n2\n", "10\n20", "our last line not ended" },
+                    { "1\n2", "10\n20\n", "upstream's last line not ended" },
+                    { "1\n2\n", "", "an empty list of ours" },
+                    { "", "10\n", "an empty list of upstream's" },
+                    { "1\n2\n", "10\n10\n", "an ID twice in ours" },
+                    { "1\n2\n", "10\n2\n", "an ID upstream already lists" },
+                }
+                for _, case in ipairs(bad) do
+                    local r = run(case[1], case[2])
+                    assert.is_false(ok(r), "passes with " .. case[3])
+                end
+                local links = {
+                    function(dir) os.execute("rm '" .. dir .. "/" .. EXTRA .. "' && ln -s ../../sim/data/forever-spell-ids.txt '" .. dir .. "/" .. EXTRA .. "'") end,
+                    function(dir) os.execute("cd '" .. dir .. "/sim/data' && mv forever-spell-ids.txt real && ln -s real forever-spell-ids.txt") end,
+                    function(dir) os.execute("rm '" .. dir .. "/" .. EXTRA .. "'") end,
+                }
+                for i, change in ipairs(links) do
+                    assert.is_false(ok(run("1\n2\n", good, change)), "passes with a link or missing file, case " .. i)
+                end
+            end)
         end)
 
         it("restores only the exact key, never a prefix (black)", function()
@@ -1403,7 +1518,7 @@ describe("UI simulator workflow", function()
                 error("no step " .. fragment)
             end
             assert.is_truthy(restore.text:find("\n%s*id:%s*sim%-cache\n"), "the skip conditions read an id the restore step doesn't have")
-            for _, fragment in ipairs({ "Fetch the simulator", "Build a build image", "Download the simulator", "Build the simulator",
+            for _, fragment in ipairs({ "Fetch the simulator", "Add our self-buff spell IDs", "Build a build image", "Download the simulator", "Build the simulator",
                 "Download Forever's spell data", "Stage the simulator", "Save the staged" }) do
                 assert.is_true(find(fragment).skipped, fragment .. " runs on a cache hit")
             end
@@ -1435,12 +1550,12 @@ describe("UI simulator workflow", function()
         end)
     end)
 
-    -- #160: upstream's master of 2026-11-13, reviewed on #160 before the pin
-    -- moved (#154 moved it before). There's no published image at that
-    -- commit, and release binaries are never used, so the simulator job
+    -- #308: upstream's master of 2026-11-14, reviewed on #308 before the pin
+    -- moved (#154 and #160 moved it before). There's no published image at
+    -- that commit, and release binaries are never used, so the simulator job
     -- builds it and the others run that.
-    it("pins wow-ui-sim at the reviewed 936d5f5 and runs only the build made from it (black)", function()
-        assert.is_truthy(text:find("\n%s*SIM_COMMIT: 936d5f53841ee620384b7f05a0f8d5e861835c3d\n"),
+    it("pins wow-ui-sim at the reviewed 9c48956 and runs only the build made from it (black)", function()
+        assert.is_truthy(text:find("\n%s*SIM_COMMIT: 9c48956c9c85ddb345ebe4fd477ff1b63a8e0943\n"),
             "the simulator isn't pinned at the reviewed commit")
         assert.is_truthy(text:find("\n%s*BUILD_BASE: rust@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c%s"),
             "the build base isn't the reviewed digest")
@@ -2107,9 +2222,14 @@ describe("UI simulator workflow", function()
         -- Where shot and simulator output lives. shots on its own (a path
         -- starting shots/, ./shots, or shots as an argument) is the publish
         -- step's download folder in the workspace (#360).
+        -- $RUNNER_TEMP itself holds them all: as a whole word, or with a glob
+        -- below it ("$RUNNER_TEMP"/*), never a named file below it (#371).
         local SOURCES = { "%$report%f[^%w]", "%$RUNNER_TEMP/report", "%$RUNNER_TEMP/shots", "%$RUNNER_TEMP/shot%-logs",
             '"%$file"', '"%$log"', "%$RUNNER_TEMP/tree%-diff", "%$manifest", "%$ui%f[^%w]",
-            "%$RUNNER_TEMP/sim%f[^%w]", "%$pin%f[^%w]", "%f[%w]shots%f[^%w_-]" }
+            "%$RUNNER_TEMP/sim%f[^%w]", "%$pin%f[^%w]", "%f[%w]shots%f[^%w_-]",
+            "%$RUNNER_TEMP[\"'%)|]", "%$RUNNER_TEMP$", "%$RUNNER_TEMP%s+[^:%%#/^,@%s]", "%$RUNNER_TEMP/[\"']?[*?%[]",
+            -- And with a slash, or slash-dot, and nothing after (#410's testing review).
+            "%$RUNNER_TEMP/%.?[\"'%s%)|]", "%$RUNNER_TEMP/%.?$" }
         -- Commands that print the files they're given, or their names: diff
         -- and ls-tree print fetched content (#317); stat, the checksums, wc and
         -- du print names, and the rest print content (#360).
@@ -2232,20 +2352,20 @@ describe("UI simulator workflow", function()
         -- and the step's variables that hold one (#360).
         -- git subcommands that print what the fetched repositories hold (#317).
         local GIT_PRINTS = { "ls%-tree", "ls%-files", "show", "log", "status", "diff", "cat%-file", "ls%-remote", "grep" }
-        local function printsOutput(line, inTree, sources, bare)
-            sources = sources or SOURCES
-            bare = bare or line
-            if line:match("^%s*grep%s+%-q") then return false end
-            -- A read a $( ) keeps as digits or hex digits only prints nothing
-            -- a command can be made of (#173, #360's review): one pipeline
-            -- ending in the tr, so nothing in it escapes the tr. The tr sees
-            -- only stdout, so the reader's errors, which name its file, must be
-            -- thrown away (2>/dev/null) or sent down the pipe (2>&1); the
-            -- commands after it read only the pipe: no file, glob or command
-            -- runner of their own (#364's testing review).
-            -- (A word of its own: "$f"2>/dev/null is the argument "$f"2.)
-            local ERRORS = "%s2>%s*/dev/null%f[%s%z]"
-            local INTO_PIPE = "%s2>&1%f[%s%z]"
+        -- A reader's errors, which name its file, thrown away or sent down the
+        -- pipe with its output: each a word of its own ("$f"2>/dev/null is
+        -- the argument "$f"2).
+        local ERRORS = "%s2>%s*/dev/null%f[%s%z]"
+        local INTO_PIPE = "%s2>&1%f[%s%z]"
+        -- A read a $( ) keeps as digits or hex digits only prints nothing
+        -- a command can be made of (#173, #360's review): one pipeline
+        -- ending in the tr, so nothing in it escapes the tr. The tr sees
+        -- only stdout, so the reader's errors, which name its file, must be
+        -- thrown away (2>/dev/null) or sent down the pipe (2>&1); the
+        -- commands after it read only the pipe: no file, glob or command
+        -- runner of their own (#364's testing review).
+        -- The line with every such capture taken out.
+        local function withoutKept(line, sources)
             local function keep(inside)
                 local first, later = inside:match("^([^|]*)(.*)$")
                 if not (first:find(ERRORS) or first:find(INTO_PIPE)) then return nil end
@@ -2265,14 +2385,31 @@ describe("UI simulator workflow", function()
                 end
                 return ""
             end
-            local said = line:gsub("%$%(([^();]*)| tr %-cd '0%-9'%)", keep)
-                :gsub("%$%(([^();]*)| tr %-cd '0%-9a%-f'%)", keep)
+            return (line:gsub("%$%(([^();]*)| tr %-cd '0%-9'%)", keep):gsub("%$%(([^();]*)| tr %-cd '0%-9a%-f'%)", keep))
+        end
+
+        -- names: the step's variables that hold a name from a source, unchecked
+        -- (#367): echo and printf print them.
+        local function printsOutput(line, inTree, sources, bare, names)
+            sources = sources or SOURCES
+            bare = bare or line
+            if line:match("^%s*grep%s+%-q") then return false end
+            local said = withoutKept(line, sources)
             local quiet = plain(said)
             -- ($* and $? are parameters, not globs.)
             local globbed = bare:gsub("%$[*?#@]", ""):find("[*?]") ~= nil
             for _, name in ipairs(GLOB_PRINTERS) do
                 if globbed and line:find("%f[%w]" .. name .. "%f[%W]") and (inTree or namesOne(line, sources)) then
                     return true
+                end
+            end
+            -- echo or printf of a variable that holds a name from a source, or
+            -- a value made from one (#367): run outside a $( ), whose output
+            -- never reaches the log, wherever the variable is on the line.
+            if names and #names > 0 and namesOne(said, names) then
+                local outside = quiet:gsub("%$%b()", ""):gsub("`[^`]*`", "")
+                for _, name in ipairs(GLOB_PRINTERS) do
+                    if outside:find("%f[%w]" .. name .. "%f[%W]") then return true end
                 end
             end
             -- Readers that, run inside a fetched tree, print what it holds with
@@ -2451,7 +2588,40 @@ describe("UI simulator workflow", function()
         -- Words that can come before an assignment or a loop on its line (round 4).
         local LEADS = { ["then"] = true, ["do"] = true, ["else"] = true, ["elif"] = true, ["{"] = true, ["!"] = true,
             ["if"] = true, ["while"] = true, ["until"] = true }
-        local function capture(command, sources, temps)
+        -- The words a value or a loop's list holds outside quotes and
+        -- expansions, where a glob shows.
+        local function unquotedOf(value)
+            return (value:gsub("'[^']*'", ""):gsub('"[^"]*"', ""):gsub("%$%b()", ""):gsub("%${[^}]*}", ""))
+        end
+
+        -- A variable that holds a name from a source (#367): a loop's variable
+        -- over a glob of one, or over what a printing $( ) gives; a value made
+        -- with $( ) from a printing read; or any value made from such a
+        -- variable. A read kept as digits only holds no name. names maps
+        -- each such variable to true, or, once a safe-name case has checked
+        -- it, to the depth of the loop whose body it's checked for.
+        local function holdsNames(value, inTree, sources, names)
+            local unchecked = {}
+            for name, checked in pairs(names) do
+                if checked == true then unchecked[#unchecked + 1] = "%$" .. name .. "%f[^%w_]" end
+            end
+            local rest = withoutKept(value, sources)
+            -- A name made safe: every character outside letters, digits and
+            -- ._/- replaced, as the changes job does (tr -c 'A-Za-z0-9._/-' '?').
+            if rest:match("^\"?%$%(.*| tr %-c '[%w%._/%-]+' '[%w%._%-?]'%)\"?$") then return false end
+            if namesOne(rest, unchecked) then return true end
+            if unquotedOf(rest):find("[*?%[]") and (inTree or namesOne(rest, sources)) then return true end
+            for inside in rest:gmatch("%$(%b())") do
+                inside = inside:sub(2, -2)
+                if printsOutput(inside, inTree, sources, unquotedOf(inside)) then return true end
+            end
+            for inside in rest:gmatch("`([^`]*)`") do
+                if printsOutput(inside, inTree, sources, unquotedOf(inside)) then return true end
+            end
+            return false
+        end
+
+        local function capture(command, sources, temps, names, inTree)
             repeat
                 local before = command
                 local lead, after = command:match("^(%S+)%s+(.*)$")
@@ -2471,6 +2641,9 @@ describe("UI simulator workflow", function()
             if not name then name, value = command:match("^select%s+([%a_][%w_]*)%s+in%s+(.*)$") end
             if not name then return end
             local alias = "%$" .. name .. "%f[^%w_]"
+            if names then
+                if holdsNames(value, inTree, sources, names) then names[name] = true else names[name] = nil end
+            end
             local p = plain(value, true):gsub('"', "")
             -- ($RUNNER_TEMP as one word of several: t="$RUNNER_TEMP" n=60, for d in x "$RUNNER_TEMP", round 6.)
             if namesOne(value, sources) or p:match("^%$RUNNER_TEMP/?$") or p:match("^%$RUNNER_TEMP/?%s")
@@ -2484,7 +2657,7 @@ describe("UI simulator workflow", function()
                 local more = value:match('^"%$%b()"%s+(%S.*)$') or value:match("^%$%b()%s+(%S.*)$")
                     or value:match('^"[^"]*"%s+(%S.*)$') or value:match("^'[^']*'%s+(%S.*)$")
                     or value:match("^[^%s\"']+%s+(%S.*)$")
-                if more then capture(more, sources, temps) end
+                if more then capture(more, sources, temps, names, inTree) end
             end
         end
 
@@ -2530,7 +2703,8 @@ describe("UI simulator workflow", function()
         -- reaches the log (#356). A relative file doesn't count: in a fetched
         -- tree it could be a link to /dev/stdout (#360).
         local function toFile(command)
-            return command:find('%s>%s*"%$RUNNER_TEMP/') or command:find("%s>%s*/dev/null%s+2>&1") or command:find("&>%s*/dev/null")
+            return command:find('%s>>?%s*"%$RUNNER_TEMP/') or command:find("%s>%s*/dev/null%s+2>&1") or command:find("&>%s*/dev/null")
+                or command:find('&>>?%s*"%$RUNNER_TEMP/')
         end
 
         -- The lines of a step that print shot or simulator output without a
@@ -2541,23 +2715,103 @@ describe("UI simulator workflow", function()
         -- runner doesn't read for commands.
         -- startInside: the step starts in a folder that holds one, as the
         -- publish job's workspace holds its downloaded shots (#360's review).
+        -- The input a command reads: a file after <, a process
+        -- substitution's command after < <( ), or a string after <<<.
+        local function inputOf(command)
+            local substituted = command:match("<%s*<(%b())")
+            if substituted then return nil, substituted:sub(2, -2) end
+            local here = command:match("<<<%s*(%S+)")
+            if here then return nil, nil, here end
+            return command:match("[^<>&%d]<%s*([^%s<(][^%s]*)") or command:match("^<%s*([^%s<(][^%s]*)")
+        end
+
+        -- A safe-name check on one line (#367): case "$x" in *[!A-Za-z0-9._-]*)
+        -- ... ;; esac, whose branch runs continue, exit or return as a command
+        -- of its own: not a word in a message or a name such as exit_code
+        -- (#410's testing review). Returns x.
+        local SKIPS = { ["continue"] = true, ["exit"] = true, ["return"] = true }
+        local function checkedName(line)
+            local name, branch = line:match('^%s*case%s+"?%$([%a_][%w_]*)"?%s+in%s+%*%[!A%-Za%-z0%-9%._%-%]%*%)(.-);;%s*esac%s*$')
+            if not name then return nil end
+            local bare = branch:gsub("'[^']*'", "''"):gsub('"[^"]*"', '""')
+            for command in (bare:gsub("&&", ";"):gsub("||", ";"):gsub("[{}]", ";") .. ";"):gmatch("([^;]*);") do
+                local word = command:match("^%s*(%S+)")
+                if word and SKIPS[word] then return name end
+            end
+        end
+
+        -- The variables a read sets: its words after its options.
+        local function readVariables(command)
+            local list = {}
+            for word in (command:match("^read%s+(.*)$") or ""):gmatch("%S+") do
+                if word:match("^[%a_][%w_]*$") then list[#list + 1] = word end
+            end
+            return list
+        end
+
         local function scan(stepText, startInside)
             local problems, seen, reported = {}, 0, {}
             local block, inFunction
             local sources, temps = {}, {}
+            -- Variables holding a name from a source (#367), and how deep in
+            -- loops the line is, for a safe-name check that lasts its loop.
+            local names, loops = {}, 0
+            -- How many if and case blocks are open inside the innermost loop
+            -- (or the step): a check inside one may not run (#410's review).
+            local nest = { 0 }
+            local function unchecked()
+                local list = {}
+                for name, checked in pairs(names) do
+                    if checked == true then list[#list + 1] = "%$" .. name .. "%f[^%w_]" end
+                end
+                return list
+            end
             for _, source in ipairs(SOURCES) do sources[#sources + 1] = source end
             local state = { inTree = startInside == true, blocks = 0, braces = {} }
             local carry
             -- Pipelines: the commands a | joins, judged together, across lines.
-            local pipeline, prints, from = {}, false, nil
-            local function check(command, line, filtered)
+            local pipeline, prints, from, leaks = {}, false, nil, false
+            -- Whether a printing command's errors stay out of the log: thrown
+            -- away, sent with its output (2>&1, |&, &>), and the same for a
+            -- printing process substitution in it (#375). docker logs and a
+            -- container in the foreground replay its stderr on their own.
+            local function errorsKept(piece)
+                local words = piece.text
+                -- echo and printf read no file, so their errors name none.
+                local command = stripped(words).command
+                local reads = not (command:match("^echo%f[%W]") or command:match("^printf%f[%W]"))
+                -- The command's own redirections, not those of a process
+                -- substitution in it (checked below).
+                local outer = words:gsub("[<>]%b()", "")
+                if reads and not (outer:find(ERRORS) or outer:find(INTO_PIPE) or piece.after == "|&" or outer:find("&>", 1, true)) then
+                    return false
+                end
+                -- 2>&1 sends errors where stdout goes at that point: before a
+                -- > to a file, that's still the log (cmd 2>&1 > file).
+                if reads and piece.after ~= "|" and piece.after ~= "|&" and not outer:find(ERRORS) and not outer:find("&>", 1, true) then
+                    local into, out = nil, nil
+                    for at in outer:gmatch("()%s2>&1%f[%s%z]") do into = at end
+                    for at in outer:gmatch("()[^%d&>]>>?%s*[^&%s]") do out = at end
+                    if into and out and into < out then return false end
+                end
+                for body in words:gmatch("[<>](%b())") do
+                    local inside = body:sub(2, -2)
+                    local first = inside:match("^([^|]*)")
+                    if printsOutput(inside, state.inTree, sources, nil, unchecked())
+                        and not (first:find(ERRORS) or first:find(INTO_PIPE)) then
+                        return false
+                    end
+                end
+                return true
+            end
+            -- leaks: a reader in it sends its errors, which name its file, to
+            -- the log: shown and a file take only stdout (#375).
+            local function check(command, line, filtered, leaked)
                 seen = seen + 1
                 local problem
                 if not (filtered or toFile(command) or command:find("| shown", 1, true)) then
                     problem = "prints unfiltered output: " .. line
-                -- docker logs replays the container's stderr on its own.
-                elseif not filtered and not toFile(command) and command:find("docker %l+ ")
-                    and not command:find("2>&1 |", 1, true) then
+                elseif not filtered and leaked then
                     problem = "filters only stdout: " .. line
                 end
                 if problem and not reported[line] then
@@ -2613,34 +2867,96 @@ describe("UI simulator workflow", function()
                 elseif line:match("^%s*{%s*$") then
                     block = {}
                 elseif block and line:match("^%s*}") then
+                    -- The step summary isn't read for commands; the block's
+                    -- errors go there too (#375).
                     local filtered = line:match("^%s*} 2>&1 | shown%s*$")
-                        or line:match('^%s*} >> "%$GITHUB_STEP_SUMMARY"%s*$')
-                    for _, held in ipairs(block) do check(held[1], held[2], filtered ~= nil) end
+                        or line:match('^%s*} >> "%$GITHUB_STEP_SUMMARY" 2>&1%s*$')
+                    for _, held in ipairs(block) do check(held[1], held[2], filtered ~= nil, held[3]) end
                     block = nil
                 else
                     normal = true
                 end
-                for _, piece in ipairs(pieces) do
+                -- A safe-name check lasts the rest of its loop's body (#367).
+                local checked = checkedName(line)
+                if checked and names[checked] == true and nest[#nest] == 0 then names[checked] = loops end
+                for position, piece in ipairs(pieces) do
+                    local info = stripped(piece.text)
+                    for _, word in ipairs(info.opens) do
+                        if LOOPS[word] then
+                            loops = loops + 1
+                            nest[#nest + 1] = 0
+                        else
+                            nest[#nest] = nest[#nest] + 1
+                        end
+                    end
+                    local closer = piece.text:match("^(%a+)%f[^%w_]")
+                    if closer == "fi" or closer == "esac" then nest[#nest] = math.max(0, nest[#nest] - 1) end
+                    -- A read from a source: from a file or a printing command
+                    -- (< <( )) given to it, or to the loop it's the condition of.
+                    if info.command:match("^read%s") then
+                        local file, command, here = inputOf(piece.text)
+                        local looping = false
+                        for _, word in ipairs(info.opens) do
+                            if word == "while" or word == "until" then looping = true end
+                        end
+                        if not (file or command or here) and looping then
+                            local depth = 0
+                            for k = index, #all do
+                                for p, other in ipairs(piecesOf(all[k])) do
+                                    if k > index or p >= position then
+                                        for _, w in ipairs(stripped(other.text).opens) do
+                                            if LOOPS[w] then depth = depth + 1 end
+                                        end
+                                        if other.text:match("^done%f[^%w_]") then
+                                            depth = depth - 1
+                                            if depth == 0 and not (file or command or here) then
+                                                file, command, here = inputOf(other.text)
+                                                file = file or false
+                                            end
+                                        end
+                                    end
+                                end
+                                if file ~= nil or command then break end
+                            end
+                        end
+                        local held = unchecked()
+                        if (file and (namesOne(file, sources) or namesOne(file, held) or (state.inTree and not file:match('^"?%$'))))
+                            or (command and printsOutput(command, state.inTree, sources, unquotedOf(command), held))
+                            or (here and namesOne(here, held)) then
+                            for _, name in ipairs(readVariables(info.command)) do names[name] = true end
+                        end
+                    end
                     if normal then
                         pipeline[#pipeline + 1] = piece.text
                         from = from or line
-                        if printsOutput(piece.text, state.inTree, sources, piece.bare) then prints = true end
+                        if printsOutput(piece.text, state.inTree, sources, piece.bare, unchecked()) then
+                            prints = true
+                            if not errorsKept(piece) then leaks = true end
+                        end
                         if piece.after ~= "|" and piece.after ~= "|&" then
                             if prints then
                                 local command = table.concat(pipeline, " | ")
-                                if block then block[#block + 1] = { command, from } else check(command, from, false) end
+                                if block then block[#block + 1] = { command, from, leaks } else check(command, from, false, leaks) end
                             end
-                            pipeline, prints, from = {}, false, nil
+                            pipeline, prints, from, leaks = {}, false, nil, false
                         end
                     end
-                    capture(piece.text, sources, temps)
+                    capture(piece.text, sources, temps, names, state.inTree)
                     advance(state, piece, sources, temps)
+                    -- The end of a loop ends the checks made in its body.
+                    if piece.text:match("^done%f[^%w_]") then
+                        for name, depth in pairs(names) do
+                            if depth ~= true and depth >= loops then names[name] = true end
+                        end
+                        loops = math.max(0, loops - 1)
+                        if #nest > 1 then nest[#nest] = nil end
+                    end
                 end
                 local last = pieces[#pieces]
                 carry = last and (last.after == "&&" or last.after == "||" or last.after == "|" or last.after == "|&")
                     and last.after or nil
             end
-            if prints then check(table.concat(pipeline, " | "), from, false) end
+            if prints then check(table.concat(pipeline, " | "), from, false, leaks) end
             if block then problems[#problems + 1] = "a { block that never ends" end
             return problems, seen
         end
@@ -3066,6 +3382,195 @@ describe("UI simulator workflow", function()
                 assert.are.same({}, (scan(step('for d in a b; do\n  ls\ndone\ncd "$ui"'))))
                 assert.are.equal(1, #scan(step('for d in a b; do ls; cd "$ui"; done')))
                 assert.are.same({}, (scan(step('ls; cd "$ui"'))))
+            end)
+        end)
+
+        -- #367, #371, #375: the gaps #364's reviews found in the scan. Each is
+        -- held to what a workflow author might plausibly write.
+        describe("closes the scan's next gaps (#367, #371, #375)", function()
+            local function step(body) return "run: |\n  " .. body:gsub("\n", "\n  ") .. "\n" end
+            local function publishStep()
+                for _, candidate in ipairs(jobs["publish-screenshots"].steps) do
+                    if candidate.text:find("Commit the PNGs", 1, true) then return candidate.text end
+                end
+            end
+
+            -- #367: a shot's file name can carry :: or ##[, so echo and printf
+            -- of a name from a source reach the log like any reader.
+            it("flags echo and printf of a variable that holds a name from a source, or a value made from one (red)", function()
+                for _, body in ipairs({
+                    'for f in shots/*.png; do echo "copying $f"; done',
+                    'for f in shots/*.png; do\n  printf \'%s\\n\' "$f"\ndone',
+                    'for f in shots/*.png; do\n  name=$(basename "$f")\n  echo "skipping unsafe name: $name"\ndone',
+                    'for f in shots/*.png; do\n  x="$f"\n  echo "$x"\ndone',
+                    'for f in shots/*.png; do echo "found ${f%.png}"; done',
+                    'for d in "$ui"/Interface/AddOns/*; do echo "$d"; done',
+                    'for f in "$RUNNER_TEMP"/shot-logs/*.log; do echo "::group::$(basename "$f")"; done',
+                    'while IFS= read -r f; do echo "$f"; done < <(ls "$RUNNER_TEMP/shots")',
+                    'while read -r line; do\n  echo "$line"\ndone < "$RUNNER_TEMP/shot-logs/a.log"',
+                    'read -r first < "$pin"\necho "$first"',
+                    'cd "$ui"\nfor f in *; do echo "$f"; done',
+                }) do
+                    assert.are.equal(1, #scan(step(body)), body)
+                end
+                -- A read into a $( ) is a problem of its own (its errors); the echo after it is another.
+                for _, body in ipairs({ 'names=$(ls shots)\necho "$names"', 'list=$(find "$RUNNER_TEMP/shots" -name "*.png")\necho "$list"' }) do
+                    local problems = scan(step(body))
+                    assert.are.equal(2, #problems, body)
+                    assert.is_truthy(problems[2]:find('echo "$', 1, true), problems[2])
+                end
+            end)
+
+            it("passes echo and printf of names filtered, kept as digits, made plain, or never from a source (white)", function()
+                for _, body in ipairs({
+                    'for f in shots/*.png; do echo "copying $f" 2>&1 | shown; done',
+                    'for f in shots/*.png; do echo "$f" >> "$RUNNER_TEMP/list.txt"; done',
+                    'n=$(ls shots 2>/dev/null | wc -l | tr -cd \'0-9\')\necho "$n shots"',
+                    'for f in shots/*.png; do\n  safe=$(printf \'%s\' "$f" | tr -c \'A-Za-z0-9._/-\' \'?\')\n  echo "$safe"\ndone',
+                    'for f in a b; do echo "$f"; done',
+                    'for size in $LAYOUT_SIZES; do echo "$size"; done',
+                    'f="$RUNNER_TEMP/spell-data.log"\necho "$f"',
+                    'for f in shots/*.png; do n=$(echo "$f"); done',
+                    'while read -r name try; do echo "$name"; done < "$RUNNER_TEMP/runs.txt"',
+                    'echo "$ui"',
+                }) do
+                    assert.are.same({}, (scan(step(body))), body)
+                end
+            end)
+
+            it("takes a safe-name case with continue, exit or return as a check, for the rest of its loop's body only (white, red)", function()
+                local function loop(check, after)
+                    return step('for f in shots/*.png; do\n  name=$(basename "$f")\n  ' .. check .. '\n  echo "copying $name"\ndone'
+                        .. (after and ("\n" .. after) or ""))
+                end
+                for _, branch in ipairs({ "continue", 'echo "unsafe"; continue', "exit 1", "return 1" }) do
+                    local check = 'case "$name" in *[!A-Za-z0-9._-]*) ' .. branch .. ' ;; esac'
+                    assert.are.same({}, (scan(loop(check))), branch)
+                    -- Past the loop's end, the name is unchecked again.
+                    assert.are.equal(1, #scan(loop(check, 'echo "last: $name"')), branch)
+                end
+                for _, check in ipairs({
+                    'case "$name" in *[!A-Za-z0-9._-]*) echo "unsafe" ;; esac',
+                    'case "$other" in *[!A-Za-z0-9._-]*) continue ;; esac',
+                    'case "$name" in *[!A-Za-z0-9._:-]*) continue ;; esac',
+                    ': no check',
+                    -- A skip only named, not run (#410's testing review).
+                    'case "$name" in *[!A-Za-z0-9._-]*) exit_code=1 ;; esac',
+                    'case "$name" in *[!A-Za-z0-9._-]*) echo "unsafe, cannot continue" ;; esac',
+                    'case "$name" in *[!A-Za-z0-9._-]*) echo "unsafe; exit 1 would end it" ;; esac',
+                    "case \"$name\" in *[!A-Za-z0-9._-]*) echo 'exit' ;; esac",
+                    'case "$name" in *[!A-Za-z0-9._-]*) returned=1 ;; esac',
+                    -- A check that may not run: inside an if.
+                    'if [ -n "$strict" ]; then\n    case "$name" in *[!A-Za-z0-9._-]*) continue ;; esac\n  fi',
+                }) do
+                    assert.are.equal(1, #scan(loop(check)), check)
+                end
+                -- After a separator, or with a loop count, it runs.
+                for _, check in ipairs({ 'case "$name" in *[!A-Za-z0-9._-]*) bad=1 && continue ;; esac',
+                    'case "$name" in *[!A-Za-z0-9._-]*) { echo "unsafe"; continue; } ;; esac',
+                    'case "$name" in *[!A-Za-z0-9._-]*) continue 1 ;; esac',
+                    'if [ -n "$x" ]; then :; fi\n  case "$name" in *[!A-Za-z0-9._-]*) continue ;; esac' }) do
+                    assert.are.same({}, (scan(loop(check))), check)
+                end
+            end)
+
+            it("passes the publish step's real loop, and fails it without its safe-name case or that case's continue (white, red)", function()
+                local real = publishStep()
+                assert.is_truthy(real, "no publish step")
+                assert.are.same({}, (scan(real, true)))
+                local caseLine = '\n%s*case "%$name" in %*%[!A%-Za%-z0%-9%._%-%]%*%) echo "skipping a file with an unsafe name"; continue ;; esac\n'
+                assert.is_truthy(real:find(caseLine), "the publish loop's case isn't where this test looks")
+                assert.is_true(#scan((real:gsub(caseLine, "\n", 1)), true) > 0, "the step passes without its case")
+                local noContinue = real:gsub('(echo "skipping a file with an unsafe name");( continue)', "%1", 1)
+                assert.is_true(#scan(noContinue, true) > 0, "the step passes with a case that doesn't skip the file")
+            end)
+
+            -- #371: $RUNNER_TEMP holds every source, so it is one itself, unless
+            -- the path names a file below it.
+            it("flags $RUNNER_TEMP itself, or a glob below it, as a reader's argument or a loop's list (red)", function()
+                for _, body in ipairs({
+                    'ls -R "$RUNNER_TEMP"',
+                    'ls "$RUNNER_TEMP"/*',
+                    "find \"$RUNNER_TEMP\" -name '*.log'",
+                    "find \"$RUNNER_TEMP\" -name '*.log' -exec tail {} +",
+                    'ls ${RUNNER_TEMP}',
+                    'ls $RUNNER_TEMP -la',
+                    'cat "$RUNNER_TEMP/"*.log',
+                    'du -a "$RUNNER_TEMP"',
+                    -- With a slash, or slash-dot, and nothing after (#410's testing review).
+                    'ls -la "$RUNNER_TEMP/"',
+                    'ls -la "$RUNNER_TEMP"/',
+                    'ls -la $RUNNER_TEMP/',
+                    'ls -R "${RUNNER_TEMP}/"',
+                    "find \"$RUNNER_TEMP/\" -name '*.log'",
+                    'ls -la "$RUNNER_TEMP/."',
+                }) do
+                    assert.are.equal(1, #scan(step(body)), body)
+                    assert.are.same({}, (scan(step(body .. " 2>&1 | shown"))), body)
+                end
+                -- A loop over it makes its variable one.
+                assert.are.equal(1, #scan(step('for d in "$RUNNER_TEMP"/*; do ls "$d"; done')))
+                assert.are.same({}, (scan(step('for d in "$RUNNER_TEMP"/*; do ls "$d" 2>&1 | shown; done'))))
+            end)
+
+            it("passes a named file below $RUNNER_TEMP, and the workflow's own reads of them (white)", function()
+                for _, body in ipairs({
+                    'head -c 20000 "$RUNNER_TEMP/spell-data.log" 2>&1 | shown',
+                    'grep "^x 2 " "$RUNNER_TEMP/runs.txt"',
+                    '[ -f "$RUNNER_TEMP/runs.txt" ] || exit 0',
+                    'cat "${RUNNER_TEMP:?}/build.log"',
+                    'mkdir -p "$RUNNER_TEMP/report"',
+                    'echo "$RUNNER_TEMP"',
+                    'cd "$RUNNER_TEMP_X"\nls',
+                }) do
+                    assert.are.same({}, (scan(step(body))), body)
+                end
+            end)
+
+            -- #375: a pipe and a file take only stdout; a reader's errors,
+            -- which name its file, go to the log unless sent along.
+            it("flags a reader into shown, a file or the summary whose errors go to the log (red)", function()
+                for _, body in ipairs({
+                    'cat "$ui/x" | shown',
+                    'head -n 5 "$ui/x" | head -c 100 | shown',
+                    'tail -60 "$log" | shown',
+                    'cat "$ui/x" > "$RUNNER_TEMP/out"',
+                    'cat "$ui/x" 2>&1 > "$RUNNER_TEMP/out"',
+                    'diff <(cat "$ui/x") y > "$RUNNER_TEMP/d" 2>&1',
+                    'docker logs x | shown',
+                    '{\n  cat "$ui/x"\n} >> "$GITHUB_STEP_SUMMARY"',
+                    'cd "$ui"\nls | shown',
+                }) do
+                    assert.are.equal(1, #scan(step(body)), body)
+                end
+            end)
+
+            it("passes a reader into shown or a file with its errors sent along or thrown away (white)", function()
+                for _, body in ipairs({
+                    'cat "$ui/x" 2>&1 | shown',
+                    'cat "$ui/x" 2>/dev/null | shown',
+                    'cat "$ui/x" |& shown',
+                    'head -n 5 "$ui/x" 2>&1 | head -c 100 | shown',
+                    'cat "$ui/x" > "$RUNNER_TEMP/out" 2>&1',
+                    'cat "$ui/x" &> "$RUNNER_TEMP/out"',
+                    'diff <(cat "$ui/x" 2>&1) y > "$RUNNER_TEMP/d" 2>&1',
+                    '{\n  cat "$ui/x"\n} >> "$GITHUB_STEP_SUMMARY" 2>&1',
+                    '{\n  cat "$ui/x"\n} 2>&1 | shown',
+                    'for f in shots/*.png; do echo "$f" | shown; done',
+                }) do
+                    assert.are.same({}, (scan(step(body))), body)
+                end
+            end)
+
+            it("fails the real workflow when a read into shown loses its 2>&1 (red)", function()
+                local reports
+                for _, candidate in ipairs(jobs["ui-sim"].steps) do
+                    if candidate.text:find("Show the reports in the log", 1, true) then reports = candidate.text end
+                end
+                assert.is_truthy(reports and reports:find('head -c 60000 "$file" 2>&1 | shown', 1, true), "the reports step isn't where this test looks")
+                assert.are.same({}, (scan(reports)))
+                local leaky = reports:gsub('head %-c 60000 "%$file" 2>&1 | shown', 'head -c 60000 "$file" | shown', 1)
+                assert.are.same({ 'filters only stdout:             head -c 60000 "$file" | shown' }, (scan(leaky)))
             end)
         end)
 
