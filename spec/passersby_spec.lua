@@ -871,6 +871,27 @@ describe("Passers-by (#39)", function()
             end
         end)
 
+        it("a /reload in a fight beside a fire doesn't take that fire as gained when the fight ends", function()
+            bootAuto()
+            stranger()
+            wearFire()
+            wow.enterCombat()
+            wow.state.aurasRestricted = true
+            wow.reloadInPlace(true)
+            wow.state.aurasRestricted = false
+            wow.fire("UNIT_AURA", "player", wow.secret({}))
+            wow.leaveCombat()
+            assert.is_false(ns.BuffMode.IsOn(), "it may have been there all along")
+            -- Once a read has worked, a fire added later counts.
+            wow.enterCombat()
+            wearFire(81)
+            local cozy = wow.state.playerAuras[#wow.state.playerAuras]
+            cozy.spellId = 7353
+            wow.fire("UNIT_AURA", "player", wow.secret({}))
+            wow.leaveCombat()
+            assert.is_true(ns.BuffMode.IsAuto(), "a second fire, added in the next fight")
+        end)
+
         it("a fire you zone in beside is noted by the full update, so its refresh isn't new", function()
             bootAuto()
             stranger()

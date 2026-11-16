@@ -82,8 +82,10 @@ local fireMode = false    -- the buff mode a trigger turned on counts passers-by
 -- The campfire auras you wear (#39), as the updates and reads saw them:
 -- { [auraInstanceID] = spell ID }. unsure: an update couldn't be read (in a
 -- fight they come restricted), so the next look reads your aura list once:
--- at once out of a fight, else as the fight ends.
-local fireSeen = { auras = {}, unsure = true }
+-- at once out of a fight, else as the fight ends. known: a read of your
+-- aura list has worked since the login, so the remembered auras are all of
+-- yours; until then, the first read only notes what's there.
+local fireSeen = { auras = {}, unsure = true, known = false }
 local Resync -- below: that one read of your aura list
 
 -- Buff Back's settings, read only. A section lost mid-session reads as an
@@ -575,7 +577,7 @@ function Auto.OnEnteringWorld(isLogin, isReload)
     pulled, deathSeen, pendingWhy, pendingInside, insideWait, joinedAt = false, false, nil, nil, false, nil
     lastMissing, groupUnsure, pendingFire = nil, false, nil
     -- What you wear at a login was there already: noted, not added.
-    fireSeen.auras, fireSeen.unsure = {}, true
+    fireSeen.auras, fireSeen.unsure, fireSeen.known = {}, true, false
     Resync(false)
     ns.GroupBuffs.EndRound()
     NoteWhoIsDead()
@@ -708,7 +710,10 @@ function Resync(announce)
     local now = ReadFireAuras()
     if not now then return end
     local before = SpellsOf(fireSeen.auras)
-    fireSeen.auras, fireSeen.unsure = now, false
+    -- A login whose read failed (a /reload in a fight): what the first read
+    -- that works finds may have been there all along.
+    if not fireSeen.known then announce = false end
+    fireSeen.auras, fireSeen.unsure, fireSeen.known = now, false, true
     local added = false
     for _, id in pairs(now) do
         if not before[id] then added = true end
