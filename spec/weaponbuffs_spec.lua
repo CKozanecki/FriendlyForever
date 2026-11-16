@@ -599,6 +599,21 @@ describe("Weapon buffs", function()
             assert.are.equal(1643, wow.enchantOn(16).id)
         end)
 
+        it("counts refusals in a row for one weapon and kind only", function()
+            boot({ main = "sharpening", items = { [W.denseSharpeningStone] = 5, [W.brilliantWizardOil] = 5 },
+                before = function(s) s.equipped[16] = wow.GEAR.mace end })
+            press() -- a sharpening stone on a mace: refused once
+            ns.db.buffBack.weaponMain = "wizardOil"
+            wow.state.weaponRefusal = "Can't do that right now."
+            wow.advance(ns.WeaponBuffs.HELD_BACK_SECONDS + 1)
+            refresh()
+            press() -- the oil, refused once too: not twice for the same kind
+            wow.state.weaponRefusal = nil
+            wow.advance(ns.WeaponBuffs.HELD_BACK_SECONDS + 1)
+            refresh()
+            assert.are.equal("/use item:20749\n/use 16", macro())
+        end)
+
         it("forgets the refusals when the kind changes", function()
             boot({ main = "sharpening", items = { [W.denseSharpeningStone] = 5, [W.denseWeightstone] = 5 },
                 before = function(s) s.equipped[16] = wow.GEAR.mace end })
