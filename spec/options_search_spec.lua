@@ -1,4 +1,4 @@
--- Spec: #48, #47, #208, #274, #179, #408
+-- Spec: #48, #47, #208, #274, #179, #408, #45
 -- Finding a setting: /friendly find <word>, the game's Settings search where
 -- the client has one, and the one table both read (OptionsIndex.lua).
 local wow = require("spec.support.wow")
@@ -473,7 +473,7 @@ describe("Each setting's page is where its control is (#179)", function()
     -- when it is right), worked out from the simulated client.
     local function RealPages(entry)
         local widgets = ns.Options.widgets
-        local general, ledger = ns.Options.Pages()
+        local general, ledger, weapon = ns.Options.Pages()
         local pages = {}
         CurrentEntry = entry
         for _, path in ipairs(entry.controls) do
@@ -483,6 +483,7 @@ describe("Each setting's page is where its control is (#179)", function()
             for _, frame in ipairs(frames) do
                 local places, placeCount = PlacesShowing(frame)
                 shownAny = shownAny or not (not Under(frame, general) and not Under(frame, ledger)
+                    and not Under(frame, weapon)
                     and not Under(frame, ns.Options.StartPage()) and #TabsShowing(frame) == 0 and placeCount == 0)
                 if ns.BuffsTab.Owns(frame) then
                     if placeCount == #ns.BuffRules.PLACES then
@@ -493,6 +494,7 @@ describe("Each setting's page is where its control is (#179)", function()
                         for place in pairs(places) do pages["the Buffs tab's " .. PLACE_TEXT[place] .. " place"] = true end
                     end
                 elseif Under(frame, general) then pages["the General page"] = true
+                elseif Under(frame, weapon) then pages["the Weapon buffs page"] = true
                 elseif Under(frame, ledger) then pages["the Favour Ledger page"] = true
                 elseif Under(frame, ns.Options.StartPage()) then pages["the Start here page"] = true
                 else

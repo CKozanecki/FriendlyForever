@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40
+-- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #45
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -1113,5 +1113,68 @@ describe("The simulated client's chat from players (#40)", function()
         frame:UnregisterEvent("CHAT_MSG_SAY")
         wow.say("mark pls", "Bob-Stone")
         assert.are.equal(1, count)
+    end)
+
+    describe("weapon buffs (#45)", function()
+        before_each(function() wow.boot() end)
+
+        it("gives four values a slot, false first where bare, as the owner's dump did", function()
+            local bare = { _G.GetWeaponEnchantInfo() }
+            assert.is_false(bare[1])
+            assert.is_false(bare[5])
+            assert.is_false(bare[9])
+            wow.enchant(17, 19, 60)
+            local off = { _G.GetWeaponEnchantInfo() }
+            assert.is_false(off[1], "the main hand still bare")
+            assert.is_true(off[5])
+            assert.are.equal(60000, off[6])
+            assert.are.equal(19, off[8])
+            assert.is_false(off[9])
+        end)
+
+        it("puts an item on with /use item then /use 16, and fires a weapon's own Use only with nothing waiting", function()
+            wow.state.equipped[16] = wow.GEAR.mace
+            wow.state.items[wow.WEAPON.roughWeightstone] = 1
+            wow.runMacro("/use item:3239\n/use 16")
+            assert.are.equal(19, wow.enchantOn(16).id)
+            assert.are.equal(0, wow.state.items[wow.WEAPON.roughWeightstone])
+            assert.are.equal(0, #wow.weaponUses)
+            wow.state.equipped[16] = wow.GEAR.useSword
+            wow.runMacro("/use item:3239\n/use 16")
+            assert.are.equal(1, #wow.weaponUses, "none left to use, so the weapon's own Use fired")
+        end)
+
+        it("answers IsUsableItem from the item alone, never from how many you carry", function()
+            assert.are.equal(0, _G.GetItemCount(wow.WEAPON.brilliantWizardOil), "the case: none carried")
+            assert.is_true(_G.IsUsableItem(wow.WEAPON.brilliantWizardOil), "none carried, and still usable")
+            assert.is_true(_G.C_Item.IsUsableItem(wow.WEAPON.brilliantWizardOil))
+            wow.state.unusableItems[wow.WEAPON.brilliantWizardOil] = true
+            assert.is_false(_G.IsUsableItem(wow.WEAPON.brilliantWizardOil))
+            wow.state.weaponSecrets.usable = true
+            assert.is_true(_G.issecretvalue(_G.IsUsableItem(wow.WEAPON.brilliantWizardOil)))
+        end)
+
+        it("refuses a stone on a weapon it doesn't suit, at once", function()
+            wow.state.items[wow.WEAPON.roughWeightstone] = 1
+            wow.runMacro("/use item:3239\n/use 16")
+            assert.is_nil(wow.enchantOn(16), "a weightstone on a sword")
+            assert.are.equal(1, wow.state.items[wow.WEAPON.roughWeightstone])
+            assert.are.equal(0, #wow.weaponCasts)
+        end)
+
+        it("in a druid's form, cancels it with autoUnshift on and refuses with it off", function()
+            wow.state.class, wow.state.form = "DRUID", 3
+            wow.state.equipped[16] = wow.GEAR.mace
+            wow.state.items[wow.WEAPON.roughWeightstone] = 2
+            wow.state.cvars.autoUnshift = "0"
+            wow.runMacro("/use item:3239\n/use 16")
+            assert.are.equal(3, wow.state.form)
+            assert.is_nil(wow.enchantOn(16))
+            wow.state.cvars.autoUnshift = "1"
+            wow.runMacro("/use item:3239\n/use 16")
+            assert.are.equal(0, wow.state.form)
+            assert.are.equal(1, wow.formsCancelled)
+            assert.are.equal(19, wow.enchantOn(16).id)
+        end)
     end)
 end)

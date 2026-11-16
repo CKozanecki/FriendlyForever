@@ -237,6 +237,13 @@ Config.DEFAULTS = {
         -- no group, offer you your own copy of the buffs you give, as #198
         -- does in a group. On by default (the owner).
         soloOwnBuffs = true,
+        -- Weapon buffs (WeaponBuffs.lua, #45): in buff mode, after your
+        -- self-buffs, offer a stone, oil, poison or imbue for a hand with
+        -- none. Experimental, off by default (the owner). One kind per hand,
+        -- from Config.WEAPON_KINDS; "none" offers nothing for that hand.
+        weaponBuffs = false,
+        weaponMain = "none",
+        weaponOff = "none",
         -- buffOrder: buff keys, offered first in this order (empty: each
         -- class's own order). neverOffer: [buff key] = true, or false for a
         -- buff that's "Never offer" by default and you unticked (Righteous
@@ -308,6 +315,18 @@ local function Bool(value, default)
     if type(value) == "boolean" then return value end
     return default
 end
+-- The weapon buff kinds a hand may be set to (#45), in the options' order:
+-- WeaponBuffs.KINDS describes each. "none" first.
+Config.WEAPON_KINDS = { "none", "sharpening", "weightstone", "wizardOil", "manaOil", "instantPoison",
+    "deadlyPoison", "cripplingPoison", "mindNumbingPoison", "woundPoison", "rockbiter", "flametongue",
+    "frostbrand", "windfury" }
+local WEAPON_KIND_SET = {}
+for _, key in ipairs(Config.WEAPON_KINDS) do WEAPON_KIND_SET[key] = true end
+local function WeaponKind(value, default)
+    if type(value) == "string" and WEAPON_KIND_SET[value] then return value end
+    return default
+end
+
 local function Limited(field)
     return function(value, default)
         local limits = Config.LIMITS[field]
@@ -333,6 +352,9 @@ Config.FIELD_VALIDATORS = {
     requests = Bool,
     selfBuffs = Bool,
     soloOwnBuffs = Bool,
+    weaponBuffs = Bool,
+    weaponMain = WeaponKind,
+    weaponOff = WeaponKind,
     unlocked = Bool,
     listBuffNames = Bool,
     quietInCities = Bool,

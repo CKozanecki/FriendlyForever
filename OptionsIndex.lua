@@ -25,6 +25,7 @@ local BUFFS_PVP = "the Buffs tab's PvP place"
 local GENERAL = "the General page"
 local LEDGER = "the Favour Ledger page"
 local START = "the Start here page"
+local WEAPON = "the Weapon buffs page"
 
 -- name: as the page shows it. page: where it is. keywords: more words to find
 -- it by. controls: the Options.widgets paths of its controls ("*" for any
@@ -146,6 +147,13 @@ OptionsIndex.SETTINGS = {
     { name = "Copy for a bug report", page = GENERAL, keywords = "bug report debug log help",
         controls = { "general.report" } },
 
+    { name = "Offer weapon buffs in buff mode, after my self-buffs", page = WEAPON,
+        keywords = "weapon buffs oil stone sharpening weightstone poison imbue rockbiter windfury experimental",
+        controls = { "weapon.enabled" } },
+    { name = "Main hand", page = WEAPON, keywords = "weapon buffs hand oil stone poison imbue kind choose",
+        controls = { "weapon.main" } },
+    { name = "Off hand", page = WEAPON, keywords = "weapon buffs hand oil stone poison kind choose",
+        controls = { "weapon.off" } },
     { name = "Clear the ledger", page = LEDGER, keywords = "favour ledger history clear",
         controls = { "ledger.clear" } },
 

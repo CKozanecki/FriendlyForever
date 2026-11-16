@@ -71,9 +71,10 @@ if type(_G.DisplayInterfaceActionBlockedMessage) == "function" then
 end
 
 -- The frames' names (Options.GENERAL_PAGE, Options.LEDGER_PAGE,
--- Options.START_PAGE, Window.NAME and Walkthrough.NAME).
+-- Options.WEAPON_PAGE, Options.START_PAGE, Window.NAME and Walkthrough.NAME).
 Pages.GENERAL = "FriendlyForeverGeneralPage"
 Pages.LEDGER = "FriendlyForeverLedgerPage"
+Pages.WEAPON = "FriendlyForeverWeaponPage" -- weapon buffs (#45)
 Pages.START = "FriendlyForeverStartPage"
 Pages.WINDOW = "FriendlyForeverTextWindow"
 Pages.WALKTHROUGH = "FriendlyForeverWalkthrough"
@@ -126,6 +127,10 @@ end
 function Pages.Fill()
     local db = FriendlyForeverDB
     local saved = { ignore = db.ignore, profiles = db.profiles, activeProfile = db.activeProfile, ledger = db.ledger }
+    -- Weapon buffs (#45): switched on, with a kind chosen for each hand.
+    local weapon = { weaponBuffs = db.buffBack.weaponBuffs, weaponMain = db.buffBack.weaponMain,
+        weaponOff = db.buffBack.weaponOff }
+    db.buffBack.weaponBuffs, db.buffBack.weaponMain, db.buffBack.weaponOff = true, "wizardOil", "sharpening"
 
     local ignore = {}
     for i = 1, Pages.IGNORED do
@@ -160,12 +165,13 @@ function Pages.Fill()
 
     return function()
         for key, value in pairs(saved) do db[key] = value end
+        for key, value in pairs(weapon) do db.buffBack[key] = value end
     end
 end
 
--- Opens one of the options pages ("general", "ledger" or "start") as
+-- Opens one of the options pages ("general", "ledger", "weapon" or "start") as
 -- clicking it in the AddOns options would. Returns the page.
-local PAGE_FRAMES = { general = Pages.GENERAL, ledger = Pages.LEDGER, start = Pages.START }
+local PAGE_FRAMES = { general = Pages.GENERAL, ledger = Pages.LEDGER, weapon = Pages.WEAPON, start = Pages.START }
 function Pages.Open(which)
     local page = _G[PAGE_FRAMES[which] or Pages.GENERAL]
     if type(page) ~= "table" then error("no options page called " .. tostring(which), 2) end
