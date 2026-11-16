@@ -326,6 +326,9 @@ function Greeter.PendingCount()
 end
 
 local loggedMembers -- the count the last logged roster line gave (#268)
+-- Unreadable roster updates in a row: logged once per run, with the count
+-- when a readable one ends it, as updates come in bursts (#268, #412).
+local unreadableRun = 0
 
 -- The most roster rows one update reads: a bound against a damaged count,
 -- far above any guild, so a huge number can't stall the client (#412).
@@ -366,9 +369,16 @@ function Greeter.OnRosterUpdate()
     if not roster then
         -- Keep the guildmates already known until a readable update (#412).
         ns.Diag.Count("rosterUnreadable")
-        ns.Diag.Log("guild", "roster update couldn't be read; keeping the %s members known", Greeter.MemberCount())
+        unreadableRun = unreadableRun + 1
+        if unreadableRun == 1 then
+            ns.Diag.Log("guild", "roster update couldn't be read; keeping the %s members known", Greeter.MemberCount())
+        end
         return
     end
+    if unreadableRun > 1 then
+        ns.Diag.Log("guild", "%d more unreadable roster updates in that run", unreadableRun - 1)
+    end
+    unreadableRun = 0
     members = roster
 
     -- Logged only when the count changes: updates come in bursts (#268).

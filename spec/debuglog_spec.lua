@@ -1,4 +1,4 @@
--- Spec: #268, #294
+-- Spec: #268, #294, #412
 -- The debug log holds decisions, not repeats, so an hour in a dungeon fits.
 local wow = require("spec.support.wow")
 
@@ -65,6 +65,24 @@ describe("The debug log keeps decisions, not repeats (#268)", function()
             wow.fire("GUILD_ROSTER_UPDATE")
             wow.fire("GUILD_ROSTER_UPDATE")
             assert.are.equal(1, count("roster update: 3 members known"))
+        end)
+
+        it("logs an unreadable roster once per run, then the count when a readable one ends it (#412)", function()
+            local real = _G.GetNumGuildMembers
+            _G.GetNumGuildMembers = function() error("blocked") end
+            for _ = 1, 20 do wow.fire("GUILD_ROSTER_UPDATE") end
+            assert.are.equal(1, count("roster update couldn't be read"))
+            assert.are.equal(20, ns.Diag.Counters().rosterUnreadable)
+            _G.GetNumGuildMembers = real
+            wow.fire("GUILD_ROSTER_UPDATE")
+            assert.are.equal(1, count("19 more unreadable roster updates in that run"))
+            -- A single unreadable update gets no count line; a new run logs again.
+            _G.GetNumGuildMembers = function() error("blocked") end
+            wow.fire("GUILD_ROSTER_UPDATE")
+            _G.GetNumGuildMembers = real
+            wow.fire("GUILD_ROSTER_UPDATE")
+            assert.are.equal(2, count("roster update couldn't be read"))
+            assert.are.equal(1, count("more unreadable roster updates"))
         end)
     end)
 
