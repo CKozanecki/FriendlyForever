@@ -49,6 +49,10 @@ WeaponBuffs.JUST_GIVEN_SECONDS = 10
 WeaponBuffs.SKIP_SECONDS = 300
 -- A hand the game refused waits this long, so the next press tries the other.
 WeaponBuffs.HELD_BACK_SECONDS = 15
+-- Refused this many times in a row for the same weapon and kind (a stone
+-- that doesn't suit the weapon, say: which suits which is #409), the hand is
+-- left alone until its weapon or its kind changes, and counts as settled.
+WeaponBuffs.REFUSALS_TO_STOP = 2
 
 -- The hands: inventory slot, the position of its "has an enchant" flag in
 -- GetWeaponEnchantInfo's answer, the words for it, and its setting.
@@ -99,7 +103,7 @@ end
 local WEAPON_CLASS = 2
 
 local justGiven = {} -- [slot] = GetTime() a weapon buff landed on it
-local heldBack = {}  -- [slot] = GetTime() the game refused it
+local refused = {}   -- [slot] = { weapon = item ID, kind = kind key, count, at = GetTime() } the game's refusals
 local skippedAt      -- GetTime() you right-clicked a weapon buff
 local said = {}      -- reasons said in debug, while they hold
 
@@ -342,15 +346,20 @@ function WeaponBuffs.Next(out)
     for _, chosen in ipairs(hands) do
         local hand, kind = chosen.hand, chosen.kind
         local has = HasEnchant(enchants, hand)
-        local offer, why, waits
+        local offer, why, waits, weapon
         if has == nil then
             why, waits = "can't read your " .. hand.words .. "'s enchant", true
         elseif has == false and not Recently(justGiven[hand.slot], WeaponBuffs.JUST_GIVEN_SECONDS) then
-            local weapon = WeaponIn(hand)
+            weapon = WeaponIn(hand)
             if weapon == nil then
                 why, waits = "can't tell what's in your " .. hand.words, true
             elseif weapon then
-                if Recently(heldBack[hand.slot], WeaponBuffs.HELD_BACK_SECONDS) then
+                local refusal = refused[hand.slot]
+                if refusal and (refusal.weapon ~= weapon or refusal.kind ~= kind.key) then refusal = nil end
+                if refusal and refusal.count >= WeaponBuffs.REFUSALS_TO_STOP then
+                    why, waits = "the game refused your " .. kind.label .. " on your " .. hand.words
+                        .. " weapon twice: change the weapon or the kind to try again", false
+                elseif refusal and Recently(refusal.at, WeaponBuffs.HELD_BACK_SECONDS) then
                     why, waits = "the game refused your last " .. kind.label .. " on your " .. hand.words, true
                 elseif kind.items then
                     offer, why, waits = ItemOffer(me, hand, kind, weapon)
@@ -360,10 +369,10 @@ function WeaponBuffs.Next(out)
             end
         end
         if offer then
-            if not out then
-                Say(reasons)
-                return offer
-            end
+            offer.weaponItem, offer.weaponKind = weapon, kind.key
+            -- A look that stops at the first offer saw only some of the
+            -- reasons: only a full look says them (as SelfBuffs.Next, #44).
+            if not out then return offer end
             first = first or offer
             out[#out + 1] = offer
         elseif why then
@@ -397,12 +406,17 @@ end
 -- A weapon buff landed on a hand (the game said so).
 function WeaponBuffs.NoteGiven(slot)
     justGiven[slot] = GetTime()
-    heldBack[slot] = nil
+    refused[slot] = nil
 end
 
--- The game refused a weapon buff: try the other hand first for a moment.
-function WeaponBuffs.NoteRefused(slot)
-    heldBack[slot] = GetTime()
+-- The game refused a weapon buff of kind (its key) on the weapon (item ID)
+-- in slot: try the other hand first for a moment, and count it, in a row
+-- for that weapon and kind.
+function WeaponBuffs.NoteRefused(slot, weapon, kind)
+    local last = refused[slot]
+    local count = 1
+    if last and last.weapon == weapon and last.kind == kind then count = last.count + 1 end
+    refused[slot] = { weapon = weapon, kind = kind, count = count, at = GetTime() }
 end
 
 -- Right-click: leave your weapon buffs out for a while.

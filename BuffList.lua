@@ -66,7 +66,7 @@ local function MakeRow(i)
     row:SetScript("OnClick", function()
         ns.Diag.Call(function()
             local offer = shownOffers[i]
-            if offer then ns.BuffButton.Choose(offer.name, offer.selfBuff) end
+            if offer then ns.BuffButton.Choose(offer.name, ns.BuffButton.OfferKind(offer)) end
         end)
     end)
     return row

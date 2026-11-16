@@ -1133,6 +1133,7 @@ describe("The simulated client's chat from players (#40)", function()
         end)
 
         it("puts an item on with /use item then /use 16, and fires a weapon's own Use only with nothing waiting", function()
+            wow.state.equipped[16] = wow.GEAR.mace
             wow.state.items[wow.WEAPON.roughWeightstone] = 1
             wow.runMacro("/use item:3239\n/use 16")
             assert.are.equal(19, wow.enchantOn(16).id)
@@ -1143,8 +1144,17 @@ describe("The simulated client's chat from players (#40)", function()
             assert.are.equal(1, #wow.weaponUses, "none left to use, so the weapon's own Use fired")
         end)
 
+        it("refuses a stone on a weapon it doesn't suit, at once", function()
+            wow.state.items[wow.WEAPON.roughWeightstone] = 1
+            wow.runMacro("/use item:3239\n/use 16")
+            assert.is_nil(wow.enchantOn(16), "a weightstone on a sword")
+            assert.are.equal(1, wow.state.items[wow.WEAPON.roughWeightstone])
+            assert.are.equal(0, #wow.weaponCasts)
+        end)
+
         it("in a druid's form, cancels it with autoUnshift on and refuses with it off", function()
             wow.state.class, wow.state.form = "DRUID", 3
+            wow.state.equipped[16] = wow.GEAR.mace
             wow.state.items[wow.WEAPON.roughWeightstone] = 2
             wow.state.cvars.autoUnshift = "0"
             wow.runMacro("/use item:3239\n/use 16")

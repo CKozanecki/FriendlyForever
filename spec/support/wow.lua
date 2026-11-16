@@ -512,9 +512,9 @@ M.WEAPON = { brilliantWizardOil = 20749, lesserWizardOil = 20746, roughWeightsto
 M.WEAPON_ITEMS = {
     [20749] = { spell = 25122, spellName = "Brilliant Wizard Oil", enchant = 2628 },
     [20746] = { spell = 25119, spellName = "Lesser Wizard Oil", enchant = 2626 },
-    [3239] = { spell = 3112, spellName = "Enhance Blunt Weapon", enchant = 19 },
-    [12643] = { spell = 16622, spellName = "Enhance Blunt Weapon V", enchant = 1703 },
-    [12404] = { spell = 16138, spellName = "Sharpen Blade V", enchant = 1643 },
+    [3239] = { spell = 3112, spellName = "Enhance Blunt Weapon", enchant = 19, fits = "blunt" },
+    [12643] = { spell = 16622, spellName = "Enhance Blunt Weapon V", enchant = 1703, fits = "blunt" },
+    [12404] = { spell = 16138, spellName = "Sharpen Blade V", enchant = 1643, fits = "blade" },
     [8928] = { spell = 11340, spellName = "Instant Poison VI", enchant = 625 },
     [20844] = { spell = 25351, spellName = "Deadly Poison V", enchant = 2630 },
 }
@@ -530,12 +530,15 @@ for name, ranks in pairs({ ["Rockbiter Weapon"] = { { 16316, 1664 }, { 10399, 50
     end
 end
 -- Things to wear: [item ID] = { class (2 a weapon, 4 armour), use = the name
--- of its own Use effect, if it has one }.
+-- of its own Use effect, if it has one, edge = "blade" or "blunt" }. A stone
+-- goes only on the weapons its spell names (sharpening: a blade; weights: a
+-- blunt one), as in Classic: unconfirmed for Forever (#409).
 M.GEAR = { sword = 1001, mace = 1002, dagger = 1003, useSword = 1004, shield = 1005, heldItem = 1006 }
 M.GEAR_INFO = {
-    [1001] = { class = 2 }, [1002] = { class = 2 }, [1003] = { class = 2 },
-    [1004] = { class = 2, use = "Bladestorm" }, [1005] = { class = 4 }, [1006] = { class = 4 },
+    [1001] = { class = 2, edge = "blade" }, [1002] = { class = 2, edge = "blunt" }, [1003] = { class = 2, edge = "blade" },
+    [1004] = { class = 2, use = "Bladestorm", edge = "blade" }, [1005] = { class = 4 }, [1006] = { class = 4 },
 }
+M.WRONG_WEAPON_ERROR = "Invalid target."
 
 ------------------------------------------------------------------------
 -- ASSUMPTIONS ABOUT WOW FOREVER. Each is a state setting so specs can try the
@@ -614,7 +617,10 @@ M.GEAR_INFO = {
 --                         autoUnshift setting on (the default, as Classic's),
 --                         the game cancels the form and carries on: the
 --                         pessimistic choice. Off, it refuses with "You
---                         can't do that while shapeshifted." A weapon is
+--                         can't do that while shapeshifted." A sharpening
+--                         stone goes only on a blade and a weightstone on a
+--                         blunt weapon; on another the game refuses at once
+--                         ("Invalid target."), as in Classic. A weapon is
 --                         item class 2; GetItemSpell names a weapon's own
 --                         Use, and nil for none.
 --   /cleartarget then /targetexact X leaves your old target as the "last
@@ -1281,6 +1287,11 @@ local function use(rest)
     local buff = M.WEAPON_ITEMS[waiting]
     if not (info and info.class == 2) or not buff then
         M.uiError("Item can't be enchanted.")
+        return
+    end
+    -- A stone on a weapon it doesn't suit: the game refuses at once.
+    if buff.fits and info.edge ~= buff.fits then
+        M.uiError(M.WRONG_WEAPON_ERROR)
         return
     end
     weaponCast(slot, buff.spell, function()

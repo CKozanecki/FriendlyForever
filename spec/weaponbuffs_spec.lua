@@ -113,6 +113,12 @@ describe("Weapon buffs", function()
             refresh()
             assert.is_nil(macro())
             assert.matches("Weapons: your main hand weapon has its own Use: cast Rockbiter Weapon by hand", subtitle(), 1, true)
+            -- And when whether it has one can't be read, nothing either.
+            boot({ class = "SHAMAN", main = "rockbiter", known = { ROCKBITER_4 },
+                before = function(s) s.weaponSecrets.itemSpell = true end })
+            refresh()
+            assert.is_nil(macro())
+            assert.matches("Weapons: can't tell whether your main hand weapon has a Use", subtitle(), 1, true)
         end)
 
         it("leaves a hand that has an enchant alone, and offers the other", function()
@@ -162,6 +168,99 @@ describe("Weapon buffs", function()
         it("does nothing outside buff mode", function()
             boot({ noMode = true })
             assert.is_nil(macro())
+        end)
+    end)
+
+    describe("the list, the tooltip and the debug log (white)", function()
+        local FORT, INTELLECT = 10938, 10157
+
+        -- A priest in a party with Ann, Fortitude on Ann, nothing on you.
+        local function priest()
+            boot({ class = "PRIEST", known = { FORT } })
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(0)
+            wow.wearBuff("party1", FORT, { source = "player" })
+            refresh()
+        end
+        local function strangerBuffs()
+            wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", id = "Bob-Stone", class = "WARRIOR" })
+            wow.gainBuff({ sourceUnit = "nameplate1", spellId = INTELLECT })
+            refresh()
+        end
+        local function clickRow(kind)
+            local rows = ns.BuffList.Rows()
+            for i, offer in ipairs(ns.BuffList.ShownOffers()) do
+                if ns.BuffButton.OfferKind(offer) == kind then rows[i].scripts.OnClick(rows[i]) end
+            end
+        end
+
+        it("a clicked row of your own group buff doesn't carry over to a weapon buff ahead of a favour", function()
+            priest()
+            assert.are.equal("/cast [@player,nodead] Power Word: Fortitude", macro())
+            clickRow("other")
+            press()
+            assert.are.equal("/use item:20749\n/use 16", macro(), "your Fortitude is on: the oil is next")
+            strangerBuffs()
+            assert.is_truthy(macro():find("/targetexact Bob Stone", 1, true), "the favour comes first")
+        end)
+
+        it("a clicked weapon row doesn't let your own group buff ahead of a favour", function()
+            boot({ class = "PRIEST", known = { FORT }, before = function(s)
+                s.playerAuras = {}
+            end })
+            wow.gainBuff({ spellId = FORT, sourceUnit = "player", duration = 3600, expirationTime = wow.now + 3600 })
+            refresh()
+            assert.are.equal("/use item:20749\n/use 16", macro())
+            clickRow("weapon")
+            -- Your Fortitude goes: your own copy is offered, then a stranger's favour comes in.
+            wow.state.playerAuras = {}
+            strangerBuffs()
+            assert.is_truthy(macro():find("/targetexact Bob Stone", 1, true), "the favour comes first")
+        end)
+
+        it("says on the tooltip what the press does, and what a right-click does", function()
+            boot()
+            wow.run(button, "OnEnter")
+            local text = table.concat(_G.GameTooltip.lines or {}, "\n")
+            assert.matches("Puts Brilliant Wizard Oil on your main hand.", text, 1, true)
+            assert.matches("Right-click to skip your weapon buffs for 5 minutes.", text, 1, true)
+            assert.is_nil(text:find("Casts", 1, true))
+        end)
+
+        it("says each reason once in debug while it holds, however often buff mode asks", function()
+            boot({ class = "ROGUE", main = "instantPoison", offHand = "deadlyPoison",
+                items = { [W.instantPoison6] = 2, [W.deadlyPoison5] = 1 },
+                before = function(s) s.equipped[17] = wow.GEAR.dagger end })
+            local said = 0
+            local log = ns.Diag.Log
+            ns.Diag.Log = function(category, fmt, ...)
+                if string.format(fmt, ...):find("no Deadly Poison in your bags", 1, true) then said = said + 1 end
+                return log(category, fmt, ...)
+            end
+            wow.state.items[W.deadlyPoison5] = 0
+            for _ = 1, 10 do
+                refresh()
+                ns.WeaponBuffs.Next()
+                wow.advance(5)
+            end
+            assert.are.equal(1, said)
+        end)
+    end)
+
+    describe("an update that adds WeaponBuffs.lua (black)", function()
+        it("asks for a restart, not erroring, after only a /reload", function()
+            wow.reset()
+            local loaded = {}
+            local _, files = wow.parseToc()
+            for _, file in ipairs(files) do
+                if file ~= "WeaponBuffs.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+            end
+            wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+            wow.fire("PLAYER_ENTERING_WORLD", true, false)
+            wow.advance(20)
+            assert.are.same({}, wow.errors)
+            assert.truthy(table.concat(wow.printed, "\n"):find("Restart the game (not /reload)", 1, true))
         end)
     end)
 
@@ -474,6 +573,44 @@ describe("Weapon buffs", function()
             wow.fire("UNIT_SPELLCAST_SENT", "player", "Bob", "Cast-x", 10157)
             wow.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-x", 10157)
             assert.is_nil((button.result:GetText() or ""):find("Applied", 1, true))
+        end)
+
+        it("leaves a stone the game keeps refusing for that weapon alone, until the weapon or the kind changes", function()
+            boot({ main = "sharpening", items = { [W.denseSharpeningStone] = 5 },
+                before = function(s) s.equipped[16] = wow.GEAR.mace end })
+            assert.are.equal("/use item:12404\n/use 16", macro())
+            press()
+            assert.matches(wow.WRONG_WEAPON_ERROR, button.result:GetText(), 1, true)
+            wow.advance(ns.WeaponBuffs.HELD_BACK_SECONDS + 1)
+            refresh()
+            press()
+            wow.advance(ns.WeaponBuffs.HELD_BACK_SECONDS + 1)
+            reasonShown("the game refused your Sharpening stone on your main hand weapon twice")
+            local _, _, settled = ns.WeaponBuffs.Next()
+            assert.is_true(settled, "nothing left to do: buff mode may end")
+            wow.advance(3600)
+            refresh()
+            assert.is_nil(macro(), "still left alone")
+            -- A blade in hand: offered again.
+            wow.state.equipped[16] = wow.GEAR.sword
+            refresh()
+            assert.are.equal("/use item:12404\n/use 16", macro())
+            press()
+            assert.are.equal(1643, wow.enchantOn(16).id)
+        end)
+
+        it("forgets the refusals when the kind changes", function()
+            boot({ main = "sharpening", items = { [W.denseSharpeningStone] = 5, [W.denseWeightstone] = 5 },
+                before = function(s) s.equipped[16] = wow.GEAR.mace end })
+            for _ = 1, 2 do
+                press()
+                wow.advance(ns.WeaponBuffs.HELD_BACK_SECONDS + 1)
+                refresh()
+            end
+            assert.is_nil(macro())
+            ns.db.buffBack.weaponMain = "weightstone"
+            refresh()
+            assert.are.equal("/use item:12643\n/use 16", macro())
         end)
 
         it("reads damaged saved settings as off and none, and heals them", function()
