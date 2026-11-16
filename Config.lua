@@ -627,7 +627,7 @@ end
 -- version as its `since` and raise the version to match: players who finished
 -- an older one then see only the new steps (#169). A spec checks that
 -- they agree (spec/walkthrough_spec.lua).
-Config.WALKTHROUGH_VERSION = 2
+Config.WALKTHROUGH_VERSION = 3
 
 -- A checked copy of the saved walkthrough state. None at all (settings from
 -- before it): seen 0, so every step shows once, and not a first run, so the
