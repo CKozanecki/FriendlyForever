@@ -327,20 +327,50 @@ end
 
 local loggedMembers -- the count the last logged roster line gave (#268)
 
-function Greeter.OnRosterUpdate()
-    members = {}
-    if Flag(IsInGuild) == true then
-        for i = 1, GetNumGuildMembers() or 0 do
-            local rawName, _, _, _, class = GetGuildRosterInfo(i)
-            local name = Util.FullName(rawName)
-            if name then
-                class = Util.Readable(class)
-                members[name] = type(class) == "string" and class ~= "" and class:lower() or true
-            end
+-- The most roster rows one update reads: a bound against a damaged count,
+-- far above any guild, so a huge number can't stall the client (#412).
+Greeter.MAX_ROSTER_ROWS = 5000
+
+-- One roster row's name and class (its first and fifth answers). Called only
+-- through Util.ReadGameValues, so an error or a secret reads as nil (#412).
+local function RosterRow(i)
+    local name, _, _, _, class = GetGuildRosterInfo(i)
+    return name, class
+end
+
+-- The guild roster as the game gives it now: [full name] = class or true.
+-- Out of a guild, or when the game won't say whether you're in one, nobody
+-- (#400). Nil when the roster can't be read: the count isn't a readable
+-- number, or no row could be read from a guild, which always lists you (#412).
+local function ReadRoster()
+    if Flag(IsInGuild) ~= true then return {} end
+    -- A negative count reads no row, so it's caught below with an empty one.
+    local count = Util.ReadGameValues(GetNumGuildMembers)
+    if type(count) ~= "number" or count ~= count or count == math.huge then return nil end
+    local roster, found = {}, false
+    for i = 1, math.min(Greeter.MAX_ROSTER_ROWS, count) do
+        local rawName, class = Util.ReadGameValues(RosterRow, i)
+        local name = Util.FullName(rawName)
+        if name then
+            roster[name] = type(class) == "string" and class ~= "" and class:lower() or true
+            found = true
         end
     end
+    if not found then return nil end
+    return roster
+end
 
+function Greeter.OnRosterUpdate()
     ns.Diag.Count("rosterUpdates")
+    local roster = ReadRoster()
+    if not roster then
+        -- Keep the guildmates already known until a readable update (#412).
+        ns.Diag.Count("rosterUnreadable")
+        ns.Diag.Log("guild", "roster update couldn't be read; keeping the %s members known", Greeter.MemberCount())
+        return
+    end
+    members = roster
+
     -- Logged only when the count changes: updates come in bursts (#268).
     local count = Greeter.MemberCount()
     if count ~= loggedMembers then
