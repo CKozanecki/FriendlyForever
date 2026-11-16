@@ -1,4 +1,4 @@
--- Spec: #427, #274, #283
+-- Spec: #427, #274, #283, #408
 -- The options dropdowns: a click on a list row reaches the row, not the
 -- full-screen click-away catcher made beside it (siblings share a frame
 -- level, and the game doesn't say which takes a click), on every dropdown.
@@ -110,5 +110,73 @@ describe("the options dropdowns' frame levels (#427)", function()
         for _, dd in ipairs(dropdowns()) do
             assert.is_nil((wow.hitTest({ dd.list.catcher })))
         end
+    end)
+
+    describe("the Buffs tab's who-gets-it list (#427, #408)", function()
+        local MOTW, MOTW_1, THORNS_1 = 9885, 1126, 467
+        local ns2, w
+
+        before_each(function()
+            ns2 = wow.boot({ buffDefaults = true,
+                before = function(state)
+                    state.class = "DRUID"
+                    state.knownSpells = { [MOTW_1] = true, [MOTW] = true, [THORNS_1] = true }
+                end })
+            w = ns2.Options.widgets
+            assert.is_true(ns2.BuffRules.Choose("new"))
+            ns2.Options.Open()
+            wow.run(w.tabs.buffs, "OnClick")
+        end)
+
+        local function controls(list)
+            local out = { list.everyone, list.off }
+            for _, tick in ipairs(ns2.BuffRules.ROLE_TICKS) do out[#out + 1] = list[tick] end
+            for _, class in ipairs(ns2.BuffRules.CLASSES) do out[#out + 1] = list.classes[class] end
+            return out
+        end
+
+        local function open()
+            for _, row in ipairs(w.whoRows) do
+                if row.key == "motw" and row.who:IsVisible() then
+                    wow.run(row.who, "OnClick")
+                    return
+                end
+            end
+            error("no Mark of the Wild row")
+        end
+
+        it("every tick, class and Off take the click over the catcher once the list is open (white)", function()
+            open()
+            assert.is_true(w.whoList:IsShown())
+            for _, control in ipairs(controls(w.whoList)) do
+                assert.are.equal(control, (wow.hitTest({ w.whoList.catcher, control })), control:GetText() or "a tick")
+            end
+        end)
+
+        it("they stay above the catcher after the panel changes the levels (white)", function()
+            w.whoList:SetFrameLevel(30)
+            w.whoList.catcher:SetFrameLevel(90)
+            for _, control in ipairs(controls(w.whoList)) do control:SetFrameLevel(1) end
+            open()
+            for _, control in ipairs(controls(w.whoList)) do
+                assert.are.equal(control, (wow.hitTest({ w.whoList.catcher, control })))
+            end
+            w.whoList:Hide()
+            w.whoList.catcher:SetFrameLevel(90)
+            w.whoList:Show()
+            wow.run(w.whoList, "OnShow")
+            assert.are.equal(w.whoList.off, (wow.hitTest({ w.whoList.catcher, w.whoList.off })))
+        end)
+
+        it("a click elsewhere still closes the list and saves nothing (white)", function()
+            open()
+            local before = ns2.db.buffBack.whoParty
+            local other = wow.newFrame("Button", nil, w.whoList:GetParent())
+            other:SetFrameLevel(w.whoList:GetFrameLevel() - 1)
+            assert.are.equal(w.whoList.catcher, (wow.hitTest({ w.whoList.catcher, other })))
+            wow.run(w.whoList.catcher, "OnClick")
+            assert.is_false(w.whoList:IsShown())
+            assert.are.equal(before, ns2.db.buffBack.whoParty)
+        end)
     end)
 end)

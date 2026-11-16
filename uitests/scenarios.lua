@@ -1477,8 +1477,19 @@ local function ListHoldsAll(list, label)
         report(line)
         check(l >= left - 1 and r <= right + 1 and b >= bottom - 1 and t <= top + 1, line .. ": outside the list")
     end
+    -- Every control must sit above the click-away catcher, or a click on a
+    -- tick only closes the list (#427).
+    local catcher = list.catcher
+    if catcher then
+        report("LAYOUT " .. label .. ": controls at level " .. list:GetFrameLevel() + 2
+            .. " above the catcher at " .. catcher:GetFrameLevel())
+    end
     for _, child in ipairs({ list:GetChildren() }) do
         if child:IsShown() and child ~= list.catcher then
+            if catcher then
+                check(child:GetFrameLevel() > catcher:GetFrameLevel(), label .. ": a control (level "
+                    .. child:GetFrameLevel() .. ") isn't above the catcher (level " .. catcher:GetFrameLevel() .. ")")
+            end
             local text = child.GetText and child:GetText()
             local what = (type(text) == "string" and text ~= "" and text)
                 or (child.label and child.label:GetText()) or child:GetObjectType()
