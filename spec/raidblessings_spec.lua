@@ -1186,7 +1186,7 @@ describe("My Blessings in this raid", function()
         -- Blessing left to another paladin; another raid, seen plainly,
         -- forgets it.
         it("a regroup storm never forgets the choice within one raid, nor gives a Blessing left to another paladin (red)", function()
-            local total = { kept = 0, forgot = 0, keptUnreadable = 0, chosen = 0 }
+            local total = { kept = 0, forgot = 0, keptUnreadable = 0, chosen = 0, keptThroughArena = 0 }
             -- Looks with the choice kept while each hazard was on (#302: one counter each).
             local keptWith = { leader = 0, myLeader = 0, restricted = 0, inRaid = 0, unitIsUnit = 0,
                 oneSlot = 0, nameLoading = 0 }
@@ -1341,8 +1341,26 @@ describe("My Blessings in this raid", function()
                     wow.fire("PLAYER_ENTERING_WORLD", false, false)
                     show()
                 end
+                -- An arena and back (#394): its group is a party of others, which
+                -- a raid answer reads believably as "not a raid".
+                local function arena()
+                    local had = model ~= nil
+                    wow.state.leader = "Kit-Ash"
+                    wow.state.inInstance, wow.state.instanceType = true, "arena"
+                    wow.setGroup("party", { "Kit-Ash", "Lu-Bay" })
+                    for _ = 1, random.random(3) do wow.fire("GROUP_ROSTER_UPDATE") end
+                    ns.BuffRules.CheckRaid()
+                    if had then
+                        assert.is_true(ns.BuffRules.RaidBlessingsHeld(), "held, unused, in the arena")
+                        assert.is_false(ns.BuffRules.RaidBlessingsChosen(), "not used in the arena")
+                    end
+                    wow.state.inInstance, wow.state.instanceType = false, nil
+                    wow.fire("PLAYER_ENTERING_WORLD", false, false)
+                    show()
+                    if had and model then total.keptThroughArena = total.keptThroughArena + 1 end
+                end
                 local actions = { regroup, regroup, regroup, regroup, another, choose, choose, obscure, obscure,
-                    battleground,
+                    battleground, arena,
                     function() wow.fire("GROUP_ROSTER_UPDATE") end,
                     function() for i = 1, 40 do local u = wow.state.units["raid" .. i]
                         if u then u.auras, u.auraSources = {}, {} end end end }
@@ -1373,6 +1391,7 @@ describe("My Blessings in this raid", function()
             end
             assert.is_true(total.chosen > 10, "choices: " .. total.chosen)
             assert.is_true(total.kept > 100, "looks with the choice kept: " .. total.kept)
+            assert.is_true(total.keptThroughArena > 3, "choices kept through an arena: " .. total.keptThroughArena)
             assert.is_true(total.keptUnreadable > 10, "kept through looks that couldn't read: " .. total.keptUnreadable)
             for hazard, n in pairs(keptWith) do
                 assert.is_true(n > 3, "kept with " .. hazard .. " unreadable: " .. n)

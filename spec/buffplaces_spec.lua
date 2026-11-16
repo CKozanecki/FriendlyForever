@@ -590,6 +590,23 @@ describe("Who gets each buff, by place (#408)", function()
             assert.is_truthy(macro():find("Greater Blessing of Kings", 1, true), "Everyone with a role: it may")
         end)
 
+        it("a party-wide version covers only members the place's rules allow, after the choice (white)", function()
+            boot({ choice = "new", class = "PRIEST", known = { [10938] = true, [21564] = true },
+                items = { [wow.ITEM.sacredCandle] = 5 } })
+            local members = {}
+            for i, n in ipairs({ "Ann-Vale", "Bo-Fern", "Cid-Rock", "Dot-Moss" }) do
+                members[i] = { n, "WARRIOR", i == 4 and "NONE" or "DAMAGER" }
+            end
+            -- Party: by role, so Dot (no role chosen) is left out; Raid: Everyone.
+            ns.db.buffBack.whoParty.fortitude = { tanks = true, healers = true, damage = true }
+            group("party", members)
+            assert.is_falsy(macro():find("Prayer of Fortitude", 1, true), "the Party rule leaves Dot out")
+            assert.is_truthy(button.subtitle:GetText():find("your rules leave Dot Moss out", 1, true))
+            ns.db.buffBack.whoParty.fortitude = { everyone = true }
+            ns.BuffButton.Refresh()
+            assert.is_truthy(macro():find("Prayer of Fortitude", 1, true), "Everyone in Party: the group version")
+        end)
+
         it("shift+right-click puts the member on the Never list of the place the offer was made in (white)", function()
             boot({ choice = "new" })
             group("raid", FOUR)
@@ -620,9 +637,15 @@ describe("Who gets each buff, by place (#408)", function()
             end
             join()
             assert.is_false(ns.BuffMode.IsOn())
-            ns.db.buffBack.whoPvP.motw = { everyone = true }
-            join()
-            assert.is_true(ns.BuffMode.IsOn(), "with a buff on in PvP, joining turns it on")
+            -- Any rule that gives someone the buff counts (#408): a tick of any
+            -- kind, or an Always name.
+            for _, rule in ipairs({ { everyone = true }, { healers = true }, { classes = { MAGE = true } },
+                { always = { ["zed-lake"] = "Zed-Lake" } } }) do
+                ns.db.buffBack.whoPvP.motw = rule
+                _G.SlashCmdList.FRIENDLYFOREVER("buffmode off")
+                join()
+                assert.is_true(ns.BuffMode.IsOn(), "with a buff on in PvP, joining turns it on: " .. next(rule))
+            end
         end)
     end)
 
@@ -650,6 +673,35 @@ describe("Who gets each buff, by place (#408)", function()
             ns.db.buffBack.whoParty = { motw = { tanks = true } }
             ns.db.buffBack.whoChoice = "?"
             assert.are.equal("kept", ns.Config.Field("buffBack", "whoChoice"))
+        end)
+
+        it("once chosen, a leftover 1.3.3 list is emptied on load and counts for nothing against the cap", function()
+            local function list(prefix)
+                local out = {}
+                for i = 1, 100 do
+                    local full = prefix .. string.char(96 + (i - 1) % 26 + 1)
+                        .. string.rep("a", math.floor((i - 1) / 26)) .. "-Realm"
+                    out[full:lower()] = full
+                end
+                return out
+            end
+            local old, party = {}, {}
+            for _, key in ipairs({ "motw", "thorns", "kings" }) do
+                old[key] = { rule = "all", always = list("Ol" .. key), never = list("On" .. key) }
+            end
+            for _, key in ipairs({ "might", "wisdom" }) do
+                party[key] = { everyone = true, always = list("Pa" .. key), never = list("Pn" .. key) }
+            end
+            for _, choice in ipairs({ "new", "kept" }) do
+                boot({ db = { buffBack = { whoChoice = choice, whoGets = old, whoParty = party } } })
+                assert.are.same({}, ns.db.buffBack.whoGets, choice)
+                local n = 0
+                for _, entry in pairs(ns.db.buffBack.whoParty) do
+                    for _ in pairs(entry.always) do n = n + 1 end
+                    for _ in pairs(entry.never) do n = n + 1 end
+                end
+                assert.are.equal(400, n, choice .. ": every Party name kept")
+            end
         end)
 
         it("damaged rules are cleaned: a damaged tick reads as Off, never as Everyone", function()
@@ -680,6 +732,19 @@ describe("Who gets each buff, by place (#408)", function()
             ns.db.buffBack.whoParty = { motw = { healers = true, tanks = "yes", damage = 1 } }
             ns.BuffButton.Refresh()
             assert.are.same({ "Eve-Moss" }, motwTo(), "a damaged tick gives nobody")
+            boot({ choice = "new" })
+            group("party", FOUR)
+            ns.db.buffBack.whoParty = { motw = { classes = { ROGUE = "yes", PRIEST = true } } }
+            ns.BuffButton.Refresh()
+            assert.are.same({ "Eve-Moss" }, motwTo(), "a damaged class tick gives nobody")
+            -- A stranger's rule: a damaged Everyone is no Everyone.
+            ns.db.buffBack.whoStrangers = { might = { everyone = "yes" } }
+            assert.is_false(ns.BuffRules.AllowsStranger({ key = "might" }, "MAGE"))
+            ns.db.buffBack.whoStrangers = { might = { everyone = 1, classes = { MAGE = "y" } } }
+            assert.is_false(ns.BuffRules.AllowsStranger({ key = "might" }, "MAGE"))
+            -- A class-wide cast: a damaged Everyone doesn't override a role tick.
+            ns.db.buffBack.whoRaid = { kings = { everyone = "yes", healers = true } }
+            assert.is_false(ns.BuffRules.ClassWideOk({ key = "kings" }, { "raid" }))
             boot({ choice = "new" })
             group("party", FOUR)
             ns.db.buffBack.whoParty = "junk"
@@ -746,6 +811,8 @@ describe("Who gets each buff, by place (#408)", function()
         local KINDS = { false, "party", "raid", "pvp", "arena", "secret" }
         local TICK_OF = { TANK = "tanks", HEALER = "healers", DAMAGER = "damage" }
         local checked = 0 -- offers checked across every seed: the storm must check some
+        -- Offers checked in each case the storm guards, across every seed.
+        local reach = { unreadableParty = 0, unreadableRaid = 0, pvp = 0, raid = 0, secretRole = 0 }
 
         -- Whether entry (as saved) gives motw to the unit u, or nil when the
         -- simulated client's state can't tell; a member's never/always first.
@@ -769,12 +836,14 @@ describe("Who gets each buff, by place (#408)", function()
                 local rng = { int = function(_, m, n) return random.random(m, n) end }
                 boot()
                 local inRaid = false
-                for _ = 1, 60 do
+                for n = 1, 120 do
+                    local where = ("seed %d, step %d"):format(seed, n)
                     local step = rng:int(1, 6)
                     if step == 1 and ns.BuffRules.Pending() then
                         ns.BuffRules.Choose(rng:int(1, 2) == 1 and "kept" or "new")
                     elseif step == 2 then
-                        local kind = KINDS[rng:int(1, #KINDS)]
+                        -- Unreadable more often than the rest: the case with most places.
+                        local kind = rng:int(1, 3) == 1 and "secret" or KINDS[rng:int(1, #KINDS)]
                         wow.state.inInstanceSecret = kind == "secret" or nil
                         wow.state.inInstance = kind ~= false
                         wow.state.instanceType = (kind == "secret" and "party") or (kind or nil)
@@ -804,6 +873,7 @@ describe("Who gets each buff, by place (#408)", function()
                     elseif step == 6 then
                         ns.BuffButton.Refresh()
                     end
+                    assert.are.same({}, wow.errors, where)
                     -- What the button would give now, checked against the rules.
                     local offers = {}
                     ns.GroupBuffs.Next(offers)
@@ -825,9 +895,18 @@ describe("Who gets each buff, by place (#408)", function()
                                     local saved = ns.db.buffBack[ns.BuffRules.PLACE_FIELD[place]].motw
                                     if saved == nil then saved = place == "pvp" and {} or { everyone = true } end
                                     assert.is_true(gives(saved, u, offer.name) == true,
-                                        ("%s offered Mark in %s, seed %d"):format(offer.name, place, seed))
+                                        ("%s offered Mark in %s, %s"):format(offer.name, place, where))
                                     checked = checked + 1
                                 end
+                                if wow.state.inInstanceSecret then
+                                    local k = inRaid and "unreadableRaid" or "unreadableParty"
+                                    reach[k] = reach[k] + 1
+                                elseif places[1] == "pvp" then
+                                    reach.pvp = reach.pvp + 1
+                                elseif inRaid then
+                                    reach.raid = reach.raid + 1
+                                end
+                                if u.secrets and u.secrets.role then reach.secretRole = reach.secretRole + 1 end
                             end
                         end
                     end
@@ -835,8 +914,9 @@ describe("Who gets each buff, by place (#408)", function()
             end)
         end
 
-        it("checked offers after the choice, in every storm together", function()
+        it("checked offers after the choice, in every storm together, in every case it guards", function()
             assert.is_true(checked > 20, "only " .. checked .. " offers checked")
+            for case, n in pairs(reach) do assert.is_true(n >= 3, case .. ": only " .. n .. " offers checked") end
         end)
     end)
 end)
