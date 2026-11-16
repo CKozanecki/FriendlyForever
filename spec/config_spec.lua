@@ -1,4 +1,4 @@
--- Spec: #52, #80, #101, #47, #273, #392
+-- Spec: #52, #80, #101, #47, #273, #392, #408
 local wow = require("spec.support.wow")
 
 describe("Config", function()
@@ -187,7 +187,7 @@ describe("Config", function()
 
         it("runs once: a 3 set after the migration stays 3", function()
             local db = Config.Load({ schemaVersion = 6, guildLogin = { delay = 3 } })
-            assert.are.equal(7, db.schemaVersion)
+            assert.are.equal(Config.SCHEMA_VERSION, db.schemaVersion)
             db.guildLogin.delay = 3
             db = Config.Load(db)
             assert.are.equal(3, db.guildLogin.delay)
