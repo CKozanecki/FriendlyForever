@@ -1821,7 +1821,8 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
             if step.choice then
                 -- The keep-or-reset choice (#408): both buttons shown, across
                 -- inside the window, in their row between the text and the
-                -- window's own buttons.
+                -- window's own buttons (measured against Next, which every
+                -- step shows; Skip is hidden on a run's last step).
                 check(walkthrough.keep:IsShown() and walkthrough.new:IsShown(), label .. ": the choice isn't offered")
                 CheckAll({
                     function() AcrossInside(walkthrough, walkthrough.keep, label .. " Keep my settings") end,
@@ -1829,12 +1830,12 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
                     function()
                         local _, sb = Edges(walkthrough.scroll, "GetTop", "GetBottom")
                         local kt, kb = Edges(walkthrough.keep, "GetTop", "GetBottom")
-                        local st = Edges(walkthrough.skip, "GetTop", "GetBottom")
+                        local st = Edges(walkthrough.next, "GetTop", "GetBottom")
                         if not (sb and kt and st) then
                             report("LAYOUT " .. label .. " choice row: edges can't be read here")
                             return
                         end
-                        local line = ("LAYOUT %s choice row: %.0f..%.0f, text area's bottom %.0f, Skip's top %.0f")
+                        local line = ("LAYOUT %s choice row: %.0f..%.0f, text area's bottom %.0f, Next's top %.0f")
                             :format(label, kb, kt, sb, st)
                         report(line)
                         check(kt <= sb + 1 and kb >= st - 1, line .. ": overlaps the text or the buttons")

@@ -1077,6 +1077,15 @@ describe("What's new: the Buffs tab and the keep-or-reset choice (#408)", functi
             assert.is_truthy(text():find("You've never changed who gets your buffs", 1, true))
         end)
 
+        it("a player who changed rules only on this character is told how many, with no other characters", function()
+            local db = legacy()
+            db.buffBack.whoGets = { motw = { rule = "notTanks" }, thorns = { rule = "all" } }
+            boot(db)
+            assert.is_truthy(text():find("You changed who gets 2 of your buffs. How would you like to start?", 1, true))
+            assert.is_falsy(text():find("other characters", 1, true))
+            assert.is_true(choiceShown())
+        end)
+
         it("counts rules changed on your other characters: the settings are shared, and the choice covers them", function()
             -- A rogue (no rules of its own changed) on an account whose
             -- priest and mage changed theirs: never "never changed".
