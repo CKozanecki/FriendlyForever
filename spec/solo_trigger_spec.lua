@@ -175,6 +175,25 @@ describe("Buff mode turns on by itself solo (#426)", function()
             look()
             assert.is_true(ns.BuffMode.IsAuto(), "your Spirit faded since")
         end)
+
+        -- The game may send no roster update for a leave (#373): until one
+        -- is read, the looks aren't solo ones, and the first that is only notes.
+        it("leaving a group before a roster update says so, a self-buff missing all along isn't new", function()
+            boot({ known = { FORT, SPIRIT, INNER_FIRE }, wearing = { FORT, SPIRIT } })
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.wearBuff("party1", FORT, { source = "player" })
+            wow.wearBuff("party1", SPIRIT, { source = "player" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "in a group, your Inner Fire alone")
+            wow.setGroup(nil, {})
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "the leave isn't read yet")
+            wow.fire("GROUP_ROSTER_UPDATE")
+            look()
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "your Inner Fire was missing before you left")
+        end)
     end)
 
     describe("turned off by hand, and turning off (white)", function()
@@ -395,6 +414,49 @@ describe("Buff mode turns on by itself solo (#426)", function()
             wow.leaveCombat()
             assert.is_false(ns.BuffMode.IsOn())
             assert.are.same({}, wow.errors)
+        end)
+
+        -- #417's architecture review: the self-buffs went by the last group
+        -- answer read, not this look's.
+        it("with the group answer unreadable, a missing self-buff alone turns nothing on", function()
+            boot({ known = { FORT, SPIRIT, INNER_FIRE }, wearing = { FORT, SPIRIT, INNER_FIRE } })
+            look()
+            wow.state.inGroupUnreadable = true
+            fade(INNER_FIRE)
+            for _ = 1, 3 do look() end
+            assert.is_false(ns.BuffMode.IsOn())
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("a group joined in a fight that couldn't be read: a missing self-buff alone turns nothing on as it ends",
+            function()
+                boot({ known = { FORT, SPIRIT, INNER_FIRE }, wearing = { FORT, SPIRIT, INNER_FIRE } })
+                look()
+                wow.enterCombat()
+                fade(INNER_FIRE)
+                wow.setGroup("party", { "Ann-Vale" })
+                wow.wearBuff("party1", FORT, { source = "player" })
+                wow.wearBuff("party1", SPIRIT, { source = "player" })
+                wow.state.inGroupUnreadable = true
+                wow.fire("GROUP_ROSTER_UPDATE")
+                wow.state.inGroupUnreadable = nil
+                wow.leaveCombat()
+                assert.is_false(ns.BuffMode.IsOn(), "in a group now: your Inner Fire alone")
+                look()
+                assert.is_false(ns.BuffMode.IsOn(), "the next look reads the group")
+                assert.are.same({}, wow.errors)
+            end)
+
+        it("solo again and readable, a self-buff that fades after turns it on", function()
+            boot({ known = { FORT, SPIRIT, INNER_FIRE }, wearing = { FORT, SPIRIT, INNER_FIRE } })
+            look()
+            wow.state.inGroupUnreadable = true
+            look()
+            wow.state.inGroupUnreadable = nil
+            look()
+            fade(INNER_FIRE)
+            look()
+            assert.is_true(ns.BuffMode.IsAuto())
         end)
     end)
 

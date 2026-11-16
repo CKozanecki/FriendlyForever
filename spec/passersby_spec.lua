@@ -20,6 +20,7 @@ describe("Passers-by (#39)", function()
         ns = wow.boot({ db = opts.db, buffSelf = opts.buffSelf, autoBuffMode = opts.autoBuffMode, before = function(state)
             state.class = opts.class or "DRUID"
             state.knownSpells = opts.known or { [MOTW_1] = true, [MOTW] = true, [THORNS_1] = true }
+            if opts.before then opts.before(state) end
         end })
         button = ns.BuffButton.Frame()
         -- opts.keepDefault: the switch as loading left it.
@@ -222,6 +223,29 @@ describe("Passers-by (#39)", function()
             assert.are.equal("Mark of the Wild (passing by)", button.subtitle:GetText())
             local row = ns.BuffList.Rows()[1]
             assert.are.equal("> Bob Stone: Mark of the Wild (passing by)", row.text:GetText())
+        end)
+
+        -- The merge of #45 (weapon buffs): they're your own, so they come
+        -- first, and the list names each one's hand.
+        it("comes after your weapon buffs; the list says which hand, and who's passing by", function()
+            local W = wow.WEAPON
+            boot({ class = "MAGE", known = { [INTELLECT] = true },
+                db = { buffBack = { weaponBuffs = true, weaponMain = "wizardOil", weaponOff = "none",
+                    soloOwnBuffs = false } },
+                before = function(state)
+                    state.items = { [W.brilliantWizardOil] = 2 }
+                    state.itemNames = { [W.brilliantWizardOil] = "Brilliant Wizard Oil" }
+                end })
+            stranger("nameplate1", { class = "MAGE" })
+            wow.advance(30)
+            ns.BuffButton.Refresh()
+            assert.are.equal("Brilliant Wizard Oil on your main hand", button.subtitle:GetText())
+            local rows = {}
+            for _, row in ipairs(ns.BuffList.Rows()) do
+                if row:IsShown() then rows[#rows + 1] = row.text:GetText() end
+            end
+            assert.are.same({ "> You: Brilliant Wizard Oil (main hand)", "Bob Stone: Arcane Intellect (passing by)" },
+                rows)
         end)
 
         it("right-click skips a passer-by for 10 minutes, and says so", function()

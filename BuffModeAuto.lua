@@ -324,10 +324,16 @@ end
 
 -- GroupBuffs.Missing's answer and, solo (#426), your missing self-buffs
 -- merged into it, in its shape: list, worn, whether the group was known,
--- and the pairs only running low.
+-- and the pairs only running low; fifth, whether this look saw you solo.
+-- inGroup is only the last answer read (#373): a group joined in a fight,
+-- or a game that won't say now, isn't solo. Self-buffs count only when the
+-- game says so at this look too, and the last answer agrees: a leave not
+-- yet read hasn't started the solo looks (GroupChanged), whose first only
+-- notes what you're missing.
 local function MissingNow()
     local list, worn, groupKnown, low = ns.GroupBuffs.Missing()
-    if inGroup == false then
+    local solo = inGroup == false and GroupAnswer() == false
+    if solo then
         local mine, mineWorn, mineLow = ns.SelfBuffs.Missing()
         if mine then
             for _, offer in ipairs(mine) do list[#list + 1] = offer end
@@ -335,7 +341,7 @@ local function MissingNow()
             for key, at in pairs(mineLow) do low[key] = at end
         end
     end
-    return list, worn, groupKnown, low
+    return list, worn, groupKnown, low, solo
 end
 
 local function CheckMissing(fightEnded)
@@ -345,7 +351,7 @@ local function CheckMissing(fightEnded)
         lastMissing = {}
         return
     end
-    local list, worn, groupKnown, low = MissingNow()
+    local list, worn, groupKnown, low, solo = MissingNow()
     -- A pair dismissed is forgotten once it's recast (#397): any copy, if
     -- it was missing; one put up after the low one, if it was low. Not a
     -- copy whose times can't be read, nor one that only stopped counting as
@@ -388,8 +394,8 @@ local function CheckMissing(fightEnded)
     else
         why = (first.self and "you're" or (ns.Util.DisplayName(first.name) .. " is")) .. " missing your " .. spell
     end
-    -- Solo, your self-buffs are something to do too (#426).
-    TurnOn(fightEnded and ("the fight ended and " .. why) or why, nil, nil, inGroup == false)
+    -- Solo at this look, your self-buffs are something to do too (#426).
+    TurnOn(fightEnded and ("the fight ended and " .. why) or why, nil, nil, solo)
 end
 
 -- You turned buff mode off yourself (BuffMode.Set): the members low on or
