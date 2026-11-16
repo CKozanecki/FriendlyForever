@@ -642,7 +642,10 @@ local function OnPostClick(_, mouseButton, isDown)
             end
         end
         if ok then
-            ShowResult(string.format("%s won't get %s (Never list, on the Buffs tab).",
+            -- While pending, the list isn't on the tab until you choose (#408's review).
+            ShowResult(string.format(ns.BuffRules.Pending()
+                and "%s won't get %s (Never list; \"Keep my settings\" keeps it)."
+                or "%s won't get %s (Never list, on the Buffs tab).",
                 offer.self and "You" or Util.DisplayName(name), offer.spell))
         else
             ShowResult("Couldn't add " .. (offer.self and "you" or Util.DisplayName(name))

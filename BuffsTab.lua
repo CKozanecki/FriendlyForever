@@ -36,8 +36,20 @@ BuffsTab.CHOICE_TEXT = "Your buff rules haven't moved to the new places yet. Unt
     .. "and buff back work exactly as before."
 BuffsTab.KEEP_NOTE = "copies your rules to Party and Raid; PvP starts off"
 BuffsTab.NEW_NOTE = "recommended if you never changed them, or aren't sure"
+-- A Names button's tooltip while pending.
+BuffsTab.PENDING_NAMES = "Your Always and Never names for this buff, in force everywhere until you choose. "
+    .. "\"Keep my settings\" carries them to Party and Raid; \"Use the new defaults\" starts without them."
 -- The longest summary the who-gets button shows; a longer one is counted.
 BuffsTab.SUMMARY_LETTERS = 24
+-- The Buff Back settings this tab shows. The Buff Back tab's Reset leaves
+-- them as they are (Core.lua's ns.ResetType): it's for that tab's lines.
+BuffsTab.FIELDS = { "buffOrder", "neverOffer", "whoGets", "whoChoice", "whoStrangers", "whoParty", "whoRaid",
+    "whoPvP", "selfBuffs", "soloOwnBuffs", "groupVersions", "groupEnough", "raidSplit", "bgPrepBuff",
+    "breathNearWater" }
+-- The who-gets list's height, from the top: Everyone (6 + 32), the roles
+-- (2 + 32), "Classes:" (4 + 12), three rows of classes (3 x (2 + 32)), Off
+-- (4 + 22) and a margin of 8. Its shade covers all it holds (#408's review).
+BuffsTab.LIST_HEIGHT = 6 + 32 + 2 + 32 + 4 + 12 + 3 * (2 + 32) + 4 + 22 + 8
 BuffsTab.WHO_WIDTH = 200
 
 local area           -- the tab's frame
@@ -170,7 +182,7 @@ local function CreateList()
     local ui = UI()
     local list = CreateFrame("Frame", nil, area)
     list:SetFrameStrata("DIALOG")
-    list:SetSize(330, 150)
+    list:SetSize(330, BuffsTab.LIST_HEIGHT)
     list:Hide()
     -- Two layers of the palette's shade: dark enough to read over the rows.
     for _, layer in ipairs({ "BACKGROUND", "BORDER" }) do
@@ -415,7 +427,6 @@ function BuffsTab.Create(content, tabsBottom)
         row.who:SetPoint("LEFT", row.label, "RIGHT", 6, 0)
         row.names = ui.Button(area, "", 90, function() if row.key then BuffsTab.ToggleNames(row.key) end end)
         row.names:SetPoint("LEFT", row.who, "RIGHT", 6, 0)
-        ui.Tooltip(row.names, "Players named here: Always get it, whatever the rule; Never don't.")
         w.whoRows[i] = row
     end
     CreateList()
@@ -559,8 +570,10 @@ local function FillRows(buffs, pending, last)
             row.who:SetEnabled(not pending)
             row.names:SetEnabled(not pending)
             if named then
-                local entry = ns.BuffRules.PlaceEntry(buff, place)
-                row.names:SetText("Names (" .. (Count(entry.always) + Count(entry.never)) .. ")")
+                -- While pending, the names in force: 1.3.3's, which Keep carries over.
+                row.names:SetText("Names (" .. ns.BuffRules.NamesCount(buff.key, not pending and place or nil) .. ")")
+                UI().Tooltip(row.names, pending and BuffsTab.PENDING_NAMES
+                    or "Players named here: Always get it, whatever the rule; Never don't.")
             end
             if buff.key == listKey then listRow = row end
             last = row.icon

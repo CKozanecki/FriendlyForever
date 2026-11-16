@@ -26,10 +26,17 @@ function ns.SetEnabled(on)
     ns.Options.Refresh()
 end
 
--- Back to defaults, keeping settings about this screen (the button's place).
+-- Back to defaults, keeping settings about this screen (the button's place)
+-- and, for Buff Back, the Buffs tab's: that tab's Reset is for its own lines
+-- only (#408).
 function ns.ResetType(msgType)
     local fresh = ns.Config.DefaultsFor(msgType)
-    for _, key in ipairs(ns.Profiles.LOCAL_ONLY[msgType] or {}) do fresh[key] = ns.db[msgType][key] end
+    local live = type(ns.db[msgType]) == "table" and ns.db[msgType] or {}
+    local function Keep(keys)
+        for _, key in ipairs(keys or {}) do fresh[key] = live[key] end
+    end
+    Keep(ns.Profiles.LOCAL_ONLY[msgType])
+    if msgType == "buffBack" then Keep(ns.BuffsTab.FIELDS) end
     ns.db[msgType] = fresh
     ns.RefreshEvents()
     ns.BuffButton.Refresh()
@@ -80,7 +87,7 @@ function handlers.ADDON_LOADED(name)
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
         "BuffTable", "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
         "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "OptionsIndex", "Colours", "Walkthrough",
-        "BuffList", "GroupCasts", "RaidSplit", "LevelUps", "SelfBuffs", "Requests" }) do
+        "BuffList", "GroupCasts", "RaidSplit", "LevelUps", "SelfBuffs", "Requests", "BuffsTab" }) do
         if ns[module] == nil then
             local text = "this update added files. Restart the game (not /reload) to finish updating."
             ns.Print(ns.Colours and ns.Colours.Text("bad", text) or text)

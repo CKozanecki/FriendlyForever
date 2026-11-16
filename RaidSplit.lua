@@ -21,7 +21,7 @@
 -- buff, as without the split.
 --
 -- Who takes part (the owner's decisions on #70): copies with the split
--- switched on (Buff Back tab, on by default), while buff mode is on and for
+-- switched on (the Buffs tab's Raid place, on by default), while buff mode is on and for
 -- GRACE seconds after it goes off; a copy that isn't says so once ("-").
 -- Copies re-announce every HEARTBEAT seconds; one not heard for SILENT
 -- seconds, or that leaves the raid or goes offline, drops out, and its
@@ -221,7 +221,7 @@ local function Fresh(entry, now)
     return now >= entry.heardAt and now - entry.heardAt <= RaidSplit.SILENT
 end
 
--- Whether the split is switched on (Buff Back tab); damaged reads as on.
+-- Whether the split is switched on (the Buffs tab); damaged reads as on.
 function RaidSplit.Enabled()
     local value = ns.db and type(ns.db.buffBack) == "table" and ns.db.buffBack.raidSplit
     if type(value) == "boolean" then return value end

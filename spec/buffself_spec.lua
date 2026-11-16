@@ -261,7 +261,9 @@ describe("Buff mode buffing you too", function()
             wearEverything(wow.state.units.party1)
             _G.IsShiftKeyDown = function() return true end
             wow.press(button, "RightButton")
-            assert.are.equal("You won't get Mark of the Wild (Never list, on the Buffs tab).", button.result:GetText())
+            -- While the choice is pending (#408's review): where the list goes.
+            assert.are.equal("You won't get Mark of the Wild (Never list; \"Keep my settings\" keeps it).",
+                button.result:GetText())
         end)
 
         it("says so in your words when the Never mark can't be added", function()

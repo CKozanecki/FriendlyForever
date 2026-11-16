@@ -216,6 +216,48 @@ describe("The Buffs tab (#408)", function()
             wow.run(w.openBuffs, "OnClick")
             assert.are.equal("buffs", ns.Options.CurrentType())
         end)
+
+        -- #408's architecture review: that tab's Reset wiped this one's.
+        it("the Buff Back tab's Reset leaves the Buffs tab's settings as they are", function()
+            boot({ choice = "new" })
+            -- What the Buffs tab shows, listed here on its own: the order,
+            -- Never offer, the rules (1.3.3's, the choice, each place's) and
+            -- the options for every place and for each.
+            local shown = { "buffOrder", "neverOffer", "whoGets", "whoChoice", "whoStrangers", "whoParty",
+                "whoRaid", "whoPvP", "selfBuffs", "breathNearWater", "groupVersions", "groupEnough",
+                "soloOwnBuffs", "raidSplit", "bgPrepBuff" }
+            local listed = {}
+            for _, field in ipairs(ns.BuffsTab.FIELDS) do
+                assert.is_not_nil(ns.Config.DEFAULTS.buffBack[field], field .. " is a Buff Back setting")
+                listed[field] = true
+            end
+            for _, field in ipairs(shown) do assert.is_true(listed[field], field .. " is kept") end
+            assert.are.equal(#shown, #ns.BuffsTab.FIELDS)
+            place("party")
+            wow.run(rowFor("motw").who, "OnClick")
+            tick(w.whoList.tanks, true)
+            ns.db.buffBack.groupVersions = false
+            ns.db.buffBack.buffOrder = { "thorns", "motw" }
+            ns.db.buffBack.neverOffer = { thorns = true }
+            ns.db.buffBack.whoRaid = { thorns = { never = { ["ann-vale"] = "Ann-Vale" } } }
+            ns.db.buffBack.sayLine = true
+            ns.db.buffBack.owedMinutes = 20
+            local before = {}
+            for _, field in ipairs(ns.BuffsTab.FIELDS) do
+                before[field] = ns.Serialize.Encode({ v = ns.db.buffBack[field] })
+            end
+            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.reset, "OnClick")
+            for _, field in ipairs(ns.BuffsTab.FIELDS) do
+                assert.are.equal(before[field], ns.Serialize.Encode({ v = ns.db.buffBack[field] }), field)
+            end
+            assert.are.equal("new", ns.db.buffBack.whoChoice)
+            assert.is_true(ns.db.buffBack.whoParty.motw.tanks)
+            -- The Buff Back tab's own lines are reset.
+            assert.is_false(ns.db.buffBack.sayLine)
+            assert.are.equal(ns.Config.DEFAULTS.buffBack.owedMinutes, ns.db.buffBack.owedMinutes)
+            assert.are.same({}, wow.errors)
+        end)
     end)
 
     describe("before the choice (white)", function()
@@ -249,6 +291,39 @@ describe("The Buffs tab (#408)", function()
             wow.run(w.choice.new, "OnClick")
             assert.are.equal("new", ns.db.buffBack.whoChoice)
             assert.is_true(said("using the new buff defaults"))
+        end)
+
+        -- #408's architecture review: every row read "Names (0)" while pending.
+        it("counts the names in force (1.3.3's), and says what each choice does with them", function()
+            boot()
+            assert.is_true(ns.BuffRules.AddName("motw", "never", "Bob-Stone"))
+            assert.is_true(ns.BuffRules.AddName("motw", "always", "Ann-Vale"))
+            ns.Options.Refresh()
+            for _, p in ipairs({ "party", "raid", "pvp" }) do
+                place(p)
+                local row = rowFor("motw")
+                assert.are.equal("Names (2)", row.names:GetText(), p)
+                assert.are.equal("Names (0)", rowFor("thorns").names:GetText(), p)
+                assert.are.equal(ns.BuffsTab.PENDING_NAMES, row.names.tooltip, p)
+            end
+            wow.run(w.choice.new, "OnClick")
+            assert.is_true(said("your 2 Always and Never names weren't kept"))
+            place("party")
+            assert.are.equal("Names (0)", rowFor("motw").names:GetText())
+            assert.are_not.equal(ns.BuffsTab.PENDING_NAMES, rowFor("motw").names.tooltip)
+            -- Keep carries them, and says nothing of names left behind.
+            boot()
+            assert.is_true(ns.BuffRules.AddName("motw", "never", "Bob-Stone"))
+            wow.printed = {}
+            wow.run(w.choice.keep, "OnClick")
+            assert.is_false(said("weren't kept") or said("wasn't kept"))
+            place("raid")
+            assert.are.equal("Names (1)", rowFor("motw").names:GetText())
+            -- One name: said in the singular.
+            boot()
+            assert.is_true(ns.BuffRules.AddName("thorns", "never", "Bob-Stone"))
+            wow.run(w.choice.new, "OnClick")
+            assert.is_true(said("your 1 Always and Never name wasn't kept"))
         end)
 
         it("a new install starts on the new defaults and never sees the choice", function()
@@ -311,6 +386,21 @@ describe("The Buffs tab (#408)", function()
             ns.BuffRules.SetNames = real
             assert.are.equal(0, saves, "unchanged: not saved again")
         end)
+    end)
+
+    -- A new file: after an update, /reload runs without it until a restart
+    -- (#142; #408's architecture review).
+    it("asks for a restart when only BuffsTab.lua is new (black)", function()
+        wow.reset()
+        local loaded = {}
+        local _, files = wow.parseToc()
+        for _, file in ipairs(files) do
+            if file ~= "BuffsTab.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+        end
+        wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+        wow.fire("PLAYER_ENTERING_WORLD", true, false)
+        assert.are.same({}, wow.errors)
+        assert.is_truthy(table.concat(wow.printed, "\n"):find("Restart the game", 1, true))
     end)
 
     describe("damage and storms (red)", function()

@@ -1435,6 +1435,39 @@ local function DeepCopy(value)
     return copy
 end
 
+-- The who-gets list's shade covers all it holds: every tick, its label and
+-- Off lie inside the list's edges (#408's architecture review: the shade
+-- stopped 70 px short). The click catcher behind it spans the screen.
+local function ListHoldsAll(list, label)
+    local left, right = Edges(list, "GetLeft", "GetRight")
+    local top, bottom = Edges(list, "GetTop", "GetBottom")
+    if not (left and top) then
+        report("LAYOUT " .. label .. ": edges can't be read here")
+        return
+    end
+    local function Inside(region, what)
+        local l, r = Edges(region, "GetLeft", "GetRight")
+        local t, b = Edges(region, "GetTop", "GetBottom")
+        if not (l and t) then return end
+        local line = ("LAYOUT %s, %s: %.0f..%.0f across, %.0f..%.0f up, list %.0f..%.0f, %.0f..%.0f")
+            :format(label, what, l, r, b, t, left, right, bottom, top)
+        report(line)
+        check(l >= left - 1 and r <= right + 1 and b >= bottom - 1 and t <= top + 1, line .. ": outside the list")
+    end
+    for _, child in ipairs({ list:GetChildren() }) do
+        if child:IsShown() and child ~= list.catcher then
+            local text = child.GetText and child:GetText()
+            local what = (type(text) == "string" and text ~= "" and text)
+                or (child.label and child.label:GetText()) or child:GetObjectType()
+            Inside(child, what)
+            if child.label and child.label:IsShown() then Inside(child.label, what .. " (label)") end
+        end
+    end
+    for _, region in ipairs({ list:GetRegions() }) do
+        if region:IsShown() and region.GetText and region:GetText() then Inside(region, region:GetText()) end
+    end
+end
+
 test("the Buffs tab stays inside its page at its tallest, at every place, names and list open (#408)", function()
     local Pages = FriendlyForeverUIPages
     local saved = FriendlyForeverDB and FriendlyForeverDB.buffBack
@@ -1484,6 +1517,7 @@ test("the Buffs tab stays inside its page at its tallest, at every place, names 
             for _, child in ipairs({ content:GetChildren() }) do
                 if child:GetObjectType() == "Frame" and child:IsShown() and child:GetFrameStrata() == "DIALOG" then
                     OnScreen(child, name .. " who-gets list")
+                    ListHoldsAll(child, name .. " who-gets list")
                 end
             end
         end

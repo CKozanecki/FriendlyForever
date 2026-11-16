@@ -8,12 +8,12 @@ local Config = ns.Config
 local Options = {}
 ns.Options = Options
 
--- Room for the Buff Back tab's buff list, who gets each, and buff mode rows above its lines.
--- 1940, plus the second row of tabs (#273), plus 230 for the Buff Back tab at
--- its tallest: a paladin's 11 buff rows with the self-buffs (#44), the solo
--- option (#329), the raid Blessings rows and the Who list's class rows need
--- about 2133 px with the UI simulator's pessimistic line wrapping (#363; its
--- scenario "the Buff Back tab stays inside its page at its tallest").
+-- Room for the tallest tab. That was the Buff Back tab with its buff list and
+-- who gets each (#363), about 2133 px with the UI simulator's pessimistic line
+-- wrapping. Those rows are on the Buffs tab now (#408), which is shorter: a
+-- paladin's 11 buff rows, its own options and one place's rows with a buff's
+-- names open. The UI simulator's scenario "the Buffs tab stays inside its page
+-- at its tallest" checks every place fits.
 Options.CONTENT_HEIGHT = 2200
 Options.TABS_PER_ROW = 4
 -- The Buffs tab's name among the tabs (#408): not a message type.
@@ -361,9 +361,8 @@ local function CreateKeyCapture(parent)
     return capture
 end
 
--- The Buff Back tab's buff list: your class's buffs in your order. Read
--- checked (#330): every buff row's button, the Who rows' boxes included,
--- starts here, so the section the rules then write is never a damaged one.
+-- Your class's buffs in your order, for moving one (the Buffs tab's Up and
+-- Down). Read checked (#330), so the section then written is never a damaged one.
 local function OrderedClassBuffs()
     return ns.BuffData.InOrder(ns.BuffData.ClassBuffs(), Config.Field("buffBack", "buffOrder"))
 end

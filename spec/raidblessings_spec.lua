@@ -378,7 +378,8 @@ describe("My Blessings in this raid", function()
         it("puts the shown member on that buff's Never list", function()
             group("party", { "Ann-Vale", "Bo-Lake" })
             wow.press(button, "RightButton", { shift = true })
-            assert.are.equal("Ann Vale won't get Blessing of Kings (Never list, on the Buffs tab).",
+            -- While pending (#408's review): Keep carries the list over.
+            assert.are.equal("Ann Vale won't get Blessing of Kings (Never list; \"Keep my settings\" keeps it).",
                 button.result:GetText())
             assert.are.equal("Ann-Vale", ns.db.buffBack.whoGets.kings.never["ann-vale"])
             assert.are.equal("Bo Lake: Blessing of Kings", armed())
@@ -390,7 +391,8 @@ describe("My Blessings in this raid", function()
         it("names the buff it was, though the button moves on to another", function()
             group("party", { "Ann-Vale" })
             wow.press(button, "RightButton", { shift = true })
-            assert.are.equal("Ann Vale won't get Blessing of Kings (Never list, on the Buffs tab).",
+            -- While pending (#408's review): Keep carries the list over.
+            assert.are.equal("Ann Vale won't get Blessing of Kings (Never list; \"Keep my settings\" keeps it).",
                 button.result:GetText())
             assert.are.equal("Ann Vale: Blessing of Might", armed())
             wow.state.units.party1.auras = { MIGHT_1 }
