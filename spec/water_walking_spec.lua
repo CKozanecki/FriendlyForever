@@ -1,4 +1,4 @@
--- Spec: #350
+-- Spec: #350, #408
 -- The shaman's Water Walking is offered only when someone asks for it in
 -- chat (#40; the owner's decision on #350): "water walking", "ww" or "walk
 -- on water". Buff back and buff mode never offer it unasked, and the water
@@ -102,8 +102,8 @@ describe("Water Walking, offered only on request", function()
             assert.are.equal("Water Walking", (offered()))
         end)
 
-        it("is listed on the Buff Back tab as \"(when asked)\", with no Who button, and \"never offer\" stops "
-            .. "requests for it", function()
+        it("is listed on the Buff Back tab as \"(when asked)\", with no Who button, and \"never offer\" doesn't "
+            .. "stop requests for it (#408)", function()
             boot()
             local w = ns.Options.widgets
             wow.run(w.tabs.buffBack, "OnClick")
@@ -119,10 +119,11 @@ describe("Water Walking, offered only on request", function()
             assert.is_true(row.never:IsShown())
             ns.Options.CycleWho("waterwalking")
             assert.is_nil(ns.db.buffBack.whoGets and ns.db.buffBack.whoGets.waterwalking, "no rule to cycle")
+            -- The owner (#408, question 5): a request is given whatever Never offer says.
             ns.Options.SetNeverOffer("waterwalking", true)
             stranger()
             wow.whisper("ww pls", "Bob-Stone")
-            assert.is_nil(offered(), "never offered: their request is no buff of yours")
+            assert.is_truthy(offered(), "asked for, so offered, even marked never offer")
         end)
     end)
 

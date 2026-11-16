@@ -418,11 +418,12 @@ function BuffData.SelfOfferable()
     return OfferableOf(BuffData.MySelfBuffs())
 end
 
--- The buffs a player may ask you for in chat (#40): those of Offerable,
--- and those offered only on request (#350), in your order, less any marked
--- "never offer". Never a self-buff.
+-- The buffs a player may ask you for in chat (#40): your buffs for others
+-- that you know, and those offered only on request (#350), in your order.
+-- "Never offer" doesn't stop a request (the owner, #408). Never a self-buff.
 function BuffData.Requestable()
-    return OfferableOf(BuffData.MyAskable())
+    local order = ns.db and type(ns.db.buffBack) == "table" and ns.db.buffBack.buffOrder
+    return BuffData.InOrder(BuffData.MyAskable(), order)
 end
 
 -- Call when the spellbook changes (SPELLS_CHANGED, a spell learned).

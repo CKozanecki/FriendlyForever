@@ -215,7 +215,8 @@ local function WhyNot(buff, spell, members, flaggedOk, ctx)
         end
         if not m.name and not m.isMe then return "a group member's name can't be read" end
         -- (Your own name is only for the Always and Never lists.)
-        local allowed, ruleWhy = ns.BuffRules.Allows(buff, { unit = m.unit, name = m.name or "", class = m.class })
+        local allowed, ruleWhy = ns.BuffRules.Allows(buff, { unit = m.unit, name = m.name or "", class = m.class },
+            ctx and ctx.places)
         if allowed == nil then return ruleWhy and (Cap(who) .. ": " .. ruleWhy) or "a rule can't be applied" end
         if allowed ~= true then return "your rules leave " .. who .. " out" end
         if buff.family then
@@ -249,7 +250,8 @@ end
 --            flaggedOk = true when a member flagged for PvP may be covered:
 --            you're flagged too, or everyone is inside a dungeon or raid
 --            (#306). Anything else, or left out, and a flagged member, or
---            one whose flag can't be read, stops the cast }
+--            one whose flag can't be read, stops the cast; places = whose
+--            rules apply (BuffRules.Place, #408), read now when left out }
 -- The reason comes with a third value, true for one worth only a line in the
 -- button's tooltip, not its face (a group version you haven't learned, which
 -- stays true for a long time).
@@ -268,10 +270,10 @@ function GroupCasts.Offer(buff, members, ctx)
     -- Class-wide versions (Greater Blessings) are for a raid: in a party the
     -- single Blessing is just as fast, so nothing is said about them.
     if spell.scope == "class" and not ctx.inRaid then return nil end
-    -- "Tanks only" never gets a class-wide cast (#41: Greater Blessing of
-    -- Kings is never offered with "Kings: tanks only"): the single Blessing
-    -- goes to each tank.
-    if spell.scope == "class" and ns.BuffRules.Rule(buff) == "tanks" then return nil end
+    -- A rule by role never gets a class-wide cast (#41: Greater Blessing of
+    -- Kings is never offered with "Kings: tanks only"; #408: any role
+    -- without Everyone): the single Blessing goes to each member it suits.
+    if spell.scope == "class" and not ns.BuffRules.ClassWideOk(buff, ctx.places) then return nil end
 
     local missing = {}
     for _, member in ipairs(members) do

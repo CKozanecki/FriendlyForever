@@ -15,8 +15,8 @@
 -- read is skipped too, and the button says why; so is one whose flag can't
 -- be read, unless flagged members may be buffed (FlaggedMayBeBuffed: nobody's
 -- flag is asked for then). Your rules for who gets
--- each buff (tanks only, chosen classes, named players: BuffRules.lua) apply
--- here, and only here. Group buffs never say a line and are never thanked.
+-- each buff (by place, #408: roles, chosen classes, named players:
+-- BuffRules.lua) apply here; buff back has its own (Offers.lua). Group buffs never say a line and are never thanked.
 --
 -- You are a group member too (#198): for each buff you give, that buff is
 -- offered on you first, if you are missing it, and then to the group
@@ -162,9 +162,9 @@ GroupBuffs.RaidAnswer = RaidAnswer
 local function GroupUnits()
     local inRaid, inGroup = RaidAnswer(), Read(IsInGroup)
     local known = inRaid ~= nil and (inGroup == true or inGroup == false)
-    if inRaid == true then return RAID_UNITS, known end
-    if inGroup == true then return PARTY_UNITS, known end
-    return {}, known
+    if inRaid == true then return RAID_UNITS, known, inRaid end
+    if inGroup == true then return PARTY_UNITS, known, inRaid end
+    return {}, known, inRaid
 end
 
 local function Recently(at, seconds)
@@ -544,8 +544,9 @@ end
 -- aim's single offer (#252) and any other group offer aimed at them (#305);
 -- the button keeps one row per player (BuffButton.lua).
 -- (Next's look, over units as GroupUnits read them, groupKnown being whether
--- the game said which slots: Missing reads them itself, to say so, #370.)
-local function Look(out, units, groupKnown)
+-- the game said which slots: Missing reads them itself, to say so, #370.
+-- inRaid is the raid answer they were read by, for the place, #408.)
+local function Look(out, units, groupKnown, inRaid)
     local first, listed = nil, {}
     -- One offer found: the first is returned at once, or with a list kept.
     local function Found(offer)
@@ -592,6 +593,9 @@ local function Look(out, units, groupKnown)
         return nil, why, groupKnown
     end
     local members, firstReason, open, flaggedOk = Candidates(units)
+    -- Whose rules apply (#408): read once for the look, by the same raid
+    -- answer as its slots (#346).
+    local places = ns.BuffRules.Place(inRaid)
     local unreadable, outOfRange = {}, {}
     local family = {} -- [name .. buff key] = whether they wear another of yours (read once)
     -- Every reason a member is passed over here leaves a buff to give.
@@ -616,7 +620,7 @@ local function Look(out, units, groupKnown)
         -- leave out is passed over quietly: nothing is owed them.
         local allowed, ruleWhy = false, nil
         if not unreadable[member.name] and ns.BuffData.Useful(buff, member.class) then
-            allowed, ruleWhy = ns.BuffRules.Allows(buff, member)
+            allowed, ruleWhy = ns.BuffRules.Allows(buff, member, places)
         end
         if allowed ~= false then
             local wears, wearsWhy = Wears(member, buff, units)
@@ -650,7 +654,7 @@ local function Look(out, units, groupKnown)
     -- Raid or party as GroupUnits read it, never asked again (#346): a second
     -- answer that disagreed would read a raid's slots as one party.
     local groupCtx = { units = units, inRaid = units == RAID_UNITS, InRange = InSpellRange,
-        flaggedOk = flaggedOk }
+        flaggedOk = flaggedOk, places = places }
     -- The buffs for one list of members, in your buff order (the first
     -- buff goes to all of them before the second goes to any).
     local function Pass(list)
@@ -742,9 +746,9 @@ end
 -- casts.
 function GroupBuffs.Missing()
     local list, worn, low = {}, {}, {}
-    local units, groupKnown = GroupUnits()
+    local units, groupKnown, inRaid = GroupUnits()
     presentOnly, presentLow = worn, low
-    local ok, err = pcall(Look, list, units, groupKnown)
+    local ok, err = pcall(Look, list, units, groupKnown, inRaid)
     presentOnly, presentLow = false, false
     if not ok then error(err, 0) end
     -- Only a listed pair: one seen low may also wear a fresh copy.

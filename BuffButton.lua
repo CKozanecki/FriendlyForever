@@ -660,10 +660,21 @@ local function OnPostClick(_, mouseButton, isDown)
             ns.GroupCasts.SKIP_SECONDS / 60))
     elseif offer.group and Util.ReadGameValues(IsShiftKeyDown) == true then
         ns.Options.FinishEdits()
-        local ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name)
+        -- The Never list of the place you're in (#408), where the offer was
+        -- made, or of each place it could be when the game won't say;
+        -- 1.3.3's while the choice waits.
+        local ok, why, tab = true, nil, "Buffs"
+        if ns.BuffRules.Pending() then
+            ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name)
+            tab = "Buff Back"
+        else
+            for _, place in ipairs(ns.BuffRules.Place()) do
+                if ok then ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name, place) end
+            end
+        end
         if ok then
-            ShowResult(string.format("%s won't get %s (Never list, on the Buff Back tab).",
-                offer.self and "You" or Util.DisplayName(name), offer.spell))
+            ShowResult(string.format("%s won't get %s (Never list, on the %s tab).",
+                offer.self and "You" or Util.DisplayName(name), offer.spell, tab))
         else
             ShowResult("Couldn't add " .. (offer.self and "you" or Util.DisplayName(name))
                 .. " to the Never list: " .. why .. ".", true)
