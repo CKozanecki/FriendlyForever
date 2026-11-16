@@ -44,12 +44,14 @@ describe("Passers-by and the campfire in the settings (#39)", function()
             assert.is_false(ns.db.buffBack.passersBy)
         end)
 
-        it("isn't on the other places", function()
-            boot()
+        it("isn't on the other places, nor its nameplate warning while they're off", function()
+            boot({ nameplatesOff = true })
             for _, p in ipairs({ "party", "raid", "pvp" }) do
                 buffsPlace(p)
                 assert.is_false(w.passersBy:IsVisible(), p)
                 assert.is_false(w.passersByHelp:IsVisible(), p)
+                assert.is_false(w.passersByNameplates:IsVisible(), p)
+                assert.is_false(w.passersByShow:IsVisible(), p)
             end
         end)
 
