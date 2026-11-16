@@ -1,4 +1,4 @@
--- Spec: #330, #44
+-- Spec: #330, #44, #408
 -- The options panel with a field inside a settings section damaged
 -- mid-session, and the Buff Thanks and Buff Back tabs' controls clicked with
 -- their whole section damaged after the panel filled (#330). A whole section
@@ -88,21 +88,36 @@ describe("Options panel", function()
                                 what .. ": it asked for the whole-file repair, so the rest heals too")
                         end
                         ns.db.skipWhileAFK = ns.Config.DEFAULTS.skipWhileAFK
-                        for _, tab in ipairs(ns.Config.TYPES) do
+                        -- The Buffs tab too (#408's testing review): it fills from
+                        -- Buff Back's section, and returns before the message tabs do.
+                        local tabs = { ns.Options.BUFFS_TAB }
+                        for _, tab in ipairs(ns.Config.TYPES) do tabs[#tabs + 1] = tab end
+                        for _, tab in ipairs(tabs) do
                             ns.db[msgType][field] = value
                             wow.run(w.tabs[tab], "OnClick")
                             assert.are.same(expected, ns.db[msgType][field], what .. " healed on the " .. tab
                                 .. " tab")
                         end
-                        -- Its own tab shows it as it now is.
+                        -- Its own tab shows it as it now is: the Buffs tab for
+                        -- the Buff Back fields it shows (BuffsTab.FIELDS).
+                        local onBuffs = false
+                        for _, name in ipairs(msgType == "buffBack" and ns.BuffsTab.FIELDS or {}) do
+                            onBuffs = onBuffs or name == field
+                        end
                         ns.db[msgType][field] = value
-                        wow.run(w.tabs[msgType], "OnClick")
+                        wow.run(w.tabs[onBuffs and ns.Options.BUFFS_TAB or msgType], "OnClick")
                         local live = ns.db[msgType]
-                        for i, edit in ipairs(w.edits) do
+                        assert.are.same(expected, live[field], what .. " healed on its own tab")
+                        if onBuffs then
+                            for _, name in ipairs({ "selfBuffs", "breathNearWater", "groupVersions" }) do
+                                assert.are.equal(live[name] == true, w[name]:GetChecked() == true, what .. ": " .. name)
+                            end
+                        end
+                        for i, edit in ipairs(onBuffs and {} or w.edits) do
                             assert.are.equal(live.messages[i], edit:GetText(), what .. ": line " .. i)
                         end
                         for name, stepper in pairs(w.steppers) do
-                            if stepper.box:IsShown() and live[name] ~= nil then
+                            if stepper.box:IsVisible() and live[name] ~= nil then
                                 assert.are.equal(tostring(live[name]), stepper.box:GetText(), what .. ": " .. name)
                             end
                         end
@@ -165,7 +180,7 @@ describe("Options panel", function()
             wow.run(w.steppers.delay.plus, "OnClick")
             assert.are.equal(ns.Config.DEFAULTS.guildJoin.delay + 1, ns.db.guildJoin.delay)
             -- The same for a list a click adds to.
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
             wow.advance(2)
             local key = w.buffRows[1].key
             ns.db.buffBack.neverOffer = 7
@@ -347,16 +362,23 @@ describe("Options panel", function()
             end
             add("say a line", toggle(w.sayLine, "buffBack", "sayLine"))
             add("show in cities", toggle(w.showInCities, "buffBack", "showInCities"))
-            add("group versions", toggle(w.groupVersions, "buffBack", "groupVersions"))
-            add("raid split", toggle(w.raidSplit, "buffBack", "raidSplit"))
-            add("battleground preparation", toggle(w.bgPrepBuff, "buffBack", "bgPrepBuff"))
-            add("water breathing", toggle(w.breathNearWater, "buffBack", "breathNearWater"))
-            add("self-buffs", toggle(w.selfBuffs, "buffBack", "selfBuffs"))
-            add("own buffs solo", toggle(w.soloOwnBuffs, "buffBack", "soloOwnBuffs"))
+            -- On the Buffs tab (#408), at a place when it's one place's own.
+            local function on(control, place)
+                control.tab, control.place = "buffs", place
+                return control
+            end
+            add("group versions", on(toggle(w.groupVersions, "buffBack", "groupVersions")))
+            add("raid split", on(toggle(w.raidSplit, "buffBack", "raidSplit"), "raid"))
+            add("battleground preparation", on(toggle(w.bgPrepBuff, "buffBack", "bgPrepBuff"), "pvp"))
+            add("water breathing", on(toggle(w.breathNearWater, "buffBack", "breathNearWater")))
+            add("self-buffs", on(toggle(w.selfBuffs, "buffBack", "selfBuffs")))
+            add("own buffs solo", on(toggle(w.soloOwnBuffs, "buffBack", "soloOwnBuffs"), "party"))
             for _, field in ipairs(ns.Options.AUTO_SWITCHES) do add(field, toggle(w.auto[field], "buffBack", field)) end
-            for _, name in ipairs({ "owedMinutes", "renewPercent", "autoOffMinutes", "topUpMinutes", "groupEnough" }) do
+            for _, name in ipairs({ "owedMinutes", "renewPercent", "autoOffMinutes", "topUpMinutes" }) do
                 add(name, stepper(name, "buffBack"))
             end
+            add("groupEnough", on(stepper("groupEnough", "buffBack")))
+            add("the Buffs tab link", { click = function() wow.run(w.openBuffs, "OnClick") end })
             add("buff mode's key", {
                 click = function()
                     wow.run(w.buffModeKey, "OnClick")
@@ -370,6 +392,7 @@ describe("Options panel", function()
                 ns.Options.Refresh()
             end
             add("a buff's Down button", {
+                tab = "buffs",
                 prepare = defaultOrder,
                 click = function()
                     local key = w.buffRows[1].key
@@ -379,6 +402,7 @@ describe("Options panel", function()
                 check = function(key) return ns.db.buffBack.buffOrder[2] == key end,
             })
             add("a buff's Up button", {
+                tab = "buffs",
                 prepare = defaultOrder,
                 click = function()
                     local key = w.buffRows[2].key
@@ -388,6 +412,7 @@ describe("Options panel", function()
                 check = function(key) return ns.db.buffBack.buffOrder[1] == key end,
             })
             add("a buff's Never offer box", {
+                tab = "buffs",
                 click = function()
                     local key = w.buffRows[1].key
                     w.buffRows[1].never:SetChecked(true)
@@ -398,6 +423,7 @@ describe("Options panel", function()
             })
             -- Righteous Fury is never offered by default: unticking it saves false (#44).
             add("Righteous Fury's Never offer box, unticked", {
+                tab = "buffs",
                 click = function()
                     for _, row in ipairs(w.buffRows) do
                         if row.key == "righteousfury" then
@@ -409,41 +435,64 @@ describe("Options panel", function()
                 end,
                 check = function(found) return found and ns.db.buffBack.neverOffer.righteousfury == false end,
             })
-            add("a buff's Who button", {
-                click = function()
-                    local key = w.buffRows[1].key
-                    wow.run(w.buffRows[1].who, "OnClick")
-                    return key
-                end,
-                check = function(key) return type(ns.db.buffBack.whoGets[key]) == "table" end,
-            })
-            add("a class box", {
-                prepare = function()
-                    ns.BuffRules.SetRule(ns.Options.WhoBuffKey(), "classes")
-                    ns.Options.Refresh()
-                    assert.is_true(w.who.classes.WARRIOR:IsShown())
-                end,
-                click = function()
-                    w.who.classes.WARRIOR:SetChecked(true)
-                    wow.run(w.who.classes.WARRIOR, "OnClick")
-                    return ns.Options.WhoBuffKey()
-                end,
-                check = function(key) return ns.db.buffBack.whoGets[key].classes.WARRIOR == true end,
-            })
+            -- Who gets each buff (#408). A damaged section heals pending (no
+            -- choice made), where these change nothing: they must just not raise.
+            local function chosen(place)
+                return function()
+                    ns.db.buffBack.whoChoice = "new"
+                    wow.run(w.placeTabs[place], "OnClick")
+                end
+            end
+            local function listBox(name, box)
+                add(name, { tab = "buffs", place = "party",
+                    prepare = function()
+                        chosen("party")()
+                        wow.run(w.whoRows[1].who, "OnClick")
+                        assert.is_true(w.whoList:IsShown(), "the list opened")
+                    end,
+                    click = function()
+                        local cb = box()
+                        if cb.SetChecked then cb:SetChecked(true) end
+                        wow.run(cb, "OnClick")
+                    end,
+                })
+            end
+            listBox("a who-gets row's Everyone box", function() return w.whoList.everyone end)
+            listBox("a who-gets row's Tanks box", function() return w.whoList.tanks end)
+            listBox("a who-gets row's class box", function() return w.whoList.classes.WARRIOR end)
+            listBox("a who-gets row's Off button", function() return w.whoList.off end)
             for _, names in ipairs({ "always", "never" }) do
-                add("the " .. names .. " box", {
+                add("the " .. names .. " box", { tab = "buffs", place = "party",
                     -- Typing in it when the damage comes.
-                    prepare = function() w.who[names]:SetFocus() end,
+                    prepare = function()
+                        chosen("party")()
+                        wow.run(w.whoRows[1].names, "OnClick")
+                        w.who[names]:SetFocus()
+                    end,
                     click = function()
                         local box = w.who[names]
                         box:SetText("Ann Vale")
                         box:ClearFocus()
-                        return ns.Options.WhoBuffKey()
                     end,
-                    check = function(key) return ns.db.buffBack.whoGets[key][names]["ann-vale"] == "Ann-Vale" end,
                 })
             end
-            add("a raid Blessing box", {
+            add("Keep my settings", { tab = "buffs",
+                prepare = function() ns.db.buffBack.whoChoice = "pending" end,
+                click = function() wow.run(w.choice.keep, "OnClick") end,
+                check = function() return ns.db.buffBack.whoChoice == "kept" end,
+            })
+            add("Use the new defaults", { tab = "buffs",
+                prepare = function() ns.db.buffBack.whoChoice = "pending" end,
+                click = function() wow.run(w.choice.new, "OnClick") end,
+                check = function() return ns.db.buffBack.whoChoice == "new" end,
+            })
+            for _, place in ipairs({ "strangers", "party", "raid", "pvp" }) do
+                add("the " .. place .. " place", { tab = "buffs",
+                    click = function() wow.run(w.placeTabs[place], "OnClick") end })
+            end
+            add("open the Buff Back tab", { tab = "buffs", place = "strangers",
+                click = function() wow.run(w.openBuffBack, "OnClick") end })
+            add("a raid Blessing box", { tab = "buffs", place = "raid",
                 click = function()
                     assert.is_true(w.who.raidBlessings[1]:IsEnabled(), "in a raid")
                     w.who.raidBlessings[1]:SetChecked(not w.who.raidBlessings[1]:GetChecked())
@@ -464,7 +513,8 @@ describe("Options panel", function()
                         -- panel has to put the section back itself.
                         wow.advance(2)
                         if (i + count) % 2 == 0 then ns.Config.Repair() end
-                        wow.run(w.tabs[msgType], "OnClick")
+                        wow.run(w.tabs[entry.control.tab or msgType], "OnClick")
+                        if entry.control.place then wow.run(w.placeTabs[entry.control.place], "OnClick") end
                         if entry.control.prepare then entry.control.prepare() end
                         ns.db[msgType] = value
                         local clicked = entry.control.click()

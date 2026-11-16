@@ -1,4 +1,4 @@
--- Spec: #47, #169, #330, #40
+-- Spec: #47, #169, #330, #40, #408, #45
 -- The Start here page and the walkthrough: the page's controls change the
 -- same settings as their full pages, the walkthrough reaches buff mode's key
 -- and triggers, skipping or finishing it is remembered, it can be replayed,
@@ -49,7 +49,7 @@ describe("Start here", function()
     it("is the first page listed under Friendly Forever, and fills when shown", function()
         local names = {}
         for _, sub in ipairs(wow.settings.subcategories) do names[#names + 1] = sub.name end
-        assert.are.same({ "Start here", "General", "Favour Ledger" }, names)
+        assert.are.same({ "Start here", "General", "Favour Ledger", "Weapon buffs" }, names)
         assert.are.equal(ns.Options.StartPage(), _G.FriendlyForeverStartPage)
         ns.db.enabled = false
         wow.run(ns.Options.StartPage(), "OnShow")
@@ -225,13 +225,13 @@ describe("The walkthrough", function()
             end
         end)
 
-        it("opens each step's page: Buff Back, Buff Thanks, Guild Join, buff requests, then Start here", function()
+        it("opens each step's page: Buffs, Buff Back, Buff Thanks, Guild Join, buff requests, then Start here", function()
             local seen = {}
             while ns.Walkthrough.Step() < #ns.Walkthrough.STEPS do
                 wow.run(tour.next, "OnClick")
                 seen[#seen + 1] = wow.settings.opened == 4242 and ns.Options.CurrentType() or wow.settings.opened
             end
-            assert.are.same({ "buffBack", "buffBack", "buffBack", "buff", "guildJoin", "buffBack", "Start here" }, seen)
+            assert.are.same({ "buffs", "buffBack", "buffBack", "buff", "guildJoin", "buffBack", "Start here" }, seen)
             assert.are.equal("Finish", tour.next:GetText())
             assert.is_false(tour.skip:IsShown())
             wow.run(tour.back, "OnClick")

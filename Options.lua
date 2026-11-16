@@ -8,18 +8,21 @@ local Config = ns.Config
 local Options = {}
 ns.Options = Options
 
--- Room for the Buff Back tab's buff list, who gets each, and buff mode rows above its lines.
--- 1940, plus the second row of tabs (#273), plus 230 for the Buff Back tab at
--- its tallest: a paladin's 11 buff rows with the self-buffs (#44), the solo
--- option (#329), the raid Blessings rows and the Who list's class rows need
--- about 2133 px with the UI simulator's pessimistic line wrapping (#363; its
--- scenario "the Buff Back tab stays inside its page at its tallest").
+-- Room for the tallest tab. That was the Buff Back tab with its buff list and
+-- who gets each (#363), about 2133 px with the UI simulator's pessimistic line
+-- wrapping. Those rows are on the Buffs tab now (#408), which is shorter: a
+-- paladin's 11 buff rows, its own options and one place's rows with a buff's
+-- names open. The UI simulator's scenario "the Buffs tab stays inside its page
+-- at its tallest" checks every place fits.
 Options.CONTENT_HEIGHT = 2200
 Options.TABS_PER_ROW = 4
+-- The Buffs tab's name among the tabs (#408): not a message type.
+Options.BUFFS_TAB = "buffs"
 
 local panel, category, startPage, generalPage, ledgerPage
+local weaponPage -- Weapon buffs (#45)
 local currentType = Config.TYPES[1]
-local widgets = { tabs = {}, edits = {}, steppers = {}, general = {}, ledger = {}, start = {} }
+local widgets = { tabs = {}, edits = {}, steppers = {}, general = {}, ledger = {}, start = {}, weapon = {} }
 -- Every number box a Stepper makes, so ClearEditFocus can't miss one (#171).
 local numberBoxes = {}
 
@@ -51,6 +54,7 @@ Options.START_PAGE = "FriendlyForeverStartPage"
 -- notes wrapping more in the game than expected.
 Options.START_HEIGHT = 560
 Options.LEDGER_PAGE = "FriendlyForeverLedgerPage"
+Options.WEAPON_PAGE = "FriendlyForeverWeaponPage"
 
 -- How to thank someone who buffs you, and what to do when that can't reach
 -- them (#101), in the order each dropdown lists them (#274).
@@ -69,11 +73,28 @@ Options.FALLBACK_TEXT = {
     none = "do nothing",
 }
 
+-- While the panel is made, the rows made on its scrolling content are noted
+-- in a list (Options.Collect): a message tab's in one, the Buffs tab's
+-- (#408) in another, so each tab shows its own and hides the other's. They
+-- stay the content's own children, where the UI simulator reads them.
+local collector, collectParent
+local typeRows, buffsRows = {}, {} -- a message tab's rows, and the Buffs tab's
+function Options.Collect(list, parent)
+    collector, collectParent = list, parent
+end
+-- The Buffs tab's rows, as noted (BuffsTab.Owns).
+function Options.BuffsRows() return buffsRows end
+local function Noted(object, parent)
+    if collector and parent == collectParent then collector[#collector + 1] = object end
+    return object
+end
+Options.Noted = Noted
+
 local function Label(parent, text, font)
     local fs = parent:CreateFontString(nil, "ARTWORK", font or "GameFontHighlight")
     fs:SetText(text)
     fs:SetJustifyH("LEFT")
-    return fs
+    return Noted(fs, parent)
 end
 
 local function Button(parent, text, width, onClick)
@@ -81,7 +102,7 @@ local function Button(parent, text, width, onClick)
     b:SetSize(width, 22)
     b:SetText(text)
     b:SetScript("OnClick", onClick)
-    return b
+    return Noted(b, parent)
 end
 
 -- A dropdown listing every choice (#274). It is built from the same buttons
@@ -181,7 +202,7 @@ local function Checkbox(parent, text, onClick)
     local label = Label(cb, text)
     label:SetPoint("LEFT", cb, "RIGHT", 2, 0)
     cb.label = label
-    return cb
+    return Noted(cb, parent)
 end
 
 -- Setting an edit box's text moves its cursor to the end, and the box
@@ -199,7 +220,7 @@ local function TextBox(parent, width, maxLetters)
     box:SetMaxLetters(maxLetters)
     box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    return box
+    return Noted(box, parent)
 end
 
 -- Label, [-] [number] [+], bound to settings()[field] within limits;
@@ -342,9 +363,8 @@ local function CreateKeyCapture(parent)
     return capture
 end
 
--- The Buff Back tab's buff list: your class's buffs in your order. Read
--- checked (#330): every buff row's button, the Who rows' boxes included,
--- starts here, so the section the rules then write is never a damaged one.
+-- Your class's buffs in your order, for moving one (the Buffs tab's Up and
+-- Down). Read checked (#330), so the section then written is never a damaged one.
 local function OrderedClassBuffs()
     return ns.BuffData.InOrder(ns.BuffData.ClassBuffs(), Config.Field("buffBack", "buffOrder"))
 end
@@ -390,63 +410,6 @@ function Options.SetNeverOffer(key, on)
     Options.Refresh()
 end
 
--- The buff whose "who gets it" is shown below the buff list: the one whose
--- Who button you clicked last, else the first in your order.
-local whoKey
-
--- Self-buffs (#44) have no "who gets it": only you do. Nor has a buff
--- offered only when asked for (Water Walking, #350): whoever asks does.
-local function HasWho(buff)
-    return not buff.selfCast and not buff.requestOnly
-end
-
-local function WhoBuff(buffs)
-    local first
-    for _, buff in ipairs(buffs) do
-        if HasWho(buff) then
-            if buff.key == whoKey then return buff end
-            first = first or buff
-        end
-    end
-    return first
-end
-
--- A buff row's Who button: step its rule on, and show its details below.
-function Options.CycleWho(key)
-    local buff
-    for _, b in ipairs(OrderedClassBuffs()) do
-        if b.key == key and HasWho(b) then buff = b end
-    end
-    if not buff then return end
-    ClearEditFocus() -- a name box being typed in saves to its own buff first
-    whoKey = key
-    ns.BuffRules.SetRule(key, ns.BuffRules.NextRule(buff))
-    Options.Refresh()
-end
-
-function Options.SetWhoClass(class, on)
-    local buff = WhoBuff(OrderedClassBuffs())
-    if buff then ns.BuffRules.SetClass(buff.key, class, on) end
-    Options.Refresh()
-end
-
--- The buff the name boxes showed when one was focused: an edit saves to it,
--- whatever the boxes show by the time focus leaves.
-function Options.WhoBuffKey()
-    local buff = WhoBuff(OrderedClassBuffs())
-    return buff and buff.key
-end
-
--- An Always or Never box lost focus: save it to key (the buff it was opened
--- for), or say why not and show what's kept. Unchanged text isn't saved.
-function Options.SetWhoNames(key, list, text)
-    BuffBack() -- the rules save there: never to a damaged section (#330)
-    if not key or text == ns.BuffRules.NamesText(key, list) then return Options.Refresh() end
-    local ok, why = ns.BuffRules.SetNames(key, list, text)
-    if not ok then ns.Print((list == "always" and "Always" or "Never") .. " list not saved: " .. why .. ".") end
-    Options.Refresh()
-end
-
 local function ClassText(class)
     local names = rawget(_G, "LOCALIZED_CLASS_NAMES_MALE")
     local name = type(names) == "table" and names[class]
@@ -454,121 +417,10 @@ local function ClassText(class)
     return class:sub(1, 1) .. class:sub(2):lower()
 end
 
--- Below the buff list: who gets the chosen buff. Returns what the next rows anchor to.
-local function FillWho(shown, buffs, last)
-    local who = widgets.who
-    local buff = shown and WhoBuff(buffs) or nil
-    local rule = buff and ns.BuffRules.Rule(buff)
-    who.header:SetShown(buff ~= nil)
-    who.header:ClearAllPoints()
-    who.header:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -12)
-    local showClasses = rule == "classes"
-    for _, class in ipairs(ns.BuffRules.CLASSES) do
-        who.classes[class]:SetShown(showClasses)
-        if showClasses then who.classes[class]:SetChecked(ns.BuffRules.HasClass(buff, class)) end
-    end
-    for _, part in ipairs({ who.alwaysLabel, who.always, who.neverLabel, who.never }) do part:SetShown(buff ~= nil) end
-    if not buff then return last end
-    local name = ns.BuffData.SpellName(buff) or buff.key
-    who.header:SetText("Who gets " .. name .. " in buff mode: " .. ns.BuffRules.RULE_TEXT[rule]
-        .. "  " .. ns.Colours.Text("muted", "(a buff's Who button changes it)"))
-    who.alwaysLabel:ClearAllPoints()
-    who.alwaysLabel:SetPoint("TOPLEFT", showClasses and who.classRows[2] or who.header, "BOTTOMLEFT",
-        showClasses and 4 or 0, -10)
-    FillBox(who.always, ns.BuffRules.NamesText(buff.key, "always"))
-    FillBox(who.never, ns.BuffRules.NamesText(buff.key, "never"))
-    return who.neverLabel
-end
-
--- Below who gets each buff, for classes with Blessings: which you give in this raid.
--- Not saved (BuffRules.lua); the tick boxes only work in a raid.
-local function FillRaidBlessings(shown, last)
-    local who = widgets.who
-    local mine = shown and ns.BuffRules.MyBlessings() or {}
-    local inRaid = ns.Util.ReadGameValues(IsInRaid) == true
-    who.raidHeader:SetShown(#mine > 0)
-    for i, cb in ipairs(who.raidBlessings) do
-        local buff = mine[i]
-        cb:SetShown(buff ~= nil)
-        cb.key = buff and buff.key
-        if buff then
-            cb.label:SetText(ns.BuffData.SpellName(buff) or buff.key)
-            cb:SetChecked(ns.BuffRules.CoversInRaid(buff))
-            cb:SetEnabled(inRaid)
-        end
-    end
-    if #mine == 0 then return last end
-    who.raidHeader:ClearAllPoints()
-    who.raidHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -12)
-    who.raidHeader:SetText("Blessings I give in this raid:  "
-        .. ns.Colours.Text("muted", inRaid and "(until you leave it)" or "(join a raid to choose)"))
-    return who.raidBlessings[1]
-end
-
--- A raid Blessing tick box was clicked: cover the ticked ones.
-function Options.SetRaidBlessing()
-    BuffBack() -- the button then refreshes from it: never a damaged section (#330)
-    local keys = {}
-    for _, cb in ipairs(widgets.who.raidBlessings) do
-        if cb:IsShown() and cb.key and cb:GetChecked() then keys[#keys + 1] = cb.key end
-    end
-    local ok, why = ns.BuffRules.SetRaidBlessings(keys)
-    if not ok then ns.Print("Blessings for this raid not changed: " .. why .. ".") end
-    Options.Refresh()
-end
-
-local function FillBuffRows(shown)
-    widgets.buffOrderHeader:SetShown(shown)
-    local buffs = shown and OrderedClassBuffs() or {}
-    for i, row in ipairs(widgets.buffRows) do
-        local buff = buffs[i]
-        for _, part in ipairs({ row.name, row.up, row.down, row.never }) do part:SetShown(buff ~= nil) end
-        -- A self-buff (#44) has no Who button: only you get it; nor has a
-        -- buff offered only when asked for (#350).
-        row.who:SetShown(buff ~= nil and HasWho(buff))
-        row.key = buff and buff.key
-        if buff then
-            local name = ns.BuffData.SpellName(buff) or buff.key
-            if buff.selfCast then name = name .. " " .. ns.Colours.Text("muted", "(you only)") end
-            if buff.requestOnly then name = name .. " " .. ns.Colours.Text("muted", "(when asked)") end
-            if not ns.BuffData.IsKnown(buff) then name = name .. " " .. ns.Colours.Text("muted", "(not known yet)") end
-            row.name:SetText(i .. ". " .. name)
-            row.up:SetEnabled(i > 1)
-            row.down:SetEnabled(i < #buffs)
-            -- Read only for the Buff Back tab: the other tabs mustn't depend on its settings.
-            row.never:SetChecked(ns.BuffData.NeverOffered(buff))
-            if HasWho(buff) then row.who:SetText("Who: " .. ns.BuffRules.RULE_TEXT[ns.BuffRules.Rule(buff)]) end
-        end
-    end
-    if shown and #buffs == 0 then
-        widgets.buffOrderHeader:SetText("Your class has no buffs to offer.")
-    else
-        widgets.buffOrderHeader:SetText("Buff order (first that suits them is offered):")
-    end
-    -- On this tab the buff mode rows follow the buff list, and the messages
-    -- follow them; on the others the messages follow the buff options.
-    local last = buffs[1] and widgets.buffRows[#buffs].up or widgets.buffOrderHeader
-    -- Self-buffs (#44): on or off, below the list that holds them.
-    widgets.selfBuffs:SetShown(shown)
-    widgets.selfBuffs:ClearAllPoints()
-    widgets.selfBuffs:SetPoint("TOPLEFT", last, "BOTTOMLEFT", -4, -8)
-    if shown then
-        widgets.selfBuffs:SetChecked(ns.db.buffBack.selfBuffs == true)
-        last = widgets.selfBuffs
-    end
-    -- Your own buffs when solo (#329): below the self-buffs' switch.
-    widgets.soloOwnBuffs:SetShown(shown)
-    widgets.soloOwnBuffs:ClearAllPoints()
-    widgets.soloOwnBuffs:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -4)
-    if shown then
-        widgets.soloOwnBuffs:SetChecked(ns.db.buffBack.soloOwnBuffs == true)
-        last = widgets.soloOwnBuffs
-    end
-    last = FillWho(shown, buffs, last)
-    last = FillRaidBlessings(shown, last)
-    widgets.autoHeader:ClearAllPoints()
-    widgets.autoHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -14)
-end
+-- The helpers the Buffs tab (BuffsTab.lua, #408) builds its rows with.
+Options.UI = { Label = Label, Button = Button, Checkbox = Checkbox, Tooltip = Tooltip, TextBox = TextBox,
+    FillBox = FillBox, Stepper = Stepper, ClassText = ClassText, BuffBack = BuffBack,
+    ClearEditFocus = function() ClearEditFocus() end }
 
 local function ShowStepper(stepper, shown)
     for _, part in ipairs({ stepper.label, stepper.minus, stepper.box, stepper.plus }) do part:SetShown(shown) end
@@ -612,18 +464,8 @@ local function FillAuto(shown)
     if shown then FillBox(widgets.steppers.autoOffMinutes.box, tostring(ns.db.buffBack.autoOffMinutes)) end
     ShowStepper(widgets.steppers.topUpMinutes, shown)
     if shown then FillBox(widgets.steppers.topUpMinutes.box, tostring(ns.db.buffBack.topUpMinutes)) end
-    widgets.groupVersions:SetShown(shown)
-    if shown then widgets.groupVersions:SetChecked(ns.db.buffBack.groupVersions == true) end
-    ShowStepper(widgets.steppers.groupEnough, shown)
-    if shown then FillBox(widgets.steppers.groupEnough.box, tostring(ns.db.buffBack.groupEnough)) end
-    widgets.raidSplit:SetShown(shown)
-    if shown then widgets.raidSplit:SetChecked(ns.RaidSplit.Enabled()) end
-    widgets.bgHeader:SetShown(shown)
-    widgets.bgPrepBuff:SetShown(shown)
-    if shown then widgets.bgPrepBuff:SetChecked(ns.db.buffBack.bgPrepBuff == true) end
-    widgets.waterHeader:SetShown(shown)
-    widgets.breathNearWater:SetShown(shown)
-    if shown then widgets.breathNearWater:SetChecked(ns.db.buffBack.breathNearWater == true) end
+    widgets.buffsLink:SetShown(shown)
+    widgets.openBuffs:SetShown(shown)
     widgets.buffRequests:SetShown(shown)
     if shown then widgets.buffRequests:SetChecked(ns.db.buffBack.requests == true) end
 end
@@ -632,14 +474,20 @@ local function Fill()
     -- A section, or a field in one, damaged mid-session heals as the panel
     -- fills, whichever tab shows, and reads as its defaults (#166, #330).
     for _, msgType in ipairs(Config.TYPES) do Config.CheckedSection(msgType) end
+    for tab, button in pairs(widgets.tabs) do button:SetEnabled(tab ~= currentType) end
+    widgets.master:SetChecked(ns.db.enabled)
+    widgets.skipAFK:SetChecked(ns.db.skipWhileAFK)
+    -- The Buffs tab (#408) is no message type: its rows show instead. Each
+    -- tab's fill then hides the rows it doesn't show.
+    local onBuffs = currentType == Options.BUFFS_TAB
+    for _, row in ipairs(typeRows) do row:SetShown(not onBuffs) end
+    for _, row in ipairs(buffsRows) do row:SetShown(onBuffs) end
+    if onBuffs then return ns.BuffsTab.Fill() end
+    ns.BuffsTab.Close()
     local cfg = ns.db[currentType]
     local info = Config.TYPE_INFO[currentType]
     local isBuff = currentType == "buff"
 
-    for msgType, tab in pairs(widgets.tabs) do tab:SetEnabled(msgType ~= currentType) end
-
-    widgets.master:SetChecked(ns.db.enabled)
-    widgets.skipAFK:SetChecked(ns.db.skipWhileAFK)
     widgets.header:SetText(info.label .. "  " .. ns.Colours.Text("muted", "(sent to " .. info.channel .. ")"))
     widgets.help:SetText(info.help)
     widgets.enabled:SetChecked(cfg.enabled)
@@ -668,7 +516,6 @@ local function Fill()
         widgets.showInCities:SetChecked(cfg.showInCities)
         FillBox(widgets.steppers.owedMinutes.box, tostring(cfg.owedMinutes))
     end
-    FillBuffRows(isBuffBack)
     FillAuto(isBuffBack)
 
     widgets.listNames:SetShown(isBuff)
@@ -717,7 +564,7 @@ local function Fill()
         cfg.repeatCooldown, widgets.steppers.repeatCooldown.box:GetText())
 end
 
-local FillStart, FillGeneral, FillLedger
+local FillStart, FillGeneral, FillLedger, FillWeapon
 
 -- A page the player can see. The game counts a shown frame with no parent
 -- as visible, and our pages have none until the Settings window adopts them,
@@ -733,6 +580,7 @@ function Options.Refresh()
     if IsOpen(startPage) then FillStart() end
     if IsOpen(generalPage) then FillGeneral() end
     if IsOpen(ledgerPage) then FillLedger() end
+    if IsOpen(weaponPage) then FillWeapon() end
 end
 
 -- Fill the panel whenever it is shown, and once more on the next frame:
@@ -821,6 +669,24 @@ function Options.Create()
         widgets.tabs[msgType] = tab
         prev = tab
     end
+    -- The Buffs tab (#408), after the message tabs: who gets each buff, by
+    -- place (BuffsTab.lua). It wraps like the others.
+    do
+        local i = #Config.TYPES + 1
+        local tab = Button(content, "Buffs", 84, function() Options.SelectType(Options.BUFFS_TAB) end)
+        if (i - 1) % Options.TABS_PER_ROW == 0 then
+            tab:SetPoint("TOPLEFT", rowStart, "BOTTOMLEFT", 0, -4)
+            rowStart = tab
+        else
+            tab:SetPoint("LEFT", prev, "RIGHT", 6, 0)
+        end
+        widgets.tabs[Options.BUFFS_TAB] = tab
+    end
+    -- Everything below the tabs: a message type's rows, or the Buffs tab's
+    -- (BuffsTab.lua), each noted in its list, one list shown at a time.
+    Options.Collect(buffsRows, content)
+    ns.BuffsTab.Create(content, rowStart)
+    Options.Collect(typeRows, content)
 
     widgets.header = Label(content, "", "GameFontNormal")
     widgets.header:SetPoint("TOPLEFT", rowStart, "BOTTOMLEFT", 0, -16)
@@ -948,101 +814,16 @@ function Options.Create()
     msgHeader:SetPoint("TOPLEFT", widgets.quiet, "BOTTOMLEFT", 4, -32)
     widgets.msgHeader = msgHeader
 
-    -- Buff Back tab only, in the buff tab's rows 4 to 6: the buff order, one
-    -- row per buff of your class (the most any class has).
-    widgets.buffOrderHeader = Label(content, "", "GameFontNormalSmall")
-    widgets.buffOrderHeader:SetPoint("TOPLEFT", renew.label, "BOTTOMLEFT", 0, -14)
-    local most = 0
-    for _, list in pairs(ns.BuffData.CLASSES) do most = math.max(most, #list) end
-    widgets.buffRows = {}
-    local above = widgets.buffOrderHeader
-    for i = 1, most do
-        local row = {}
-        row.up = Button(content, "Up", 44, function() if row.key then Options.MoveBuff(row.key, -1) end end)
-        row.up:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, -4)
-        row.down = Button(content, "Down", 54, function() if row.key then Options.MoveBuff(row.key, 1) end end)
-        row.down:SetPoint("LEFT", row.up, "RIGHT", 4, 0)
-        row.name = Label(content, "", "GameFontHighlightSmall")
-        row.name:SetPoint("LEFT", row.down, "RIGHT", 10, 0)
-        row.name:SetWidth(220)
-        row.never = Checkbox(content, "Never offer", function(on)
-            if row.key then Options.SetNeverOffer(row.key, on) end
-        end)
-        row.never:SetPoint("LEFT", row.name, "RIGHT", 10, 0)
-        row.who = Button(content, "", 170, function() if row.key then Options.CycleWho(row.key) end end)
-        row.who:SetPoint("LEFT", row.never.label, "RIGHT", 12, 0)
-        widgets.buffRows[i] = row
-        above = row.up
-    end
+    -- Buff Back tab only, below its own rows: who gets each buff, the order
+    -- and Never offer are on the Buffs tab now (#408).
+    widgets.buffsLink = Label(content, "Who gets which buff, the buff order and Never offer are on the Buffs tab.",
+        "GameFontNormalSmall")
+    widgets.buffsLink:SetPoint("TOPLEFT", renew.label, "BOTTOMLEFT", 0, -14)
+    widgets.openBuffs = Button(content, "Open the Buffs tab", 150, function() Options.SelectType(Options.BUFFS_TAB) end)
+    widgets.openBuffs:SetPoint("TOPLEFT", widgets.buffsLink, "BOTTOMLEFT", 0, -6)
 
-    -- Buff Back tab only, below the buff list: offer your self-buffs (#44).
-    -- Anchored in FillBuffRows.
-    widgets.selfBuffs = Checkbox(content, "Offer my self-buffs in buff mode, after everyone else", function(on)
-        BuffBack().selfBuffs = on
-        ns.BuffButton.Refresh()
-    end)
-    Tooltip(widgets.selfBuffs, Options.SELF_BUFFS_TOOLTIP)
-    -- Buff Back tab only, below it: your own buffs when solo (#329).
-    widgets.soloOwnBuffs = Checkbox(content, "Offer my own buffs when I'm not in a group", function(on)
-        BuffBack().soloOwnBuffs = on
-        ns.BuffButton.Refresh()
-    end)
-    Tooltip(widgets.soloOwnBuffs, Options.SOLO_OWN_BUFFS_TOOLTIP)
-
-    -- Buff Back tab only, below the buff list: who gets the chosen buff in
-    -- buff mode (BuffRules.lua). Anchored in FillWho.
-    local who = { classes = {}, classRows = {} }
-    widgets.who = who
-    who.header = Label(content, "", "GameFontNormalSmall")
-    local prevClass
-    for i, class in ipairs(ns.BuffRules.CLASSES) do
-        local cb = Checkbox(content, ClassText(class), function(on) Options.SetWhoClass(class, on) end)
-        if i == 1 or i == 6 then
-            cb:SetPoint("TOPLEFT", i == 1 and who.header or who.classRows[1], "BOTTOMLEFT", i == 1 and -4 or 0, -2)
-            who.classRows[#who.classRows + 1] = cb
-        else
-            cb:SetPoint("LEFT", prevClass.label, "RIGHT", 12, 0)
-        end
-        who.classes[class] = cb
-        prevClass = cb
-    end
-    local function NamesBox(list, labelText)
-        local label = Label(content, labelText, "GameFontHighlightSmall")
-        label:SetWidth(60)
-        local box = TextBox(content, 380, ns.BuffRules.MAX_LIST_LETTERS)
-        box:SetPoint("LEFT", label, "RIGHT", 6, 0)
-        box:SetScript("OnEditFocusGained", function(self) self.buffKey = Options.WhoBuffKey() end)
-        box:SetScript("OnEditFocusLost", function(self)
-            local key = self.buffKey
-            self.buffKey = nil
-            Options.SetWhoNames(key, list, self:GetText())
-        end)
-        return label, box
-    end
-    who.alwaysLabel, who.always = NamesBox("always", "Always:")
-    who.neverLabel, who.never = NamesBox("never", "Never:")
-    who.neverLabel:SetPoint("TOPLEFT", who.alwaysLabel, "BOTTOMLEFT", 0, -12)
-    -- Paladins: the Blessings given in this raid. Anchored in FillRaidBlessings.
-    who.raidHeader = Label(content, "", "GameFontNormalSmall")
-    who.raidBlessings = {}
-    local mostBlessings = 0
-    for _, list in pairs(ns.BuffData.CLASSES) do
-        local n = 0
-        for _, buff in ipairs(list) do if buff.family == "blessing" then n = n + 1 end end
-        mostBlessings = math.max(mostBlessings, n)
-    end
-    for i = 1, mostBlessings do
-        local cb = Checkbox(content, "", function() Options.SetRaidBlessing() end)
-        if i == 1 then
-            cb:SetPoint("TOPLEFT", who.raidHeader, "BOTTOMLEFT", -4, -2)
-        else
-            cb:SetPoint("LEFT", who.raidBlessings[i - 1].label, "RIGHT", 12, 0)
-        end
-        who.raidBlessings[i] = cb
-    end
-
-    -- Buff Back tab only, below the buff list: when buff mode turns on and
-    -- off by itself (BuffModeAuto.lua). Anchored in FillBuffRows.
+    -- Buff Back tab only, below the link: when buff mode turns on and off by
+    -- itself (BuffModeAuto.lua).
     widgets.auto = {}
     local function AutoBox(field)
         local cb = Checkbox(content, Options.AUTO_TEXT[field], function(on)
@@ -1053,6 +834,7 @@ function Options.Create()
         return cb
     end
     widgets.autoHeader = Label(content, "Buff mode turns on by itself:", "GameFontNormalSmall")
+    widgets.autoHeader:SetPoint("TOPLEFT", widgets.openBuffs, "BOTTOMLEFT", 0, -14)
     local onJoin = AutoBox("autoOnJoin")
     -- The short label leaves room on its row; the detail is on the mouse-over (#256).
     Tooltip(onJoin, Options.AUTO_JOIN_TIP)
@@ -1079,49 +861,9 @@ function Options.Create()
     topUp.label:SetPoint("TOPLEFT", offMinutes.label, "BOTTOMLEFT", 0, -14)
     widgets.steppers.topUpMinutes = topUp
     Tooltip(topUp.box, Options.TOP_UP_TIP)
-    -- Group versions (GroupCasts.lua, #41): one cast for a whole party.
-    widgets.groupVersions = Checkbox(content, "Use group versions (Arcane Brilliance, the Prayers, Gift of the Wild)",
-        function(on)
-            BuffBack().groupVersions = on
-            ns.BuffButton.Refresh()
-        end)
-    widgets.groupVersions:SetPoint("TOPLEFT", topUp.label, "BOTTOMLEFT", -4, -10)
-    Tooltip(widgets.groupVersions, Options.GROUP_VERSIONS_TOOLTIP)
-    local enough = Stepper(content, "...when at least this many are missing the buff:", "groupEnough")
-    enough.label:SetPoint("TOPLEFT", widgets.groupVersions, "BOTTOMLEFT", 4, -8)
-    widgets.steppers.groupEnough = enough
-    -- The raid buff split (RaidSplit.lua, #70).
-    widgets.raidSplit = Checkbox(content, "Share buffs with other copies in raids", function(on)
-        BuffBack().raidSplit = on
-        ns.BuffButton.Refresh()
-    end)
-    widgets.raidSplit:SetPoint("TOPLEFT", enough.label, "BOTTOMLEFT", -4, -10)
-    Tooltip(widgets.raidSplit, Options.RAID_SPLIT_TOOLTIP)
-
-    -- Battlegrounds (Battleground.lua): after the gates open the addon is
-    -- quiet whatever this says; this is about the preparation phase.
-    widgets.bgHeader = Label(content, "Battlegrounds (quiet once the battle starts):", "GameFontNormalSmall")
-    widgets.bgHeader:SetPoint("TOPLEFT", widgets.raidSplit, "BOTTOMLEFT", 4, -10)
-    widgets.bgPrepBuff = Checkbox(content, "Buff in the preparation phase", function(on)
-        BuffBack().bgPrepBuff = on
-        ns.Battleground.Update()
-        ns.BuffButton.Refresh()
-    end)
-    widgets.bgPrepBuff:SetPoint("TOPLEFT", widgets.bgHeader, "BOTTOMLEFT", -4, -2)
-
-    -- Unending Breath and Water Breathing wait for water (Water.lua, #136).
-    -- Its own heading, so it doesn't read as a battleground setting.
-    widgets.waterHeader = Label(content, "Unending Breath and Water Breathing:", "GameFontNormalSmall")
-    widgets.waterHeader:SetPoint("TOPLEFT", widgets.bgPrepBuff, "BOTTOMLEFT", 4, -10)
-    widgets.breathNearWater = Checkbox(content, "Water breathing: only near water", function(on)
-        BuffBack().breathNearWater = on
-        ns.BuffButton.Refresh()
-    end)
-    widgets.breathNearWater:SetPoint("TOPLEFT", widgets.waterHeader, "BOTTOMLEFT", -4, -2)
-    Tooltip(widgets.breathNearWater, Options.BREATH_TOOLTIP)
     -- Buff requests in chat (Requests.lua, #40).
     widgets.buffRequests = Checkbox(content, ns.Requests.LABEL, function(on) ns.Requests.SetEnabled(on) end)
-    widgets.buffRequests:SetPoint("TOPLEFT", widgets.breathNearWater, "BOTTOMLEFT", 0, -10)
+    widgets.buffRequests:SetPoint("TOPLEFT", topUp.label, "BOTTOMLEFT", -4, -10)
     Tooltip(widgets.buffRequests, ns.Requests.TOOLTIP)
 
     local anchor = msgHeader
@@ -1186,6 +928,7 @@ function Options.Create()
     note:SetPoint("TOPLEFT", flavour, "BOTTOMLEFT", 0, -10)
     note:SetPoint("RIGHT", content, "RIGHT", -24, 0)
     note:SetWordWrap(true)
+    Options.Collect(nil)
 
     panel:SetScript("OnShow", OnPanelShow)
 
@@ -1200,6 +943,7 @@ function Options.Create()
     Options.CreateStartPage()
     Options.CreateGeneralPage()
     Options.CreateLedgerPage()
+    Options.CreateWeaponPage()
     ns.OptionsIndex.RegisterSearch(category)
 
     -- Filled straight away too, so nothing can ever show empty boxes.
@@ -1505,7 +1249,7 @@ end
 
 function Options.FillGeneral() FillGeneral() end
 function Options.FillLedger() FillLedger() end
-function Options.Pages() return generalPage, ledgerPage end
+function Options.Pages() return generalPage, ledgerPage, weaponPage end
 function Options.StartPage() return startPage end
 function Options.FillStart() FillStart() end
 
@@ -1549,4 +1293,73 @@ function Options.OpenTab(msgType, row)
     Options.SelectType(msgType)
     ScrollTo(widgets[row])
     C_Timer.After(0, ns.Diag.Wrap(function() ScrollTo(widgets[row]) end))
+end
+
+------------------------------------------------------------------------
+-- Weapon buffs (#45): its own small page, experimental, off by default.
+------------------------------------------------------------------------
+
+Options.WEAPON_HELP = "Experimental. In buff mode, once your favours, your group and your self-buffs are done, "
+    .. "the button offers the kind you choose for a hand that has none on it: the best one you carry and can "
+    .. "use. One press puts it on. Nothing is ever put on by itself. Right-click skips your weapon buffs for "
+    .. "5 minutes."
+Options.WEAPON_KIND_TEXT = { none = "nothing" }
+
+-- The hand's chosen kind, read from a section that may be damaged (#330).
+local function WeaponKind(field)
+    return Config.Field("buffBack", field)
+end
+
+-- A dropdown of the kinds your class may use on a hand (all of them when
+-- your class can't be read).
+local function WeaponDropdown(parent, slot, field)
+    local _, class = ns.Util.ReadGameValues(UnitClass, "player")
+    local order = { "none" }
+    local texts = { none = Options.WEAPON_KIND_TEXT.none }
+    for _, key in ipairs(ns.WeaponBuffs.KindsFor(type(class) == "string" and class or nil, slot)) do
+        order[#order + 1] = key
+        texts[key] = ns.WeaponBuffs.KINDS[key].label
+    end
+    -- Without a class every class's kinds are listed; a dropdown always
+    -- shows the current choice, even one the list doesn't hold.
+    for _, key in ipairs(Config.WEAPON_KINDS) do
+        if not texts[key] then texts[key] = ns.WeaponBuffs.KINDS[key].label end
+    end
+    return Dropdown(parent, order, texts, 200, function() return WeaponKind(field) end, function(value)
+        BuffBack()[field] = value
+        Options.Refresh()
+        ns.BuffButton.Refresh()
+    end)
+end
+
+function Options.CreateWeaponPage()
+    local w = widgets.weapon
+    weaponPage = SubPage("Weapon buffs", "Weapon buffs (experimental)", Options.WEAPON_PAGE)
+    local page = weaponPage
+    w.help = Note(page, page.heading, Options.WEAPON_HELP)
+    w.enabled = Checkbox(page, "Offer weapon buffs in buff mode, after my self-buffs", function(on)
+        BuffBack().weaponBuffs = on
+        Options.Refresh()
+        ns.BuffButton.Refresh()
+    end)
+    w.enabled:SetPoint("TOPLEFT", w.help, "BOTTOMLEFT", -4, -10)
+    w.mainLabel = Label(page, "Main hand:")
+    w.mainLabel:SetPoint("TOPLEFT", w.enabled, "BOTTOMLEFT", 4, -16)
+    w.main = WeaponDropdown(page, 16, "weaponMain")
+    w.main:SetPoint("LEFT", w.mainLabel, "LEFT", 80, 0)
+    w.offLabel = Label(page, "Off hand:")
+    w.offLabel:SetPoint("TOPLEFT", w.mainLabel, "BOTTOMLEFT", 0, -18)
+    w.off = WeaponDropdown(page, 17, "weaponOff")
+    w.off:SetPoint("LEFT", w.offLabel, "LEFT", 80, 0)
+    w.note = Note(page, w.offLabel, "Stones and oils for anyone, poisons for rogues, a shaman's imbues for the "
+        .. "main hand. A hand whose weapon has its own Use is left for you to do by hand. In a druid's form or "
+        .. "Ghost Wolf, a press may drop you out of the form to put it on, as doing it by hand would.")
+    page:SetScript("OnShow", function() FillWeapon() end)
+end
+
+FillWeapon = function()
+    local w = widgets.weapon
+    w.enabled:SetChecked(Config.Field("buffBack", "weaponBuffs") == true)
+    w.main.Fill()
+    w.off.Fill()
 end

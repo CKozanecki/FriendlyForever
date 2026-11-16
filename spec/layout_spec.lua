@@ -1,4 +1,4 @@
--- Spec: #52, #64, #112, #197, #208, #41, #209, #270, #44, #346
+-- Spec: #52, #64, #112, #197, #208, #41, #209, #270, #44, #346, #408
 -- Layout: the buff-back button's text stays inside the button, and on each
 -- options tab the message list follows the last row that tab shows. The
 -- checks work from the simulated client's own anchors and text widths
@@ -229,12 +229,12 @@ describe("Layout", function()
         end)
     end)
 
-    -- The Buff Back tab's buff rows (#44): with the self-buffs in the table,
+    -- The Buffs tab's buff rows (#44, #408): with the self-buffs in the table,
     -- a paladin's rows run to "11. Shadow Resistance Aura (you only) (not
     -- known yet)", wider than the name's 220 pixels. A name wraps, centred on
     -- its row; it must be shown whole, inside the panel, and never reach the
     -- name of the row above or below.
-    describe("the buff rows on the Buff Back tab", function()
+    describe("the buff rows on the Buffs tab", function()
         it("show every class's buffs whole, inside the panel, each name clear of the next row's", function()
             local wrapped = 0
             for class in pairs(wow.boot().BuffData.CLASSES) do
@@ -244,7 +244,7 @@ describe("Layout", function()
                     state.knownSpells = {}
                 end })
                 local w = ns.Options.widgets
-                wow.run(w.tabs.buffBack, "OnClick")
+                wow.run(w.tabs.buffs, "OnClick")
                 local width = w.content:GetWidth()
                 local shown = {}
                 for _, row in ipairs(w.buffRows) do
@@ -262,10 +262,10 @@ describe("Layout", function()
                     local nextRow = shown[i + 1]
                     if nextRow then
                         -- Rows hang one below another: the gap below a row's
-                        -- Up button, then the next Up button's height.
-                        local point, above, relativePoint, _, gap = nextRow.up:GetPoint(1)
-                        assert.are.same({ "TOPLEFT", row.up, "BOTTOMLEFT" }, { point, above, relativePoint }, label)
-                        local pitch = row.up:GetHeight() - gap
+                        -- icon, then the next icon's height.
+                        local point, above, relativePoint, _, gap = nextRow.icon:GetPoint(1)
+                        assert.are.same({ "TOPLEFT", row.icon, "BOTTOMLEFT" }, { point, above, relativePoint }, label)
+                        local pitch = row.icon:GetHeight() - gap
                         local nextLines = wow.drawnText(nextRow.name, w.content).lines
                         local reach = (drawn.lines + nextLines) * wow.LINE_HEIGHT[row.name.font] / 2
                         assert.is_true(reach <= pitch, ("%s: its name (%d lines) reaches the next row's (%d lines): "
@@ -274,6 +274,133 @@ describe("Layout", function()
                 end
             end
             assert.is_true(wrapped > 0, "no row is long enough to wrap: the test checks nothing")
+        end)
+
+        -- The who-gets rows sit too close for a second line: every class's
+        -- names, "(not known yet)" included, stay on one, and each row ends
+        -- inside the panel (#408's UI simulator run: 170 pixels wrapped).
+        it("keep every class's who-gets names on one line, and each row inside the panel", function()
+            local checked = 0
+            for class in pairs(wow.boot().BuffData.CLASSES) do
+                local ns = wow.boot({ before = function(state)
+                    state.class = class
+                    state.knownSpells = {}
+                end })
+                local w = ns.Options.widgets
+                wow.run(w.tabs.buffs, "OnClick")
+                local width = w.content:GetWidth()
+                for _, place in ipairs({ "strangers", "party" }) do
+                    wow.run(w.placeTabs[place], "OnClick")
+                    for i, row in ipairs(w.whoRows) do
+                        if row.name:IsVisible() then
+                            local label = ("%s, %s row %d"):format(class, place, i)
+                            local drawn = wow.drawnText(row.name, w.content)
+                            assert.are.equal(1, drawn.lines, label .. ": " .. drawn.text .. " wraps")
+                            assert.is_true(drawn.text:find("(not known yet)", 1, true) ~= nil, label)
+                            local _, right = wow.horizontalEdges(row.names, w.content)
+                            assert.is_true(right <= width, ("%s: ends at %d, past %d"):format(label, right, width))
+                            checked = checked + 1
+                        end
+                    end
+                end
+            end
+            assert.is_true(checked > 0, "no who-gets row was shown: the test checks nothing")
+            -- The who-gets list opens inside the panel too.
+            local ns = wow.boot({ before = function(state) state.class = "PRIEST" end })
+            assert.is_true(ns.BuffRules.Choose("new"))
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.party, "OnClick")
+            wow.run(w.whoRows[1].who, "OnClick")
+            assert.is_true(w.whoList:IsVisible())
+            local left, right = wow.horizontalEdges(w.whoList, w.content)
+            assert.is_true(left >= 0 and right <= w.content:GetWidth(),
+                ("the list spans %d to %d, outside 0 to %d"):format(left, right, w.content:GetWidth()))
+        end)
+
+        -- #408's testing review: rows after an open Names box moved 24
+        -- pixels right, out of their column, and the place's options with them.
+        it("keeps the who-gets rows and the place's options in their column with a Names box open", function()
+          -- A priest, and a paladin who knows a Blessing: the Raid place's
+          -- Blessings rows come after the split's box (the testing review).
+          for _, class in ipairs({ "PRIEST", "PALADIN" }) do
+            local ns = wow.boot({ before = function(state)
+                state.class = class
+                if class == "PALADIN" then state.knownSpells = { [20217] = true, [19740] = true, [19742] = true } end
+            end })
+            assert.is_true(ns.BuffRules.Choose("new"))
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.raid, "OnClick")
+            local function lefts()
+                local out = {}
+                for _, row in ipairs(w.whoRows) do
+                    if row.icon:IsVisible() then out[#out + 1] = (wow.horizontalEdges(row.icon, w.content)) end
+                end
+                out[#out + 1] = (wow.horizontalEdges(w.raidSplit, w.content))
+                if class == "PALADIN" then
+                    assert.is_true(w.who.raidHeader:IsVisible(), "the paladin's Blessings rows")
+                    out[#out + 1] = (wow.horizontalEdges(w.who.raidHeader, w.content))
+                    out[#out + 1] = (wow.horizontalEdges(w.who.raidBlessings[1], w.content))
+                end
+                return out
+            end
+            local closed = lefts()
+            assert.is_true(#closed >= 3, "too few rows to check")
+            local shown = {}
+            for _, row in ipairs(w.whoRows) do
+                if row.icon:IsVisible() then shown[#shown + 1] = row end
+            end
+            for _, which in ipairs({ 1, #shown }) do
+                wow.run(shown[which].names, "OnClick")
+                assert.is_true(w.who.always:IsVisible(), "row " .. which .. "'s names open")
+                assert.are.same(closed, lefts(), class .. ", row " .. which .. "'s names open")
+                wow.run(shown[which].names, "OnClick")
+            end
+            assert.are.same(closed, lefts(), class .. ", closed again")
+          end
+        end)
+
+        -- The UI simulator's run: a row near the bottom of the view hung its
+        -- list off the screen. It opens above when there's more room there.
+        it("opens the who-gets list above a row near the bottom of the view, below otherwise", function()
+            local ns = wow.boot({ before = function(state) state.class = "PRIEST" end })
+            assert.is_true(ns.BuffRules.Choose("new"))
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.party, "OnClick")
+            local row = w.whoRows[1]
+            w.scroll.top = 700
+            w.scroll:SetHeight(500) -- the view: 700 down to 200
+            local function open(top)
+                row.who.top = top
+                if w.whoList:IsShown() then wow.run(row.who, "OnClick") end
+                wow.run(row.who, "OnClick")
+                assert.is_true(w.whoList:IsShown())
+                local point, to, relative = w.whoList:GetPoint(1)
+                assert.are.equal(row.names, to)
+                return point .. " " .. relative
+            end
+            assert.are.equal("TOPRIGHT BOTTOMRIGHT", open(650), "near the top: below")
+            -- 226 below (to 200) and 2 to spare: still below.
+            assert.are.equal("TOPRIGHT BOTTOMRIGHT", open(200 + 22 + ns.BuffsTab.LIST_HEIGHT + 2))
+            assert.are.equal("BOTTOMRIGHT TOPRIGHT", open(200 + 22 + ns.BuffsTab.LIST_HEIGHT + 1), "one short: above")
+            assert.are.equal("BOTTOMRIGHT TOPRIGHT", open(240), "near the bottom: above")
+            -- Off the bottom of a view too short for it either side: the side with more room.
+            w.scroll:SetHeight(150)
+            assert.are.equal("TOPRIGHT BOTTOMRIGHT", open(690), "more room below")
+            assert.are.equal("BOTTOMRIGHT TOPRIGHT", open(600), "more room above")
+            -- Strangers have no Names button shown: the who button measures the row.
+            w.scroll:SetHeight(500)
+            wow.run(w.whoRows[1].who, "OnClick")
+            wow.run(w.placeTabs.strangers, "OnClick")
+            assert.is_false(row.names:IsVisible())
+            assert.are.equal("BOTTOMRIGHT TOPRIGHT", open(240), "strangers, near the bottom: above")
+            -- Edges not laid out yet: below.
+            row.who.top = nil
+            wow.run(row.who, "OnClick")
+            wow.run(row.who, "OnClick")
+            assert.are.equal("TOPRIGHT", (w.whoList:GetPoint(1)))
         end)
     end)
 
@@ -377,7 +504,7 @@ describe("Layout", function()
             assert.are.equal(w.nameplateWarning, select(2, w.msgHeader:GetPoint()))
         end)
 
-        it("follows the last row each tab shows for a paladin, through each Who rule", function()
+        it("follows the last row each tab shows for a paladin", function()
             ns = wow.boot({ before = function(state)
                 state.class = "PALADIN"
                 state.knownSpells = { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true }
@@ -385,13 +512,6 @@ describe("Layout", function()
             w = ns.Options.widgets
             ns.db.buffBack.buffOrder = { "kings", "might", "wisdom" }
             eachTab("paladin")
-            wow.run(w.tabs.buffBack, "OnClick")
-            for row = 1, 3 do
-                for _ = 1, 4 do
-                    wow.run(w.buffRows[row].who, "OnClick")
-                    checkTab(("paladin, row %d"):format(row))
-                end
-            end
         end)
 
         it("follows the last row each tab shows for a class with no buffs to offer", function()

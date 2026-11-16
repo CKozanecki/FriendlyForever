@@ -70,7 +70,7 @@ local lastResultText = "nothing pressed yet"
 local notArmedReason      -- why the button is empty, for /friendly buffback
 local recheckScheduled = false
 local chosenName          -- the player a row of the list was clicked for: the next offer if still offered (#43)
-local chosenSelfBuff      -- and whether that row was one of your self-buffs (#44)
+local chosenKind          -- and the kind of that row's offer: "self" (a self-buff, #44), "weapon" (#45) or "other"
 local alreadyDone         -- the "Already done by" note showing (#256): { title, spell, icon, shownAt, round, over }
 local offerList = {}      -- everyone the button would offer to now, in order (BuffList.lua shows it)
 
@@ -124,6 +124,13 @@ function BuffButton.BuildCastMacro(playerFullName, spellName, hadTarget, onSelf,
     }, "\n")
     if #macroText > BuffButton.MACRO_MAX_LENGTH then return nil end
     return macroText
+end
+
+-- The macro for an offer: a weapon buff's own (WeaponBuffs.Macro, #45), or
+-- a cast as above. nil when it can't be put in a macro safely.
+function BuffButton.MacroFor(offer, hadTarget)
+    if offer.weapon then return ns.WeaponBuffs.Macro(offer) end
+    return BuffButton.BuildCastMacro(offer.name, offer.spell, hadTarget, offer.self, offer.toggle)
 end
 
 ------------------------------------------------------------------------
@@ -261,8 +268,13 @@ local function NextOffer()
         -- offers in the list: the button takes the first.
         _, selfReason = ns.SelfBuffs.Next(list)
         if selfReason then groupReason = (groupReason and (groupReason .. "; ") or "") .. "You: " .. selfReason end
-        -- Passers-by (#39) come last of all: only when nothing above is
-        -- offered does the button reach them.
+        -- Your weapon buffs (#45) come last of all.
+        local _, weaponReason = ns.WeaponBuffs.Next(list)
+        if weaponReason then
+            groupReason = (groupReason and (groupReason .. "; ") or "") .. "Weapons: " .. weaponReason
+        end
+        -- Passers-by (#39) come after all of your own: only when nothing
+        -- above is offered does the button reach them.
         ns.PassersBy.Next(list)
     end
     -- One offer per player: the first, which is the one the button would
@@ -272,8 +284,7 @@ local function NextOffer()
     -- player's entries are passed over by seen, before any macro is built.
     local castable, seen = {}, {}
     for _, offer in ipairs(list) do
-        if not seen[offer.name]
-            and BuffButton.BuildCastMacro(offer.name, offer.spell, true, offer.self, offer.toggle) then
+        if not seen[offer.name] and BuffButton.MacroFor(offer, true) then
             seen[offer.name] = true
             castable[#castable + 1] = offer
             -- A group cast that is kept is one row for everyone it covers
@@ -293,7 +304,7 @@ local function NextOffer()
         -- self-buff never takes a clicked group buff's place ahead of a
         -- favour (#44).
         for _, offer in ipairs(castable) do
-            if offer.name == chosenName and (offer.selfBuff == true) == chosenSelfBuff then chosen = offer break end
+            if offer.name == chosenName and BuffButton.OfferKind(offer) == chosenKind then chosen = offer break end
         end
         if chosen then pick = chosen else chosenName = nil end
     end
@@ -392,16 +403,20 @@ local function ArmButton()
     ns.BuffList.Update(button, offerList, offer.name)
 
     local hadTarget = HasTarget()
-    local macroText = BuffButton.BuildCastMacro(offer.name, offer.spell, hadTarget, offer.self, offer.toggle)
+    local macroText = BuffButton.MacroFor(offer, hadTarget)
     if not macroText then return Empty("the name or spell can't be put in a macro safely", showingResult) end
 
     SetSecureMacro(macroText)
     armedOffer = { name = offer.name, spell = offer.spell, buff = offer.buff, group = offer.group,
         passerBy = offer.passerBy, cast = offer.cast, hint = offer.hint, self = offer.self, selfBuff = offer.selfBuff,
-        macroText = macroText }
+        macroText = macroText, weapon = offer.weapon, slot = offer.slot, hand = offer.hand, castIds = offer.castIds,
+        weaponItem = offer.weaponItem, weaponKind = offer.weaponKind }
     notArmedReason = nil
-    button.icon:SetTexture(ns.BuffData.Icon(offer.buff) or BuffButton.PLACEHOLDER_ICON)
-    if offer.cast then
+    button.icon:SetTexture(offer.icon or (offer.buff and ns.BuffData.Icon(offer.buff)) or BuffButton.PLACEHOLDER_ICON)
+    if offer.weapon then
+        -- A weapon buff (#45): which, and on which hand.
+        SetLabels("You", offer.spell .. " on your " .. offer.hand)
+    elseif offer.cast then
         -- A group version (GroupCasts.lua): who it reaches on the first line,
         -- which spell on the second (the whole sentence, "Prayer of
         -- Fortitude on Group 3 (4 missing)", is too wide for the title); the
@@ -516,12 +531,18 @@ local function Unanswered(press)
             ShowResult(string.format("%s went to %s, not %s.", press.spell,
                 Util.StripChat(press.elsewhere.name), who), true)
         else
-            if press.selfBuff then
+            if press.weapon then
+                ns.WeaponBuffs.NoteRefused(press.slot, press.weaponItem, press.weaponKind)
+            elseif press.selfBuff then
                 ns.SelfBuffs.NoteRefused(press.buff)
             elseif press.group then
                 ns.GroupBuffs.NoteRefused(press.name)
             end
-            ShowResult("No answer: couldn't find " .. who .. " (out of sight?).", true)
+            if press.weapon then
+                ShowResult("No answer: nothing was put on your " .. press.hand .. ".", true)
+            else
+                ShowResult("No answer: couldn't find " .. who .. " (out of sight?).", true)
+            end
         end
     else
         return
@@ -544,6 +565,9 @@ local function TakeArmedOffer(press)
     press.name, press.spell, press.buff = armedOffer.name, armedOffer.spell, armedOffer.buff
     press.group, press.self, press.cast = armedOffer.group, armedOffer.self, armedOffer.cast
     press.selfBuff, press.passerBy = armedOffer.selfBuff, armedOffer.passerBy
+    press.weapon, press.slot, press.hand, press.castIds =
+        armedOffer.weapon, armedOffer.slot, armedOffer.hand, armedOffer.castIds
+    press.weaponItem, press.weaponKind = armedOffer.weaponItem, armedOffer.weaponKind
     ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
     return press
 end
@@ -628,7 +652,12 @@ local function OnPostClick(_, mouseButton, isDown)
     -- Kept: changing a Never list re-arms the button.
     local offer = armedOffer
     local name = offer.name
-    if offer.selfBuff then
+    if offer.weapon then
+        -- Your weapon buffs (#45): all of them, for a while.
+        ns.WeaponBuffs.Skip()
+        local minutes = ns.WeaponBuffs.SKIP_SECONDS / 60
+        ShowResult(string.format("Skipping your weapon buffs for %d minutes.", minutes))
+    elseif offer.selfBuff then
         -- Your self-buffs (#44): all of them, for a while. Shift too: who
         -- gets a buff doesn't apply to them.
         ns.SelfBuffs.Skip()
@@ -644,18 +673,20 @@ local function OnPostClick(_, mouseButton, isDown)
         -- The Never list of the place you're in (#408), where the offer was
         -- made, or of each place it could be when the game won't say;
         -- 1.3.3's while the choice waits.
-        local ok, why, tab = true, nil, "Buffs"
+        local ok, why = true, nil
         if ns.BuffRules.Pending() then
             ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name)
-            tab = "Buff Back"
         else
             for _, place in ipairs(ns.BuffRules.Place()) do
                 if ok then ok, why = ns.BuffRules.AddName(offer.buff.key, "never", name, place) end
             end
         end
         if ok then
-            ShowResult(string.format("%s won't get %s (Never list, on the %s tab).",
-                offer.self and "You" or Util.DisplayName(name), offer.spell, tab))
+            -- While pending, the list isn't on the tab until you choose (#408's review).
+            ShowResult(string.format(ns.BuffRules.Pending()
+                and "%s won't get %s (Never list; \"Keep my settings\" keeps it)."
+                or "%s won't get %s (Never list, on the Buffs tab).",
+                offer.self and "You" or Util.DisplayName(name), offer.spell))
         else
             ShowResult("Couldn't add " .. (offer.self and "you" or Util.DisplayName(name))
                 .. " to the Never list: " .. why .. ".", true)
@@ -687,14 +718,16 @@ end
 -- The newest waiting press that one of our casts (unit, spell ID) could
 -- answer, for which wanted(press) holds.
 local function NewestPressFor(unit, spellId, wanted)
-    if unit ~= "player" or Util.IsSecret(spellId) then return nil end
+    if unit ~= "player" or Util.IsSecret(spellId) or type(spellId) ~= "number" then return nil end
     local groupBuff = ns.BuffData.ForGroupCast(spellId)
     local buff = groupBuff or ns.BuffData.ForCast(spellId)
-    if not buff then return nil end
     for i = #presses, 1, -1 do
         local press = presses[i]
+        if press.weapon then
+            -- A weapon buff (#45) is answered by its item's spell or its imbue's ranks.
+            if press.castIds[spellId] and wanted(press) then return press end
         -- A group version answers only a press of a group version (#41).
-        if press.buff == buff and (press.cast ~= nil) == (groupBuff ~= nil) and wanted(press) then
+        elseif buff and press.buff == buff and (press.cast ~= nil) == (groupBuff ~= nil) and wanted(press) then
             return press
         end
     end
@@ -729,7 +762,9 @@ end
 -- cast of its own follows, the press says where that one went (Unanswered).
 function BuffButton.OnSpellcastSent(unit, castTargetName, castGUID, spellId)
     local press = NewestPressFor(unit, spellId, function(waiting) return not waiting.sent end)
-    if press and BuffButton.IsIntendedPlayer(ReadableText(castTargetName), press.name) == false then
+    -- A weapon buff (#45) goes on your own weapon: the game names no player for it.
+    if press and not press.weapon
+        and BuffButton.IsIntendedPlayer(ReadableText(castTargetName), press.name) == false then
         press.elsewhere = { guid = ReadableText(castGUID), name = ReadableText(castTargetName) }
         press = nil
     end
@@ -796,7 +831,11 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
     local who = press.self and "you" or Util.DisplayName(press.name)
     -- castTargetName is only ever the intended player's (OnSpellcastSent).
     local reachedThem = press.castTargetName and BuffButton.IsIntendedPlayer(press.castTargetName, press.name)
-    if press.selfBuff then
+    if press.weapon then
+        -- A weapon buff (#45): on your own weapon, no favour, no line.
+        ns.WeaponBuffs.NoteGiven(press.slot)
+        ShowResult("Applied " .. press.spell .. " to your " .. press.hand .. ".")
+    elseif press.selfBuff then
         -- A self-buff (#44) can only be cast on you: no favour, no line, no
         -- thanks, and nobody else to note.
         ns.SelfBuffs.NoteGiven(press.buff)
@@ -852,7 +891,9 @@ local function ReportRefusal(press, text)
     ForgetPress(press)
     -- A refused self-buff (#44) waits a moment, whatever the reason: the
     -- usable check should have caught it, so the next press tries the next.
-    if press.selfBuff then
+    if press.weapon then
+        ns.WeaponBuffs.NoteRefused(press.slot, press.weaponItem, press.weaponKind)
+    elseif press.selfBuff then
         ns.SelfBuffs.NoteRefused(press.buff)
     elseif press.group and ns.GroupBuffs.IsTargetRefusal(text) then
         ns.GroupBuffs.NoteRefused(press.name)
@@ -960,7 +1001,9 @@ local function ShowTooltip(self)
         r, g, b = ns.Colours.RGB("bright")
         local reach = armedOffer.cast and string.format(" (reaches %s, %d missing)", armedOffer.cast.label,
             armedOffer.cast.count) or ""
-        if armedOffer.self then
+        if armedOffer.weapon then
+            GameTooltip:AddLine("Puts " .. armedOffer.spell .. " on your " .. armedOffer.hand .. ".", r, g, b, true)
+        elseif armedOffer.self then
             GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on you; your target stays as it is.", r, g, b, true)
         else
             GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on " .. Util.DisplayName(armedOffer.name) .. reach
@@ -968,8 +1011,13 @@ local function ShowTooltip(self)
         end
     end
     r, g, b = ns.Colours.RGB("text")
-    GameTooltip:AddLine("Click or press its key to cast. Right-click to "
-        .. (armedOffer and armedOffer.self and "skip yourself for a while." or "let them go."), r, g, b, true)
+    local rightClick = "let them go."
+    if armedOffer and armedOffer.weapon then
+        rightClick = string.format("skip your weapon buffs for %d minutes.", ns.WeaponBuffs.SKIP_SECONDS / 60)
+    elseif armedOffer and armedOffer.self then
+        rightClick = "skip yourself for a while."
+    end
+    GameTooltip:AddLine("Click or press its key to cast. Right-click to " .. rightClick, r, g, b, true)
     GameTooltip:Show()
 end
 
@@ -1100,13 +1148,22 @@ end
 
 function BuffButton.Frame() return button end
 
--- A row of the list was clicked (BuffList.lua): this player is the next
--- offer, if they're still offered (selfBuff: the row was one of your
--- self-buffs, #44). Out of combat only.
-function BuffButton.Choose(name, selfBuff)
+-- An offer's kind, for a clicked row: your self-buffs (#44) and your weapon
+-- buffs (#45) share your name with your own copy of a group buff, so each
+-- stays chosen only while an offer of its own kind is there.
+function BuffButton.OfferKind(offer)
+    if offer.weapon then return "weapon" end
+    if offer.selfBuff then return "self" end
+    return "other"
+end
+
+-- A row of the list was clicked (BuffList.lua): this player's offer of the
+-- row's kind (BuffButton.OfferKind) is the next one, while it's still
+-- offered. Out of combat only.
+function BuffButton.Choose(name, kind)
     if InCombatLockdown() then return end
     chosenName = name
-    chosenSelfBuff = selfBuff == true
+    chosenKind = (kind == "self" or kind == "weapon") and kind or "other"
     BuffButton.Refresh()
 end
 function BuffButton.ArmedOffer() return armedOffer end

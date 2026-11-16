@@ -1,4 +1,4 @@
--- Spec: #136, #208, #209, #44, #350
+-- Spec: #136, #208, #209, #44, #350, #408
 -- Water breathing only near water: a warlock's Unending Breath and a
 -- shaman's Water Breathing are offered (buff back and buff mode) only while
 -- you're swimming, underwater, with your breath bar showing, in an
@@ -492,16 +492,13 @@ describe("Water breathing near water", function()
             assert.is_false(ns.Profiles.Snapshot(ns.db).buffBack.breathNearWater)
         end)
 
-        it("is a checkbox on the Buff Back tab only, and clicking it changes the setting at once", function()
+        it("is a checkbox on the Buffs tab only, and clicking it changes the setting at once", function()
             boot({ buffMode = true })
             party({ "Ann-Vale" })
             local w = ns.Options.widgets
             slash("")
-            wow.run(w.tabs.buffBack, "OnClick")
-            assert.is_true(w.breathNearWater:IsShown())
-            assert.is_true(w.waterHeader:IsShown())
-            assert.are.equal("Unending Breath and Water Breathing:", w.waterHeader:GetText(),
-                "its own heading, not under Battlegrounds")
+            wow.run(w.tabs.buffs, "OnClick")
+            assert.is_true(w.breathNearWater:IsVisible())
             assert.is_true(w.breathNearWater:GetChecked())
             -- The owner's wording (#136).
             assert.are.equal("Water breathing: only near water", w.breathNearWater.label:GetText())
@@ -524,8 +521,7 @@ describe("Water breathing near water", function()
             wow.run(w.breathNearWater, "OnClick")
             assert.is_nil(armed())
             wow.run(w.tabs.buff, "OnClick")
-            assert.is_false(w.breathNearWater:IsShown())
-            assert.is_false(w.waterHeader:IsShown())
+            assert.is_false(w.breathNearWater:IsVisible())
         end)
 
         it("is in /friendly status, with the setting on or off", function()

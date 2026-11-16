@@ -50,10 +50,12 @@ BuffMode.lua
 GroupBuffs.lua
 GroupCasts.lua
 SelfBuffs.lua
+WeaponBuffs.lua
 BuffModeAuto.lua
 Battleground.lua
 OptionsIndex.lua
 Options.lua
+BuffsTab.lua
 Walkthrough.lua
 Minimap.lua
 Core.lua

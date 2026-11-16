@@ -47,6 +47,9 @@ read_globals = {
     -- Passers-by (#39): whether you can help a stranger, and whether they're fighting.
     "UnitCanAssist", "UnitAffectingCombat",
     "CreateSettingsListSectionHeaderInitializer",
+    -- Weapon buffs (#45): your weapons, their enchants, and the items for them.
+    "GetWeaponEnchantInfo", "GetInventoryItemID", "GetItemInfoInstant", "GetItemSpell", "IsUsableItem",
+    "GetItemIcon",
 }
 
 -- Tests run in plain Lua with busted and install the mock WoW API globally.

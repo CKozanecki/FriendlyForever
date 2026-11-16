@@ -1,4 +1,4 @@
--- Spec: #329, #426
+-- Spec: #329, #408, #426
 -- Buff mode when solo: in no group, buff mode still offers you your own copy
 -- of the buffs you give, as #198 does in a group, under the same rules (your
 -- buff order, Never offer, who gets each buff, top-up time), single versions
@@ -241,11 +241,11 @@ describe("Buff mode when solo: your own buffs (#329)", function()
             assert.are.equal("Unending Breath", armed())
         end)
 
-        it("the Buff Back tab's switch saves and takes effect at once, both ways, and is only on that tab", function()
+        it("the Buffs tab's switch saves and takes effect at once, both ways, and is only on that tab, in Party", function()
             boot()
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            assert.is_true(w.soloOwnBuffs:IsShown())
+            wow.run(w.tabs.buffs, "OnClick")
+            assert.is_true(w.soloOwnBuffs:IsVisible())
             assert.is_true(w.soloOwnBuffs:GetChecked())
             assert.are.equal("Power Word: Fortitude", armed())
             w.soloOwnBuffs:SetChecked(false)
@@ -258,10 +258,14 @@ describe("Buff mode when solo: your own buffs (#329)", function()
             assert.is_true(ns.db.buffBack.soloOwnBuffs)
             assert.are.equal("/cast [@player,nodead] Power Word: Fortitude", macro())
             wow.run(w.tabs.buff, "OnClick")
-            assert.is_false(w.soloOwnBuffs:IsShown())
+            assert.is_false(w.soloOwnBuffs:IsVisible())
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.raid, "OnClick")
+            assert.is_false(w.soloOwnBuffs:IsVisible(), "not in the Raid place")
+            wow.run(w.placeTabs.party, "OnClick")
             -- Opened with it off, the box shows it off.
             ns.db.buffBack.soloOwnBuffs = false
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
             assert.is_false(w.soloOwnBuffs:GetChecked())
         end)
 

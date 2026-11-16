@@ -1,4 +1,4 @@
--- Spec: #44, #329, #402
+-- Spec: #44, #329, #402, #408, #45
 -- Self-buffs: in buff mode, once the favours you owe and your group are
 -- done, the button offers your own missing self-buffs (Inner Fire, armors,
 -- Aspects, auras, Battle Shout...), one per press, on you, through the same
@@ -512,25 +512,32 @@ describe("Self-buffs in buff mode", function()
             assert.is_true(ns.Config.DEFAULTS.buffBack.selfBuffs)
         end)
 
-        it("shows self-buffs on the Buff Back tab as \"(you only)\", with no Who button, "
+        it("shows self-buffs on the Buffs tab as \"(you only)\", with no who-gets row, "
             .. "and the switch below the list", function()
             boot({ class = "PALADIN", known = { BLESSING_OF_KINGS, DEVOTION, RIGHTEOUS_FURY } })
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
             local byKey = {}
             for _, row in ipairs(w.buffRows) do
                 if row.key then byKey[row.key] = row end
             end
             assert.is_truthy(byKey.devotion.name:GetText():find("(you only)", 1, true))
-            assert.is_false(byKey.devotion.who:IsShown())
-            assert.is_true(byKey.kings.who:IsShown())
+            assert.is_true(byKey.devotion.name:IsVisible())
             assert.is_falsy(byKey.kings.name:GetText():find("(you only)", 1, true))
             assert.is_true(byKey.righteousfury.never:GetChecked(), "Righteous Fury: Never offer by default")
-            assert.is_true(w.selfBuffs:IsShown())
+            assert.is_true(w.selfBuffs:IsVisible())
             assert.is_true(w.selfBuffs:GetChecked())
-            -- The Who section is never about a self-buff.
-            ns.Options.CycleWho("devotion")
-            assert.is_falsy(w.who.header:GetText():find("Devotion", 1, true))
+            -- A who-gets row is never about a self-buff, in any place.
+            for _, place in ipairs(ns.BuffRules.PLACES) do
+                wow.run(w.placeTabs[place], "OnClick")
+                local keys = {}
+                for _, row in ipairs(w.whoRows) do
+                    if row.key and row.who:IsVisible() then keys[row.key] = true end
+                end
+                assert.is_true(keys.kings, place)
+                assert.is_nil(keys.devotion, place)
+                assert.is_nil(keys.righteousfury, place)
+            end
         end)
     end)
 
@@ -1286,7 +1293,7 @@ describe("Self-buffs in buff mode", function()
             party({ "Ann-Vale" })
             wear(FORT, 3600)
             refresh()
-            ns.BuffButton.Choose(ns.SelfBuffs.Next().name, true)
+            ns.BuffButton.Choose(ns.SelfBuffs.Next().name, "self")
             assert.are.equal("/cast [@player,nodead] Inner Fire", macro())
         end)
 

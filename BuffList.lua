@@ -43,9 +43,10 @@ local function RowText(offer, current)
         end
     end
     local name = offer.self and "You" or Util.StripChat(Util.DisplayName(offer.name))
-    -- A passer-by (#39) says so.
+    -- A passer-by (#39) says so; a weapon buff (#45) says which hand.
     local passing = offer.passerBy == true and " (passing by)" or ""
-    return (current and "> " or "") .. name .. ": " .. Util.StripChat(offer.spell) .. passing
+    local hand = offer.hand and (" (" .. offer.hand .. ")") or ""
+    return (current and "> " or "") .. name .. ": " .. Util.StripChat(offer.spell) .. hand .. passing
 end
 
 local function MakeRow(i)
@@ -66,7 +67,7 @@ local function MakeRow(i)
     row:SetScript("OnClick", function()
         ns.Diag.Call(function()
             local offer = shownOffers[i]
-            if offer then ns.BuffButton.Choose(offer.name, offer.selfBuff) end
+            if offer then ns.BuffButton.Choose(offer.name, ns.BuffButton.OfferKind(offer)) end
         end)
     end)
     return row

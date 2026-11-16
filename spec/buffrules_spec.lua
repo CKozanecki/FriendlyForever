@@ -18,6 +18,8 @@ local DEFAULT_CLASSES = {
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
 
+-- The panel's rows for these rules (the Buff Back tab's Who buttons and
+-- boxes) gave way to the Buffs tab (#408): spec/buffstab_spec.lua.
 describe("Who gets each buff", function()
     local ns, button
 
@@ -153,53 +155,6 @@ describe("Who gets each buff", function()
             }, given, "Kings to the tank, Might to the rest, and never a second Blessing on anyone")
         end)
 
-        it("is shown and changed on the Buff Back tab", function()
-            local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            local thorns = w.buffRows[2]
-            assert.are.equal("Who: Tanks only", thorns.who:GetText(), "Thorns starts at its default (#219)")
-            wow.run(thorns.who, "OnClick")
-            assert.are.equal("Who: Everyone but tanks", thorns.who:GetText())
-            assert.are.equal("notTanks", ns.db.buffBack.whoGets.thorns.rule)
-            assert.is_truthy(w.who.header:GetText():find("Who gets Thorns in buff mode: Everyone but tanks", 1, true))
-            wow.run(thorns.who, "OnClick")
-            assert.are.equal("Who: Chosen classes", thorns.who:GetText())
-            assert.is_true(w.who.classes.WARRIOR:IsShown())
-            w.who.classes.WARRIOR:SetChecked(true)
-            wow.run(w.who.classes.WARRIOR, "OnClick")
-            assert.is_true(ns.db.buffBack.whoGets.thorns.classes.WARRIOR)
-            w.who.never:SetFocus()
-            w.who.never:SetText("Ann Vale")
-            w.who.never:ClearFocus()
-            assert.are.equal("Ann-Vale", ns.db.buffBack.whoGets.thorns.never["ann-vale"])
-            wow.run(thorns.who, "OnClick")
-            assert.are.equal("Who: Everyone", thorns.who:GetText(), "next after chosen classes")
-            wow.run(thorns.who, "OnClick")
-            assert.are.equal("Who: Tanks only", thorns.who:GetText(), "round again")
-            assert.is_false(w.who.classes.WARRIOR:IsShown())
-        end)
-
-        it("a paladin's buttons start at everyone, except Wisdom and Might (#208, #219)", function()
-            paladin()
-            local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            local seen = 0
-            for _, row in ipairs(w.buffRows) do
-                if row.key then
-                    seen = seen + 1
-                    if ns.BuffData.ByKey(row.key).selfCast then
-                        -- A self-buff (#44) has no Who button: only you get it.
-                        assert.is_false(row.who:IsShown(), row.key)
-                    else
-                        local chosen = row.key == "wisdom" or row.key == "might"
-                        assert.is_true(row.who:IsShown(), row.key)
-                        assert.are.equal(chosen and "Who: Chosen classes" or "Who: Everyone", row.who:GetText(), row.key)
-                    end
-                end
-            end
-            assert.are.equal(#ns.BuffData.CLASSES.PALADIN, seen)
-        end)
-
         it("doesn't change buff back to strangers", function()
             rule("motw", "tanks")
             assert.is_true(ns.BuffRules.SetNames("motw", "never", "Bob Stone"))
@@ -312,72 +267,6 @@ describe("Who gets each buff", function()
             assert.is_false(ns.BuffRules.SetNames("thorns", "sometimes", "Ann Vale"))
             assert.is_true(ns.BuffRules.SetNames("thorns", "always", " , "), "an empty list is fine")
             assert.are.equal("", ns.BuffRules.NamesText("thorns", "always"))
-        end)
-
-        it("the options box says why a list wasn't saved", function()
-            local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            w.who.always:SetFocus()
-            w.who.always:SetText("not a name!")
-            w.who.always:ClearFocus()
-            local said = false
-            for _, line in ipairs(wow.printed) do
-                if line:find("Always list not saved", 1, true) then said = true end
-            end
-            assert.is_true(said)
-            assert.are.equal("", w.who.always:GetText(), "shows what's kept")
-        end)
-
-        it("saves a name box to the buff it was typed for, even if another buff is chosen meanwhile", function()
-            local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            w.who.always:SetFocus() -- the boxes show Mark of the Wild, the first buff
-            w.who.always:SetText("Ann Vale")
-            wow.run(w.buffRows[2].who, "OnClick") -- Thorns' Who button, mid-edit
-            assert.are.equal("Ann Vale", ns.BuffRules.NamesText("motw", "always"))
-            assert.are.equal("", ns.BuffRules.NamesText("thorns", "always"))
-            assert.are.equal("", w.who.always:GetText(), "now showing Thorns' list")
-            -- The same when moving a buff changes which is first.
-            boot()
-            w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            w.who.never:SetFocus()
-            w.who.never:SetText("Cid Rock")
-            wow.run(w.buffRows[2].up, "OnClick") -- Thorns moves above Mark of the Wild
-            assert.are.equal("Cid Rock", ns.BuffRules.NamesText("motw", "never"))
-            assert.are.equal("", ns.BuffRules.NamesText("thorns", "never"))
-            -- And when the order changes from outside the panel (a profile, say).
-            boot()
-            w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            w.who.always:SetFocus()
-            w.who.always:SetText("Dot Fern")
-            ns.db.buffBack.buffOrder = { "thorns", "motw" }
-            ns.Options.Refresh()
-            w.who.always:ClearFocus()
-            assert.are.equal("Dot Fern", ns.BuffRules.NamesText("motw", "always"))
-            assert.are.equal("", ns.BuffRules.NamesText("thorns", "always"))
-        end)
-
-        it("leaves a list alone when its box is only clicked in and out, and holds a full list of long names", function()
-            local long = ("Abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuv"):sub(1, 48)
-            local names = {}
-            for i = 1, ns.BuffRules.MAX_NAMES do
-                names[i] = long .. "-" .. long:sub(1, 40) .. string.char(97 + i % 26) .. string.char(97 + math.floor(i / 26))
-            end
-            assert.is_true(ns.BuffRules.SetNames("motw", "always", table.concat(names, ",")))
-            local before = ns.BuffRules.NamesText("motw", "always")
-            local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            assert.are.equal(before, w.who.always:GetText(), "the whole list fits the box")
-            local saves = 0
-            local real = ns.BuffRules.SetNames
-            ns.BuffRules.SetNames = function(...) saves = saves + 1; return real(...) end
-            w.who.always:SetFocus()
-            w.who.always:ClearFocus()
-            ns.BuffRules.SetNames = real
-            assert.are.equal(0, saves, "unchanged: not saved again")
-            assert.are.equal(before, ns.BuffRules.NamesText("motw", "always"))
         end)
 
         it("keeps every list together within a total, so a settings line can always be read back", function()
