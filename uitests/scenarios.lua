@@ -1477,22 +1477,46 @@ local function OpenList(content)
     end
 end
 
--- The who-gets buttons (200 wide) wholly inside the panel's view, top to
--- bottom, as the panel shows them unscrolled.
-local function WhoRowsInView(content)
-    local scroll = content:GetParent()
-    local viewTop, viewBottom = Edges(scroll, "GetTop", "GetBottom")
-    local found = {}
-    if not viewTop then return found end
-    Settle(content)
+-- The first who-gets button (200 wide) shown on content, or nil.
+local function FirstWho(content)
+    local found
     for _, child in ipairs({ content:GetChildren() }) do
-        if child:IsShown() and child:GetObjectType() == "Button" and child:GetWidth() == 200 then
-            local top, bottom = Edges(child, "GetTop", "GetBottom")
-            if top and top <= viewTop + 1 and bottom >= viewBottom - 1 then found[#found + 1] = child end
+        if child:IsShown() and child:GetObjectType() == "Button" and child:GetWidth() == 200
+            and (not found or (Measure(child, "GetTop") or 0) > (Measure(found, "GetTop") or 0)) then
+            found = child
         end
     end
-    table.sort(found, function(a, b) return a:GetTop() > b:GetTop() end)
     return found
+end
+
+-- Scrolls the panel so frame sits near the top ("top") or the bottom
+-- ("bottom") of its view, as a player scrolls a row into view to click it.
+-- The client reads a scrolled child's regions unscrolled (docs/ui-simulator.md),
+-- so the child is moved up by the offset instead, as the game draws it: the
+-- row's edges, what the code reads from them and the shot then agree.
+-- Returns the offset and a function that puts the child back, or nothing
+-- when edges can't be read.
+local function ShowRowAt(content, frame, at)
+    local scroll = content:GetParent()
+    Settle(content)
+    local viewTop, viewBottom = Edges(scroll, "GetTop", "GetBottom")
+    local rowTop, rowBottom = Edges(frame, "GetTop", "GetBottom")
+    if not (viewTop and rowTop) then return end
+    local offset = at == "top" and (viewTop - 12 - rowTop) or (viewBottom + 12 - rowBottom)
+    offset = math.max(0, offset)
+    local points = {}
+    for i = 1, (Measure(content, "GetNumPoints") or 0) do points[i] = { content:GetPoint(i) } end
+    local left = Edges(content, "GetLeft", "GetRight")
+    local scrollLeft = Edges(scroll, "GetLeft", "GetRight")
+    content:ClearAllPoints()
+    content:SetPoint("TOPLEFT", scroll, "TOPLEFT", (left and scrollLeft) and (left - scrollLeft) or 0, offset)
+    Settle(content)
+    return offset, function()
+        content:ClearAllPoints()
+        for _, p in ipairs(points) do content:SetPoint(unpack(p, 1, 5)) end
+        if #points == 0 then scroll:SetScrollChild(content) end
+        Settle(content)
+    end
 end
 
 test("the Buffs tab stays inside its page at its tallest, at every place, names and list open (#408)", function()
@@ -1507,6 +1531,7 @@ test("the Buffs tab stays inside its page at its tallest, at every place, names 
             A_Admin.FireEvent("SPELLS_CHANGED")
         end
         saved.whoChoice = "new"
+        local listsOpened = 0
         for _, place in ipairs(Pages.BUFFS_PLACES) do
             local content = Pages.OpenBuffs(place.name)
             check(content ~= nil, "couldn't open the Buffs tab at " .. place.label)
@@ -1534,34 +1559,40 @@ test("the Buffs tab stays inside its page at its tallest, at every place, names 
                 end
                 check(raid ~= nil, "the raid Blessings rows aren't shown on the Raid place")
             end
-            -- The who-gets list, opened as a player would, from a row in
-            -- view: the first, and the lowest, whose list opens above it
-            -- when the view has too little room below. On screen, holding
-            -- all it lists, inside the options. Unscrolled: the client reads
-            -- a scrolled panel's rows unscrolled (docs/ui-simulator.md), so
-            -- a size that shows no who-gets row says so and checks none.
-            local inView = WhoRowsInView(content)
-            if #inView == 0 then
-                report("LAYOUT " .. name .. ": no who-gets row in view at this size, so no list opened")
-            end
-            local opened = {}
-            for _, which in ipairs({ { "first", inView[1] }, { "lowest", inView[#inView] } }) do
-                local who = which[2]
-                if who and not opened[who] then
-                    opened[who] = true
-                    -- Closed and opened again: the list is placed as it opens.
-                    if OpenList(content) then who:GetScript("OnClick")(who) end
-                    who:GetScript("OnClick")(who)
-                    local list = OpenList(content)
-                    check(list ~= nil, name .. ": the who-gets list didn't open")
-                    local label = ("%s who-gets list (the %s row in view)"):format(name, which[1])
-                    OnScreen(list, label)
-                    ListHoldsAll(list, label)
-                    EndsInside(content, list, label)
-                    who:GetScript("OnClick")(who)
+            -- The first buff's who-gets list, opened as a player would: its
+            -- row scrolled near the top of the view, then near the bottom,
+            -- where the list opens above it. On screen, holding all it
+            -- lists, inside the options.
+            local who = FirstWho(content)
+            check(who ~= nil, "no who-gets button at " .. place.label)
+            for _, at in ipairs({ "top", "bottom" }) do
+                local offset, putBack = ShowRowAt(content, who, at)
+                local label = ("%s who-gets list (row near the %s of the view)"):format(name, at)
+                if not offset then
+                    report("LAYOUT " .. label .. ": edges can't be read here")
+                else
+                    local done, failed = pcall(function()
+                        report(("LAYOUT %s: the panel scrolled by %.0f"):format(label, offset))
+                        -- Closed and opened again: the list is placed as it opens.
+                        if OpenList(content) then who:GetScript("OnClick")(who) end
+                        who:GetScript("OnClick")(who)
+                        local list = OpenList(content)
+                        check(list ~= nil, label .. ": didn't open")
+                        OnScreen(list, label)
+                        ListHoldsAll(list, label)
+                        EndsInside(content, list, label)
+                        who:GetScript("OnClick")(who)
+                        listsOpened = listsOpened + 1
+                    end)
+                    putBack()
+                    if not done then error(failed, 0) end
                 end
             end
         end
+        -- Every place opened its list twice: none was skipped unread.
+        report(("LAYOUT Buffs tab: %d who-gets lists opened"):format(listsOpened))
+        check(listsOpened == 2 * #Pages.BUFFS_PLACES, ("only %d of %d who-gets lists opened"):format(listsOpened,
+            2 * #Pages.BUFFS_PLACES))
     end)
     -- The saved settings as they were.
     for k in pairs(saved) do saved[k] = nil end
