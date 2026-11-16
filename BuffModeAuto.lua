@@ -695,9 +695,8 @@ end
 -- is anything seen first at a login or a full update (zoning).
 local function Announce(added)
     if not added then return end
-    -- (Never before the login: nothing counts as added until a read has
-    -- worked since it, fireSeen.known.)
-    if Cfg().autoOnCampfire ~= true then return end
+    -- Never before the login has finished: what loads then was there already.
+    if not ready or Cfg().autoOnCampfire ~= true then return end
     -- Not where quiet mode holds in a capital city: there it would end
     -- quiet mode at the first fire you pass (as for a stranger's buff, #34).
     if ns.Cities.ThanksQuiet() or ns.Cities.ButtonHidden() then return end

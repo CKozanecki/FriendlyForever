@@ -997,6 +997,25 @@ describe("Passers-by (#39)", function()
             assert.is_true(ns.BuffMode.IsAuto(), "yours is")
         end)
 
+        it("auras that load before the login has finished never turn it on, even after a full update", function()
+            wow.reset()
+            local loaded = {}
+            local _, files = wow.parseToc()
+            for _, file in ipairs(files) do assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+            _G.FriendlyForeverDB = { enabled = true, buffBack = { autoOnCampfire = true, passersBy = true } }
+            wow.state.units.player.surname = wow.state.units.player.surname or "Self"
+            wow.state.class, wow.state.knownSpells = "DRUID", { [MOTW_1] = true }
+            stranger()
+            wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+            wow.fire("UNIT_AURA", "player", { isFullUpdate = true })
+            table.insert(wow.state.playerAuras, { isHelpful = true, spellId = COZY, auraInstanceID = 8 })
+            wow.fire("UNIT_AURA", "player", { addedAuras = { { spellId = COZY, auraInstanceID = 8 } } })
+            assert.is_false(loaded.BuffMode.IsOn(), "before the login")
+            wow.fire("PLAYER_ENTERING_WORLD", true, false)
+            assert.is_false(loaded.BuffMode.IsOn(), "after it: you were by the fire all along")
+            assert.are.same({}, wow.errors)
+        end)
+
         it("a full update (zoning, a login) adds nothing", function()
             bootAuto()
             stranger()
