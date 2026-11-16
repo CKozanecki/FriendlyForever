@@ -300,7 +300,7 @@ function BuffsTab.SetRaidBlessing()
     ns.Options.Refresh()
 end
 
-local function FillRaidBlessings(shown, last, x)
+local function FillRaidBlessings(shown, last)
     local who = w.who
     local mine = shown and ns.BuffRules.MyBlessings() or {}
     local inRaid = ns.Util.ReadGameValues(IsInRaid) == true
@@ -317,7 +317,7 @@ local function FillRaidBlessings(shown, last, x)
     end
     if #mine == 0 then return last end
     who.raidHeader:ClearAllPoints()
-    who.raidHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", x or 0, -12)
+    who.raidHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -12)
     who.raidHeader:SetText("Blessings I give in this raid:  "
         .. ns.Colours.Text("muted", inRaid and "(until you leave it)" or "(join a raid to choose)"))
     return who.raidBlessings[1]
@@ -482,6 +482,10 @@ function BuffsTab.Create(content, tabsBottom)
     who.alwaysLabel, who.always = NamesBox("always", "Always:")
     who.neverLabel, who.never = NamesBox("never", "Never:")
     who.neverLabel:SetPoint("TOPLEFT", who.alwaysLabel, "BOTTOMLEFT", 0, -12)
+    -- Under the boxes, back in the icons' column: what follows them anchors here.
+    who.below = area:CreateTexture(nil, "ARTWORK")
+    who.below:SetSize(1, 1)
+    who.below:Hide()
 
     -- Each place's own options.
     w.openBuffBack = ui.Button(area, "Open the Buff Back tab", 170, function() ns.Options.SelectType("buffBack") end)
@@ -572,9 +576,9 @@ end
 -- The names boxes' labels sit this far in from their row's icon.
 local NAMES_INDENT = 24
 
--- The rows of the place shown; returns what the place's options anchor to,
--- and how far left of its left edge they start: back from the names boxes'
--- indent when they're open on the last row, so the column stays straight.
+-- The rows of the place shown; returns what the place's options anchor to.
+-- Under open names boxes, that's who.below: back in the icons' column, so
+-- the rows and options after them stay in it (#408's testing review).
 local function FillRows(buffs, pending, last)
     local who, named, listRow = w.who, ns.BuffRules.NAMED_PLACES[place], nil
     local rules = {}
@@ -582,7 +586,7 @@ local function FillRows(buffs, pending, last)
         if HasWho(buff) then rules[#rules + 1] = buff end
     end
     if namesKey and (pending or not named) then namesKey = nil end
-    local namesShown, x = false, 0
+    local namesShown = false
     for i, row in ipairs(w.whoRows) do
         local buff = rules[i]
         for _, part in ipairs({ row.icon, row.name, row.who }) do part:SetShown(buff ~= nil) end
@@ -591,8 +595,7 @@ local function FillRows(buffs, pending, last)
         if buff then
             row.icon:ClearAllPoints()
             -- The first row leaves room above it for the column's heading.
-            row.icon:SetPoint("TOPLEFT", last, "BOTTOMLEFT", x, i == 1 and -26 or -8)
-            x = 0
+            row.icon:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, i == 1 and -26 or -8)
             row.icon:SetTexture(ns.BuffData.Icon(buff))
             row.name:SetText(NameText(buff))
             local short, full
@@ -622,11 +625,15 @@ local function FillRows(buffs, pending, last)
                 who.alwaysLabel:SetPoint("TOPLEFT", row.icon, "BOTTOMLEFT", NAMES_INDENT, -10)
                 UI().FillBox(who.always, ns.BuffRules.NamesText(buff.key, "always", place))
                 UI().FillBox(who.never, ns.BuffRules.NamesText(buff.key, "never", place))
-                last, x = who.neverLabel, -NAMES_INDENT
+                who.below:ClearAllPoints()
+                who.below:SetPoint("TOPLEFT", who.neverLabel, "BOTTOMLEFT", -NAMES_INDENT, 1)
+                last = who.below
             end
         end
     end
-    for _, part in ipairs({ who.alwaysLabel, who.always, who.neverLabel, who.never }) do part:SetShown(namesShown) end
+    for _, part in ipairs({ who.alwaysLabel, who.always, who.neverLabel, who.never, who.below }) do
+        part:SetShown(namesShown)
+    end
     w.whoHeader:SetShown(#rules > 0)
     if #rules > 0 then
         w.whoHeader:ClearAllPoints()
@@ -634,28 +641,25 @@ local function FillRows(buffs, pending, last)
     end
     if not namesShown then namesKey = nil end
     if pending or not listRow then CloseList() else FillList(listRow) end
-    return last, #rules, x
+    return last, #rules
 end
 
--- A place's own options, after its rows; shift: how far left of last's left
--- edge the first one's column is (FillRows).
-local function FillOptions(last, shift)
+-- A place's own options, after its rows.
+local function FillOptions(last)
     local b = ns.db.buffBack
-    shift = shift or 0
     local function Below(frame, shown, x, y)
         frame:SetShown(shown)
         if not shown then return end
         frame:ClearAllPoints()
-        frame:SetPoint("TOPLEFT", last, "BOTTOMLEFT", (x or 0) + shift, y or -10)
-        last, shift = frame, 0
+        frame:SetPoint("TOPLEFT", last, "BOTTOMLEFT", x or 0, y or -10)
+        last = frame
     end
     Below(w.openBuffBack, place == "strangers", 0, -12)
     Below(w.soloOwnBuffs, place == "party", -4)
     if place == "party" then w.soloOwnBuffs:SetChecked(b.soloOwnBuffs == true) end
     Below(w.raidSplit, place == "raid", -4)
     if place == "raid" then w.raidSplit:SetChecked(ns.RaidSplit.Enabled()) end
-    local blessings = FillRaidBlessings(place == "raid", last, shift)
-    if blessings ~= last then last, shift = blessings, 0 end
+    last = FillRaidBlessings(place == "raid", last)
     Below(w.bgPrepBuff, place == "pvp", -4)
     if place == "pvp" then w.bgPrepBuff:SetChecked(b.bgPrepBuff == true) end
     return last
@@ -676,11 +680,10 @@ function BuffsTab.Fill()
         last = w.choice.new
     end
     local rules
-    local shift
-    last, rules, shift = FillRows(buffs, pending, last)
+    last, rules = FillRows(buffs, pending, last)
     if rules == 0 and #buffs > 0 then
         w.placeHelp:SetText(BuffsTab.PLACE_HELP[place] .. "  "
             .. ns.Colours.Text("muted", "(your class has no buffs for others)"))
     end
-    FillOptions(last, shift)
+    FillOptions(last)
 end

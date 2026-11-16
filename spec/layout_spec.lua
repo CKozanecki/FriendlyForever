@@ -321,7 +321,13 @@ describe("Layout", function()
         -- #408's testing review: rows after an open Names box moved 24
         -- pixels right, out of their column, and the place's options with them.
         it("keeps the who-gets rows and the place's options in their column with a Names box open", function()
-            local ns = wow.boot({ before = function(state) state.class = "PRIEST" end })
+          -- A priest, and a paladin who knows a Blessing: the Raid place's
+          -- Blessings rows come after the split's box (the testing review).
+          for _, class in ipairs({ "PRIEST", "PALADIN" }) do
+            local ns = wow.boot({ before = function(state)
+                state.class = class
+                if class == "PALADIN" then state.knownSpells = { [20217] = true, [19740] = true, [19742] = true } end
+            end })
             assert.is_true(ns.BuffRules.Choose("new"))
             local w = ns.Options.widgets
             wow.run(w.tabs.buffs, "OnClick")
@@ -332,6 +338,11 @@ describe("Layout", function()
                     if row.icon:IsVisible() then out[#out + 1] = (wow.horizontalEdges(row.icon, w.content)) end
                 end
                 out[#out + 1] = (wow.horizontalEdges(w.raidSplit, w.content))
+                if class == "PALADIN" then
+                    assert.is_true(w.who.raidHeader:IsVisible(), "the paladin's Blessings rows")
+                    out[#out + 1] = (wow.horizontalEdges(w.who.raidHeader, w.content))
+                    out[#out + 1] = (wow.horizontalEdges(w.who.raidBlessings[1], w.content))
+                end
                 return out
             end
             local closed = lefts()
@@ -343,10 +354,11 @@ describe("Layout", function()
             for _, which in ipairs({ 1, #shown }) do
                 wow.run(shown[which].names, "OnClick")
                 assert.is_true(w.who.always:IsVisible(), "row " .. which .. "'s names open")
-                assert.are.same(closed, lefts(), "row " .. which .. "'s names open")
+                assert.are.same(closed, lefts(), class .. ", row " .. which .. "'s names open")
                 wow.run(shown[which].names, "OnClick")
             end
-            assert.are.same(closed, lefts(), "closed again")
+            assert.are.same(closed, lefts(), class .. ", closed again")
+          end
         end)
 
         -- The UI simulator's run: a row near the bottom of the view hung its
