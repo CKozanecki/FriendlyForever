@@ -1,4 +1,4 @@
--- Spec: #101, #196, #281, #392
+-- Spec: #101, #196, #281, #392, #406
 -- WoW Forever names are a first name plus a mandatory surname, and the pair
 -- is the player's identity. These tests use names in both shapes the client
 -- may report them: "First-Surname" in one string, or the first name with the
@@ -168,5 +168,44 @@ describe("Forever first name + surname", function()
         assert.is_truthy(all:find("UnitName(player): 'Nikki-Shifts'", 1, true))
         assert.is_truthy(all:find("Friendly Forever uses: 'Nikki-Shifts'", 1, true))
         assert.is_truthy(all:find("guild roster #1: 'Thrall-Stormcaller'", 1, true))
+    end)
+
+    it("/friendly names skips the guild roster, saying why, when the guild answer isn't yes or no (#406)", function()
+        local real = _G.IsInGuild
+        for label, answer in pairs({
+            secret = function() return wow.secret(true) end,
+            none = function() return nil end,
+            number = function() return 1 end,
+            error = function() error("boom") end,
+        }) do
+            _G.IsInGuild = answer
+            wow.printed, wow.errors = {}, {}
+            slash("names")
+            assert.are.same({}, wow.errors, label)
+            local all = table.concat(wow.printed, "\n")
+            assert.is_truthy(all:find("guild roster: can't tell", 1, true), label)
+            assert.is_nil(all:find("guild roster #1", 1, true), label)
+        end
+        _G.IsInGuild = real
+    end)
+
+    it("/friendly names lists no roster entry when the guild roster is empty or its count unreadable (#406)", function()
+        local real = _G.GetNumGuildMembers
+        for label, count in pairs({ empty = function() return 0 end, secret = function() return wow.secret(5) end,
+            none = function() return nil end, text = function() return "5" end }) do
+            _G.GetNumGuildMembers = count
+            wow.printed, wow.errors = {}, {}
+            slash("names")
+            assert.are.same({}, wow.errors, label)
+            assert.is_nil(table.concat(wow.printed, "\n"):find("guild roster #1", 1, true), label)
+        end
+        _G.GetNumGuildMembers = real
+    end)
+
+    it("/friendly names reads no roster when you're not in a guild", function()
+        wow.state.inGuild = false
+        slash("names")
+        local all = table.concat(wow.printed, "\n")
+        assert.is_nil(all:find("guild roster", 1, true))
     end)
 end)

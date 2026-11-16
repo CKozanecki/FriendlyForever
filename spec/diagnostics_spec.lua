@@ -1,4 +1,4 @@
--- Spec: #101, #46, #47, #392
+-- Spec: #101, #46, #47, #392, #406
 local wow = require("spec.support.wow")
 
 describe("Diagnostics", function()
@@ -205,6 +205,23 @@ describe("Diagnostics", function()
             wow.state.afk, wow.state.unitsRestricted = true, true
             slash("status")
             assert.is_true(printedHas("(can't tell if you're AFK right now, so messages are sent)"))
+        end)
+
+        it("says it can't tell when the game's guild answer isn't yes or no (#406)", function()
+            local real = _G.IsInGuild
+            for label, answer in pairs({
+                secret = function() return wow.secret(true) end,
+                none = function() return nil end,
+                number = function() return 1 end,
+                error = function() error("boom") end,
+            }) do
+                _G.IsInGuild = answer
+                wow.printed, wow.errors = {}, {}
+                slash("status")
+                assert.are.same({}, wow.errors, label)
+                assert.is_true(printedHas("guild: can't tell, "), label)
+            end
+            _G.IsInGuild = real
         end)
 
         it("works outside a guild and group", function()

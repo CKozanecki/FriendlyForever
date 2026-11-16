@@ -15,7 +15,7 @@ Ideas, bug reports and pull requests are welcome. Every change starts from an is
 
 ### Area batches
 
-**A trial (#345, the maintainer's decision of 2026-11-14).** Agent sessions work in area batches, not one pull request per issue. The trial's result is recorded on #345, and the maintainer decides there whether to keep it.
+**The standing rule (#345; the maintainer tried it from 2026-11-14 and decided on 2026-11-15 to keep it).** Agent sessions work in area batches, not one pull request per issue.
 
 - **One session, one area, one branch.** A session owns an area for a batch, such as "buff targeting" or "options panel", and works a list of related issues on one branch, named after the batch's first issue and the area, such as `claude/301-options-panel`.
 - **One pull request, one review at the end.** The batch is one pull request. Its description lists each issue under its own heading, with its keyword (`Closes #<issue>`, or `Refs #<issue>` for a spec it only starts) and its acceptance criteria as a checklist. The review loops run once, on the whole batch, and check each issue against its criteria.
@@ -83,14 +83,14 @@ It is **ready to merge** when, on top of that, every review conversation is reso
 
 `main` requires branches to be up to date before they merge, so when another pull request merges, GitHub marks the next ready one out of date (#229). GitHub's merge queue would do this for us, but it isn't offered for a repository owned by a personal account, and the maintainer decided on 2026-11-14 to keep this rule (#345). What happens depends on the two file lists of the file-disjoint rule in [Review loops](#review-loops):
 
-- **No file in both lists and no conflict: update branch only.** No merge on the command line and no reviewer re-run. Whoever drives the pull request clicks GitHub's **Update branch** on it (for the trial, #345, the driving session does this itself; before, the maintainer did, 2026-11-09), puts both file lists in the description as the record, and lets CI run on the new head. It merges when `check` is green, as [Who merges](#who-merges) says.
+- **No file in both lists and no conflict: update branch only.** No merge on the command line and no reviewer re-run. Whoever drives the pull request clicks GitHub's **Update branch** on it (the driving session does this itself, #345; before, the maintainer did, 2026-11-09), puts both file lists in the description as the record, and lets CI run on the new head. It merges when `check` is green, as [Who merges](#who-merges) says.
 - **A file in both lists, or any conflict: developer must merge.** Unchanged: the developer merges `main`, resolves, and the reviewers confirm the merge and the resolutions.
 
 The coordinator tells each waiting pull request's driver which case it is in, naming it, so nobody has to work it out twice.
 
 #### Who merges
 
-The maintainer; the coordinator, under its delegation on #182; and, for a trial (#345, the maintainer's decision of 2026-11-14), the session that drives an agent's pull request, for that pull request only. Each merges only when all of these stops hold:
+The maintainer; the coordinator, under its delegation on #182; and, as the maintainer decided on 2026-11-14 (#345), the session that drives an agent's pull request, for that pull request only. Each merges only when all of these stops hold:
 
 - the required `check` is green on the pull request's latest commit;
 - the branch is up to date with `main`, updated as [Only behind `main`](#only-behind-main) says;

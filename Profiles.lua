@@ -146,10 +146,11 @@ function Profiles.Import(text)
     -- A line without a version was written by hand or before versions were
     -- stored: take it as current rather than running every old migration.
     if data.settings.schemaVersion == nil then data.settings.schemaVersion = ns.Config.SCHEMA_VERSION end
+    -- Merge the ignore list first: Apply re-arms the buff-back button, which
+    -- must already know who the line ignores (#369).
+    local ignoreAdded = MergeIgnore(data.settings.ignore)
     Apply(data.settings)
-    ns.db.importUndo = {
-        profile = ns.db.activeProfile, settings = before, ignoreAdded = MergeIgnore(data.settings.ignore),
-    }
+    ns.db.importUndo = { profile = ns.db.activeProfile, settings = before, ignoreAdded = ignoreAdded }
     return true
 end
 
