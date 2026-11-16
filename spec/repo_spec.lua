@@ -4374,7 +4374,7 @@ describe("Release docs", function()
             assert.is_truthy(agents:find("A patch release of documentation-only fixes is one PR with the fix", 1, true), "AGENTS.md")
         end)
 
-        -- #229, and the #345 trial (owner, 2026-11-14): main still requires
+        -- #229, and the #345 process (owner, 2026-11-14, kept 2026-11-15): main still requires
         -- branches up to date (GitHub's merge queue isn't offered for a personal
         -- account's repo). A ready PR only behind main is updated by its driver;
         -- overlap or a conflict still goes to the developer and the reviewers.
@@ -4403,7 +4403,7 @@ describe("Release docs", function()
                 ".claude/skills/coordinator/SKILL.md", ".claude/skills/merge-order/SKILL.md" }) do
                 local text = wow.readFile(path):gsub("%s+", " ")
                 assert.is_truthy(text:find("#only-behind-main", 1, true), path .. " doesn't reference the rule")
-                assert.is_truthy(text:find("#345", 1, true), path .. " doesn't cite the trial")
+                assert.is_truthy(text:find("#345", 1, true), path .. " doesn't cite #345")
                 assert.is_falsy(text:find("update branch only.**", 1, true), path .. " restates the rule")
                 assert.is_falsy(text:find("developer must merge.**", 1, true), path .. " restates the rule")
                 -- The queue was dropped (#345, owner, 2026-11-14): nothing may send a PR to it.
