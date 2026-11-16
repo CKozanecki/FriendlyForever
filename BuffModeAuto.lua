@@ -695,8 +695,9 @@ end
 -- is anything seen first at a login or a full update (zoning).
 local function Announce(added)
     if not added then return end
-    local cfg = Cfg()
-    if not ready or cfg.autoOnCampfire ~= true then return end
+    -- (Never before the login: nothing counts as added until a read has
+    -- worked since it, fireSeen.known.)
+    if Cfg().autoOnCampfire ~= true then return end
     -- Not where quiet mode holds in a capital city: there it would end
     -- quiet mode at the first fire you pass (as for a stranger's buff, #34).
     if ns.Cities.ThanksQuiet() or ns.Cities.ButtonHidden() then return end
@@ -795,7 +796,7 @@ function Auto.OnPlayerAura(unit, updateInfo)
         return
     end
     -- What this update added counts, and the read makes up what it hid.
-    if fireSeen.unsure and not InCombatLockdown() and ready then Resync(true) end
+    if fireSeen.unsure and not InCombatLockdown() then Resync(true) end
     Announce(new)
 end
 
