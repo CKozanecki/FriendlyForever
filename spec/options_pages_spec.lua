@@ -1,4 +1,4 @@
--- Spec: #52, #58, #80, #101, #112, #47, #274
+-- Spec: #52, #58, #80, #101, #112, #47, #274, #45
 -- The options added with 0.8.0: thank style, loading a line set, and the
 -- General and Favour Ledger pages.
 local wow = require("spec.support.wow")
@@ -11,19 +11,20 @@ describe("Options", function()
         w = ns.Options.widgets
     end)
 
-    it("lists Start here, General and Favour Ledger under Friendly Forever", function()
+    it("lists Start here, General, Favour Ledger and Weapon buffs under Friendly Forever", function()
         local names = {}
         for _, sub in ipairs(wow.settings.subcategories) do
             names[#names + 1] = sub.name
             assert.are.equal(4242, sub.parent:GetID())
         end
-        assert.are.same({ "Start here", "General", "Favour Ledger" }, names)
+        assert.are.same({ "Start here", "General", "Favour Ledger", "Weapon buffs" }, names)
     end)
 
     it("names the pages' frames, so the UI simulator's scenarios can find them", function()
-        local general, ledger = ns.Options.Pages()
+        local general, ledger, weapon = ns.Options.Pages()
         assert.are.equal(general, _G.FriendlyForeverGeneralPage)
         assert.are.equal(ledger, _G.FriendlyForeverLedgerPage)
+        assert.are.equal(weapon, _G.FriendlyForeverWeaponPage)
     end)
 
     describe("message tabs", function()

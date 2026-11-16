@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383
+-- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383, #45
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -527,7 +527,9 @@ describe("the UI simulator's walkthrough steps", function()
         assert.are.equal(table.concat(names, " "), steps)
         assert.is_truthy(workflow:find('for step in $WALKTHROUGH_STEPS; do\n%s*shoot "walkthrough%-$step" '
             .. '%-%-exec%-lua "@/shot%-lua/walkthrough%-$step%.lua"\n'))
-        assert.is_truthy(workflow:find("\n%s*for page in general ledger start; do\n"), "Start here's script")
+        assert.is_truthy(workflow:find("\n%s*for page in general ledger start weapon; do\n"), "Start here's script")
+        assert.is_truthy(workflow:find("\n%s*shoot options%-weapon %-%-exec%-lua @/shot%-lua/page%-weapon%.lua\n"),
+            "the Weapon buffs page's shot (#45)")
         assert.is_truthy(workflow:find("\n%s*shoot options%-start %-%-exec%-lua @/shot%-lua/page%-start%.lua\n"))
         -- The loop writing each step's script, run as the workflow runs it.
         local loop = workflow:match("\n(%s*for step in %$WALKTHROUGH_STEPS; do\n.-\n%s*done)\n")

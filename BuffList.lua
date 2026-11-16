@@ -43,7 +43,9 @@ local function RowText(offer, current)
         end
     end
     local name = offer.self and "You" or Util.StripChat(Util.DisplayName(offer.name))
-    return (current and "> " or "") .. name .. ": " .. Util.StripChat(offer.spell)
+    -- A weapon buff (#45) says which hand.
+    local hand = offer.hand and (" (" .. offer.hand .. ")") or ""
+    return (current and "> " or "") .. name .. ": " .. Util.StripChat(offer.spell) .. hand
 end
 
 local function MakeRow(i)
@@ -64,7 +66,7 @@ local function MakeRow(i)
     row:SetScript("OnClick", function()
         ns.Diag.Call(function()
             local offer = shownOffers[i]
-            if offer then ns.BuffButton.Choose(offer.name, offer.selfBuff) end
+            if offer then ns.BuffButton.Choose(offer.name, ns.BuffButton.OfferKind(offer)) end
         end)
     end)
     return row

@@ -45,6 +45,9 @@ read_globals = {
     "IsMounted", "UnitOnTaxi", "GetShapeshiftForm", "IsUsableSpell", "UnitPowerType",
     "UnitGroupRolesAssigned", "GetPartyAssignment", "GetBattlefieldWinner",
     "CreateSettingsListSectionHeaderInitializer",
+    -- Weapon buffs (#45): your weapons, their enchants, and the items for them.
+    "GetWeaponEnchantInfo", "GetInventoryItemID", "GetItemInfoInstant", "GetItemSpell", "IsUsableItem",
+    "GetItemIcon",
 }
 
 -- Tests run in plain Lua with busted and install the mock WoW API globally.

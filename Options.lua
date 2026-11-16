@@ -18,8 +18,9 @@ Options.CONTENT_HEIGHT = 2200
 Options.TABS_PER_ROW = 4
 
 local panel, category, startPage, generalPage, ledgerPage
+local weaponPage -- Weapon buffs (#45)
 local currentType = Config.TYPES[1]
-local widgets = { tabs = {}, edits = {}, steppers = {}, general = {}, ledger = {}, start = {} }
+local widgets = { tabs = {}, edits = {}, steppers = {}, general = {}, ledger = {}, start = {}, weapon = {} }
 -- Every number box a Stepper makes, so ClearEditFocus can't miss one (#171).
 local numberBoxes = {}
 
@@ -51,6 +52,7 @@ Options.START_PAGE = "FriendlyForeverStartPage"
 -- notes wrapping more in the game than expected.
 Options.START_HEIGHT = 560
 Options.LEDGER_PAGE = "FriendlyForeverLedgerPage"
+Options.WEAPON_PAGE = "FriendlyForeverWeaponPage"
 
 -- How to thank someone who buffs you, and what to do when that can't reach
 -- them (#101), in the order each dropdown lists them (#274).
@@ -717,7 +719,7 @@ local function Fill()
         cfg.repeatCooldown, widgets.steppers.repeatCooldown.box:GetText())
 end
 
-local FillStart, FillGeneral, FillLedger
+local FillStart, FillGeneral, FillLedger, FillWeapon
 
 -- A page the player can see. The game counts a shown frame with no parent
 -- as visible, and our pages have none until the Settings window adopts them,
@@ -733,6 +735,7 @@ function Options.Refresh()
     if IsOpen(startPage) then FillStart() end
     if IsOpen(generalPage) then FillGeneral() end
     if IsOpen(ledgerPage) then FillLedger() end
+    if IsOpen(weaponPage) then FillWeapon() end
 end
 
 -- Fill the panel whenever it is shown, and once more on the next frame:
@@ -1200,6 +1203,7 @@ function Options.Create()
     Options.CreateStartPage()
     Options.CreateGeneralPage()
     Options.CreateLedgerPage()
+    Options.CreateWeaponPage()
     ns.OptionsIndex.RegisterSearch(category)
 
     -- Filled straight away too, so nothing can ever show empty boxes.
@@ -1505,7 +1509,7 @@ end
 
 function Options.FillGeneral() FillGeneral() end
 function Options.FillLedger() FillLedger() end
-function Options.Pages() return generalPage, ledgerPage end
+function Options.Pages() return generalPage, ledgerPage, weaponPage end
 function Options.StartPage() return startPage end
 function Options.FillStart() FillStart() end
 
@@ -1549,4 +1553,73 @@ function Options.OpenTab(msgType, row)
     Options.SelectType(msgType)
     ScrollTo(widgets[row])
     C_Timer.After(0, ns.Diag.Wrap(function() ScrollTo(widgets[row]) end))
+end
+
+------------------------------------------------------------------------
+-- Weapon buffs (#45): its own small page, experimental, off by default.
+------------------------------------------------------------------------
+
+Options.WEAPON_HELP = "Experimental. In buff mode, once your favours, your group and your self-buffs are done, "
+    .. "the button offers the kind you choose for a hand that has none on it: the best one you carry and can "
+    .. "use. One press puts it on. Nothing is ever put on by itself. Right-click skips your weapon buffs for "
+    .. "5 minutes."
+Options.WEAPON_KIND_TEXT = { none = "nothing" }
+
+-- The hand's chosen kind, read from a section that may be damaged (#330).
+local function WeaponKind(field)
+    return Config.Field("buffBack", field)
+end
+
+-- A dropdown of the kinds your class may use on a hand (all of them when
+-- your class can't be read).
+local function WeaponDropdown(parent, slot, field)
+    local _, class = ns.Util.ReadGameValues(UnitClass, "player")
+    local order = { "none" }
+    local texts = { none = Options.WEAPON_KIND_TEXT.none }
+    for _, key in ipairs(ns.WeaponBuffs.KindsFor(type(class) == "string" and class or nil, slot)) do
+        order[#order + 1] = key
+        texts[key] = ns.WeaponBuffs.KINDS[key].label
+    end
+    -- Without a class every class's kinds are listed; a dropdown always
+    -- shows the current choice, even one the list doesn't hold.
+    for _, key in ipairs(Config.WEAPON_KINDS) do
+        if not texts[key] then texts[key] = ns.WeaponBuffs.KINDS[key].label end
+    end
+    return Dropdown(parent, order, texts, 200, function() return WeaponKind(field) end, function(value)
+        BuffBack()[field] = value
+        Options.Refresh()
+        ns.BuffButton.Refresh()
+    end)
+end
+
+function Options.CreateWeaponPage()
+    local w = widgets.weapon
+    weaponPage = SubPage("Weapon buffs", "Weapon buffs (experimental)", Options.WEAPON_PAGE)
+    local page = weaponPage
+    w.help = Note(page, page.heading, Options.WEAPON_HELP)
+    w.enabled = Checkbox(page, "Offer weapon buffs in buff mode, after my self-buffs", function(on)
+        BuffBack().weaponBuffs = on
+        Options.Refresh()
+        ns.BuffButton.Refresh()
+    end)
+    w.enabled:SetPoint("TOPLEFT", w.help, "BOTTOMLEFT", -4, -10)
+    w.mainLabel = Label(page, "Main hand:")
+    w.mainLabel:SetPoint("TOPLEFT", w.enabled, "BOTTOMLEFT", 4, -16)
+    w.main = WeaponDropdown(page, 16, "weaponMain")
+    w.main:SetPoint("LEFT", w.mainLabel, "LEFT", 80, 0)
+    w.offLabel = Label(page, "Off hand:")
+    w.offLabel:SetPoint("TOPLEFT", w.mainLabel, "BOTTOMLEFT", 0, -18)
+    w.off = WeaponDropdown(page, 17, "weaponOff")
+    w.off:SetPoint("LEFT", w.offLabel, "LEFT", 80, 0)
+    w.note = Note(page, w.offLabel, "Stones and oils for anyone, poisons for rogues, a shaman's imbues for the "
+        .. "main hand. A hand whose weapon has its own Use is left for you to do by hand. In a druid's form or "
+        .. "Ghost Wolf, a press may drop you out of the form to put it on, as doing it by hand would.")
+    page:SetScript("OnShow", function() FillWeapon() end)
+end
+
+FillWeapon = function()
+    local w = widgets.weapon
+    w.enabled:SetChecked(Config.Field("buffBack", "weaponBuffs") == true)
+    w.main.Fill()
+    w.off.Fill()
 end

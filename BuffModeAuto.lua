@@ -119,6 +119,9 @@ local function Settled(inside, withSelf)
     if withSelf then
         local mine, _, mineSettled = ns.SelfBuffs.Next()
         if mine ~= nil or mineSettled ~= true then return false end
+        -- Your weapon buffs (#45) too, the same way: never a trigger.
+        local weapon, _, weaponSettled = ns.WeaponBuffs.Next()
+        if weapon ~= nil or weaponSettled ~= true then return false end
     end
     if inside and not EveryoneInside() then return false end
     -- Your water buff waits for water (Water.lua): nobody has it, so say so.
