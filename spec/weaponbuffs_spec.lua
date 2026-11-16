@@ -629,6 +629,12 @@ describe("Weapon buffs", function()
             assert.is_nil(macro())
             local _, _, settled = ns.WeaponBuffs.Next()
             assert.is_true(settled)
+            -- A read that can't tell whether the hand is covered forgets nothing.
+            wow.state.weaponSecrets.enchants = true
+            refresh()
+            wow.state.weaponSecrets.enchants = nil
+            refresh()
+            assert.is_nil(macro(), "still stopped")
             wow.advance(ns.WeaponBuffs.STOP_SECONDS)
             refresh()
             assert.are.equal("/use item:8928\n/use 16", macro())
