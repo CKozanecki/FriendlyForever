@@ -12,7 +12,8 @@
 --   someone outside your group buffing you (a group member's buff isn't a
 --   favour, so it doesn't count), except where quiet mode holds in a capital
 --   city: there it would end quiet mode at the first stranger's buff (#34);
---   in any group, out of combat, a member missing a buff of yours (#272:
+--   in any group, or solo for your own buffs (#426, below), out of combat,
+--   a member missing a buff of yours (#272:
 --   never cast, or fully faded; anyone's copy counts as theirs) or whose
 --   buff of yours is running low (#397: as the button would top it up, so
 --   a minute left for a buff of 10 minutes or less, the Top up time for a
@@ -24,7 +25,13 @@
 --   an arena or battleground. Buff mode you turned off yourself stays off
 --   until another buff, or another member, goes missing or runs low: the
 --   pairs low or missing then are dismissed until they're seen recast,
---   even as a fight ends (#397, the owner), or the member leaves the group;
+--   even as a fight ends (#397, the owner), or the member leaves the group.
+--   Solo (#426, the owner) it's you alone: your own copy of the buffs you
+--   give while "Offer my own buffs when I'm not in a group" is on (#329),
+--   and your self-buffs while "Offer my self-buffs" is on (#44), as the
+--   button would offer them; a self-buff counts solo only (in a group a
+--   missing self-buff alone never turns it on, #44 Q6). Leaving a group,
+--   the first look only notes what you're missing;
 --   a campfire aura added to you (#39, the owner): UNIT_AURA's list of
 --   auras added to you holds one of CAMPFIRE_AURAS, a near-the-fire aura or
 --   a camp benefit. Only that list is read, never your whole aura list, and
@@ -211,8 +218,9 @@ local function WaitInside()
 end
 
 -- inside: the dungeon-or-raid trigger, so buff mode waits for everyone.
--- fire: the campfire's (#39), so passers-by count.
-local function TurnOn(why, inside, fire)
+-- fire: the campfire's (#39), so passers-by count. withSelf: your
+-- self-buffs count as something to do (solo, #426).
+local function TurnOn(why, inside, fire, withSelf)
     -- A battle under way: nothing turns on, and nobody's buffs are read. The
     -- trigger is kept in case it was only the phase not being read yet.
     if ns.Battleground.Quiet() then
@@ -247,7 +255,7 @@ local function TurnOn(why, inside, fire)
     end
     pvpOffWhy = nil
     -- Nothing to do: don't lend a key just to hand it back.
-    if Settled(inside, nil, fire) then return end
+    if Settled(inside, withSelf, fire) then return end
     fireMode = fire == true
     -- Set first: turning on refreshes the button, which checks it at once.
     if inside then WaitInside() else insideWait = false end
@@ -302,13 +310,36 @@ end
 -- turned off stays off until someone else goes missing. After a login the
 -- first look only notes who is (buff mode is off after one), unless a
 -- fight has ended; while the group can't be told, it notes nothing.
+-- The key a missing buff is remembered by: the member's name, and the
+-- buff's key (or, for a self-buff, its slot: its family or key, #426).
+local function KeyOf(offer)
+    return offer.name .. "\1" .. (offer.slot or offer.buff.key)
+end
+
+-- GroupBuffs.Missing's answer and, solo (#426), your missing self-buffs
+-- merged into it, in its shape: list, worn, whether the group was known,
+-- and the pairs only running low.
+local function MissingNow()
+    local list, worn, groupKnown, low = ns.GroupBuffs.Missing()
+    if inGroup == false then
+        local mine, mineWorn, mineLow = ns.SelfBuffs.Missing()
+        if mine then
+            for _, offer in ipairs(mine) do list[#list + 1] = offer end
+            for key, at in pairs(mineWorn) do worn[key] = at end
+            for key, at in pairs(mineLow) do low[key] = at end
+        end
+    end
+    return list, worn, groupKnown, low
+end
+
 local function CheckMissing(fightEnded)
-    if not ready or not inGroup or fighting or InCombatLockdown() then return end
+    -- In a group, or solo (#426); not while the game won't say which.
+    if not ready or inGroup == nil or fighting or InCombatLockdown() then return end
     if Cfg().autoOnMissing ~= true or InPvP() or ns.Battleground.Quiet() then
         lastMissing = {}
         return
     end
-    local list, worn, groupKnown, low = ns.GroupBuffs.Missing()
+    local list, worn, groupKnown, low = MissingNow()
     -- A pair dismissed is forgotten once it's recast (#397): any copy, if
     -- it was missing; one put up after the low one, if it was low. Not a
     -- copy whose times can't be read, nor one that only stopped counting as
@@ -319,7 +350,7 @@ local function CheckMissing(fightEnded)
     end
     local now, first = {}, nil
     for _, offer in ipairs(list) do
-        local key = offer.name .. "\1" .. offer.buff.key
+        local key = KeyOf(offer)
         now[key] = low[key] or true
         if not first and not dismissed[key] and (fightEnded or (lastMissing and not lastMissing[key])) then
             first = offer
@@ -345,13 +376,14 @@ local function CheckMissing(fightEnded)
     if not first then return end
     local spell = ns.BuffData.SpellName(first.buff) or "buff"
     local why
-    if low[first.name .. "\1" .. first.buff.key] then
+    if low[KeyOf(first)] then
         why = (first.self and "your" or (ns.Util.DisplayName(first.name) .. "'s")) .. " " .. spell
             .. " is running low"
     else
         why = (first.self and "you're" or (ns.Util.DisplayName(first.name) .. " is")) .. " missing your " .. spell
     end
-    TurnOn(fightEnded and ("the fight ended and " .. why) or why)
+    -- Solo, your self-buffs are something to do too (#426).
+    TurnOn(fightEnded and ("the fight ended and " .. why) or why, nil, nil, inGroup == false)
 end
 
 -- You turned buff mode off yourself (BuffMode.Set): the members low on or
@@ -362,9 +394,9 @@ end
 -- The look only reads (out of a group it lists nobody); one that fails
 -- dismisses no more than the last did.
 local function DismissNow()
-    local list, _, _, low = ns.GroupBuffs.Missing()
+    local list, _, _, low = MissingNow()
     for _, offer in ipairs(list) do
-        local key = offer.name .. "\1" .. offer.buff.key
+        local key = KeyOf(offer)
         dismissed[key] = low[key] or true
     end
 end
@@ -402,10 +434,8 @@ local function Watch()
                 GroupChanged(answer)
             end
         end
-        -- Out of a group: no look. Leaving the group forgot who was missing
-        -- (OnRosterUpdate), and joining one or the login starts afresh, so
-        -- nothing is kept here.
-        if not inGroup then return end
+        -- In a group, or solo (#426): the look goes on. (While the game
+        -- won't say which, CheckMissing looks at nothing.)
         Watch()
         CheckMissing(false)
     end))
@@ -543,11 +573,12 @@ function GroupChanged(nowIn)
         JoinedNearby()
     elseif not nowIn then
         pulled, deathSeen, joinedAt = false, false, nil
-        lastMissing = {}
+        -- Solo now (#426): the first look only notes what you're missing.
+        lastMissing = nil
         ns.GroupBuffs.EndRound()
     end
     inGroup = nowIn
-    if nowIn then Watch() end
+    Watch()
 end
 
 -- PLAYER_ENTERING_WORLD. A login or reload: the group as it is now is where
@@ -581,8 +612,9 @@ function Auto.OnEnteringWorld(isLogin, isReload)
     Resync(false)
     ns.GroupBuffs.EndRound()
     NoteWhoIsDead()
-    -- In a group, or not yet known (#370): the looks read it again (#373).
-    if inGroup ~= false then Watch() end
+    -- The looks go on solo too (#426), and read the group again while it
+    -- isn't known (#370, #373).
+    Watch()
 end
 
 -- PLAYER_REGEN_DISABLED. The button empties itself for the fight in the
