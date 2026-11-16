@@ -558,12 +558,15 @@ end
 -- word in its title: the first, and buff mode's key and triggers, which
 -- the walkthrough must reach, taken again from Start here. whatsNew: the
 -- step as a returning player sees it after an update, titled "What's new:"
--- (#169): buff requests in chat, added in walkthrough version 2 (#40, #362).
+-- (#169): buff requests in chat, added in walkthrough version 2 (#40, #362),
+-- and the Buffs tab, added in version 3, with its keep-or-reset choice
+-- offered (choice: the player's buff rules are made to wait for it, #408).
 Pages.WALKTHROUGH_STEPS = {
     { name = "welcome", title = "Welcome" },
     { name = "buff-mode-key", title = "its key" },
     { name = "buff-mode-triggers", title = "turns on and off" },
     { name = "whats-new-requests", title = "Buff requests in chat", whatsNew = true },
+    { name = "whats-new-buffs", title = "Your buffs have a tab of their own", whatsNew = true, choice = true },
 }
 -- The walkthrough version a returning player last finished, for a What's new
 -- run: the one before the buff requests step's (Walkthrough.lua's since = 2).
@@ -574,9 +577,17 @@ Pages.WHATS_NEW_SEEN = 1
 -- with isLogin). The saved state says which version they finished. Nothing
 -- else answers for the addon. Finishing or skipping it saves the current
 -- version again, as before.
-local function StartWhatsNew()
+-- choice: the player's buff rules wait for the keep-or-reset choice
+-- (buffBack.whoChoice "pending", as every file saved before #408 does), so
+-- the step offers it; Pages.PutBackChoice puts the saved value back.
+local savedChoice
+local function StartWhatsNew(choice)
     Pages.SkipWalkthrough()
     FriendlyForeverDB.walkthrough = { seen = Pages.WHATS_NEW_SEEN, firstRun = false }
+    if choice and type(FriendlyForeverDB.buffBack) == "table" then
+        if savedChoice == nil then savedChoice = FriendlyForeverDB.buffBack.whoChoice end
+        FriendlyForeverDB.buffBack.whoChoice = "pending"
+    end
     if type(A_Admin) ~= "table" or type(A_Admin.FireEvent) ~= "function" then
         error("the simulator has no A_Admin.FireEvent")
     end
@@ -598,7 +609,7 @@ function Pages.OpenWalkthrough(name)
         return nil, why
     end
     if wanted.whatsNew then
-        StartWhatsNew()
+        StartWhatsNew(wanted.choice)
     else
         local start = Pages.Open("start")
         start.widgets.tour:Click()
@@ -613,6 +624,14 @@ function Pages.OpenWalkthrough(name)
     local why = "the walkthrough never reached " .. name
     report(why)
     return nil, why
+end
+
+-- Puts back the choice a choice step made wait (StartWhatsNew), unless one
+-- was made since.
+function Pages.PutBackChoice()
+    local b = FriendlyForeverDB.buffBack
+    if savedChoice ~= nil and type(b) == "table" and b.whoChoice == "pending" then b.whoChoice = savedChoice end
+    savedChoice = nil
 end
 
 -- For the screenshot job: the walkthrough at one step.
