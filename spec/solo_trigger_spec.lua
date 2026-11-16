@@ -365,6 +365,27 @@ describe("Buff mode turns on by itself solo (#426)", function()
             assert.are.same({}, wow.errors)
         end)
 
+        -- The mutation check: with no guard on when a copy was put up, a
+        -- damaged duration of 0 read as a fresh copy and forgot the dismissal.
+        it("a copy whose times read damaged isn't a recast: turned off by hand while low, it stays off", function()
+            boot({ known = { FORT, INNER_FIRE }, wearing = { FORT } })
+            wear(INNER_FIRE, 600)
+            local aura = wow.state.playerAuras[#wow.state.playerAuras]
+            aura.duration, aura.expirationTime = 600, wow.now + 300
+            look()
+            wow.advance(250)
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "running low")
+            slash("buffmode off")
+            local expires = aura.expirationTime
+            aura.duration, aura.expirationTime = 0, wow.now + 600 -- damaged: no full time
+            look()
+            aura.duration, aura.expirationTime = 600, expires -- the same copy, read again
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "the same copy, still low")
+            assert.are.same({}, wow.errors)
+        end)
+
         it("with the group answer unreadable, nothing turns on and nothing errors", function()
             boot()
             wow.state.inGroupUnreadable = true
