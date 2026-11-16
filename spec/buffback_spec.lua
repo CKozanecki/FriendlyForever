@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353, #387
+-- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353, #387, #369
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -477,8 +477,10 @@ describe("Buff back", function()
             buffedBy()
             assert.is_truthy(macro())
             assert.is_true(ns.Profiles.Import(line))
-            -- The import re-arms the button before it merges the list, so it
-            -- may still show them until its next re-check; a press re-arms first.
+            -- The import merges the list before it re-arms the button, so the
+            -- button is empty at once, with no wait for the re-check (#369).
+            assert.is_nil(macro(), "emptied by the import itself")
+            assert.is_false(button:IsShown())
             wow.press(button)
             assert.are.equal(0, #wow.casts, "a press casts nothing on them")
             assert.is_nil(macro(), "the press emptied it")
@@ -492,12 +494,15 @@ describe("Buff back", function()
             assert.is_true(printedHas("not armed: nobody is owed a buff"))
         end)
 
-        it("after such an import the button empties itself at its next re-check, without a press (black)", function()
+        it("importing a line whose ignore list holds the player on the button empties it at once, with no wait for the"
+            .. " re-check (white)", function()
             local settings = ns.Profiles.Snapshot(ns.db, true)
             settings.ignore = { ["bob-stone"] = "bob-stone" }
             stranger()
             buffedBy()
             assert.is_true(ns.Profiles.Import(ns.Serialize.Encode({ v = 1, settings = settings })))
+            assert.is_nil(macro(), "no wait for the re-check")
+            assert.is_false(button:IsShown())
             wow.advance(ns.BuffButton.RECHECK_SECONDS + 0.1)
             assert.is_nil(macro())
             assert.is_false(button:IsShown())

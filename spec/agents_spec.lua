@@ -303,11 +303,11 @@ describe("the review-saving rules", function()
     end)
 end)
 
--- The process trial (#345, owner, 2026-11-14): area batches, three or four
+-- The standing process (#345, owner: tried from 2026-11-14, kept on 2026-11-15): area batches, three or four
 -- sessions, and drivers updating and merging their own PRs (auto-merge, or a
 -- guarded squash merge). The rules are written once in CONTRIBUTING.md; the
 -- others point there.
-describe("the process trial (#345)", function()
+describe("the process rules (#345)", function()
     local function flat(path) return (wow.readFile(path):gsub("%s+", " ")) end
     local contributing = flat("CONTRIBUTING.md")
     local function once(text)
@@ -318,10 +318,10 @@ describe("the process trial (#345)", function()
         ".claude/skills/coordinator/SKILL.md", ".claude/skills/merge-order/SKILL.md",
         ".claude/agents/lua-architect.md", ".claude/agents/lua-tester.md" }
 
-    it("CONTRIBUTING.md writes area batches once, as a trial, with the full safety rules once per batch (white)", function()
+    it("CONTRIBUTING.md writes area batches once, as the standing rule, with the full safety rules once per batch (white)", function()
         local batches = contributing:match("### Area batches (.-) ## ") or ""
         for _, text in ipairs({
-            "**A trial (#345, the maintainer's decision of 2026-11-14).**",
+            "**The standing rule (#345; the maintainer tried it from 2026-11-14 and decided on 2026-11-15 to keep it).**",
             "**One session, one area, one branch.**",
             "works a list of related issues on one branch",
             "**One pull request, one review at the end.**",
@@ -341,8 +341,7 @@ describe("the process trial (#345)", function()
     it("CONTRIBUTING.md lets a driver merge only its own PR, and only when every stop holds (white, black)", function()
         local who = contributing:match("#### Who merges (.-) ## ") or ""
         for _, text in ipairs({
-            "The maintainer; the coordinator, under its delegation on #182; and, for a trial (#345, the maintainer's"
-                .. " decision of 2026-11-14), the session that drives an agent's pull request, for that pull request only.",
+            "The maintainer; the coordinator, under its delegation on #182; and, as the maintainer decided on 2026-11-14 (#345), the session that drives an agent's pull request, for that pull request only.",
             "Each merges only when all of these stops hold:",
             "- the required `check` is green on the pull request's latest commit;",
             "- the branch is up to date with `main`, updated as [Only behind `main`](#only-behind-main) says;",
@@ -372,7 +371,7 @@ describe("the process trial (#345)", function()
         end
     end)
 
-    it("the other rule files point to the trial's rules instead of restating them (black)", function()
+    it("the other rule files point to the process rules instead of restating them (black)", function()
         for _, path in ipairs(OTHERS) do
             local text = flat(path)
             for _, copy in ipairs({ "Safety-critical areas keep the full rules", "One pull request, one review at the end",
@@ -384,7 +383,8 @@ describe("the process trial (#345)", function()
             local text = flat(path)
             assert.is_truthy(text:find("CONTRIBUTING.md#area-batches", 1, true), path .. " doesn't point to Area batches")
             assert.is_truthy(text:find("three or four sessions", 1, true), path .. " lost the session cap")
-            assert.is_truthy(text:find("(a trial, #345)", 1, true), path .. " doesn't mark the trial")
+            assert.is_truthy(text:find("(#345)", 1, true), path .. " doesn't cite #345")
+            assert.is_falsy(text:find("(a trial, #345)", 1, true), path .. " still marks #345 as a trial")
         end
         assert.is_truthy(flat("AGENTS.md"):find("About three or four sessions run at once, on areas chosen so that no"
             .. " two share a file.", 1, true))
@@ -396,7 +396,7 @@ describe("the process trial (#345)", function()
         function()
         local claude = flat("CLAUDE.md")
         for _, text in ipairs({
-            "- **Merging your PR** (a trial, #345), your own PR only, as CONTRIBUTING.md's [Who merges](CONTRIBUTING.md#who-merges)"
+            "- **Merging your PR** (#345), your own PR only, as CONTRIBUTING.md's [Who merges](CONTRIBUTING.md#who-merges)"
                 .. " says. When it is only behind `main`, update it with the GitHub tool `update_pull_request_branch`,"
                 .. " giving `expectedHeadSha`. Then:",
             "- **auto-merge:** once every stop holds except the green `check`, turn it on with `enable_pr_auto_merge`,"
