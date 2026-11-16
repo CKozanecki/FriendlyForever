@@ -697,7 +697,9 @@ end
 -- No saved file at all is a first install: the addon starts off, and the
 -- walkthrough turns it on (#47).
 function Config.Load(saved)
-    local db = type(saved) == "table" and saved or { enabled = false, walkthrough = { seen = 0, firstRun = true } }
+    -- A first install has no rules to keep: it starts on the new ones (#408).
+    local db = type(saved) == "table" and saved
+        or { enabled = false, walkthrough = { seen = 0, firstRun = true }, buffBack = { whoChoice = "new" } }
     Config.Migrate(db)
     ValidateSettings(db)
     db.ledger = ns.Ledger.Validate(db.ledger)

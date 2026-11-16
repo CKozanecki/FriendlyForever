@@ -1,4 +1,4 @@
--- Spec: #52, #64, #112, #197, #208, #41, #209, #270, #44, #346
+-- Spec: #52, #64, #112, #197, #208, #41, #209, #270, #44, #346, #408
 -- Layout: the buff-back button's text stays inside the button, and on each
 -- options tab the message list follows the last row that tab shows. The
 -- checks work from the simulated client's own anchors and text widths
@@ -229,12 +229,12 @@ describe("Layout", function()
         end)
     end)
 
-    -- The Buff Back tab's buff rows (#44): with the self-buffs in the table,
+    -- The Buffs tab's buff rows (#44, #408): with the self-buffs in the table,
     -- a paladin's rows run to "11. Shadow Resistance Aura (you only) (not
     -- known yet)", wider than the name's 220 pixels. A name wraps, centred on
     -- its row; it must be shown whole, inside the panel, and never reach the
     -- name of the row above or below.
-    describe("the buff rows on the Buff Back tab", function()
+    describe("the buff rows on the Buffs tab", function()
         it("show every class's buffs whole, inside the panel, each name clear of the next row's", function()
             local wrapped = 0
             for class in pairs(wow.boot().BuffData.CLASSES) do
@@ -244,7 +244,7 @@ describe("Layout", function()
                     state.knownSpells = {}
                 end })
                 local w = ns.Options.widgets
-                wow.run(w.tabs.buffBack, "OnClick")
+                wow.run(w.tabs.buffs, "OnClick")
                 local width = w.content:GetWidth()
                 local shown = {}
                 for _, row in ipairs(w.buffRows) do
@@ -262,10 +262,10 @@ describe("Layout", function()
                     local nextRow = shown[i + 1]
                     if nextRow then
                         -- Rows hang one below another: the gap below a row's
-                        -- Up button, then the next Up button's height.
-                        local point, above, relativePoint, _, gap = nextRow.up:GetPoint(1)
-                        assert.are.same({ "TOPLEFT", row.up, "BOTTOMLEFT" }, { point, above, relativePoint }, label)
-                        local pitch = row.up:GetHeight() - gap
+                        -- icon, then the next icon's height.
+                        local point, above, relativePoint, _, gap = nextRow.icon:GetPoint(1)
+                        assert.are.same({ "TOPLEFT", row.icon, "BOTTOMLEFT" }, { point, above, relativePoint }, label)
+                        local pitch = row.icon:GetHeight() - gap
                         local nextLines = wow.drawnText(nextRow.name, w.content).lines
                         local reach = (drawn.lines + nextLines) * wow.LINE_HEIGHT[row.name.font] / 2
                         assert.is_true(reach <= pitch, ("%s: its name (%d lines) reaches the next row's (%d lines): "
@@ -377,7 +377,7 @@ describe("Layout", function()
             assert.are.equal(w.nameplateWarning, select(2, w.msgHeader:GetPoint()))
         end)
 
-        it("follows the last row each tab shows for a paladin, through each Who rule", function()
+        it("follows the last row each tab shows for a paladin", function()
             ns = wow.boot({ before = function(state)
                 state.class = "PALADIN"
                 state.knownSpells = { [KINGS] = true, [WISDOM_1] = true, [MIGHT_1] = true }
@@ -385,13 +385,6 @@ describe("Layout", function()
             w = ns.Options.widgets
             ns.db.buffBack.buffOrder = { "kings", "might", "wisdom" }
             eachTab("paladin")
-            wow.run(w.tabs.buffBack, "OnClick")
-            for row = 1, 3 do
-                for _ = 1, 4 do
-                    wow.run(w.buffRows[row].who, "OnClick")
-                    checkTab(("paladin, row %d"):format(row))
-                end
-            end
         end)
 
         it("follows the last row each tab shows for a class with no buffs to offer", function()

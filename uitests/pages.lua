@@ -249,6 +249,87 @@ function Pages.OpenTab(name)
     return button:GetParent(), tab
 end
 
+-- The Buffs tab (#408): not a message type, so not in TABS. Its places, in
+-- the tab's order, each shot on its own, and the shots with a buff's
+-- who-gets list open, its names open, and the choice before it's made.
+Pages.BUFFS_LABEL = "Buffs"
+Pages.BUFFS_PLACES = {
+    { name = "buff-back", label = "Buff Back" },
+    { name = "party", label = "Party" },
+    { name = "raid", label = "Raid" },
+    { name = "pvp", label = "PvP" },
+}
+Pages.BUFFS_SHOTS = { "buff-back", "party", "raid", "pvp", "party-list", "raid-names", "party-choice" }
+
+-- Every button under frame (to depth) whose text is label, in order.
+local function FindButtons(frame, label, depth, out)
+    out = out or {}
+    for _, child in ipairs({ frame:GetChildren() }) do
+        if child:GetObjectType() == "Button" and child.GetText and child:GetText() == label then
+            out[#out + 1] = child
+        end
+        if depth > 1 then FindButtons(child, label, depth - 1, out) end
+    end
+    return out
+end
+
+-- Opens the options panel at the Buffs tab, at the place called place (a
+-- BUFFS_PLACES name; Party when left out), by clicking their buttons as a
+-- player would. The place "Buff Back" shares its text with the Buff Back
+-- message tab, which is made first: a place's button is the last one with
+-- its text. Returns the panel's scrolling content, or nothing and why.
+function Pages.OpenBuffs(place)
+    Pages.SkipWalkthrough()
+    SlashCmdList.FRIENDLYFOREVER("")
+    local panel = _G[Pages.PANEL]
+    local tab = type(panel) == "table" and FindButtons(panel, Pages.BUFFS_LABEL, 3)[1]
+    if not tab then
+        report("the options panel has no Buffs tab button")
+        return nil, "no Buffs tab"
+    end
+    if tab:IsEnabled() then tab:Click() end
+    local content = tab:GetParent()
+    local label
+    for _, p in ipairs(Pages.BUFFS_PLACES) do
+        if p.name == (place or "party") then label = p.label end
+    end
+    if not label then
+        report("no Buffs place called " .. tostring(place))
+        return nil, "no such place"
+    end
+    local buttons = FindButtons(content, label, 1)
+    local button = buttons[#buttons]
+    if button and button:IsEnabled() then button:Click() end
+    return content
+end
+
+-- For the screenshot job: the Buffs tab at one of BUFFS_SHOTS. "party-list"
+-- opens the first buff's who-gets list, "raid-names" the first buff's names,
+-- and "party-choice" shows the choice as a player updating from 1.3.3 sees it.
+function Pages.ShowBuffs(shot)
+    local db = FriendlyForeverDB
+    local place, extra = shot:match("^([%a-]-)%-(%a+)$")
+    if not extra or extra == "back" then place, extra = shot, nil end
+    if extra == "choice" and type(db) == "table" and type(db.buffBack) == "table" then
+        db.buffBack.whoChoice = "pending"
+    elseif type(db) == "table" and type(db.buffBack) == "table" and db.buffBack.whoChoice == "pending" then
+        db.buffBack.whoChoice = "new"
+    end
+    local content = Pages.OpenBuffs(place)
+    if not content or not extra or extra == "choice" then return content end
+    local text = extra == "list" and nil or "Names"
+    for _, child in ipairs({ content:GetChildren() }) do
+        local t = child.GetText and child:GetText() or ""
+        local who = extra == "list" and child:GetObjectType() == "Button" and child:GetWidth() == 200
+        local names = text and t:find(text, 1, true) == 1
+        if child:IsShown() and (who or names) then
+            child:Click()
+            break
+        end
+    end
+    return content
+end
+
 -- The Buff Back tab's buffs by their Forever names (#158). The simulator
 -- plays Forever with Forever's spell data (#160), so it names them itself;
 -- until then a fixture here answered for it, and without one the tab showed
@@ -371,26 +452,26 @@ function Pages.ScrollToRow(rowText)
     end
 end
 
--- The row the lower shot starts at: the group versions check box, the first
--- of the rows below the buff order and the turn-on triggers (#254).
-Pages.LOWER_ROW = "Use group versions"
+-- The row the lower shot starts at (#254): buff requests in chat, the last of
+-- the Buff Back tab's own rows before its lines (the buff rows moved to the
+-- Buffs tab, #408).
+Pages.LOWER_ROW = "Offer my buffs to players who ask in chat"
 
 -- For the screenshot job: a tab with its lower rows in view (#254), from the
--- group versions row down. Like ShowTab, it leaves the panel as it is for
+-- buff requests row down. Like ShowTab, it leaves the panel as it is for
 -- the shot.
 function Pages.ShowTabLower(name)
     Pages.ShowTab(name)
     return Pages.ScrollToRow(Pages.LOWER_ROW)
 end
 
--- The row the middle shot starts at (#383): the self-buffs check box, with
--- Who and its Always and Never rows, the raid Blessings, the buff-mode
--- switches and the top-up stepper below it, which the top and lower shots
--- leave out now that a paladin's Buff Back tab lists 11 buffs (#44).
-Pages.MIDDLE_ROW = "Offer my self-buffs"
+-- The row the middle shot starts at (#383): the first of buff mode's
+-- turn-on switches, with the turn-off switches and the top-up stepper below
+-- it (the buff rows moved to the Buffs tab, #408).
+Pages.MIDDLE_ROW = "with my group"
 
 -- For the screenshot job: a tab with its middle rows in view (#383), from the
--- self-buffs row down, scrolled as the lower shot is.
+-- turn-on switches down, scrolled as the lower shot is.
 function Pages.ShowTabMiddle(name)
     Pages.ShowTab(name)
     return Pages.ScrollToRow(Pages.MIDDLE_ROW)

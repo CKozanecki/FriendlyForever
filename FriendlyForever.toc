@@ -53,6 +53,7 @@ BuffModeAuto.lua
 Battleground.lua
 OptionsIndex.lua
 Options.lua
+BuffsTab.lua
 Walkthrough.lua
 Minimap.lua
 Core.lua

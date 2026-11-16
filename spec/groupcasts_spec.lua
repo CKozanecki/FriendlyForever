@@ -1,4 +1,4 @@
--- Spec: #41, #256, #302, #165
+-- Spec: #41, #256, #302, #165, #408
 -- Group versions in buff mode: Arcane Brilliance, the Prayers and Gift of the
 -- Wild are offered before the single buff when you know them, carry the
 -- reagent, and enough of the party (in a raid, the subgroup) is missing the
@@ -826,14 +826,14 @@ describe("Group versions in buff mode (#41)", function()
             wow.run(box, "OnClick")
         end
 
-        it("are on the Buff Back tab only; the checkbox and stepper change the setting and the button at once", function()
+        it("are on the Buffs tab only; the checkbox and stepper change the setting and the button at once", function()
             boot()
             local w = ns.Options.widgets
             slash("")
-            wow.run(w.tabs.buffBack, "OnClick")
-            assert.is_true(w.groupVersions:IsShown())
+            wow.run(w.tabs.buffs, "OnClick")
+            assert.is_true(w.groupVersions:IsVisible())
             assert.is_true(w.groupVersions:GetChecked())
-            assert.is_true(w.steppers.groupEnough.label:IsShown())
+            assert.is_true(w.steppers.groupEnough.label:IsVisible())
             assert.are.equal("3", w.steppers.groupEnough.box:GetText())
             assert.are.equal("Ann Vale: Arcane Brilliance", armed())
             click(w.groupVersions, false)
@@ -852,15 +852,15 @@ describe("Group versions in buff mode (#41)", function()
             wow.run(w.steppers.groupEnough.box, "OnEditFocusLost")
             assert.are.equal(2, ns.db.buffBack.groupEnough)
             wow.run(w.tabs.buff, "OnClick")
-            assert.is_false(w.groupVersions:IsShown())
-            assert.is_false(w.steppers.groupEnough.label:IsShown())
+            assert.is_false(w.groupVersions:IsVisible())
+            assert.is_false(w.steppers.groupEnough.label:IsVisible())
         end)
 
         it("a number typed in the box is saved when the tab changes", function()
             boot()
             local w = ns.Options.widgets
             slash("")
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
             w.steppers.groupEnough.box:SetFocus()
             w.steppers.groupEnough.box:SetText("7")
             wow.run(w.tabs.buff, "OnClick")

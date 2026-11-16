@@ -1,4 +1,4 @@
--- Spec: #198, #44, #329
+-- Spec: #198, #44, #329, #408
 -- Buff mode also buffs you: your own copy of each buff you give is offered
 -- on you, after the group's, under the same rules.
 local wow = require("spec.support.wow")
@@ -261,7 +261,7 @@ describe("Buff mode buffing you too", function()
             wearEverything(wow.state.units.party1)
             _G.IsShiftKeyDown = function() return true end
             wow.press(button, "RightButton")
-            assert.are.equal("You won't get Mark of the Wild (Never list, on the Buff Back tab).", button.result:GetText())
+            assert.are.equal("You won't get Mark of the Wild (Never list, on the Buffs tab).", button.result:GetText())
         end)
 
         it("says so in your words when the Never mark can't be added", function()

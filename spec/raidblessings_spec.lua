@@ -234,11 +234,12 @@ describe("My Blessings in this raid", function()
             end
         end)
 
-        it("is shown and changed on the Buff Back tab", function()
+        it("is shown and changed on the Raid place of the Buffs tab", function()
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.raid, "OnClick")
             local r = w.who
-            assert.is_true(r.raidHeader:IsShown())
+            assert.is_true(r.raidHeader:IsVisible())
             assert.is_truthy(r.raidHeader:GetText():find("join a raid to choose", 1, true))
             assert.are.equal("Blessing of Kings", r.raidBlessings[1].label:GetText())
             assert.is_false(r.raidBlessings[1]:IsEnabled(), "only in a raid")
@@ -265,7 +266,8 @@ describe("My Blessings in this raid", function()
 
         it("the boxes follow your group while the tab is open", function()
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.raid, "OnClick")
             assert.is_false(w.who.raidBlessings[1]:IsEnabled())
             group("raid", { "Ann-Vale" })
             assert.is_true(w.who.raidBlessings[1]:IsEnabled(), "a raid: the boxes work")
@@ -276,22 +278,28 @@ describe("My Blessings in this raid", function()
             assert.is_true(w.who.raidBlessings[1]:GetChecked(), "and back to all")
         end)
 
-        it("sit below the Who rows, above buff mode's rows, and only on the Buff Back tab", function()
+        it("sit below the Raid place's option, and only on the Raid place of the Buffs tab", function()
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            assert.are.equal(w.who.neverLabel, select(2, w.who.raidHeader:GetPoint()))
-            assert.are.equal(w.who.raidBlessings[1], select(2, w.autoHeader:GetPoint()))
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.raid, "OnClick")
+            assert.are.equal(w.raidSplit, select(2, w.who.raidHeader:GetPoint()))
+            assert.are.equal(w.who.raidHeader, select(2, w.who.raidBlessings[1]:GetPoint()))
+            wow.run(w.placeTabs.party, "OnClick")
+            assert.is_false(w.who.raidHeader:IsVisible())
+            for _, cb in ipairs(w.who.raidBlessings) do assert.is_false(cb:IsVisible()) end
+            wow.run(w.placeTabs.raid, "OnClick")
             wow.run(w.tabs.buff, "OnClick")
-            assert.is_false(w.who.raidHeader:IsShown())
-            for _, cb in ipairs(w.who.raidBlessings) do assert.is_false(cb:IsShown()) end
+            assert.is_false(w.who.raidHeader:IsVisible())
+            for _, cb in ipairs(w.who.raidBlessings) do assert.is_false(cb:IsVisible()) end
         end)
 
-        it("isn't on the Buff Back tab for classes without Blessings", function()
+        it("isn't on the Buffs tab for classes without Blessings", function()
             boot({ class = "DRUID", known = { [MOTW_1] = true, [MOTW] = true } })
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            assert.is_false(w.who.raidHeader:IsShown())
-            for _, cb in ipairs(w.who.raidBlessings) do assert.is_false(cb:IsShown()) end
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.raid, "OnClick")
+            assert.is_false(w.who.raidHeader:IsVisible())
+            for _, cb in ipairs(w.who.raidBlessings) do assert.is_false(cb:IsVisible()) end
         end)
     end)
 
@@ -341,7 +349,8 @@ describe("My Blessings in this raid", function()
         it("an empty tick box set is refused, and the boxes show the choice again", function()
             group("raid", { "Ann-Vale" })
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.raid, "OnClick")
             for _, cb in ipairs(w.who.raidBlessings) do cb:SetChecked(false) end
             wow.run(w.who.raidBlessings[1], "OnClick")
             assert.is_truthy(lastPrinted():find("choose at least one Blessing", 1, true))
@@ -369,7 +378,7 @@ describe("My Blessings in this raid", function()
         it("puts the shown member on that buff's Never list", function()
             group("party", { "Ann-Vale", "Bo-Lake" })
             wow.press(button, "RightButton", { shift = true })
-            assert.are.equal("Ann Vale won't get Blessing of Kings (Never list, on the Buff Back tab).",
+            assert.are.equal("Ann Vale won't get Blessing of Kings (Never list, on the Buffs tab).",
                 button.result:GetText())
             assert.are.equal("Ann-Vale", ns.db.buffBack.whoGets.kings.never["ann-vale"])
             assert.are.equal("Bo Lake: Blessing of Kings", armed())
@@ -381,7 +390,7 @@ describe("My Blessings in this raid", function()
         it("names the buff it was, though the button moves on to another", function()
             group("party", { "Ann-Vale" })
             wow.press(button, "RightButton", { shift = true })
-            assert.are.equal("Ann Vale won't get Blessing of Kings (Never list, on the Buff Back tab).",
+            assert.are.equal("Ann Vale won't get Blessing of Kings (Never list, on the Buffs tab).",
                 button.result:GetText())
             assert.are.equal("Ann Vale: Blessing of Might", armed())
             wow.state.units.party1.auras = { MIGHT_1 }
@@ -401,22 +410,23 @@ describe("My Blessings in this raid", function()
         it("keeps the names already on the list, and shows the new one in the panel", function()
             assert.is_true(ns.BuffRules.SetNames("kings", "never", "Cid Rock"))
             group("party", { "Ann-Vale" })
-            local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
             wow.press(button, "RightButton", { shift = true })
             assert.are.equal("Ann Vale, Cid Rock", ns.BuffRules.NamesText("kings", "never"))
-            assert.are.equal("Ann Vale, Cid Rock", w.who.never:GetText(), "the panel shows it")
         end)
 
         it("isn't undone by a Never box left open in the panel", function()
             group("party", { "Ann-Vale" })
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            assert.is_truthy(w.who.header:GetText():find("Kings", 1, true), "the box shown is Kings's")
+            assert.is_true(ns.BuffRules.Choose("new"))
+            wow.run(w.tabs.buffs, "OnClick")
+            assert.are.equal("kings", w.whoRows[1].key, "the box shown is Kings's")
+            wow.run(w.whoRows[1].names, "OnClick")
+            assert.is_true(w.who.never:IsVisible())
             w.who.never:SetFocus()
             wow.press(button, "RightButton", { shift = true })
             w.who.never:ClearFocus()
-            assert.are.equal("Ann-Vale", ns.db.buffBack.whoGets.kings.never["ann-vale"])
+            assert.are.equal("Ann Vale", ns.BuffRules.NamesText("kings", "never", "party"))
+            assert.are.equal("Ann Vale", w.who.never:GetText(), "and the box shows it")
         end)
 
         it("an unreadable Shift key is a plain right-click", function()

@@ -1381,7 +1381,9 @@ local function SelectedTabs(content)
     local selected = {}
     for _, tab in ipairs(FriendlyForeverUIPages.TABS) do
         for _, child in ipairs({ content:GetChildren() }) do
-            if child:GetObjectType() == "Button" and child:GetText() == tab.label and not child:IsEnabled() then
+            -- Shown only: the Buffs tab's "Buff Back" place (#408) shares the text.
+            if child:GetObjectType() == "Button" and child:GetText() == tab.label and not child:IsEnabled()
+                and child:IsShown() then
                 selected[#selected + 1] = tab.label
             end
         end
@@ -1416,14 +1418,14 @@ test("each options tab opens by its button, and keeps its checkboxes and labels 
     check(#failures == 0, table.concat(failures, "\n"))
 end)
 
--- The Buff Back tab at its tallest (#44, #363's testing review): with the
--- self-buffs, a paladin lists 11 buff rows, and a paladin who knows a
--- Blessing also gets the raid Blessings rows, and the class rows when the
--- buff Who shows is on "Chosen classes". The simulator's paladin knows no
--- Blessing and shows Kings, on "Everyone", so the scenario above never lays
--- those out: here the paladin learns Blessing of Kings and its Who button
--- is clicked round to "Chosen classes". Its saved entry and the spell are
--- put back, even when a check fails.
+-- The Buffs tab at its tallest (#44, #363's testing review, #408): a
+-- paladin lists 11 buff rows (the self-buffs included), and one who knows a
+-- Blessing has the raid Blessings rows on the Raid place, where a buff's
+-- Always and Never names open under its row. The simulator's paladin knows
+-- no Blessing, so here the paladin learns Blessing of Kings, the choice is
+-- made, and each place is laid out with the first buff's names open, and its
+-- who-gets list. The saved settings and the spell are put back, even when a
+-- check fails.
 local KINGS = 20217
 
 local function DeepCopy(value)
@@ -1433,38 +1435,62 @@ local function DeepCopy(value)
     return copy
 end
 
-test("the Buff Back tab stays inside its page at its tallest: a paladin who knows a Blessing, Who on Chosen classes",
-    function()
-    local _, content = OpenTab("Buff Back")
+test("the Buffs tab stays inside its page at its tallest, at every place, names and list open (#408)", function()
+    local Pages = FriendlyForeverUIPages
     local saved = FriendlyForeverDB and FriendlyForeverDB.buffBack
     check(type(saved) == "table", "no saved Buff Back settings")
-    local hadWhoGets = saved.whoGets
-    local hadKings = type(hadWhoGets) == "table" and DeepCopy(hadWhoGets.kings) or nil
+    local had = DeepCopy(saved)
     local knewKings = IsSpellKnown(KINGS)
     local ok, err = pcall(function()
         if not knewKings then
             A_Admin.LearnSpell(KINGS)
             A_Admin.FireEvent("SPELLS_CHANGED")
         end
-        content = select(2, OpenTab("Buff Back"))
-        local who = WithText(content, "Who: Everyone")
-        check(who ~= nil, "no Who button on Everyone (Blessing of Kings)")
-        for _ = 1, 3 do who:GetScript("OnClick")(who) end
-        check(who:GetText() == "Who: Chosen classes", "Kings' Who reads " .. tostring(who:GetText()))
-        local raid
-        for _, region in ipairs({ content:GetRegions() }) do
-            local text = region.GetText and region:GetText()
-            if text and region:IsShown() and text:find("Blessings I give in this raid:", 1, true) == 1 then
-                raid = region
+        saved.whoChoice = "new"
+        for _, place in ipairs(Pages.BUFFS_PLACES) do
+            local content = Pages.OpenBuffs(place.name)
+            check(content ~= nil, "couldn't open the Buffs tab at " .. place.label)
+            local name = "Buffs tab, " .. place.label
+            -- The first buff's names (not for strangers), then its list.
+            for _, child in ipairs({ content:GetChildren() }) do
+                local text = child.GetText and child:GetText() or ""
+                if child:IsShown() and text:find("Names (", 1, true) == 1 then
+                    child:GetScript("OnClick")(child)
+                    break
+                end
+            end
+            Settle(content)
+            CheckAll({
+                function() TabTextInside(content, name) end,
+                function() PushedDownInside(content, name) end,
+            })
+            if place.name == "raid" then
+                local raid
+                for _, region in ipairs({ content:GetRegions() }) do
+                    local text = region.GetText and region:GetText()
+                    if text and region:IsShown() and text:find("Blessings I give in this raid:", 1, true) == 1 then
+                        raid = region
+                    end
+                end
+                check(raid ~= nil, "the raid Blessings rows aren't shown on the Raid place")
+            end
+            -- The who-gets list of the first buff: on screen.
+            for _, child in ipairs({ content:GetChildren() }) do
+                if child:IsShown() and child:GetObjectType() == "Button" and child:GetWidth() == 200 then
+                    child:GetScript("OnClick")(child)
+                    break
+                end
+            end
+            for _, child in ipairs({ content:GetChildren() }) do
+                if child:GetObjectType() == "Frame" and child:IsShown() and child:GetFrameStrata() == "DIALOG" then
+                    OnScreen(child, name .. " who-gets list")
+                end
             end
         end
-        check(raid ~= nil, "the raid Blessings rows aren't shown")
-        Settle(content)
-        PushedDownInside(content, "Buff Back tab at its tallest")
     end)
-    -- The saved settings as they were: Kings' entry, or no list at all.
-    saved.whoGets = hadWhoGets
-    if type(hadWhoGets) == "table" then hadWhoGets.kings = hadKings end
+    -- The saved settings as they were.
+    for k in pairs(saved) do saved[k] = nil end
+    for k, v in pairs(had) do saved[k] = v end
     if not knewKings then
         A_Admin.UnlearnSpell(KINGS)
         A_Admin.FireEvent("SPELLS_CHANGED")
@@ -1474,8 +1500,8 @@ test("the Buff Back tab stays inside its page at its tallest: a paladin who know
 end)
 
 -- The Buff Back tab's top-up row (#42): its label and stepper on one line
--- inside the options, between buff mode's minutes and the battlegrounds
--- heading, overlapping neither.
+-- inside the options, between buff mode's minutes and buff requests in
+-- chat (the battleground rows moved to the Buffs tab, #408), overlapping neither.
 local TOP_UP_LABEL = "Top up my buffs with under (minutes left, 0 = never):"
 
 test("the Buff Back tab's top-up row stays inside the options, between its neighbours (#42)", function()
@@ -1484,7 +1510,14 @@ test("the Buff Back tab's top-up row stays inside the options, between its neigh
         Settle(content)
         local above = WithText(content, "or after (minutes, 0 = never):")
         local label = WithText(content, TOP_UP_LABEL)
-        local below = WithText(content, "Battlegrounds (quiet once the battle starts):")
+        -- A checkbox's label is the checkbox's own region, not the content's.
+        local below
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child.label and child.label.GetText and child:IsShown()
+                and child.label:GetText() == "Offer my buffs to players who ask in chat" then
+                below = child.label
+            end
+        end
         check(above and label and below, "the top-up row or its neighbours aren't on the Buff Back tab")
         -- Inside the scrolling content, which runs below the panel's view
         -- (the per-tab check measures the same way).
@@ -1506,8 +1539,8 @@ test("the Buff Back tab's top-up row stays inside the options, between its neigh
         local aboveBottom = select(2, Edges(above, "GetTop", "GetBottom"))
         local belowTop = Edges(below, "GetTop", "GetBottom")
         check(aboveBottom and labelTop and labelBottom and belowTop, "the rows' edges can't be read here")
-        local line = ("LAYOUT top-up row: %.0f..%.0f, below buff mode's minutes (bottom %.0f), above battlegrounds"
-            .. " (top %.0f)"):format(labelBottom, labelTop, aboveBottom, belowTop)
+        local line = ("LAYOUT top-up row: %.0f..%.0f, below buff mode's minutes (bottom %.0f), above buff"
+            .. " requests (top %.0f)"):format(labelBottom, labelTop, aboveBottom, belowTop)
         report(line)
         check(labelTop <= aboveBottom + 1 and belowTop <= labelBottom + 1, line .. ": out of order or overlapping")
     end)
@@ -1516,8 +1549,8 @@ test("the Buff Back tab's top-up row stays inside the options, between its neigh
 end)
 
 -- The Buff Back tab's renew row (#269): its label and stepper on one line
--- inside the options, between the capital-city option and the buff order,
--- overlapping neither.
+-- inside the options, between the capital-city option and the line linking
+-- to the Buffs tab (#408), overlapping neither.
 local RENEW_LABEL = "Renew my buff when theirs has under (% left, 0 = never):"
 
 test("the Buff Back tab's renew row stays inside the options, between its neighbours (#269)", function()
@@ -1533,8 +1566,7 @@ test("the Buff Back tab's renew row stays inside the options, between its neighb
             end
         end
         local label = WithText(content, RENEW_LABEL)
-        local below = WithText(content, "Buff order (first that suits them is offered):")
-            or WithText(content, "Your class has no buffs to offer.")
+        local below = WithText(content, "Who gets which buff, the buff order and Never offer are on the Buffs tab.")
         check(above and label and below, "the renew row or its neighbours aren't on the Buff Back tab")
         TextInside(content, label, "renew label", 1)
         -- Its "+": the one on the label's line, right of it.
@@ -1554,8 +1586,8 @@ test("the Buff Back tab's renew row stays inside the options, between its neighb
         local aboveBottom = select(2, Edges(above, "GetTop", "GetBottom"))
         local belowTop = Edges(below, "GetTop", "GetBottom")
         check(aboveBottom and labelTop and labelBottom and belowTop, "the rows' edges can't be read here")
-        local line = ("LAYOUT renew row: %.0f..%.0f, below the capital-city option (bottom %.0f), above the buff"
-            .. " order (top %.0f)"):format(labelBottom, labelTop, aboveBottom, belowTop)
+        local line = ("LAYOUT renew row: %.0f..%.0f, below the capital-city option (bottom %.0f), above the"
+            .. " Buffs tab's link (top %.0f)"):format(labelBottom, labelTop, aboveBottom, belowTop)
         report(line)
         check(labelTop <= aboveBottom + 1 and belowTop <= labelBottom + 1, line .. ": out of order or overlapping")
     end)

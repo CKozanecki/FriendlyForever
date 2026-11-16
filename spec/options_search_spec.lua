@@ -1,4 +1,4 @@
--- Spec: #48, #47, #208, #274, #179
+-- Spec: #48, #47, #208, #274, #179, #408
 -- Finding a setting: /friendly find <word>, the game's Settings search where
 -- the client has one, and the one table both read (OptionsIndex.lua).
 local wow = require("spec.support.wow")
@@ -115,7 +115,8 @@ describe("Finding a setting (#48)", function()
             end
             -- Not one label: a group of controls, or a label the tab fills in.
             local grouped = { ["Enabled"] = true, ["Messages"] = true, ["Load fantasy lines or casual lines"] = true,
-                ["Buff order"] = true, ["Never offer a buff"] = true, ["Who gets each buff in buff mode"] = true,
+                ["Buff order"] = true, ["Never offer a buff"] = true, ["Who gets each buff, by place"] = true,
+                ["Always and Never names"] = true, ["Keep my settings or use the new defaults"] = true,
                 ["Blessings I give in this raid"] = true, ["Buff mode key"] = true,
                 ["Buff mode turns off again"] = true, ["Offer to buff back players who buff me"] = true,
                 ["Share your settings"] = true, ["Snooze"] = true, ["Profiles"] = true,
@@ -415,14 +416,6 @@ describe("Each setting's page is where its control is (#179)", function()
         ns.db.buff.fallback = "say"
         -- the nameplate button shows only while friendly nameplates are off
         wow.state.cvars.nameplateShowFriendlyPlayers = "0"
-        -- the class tick boxes show once the first buff's Who rule is "classes"
-        ns.Options.widgets.tabs.buffBack:Click()
-        local key = ns.Options.widgets.buffRows[1].key
-        for _ = 1, 4 do
-            if ns.Options.widgets.who.classes.PRIEST:IsShown() then break end
-            ns.Options.CycleWho(key)
-        end
-        assert.is_true(ns.Options.widgets.who.classes.PRIEST:IsShown(), "the class boxes didn't open")
     end)
 
     -- One checkbox is "Enabled" on most tabs and another setting's name on
@@ -438,12 +431,12 @@ describe("Each setting's page is where its control is (#179)", function()
     end
 
     -- The message tabs on which the panel shows frame, by selecting each tab
-    -- with its own button and reading IsShown (the panel's state, not the index).
+    -- with its own button and reading IsVisible (the panel's state, not the index).
     local function TabsShowing(frame)
         local tabs, shown, labels, varies = {}, {}, {}, false
         for i, msgType in ipairs(Config.TYPES) do
             ns.Options.widgets.tabs[msgType]:Click()
-            shown[i] = frame:IsShown()
+            shown[i] = frame:IsVisible()
             labels[i] = frame.label and frame.label:GetText()
             varies = varies or labels[i] ~= labels[1]
         end
@@ -451,6 +444,29 @@ describe("Each setting's page is where its control is (#179)", function()
             if shown[i] and (not varies or LabelFits(labels[i])) then tabs[#tabs + 1] = msgType end
         end
         return tabs
+    end
+
+    -- The Buffs tab's places (#408) on which the panel shows frame: each
+    -- place's sub-tab selected with its own button, before the choice and
+    -- after it with the first buff's names open (the rows that hide until then).
+    local PLACE_TEXT = { strangers = "Buff Back", party = "Party", raid = "Raid", pvp = "PvP" }
+    local function PlacesShowing(frame)
+        local w, places, count = ns.Options.widgets, {}, 0
+        w.tabs.buffs:Click()
+        for _, choice in ipairs({ "pending", "new" }) do
+            ns.db.buffBack.whoChoice = choice
+            for _, place in ipairs(ns.BuffRules.PLACES) do
+                w.placeTabs[place]:Click()
+                local key = w.whoRows[1].key
+                if choice == "new" and key and not w.who.always:IsVisible() then ns.BuffsTab.ToggleNames(key) end
+                if frame:IsVisible() and not places[place] then
+                    places[place] = true
+                    count = count + 1
+                end
+            end
+        end
+        ns.db.buffBack.whoChoice = "pending"
+        return places, count
     end
 
     -- The page the entry's controls really are on: a set of page names (one
@@ -465,9 +481,18 @@ describe("Each setting's page is where its control is (#179)", function()
             assert.is_true(#frames > 0, entry.name .. ": no control at " .. path)
             local shownAny = false
             for _, frame in ipairs(frames) do
+                local places, placeCount = PlacesShowing(frame)
                 shownAny = shownAny or not (not Under(frame, general) and not Under(frame, ledger)
-                    and not Under(frame, ns.Options.StartPage()) and #TabsShowing(frame) == 0)
-                if Under(frame, general) then pages["the General page"] = true
+                    and not Under(frame, ns.Options.StartPage()) and #TabsShowing(frame) == 0 and placeCount == 0)
+                if ns.BuffsTab.Owns(frame) then
+                    if placeCount == #ns.BuffRules.PLACES then
+                        pages["the Buffs tab"] = true
+                    elseif placeCount == 3 and not places.strangers then
+                        pages["the Buffs tab's Party, Raid and PvP places"] = true
+                    else
+                        for place in pairs(places) do pages["the Buffs tab's " .. PLACE_TEXT[place] .. " place"] = true end
+                    end
+                elseif Under(frame, general) then pages["the General page"] = true
                 elseif Under(frame, ledger) then pages["the Favour Ledger page"] = true
                 elseif Under(frame, ns.Options.StartPage()) then pages["the Start here page"] = true
                 else
@@ -536,5 +561,8 @@ describe("Each setting's page is where its control is (#179)", function()
         local entry = { name = "Hidden", page = "the Buff Back tab", controls = { "who.raidBlessings" } }
         ns.BuffData.Mine = function() return {} end -- no Blessings known: its rows hide
         assert.truthy(Problem(entry):find("Hidden says the Buff Back tab but its controls are on no page", 1, true))
+        -- The Buffs tab (#408): a place's own option is on that place only.
+        entry = { name = "Solo", page = "the Buffs tab", controls = { "soloOwnBuffs" } }
+        assert.are.equal("Solo says the Buffs tab but its controls are on the Buffs tab's Party place", Problem(entry))
     end)
 end)
