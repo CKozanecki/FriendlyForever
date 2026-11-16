@@ -335,7 +335,7 @@ jobs:
             <(git -C "$ui" ls-tree -r --name-only HEAD Interface/AddOns/ | cut -d/ -f3- | LC_ALL=C sort) \
             > "$RUNNER_TEMP/tree-diff.txt" || {
             echo "Blizzard's UI tree and the simulator's list of files differ (the start of the difference):"
-            head -n 200 "$RUNNER_TEMP/tree-diff.txt" | head -c 20000 | shown
+            head -n 200 "$RUNNER_TEMP/tree-diff.txt" 2>&1 | head -c 20000 | shown
             exit 1
           }
           # The markers the simulator's own image writes, so it uses this
@@ -496,7 +496,7 @@ jobs:
             --memory 2g --memory-swap 2g --pids-limit 512 \
             -v "$RUNNER_TEMP/spell-cli:/cli:ro" -v "$RUNNER_TEMP/spell-out:/spells" \
             ff-build /cli/wow-cli casc sync-forever-spells --source cdn --output /spells/spells.json > "$RUNNER_TEMP/spell-data.log" 2>&1 || status=$?
-          head -c 20000 "$RUNNER_TEMP/spell-data.log" | shown
+          head -c 20000 "$RUNNER_TEMP/spell-data.log" 2>&1 | shown
           echo "wow-cli: exit $status (124: stopped at the time limit)"
           echo "what the proxy was asked for:"
           docker logs ff-proxy 2>&1 | grep -E 'Request \(|refused' | head -200 | shown "proxy> " || true
@@ -711,11 +711,13 @@ jobs:
           # before each line, so the runner, which skips leading spaces, never
           # reads one as a workflow command (::); turns carriage returns, which
           # also end a line for the runner, into new lines; and breaks the old
-          # ##[ command, which the runner finds anywhere in a line.
+          # ##[ command, which the runner finds anywhere in a line. A pipe
+          # carries only stdout, so each reader sends its errors, which name
+          # its file, down the pipe too (2>&1, #375).
           shown() { tr '\r' '\n' | sed -e "s/^/${1:-| }/" -e 's/##\[/##(/g'; }
           for file in "$RUNNER_TEMP"/report/*; do
             echo "::group::$(basename "$file")"
-            head -c 60000 "$file" | shown
+            head -c 60000 "$file" 2>&1 | shown
             echo
             echo "::endgroup::"
           done
@@ -794,11 +796,11 @@ jobs:
               echo
               echo "Stopped after $seconds s, on attempt $try of 2. The last scenario it started:"
               echo '```'
-              grep 'START [0-9]' "$file" | tail -n 1 | shown || true
+              grep 'START [0-9]' "$file" 2>&1 | tail -n 1 | shown || true
               echo '```'
               echo "The end of its log:"
               echo '```'
-              tail -n 15 "$file" | shown || true
+              tail -n 15 "$file" 2>&1 | shown || true
               echo '```'
             done < "$RUNNER_TEMP/runs.txt"
           }
@@ -850,7 +852,7 @@ jobs:
       # The walkthrough's steps shot (#47): uitests/pages.lua's
       # Pages.WALKTHROUGH_STEPS names (spec/uitests_pages_spec.lua checks
       # they match).
-      WALKTHROUGH_STEPS: welcome buff-mode-key buff-mode-triggers
+      WALKTHROUGH_STEPS: welcome buff-mode-key buff-mode-triggers whats-new-requests
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -873,7 +875,7 @@ jobs:
         run: |
           states="$RUNNER_TEMP/shot-lua"
           mkdir -p "$states"
-          for state in favour buffmode bufflist buffgroup alreadydone longreason; do
+          for state in favour buffmode bufflist buffgroup alreadydone longreason asked; do
             { cat uitests/button_states.lua; printf '\nFriendlyForeverUIStates.Show("%s")\n' "$state"; } \
               > "$states/$state.lua"
           done
@@ -891,6 +893,9 @@ jobs:
           # The Buff Back tab scrolled to its lower rows, from "Use group versions" down (#254).
           { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowTabLower("buff-back")\n'; } \
             > "$states/tab-buff-back-lower.lua"
+          # And to its middle rows, from "Offer my self-buffs" down (#383).
+          { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowTabMiddle("buff-back")\n'; } \
+            > "$states/tab-buff-back-middle.lua"
           # The walkthrough at each step shot, taken again from Start here (#47).
           for step in $WALKTHROUGH_STEPS; do
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowWalkthrough("%s")\n' "$step"; } \
@@ -919,8 +924,8 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Every shot
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so a pass of 27 shots can take about 90 minutes in the
-        # worst case, and both passes together about 180. No shot starts
+        # clean-up, so a pass of 30 shots can take about 100 minutes in the
+        # worst case, and both passes together about 200. No shot starts
         # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
         # so the last one ends by about 4400 s with the probe: inside this
         # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a
@@ -1011,6 +1016,9 @@ jobs:
             for tab in $OPTIONS_TABS; do
               shoot "options-$tab" --exec-lua "@/shot-lua/tab-$tab.lua"
             done
+            # The Buff Back tab scrolled to "Offer my self-buffs" (#383): the self-buffs, Who, the raid
+            # Blessings, the buff-mode switches and the top-up stepper, between the top and lower shots.
+            shoot options-buff-back-middle --exec-lua "@/shot-lua/tab-buff-back-middle.lua"
             # The Buff Back tab scrolled to "Use group versions" (#254): the rows below the turn-on triggers.
             shoot options-buff-back-lower --exec-lua "@/shot-lua/tab-buff-back-lower.lua"
             # The Buff Thanks tab (#101), with the longest "Thank them with" choice.
@@ -1031,11 +1039,14 @@ jobs:
             shoot button-alreadydone --exec-lua @/shot-lua/alreadydone.lua
             # A long reason the button shows (#270): wrapped whole, the button grown to hold it.
             shoot button-longreason --exec-lua @/shot-lua/longreason.lua
+            # A buff asked for in chat (#362): who asked, over "asked for Power Word: Fortitude".
+            shoot button-asked --exec-lua @/shot-lua/asked.lua
             # The General and Favour Ledger pages, filled with long names and
             # many entries, and the copy window as /friendly export opens it (#52).
             shoot options-general --exec-lua @/shot-lua/page-general.lua
             shoot options-ledger --exec-lua @/shot-lua/page-ledger.lua
-            # Start here, and the walkthrough at each step in WALKTHROUGH_STEPS (#47).
+            # Start here, and the walkthrough at each step in WALKTHROUGH_STEPS (#47), the last as
+            # What's new shows it to a returning player (#362).
             shoot options-start --exec-lua @/shot-lua/page-start.lua
             for step in $WALKTHROUGH_STEPS; do
               shoot "walkthrough-$step" --exec-lua "@/shot-lua/walkthrough-$step.lua"
@@ -1054,7 +1065,7 @@ jobs:
           done
           ls -laq "$RUNNER_TEMP/shots" "$RUNNER_TEMP/shot-logs" 2>&1 | shown
           for log in "$RUNNER_TEMP"/shot-logs/*.log; do
-            echo "::group::$(basename "$log")"; tail -60 "$log" | shown; echo "::endgroup::"
+            echo "::group::$(basename "$log")"; tail -60 "$log" 2>&1 | shown; echo "::endgroup::"
           done
 
       # A shot could plant a link in its folder, and the upload would read

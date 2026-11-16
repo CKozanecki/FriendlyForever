@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343
+-- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -277,18 +277,19 @@ describe("the UI simulator's Buff Back names", function()
     -- lower script is written next to the tab scripts, each of which is
     -- left as it was, and the lower shot is taken in shoot_all, so at
     -- both sizes.
-    it("stages the lower script beside the tab scripts, leaving each of theirs as it was, and shoots it at both sizes (white and black, #254)", function()
+    it("stages the lower and middle scripts beside the tab scripts, leaving each of theirs as it was, and shoots them at both sizes (white and black, #254, #383)", function()
         local workflow = wow.readFile(".github/workflows/ui-sim.yml"):gsub("\n%s*#[^\n]*", "")
         local tabs = workflow:match("\n%s*OPTIONS_TABS: ([^\n]-)%s*\n")
         local loop = workflow:match("\n(%s*for tab in %$OPTIONS_TABS; do\n.-\n%s*done)\n")
         local lower = workflow:match("\n(%s*{ cat uitests/pages%.lua; printf '\\nFriendlyForeverUIPages%.ShowTabLower%(\"buff%-back\"%)\\n'; } \\\n%s*> \"%$states/tab%-buff%-back%-lower%.lua\")\n")
-        assert.is_truthy(tabs and loop and lower, "the tab list, the tab loop or the lower script's command is missing")
+        local middle = workflow:match("\n(%s*{ cat uitests/pages%.lua; printf '\\nFriendlyForeverUIPages%.ShowTabMiddle%(\"buff%-back\"%)\\n'; } \\\n%s*> \"%$states/tab%-buff%-back%-middle%.lua\")\n")
+        assert.is_truthy(tabs and loop and lower and middle, "the tab list, the tab loop or the lower or middle script's command is missing")
         local dir = os.tmpname()
         os.remove(dir)
         assert.is_true(os.execute("mkdir -p '" .. dir .. "'") == 0)
         local f = assert(io.open(dir .. "/run.sh", "w"))
         f:write("set -eu\nstates='" .. dir .. "/out'\nmkdir -p \"$states\"\nOPTIONS_TABS='" .. tabs .. "'\n"
-            .. loop .. "\n" .. lower .. "\n")
+            .. loop .. "\n" .. lower .. "\n" .. middle .. "\n")
         f:close()
         local ok = os.execute("bash '" .. dir .. "/run.sh'")
         local pages = wow.readFile("uitests/pages.lua")
@@ -300,23 +301,29 @@ describe("the UI simulator's Buff Back names", function()
             return text
         end
         local lowerText = written("tab-buff-back-lower.lua")
+        local middleText = written("tab-buff-back-middle.lua")
         local backText = written("tab-buff-back.lua")
         os.execute("rm -rf '" .. dir .. "'")
         assert.are.equal(0, ok)
-        assert.are.equal(#Pages.TABS + 1, select(2, listed:gsub("[^\n]+", "")), "files written: " .. listed)
+        assert.are.equal(#Pages.TABS + 2, select(2, listed:gsub("[^\n]+", "")), "files written: " .. listed)
         assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowTabLower("buff-back")\n', lowerText)
+        assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowTabMiddle("buff-back")\n', middleText)
         assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowTab("buff-back")\n', backText)
         -- Inside shoot_all, so both passes (and their suffixes) take it.
         local all = workflow:match("shoot_all%(%) {\n(.-)\n%s*}\n%s*for size in")
         assert.is_truthy(all and all:find('\n%s*shoot options%-buff%-back%-lower %-%-exec%-lua "@/shot%-lua/tab%-buff%-back%-lower%.lua"\n'))
+        assert.is_truthy(all:find('\n%s*shoot options%-buff%-back%-middle %-%-exec%-lua "@/shot%-lua/tab%-buff%-back%-middle%.lua"\n'),
+            "the middle shot isn't taken in shoot_all (#383)")
     end)
 
-    it("answers no panel to scroll with a message, not a Lua error (black, #254)", function()
+    it("answers no panel to scroll with a message, not a Lua error (black, #254, #383)", function()
         _G.FriendlyForeverOptionsPanel = nil
-        local ok, undo, why = pcall(Pages.ScrollToRow, Pages.LOWER_ROW)
-        assert.is_true(ok)
-        assert.is_nil(undo)
-        assert.is_truthy(why)
+        for _, row in ipairs({ Pages.LOWER_ROW, Pages.MIDDLE_ROW }) do
+            local ok, undo, why = pcall(Pages.ScrollToRow, row)
+            assert.is_true(ok)
+            assert.is_nil(undo)
+            assert.is_truthy(why)
+        end
     end)
 
     it("leaves the names in place for the screenshot taken after ShowTab (white)", function()
@@ -334,6 +341,8 @@ describe("the UI simulator's walkthrough steps", function()
         ns = wow.boot({ walkthrough = true })
         printed = {}
         _G.A_Print = function(text) printed[#printed + 1] = text end
+        -- The simulator's event call, as the game's would arrive (#362).
+        _G.A_Admin = { FireEvent = function(event, ...) wow.fire(event, ...) end }
         dofile("uitests/pages.lua")
         Pages = _G.FriendlyForeverUIPages
     end)
@@ -341,17 +350,48 @@ describe("the UI simulator's walkthrough steps", function()
     after_each(function()
         _G.FriendlyForeverUIPages = nil
         _G.A_Print = nil
+        _G.A_Admin = nil
     end)
 
-    it("reaches each step by its title, from the Start here page's button (white)", function()
+    it("reaches each step by its title, from the Start here page's button or, for What's new, a login (white)", function()
+        local whatsNew = 0
         for _, step in ipairs(Pages.WALKTHROUGH_STEPS) do
             local walkthrough = Pages.OpenWalkthrough(step.name)
             assert.are.equal(ns.Walkthrough.Frame(), walkthrough, step.name)
             assert.is_true(walkthrough:IsShown())
             assert.is_truthy(walkthrough.title:GetText():find(step.title, 1, true), step.name)
             assert.is_truthy(step.name:find("^[a-z][a-z-]*$"), step.name)
+            assert.are.equal(step.whatsNew == true, ns.Walkthrough.WhatsNew(), step.name)
+            if step.whatsNew then
+                whatsNew = whatsNew + 1
+                assert.are.equal("What's new: " .. step.title, walkthrough.title:GetText())
+            end
         end
+        assert.are.equal(1, whatsNew, "no What's new step is shot")
         assert.are.equal("buffBack", ns.Options.CurrentType(), "the last step shot is on the Buff Back tab")
+    end)
+
+    -- #362: the buff requests step, as a returning player who finished the
+    -- walkthrough before it was added sees it after logging in.
+    it("shows the buff requests step as What's new to a player who finished version 1, and leaves it seen (white)", function()
+        local walkthrough = Pages.OpenWalkthrough("whats-new-requests")
+        assert.are.equal("What's new: Buff requests in chat", walkthrough.title:GetText())
+        -- Only the steps added since version 1: the requests step is the first.
+        assert.are.equal(1, ns.Walkthrough.Step())
+        assert.are.equal(#ns.Walkthrough.StepsSince(Pages.WHATS_NEW_SEEN), ns.Walkthrough.Count())
+        for _, info in ipairs(ns.Walkthrough.STEPS) do
+            if info.title == "Buff requests in chat" then
+                assert.are.equal(Pages.WHATS_NEW_SEEN + 1, info.since, "the step's version moved")
+            end
+        end
+        Pages.SkipWalkthrough()
+        assert.are.equal(ns.Config.WALKTHROUGH_VERSION, ns.db.walkthrough.seen)
+        assert.is_false(walkthrough:IsShown())
+    end)
+
+    it("fails loudly, rather than shoot the wrong step, when the simulator can't fire the login (black)", function()
+        _G.A_Admin = nil
+        assert.has_error(function() Pages.OpenWalkthrough("whats-new-requests") end, "the simulator has no A_Admin.FireEvent")
     end)
 
     -- The simulated client has no child lists, layout or ranges: this gives
@@ -414,6 +454,34 @@ describe("the UI simulator's walkthrough steps", function()
         assert.is_true(ok)
         assert.is_nil(undo)
         assert.is_truthy(why)
+        assert.are.equal(why, printed[#printed])
+    end)
+
+    -- #383: the middle shot starts at the self-buffs row, which a paladin's
+    -- tab has (BuffData: Righteous Fury and the auras), above the lower shot's.
+    it("scrolls the Buff Back tab to its self-buffs row for the middle shot, above the lower shot's row (white, #383)", function()
+        ns.Options.OpenTab("buffBack")
+        local scroll = Layout()
+        local content = ns.Options.widgets.content
+        local selfRow, lowerRow = ns.Options.widgets.selfBuffs, ns.Options.widgets.groupVersions
+        assert.is_truthy(selfRow.label:GetText():find(Pages.MIDDLE_ROW, 1, true) == 1, selfRow.label:GetText())
+        selfRow.GetTop = function() return 1000 - 400 end
+        content.GetChildren = function() return selfRow, lowerRow end
+        local undo = Pages.ShowTabMiddle("buff-back")
+        assert.is_function(undo)
+        assert.are.equal(400 - 12, scroll:GetVerticalScroll())
+        undo()
+        Pages.ShowTabLower("buff-back")
+        assert.are.equal(700 - 12, scroll:GetVerticalScroll())
+    end)
+
+    it("answers a tab with no self-buffs row with a message, not a Lua error, for the middle shot (black, #383)", function()
+        ns.Options.OpenTab("buffBack")
+        Layout()
+        local ok, undo, why = pcall(Pages.ShowTabMiddle, "buff-back")
+        assert.is_true(ok)
+        assert.is_nil(undo)
+        assert.are.equal("the options panel has no row \"Offer my self-buffs\" to scroll to", why)
         assert.are.equal(why, printed[#printed])
     end)
 

@@ -710,6 +710,23 @@ test("with a favour owed, the button names the player and the buff, and its text
     end)
 end)
 
+-- A buff asked for in chat (#40, #362): the button names who asked, over
+-- "asked for" and the longest buff name a request can ask for, inside it.
+test("with a buff asked for in chat, the button names who asked and the buff, and its text stays inside it", function()
+    InState("asked for", FriendlyForeverUIStates.Requested, function(button, States)
+        Expect(button:IsShown(), "the button isn't up")
+        Expect(button.title:GetText() == States.ASKER, "the title doesn't name " .. States.ASKER)
+        Expect(button.subtitle:GetText() == "asked for " .. States.SPELL.name,
+            "the hint doesn't say they asked for " .. States.SPELL.name)
+        Expect(States.MacroTarget() == States.ASKER, "the macro doesn't target " .. States.ASKER)
+        Expect((States.Macro() or ""):find("/cast [help,nodead] " .. States.SPELL.name, 1, true) ~= nil,
+            "the macro doesn't cast " .. States.SPELL.name)
+        TextInside(button, button.title, "asked-for title", 1)
+        TextInside(button, button.subtitle, "asked-for hint")
+        OnScreen(button, "buff-back button (asked for)")
+    end)
+end)
+
 -- In buff mode the button offers you first (#198), then the party member
 -- missing your buff. The list beside the button (#43) makes the member the
 -- next offer, so both states are measured.
@@ -1632,14 +1649,23 @@ end
 -- that scroll.
 local STEP_ROWS = { ["buff-mode-triggers"] = "Buff mode turns on by itself" }
 
-test("each walkthrough step shown keeps its text inside it, on the screen, its row in view (#47)", function()
+-- A What's new step (#169, #362) is taken as a returning player logging in,
+-- which starts the login grace again (Announcer.lua): it's waited out after,
+-- as the button scenarios do, so nothing after this test is held by it.
+test("each walkthrough step shown keeps its text inside it, on the screen, its row in view (#47, #362)", function()
     local Pages = FriendlyForeverUIPages
     local failures = {}
+    local loggedIn = false
     for _, step in ipairs(Pages.WALKTHROUGH_STEPS) do
         local ok, err = pcall(function()
             local label = "walkthrough (" .. step.name .. ")"
+            loggedIn = loggedIn or step.whatsNew == true
             local walkthrough = Pages.OpenWalkthrough(step.name)
             check(walkthrough ~= nil, label .. ": didn't get there")
+            if step.whatsNew then
+                local title = walkthrough.title:GetText() or ""
+                check(title == "What's new: " .. step.title, ("%s: titled %q, not as What's new"):format(label, title))
+            end
             OnScreen(walkthrough, label)
             CheckAll({
                 function() FrameTextInside(walkthrough, label, 1) end,
@@ -1677,6 +1703,8 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
         if not ok then failures[#failures + 1] = tostring(err) end
     end
     Pages.SkipWalkthrough()
+    local States = FriendlyForeverUIStates
+    if loggedIn and type(States) == "table" then States.Advance(States.LOGIN_GRACE_SECONDS) end
     check(#failures == 0, table.concat(failures, "\n"))
 end)
 

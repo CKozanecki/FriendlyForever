@@ -1,4 +1,4 @@
--- Spec: #154, #223, #209, #160
+-- Spec: #154, #223, #209, #160, #362
 -- The UI scenarios' game-event helpers (uitests/button_states.lua), run here
 -- against a stand-in for the simulator's A_Admin that records each call and
 -- event in order. They follow what wow-ui-sim does itself (its admin.rs and
@@ -31,8 +31,12 @@ local function load(opts)
         GetSpellName = client.C_Spell.GetSpellName,
         IsSpellInRange = client.C_Spell.IsSpellInRange,
     }
+    client.fired = {} -- each event fired, with its arguments
     local admin = {
-        FireEvent = function(event) record("event " .. event) end,
+        FireEvent = function(event, ...)
+            record("event " .. event)
+            client.fired[#client.fired + 1] = { event, ... }
+        end,
         SetTarget = function(name) record("SetTarget " .. name) end,
         ClearTarget = function() record("ClearTarget") end,
         SetInCombat = function(on)
@@ -62,7 +66,9 @@ local function load(opts)
             return function(...) record(name .. " " .. select("#", ...)) end
         end })
     end
+    client.db = opts.db
     local env = setmetatable({
+        FriendlyForeverDB = opts.db,
         A_Admin = admin,
         C_SpellBook = client.C_SpellBook,
         C_Spell = client.C_Spell,
@@ -216,5 +222,56 @@ describe("UI scenarios: the player's seeded buffs on wow-ui-sim (#223)", functio
         table.sort(expected)
         table.sort(removed)
         assert.are.same(expected, removed)
+    end)
+end)
+
+-- #362: the button holding a buff asked for in chat, for its screenshot and
+-- scenario. The state switches requests on as the Buff Back tab's checkbox
+-- does, and has a stranger you target whisper a request the addon reads.
+describe("UI scenarios: a buff asked for in chat (#362)", function()
+    it("switches requests on, targets the stranger, then fires their whisper, with their whole name (white)", function()
+        local db = { buffBack = { requests = false } }
+        local States, log, client = load({ lenient = true, db = db })
+        States.Requested.Set()
+        assert.is_true(db.buffBack.requests)
+        local whole = table.concat(log, "\n")
+        local on = whole:find("slash on\n", 1, true)
+        local target = whole:find("SetTarget " .. States.ASKER, 1, true)
+        local whisper = whole:find("event CHAT_MSG_WHISPER", 1, true)
+        assert.is_truthy(on and target and whisper and on < whisper and target < whisper, whole)
+        local fired = client.fired[#client.fired]
+        assert.are.same({ "CHAT_MSG_WHISPER", States.ASKED, "Ingrid-Halvorsen" }, fired)
+    end)
+
+    it("puts the setting back as it was, and lets a request still on the button go (white)", function()
+        for _, before in ipairs({ false, true }) do
+            local db = { buffBack = { requests = before } }
+            local States, log = load({ lenient = true, db = db })
+            States.Requested.Set()
+            States.Requested.Undo()
+            assert.are.equal(before, db.buffBack.requests)
+            assert.is_truthy(table.concat(log, "\n"):find("ClearTarget", 1, true))
+            -- A second Undo changes nothing.
+            db.buffBack.requests = "kept"
+            States.Requested.Undo()
+            assert.are.equal("kept", db.buffBack.requests)
+        end
+    end)
+
+    it("is a request the addon reads: the button names who asked over the longest buff name (white)", function()
+        local States = load({ lenient = true, db = { buffBack = {} } })
+        local wow = require("spec.support.wow")
+        local ns = wow.boot({ before = function(state)
+            state.class = "PRIEST"
+            state.knownSpells = { [States.SPELL.id] = true }
+        end })
+        ns.Requests.SetEnabled(true)
+        local first, last = States.ASKER:match("^(%S+) (%S+)$")
+        wow.addUnit("target", { name = first, surname = last, id = first .. "-" .. last, class = "WARRIOR" })
+        wow.whisper(States.ASKED, first .. "-" .. last)
+        local button = ns.BuffButton.Frame()
+        assert.is_true(button:IsShown())
+        assert.are.equal(States.ASKER, button.title:GetText())
+        assert.are.equal("asked for " .. States.SPELL.name, button.subtitle:GetText())
     end)
 end)
