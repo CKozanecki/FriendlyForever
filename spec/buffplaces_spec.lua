@@ -170,6 +170,16 @@ describe("Who gets each buff, by place (#408)", function()
             assert.are.same({ "Dot-Fern", "Eve-Moss" }, motwTo(), "no role chosen: no longer given")
         end)
 
+        it("Keep works with a rule saved for a buff that's gone from the game (red, #209)", function()
+            boot({ db = { schemaVersion = 7, buffBack = { whoGets = { light = { rule = "notTanks" },
+                motw = { rule = "tanks" } } } } })
+            assert.is_true(ns.BuffRules.Choose("kept"))
+            assert.are.equal("kept", ns.db.buffBack.whoChoice)
+            assert.are.same({ healers = true, damage = true }, ns.db.buffBack.whoParty.light)
+            assert.are.same({ tanks = true }, ns.db.buffBack.whoRaid.motw)
+            assert.is_truthy(table.concat(printed, "\n"):find("Healers and Damage for light", 1, true))
+        end)
+
         it("Use the new defaults empties every place, and a second choice changes nothing (white)", function()
             boot({ db = { buffBack = { whoGets = { motw = { rule = "tanks" } } } } })
             assert.is_true(ns.BuffRules.Choose("new"))
@@ -454,11 +464,13 @@ describe("Who gets each buff, by place (#408)", function()
             stranger("MAGE")
             -- Might goes to its classes only: a mage gets Kings.
             assert.is_truthy(macro():find("Blessing of Kings", 1, true))
+            -- Kings Off too: nothing of yours for them, so nothing is owed.
             ns.db.buffBack.whoStrangers.kings = {}
             ns.BuffButton.Refresh()
             local offer, why = ns.Offers.Current()
             assert.is_nil(offer)
-            assert.is_truthy(why:find("your Buff Back rules leave them out", 1, true), why)
+            assert.are.equal("nobody is owed a buff", why)
+            assert.are.equal(0, ns.Offers.Count())
         end)
 
         it("a stranger whose class can't be read gets no buff by class: the next in your order (black)", function()
@@ -466,6 +478,86 @@ describe("Who gets each buff, by place (#408)", function()
             ns.db.buffBack.buffOrder = { "might", "kings" }
             stranger(nil)
             assert.is_truthy(macro():find("Blessing of Kings", 1, true))
+        end)
+
+        it("a favour your rules leave nothing for isn't counted, holds no place and turns nothing on (#366's lesson)",
+            function()
+            ns = wow.boot({ autoBuffMode = true, buffDefaults = true, before = function(state)
+                state.class = "PALADIN"
+                state.knownSpells = { [MIGHT_1] = true }
+            end })
+            button = ns.BuffButton.Frame()
+            assert.is_true(ns.BuffRules.Choose("new"))
+            -- A mage: Might goes to its classes only.
+            stranger("MAGE")
+            assert.are.equal(0, ns.Offers.Count())
+            assert.is_false(ns.BuffMode.IsOn(), "someone buffed you, but there's nothing to give them")
+            assert.is_nil(ns.BuffMode.LentKey())
+            assert.is_nil(ns.Offers.Current())
+            -- A warrior: owed, offered, and buff mode turns on for it.
+            wow.addUnit("nameplate2", { name = "Cid", surname = "Rock", id = "Cid-Rock", class = "WARRIOR" })
+            wow.gainBuff({ sourceUnit = "nameplate2", name = "Arcane Intellect", spellId = INTELLECT })
+            assert.are.equal(1, ns.Offers.Count())
+            assert.is_true(ns.BuffMode.IsOn())
+            assert.is_truthy(macro():find("Blessing of Might", 1, true))
+        end)
+
+        it("while pending, a favour counts as in 1.3.3, whatever the rules", function()
+            ns = wow.boot({ autoBuffMode = true, buffDefaults = true, before = function(state)
+                state.class = "PALADIN"
+                state.knownSpells = { [MIGHT_1] = true }
+            end })
+            button = ns.BuffButton.Frame()
+            stranger("MAGE")
+            assert.are.equal(1, ns.Offers.Count())
+            assert.is_truthy(macro():find("Blessing of Might", 1, true))
+        end)
+
+        it("a favour none of your buffs suit counts as in 1.3.3 while pending, and not once you've chosen", function()
+            for _, choice in ipairs({ false, "new" }) do
+                ns = wow.boot({ autoBuffMode = true, buffDefaults = true, before = function(state)
+                    state.class = "MAGE"
+                    state.knownSpells = { [INTELLECT] = true }
+                end })
+                button = ns.BuffButton.Frame()
+                if choice then assert.is_true(ns.BuffRules.Choose(choice)) end
+                wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", id = "Bob-Stone", class = "WARRIOR" })
+                wow.gainBuff({ sourceUnit = "nameplate1", name = "Mark of the Wild", spellId = MOTW })
+                assert.are.equal(choice and 0 or 1, ns.Offers.Count(), tostring(choice))
+            end
+        end)
+
+        it("a favour your rules leave nothing for turns nothing on, even with your group missing buffs", function()
+            ns = wow.boot({ autoBuffMode = true, buffDefaults = true,
+                db = { buffBack = { autoOnJoin = false, autoOnBuffed = true } }, before = function(state)
+                    state.class = "PALADIN"
+                    state.knownSpells = { [MIGHT_1] = true }
+                end })
+            button = ns.BuffButton.Frame()
+            assert.is_true(ns.BuffRules.Choose("new"))
+            group("party", { { "Ann-Vale", "WARRIOR", "TANK" } })
+            assert.is_false(ns.BuffMode.IsOn())
+            stranger("MAGE")
+            assert.is_false(ns.BuffMode.IsOn(), "the mage is owed nothing: no reason to turn on")
+        end)
+
+        it("a favour your rules leave nothing for gives no reason over one that's owed", function()
+            boot({ choice = "new", class = "PALADIN", known = { [MIGHT_1] = true }, buffMode = false })
+            -- Cid, a warrior, is owed and out of sight; then Bob, a mage, buffs you.
+            wow.addUnit("nameplate2", { name = "Cid", surname = "Rock", id = "Cid-Rock", class = "WARRIOR" })
+            wow.gainBuff({ sourceUnit = "nameplate2", name = "Arcane Intellect", spellId = INTELLECT })
+            wow.state.units.nameplate2 = nil
+            stranger("MAGE")
+            assert.are.same({ nil, "everyone you owe is out of sight or out of range", true }, { ns.Offers.Current() })
+        end)
+
+        it("a stranger whose class can't be read, with a rule by class: the button says it can't see it (black)", function()
+            boot({ choice = "new", class = "PALADIN", known = { [MIGHT_1] = true }, buffMode = false })
+            stranger(nil)
+            assert.are.equal(1, ns.Offers.Count(), "their class may yet show")
+            local offer, why = ns.Offers.Current()
+            assert.is_nil(offer)
+            assert.is_truthy(why:find("can't see their class", 1, true), why)
         end)
 
         it("while pending, any buff their class can use, as 1.3.3 (white)", function()

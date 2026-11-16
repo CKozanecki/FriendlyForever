@@ -696,7 +696,9 @@ function BuffRules.Choose(choice)
             else
                 for _, tick in ipairs(LEGACY_TICKS[rule]) do ticks[tick] = true end
             end
-            if rule == "notTanks" then narrowed[#narrowed + 1] = ns.BuffData.SpellName(buff) or key end
+            -- A key kept known without a buff (BuffTable.absent, #209) has no spell to name.
+            local real = ns.BuffData.ByKey(key)
+            if rule == "notTanks" then narrowed[#narrowed + 1] = real and ns.BuffData.SpellName(real) or key end
             party[key], raid[key] = ticks, Util.DeepCopy(ticks)
         end
         local total = 0

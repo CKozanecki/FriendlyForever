@@ -86,6 +86,27 @@ local function Changed()
     for _, fn in ipairs(listeners) do fn() end
 end
 
+-- Whether your rules leave a buff of yours for this favour (#408): after
+-- the choice, one of your buffs for others that their class can use and
+-- your Buff Back rule gives them (a class that can't be read may yet show
+-- one). A request, or a favour that asked for a buff, always may: a request
+-- is given whatever the rules say. While pending every favour counts, as in
+-- 1.3.3. One your rules leave nothing for isn't counted (Count), holds no
+-- place on the button (Current) and turns nothing on (OnOwe), so buff mode
+-- never lends its key for a favour the button can't return (#366's lesson).
+local function Givable(favour)
+    if favour.request or (favour.requested and ns.Requests.Listening()) or ns.BuffRules.Pending() then
+        return true
+    end
+    for _, buff in ipairs(ns.BuffData.Offerable()) do
+        if not buff.selfCast and ns.BuffData.Useful(buff, favour.class)
+            and ns.BuffRules.AllowsStranger(buff, favour.class) ~= false then
+            return true
+        end
+    end
+    return false
+end
+
 local function IndexOf(name)
     for i, favour in ipairs(favours) do
         if favour.name == name then return i end
@@ -302,6 +323,10 @@ function Offers.Owe(name, unit, ledgerEntry)
     end
     ns.Diag.Log("buffBack", "you owe %s a buff", name)
     Changed()
+    if not Givable(favour) then
+        ns.Diag.Log("buffBack", "your Buff Back rules leave %s nothing: not offered", name)
+        return
+    end
     for _, fn in ipairs(oweListeners) do fn() end
 end
 
@@ -464,13 +489,14 @@ local function ChooseBuff(favour, myBuffs, held, visible)
         if #ns.BuffData.Mine() > 0 then return nil, "you've marked all your buffs never offer" end
         return nil, "you know no buffs to give"
     end
-    local suitable, ruled = 0, false
+    local suitable, unsure = 0, false
     for _, buff in ipairs(myBuffs) do
         -- Your Buff Back rule for the buff (#408): everyone, chosen
         -- classes, or off. A class that can't be read gets no buff by class.
         local usable = not buff.selfCast and ns.BuffData.Useful(buff, favour.class)
-        local allowed = usable and ns.BuffRules.AllowsStranger(buff, favour.class) == true
-        if usable and not allowed then ruled = true end
+        local rule = usable and ns.BuffRules.AllowsStranger(buff, favour.class)
+        local allowed = rule == true
+        if usable and rule == nil then unsure = true end
         if allowed then
             suitable = suitable + 1
             -- Unknown (hidden in a fight) counts as not wearing it.
@@ -491,7 +517,9 @@ local function ChooseBuff(favour, myBuffs, held, visible)
         end
     end
     if suitable > 0 then return nil, "they already have your buffs" end
-    return nil, ruled and "your Buff Back rules leave them out" or "none of your buffs suit them"
+    -- (A favour your rules leave nothing for isn't here: Givable.)
+    if unsure then return nil, "can't see their class" end
+    return nil, "none of your buffs suit them"
 end
 
 -- What the button should offer now: { name, buff, spell }, or nil and why
@@ -515,10 +543,16 @@ function Offers.Current(list)
     -- Water breathing waits for water (Water.lua).
     local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
     local visible = VisiblePlayers()
-    local firstReason, first
+    local firstReason, first, owed = nil, nil, false
     for i = #favours, 1, -1 do
         local favour = favours[i]
-        local buff, reason, away = ChooseBuff(favour, myBuffs, held, visible)
+        local buff, reason, away
+        if Givable(favour) then
+            owed = true
+            buff, reason, away = ChooseBuff(favour, myBuffs, held, visible)
+        else
+            away = true -- your rules leave them nothing: it holds no place (#408)
+        end
         local spell = buff and ns.BuffData.SpellName(buff)
         if spell then
             local offer = { name = favour.name, buff = buff, spell = spell, request = favour.request }
@@ -531,6 +565,7 @@ function Offers.Current(list)
         end
     end
     if first then return first end
+    if not owed then return nil, "nobody is owed a buff" end
     if not firstReason then return nil, "everyone you owe is out of sight or out of range", true end
     return nil, firstReason
 end
@@ -679,8 +714,13 @@ function Offers.Forget(name)
     if any then Changed() end
 end
 
--- How many are owed: none to a player on the ignore list.
+-- How many are owed: none to a player on the ignore list, and none your
+-- rules leave nothing for (Givable, #408).
 function Offers.Count()
     DropIgnored()
-    return #favours
+    local n = 0
+    for _, favour in ipairs(favours) do
+        if Givable(favour) then n = n + 1 end
+    end
+    return n
 end
