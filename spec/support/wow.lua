@@ -503,6 +503,40 @@ for name, ids in pairs({
     ["Fire Resistance Aura"] = { 19900, 19899, 19891 }, ["Sanctity Aura"] = { 20218 },
 }) do selfSpell(name, ids, { duration = 0, toggle = true, family = "aura" }) end
 
+-- Weapon buffs (#45): some of the stones, oils and poisons, by item ID, with
+-- the spell each casts as it goes on and the enchant it leaves, from
+-- Forever's own data (docs/forever-facts.md, "Weapon buffs"). Kept apart from
+-- the addon's table (WeaponBuffs.lua) so the specs check it rather than echo it.
+M.WEAPON = { brilliantWizardOil = 20749, lesserWizardOil = 20746, roughWeightstone = 3239,
+    denseWeightstone = 12643, denseSharpeningStone = 12404, instantPoison6 = 8928, deadlyPoison5 = 20844 }
+M.WEAPON_ITEMS = {
+    [20749] = { spell = 25122, spellName = "Brilliant Wizard Oil", enchant = 2628 },
+    [20746] = { spell = 25119, spellName = "Lesser Wizard Oil", enchant = 2626 },
+    [3239] = { spell = 3112, spellName = "Enhance Blunt Weapon", enchant = 19 },
+    [12643] = { spell = 16622, spellName = "Enhance Blunt Weapon V", enchant = 1703 },
+    [12404] = { spell = 16138, spellName = "Sharpen Blade V", enchant = 1643 },
+    [8928] = { spell = 11340, spellName = "Instant Poison VI", enchant = 625 },
+    [20844] = { spell = 25351, spellName = "Deadly Poison V", enchant = 2630 },
+}
+-- Every one lasts 30 minutes (Forever's data), imbues included.
+M.WEAPON_BUFF_SECONDS = 1800
+-- A shaman's imbues: cast on yourself, each puts its enchant on your main hand.
+M.IMBUES = {} -- [spell ID] = its enchant ID
+for name, ranks in pairs({ ["Rockbiter Weapon"] = { { 16316, 1664 }, { 10399, 503 }, { 8017, 29 } },
+    ["Windfury Weapon"] = { { 16362, 1669 }, { 8232, 283 } } }) do
+    for _, rank in ipairs(ranks) do
+        nameSpell(name, { rank[1] })
+        M.IMBUES[rank[1]] = rank[2]
+    end
+end
+-- Things to wear: [item ID] = { class (2 a weapon, 4 armour), use = the name
+-- of its own Use effect, if it has one }.
+M.GEAR = { sword = 1001, mace = 1002, dagger = 1003, useSword = 1004, shield = 1005, heldItem = 1006 }
+M.GEAR_INFO = {
+    [1001] = { class = 2 }, [1002] = { class = 2 }, [1003] = { class = 2 },
+    [1004] = { class = 2, use = "Bladestorm" }, [1005] = { class = 4 }, [1006] = { class = 4 },
+}
+
 ------------------------------------------------------------------------
 -- ASSUMPTIONS ABOUT WOW FOREVER. Each is a state setting so specs can try the
 -- alternatives; the defaults are guesses, not facts. The launch test pass
@@ -565,6 +599,24 @@ for name, ids in pairs({
 --                         buffs stay listed past their time unless
 --                         state.expirePlayerAuras is set (then, as a group
 --                         member's, one whose time has come is gone).
+--   Weapon buffs (#45; the IDs are Forever's own data, the rest UNCONFIRMED
+--                         in game, #409 says how to check each):
+--                         GetWeaponEnchantInfo gives has, ms left, charges
+--                         and enchant ID for slots 16, 17 and 18 in turn
+--                         (the owner's dump: false at 1, 5 and 9 when bare).
+--                         "/use item:N" then "/use 16" (or 17) puts item N
+--                         on that slot in one press, as a cast of the item's
+--                         spell; "/use 16" with no item waiting fires the
+--                         weapon's own Use. An imbue goes on the main hand
+--                         by itself (state.imbuePicks: it waits for a
+--                         weapon to be picked, as an item does). Every one lasts 30 minutes (Forever's
+--                         data). In a druid's form or Ghost Wolf, with the
+--                         autoUnshift setting on (the default, as Classic's),
+--                         the game cancels the form and carries on: the
+--                         pessimistic choice. Off, it refuses with "You
+--                         can't do that while shapeshifted." A weapon is
+--                         item class 2; GetItemSpell names a weapon's own
+--                         Use, and nil for none.
 --   /cleartarget then /targetexact X leaves your old target as the "last
 --                         target", so /targetlasttarget brings it back (setTarget)
 --   Mouse clicks, like key presses, act on the half the key-down setting
@@ -929,6 +981,7 @@ M.OUT_OF_RANGE_ERROR = "Out of range."
 M.LINE_OF_SIGHT_ERROR = "Target not in line of sight"
 
 local castCount = 0
+local imbue -- a shaman's imbue (#45), below
 local function cast(args)
     local conds, name = args:match("^%[(.-)%]%s*(.+)$")
     local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
@@ -958,6 +1011,8 @@ local function cast(args)
         M.uiError("Unknown spell")
         return
     end
+    -- A shaman's imbue (#45) goes on your main hand.
+    if M.IMBUES[id] then return imbue(id) end
     -- A helpful spell with no friendly target lands on yourself.
     local target = aimed or M.state.units.target
     if not (target and not target.hostile) then target = M.state.units.player end
@@ -1120,6 +1175,201 @@ function M.uiError(message)
     M.fire("UI_ERROR_MESSAGE", 0, message)
 end
 
+------------------------------------------------------------------------
+-- Weapon buffs (#45; see ASSUMPTIONS)
+------------------------------------------------------------------------
+
+M.WEAPON_SLOTS = { [16] = 1, [17] = 5 } -- each slot's place in GetWeaponEnchantInfo's answer
+M.SHAPESHIFT_ERROR = "You can't do that while shapeshifted."
+M.weaponUses = {}      -- each time a weapon's own Use fired: { slot, item } (never by the addon)
+M.formsCancelled = 0   -- each time the game cancelled your form for an action (never by the addon)
+M.applied = {}         -- each weapon buff that went on: { slot, item or spell, at }
+M.weaponCasts = {}     -- each weapon buff sent: { slot, spell, at }
+
+-- The enchant on a slot now, or nil (one past its time is gone).
+local function enchantOn(slot)
+    local e = M.state.weaponEnchants[slot]
+    if e and e.expires <= M.now then
+        M.state.weaponEnchants[slot] = nil
+        e = nil
+    end
+    return e
+end
+function M.enchantOn(slot) return enchantOn(slot) end
+
+-- Put an enchant on a slot (a spec's shortcut, or a weapon buff landing).
+function M.enchant(slot, id, seconds, charges)
+    M.state.weaponEnchants[slot] = { id = id, expires = M.now + (seconds or 1800), charges = charges or 0 }
+end
+
+-- Whether the game would stop an action for your form: a druid's forms and a
+-- shaman's Ghost Wolf. With autoUnshift on, the game cancels the form and
+-- carries on (counted in M.formsCancelled); off, it refuses. true: refused.
+local function formStops()
+    if (M.state.form or 0) == 0 or not (M.state.class == "DRUID" or M.state.class == "SHAMAN") then return false end
+    if M.state.cvars.autoUnshift ~= "0" then
+        M.state.form = 0
+        M.formsCancelled = M.formsCancelled + 1
+        return false
+    end
+    M.uiError(M.SHAPESHIFT_ERROR)
+    return true
+end
+M.formStops = formStops
+
+-- A weapon buff's cast: sent at once, answered at once or after
+-- state.castLatency; state.weaponRefusal (text) makes the server refuse it.
+local weaponCastCount = 0
+local function weaponCast(slot, spellId, onLanded)
+    weaponCastCount = weaponCastCount + 1
+    local guid = "Weapon-" .. weaponCastCount
+    M.weaponCasts[#M.weaponCasts + 1] = { slot = slot, spell = spellId, at = M.now }
+    -- What the game names as its target is unconfirmed (#409): the weapon's
+    -- name here, never a player's (the pessimistic reading).
+    M.fire("UNIT_SPELLCAST_SENT", "player", "Worn Shortsword", guid, spellId)
+    local refusal = M.state.weaponRefusal
+    local function answer()
+        if refusal then
+            M.fire("UNIT_SPELLCAST_FAILED", "player", guid, spellId)
+            M.uiError(refusal)
+            return
+        end
+        onLanded()
+        M.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, spellId)
+    end
+    if (M.state.castLatency or 0) > 0 then M.gameAfter(M.state.castLatency, answer) else answer() end
+end
+
+-- "/use item:N": takes the item up to be put on a weapon (the cursor waits
+-- for one). "/use 16" or "/use 17": puts the waiting item on that slot's
+-- weapon, or, with none waiting, fires the weapon's own Use, if it has one.
+local function use(rest)
+    local item = tonumber(rest:match("^item:(%d+)$") or "")
+    if item then
+        M.state.itemTargeting = nil
+        if (M.state.items[item] or 0) < 1 or M.state.useDoesNothing then return end
+        if formStops() then return end
+        if M.state.unusableItems[item] then
+            M.uiError("You can't use that item yet.")
+            return
+        end
+        M.state.itemTargeting = item
+        return
+    end
+    local slot = tonumber(rest:match("^(%d+)$") or "")
+    assert(slot == 16 or slot == 17, "the simulated client doesn't know /use " .. rest)
+    local waiting = M.state.itemTargeting
+    M.state.itemTargeting = nil
+    local worn = M.state.equipped[slot]
+    local info = worn and M.GEAR_INFO[worn]
+    if not waiting then
+        if info and info.use then M.weaponUses[#M.weaponUses + 1] = { slot = slot, item = worn } end
+        return
+    end
+    if type(waiting) == "table" then
+        -- An imbue waiting for its weapon.
+        if not (info and info.class == 2) then
+            M.uiError("Item can't be enchanted.")
+            return
+        end
+        weaponCast(slot, waiting.imbue, function()
+            M.enchant(slot, M.IMBUES[waiting.imbue], M.WEAPON_BUFF_SECONDS)
+            M.applied[#M.applied + 1] = { slot = slot, spell = waiting.imbue, at = M.now }
+        end)
+        return
+    end
+    local buff = M.WEAPON_ITEMS[waiting]
+    if not (info and info.class == 2) or not buff then
+        M.uiError("Item can't be enchanted.")
+        return
+    end
+    weaponCast(slot, buff.spell, function()
+        M.state.items[waiting] = math.max(0, (M.state.items[waiting] or 0) - 1)
+        M.enchant(slot, buff.enchant, M.WEAPON_BUFF_SECONDS)
+        M.applied[#M.applied + 1] = { slot = slot, item = waiting, at = M.now }
+    end)
+end
+
+-- A shaman's imbue, cast (on yourself): onto the main hand by itself, or,
+-- with state.imbuePicks, it waits for a weapon to be picked as an item does
+-- ("/use 16" or "/use 17" then puts it on). Which Forever does is #409.
+imbue = function(id)
+    if formStops() then return true end
+    if M.state.imbuePicks then
+        M.state.itemTargeting = { imbue = id }
+        return true
+    end
+    local worn = M.state.equipped[16]
+    if not (worn and M.GEAR_INFO[worn] and M.GEAR_INFO[worn].class == 2) then
+        M.uiError("You must have a weapon equipped.")
+        return true
+    end
+    weaponCast(16, id, function()
+        M.enchant(16, M.IMBUES[id], M.WEAPON_BUFF_SECONDS)
+        M.applied[#M.applied + 1] = { slot = 16, spell = id, at = M.now }
+    end)
+    return true
+end
+
+function M.installWeaponApi()
+    local function read(field, value)
+        if M.state.weaponSecrets[field] then return M.secret(value) end
+        return value
+    end
+    -- has, ms left, charges, enchant ID for the main hand, off hand and ranged slot.
+    _G.GetWeaponEnchantInfo = function()
+        if M.state.weaponSecrets.error then error("weapon enchants unavailable") end
+        local out = {}
+        for i, slot in ipairs({ 16, 17, 18 }) do
+            local at = (i - 1) * 4 -- each slot's four values in turn, with nils where bare
+            local e = enchantOn(slot)
+            if e then
+                local left = math.floor((e.expires - M.now) * 1000)
+                out[at + 1], out[at + 2], out[at + 3], out[at + 4] =
+                    read("enchants", true), read("enchants", left), read("enchants", e.charges), read("enchants", e.id)
+            else
+                out[at + 1] = read("enchants", false)
+            end
+        end
+        return unpack(out, 1, 12)
+    end
+    _G.GetInventoryItemID = function(unit, slot)
+        if unit ~= "player" then return nil end
+        return read("equipped", M.state.equipped[slot])
+    end
+    -- itemID, type, subtype, equip location, icon, class ID, subclass ID.
+    local function infoInstant(item)
+        local gear = M.GEAR_INFO[item]
+        local class = gear and gear.class or (M.WEAPON_ITEMS[item] and 0) or nil
+        if class == nil then return nil end
+        return item, "Item", "Item", "", 134400, read("itemInfo", class), 0
+    end
+    _G.GetItemInfoInstant = infoInstant
+    _G.C_Item.GetItemInfoInstant = infoInstant
+    -- The name and ID of the spell an item casts when used.
+    local function itemSpell(item)
+        local gear = M.GEAR_INFO[item]
+        if gear then
+            if M.state.weaponSecrets.itemSpell then return M.secret(gear.use), M.secret(99999) end
+            if not gear.use then return nil end
+            return gear.use, 99999
+        end
+        local buff = M.WEAPON_ITEMS[item]
+        if buff then return read("itemSpell", buff.spellName), buff.spell end
+        return nil
+    end
+    _G.GetItemSpell = itemSpell
+    _G.C_Item.GetItemSpell = itemSpell
+    local function usableItem(item)
+        if (M.state.items[item] or 0) < 1 then return read("usable", false), false end
+        return read("usable", not M.state.unusableItems[item]), false
+    end
+    _G.IsUsableItem = usableItem
+    _G.C_Item.IsUsableItem = usableItem
+    _G.C_Item.GetItemIconByID = function() return 134400 end
+    _G.GetItemIcon = function() return 134400 end
+end
+
 -- Run a macro's lines as the game would, inside one key press. (255 is the
 -- addon's own limit for its macros, checked here too.)
 function M.runMacro(text)
@@ -1137,6 +1387,8 @@ function M.runMacro(text)
             M.state.units.target = nil
         elseif cmd == "/cast" then
             cast(rest)
+        elseif cmd == "/use" then
+            use(rest)
         elseif cmd == "/s" or cmd == "/say" then
             _G.SendChatMessage(rest, "SAY")
         else
@@ -1443,6 +1695,7 @@ function M.reset()
     M.timers, M.frames, M.sent, M.blocked, M.printed = {}, {}, {}, {}, {}
     M.casts = {}
     M.landed = {} -- casts the server said landed: { spell, id, target } (see cast; deliverBuffs)
+    M.weaponUses, M.formsCancelled, M.applied, M.weaponCasts = {}, 0, {}, {} -- weapon buffs (#45)
     M.keyActions = {}
     M.flaggedBy = {} -- players whose PvP flag a buff of yours caught (see cast)
     M.flaggedElsewhere = {} -- the same, for casts state.castLandsOn sent elsewhere
@@ -1461,12 +1714,16 @@ function M.reset()
         -- Self-buffs (#44; see ASSUMPTIONS): what you're doing, and the spells
         -- the game says can't be cast now ([name] = "power" or "other").
         mounted = false, onTaxi = false, form = 0, powerType = "MANA", unusable = {}, selfSecrets = {},
+        -- Weapon buffs (#45; see ASSUMPTIONS): what you wear in each slot
+        -- ([slot] = item ID), the enchant on it ([slot] = { expires, charges,
+        -- id }), items the game won't let you use yet, and secrets.
+        equipped = { [16] = M.GEAR.sword }, weaponEnchants = {}, unusableItems = {}, weaponSecrets = {},
         -- overrides: [key] = { owner, button, mouseButton, priority } (SetOverrideBindingClick).
         -- bindings: [key] = the key's own binding action. mods: modifier keys held now.
         overrides = {}, bindings = {}, mods = {},
         race = "Human", class = "MAGE", faction = "Alliance", zone = "Elwynn Forest", hour = 14, mapId = 1429,
         cvars = { nameplateShowFriendlyPlayers = "1", nameplateShowOnlyNameForFriendlyPlayerUnits = "0",
-            ActionButtonUseKeyDown = "1" },
+            ActionButtonUseKeyDown = "1", autoUnshift = "1" },
     }
     -- In a raid, party1..4 are the other members of your own subgroup (#322):
     -- the same unit tables as their raidN slots, found when asked for, so a
@@ -1887,6 +2144,7 @@ function M.reset()
     -- state.itemNames[itemId]: the client's name for an item (as GetItemNameByID gives it).
     _G.C_Item = { GetItemCount = itemCount,
         GetItemNameByID = function(item) return M.state.itemNames and M.state.itemNames[item] end }
+    M.installWeaponApi()
     -- GetRaidRosterInfo(i) for raid slot i: name, rank, subgroup (unit.subgroup,
     -- 1 unless set), level, class, file name, zone, online, dead. A slot with
     -- no unit answers nothing. unit.secrets.subgroup makes the subgroup a
