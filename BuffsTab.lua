@@ -45,7 +45,7 @@ BuffsTab.SUMMARY_LETTERS = 24
 -- them as they are (Core.lua's ns.ResetType): it's for that tab's lines.
 BuffsTab.FIELDS = { "buffOrder", "neverOffer", "whoGets", "whoChoice", "whoStrangers", "whoParty", "whoRaid",
     "whoPvP", "selfBuffs", "soloOwnBuffs", "groupVersions", "groupEnough", "raidSplit", "bgPrepBuff",
-    "breathNearWater" }
+    "breathNearWater", "passersBy" }
 -- The who-gets list's height, from the top: Everyone (6 + 32), the roles
 -- (2 + 32), "Classes:" (4 + 12), three rows of classes (3 x (2 + 32)), Off
 -- (4 + 22) and a margin of 8. Its shade covers all it holds (#408's review).
@@ -489,6 +489,19 @@ function BuffsTab.Create(content, tabsBottom)
 
     -- Each place's own options.
     w.openBuffBack = ui.Button(area, "Open the Buff Back tab", 170, function() ns.Options.SelectType("buffBack") end)
+    -- Passers-by (#39): the switch, what it does, and the nameplates it needs.
+    w.passersBy = Check("passersBy", "Also offer my buffs to passers-by in buff mode", ns.Options.PASSERS_BY_TIP)
+    w.passersByHelp = ui.Label(area, ns.Options.PASSERS_BY_HELP, "GameFontHighlightSmall")
+    w.passersByHelp:SetWidth(540)
+    w.passersByHelp:SetWordWrap(true)
+    w.passersByNameplates = ui.Label(area, ns.Colours.Text("warn", "Friendly player nameplates are off, "
+        .. "so nobody nearby can be seen."), "GameFontHighlightSmall")
+    w.passersByShow = ui.Button(area, "Show friendly player names", 200, function()
+        local ok, reason = ns.Nameplates.EnableFriendlyNames()
+        ns.Print(ok and "friendly player names are now shown (names only)." or ("couldn't turn them on: " .. reason))
+        ns.Options.Refresh()
+    end)
+    w.passersByShow:SetPoint("LEFT", w.passersByNameplates, "RIGHT", 10, 0)
     w.soloOwnBuffs = Check("soloOwnBuffs", "Offer my own buffs when I'm not in a group",
         ns.Options.SOLO_OWN_BUFFS_TOOLTIP)
     w.raidSplit = Check("raidSplit", "Share buffs with other copies in raids", ns.Options.RAID_SPLIT_TOOLTIP)
@@ -655,6 +668,13 @@ local function FillOptions(last)
         last = frame
     end
     Below(w.openBuffBack, place == "strangers", 0, -12)
+    Below(w.passersBy, place == "strangers", -4)
+    if place == "strangers" then w.passersBy:SetChecked(b.passersBy == true) end
+    Below(w.passersByHelp, place == "strangers", 4, -4)
+    -- Without friendly nameplates nobody nearby shows (Nameplates.lua).
+    local blind = place == "strangers" and ns.Nameplates.FriendlyShown() == false
+    Below(w.passersByNameplates, blind, 0, -6)
+    w.passersByShow:SetShown(blind)
     Below(w.soloOwnBuffs, place == "party", -4)
     if place == "party" then w.soloOwnBuffs:SetChecked(b.soloOwnBuffs == true) end
     Below(w.raidSplit, place == "raid", -4)

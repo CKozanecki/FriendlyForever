@@ -427,13 +427,15 @@ local function ShowStepper(stepper, shown)
 end
 
 -- The Buff Back tab's rows for when buff mode turns on and off by itself.
-Options.AUTO_SWITCHES = { "autoOnJoin", "autoOnDeath", "autoOnBuffed", "autoOnMissing", "autoOffPull", "autoOffDone" }
+Options.AUTO_SWITCHES = { "autoOnJoin", "autoOnDeath", "autoOnBuffed", "autoOnMissing", "autoOnCampfire",
+    "autoOffPull", "autoOffDone" }
 -- Their labels, which the walkthrough (Walkthrough.lua) repeats.
 Options.AUTO_TEXT = {
     autoOnJoin = "with my group",
     autoOnDeath = "after a death in my group",
     autoOnBuffed = "when a stranger buffs me",
     autoOnMissing = "when someone's missing my buffs",
+    autoOnCampfire = "at a campfire",
     autoOffPull = "at the first pull",
     autoOffDone = "when everyone has my buffs",
 }
@@ -446,7 +448,21 @@ Options.AUTO_MISSING_TIP = "In any group, out of combat: when someone close by (
     .. "included, has none of a buff you give (never cast, or faded away), or has it running low: a "
     .. "minute left for a buff of 10 minutes or less (Thorns), your Top up time for a longer one. "
     .. "Looked at as a fight ends, and every few seconds. Turned off yourself, it stays off for those "
-    .. "buffs until they're cast again; another one running low or fading turns it back on."
+    .. "buffs until they're cast again; another one running low or fading turns it back on. Solo, the same "
+    .. "for your own buffs, and your self-buffs if you offer them."
+
+-- The campfire trigger (#39).
+Options.AUTO_CAMPFIRE_TIP = "When a campfire's warmth (Cozy Fire) or a camp benefit is added to you, out "
+    .. "of combat. Then passers-by count too (Buffs tab, Buff Back), and buff mode stays on while one is "
+    .. "missing a buff. Not in a capital city where quiet mode holds."
+
+-- Passers-by (#39), on the Buffs tab's Buff Back place.
+Options.PASSERS_BY_TIP = "In buff mode, after everyone else, offer your buffs to players nearby who aren't "
+    .. "in your group: a buff they're missing, or one with less than half its time left, as the rules above "
+    .. "allow. Only in the open world, never in a capital city or a fight; never anyone flagged for PvP "
+    .. "while you aren't. Nothing is said to them. Right-click skips one for 10 minutes."
+Options.PASSERS_BY_HELP = "Players nearby who aren't in your group and are missing a buff, or whose buff "
+    .. "is half gone. Uses the rules above. Needs friendly nameplates."
 
 -- Top-up timing (#42, #397): the stepper's mouse-over.
 Options.TOP_UP_TIP = "A buff you give with less than this many minutes left is offered again in buff mode, "
@@ -847,6 +863,9 @@ function Options.Create()
     local onMissing = AutoBox("autoOnMissing")
     Tooltip(onMissing, Options.AUTO_MISSING_TIP)
     onMissing:SetPoint("TOPLEFT", onJoin, "BOTTOMLEFT", 0, -2)
+    local onCampfire = AutoBox("autoOnCampfire")
+    Tooltip(onCampfire, Options.AUTO_CAMPFIRE_TIP)
+    onCampfire:SetPoint("LEFT", onMissing.label, "RIGHT", 16, 0)
     widgets.autoOffHeader = Label(content, "...and off again (only when it turned itself on):", "GameFontNormalSmall")
     widgets.autoOffHeader:SetPoint("TOPLEFT", onMissing, "BOTTOMLEFT", 4, -6)
     local offPull = AutoBox("autoOffPull")

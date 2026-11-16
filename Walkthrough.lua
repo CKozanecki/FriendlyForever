@@ -111,6 +111,7 @@ Walkthrough.STEPS = {
             Row("autoOnDeath")
             Row("autoOnBuffed")
             Row("autoOnMissing")
+            Row("autoOnCampfire")
             lines[#lines + 1] = "Turns off again, if it turned itself on:"
             Row("autoOffPull")
             Row("autoOffDone")

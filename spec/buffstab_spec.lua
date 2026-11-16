@@ -1,4 +1,4 @@
--- Spec: #408
+-- Spec: #408, #39
 -- The Buffs tab (#408): the buff order and options for every place, then a
 -- sub-tab for each place (Buff Back, Party, Raid, PvP) with a "who gets it"
 -- row per buff, its list of ticks, its Always and Never names, and the
@@ -225,7 +225,7 @@ describe("The Buffs tab (#408)", function()
             -- the options for every place and for each.
             local shown = { "buffOrder", "neverOffer", "whoGets", "whoChoice", "whoStrangers", "whoParty",
                 "whoRaid", "whoPvP", "selfBuffs", "breathNearWater", "groupVersions", "groupEnough",
-                "soloOwnBuffs", "raidSplit", "bgPrepBuff" }
+                "soloOwnBuffs", "raidSplit", "bgPrepBuff", "passersBy" }
             local listed = {}
             for _, field in ipairs(ns.BuffsTab.FIELDS) do
                 assert.is_not_nil(ns.Config.DEFAULTS.buffBack[field], field .. " is a Buff Back setting")
