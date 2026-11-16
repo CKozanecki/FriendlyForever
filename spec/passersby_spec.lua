@@ -756,8 +756,8 @@ describe("Passers-by (#39)", function()
             assert.is_false(ns.BuffMode.IsOn(), "Bob passing by doesn't keep it on")
         end)
 
-        it("an added aura it can't read (a secret payload, list, aura or spell ID, or the wrong type) turns nothing on",
-            function()
+        it("an update it can't read (a secret payload, list, aura or spell ID, or the wrong type) adds nothing "
+            .. "the aura list doesn't show, and never errors", function()
             local cases = {
                 ["secret payload"] = function() return wow.secret({ addedAuras = { { spellId = COZY } } }) end,
                 ["secret list"] = function() return { addedAuras = wow.secret({ { spellId = COZY } }) } end,
@@ -783,8 +783,141 @@ describe("Passers-by (#39)", function()
         it("a readable campfire aura after an unreadable one in the same list still counts", function()
             bootAuto()
             stranger()
-            wow.fire("UNIT_AURA", "player", { addedAuras = { wow.lockedAura(7), { spellId = COZY } } })
+            table.insert(wow.state.playerAuras, { isHelpful = true, spellId = COZY, auraInstanceID = 8 })
+            wow.fire("UNIT_AURA", "player", { addedAuras = { wow.lockedAura(7), { spellId = COZY, auraInstanceID = 8 } } })
             assert.is_true(ns.BuffMode.IsAuto())
+        end)
+
+        -- Put the campfire aura on you without an update, as a restricted one hides it.
+        local function wearFire(instance)
+            local aura = { isHelpful = true, spellId = COZY, auraInstanceID = instance or 8 }
+            table.insert(wow.state.playerAuras, aura)
+            return aura
+        end
+        local function takeOff(aura)
+            for i = #wow.state.playerAuras, 1, -1 do
+                if wow.state.playerAuras[i] == aura then table.remove(wow.state.playerAuras, i) end
+            end
+        end
+
+        it("an update it can't read out of a fight is made up by one read of your auras", function()
+            local hidden = {
+                ["secret payload"] = function() return wow.secret({ addedAuras = { { spellId = COZY } } }) end,
+                ["secret list"] = function() return { addedAuras = wow.secret({ { spellId = COZY } }) } end,
+                ["locked aura"] = function() return { addedAuras = { wow.lockedAura(8) } } end,
+                ["secret spell ID"] = function() return { addedAuras = { { spellId = wow.secret(COZY) } } } end,
+                ["secret full-update flag"] = function() return { isFullUpdate = wow.secret(false) } end,
+            }
+            for how, payload in pairs(hidden) do
+                bootAuto()
+                stranger()
+                wearFire()
+                wow.fire("UNIT_AURA", "player", payload())
+                assert.is_true(ns.BuffMode.IsAuto(), how .. ": the list shows the fire")
+            end
+        end)
+
+        it("the read doesn't take an aura that isn't a campfire's for one", function()
+            bootAuto()
+            stranger()
+            table.insert(wow.state.playerAuras, { isHelpful = true, spellId = 1126, auraInstanceID = 9 })
+            wow.fire("UNIT_AURA", "player", wow.secret({}))
+            assert.is_false(ns.BuffMode.IsOn())
+        end)
+
+        it("an update it can't read while you stay by the fire isn't gaining it again", function()
+            bootAuto()
+            stranger()
+            sitByFire()
+            slash("buffmode off")
+            wow.fire("UNIT_AURA", "player", wow.secret({}))
+            assert.is_false(ns.BuffMode.IsOn())
+        end)
+
+        it("a list it can't read for the look keeps what it saw, and the look waits", function()
+            for _, how in ipairs({ "error", "secret aura", "secret spell ID" }) do
+                bootAuto()
+                stranger()
+                local first = sitByFire()
+                slash("buffmode off")
+                local real = _G.C_UnitAuras.GetAuraDataByIndex
+                _G.C_UnitAuras.GetAuraDataByIndex = function(unit, i, filter)
+                    if unit ~= "player" then return real(unit, i, filter) end
+                    if how == "error" then error("restricted") end
+                    if i > 1 then return nil end
+                    if how == "secret aura" then return wow.secret({ spellId = COZY }) end
+                    return { spellId = wow.secret(COZY), auraInstanceID = first.auraInstanceID }
+                end
+                wow.fire("UNIT_AURA", "player", wow.secret({}))
+                _G.C_UnitAuras.GetAuraDataByIndex = real
+                -- Still by the same fire: its refresh isn't new.
+                wow.fire("UNIT_AURA", "player", { addedAuras = { { spellId = COZY, auraInstanceID = 600 } } })
+                assert.is_false(ns.BuffMode.IsOn(), how)
+                assert.are.same({}, wow.errors, how)
+            end
+        end)
+
+        it("leaving the fire while its removal can't be read, then coming back, is gaining it", function()
+            for _, how in ipairs({ "secret list", "secret instance" }) do
+                bootAuto()
+                stranger()
+                local first = sitByFire()
+                slash("buffmode off")
+                takeOff(first)
+                wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = how == "secret list"
+                    and wow.secret({ first.auraInstanceID }) or { wow.secret(first.auraInstanceID) } })
+                sitByFire()
+                assert.is_true(ns.BuffMode.IsAuto(), how)
+            end
+        end)
+
+        it("a fire you zone in beside is noted by the full update, so its refresh isn't new", function()
+            bootAuto()
+            stranger()
+            wearFire(70)
+            wow.fire("UNIT_AURA", "player", { isFullUpdate = true })
+            assert.is_false(ns.BuffMode.IsOn(), "a full update adds nothing")
+            wow.fire("UNIT_AURA", "player", { addedAuras = { { spellId = COZY, auraInstanceID = 71 } } })
+            assert.is_false(ns.BuffMode.IsOn(), "the same fire, refreshed")
+        end)
+
+        it("a campfire aura added in a fight, its update restricted as the game sends it, turns it on as the fight ends",
+            function()
+            bootAuto()
+            stranger()
+            local reads = 0
+            local api = _G.C_UnitAuras.GetAuraDataByIndex
+            _G.C_UnitAuras.GetAuraDataByIndex = function(unit, ...)
+                if unit == "player" then reads = reads + 1 end
+                return api(unit, ...)
+            end
+            wow.enterCombat()
+            table.insert(wow.state.playerAuras, { isHelpful = true, spellId = COZY, auraInstanceID = 8 })
+            wow.fire("UNIT_AURA", "player", wow.secret({ addedAuras = { { spellId = COZY } } }))
+            wow.fire("UNIT_AURA", "player", { addedAuras = wow.secret({ { spellId = COZY } }) })
+            assert.are.equal(0, reads, "nothing read in the fight")
+            assert.is_false(ns.BuffMode.IsOn())
+            _G.C_UnitAuras.GetAuraDataByIndex = api
+            wow.leaveCombat()
+            assert.is_true(ns.BuffMode.IsAuto())
+        end)
+
+        it("a fire you were already by, refreshed (removed and added again) or added again, isn't new", function()
+            bootAuto()
+            stranger()
+            local first = sitByFire()
+            slash("buffmode off")
+            -- Refreshed: the old instance goes and a new one comes, in one update.
+            for i = #wow.state.playerAuras, 1, -1 do
+                if wow.state.playerAuras[i] == first then table.remove(wow.state.playerAuras, i) end
+            end
+            table.insert(wow.state.playerAuras, { isHelpful = true, spellId = COZY, auraInstanceID = 501 })
+            wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = { first.auraInstanceID },
+                addedAuras = { { spellId = COZY, auraInstanceID = 501 } } })
+            assert.is_false(ns.BuffMode.IsOn(), "refreshed")
+            -- Added again while it's on you.
+            wow.fire("UNIT_AURA", "player", { addedAuras = { { spellId = COZY, auraInstanceID = 502 } } })
+            assert.is_false(ns.BuffMode.IsOn(), "added again")
         end)
 
         it("does nothing before the login has finished", function()

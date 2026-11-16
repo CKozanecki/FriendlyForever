@@ -79,6 +79,12 @@ local groupUnsure = false -- a roster update couldn't read IsInGroup() (#373): t
                           -- looks read it again until an answer decides
 local pendingFire         -- the trigger that waits for a fight is the campfire's
 local fireMode = false    -- the buff mode a trigger turned on counts passers-by (#39)
+-- The campfire auras you wear (#39), as the updates and reads saw them:
+-- { [auraInstanceID] = spell ID }. unsure: an update couldn't be read (in a
+-- fight they come restricted), so the next look reads your aura list once:
+-- at once out of a fight, else as the fight ends.
+local fireSeen = { auras = {}, unsure = true }
+local Resync -- below: that one read of your aura list
 
 -- Buff Back's settings, read only. A section lost mid-session reads as an
 -- empty one: every trigger off, the timeout at its default (#387).
@@ -568,6 +574,9 @@ function Auto.OnEnteringWorld(isLogin, isReload)
     inGroup = GroupAnswer()
     pulled, deathSeen, pendingWhy, pendingInside, insideWait, joinedAt = false, false, nil, nil, false, nil
     lastMissing, groupUnsure, pendingFire = nil, false, nil
+    -- What you wear at a login was there already: noted, not added.
+    fireSeen.auras, fireSeen.unsure = {}, true
+    Resync(false)
     ns.GroupBuffs.EndRound()
     NoteWhoIsDead()
     -- In a group, or not yet known (#370): the looks read it again (#373).
@@ -607,6 +616,8 @@ function Auto.OnCombatEnd()
         OnDeath()
     end
     if why then TurnOn(why, inside, fire) end
+    -- A campfire aura added in the fight came restricted (#39): look once.
+    if fireSeen.unsure then Resync(true) end
     CheckMissing(true)
 end
 
@@ -643,33 +654,142 @@ function Auto.OnBuffed()
     if Cfg().autoOnBuffed == true then TurnOn("someone buffed you") end
 end
 
--- Whether UNIT_AURA's payload adds a campfire aura (#39). Anything secret,
--- or not the type it should be, adds nothing; so does a full update.
-function Auto.AddsCampfire(updateInfo)
-    local Util = ns.Util
-    if Util.IsSecret(updateInfo) or type(updateInfo) ~= "table" then return false end
-    local added = Util.Readable(updateInfo.addedAuras)
-    if type(added) ~= "table" then return false end
-    for i = 1, ns.Offers.MAX_AURAS do
-        local aura = added[i]
-        if aura == nil then return false end
-        if not Util.IsSecret(aura) and type(aura) == "table" then
-            local id = aura.spellId
-            -- A secret must never be a table key; anything else not in the set misses.
-            if not Util.IsSecret(id) and Auto.CAMPFIRE_AURAS[id] then return true end
-        end
-    end
-    return false
+-- The spell IDs in a { [instance] = spell ID } table, as a set.
+local function SpellsOf(auras)
+    local out = {}
+    for _, id in pairs(auras) do out[id] = true end
+    return out
 end
 
--- UNIT_AURA for you: a campfire aura added to you turns buff mode on (#39),
--- if that trigger is on. Not where quiet mode holds in a capital city:
--- there it would end quiet mode at the first fire you pass (as for a
--- stranger's buff, #34).
-function Auto.OnPlayerAura(unit, updateInfo)
-    if unit ~= "player" or not ready or Cfg().autoOnCampfire ~= true then return end
+-- A value that is plain data: not a secret, and of the type wanted.
+local function Plain(value, kind)
+    if ns.Util.IsSecret(value) or type(value) ~= kind then return nil end
+    return value
+end
+
+-- Your campfire auras, read from your aura list: { [instance] = spell ID },
+-- or nil when the list (or one of its auras, or their IDs) can't be read.
+-- Only for a look the updates couldn't give (above): never on every update.
+local function ReadFireAuras()
+    local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    if type(api) ~= "function" then return nil end
+    local out = {}
+    for i = 1, ns.Offers.MAX_AURAS do
+        local ok, aura = pcall(api, "player", i, "HELPFUL")
+        if not ok or ns.Util.IsSecret(aura) then return nil end
+        if aura == nil then return out end
+        if type(aura) ~= "table" then return nil end
+        local id, instance = aura.spellId, aura.auraInstanceID
+        if ns.Util.IsSecret(id) or ns.Util.IsSecret(instance) then return nil end
+        if Auto.CAMPFIRE_AURAS[id] then
+            out[(Plain(instance, "number") and instance == instance) and instance or -i] = id
+        end
+    end
+    return out
+end
+
+-- Whether a campfire aura has been added: one whose spell you weren't
+-- wearing just before. A refresh (the same spell put up again) isn't, nor
+-- is anything seen first at a login or a full update (zoning).
+local function Announce(added)
+    if not added then return end
+    local cfg = Cfg()
+    if not ready or cfg.autoOnCampfire ~= true then return end
+    -- Not where quiet mode holds in a capital city: there it would end
+    -- quiet mode at the first fire you pass (as for a stranger's buff, #34).
     if ns.Cities.ThanksQuiet() or ns.Cities.ButtonHidden() then return end
-    if Auto.AddsCampfire(updateInfo) then TurnOn("you're by a campfire", nil, true) end
+    TurnOn("you're by a campfire", nil, true)
+end
+
+-- Read your aura list once, after updates that couldn't be read: a campfire
+-- spell there that wasn't before was added meanwhile (announce). A list
+-- that can't be read leaves it for the next look.
+function Resync(announce)
+    local now = ReadFireAuras()
+    if not now then return end
+    local before = SpellsOf(fireSeen.auras)
+    fireSeen.auras, fireSeen.unsure = now, false
+    local added = false
+    for _, id in pairs(now) do
+        if not before[id] then added = true end
+    end
+    if announce then Announce(added) end
+end
+
+-- What one UNIT_AURA payload for you says (#39): its removed instances
+-- forgotten, its added campfire auras noted, and true when one is a spell
+-- you weren't wearing before it (a refresh, removed and added together, is
+-- not). Anything in it that can't be read makes the next look read the
+-- list; a full update gives no list of what's new, so it is read too, but
+-- adds nothing.
+function Auto.TakeAuraUpdate(updateInfo)
+    if Plain(updateInfo, "table") == nil then
+        fireSeen.unsure = true
+        return false
+    end
+    local full = updateInfo.isFullUpdate
+    if ns.Util.IsSecret(full) then
+        fireSeen.unsure = true
+        return false
+    end
+    if full == true then
+        fireSeen.unsure = true
+        return nil, true
+    end
+    local before = SpellsOf(fireSeen.auras)
+    local removed, added = updateInfo.removedAuraInstanceIDs, updateInfo.addedAuras
+    if removed ~= nil then
+        if Plain(removed, "table") == nil then
+            fireSeen.unsure = true
+        else
+            for i = 1, ns.Offers.MAX_AURAS do
+                local instance = removed[i]
+                if instance == nil then break end
+                -- Only a plain number is a key (NaN, a secret, anything else isn't).
+                if Plain(instance, "number") and instance == instance then
+                    fireSeen.auras[instance] = nil
+                else
+                    fireSeen.unsure = true
+                end
+            end
+        end
+    end
+    local new = false
+    if added ~= nil then
+        if Plain(added, "table") == nil then
+            fireSeen.unsure = true
+            return false
+        end
+        for i = 1, ns.Offers.MAX_AURAS do
+            local aura = added[i]
+            if aura == nil then break end
+            local id = Plain(aura, "table") and aura.spellId
+            if not Plain(aura, "table") or ns.Util.IsSecret(id) then
+                fireSeen.unsure = true
+            elseif Auto.CAMPFIRE_AURAS[id] then
+                local instance = aura.auraInstanceID
+                if not (Plain(instance, "number") and instance == instance) then instance = -1000 - i end
+                fireSeen.auras[instance] = id
+                if not before[id] then new = true end
+            end
+        end
+    end
+    return new
+end
+
+-- UNIT_AURA for you: a campfire aura added turns buff mode on (#39), if
+-- that trigger is on. An update that couldn't be read is made up by one
+-- read of your aura list, at once out of a fight, else when it ends.
+function Auto.OnPlayerAura(unit, updateInfo)
+    if unit ~= "player" then return end
+    local new, full = Auto.TakeAuraUpdate(updateInfo)
+    if full then
+        if not InCombatLockdown() then Resync(false) end
+        return
+    end
+    -- What this update added counts, and the read makes up what it hid.
+    if fireSeen.unsure and not InCombatLockdown() and ready then Resync(true) end
+    Announce(new)
 end
 
 function Auto.Create()
