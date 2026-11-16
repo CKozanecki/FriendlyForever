@@ -151,7 +151,11 @@ describe("Weapon buffs", function()
             assert.matches("Skipping your weapon buffs for 5 minutes.", button.result:GetText(), 1, true)
             refresh()
             assert.is_nil(macro())
-            wow.advance(ns.WeaponBuffs.SKIP_SECONDS + 1)
+            -- Five minutes: 300 seconds, written out rather than read from the code.
+            wow.advance(299)
+            refresh()
+            assert.is_nil(macro(), "still skipped at 299 s")
+            wow.advance(2)
             refresh()
             assert.are.equal("/use item:20749\n/use 16", macro())
         end)
@@ -217,6 +221,17 @@ describe("Weapon buffs", function()
             wow.state.playerAuras = {}
             strangerBuffs()
             assert.is_truthy(macro():find("/targetexact Bob Stone", 1, true), "the favour comes first")
+        end)
+
+        it("a clicked weapon row behind a favour arms the weapon buff", function()
+            boot({ class = "PRIEST", known = { FORT } })
+            wow.gainBuff({ spellId = FORT, sourceUnit = "player", duration = 3600, expirationTime = wow.now + 3600 })
+            strangerBuffs()
+            local shown = ns.BuffList.ShownOffers()
+            assert.are.equal(2, #shown, "Bob's favour, then your oil")
+            assert.is_truthy(macro():find("/targetexact Bob Stone", 1, true))
+            clickRow("weapon")
+            assert.are.equal("/use item:20749\n/use 16", macro())
         end)
 
         it("says on the tooltip what the press does, and what a right-click does", function()
@@ -291,6 +306,36 @@ describe("Weapon buffs", function()
         end)
     end)
 
+    describe("best first (white)", function()
+        -- Each kind's items, best rank first, from Forever's data (the rank
+        -- in each spell's name or subtext, scripts/data/forever-weapon-buffs.lua),
+        -- written out here rather than read from WeaponBuffs.lua.
+        local BEST_FIRST = {
+            sharpening = { 18262, 12404, 7964, 2871, 2863, 2862 },
+            weightstone = { 12643, 7965, 3241, 3240, 3239 },
+            wizardOil = { 20749, 20750, 20746, 20744 },
+            manaOil = { 20748, 20747, 20745 },
+            instantPoison = { 8928, 8927, 8926, 6950, 6949, 6947 },
+            deadlyPoison = { 20844, 8985, 8984, 2893, 2892 },
+            cripplingPoison = { 3776, 3775 },
+            mindNumbingPoison = { 9186, 6951, 5237 },
+            woundPoison = { 10922, 10921, 10920, 10918 },
+        }
+
+        it("offers the best rank you carry of every kind", function()
+            boot()
+            for key, order in pairs(BEST_FIRST) do
+                local listed = {}
+                for i, pair in ipairs(ns.WeaponBuffs.KINDS[key].items) do listed[i] = pair[1] end
+                assert.are.same(order, listed, key)
+            end
+            local imbues = { rockbiter = { 16316, 16315, 16314, 10399, 8019, 8018, 8017 },
+                flametongue = { 16342, 16341, 16339, 8030, 8027, 8024 }, frostbrand = { 16356, 16355, 10456, 8038, 8033 },
+                windfury = { 16362, 10486, 8235, 8232 } }
+            for key, order in pairs(imbues) do assert.are.same(order, ns.WeaponBuffs.KINDS[key].ranks, key) end
+        end)
+    end)
+
     describe("settings (white)", function()
         it("are off by default, with nothing chosen, and offer nothing", function()
             boot({ db = {} })
@@ -325,6 +370,22 @@ describe("Weapon buffs", function()
             assert.are.equal("deadlyPoison", ns.db.buffBack.weaponMain)
             pick(w.off, "instantPoison")
             assert.are.equal("instantPoison", ns.db.buffBack.weaponOff)
+        end)
+
+        it("take effect on the button at once, both ways, with no time passing", function()
+            boot({ class = "ROGUE", main = "deadlyPoison", items = { [W.deadlyPoison5] = 1, [W.instantPoison6] = 1 } })
+            local w = ns.Options.widgets.weapon
+            assert.are.equal("/use item:20844\n/use 16", macro())
+            w.enabled:SetChecked(false)
+            wow.run(w.enabled, "OnClick", "LeftButton")
+            assert.is_nil(macro(), "switched off: nothing armed")
+            w.enabled:SetChecked(true)
+            wow.run(w.enabled, "OnClick", "LeftButton")
+            assert.are.equal("/use item:20844\n/use 16", macro())
+            for _, row in ipairs(w.main.rows) do
+                if row.value == "instantPoison" then wow.run(row, "OnClick", "LeftButton") end
+            end
+            assert.are.equal("/use item:8928\n/use 16", macro(), "the new kind, at once")
         end)
 
         it("list only the kinds your class can use, imbues on the main hand only", function()
@@ -519,6 +580,21 @@ describe("Weapon buffs", function()
             assert.matches("Applied Brilliant Wizard Oil to your main hand.", button.result:GetText(), 1, true)
         end)
 
+        it("isn't answered by the same poison put on by hand meanwhile, with its own cast", function()
+            boot({ class = "ROGUE", main = "instantPoison", items = { [W.instantPoison6] = 3 },
+                before = function(s)
+                    s.castLatency = 2
+                    s.weaponRefusal = "You can't do that while moving."
+                end })
+            press()
+            -- By hand, on the off hand: the same spell, with its own cast GUID.
+            wow.fire("UNIT_SPELLCAST_SENT", "player", "Worn Dagger", "Hand-1", 11340)
+            wow.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Hand-1", 11340)
+            assert.is_nil((button.result:GetText() or ""):find("Applied", 1, true))
+            wow.advance(2)
+            assert.matches("You can't do that while moving.", button.result:GetText(), 1, true)
+        end)
+
         it("says so when a press puts nothing on, and holds that hand back", function()
             boot({ before = function(s) s.useDoesNothing = true end })
             press()
@@ -547,6 +623,13 @@ describe("Weapon buffs", function()
             boot()
             _G.UnitIsDeadOrGhost = function() return wow.secret(false) end
             reasonShown("can't tell whether you're dead")
+        end)
+
+        it("offers nothing when whether you're mounted, or on a flight path, can't be read", function()
+            boot({ before = function(s) s.selfSecrets.mounted = true end })
+            reasonShown("can't tell whether you're mounted")
+            boot({ before = function(s) s.selfSecrets.taxi = true end })
+            reasonShown("can't tell whether you're on a flight path")
         end)
 
         it("offers nothing when the client can't say what you wear or whether it has a Use", function()
@@ -808,8 +891,65 @@ describe("Weapon buffs", function()
                     local text = macro()
                     if text and (text:find("^/use ") or text:find("Weapon\n/use 16$")) then checkMacro(text, seed, step) end
                     assert.are.equal(0, #wow.weaponUses, "seed " .. seed .. ": a weapon's own Use fired")
+                    -- "Never errors": anything caught on the way (Diag.Call) is an error too.
+                    assert.are.same({}, wow.errors, "seed " .. seed .. " step " .. step)
                 end
                 applied = applied + #wow.applied
+            end)
+        end
+
+        -- The Use guard (Q6) under its own storm: a weapon with its own Use,
+        -- or one whose Use can't be read, in a bare hand you'd otherwise be
+        -- offered something for, again and again. Each seed must reach that
+        -- hazard often, worked out from the client's own state, and then no
+        -- weapon macro may be armed, for an item or an imbue.
+        for _, seed in ipairs(SEEDS) do
+            it("never arms a weapon buff for a weapon whose Use is there or can't be read (seed " .. seed .. ")",
+                function()
+                random.seed(seed)
+                local function int(m, n) return random.random(m, n) end
+                local shaman = seed % 2 == 0
+                local carried = {}
+                for _, item in ipairs(ITEMS) do carried[item] = 2 end
+                boot({ class = shaman and "SHAMAN" or "ROGUE", main = shaman and "rockbiter" or "deadlyPoison",
+                    offHand = shaman and "none" or "instantPoison", items = carried,
+                    known = { ROCKBITER_4, ROCKBITER_1, WINDFURY_4 },
+                    before = function(st) st.equipped[17] = wow.GEAR.dagger end })
+                local reached = 0
+                for step = 1, 80 do
+                    local s = wow.state
+                    local roll = int(1, 6)
+                    if roll == 1 then
+                        s.equipped[int(16, 17)] = ({ wow.GEAR.useSword, wow.GEAR.sword, wow.GEAR.useSword })[int(1, 3)]
+                    elseif roll == 2 then
+                        s.weaponSecrets.itemSpell = int(1, 3) > 1 or nil
+                    elseif roll == 3 then
+                        s.weaponEnchants[int(16, 17)] = nil
+                    elseif roll == 4 then
+                        s.imbuePicks = int(1, 2) == 1
+                    elseif roll == 5 then
+                        wow.pressKey("MOUSEWHEELUP")
+                    else
+                        wow.advance(int(1, 30))
+                    end
+                    refresh()
+                    -- The hazard, from the client: a bare hand with a kind chosen
+                    -- for it, whose weapon has a Use or hides whether it has.
+                    local text = macro() or ""
+                    local used = text:match("^/use item:%d+\n/use (%d+)$") or (text:find("Weapon\n/use 16$") and "16")
+                    for _, slot in ipairs(shaman and { 16 } or { 16, 17 }) do
+                        local worn = s.equipped[slot]
+                        local useOrHidden = worn and (wow.GEAR_INFO[worn].use or s.weaponSecrets.itemSpell)
+                        if useOrHidden and not wow.enchantOn(slot) then
+                            reached = reached + 1
+                            assert.are_not.equal(tostring(slot), used,
+                                string.format("seed %d step %d: armed for slot %d: %s", seed, step, slot, text))
+                        end
+                    end
+                    assert.are.equal(0, #wow.weaponUses, "seed " .. seed .. ": a weapon's own Use fired")
+                    assert.are.same({}, wow.errors, "seed " .. seed .. " step " .. step)
+                end
+                assert.is_true(reached >= 20, "seed " .. seed .. " reached the hazard only " .. reached .. " times")
             end)
         end
 

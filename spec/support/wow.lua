@@ -622,7 +622,10 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         blunt weapon; on another the game refuses at once
 --                         ("Invalid target."), as in Classic. A weapon is
 --                         item class 2; GetItemSpell names a weapon's own
---                         Use, and nil for none.
+--                         Use, and nil for none. IsUsableItem answers from
+--                         state.unusableItems only, never from how many you
+--                         carry (whether Forever's does is unconfirmed: the
+--                         pessimistic reading).
 --   /cleartarget then /targetexact X leaves your old target as the "last
 --                         target", so /targetlasttarget brings it back (setTarget)
 --   Mouse clicks, like key presses, act on the half the key-down setting
@@ -1373,8 +1376,9 @@ function M.installWeaponApi()
     end
     _G.GetItemSpell = itemSpell
     _G.C_Item.GetItemSpell = itemSpell
+    -- Whether you could use an item, whatever you carry: the count is never
+    -- a second guard here (the pessimistic reading, #420's testing review).
     local function usableItem(item)
-        if (M.state.items[item] or 0) < 1 then return read("usable", false), false end
         return read("usable", not M.state.unusableItems[item]), false
     end
     _G.IsUsableItem = usableItem
