@@ -317,6 +317,42 @@ describe("Layout", function()
             assert.is_true(left >= 0 and right <= w.content:GetWidth(),
                 ("the list spans %d to %d, outside 0 to %d"):format(left, right, w.content:GetWidth()))
         end)
+
+        -- The UI simulator's run: a row near the bottom of the view hung its
+        -- list off the screen. It opens above when there's more room there.
+        it("opens the who-gets list above a row near the bottom of the view, below otherwise", function()
+            local ns = wow.boot({ before = function(state) state.class = "PRIEST" end })
+            assert.is_true(ns.BuffRules.Choose("new"))
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.party, "OnClick")
+            local row = w.whoRows[1]
+            w.scroll.top = 700
+            w.scroll:SetHeight(500) -- the view: 700 down to 200
+            local function open(top)
+                row.names.top = top
+                if w.whoList:IsShown() then wow.run(row.who, "OnClick") end
+                wow.run(row.who, "OnClick")
+                assert.is_true(w.whoList:IsShown())
+                local point, to, relative = w.whoList:GetPoint(1)
+                assert.are.equal(row.names, to)
+                return point .. " " .. relative
+            end
+            assert.are.equal("TOPRIGHT BOTTOMRIGHT", open(650), "near the top: below")
+            -- 226 below (to 200) and 2 to spare: still below.
+            assert.are.equal("TOPRIGHT BOTTOMRIGHT", open(200 + 22 + ns.BuffsTab.LIST_HEIGHT + 2))
+            assert.are.equal("BOTTOMRIGHT TOPRIGHT", open(200 + 22 + ns.BuffsTab.LIST_HEIGHT + 1), "one short: above")
+            assert.are.equal("BOTTOMRIGHT TOPRIGHT", open(240), "near the bottom: above")
+            -- Off the bottom of a view too short for it either side: the side with more room.
+            w.scroll:SetHeight(150)
+            assert.are.equal("TOPRIGHT BOTTOMRIGHT", open(690), "more room below")
+            assert.are.equal("BOTTOMRIGHT TOPRIGHT", open(600), "more room above")
+            -- Edges not laid out yet: below.
+            row.names.top = nil
+            wow.run(row.who, "OnClick")
+            wow.run(row.who, "OnClick")
+            assert.are.equal("TOPRIGHT", (w.whoList:GetPoint(1)))
+        end)
     end)
 
     describe("the message list on each options tab", function()

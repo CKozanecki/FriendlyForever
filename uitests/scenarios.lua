@@ -1468,6 +1468,38 @@ local function ListHoldsAll(list, label)
     end
 end
 
+-- The open who-gets list on content, or nil.
+local function OpenList(content)
+    for _, child in ipairs({ content:GetChildren() }) do
+        if child:GetObjectType() == "Frame" and child:IsShown() and child:GetFrameStrata() == "DIALOG" then
+            return child
+        end
+    end
+end
+
+-- Scrolls the options so frame sits near the top ("top") or the bottom
+-- ("bottom") of the view, as a player scrolls a row into view before
+-- clicking it; nil frame: back to the top. The offset stays inside the range.
+local function ScrollRowTo(content, frame, at)
+    local scroll = content:GetParent()
+    if not (scroll and scroll.SetVerticalScroll) then return end
+    local offset = 0
+    if frame then
+        Settle(content)
+        local top, rowTop = Measure(content, "GetTop"), Measure(frame, "GetTop")
+        local view, height = Measure(scroll, "GetHeight"), Measure(frame, "GetHeight")
+        if top and rowTop then
+            offset = top - rowTop - 12
+            if at == "bottom" and view and height then offset = top - rowTop - (view - height - 12) end
+        end
+    end
+    local range = Measure(scroll, "GetVerticalScrollRange")
+    offset = math.max(0, math.min(offset, range or offset))
+    scroll:SetVerticalScroll(offset)
+    report(("LAYOUT Buffs tab: scrolled to %.0f of %s for a row near the %s"):format(offset,
+        tostring(range), tostring(at)))
+end
+
 test("the Buffs tab stays inside its page at its tallest, at every place, names and list open (#408)", function()
     local Pages = FriendlyForeverUIPages
     local saved = FriendlyForeverDB and FriendlyForeverDB.buffBack
@@ -1507,20 +1539,32 @@ test("the Buffs tab stays inside its page at its tallest, at every place, names 
                 end
                 check(raid ~= nil, "the raid Blessings rows aren't shown on the Raid place")
             end
-            -- The who-gets list of the first buff: on screen.
+            -- The who-gets list of the first buff, opened as a player would:
+            -- its row scrolled into view, near the top and then near the
+            -- bottom of the view, where the list opens above it. On screen,
+            -- holding all it lists, inside the options.
+            local who
             for _, child in ipairs({ content:GetChildren() }) do
                 if child:IsShown() and child:GetObjectType() == "Button" and child:GetWidth() == 200 then
-                    child:GetScript("OnClick")(child)
+                    who = child
                     break
                 end
             end
-            for _, child in ipairs({ content:GetChildren() }) do
-                if child:GetObjectType() == "Frame" and child:IsShown() and child:GetFrameStrata() == "DIALOG" then
-                    OnScreen(child, name .. " who-gets list")
-                    ListHoldsAll(child, name .. " who-gets list")
-                    EndsInside(content, child, name .. " who-gets list")
-                end
+            check(who ~= nil, "no who-gets button at " .. place.label)
+            for _, at in ipairs({ "top", "bottom" }) do
+                ScrollRowTo(content, who, at)
+                -- Closed and opened again: the list is placed as it opens.
+                local list = OpenList(content)
+                if list then who:GetScript("OnClick")(who) end
+                who:GetScript("OnClick")(who)
+                list = OpenList(content)
+                check(list ~= nil, name .. ": the who-gets list didn't open")
+                local label = ("%s who-gets list (row near the %s)"):format(name, at)
+                OnScreen(list, label)
+                ListHoldsAll(list, label)
+                EndsInside(content, list, label)
             end
+            ScrollRowTo(content, nil)
         end
     end)
     -- The saved settings as they were.

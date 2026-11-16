@@ -169,14 +169,33 @@ function BuffsTab.ToggleList(key)
     ns.Options.Refresh()
 end
 
+-- At the row's right end, so it stays inside the page: below the row, or
+-- above it when the view shows too little below and more above (a row near
+-- the bottom of the view would hang its list off the screen; the UI
+-- simulator). Edges the game can't give yet leave it below.
+local function PlaceList(list, row)
+    list:ClearAllPoints()
+    local scroll = ns.Options.widgets.scroll
+    local rowTop, viewTop = row.names:GetTop(), scroll and scroll:GetTop()
+    local up = false
+    if type(rowTop) == "number" and type(viewTop) == "number" then
+        local below = rowTop - row.names:GetHeight() - (viewTop - scroll:GetHeight())
+        local above = viewTop - rowTop
+        up = below < BuffsTab.LIST_HEIGHT + 2 and above > below
+    end
+    if up then
+        list:SetPoint("BOTTOMRIGHT", row.names, "TOPRIGHT", 0, 2)
+    else
+        list:SetPoint("TOPRIGHT", row.names, "BOTTOMRIGHT", 0, -2)
+    end
+end
+
 local function FillList(row)
     local list = w.whoList
     if not listKey or not row then return list:Hide() end
     local buff = ns.BuffData.ByKey(listKey)
     if not buff then return CloseList() end
-    list:ClearAllPoints()
-    -- Under the row's right end, so it stays inside the page (the UI simulator).
-    list:SetPoint("TOPRIGHT", row.names, "BOTTOMRIGHT", 0, -2)
+    PlaceList(list, row)
     local entry = ns.BuffRules.PlaceEntry(buff, place)
     list.everyone:SetChecked(entry.everyone == true)
     local strangers = place == "strangers"
