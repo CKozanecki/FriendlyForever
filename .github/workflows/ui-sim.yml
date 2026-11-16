@@ -858,7 +858,7 @@ jobs:
       # The walkthrough's steps shot (#47): uitests/pages.lua's
       # Pages.WALKTHROUGH_STEPS names (spec/uitests_pages_spec.lua checks
       # they match).
-      WALKTHROUGH_STEPS: welcome buff-mode-key buff-mode-triggers whats-new-requests
+      WALKTHROUGH_STEPS: welcome buff-mode-key buff-mode-triggers whats-new-requests whats-new-buffs
       # The Buffs tab's shots (#408): uitests/pages.lua's Pages.BUFFS_SHOTS
       # (spec/uitests_pages_spec.lua checks they match).
       BUFFS_SHOTS: buff-back party raid pvp party-list raid-names party-choice

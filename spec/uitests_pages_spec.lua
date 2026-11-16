@@ -395,8 +395,8 @@ describe("the UI simulator's walkthrough steps", function()
                 assert.are.equal("What's new: " .. step.title, walkthrough.title:GetText())
             end
         end
-        assert.are.equal(1, whatsNew, "no What's new step is shot")
-        assert.are.equal("buffBack", ns.Options.CurrentType(), "the last step shot is on the Buff Back tab")
+        assert.are.equal(2, whatsNew, "the What's new steps shot: buff requests and the Buffs tab")
+        assert.are.equal(ns.Options.BUFFS_TAB, ns.Options.CurrentType(), "the last step shot is on the Buffs tab")
     end)
 
     -- #362: the buff requests step, as a returning player who finished the
@@ -415,6 +415,25 @@ describe("the UI simulator's walkthrough steps", function()
         Pages.SkipWalkthrough()
         assert.are.equal(ns.Config.WALKTHROUGH_VERSION, ns.db.walkthrough.seen)
         assert.is_false(walkthrough:IsShown())
+    end)
+
+    -- #408: the Buffs tab step, as a returning player whose buff rules wait
+    -- for the keep-or-reset choice sees it; the scenario puts the choice back.
+    it("shows the Buffs tab step with its choice offered, and puts the saved choice back (white)", function()
+        ns.db.buffBack.whoChoice = "new"
+        local walkthrough = Pages.OpenWalkthrough("whats-new-buffs")
+        assert.are.equal("What's new: Your buffs have a tab of their own", walkthrough.title:GetText())
+        assert.are.equal("pending", ns.BuffRules.Choice())
+        assert.is_true(walkthrough.keep:IsShown() and walkthrough.new:IsShown())
+        Pages.SkipWalkthrough()
+        Pages.PutBackChoice()
+        assert.are.equal("new", ns.db.buffBack.whoChoice)
+        -- A choice made while it was shown stays made.
+        ns.db.buffBack.whoChoice = "new"
+        walkthrough = Pages.OpenWalkthrough("whats-new-buffs")
+        walkthrough.keep:Click()
+        Pages.PutBackChoice()
+        assert.are.equal("kept", ns.db.buffBack.whoChoice)
     end)
 
     it("fails loudly, rather than shoot the wrong step, when the simulator can't fire the login (black)", function()
