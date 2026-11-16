@@ -102,11 +102,11 @@ describe("Water Walking, offered only on request", function()
             assert.are.equal("Water Walking", (offered()))
         end)
 
-        it("is listed on the Buff Back tab as \"(when asked)\", with no Who button, and \"never offer\" doesn't "
+        it("is listed on the Buffs tab as \"(when asked)\", with no Who button, and \"never offer\" doesn't "
             .. "stop requests for it (#408)", function()
             boot()
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
             local row
             for _, r in ipairs(w.buffRows) do
                 if r.key == "waterwalking" then row = r end
@@ -115,10 +115,13 @@ describe("Water Walking, offered only on request", function()
             assert.is_truthy(row.name:GetText():find("Water Walking", 1, true))
             assert.is_truthy(row.name:GetText():find("(when asked)", 1, true))
             assert.is_falsy(row.name:GetText():find("(not known yet)", 1, true))
-            assert.is_false(row.who:IsShown())
-            assert.is_true(row.never:IsShown())
-            ns.Options.CycleWho("waterwalking")
-            assert.is_nil(ns.db.buffBack.whoGets and ns.db.buffBack.whoGets.waterwalking, "no rule to cycle")
+            assert.is_true(row.never:IsVisible())
+            for _, place in ipairs(ns.BuffRules.PLACES) do
+                wow.run(w.placeTabs[place], "OnClick")
+                for _, who in ipairs(w.whoRows) do
+                    if who.key == "waterwalking" then assert.is_false(who.who:IsVisible(), place) end
+                end
+            end
             -- The owner (#408, question 5): a request is given whatever Never offer says.
             ns.Options.SetNeverOffer("waterwalking", true)
             stranger()
@@ -271,7 +274,7 @@ describe("Water Walking, offered only on request", function()
                 wow.press(button)
                 assert.are.same({}, wow.casts)
                 local w = ns.Options.widgets
-                wow.run(w.tabs.buffBack, "OnClick")
+                wow.run(w.tabs.buffs, "OnClick")
                 local shown
                 for _, r in ipairs(w.buffRows) do
                     if r.key == "waterwalking" then shown = r.name:GetText() end

@@ -1,4 +1,4 @@
--- Spec: #70, #165
+-- Spec: #70, #165, #408
 -- The raid buff split: copies of the addon in the same raid share out the
 -- buffs their class has in common over the hidden channel, so two priests
 -- or two paladins don't give the same buff. The split only narrows what
@@ -701,8 +701,9 @@ describe("The raid buff split (#70)", function()
         it("switched off, a copy is offered everything, says nothing, and the others pick up its share", function()
             wow.use(clients[1])
             local w = clients[1].ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            assert.is_true(w.raidSplit:IsShown())
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.raid, "OnClick")
+            assert.is_true(w.raidSplit:IsVisible())
             assert.is_true(w.raidSplit:GetChecked())
             w.raidSplit:SetChecked(false)
             wow.run(w.raidSplit, "OnClick")
@@ -734,11 +735,12 @@ describe("The raid buff split (#70)", function()
             assert.is_true(ns.RaidSplit.Enabled())
         end)
 
-        it("the Buff Back tab shows a saved off as off", function()
+        it("the Buffs tab shows a saved off as off", function()
             local ns = wow.boot({ db = { buffBack = { raidSplit = false } } })
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            assert.is_true(w.raidSplit:IsShown())
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.raid, "OnClick")
+            assert.is_true(w.raidSplit:IsVisible())
             assert.is_false(w.raidSplit:GetChecked())
         end)
 

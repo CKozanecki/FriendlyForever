@@ -1,4 +1,4 @@
--- Spec: #71, #32, #290, #330, #370, #392
+-- Spec: #71, #32, #290, #330, #370, #392, #408
 -- Battlegrounds: buffing in the preparation phase, then quiet until you
 -- leave or the battleground ends.
 local wow = require("spec.support.wow")
@@ -471,9 +471,10 @@ describe("Battlegrounds", function()
             wow.enterBattleground(TEAM)
             assert.is_true(ns.BuffMode.IsOn())
             slash("")
-            wow.run(ns.Options.widgets.tabs.buffBack, "OnClick")
+            wow.run(ns.Options.widgets.tabs.buffs, "OnClick")
+            wow.run(ns.Options.widgets.placeTabs.pvp, "OnClick")
             local box = ns.Options.widgets.bgPrepBuff
-            assert.is_true(box:IsShown())
+            assert.is_true(box:IsVisible())
             assert.is_true(box:GetChecked())
             box:SetChecked(false)
             wow.run(box, "OnClick")
@@ -481,7 +482,7 @@ describe("Battlegrounds", function()
             assert.is_false(ns.BuffMode.IsOn())
             assert.is_false(lent())
             wow.run(ns.Options.widgets.tabs.buff, "OnClick")
-            assert.is_false(box:IsShown(), "only on the Buff Back tab")
+            assert.is_false(box:IsVisible(), "only on the Buffs tab, in PvP")
         end)
 
         it("switched off by a profile in the preparation phase ends buff mode (white)", function()

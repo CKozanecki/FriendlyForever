@@ -18,6 +18,10 @@ local EVERY_TAB = "every message tab"
 local NOT_BUFF_BACK = "every message tab except the Buff Back tab"
 local BUFF = "the Buff Thanks tab"
 local BUFF_BACK = "the Buff Back tab"
+local BUFFS = "the Buffs tab" -- #408
+local BUFFS_PARTY = "the Buffs tab's Party place"
+local BUFFS_RAID = "the Buffs tab's Raid place"
+local BUFFS_PVP = "the Buffs tab's PvP place"
 local GENERAL = "the General page"
 local LEDGER = "the Favour Ledger page"
 local START = "the Start here page"
@@ -78,21 +82,45 @@ OptionsIndex.SETTINGS = {
         controls = { "steppers.renewPercent" } },
     { name = "Show the button in capital cities", page = BUFF_BACK, keywords = "buff back button city cities",
         controls = { "showInCities" } },
-    { name = "Buff order", page = BUFF_BACK, keywords = "buff up down order first",
+    { name = "Who gets which buff, the buff order and Never offer are on the Buffs tab", page = BUFF_BACK,
+        keywords = "buff buffs tab who order never offer link", controls = { "openBuffs" } },
+    { name = "Buff order", page = BUFFS, keywords = "buff up down order first",
         controls = { "buffRows.*.up", "buffRows.*.down" } },
-    { name = "Never offer a buff", page = BUFF_BACK, keywords = "buff never offer skip",
+    { name = "Never offer a buff", page = BUFFS, keywords = "buff never offer skip",
         controls = { "buffRows.*.never" } },
-    { name = "Offer my self-buffs in buff mode", page = BUFF_BACK,
+    { name = "Offer my self-buffs in buff mode", page = BUFFS,
         keywords = "buff mode self buff inner fire armor aspect aura lightning shield battle shout righteous fury",
         controls = { "selfBuffs" } },
-    { name = "Offer my own buffs when I'm not in a group", page = BUFF_BACK,
+    { name = "Water breathing: only near water", page = BUFFS,
+        keywords = "buff unending breath water breathing swim underwater",
+        controls = { "breathNearWater" } },
+    { name = "Use group versions", page = BUFFS,
+        keywords = "buff mode group version arcane brilliance prayer fortitude spirit shadow gift wild party raid "
+            .. "reagent",
+        controls = { "groupVersions", "steppers.groupEnough" } },
+    { name = "Who gets each buff, by place", page = BUFFS,
+        keywords = "buff who gets everyone tank tanks healer healers damage dps role roles class classes off "
+            .. "strangers buff back party raid pvp battleground arena place",
+        controls = { "placeTabs", "whoRows.*.who" } },
+    { name = "Always and Never names", page = "the Buffs tab's Party, Raid and PvP places",
+        keywords = "buff who always never names players",
+        controls = { "whoRows.*.names", "who.always", "who.never" } },
+    { name = "Keep my settings or use the new defaults", page = BUFFS,
+        keywords = "buff who choice keep settings new defaults reset",
+        controls = { "choice.keep", "choice.new" } },
+    { name = "Open the Buff Back tab", page = "the Buffs tab's Buff Back place",
+        keywords = "buff back line timing messages", controls = { "openBuffBack" } },
+    { name = "Offer my own buffs when I'm not in a group", page = BUFFS_PARTY,
         keywords = "buff mode solo alone own buffs myself not in a group",
         controls = { "soloOwnBuffs" } },
-    { name = "Who gets each buff in buff mode", page = BUFF_BACK,
-        keywords = "buff mode who class classes always never names players",
-        controls = { "buffRows.*.who", "who.classes", "who.always", "who.never" } },
-    { name = "Blessings I give in this raid", page = BUFF_BACK, keywords = "paladin blessing blessings raid buff",
+    { name = "Share buffs with other copies in raids", page = BUFFS_RAID,
+        keywords = "buff mode raid split share priest paladin mage druid blessing other copies",
+        controls = { "raidSplit" } },
+    { name = "Blessings I give in this raid", page = BUFFS_RAID, keywords = "paladin blessing blessings raid buff",
         controls = { "who.raidBlessings" } },
+    { name = "Buff in a battleground's preparation phase", page = BUFFS_PVP,
+        keywords = "buff battleground battlegrounds bg pvp preparation gates",
+        controls = { "bgPrepBuff" } },
     { name = "Buff mode turns on by itself", page = BUFF_BACK,
         keywords = "buff mode automatic auto group join dungeon raid instance nearby death stranger "
             .. "missing faded fade combat",
@@ -102,18 +130,6 @@ OptionsIndex.SETTINGS = {
     { name = "Top up my buffs with under", page = BUFF_BACK,
         keywords = "buff mode top up renew refresh expire running low minutes left",
         controls = { "steppers.topUpMinutes" } },
-    { name = "Use group versions", page = BUFF_BACK,
-        keywords = "buff mode group version arcane brilliance prayer fortitude spirit shadow gift wild party raid "
-            .. "reagent",
-        controls = { "groupVersions", "steppers.groupEnough" } },
-    { name = "Share buffs with other copies in raids", page = BUFF_BACK,
-        keywords = "buff mode raid split share priest paladin mage druid blessing other copies",
-        controls = { "raidSplit" } },
-    { name = "Buff in the preparation phase", page = BUFF_BACK, keywords = "buff battleground battlegrounds bg pvp",
-        controls = { "bgPrepBuff" } },
-    { name = "Water breathing: only near water", page = BUFF_BACK,
-        keywords = "buff unending breath water breathing swim underwater",
-        controls = { "breathNearWater" } },
     { name = "Offer my buffs to players who ask in chat", page = BUFF_BACK,
         keywords = "buff request requests ask asked whisper say chat mark int fort",
         controls = { "buffRequests" } },
