@@ -250,25 +250,26 @@ function Pages.OpenTab(name)
 end
 
 -- The Buff Back tab's buffs by their Forever names (#158). The simulator
--- plays Forever with Forever's spell data (wow-ui-sim 936d5f5, #160), so it
--- names them itself; until then a fixture here answered for it, and without
--- one the tab showed the buff keys ("wisdom"), much shorter than what a
--- player reads. This list is what the tab must show: UnnamedBuff checks the
--- simulator against it. The ranks are BuffData.lua's PALADIN ranks, which
--- spec/uitests_pages_spec.lua checks: the paladin's buffs for others only.
--- The paladin's self-buffs (#44: Righteous Fury and the auras) aren't in the
--- simulator's spell data yet, so it can't name them and their rows show
--- their keys ("retribution"). Devotion Aura is named, though its rank 1,
--- 465, isn't in the downloaded list: the simulator falls back to its own
--- spell catalog for a name, and its paladin's spellbook lists 465
--- (docs/ui-simulator.md). Listing them here would fail every tab's layout
--- scenarios on UnnamedBuff. #343 gives the simulator their spells, and then
--- this list takes them too. Until then spec/layout_spec.lua checks every
--- class's rows, self-buffs included, with their real names.
+-- plays Forever with Forever's spell data (#160), so it names them itself;
+-- until then a fixture here answered for it, and without one the tab showed
+-- the buff keys ("wisdom"), much shorter than what a player reads. This list
+-- is what the tab must show: UnnamedBuff checks the simulator against it.
+-- The ranks are BuffData.lua's PALADIN ranks, which
+-- spec/uitests_pages_spec.lua checks: every paladin buff, the self-buffs
+-- (#44) included, since the workflow adds their spells to the simulator's
+-- spell data (#343).
 Pages.BUFF_NAMES = {
     { key = "kings", name = "Blessing of Kings", ranks = { 20217 } },
     { key = "wisdom", name = "Blessing of Wisdom", ranks = { 25290, 19854, 19853, 19852, 19850, 19742 } },
     { key = "might", name = "Blessing of Might", ranks = { 25291, 19838, 19837, 19836, 19835, 19834, 19740 } },
+    { key = "righteousfury", name = "Righteous Fury", ranks = { 25780 } },
+    { key = "devotion", name = "Devotion Aura", ranks = { 10293, 10292, 1032, 10291, 643, 10290, 465 } },
+    { key = "retribution", name = "Retribution Aura", ranks = { 10301, 10300, 10299, 10298, 7294 } },
+    { key = "concentration", name = "Concentration Aura", ranks = { 19746 } },
+    { key = "shadowaura", name = "Shadow Resistance Aura", ranks = { 19896, 19895, 19876 } },
+    { key = "frostaura", name = "Frost Resistance Aura", ranks = { 19898, 19897, 19888 } },
+    { key = "fireaura", name = "Fire Resistance Aura", ranks = { 19900, 19899, 19891 } },
+    { key = "sanctity", name = "Sanctity Aura", ranks = { 20218 } },
 }
 
 -- The first rank in BUFF_NAMES the client doesn't give its Forever name, as

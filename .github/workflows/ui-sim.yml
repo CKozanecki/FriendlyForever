@@ -7,7 +7,7 @@ name: UI simulator
 #
 # Safety:
 # - The simulator is built here from one reviewed commit of its source
-#   (936d5f5, #160), with every base image pinned by digest, so it can't
+#   (9c48956, #308), with every base image pinned by digest, so it can't
 #   change under us; read the source at a new commit before moving the pin.
 #   There's no published image at that commit, and we never use the
 #   project's release binaries.
@@ -22,7 +22,9 @@ name: UI simulator
 #     with no route out. It reaches only a proxy, which lets through only
 #     HTTPS tunnels to the hosts in SPELL_DATA_HOSTS, on port 443. What it
 #     writes must match SPELL_DATA_SHA256, or the job stops before anything
-#     is cached, uploaded or run.
+#     is cached, uploaded or run. The only change we make to the
+#     simulator's source is data: our self-buffs' spell IDs, appended to
+#     its list of spells to extract before the build (#343).
 # - We don't use the project's own Action: it pulls a moving tag, mounts
 #   the repository read-write and puts an input into a shell command
 #   unquoted.
@@ -58,9 +60,10 @@ env:
   # most players use. spec/repo_spec.lua checks both are listed.
   LAYOUT_SIZES: 1024x768 1920x1080
   SIM_REPO: https://github.com/Osso/wow-ui-sim.git
-  # The head of their master on 2026-11-13, with the Forever profile, its
-  # spell data and our three contributions (#100); reviewed on #160.
-  SIM_COMMIT: 936d5f53841ee620384b7f05a0f8d5e861835c3d
+  # The head of their master on 2026-11-14, with the Forever profile, its
+  # spell data and our three contributions (#100). #160 reviewed the source
+  # up to 936d5f5, and #308 the 517 commits from there to here.
+  SIM_COMMIT: 9c48956c9c85ddb345ebe4fd477ff1b63a8e0943
   # The client the simulator plays: WoW Forever, the game the addon ships
   # for (#160, the owner's decision). It names the Blizzard UI cache folder
   # and the spell data folder.
@@ -85,10 +88,13 @@ env:
   # what it must write. The simulator's own code checks every downloaded
   # chunk against keys pinned in its source before decoding it.
   SPELL_DATA_HOSTS: us.version.battle.net level3.ssl.blizzard.com us.cdn.blizzard.com kr.cdn.blizzard.com
-  # Taken from this workflow's first run on #314, after #160's review of the
-  # download code; the row check below ties it to our committed copy. In
-  # quotes: YAML would read a hash of digits as a number.
-  SPELL_DATA_SHA256: "baafb9369a8214a5d793fba12cadec875f7f4a0c4ff8e569d6faac21b2bcac7b"
+  # The download with our self-buffs' IDs added to upstream's list (#343):
+  # byte for byte scripts/data/forever-spells-extended.json, which #44 made
+  # by hand with the same tool and list at 936d5f5, after #160's review of
+  # the download code (unchanged up to 9c48956, #308). The row check below
+  # ties it to that committed copy. In quotes: YAML would read a hash of
+  # digits as a number.
+  SPELL_DATA_SHA256: "43d0cfa0a207b9fc0bc9ae5ea76b70b3d2ecb8779f4b33b92e288ce45d7cc45b"
   RENDER_BASE: debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 # bookworm-slim
   # The one font file every wow-sim run draws and measures text in (#310).
   # With no game fonts the simulator would use the first system face its font
@@ -110,8 +116,9 @@ jobs:
   # *.lua), the ones the options panel is built from, Colours.lua (the palette
   # every colour comes from), BuffData.lua and BuffRules.lua (they decide text
   # the Buff Back tab shows, #226), the scenarios, the
-  # art, the packaging inputs, the simulator harness, the spell data check
-  # and the copy it checks against (#160), and this workflow. A
+  # art, the packaging inputs, the simulator harness, the spell data check,
+  # the copy it checks against (#160) and the spell IDs we add to the
+  # simulator's list (#343), and this workflow. A
   # change to anything else, such as Greeter.lua or GroupBuffs.lua, skips the
   # jobs below; a skipped job counts as passing.
   #
@@ -190,7 +197,8 @@ jobs:
               */*)
                 case "$file" in
                   uitests/* | Media/* | .github/workflows/ui-sim.yml | scripts/package.sh | scripts/ui-sim-harness.lua \
-                    | scripts/sim-spell-check.py | scripts/data/forever-spells.json) hit=yes ;;
+                    | scripts/sim-spell-check.py | scripts/data/forever-spells-extended.json \
+                    | scripts/data/forever-spell-ids-extra.txt) hit=yes ;;
                 esac ;;
               *)
                 case "$file" in
@@ -248,14 +256,15 @@ jobs:
       # staging step (a flag, a marker, a copied folder) misses the cache and
       # is built and checked in the run that changes it, never hidden by a
       # hit. Only this file is checked out, with the two the spell data
-      # check reads (#160).
+      # check reads (#160) and the spell IDs we add (#343).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           sparse-checkout: |
             .github/workflows/ui-sim.yml
             scripts/sim-spell-check.py
-            scripts/data/forever-spells.json
+            scripts/data/forever-spells-extended.json
+            scripts/data/forever-spell-ids-extra.txt
           sparse-checkout-cone-mode: false
 
       # One hash over every input of the build below. Change any of them and
@@ -265,12 +274,12 @@ jobs:
         id: key
         env:
           WORKFLOW_HASH: ${{ hashFiles('.github/workflows/ui-sim.yml') }}
-          SPELL_CHECK_HASH: ${{ hashFiles('scripts/sim-spell-check.py', 'scripts/data/forever-spells.json') }}
+          SPELL_FILES_HASH: ${{ hashFiles('scripts/sim-spell-check.py', 'scripts/data/forever-spells-extended.json', 'scripts/data/forever-spell-ids-extra.txt') }}
         run: |
           # hashFiles gives '' when the file wasn't checked out; refuse that
           # rather than cache without it.
           test -n "$WORKFLOW_HASH"
-          test -n "$SPELL_CHECK_HASH"
+          test -n "$SPELL_FILES_HASH"
           inputs="$(printf '%s\n' \
             "workflow=$WORKFLOW_HASH" \
             "sim=$SIM_COMMIT" \
@@ -284,7 +293,7 @@ jobs:
             "strip=$BUILD_STRIP" \
             "spell-hosts=$SPELL_DATA_HOSTS" \
             "spell-data=$SPELL_DATA_SHA256" \
-            "spell-check=$SPELL_CHECK_HASH")"
+            "spell-files=$SPELL_FILES_HASH")"
           echo "key=wow-ui-sim-build-$(printf '%s' "$inputs" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the staged simulator build
@@ -340,6 +349,44 @@ jobs:
             "$SIM_PROFILE" "$BLIZZARD_UI_VERSION" "$BLIZZARD_UI_COMMIT" "$manifest_sha" \
             > .wow-ui-sim-blizzard-ui-provenance
           touch .wow-ui-sim-blizzard-ui-complete
+
+      # Our self-buffs' spell IDs (#343), added to the list of spells the
+      # simulator extracts and loads: upstream's data/forever-spell-ids.txt,
+      # which both wow-cli (the download) and wow-sim (which refuses spell
+      # data holding any spell not on it) compile in. So it runs before the
+      # build, and changes no code: the list is read as whole numbers, one a
+      # line, and a repeated one is refused. Our file must hold only such
+      # lines, none already on upstream's list; anything else stops the job.
+      - name: Add our self-buff spell IDs to the simulator's list (#343)
+        if: steps.sim-cache.outputs.cache-hit != 'true'
+        run: |
+          # Upstream's list is in the fetched tree, so what's read from it is
+          # kept as digits only, its errors thrown away (#153, #360).
+          extra=scripts/data/forever-spell-ids-extra.txt
+          list="$RUNNER_TEMP/sim/data/forever-spell-ids.txt"
+          for listed in "$extra" "$list"; do
+            test -f "$listed"
+            test ! -L "$listed"
+            test -s "$listed"
+            # Its last line ended, or the next ID would join it.
+            [ "$(tail -c 1 "$listed" 2>/dev/null | od -An -tx1 | tr -cd '0-9a-f')" = 0a ]
+          done
+          # Digits only, no leading zero, at most nine: a u32 to the simulator.
+          if grep -qvE '^[1-9][0-9]{0,8}$' "$extra"; then
+            echo "$extra holds a line that isn't a spell ID"
+            exit 1
+          fi
+          repeated=$(cat "$list" "$extra" 2>/dev/null | LC_ALL=C sort | uniq -d | wc -l | tr -cd '0-9')
+          if [ "$repeated" != 0 ]; then
+            echo "$repeated spell ID(s) listed twice, by us or by us and upstream"
+            exit 1
+          fi
+          before=$(cat "$list" 2>/dev/null | wc -l | tr -cd '0-9')
+          added=$(cat "$extra" 2>/dev/null | wc -l | tr -cd '0-9')
+          while IFS= read -r id; do
+            printf '%s\n' "$id"
+          done < "$extra" >> "$list"
+          echo "added $added spell IDs to upstream's $before"
 
       - name: Build a build image (the Dockerfile's build tools)
         if: steps.sim-cache.outputs.cache-hit != 'true'
@@ -492,8 +539,8 @@ jobs:
       # anything is saved, uploaded or run. A mismatch is named in an
       # annotation, which holds only the hash, in hex. Only a file with the
       # pinned hash is then read: scripts/sim-spell-check.py proves that
-      # every spell in scripts/data/forever-spells.json, the copy whose hash
-      # the simulator's own spec records (#209), has the same rows here.
+      # every spell in scripts/data/forever-spells-extended.json, the copy
+      # the buff table is generated from (#44, #343), has the same rows here.
       - name: Check the staged files are plain files, and the spell data is the pinned one
         run: |
           out="$RUNNER_TEMP/ui-sim-build"
@@ -512,7 +559,7 @@ jobs:
             echo "::error title=UI simulator: Forever spell data is not the pinned download::Its SHA-256 is $actual, which is not SPELL_DATA_SHA256. Nothing was cached, uploaded or run."
             exit 1
           fi
-          python3 -I scripts/sim-spell-check.py "$spells" scripts/data/forever-spells.json
+          python3 -I scripts/sim-spell-check.py "$spells" scripts/data/forever-spells-extended.json
 
       # Saved as soon as it is staged and checked, so a later failure or a
       # cancelled run still keeps it.

@@ -557,10 +557,12 @@ end
 describe("UI simulator workflow", function()
     local path = ".github/workflows/ui-sim.yml"
     local text, jobs, order
-    -- scripts/data/forever-spells.json's SHA-256: the one the simulator's own
-    -- spec records for its 72-spell selection (#209, #160).
-    -- spec/bufftable_spec.lua checks the file has it.
-    local COMMITTED_SPELLS_SHA256 = "13122873d813481e85815946ddf964068b04132d4d2b2b44ba5ce61491595ad0"
+    -- scripts/data/forever-spells-extended.json's SHA-256: upstream's
+    -- selection with our self-buffs' IDs added (#44, #343), which the
+    -- simulator's download must match byte for byte. docs/forever-facts.md
+    -- records it, and a test below checks the file has it.
+    local COMMITTED_SPELLS = "scripts/data/forever-spells-extended.json"
+    local COMMITTED_SPELLS_SHA256 = "43d0cfa0a207b9fc0bc9ae5ea76b70b3d2ecb8779f4b33b92e288ce45d7cc45b"
 
     setup(function()
         text = withoutComments(wow.readFile(path))
@@ -705,9 +707,13 @@ describe("UI simulator workflow", function()
                 { { ".pkgmeta" }, "true" },
                 { { "scripts/package.sh" }, "true" },
                 { { "scripts/ui-sim-harness.lua" }, "true" },
-                -- The spell data check and the copy it checks against (#160).
+                -- The spell data check, the copy it checks against (#160) and
+                -- the spell IDs added to the simulator's list (#343).
                 { { "scripts/sim-spell-check.py" }, "true" },
-                { { "scripts/data/forever-spells.json" }, "true" },
+                { { "scripts/data/forever-spells-extended.json" }, "true" },
+                { { "scripts/data/forever-spell-ids-extra.txt" }, "true" },
+                -- Upstream's own selection: the simulator no longer reads it (#343).
+                { { "scripts/data/forever-spells.json" }, "false" },
                 { { "scripts/other.sh", "Makefile" }, "false" },
                 { { "docs/new.md", "spec/x_spec.lua", "CHANGELOG.md" }, "false" },
                 -- Only the root files count, not a same-named file in a folder.
@@ -1197,12 +1203,15 @@ describe("UI simulator workflow", function()
             -- build step, even a literal flag, misses the cache.
             assert.is_truthy(keyStep.text:find("hashFiles('.github/workflows/ui-sim.yml')", 1, true), "the key leaves out the workflow file's hash")
             assert.is_truthy(keyStep.text:find('"workflow=$WORKFLOW_HASH"', 1, true), "the workflow hash isn't in the key's inputs")
-            -- So are the spell data check and the copy it checks against (#160).
-            assert.is_truthy(keyStep.text:find("SPELL_CHECK_HASH: ${{ hashFiles('scripts/sim-spell-check.py', 'scripts/data/forever-spells.json') }}", 1, true),
-                "the key leaves out the spell data check's files")
-            assert.is_truthy(keyStep.text:find('"spell-check=$SPELL_CHECK_HASH"', 1, true), "the spell data check isn't in the key's inputs")
+            -- So are the spell data check, the copy it checks against (#160)
+            -- and the spell IDs the build adds to the simulator's list (#343).
+            assert.is_truthy(keyStep.text:find("SPELL_FILES_HASH: ${{ hashFiles('scripts/sim-spell-check.py', "
+                .. "'scripts/data/forever-spells-extended.json', 'scripts/data/forever-spell-ids-extra.txt') }}", 1, true),
+                "the key leaves out the spell data check's files or the added spell IDs")
+            assert.is_truthy(keyStep.text:find('"spell-files=$SPELL_FILES_HASH"', 1, true), "the spell files aren't in the key's inputs")
             assert.is_truthy(build.text:find("sparse-checkout: |\n            .github/workflows/ui-sim.yml\n            scripts/sim-spell-check.py\n"
-                .. "            scripts/data/forever-spells.json\n", 1, true), "the files the key hashes aren't the ones checked out")
+                .. "            scripts/data/forever-spells-extended.json\n            scripts/data/forever-spell-ids-extra.txt\n", 1, true),
+                "the files the key hashes aren't the ones checked out")
             assert.is_truthy(build.text:find("sparse-checkout-cone-mode: false", 1, true), "the sparse checkout reads the path as a folder")
             local checkoutAt, keyAt
             for i, step in ipairs(build.steps) do
@@ -1251,7 +1260,7 @@ describe("UI simulator workflow", function()
         it("really changes the key when any one input changes (black)", function()
             local base = { SIM_COMMIT = "a", BLIZZARD_UI_COMMIT = "b", BUILD_BASE = "c", BUILD_PACKAGES = "d",
                 BUILD_FEATURES = "e", BUILD_STRIP = "f", WORKFLOW_HASH = "g", SIM_PROFILE = "h", BLIZZARD_UI_VERSION = "i",
-                BUILD_TOOLCHAIN = "j", SPELL_DATA_HOSTS = "k l", SPELL_DATA_SHA256 = "m", SPELL_CHECK_HASH = "n" }
+                BUILD_TOOLCHAIN = "j", SPELL_DATA_HOSTS = "k l", SPELL_DATA_SHA256 = "m", SPELL_FILES_HASH = "n" }
             local function key(env)
                 local r = runBlock(keyStep, env)
                 assert.is_true(r.status == 0 or r.status == true, "the key step failed: " .. r.log)
@@ -1259,7 +1268,7 @@ describe("UI simulator workflow", function()
                 assert.is_truthy(hash and #hash == 64, "the key isn't a 64-character hash: " .. r.out)
                 return hash
             end
-            for _, hash in ipairs({ "WORKFLOW_HASH", "SPELL_CHECK_HASH" }) do
+            for _, hash in ipairs({ "WORKFLOW_HASH", "SPELL_FILES_HASH" }) do
                 local empty = {}
                 for k, v in pairs(base) do empty[k] = v end
                 empty[hash] = ""
@@ -1285,7 +1294,7 @@ describe("UI simulator workflow", function()
                 if step.text:find("Check the staged files", 1, true) then check = step end
             end
             -- The spell data is our committed copy, so the check against it passes.
-            local committed = wow.ROOT .. "/scripts/data/forever-spells.json"
+            local committed = wow.ROOT .. "/" .. COMMITTED_SPELLS
             local function tree(dir)
                 local o = dir .. "/ui-sim-build"
                 assert.is_true(os.execute("mkdir -p '" .. o .. "/sim/Interface/AddOns/TestFramework' '" .. o
@@ -1331,7 +1340,7 @@ describe("UI simulator workflow", function()
             for _, step in ipairs(build.steps) do
                 if step.text:find("Check the staged files", 1, true) then check = step end
             end
-            local committed = wow.ROOT .. "/scripts/data/forever-spells.json"
+            local committed = wow.ROOT .. "/" .. COMMITTED_SPELLS
             local function run(change, hash)
                 return runBlock(check, { SIM_PROFILE = "wowforever", SPELL_DATA_SHA256 = hash }, function(dir)
                     local o = dir .. "/ui-sim-build"
@@ -1379,11 +1388,117 @@ describe("UI simulator workflow", function()
                 if step.text:find("Check the staged files", 1, true) then check = step end
             end
             local hashAt = check.text:find('if [ "$actual" != "$SPELL_DATA_SHA256" ]; then', 1, true)
-            local readAt = check.text:find('python3 -I scripts/sim-spell-check.py "$spells" scripts/data/forever-spells.json', 1, true)
+            local readAt = check.text:find('python3 -I scripts/sim-spell-check.py "$spells" scripts/data/forever-spells-extended.json', 1, true)
             assert.is_truthy(hashAt and readAt and hashAt < readAt, "the spell data is read before its hash is checked")
             assert.is_truthy(check.text:find('spells="$out/sim/spells/$SIM_PROFILE/spells.json"', 1, true), "the checked file isn't the staged one")
             -- Nothing else in the workflow reads it on the runner.
             assert.are.equal(1, select(2, text:gsub("sim%-spell%-check%.py \"", "")), "the row check runs somewhere else too")
+        end)
+
+        -- #343: the pin is our committed extraction's hash, so the simulator's
+        -- download must be that file, byte for byte.
+        it("pins the hash of the committed extraction the buff table comes from (black)", function()
+            assert.are.equal(COMMITTED_SPELLS_SHA256, text:match('\n%s*SPELL_DATA_SHA256: "(%x+)"\n'), "the pin isn't the committed file's hash")
+            local p = io.popen("sha256sum '" .. wow.ROOT .. "/" .. COMMITTED_SPELLS .. "'")
+            local actual = p:read("*l"):match("^(%x+) ")
+            p:close()
+            assert.are.equal(COMMITTED_SPELLS_SHA256, actual, COMMITTED_SPELLS .. " changed without the pin")
+        end)
+
+        -- #343: our self-buffs' IDs, appended to upstream's list before the
+        -- build, with the step's own shell run on a copy of each list.
+        describe("adds our self-buff spell IDs to the simulator's list (#343)", function()
+            local step, stepIndex
+            local EXTRA = "scripts/data/forever-spell-ids-extra.txt"
+
+            setup(function()
+                for i, candidate in ipairs(build.steps) do
+                    if candidate.text:find("name: Add our self-buff spell IDs", 1, true) then step, stepIndex = candidate, i end
+                end
+            end)
+
+            -- Runs the step in a folder holding upstream's list (one ID a
+            -- line, as given) and ours; change(dir) can alter either first.
+            local function run(upstream, ours, change)
+                -- In the folder, where the step finds scripts/data as in the checkout.
+                local inDir = { text = step.text:gsub("run: |\n", 'run: |\n          cd "$RUNNER_TEMP"\n', 1) }
+                return runBlock(inDir, {}, function(dir)
+                    assert.is_true(os.execute("mkdir -p '" .. dir .. "/sim/data' '" .. dir .. "/scripts/data'") == 0)
+                    writeText(dir .. "/sim/data/forever-spell-ids.txt", upstream)
+                    writeText(dir .. "/" .. EXTRA, ours)
+                    if change then change(dir) end
+                end)
+            end
+            local function ok(r) return r.status == 0 or r.status == true end
+
+            it("runs before the build, on a miss, and runs nothing from the simulator (black)", function()
+                assert.is_truthy(step, "no step adds our spell IDs")
+                local function at(fragment)
+                    for i, candidate in ipairs(build.steps) do
+                        if candidate.text:find(fragment, 1, true) then return i end
+                    end
+                end
+                assert.is_true(at("Fetch the simulator") < stepIndex and stepIndex < at("Download the simulator's locked")
+                    and stepIndex < at("Build the simulator"), "the IDs aren't added after the fetch and before the build")
+                assert.is_truthy(step.text:find("if: steps.sim-cache.outputs.cache-hit != 'true'", 1, true), "the step runs on a hit")
+                assert.is_falsy(step.text:find("docker", 1, true), "the step runs a container")
+                assert.is_falsy(step.text:find("continue%-on%-error") or step.text:find("||", 1, true), "a failure can be passed over")
+                -- It reads our list from the checkout and writes only upstream's copy.
+                assert.is_truthy(step.text:find("extra=" .. EXTRA .. "\n", 1, true), "it doesn't read our committed list")
+                assert.is_truthy(step.text:find('list="$RUNNER_TEMP/sim/data/forever-spell-ids.txt"', 1, true), "it doesn't change upstream's list")
+                assert.is_truthy(step.text:find('done < "$extra" >> "$list"\n', 1, true), "our list isn't appended")
+                assert.are.equal(1, select(2, step.text:gsub(">>", "")), "the step writes somewhere else too")
+            end)
+
+            it("appends our committed list to upstream's, so the build reads both (white)", function()
+                local ours = wow.readFile(EXTRA)
+                -- The step, then the list as the build will read it.
+                local shown = { text = step.text:gsub("run: |\n", 'run: |\n          cd "$RUNNER_TEMP"\n', 1)
+                    .. '\n          echo "LIST"; cat "$list"\n' }
+                local r = runBlock(shown, {}, function(dir)
+                    assert.is_true(os.execute("mkdir -p '" .. dir .. "/sim/data' '" .. dir .. "/scripts/data'") == 0)
+                    writeText(dir .. "/sim/data/forever-spell-ids.txt", "1\n2\n")
+                    writeText(dir .. "/" .. EXTRA, ours)
+                end)
+                assert.is_true(ok(r), "the committed list is refused: " .. r.log)
+                local count = select(2, ours:gsub("\n", ""))
+                assert.is_true(count > 0, "the committed list is empty")
+                assert.is_truthy(r.log:find("added " .. count .. " spell IDs to upstream's 2\n", 1, true), r.log)
+                assert.are.equal("1\n2\n" .. ours, r.log:match("LIST\n(.*)$"), "the list the build reads isn't upstream's, then ours")
+            end)
+
+            it("refuses a line that isn't a spell ID, a repeated ID, or a list it can't safely join (black)", function()
+                local good = "10\n20\n"
+                assert.is_true(ok(run("1\n2\n", good)), "a good pair of lists is refused")
+                local bad = {
+                    { "1\n2\n", "10\nabc\n", "a word" },
+                    { "1\n2\n", "10\n 20\n", "a leading space" },
+                    { "1\n2\n", "10\n20 \n", "a trailing space" },
+                    { "1\n2\n", "10\r\n20\n", "a carriage return" },
+                    { "1\n2\n", "10\n-20\n", "a negative number" },
+                    { "1\n2\n", "10\n020\n", "a leading zero" },
+                    { "1\n2\n", "10\n1234567890\n", "ten digits" },
+                    { "1\n2\n", "10\n\n20\n", "a blank line" },
+                    { "1\n2\n", "10\n20", "our last line not ended" },
+                    { "1\n2", "10\n20\n", "upstream's last line not ended" },
+                    { "1\n2\n", "", "an empty list of ours" },
+                    { "", "10\n", "an empty list of upstream's" },
+                    { "1\n2\n", "10\n10\n", "an ID twice in ours" },
+                    { "1\n2\n", "10\n2\n", "an ID upstream already lists" },
+                }
+                for _, case in ipairs(bad) do
+                    local r = run(case[1], case[2])
+                    assert.is_false(ok(r), "passes with " .. case[3])
+                end
+                local links = {
+                    function(dir) os.execute("rm '" .. dir .. "/" .. EXTRA .. "' && ln -s ../../sim/data/forever-spell-ids.txt '" .. dir .. "/" .. EXTRA .. "'") end,
+                    function(dir) os.execute("cd '" .. dir .. "/sim/data' && mv forever-spell-ids.txt real && ln -s real forever-spell-ids.txt") end,
+                    function(dir) os.execute("rm '" .. dir .. "/" .. EXTRA .. "'") end,
+                }
+                for i, change in ipairs(links) do
+                    assert.is_false(ok(run("1\n2\n", good, change)), "passes with a link or missing file, case " .. i)
+                end
+            end)
         end)
 
         it("restores only the exact key, never a prefix (black)", function()
@@ -1403,7 +1518,7 @@ describe("UI simulator workflow", function()
                 error("no step " .. fragment)
             end
             assert.is_truthy(restore.text:find("\n%s*id:%s*sim%-cache\n"), "the skip conditions read an id the restore step doesn't have")
-            for _, fragment in ipairs({ "Fetch the simulator", "Build a build image", "Download the simulator", "Build the simulator",
+            for _, fragment in ipairs({ "Fetch the simulator", "Add our self-buff spell IDs", "Build a build image", "Download the simulator", "Build the simulator",
                 "Download Forever's spell data", "Stage the simulator", "Save the staged" }) do
                 assert.is_true(find(fragment).skipped, fragment .. " runs on a cache hit")
             end
@@ -1435,12 +1550,12 @@ describe("UI simulator workflow", function()
         end)
     end)
 
-    -- #160: upstream's master of 2026-11-13, reviewed on #160 before the pin
-    -- moved (#154 moved it before). There's no published image at that
-    -- commit, and release binaries are never used, so the simulator job
+    -- #308: upstream's master of 2026-11-14, reviewed on #308 before the pin
+    -- moved (#154 and #160 moved it before). There's no published image at
+    -- that commit, and release binaries are never used, so the simulator job
     -- builds it and the others run that.
-    it("pins wow-ui-sim at the reviewed 936d5f5 and runs only the build made from it (black)", function()
-        assert.is_truthy(text:find("\n%s*SIM_COMMIT: 936d5f53841ee620384b7f05a0f8d5e861835c3d\n"),
+    it("pins wow-ui-sim at the reviewed 9c48956 and runs only the build made from it (black)", function()
+        assert.is_truthy(text:find("\n%s*SIM_COMMIT: 9c48956c9c85ddb345ebe4fd477ff1b63a8e0943\n"),
             "the simulator isn't pinned at the reviewed commit")
         assert.is_truthy(text:find("\n%s*BUILD_BASE: rust@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c%s"),
             "the build base isn't the reviewed digest")

@@ -1,11 +1,12 @@
 -- Spec: #160
--- scripts/sim-spell-check.py ties the spell data the UI simulator workflow
--- downloads to our committed copy, scripts/data/forever-spells.json, whose
--- hash the simulator's own spec records (#209). The workflow pins the
--- download's hash itself, so this check is what says the pinned file agrees
--- with the recorded one: every committed spell must have exactly the same
--- rows in the download. It runs here against changed copies of the committed
--- file, as the workflow runs it: python3 -I, two paths, exit 0 or 1.
+-- scripts/sim-spell-check.py ties a larger spell data file to a smaller,
+-- committed one: here scripts/data/forever-spells.json, whose hash the
+-- simulator's own spec records (#209). The workflow pins its download's hash
+-- itself and checks it against scripts/data/forever-spells-extended.json
+-- (#343), which spec/bufftable_spec.lua ties to forever-spells.json the same
+-- way, so every committed spell must have exactly the same rows in the
+-- download. It runs here against changed copies of the committed file, as
+-- the workflow runs it: python3 -I, two paths, exit 0 or 1.
 local wow = require("spec.support.wow")
 
 local ROOT = wow.ROOT

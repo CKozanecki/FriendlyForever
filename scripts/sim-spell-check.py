@@ -4,13 +4,16 @@
 The UI simulator workflow downloads Forever's spell data with the simulator's
 own tool and pins the result's SHA-256 itself. The simulator's project records
 a hash only for an older, shorter selection of spells, and that is the file
-committed here as scripts/data/forever-spells.json (#209). This script ties the
-two together: every spell in the committed file must have exactly the same rows
-in the downloaded one, from tables of the same layout and the same game build.
-Spells only the download has are listed, since nothing vouches for them but the
-pinned hash.
+committed here as scripts/data/forever-spells.json (#209). This script ties a
+larger file to a smaller one: every spell in the committed file must have
+exactly the same rows in the downloaded one, from tables of the same layout and
+the same game build. Spells only the download has are listed, since nothing
+vouches for them but the pinned hash. The workflow checks its download against
+scripts/data/forever-spells-extended.json, which the buff table is generated
+from (#343); spec/bufftable_spec.lua checks that file against
+scripts/data/forever-spells.json.
 
-Usage: sim-spell-check.py <downloaded spells.json> <committed forever-spells.json>
+Usage: sim-spell-check.py <downloaded spells.json> <committed spells.json>
 
 Exits 0 when they agree, and 1 with a message when they don't or a file can't
 be read. It prints numbers and table names only, never text from either file.
@@ -101,7 +104,7 @@ def check(downloaded, committed):
 
 def main(argv):
     if len(argv) != 3:
-        print("usage: sim-spell-check.py <downloaded spells.json> <committed forever-spells.json>")
+        print("usage: sim-spell-check.py <downloaded spells.json> <committed spells.json>")
         return 1
     try:
         shared, extra = check(load(argv[1], "downloaded"), load(argv[2], "committed"))
