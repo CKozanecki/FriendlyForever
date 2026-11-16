@@ -25,8 +25,9 @@
 --   until another buff, or another member, goes missing or runs low: the
 --   pairs low or missing then are dismissed until they're seen recast,
 --   even as a fight ends (#397, the owner), or the member leaves the group;
---   gaining the campfire buff (#39, the owner): your auras show one of
---   CAMPFIRE_AURAS that the last read didn't. For this trigger passers-by
+--   a campfire aura added to you (#39, the owner): your auras show one of
+--   CAMPFIRE_AURAS that the last read didn't, a near-the-fire aura or a
+--   camp benefit, each ID on its own. For this trigger passers-by
 --   count as something to do (PassersBy.lua, when that switch is on), and
 --   the buff mode it turns on stays on while one waits for a buff: it ends
 --   when nobody, passers-by included, is missing one, at the pull or at the
@@ -74,8 +75,8 @@ local dismissed = {}     -- [name .. "\1" .. buff key] = as in lastMissing: low 
 local watching = false   -- the look for missing buffs is scheduled
 local groupUnsure = false -- a roster update couldn't read IsInGroup() (#373): the
                           -- looks read it again until an answer decides
-local byFire              -- the last read of your auras saw the campfire buff (#39): true,
-                          -- false, or nil before the first read that could tell
+local fireAuras           -- the CAMPFIRE_AURAS the last read of your auras saw (#39):
+                          -- { [spell ID] = true }, or nil before the first read that could tell
 local pendingFire         -- the trigger that waits for a fight is the campfire's
 local fireMode = false    -- the buff mode a trigger turned on counts passers-by (#39)
 
@@ -94,14 +95,22 @@ Auto.NEARBY_SECONDS = 120
 -- How often, in a group, members are looked at for a buff of yours gone
 -- missing (#272).
 Auto.WATCH_SECONDS = 5
--- The auras you wear by a campfire (#39), from Forever's spell data (build
--- 1.60.1.70685; docs/forever-facts.md): "Cozy Fire", Forever's own
--- (1232234) and Classic's two ranks (7353, 7358), and Forever's campfire
--- auras "Campfire" (1229736) and "Welcoming Campfire" (1229739, 1289723).
--- Which of them the game puts on you is unconfirmed (#416);
--- any of them means you're by a fire, and the trigger never casts.
-Auto.CAMPFIRE_AURAS = { [1232234] = true, [7353] = true, [7358] = true,
-    [1229736] = true, [1229739] = true, [1289723] = true }
+-- The auras a campfire puts on you (#39), from Forever's spell data (build
+-- 1.60.1.70685; docs/forever-facts.md). Near the fire: "Cozy Fire",
+-- Forever's own (1232234) and Classic's two ranks (7353, 7358), "Campfire"
+-- (1229736), "Welcoming Campfire" (1229739, 1289723) and "Camp Tent"
+-- (1229487). A camp's benefits, an hour each, added as you sit there (the
+-- owner's correction): "Camp Benefits" (1229741) and the bonus of each camp
+-- feature, Mana Well 1230587, Sharpening Wheel 1230172, Enchanted Lute
+-- 1230653, First Aid Kit 1230124, Fish Bowl 1230098, Incense Candle
+-- 1229513, Lodestone 1230164, Camp Chair 1229519 and Faction Banner
+-- 1229718. Which of them the game puts on you is unconfirmed (#416); any
+-- of them added means you're at a fire, and the trigger never casts.
+Auto.CAMPFIRE_AURAS = {
+    [1232234] = true, [7353] = true, [7358] = true, [1229736] = true, [1229739] = true, [1289723] = true,
+    [1229487] = true, [1229741] = true, [1230587] = true, [1230172] = true, [1230653] = true,
+    [1230124] = true, [1230098] = true, [1229513] = true, [1230164] = true, [1229519] = true, [1229718] = true,
+}
 
 local function InGroup()
     return ns.Util.ReadGameValues(IsInGroup) == true
@@ -549,7 +558,7 @@ function Auto.OnEnteringWorld(isLogin, isReload)
     pulled, deathSeen, pendingWhy, pendingInside, insideWait, joinedAt = false, false, nil, nil, false, nil
     lastMissing, groupUnsure, pendingFire = nil, false, nil
     -- Already by a fire at a login isn't gaining its buff.
-    byFire = Auto.ReadCampfire()
+    fireAuras = Auto.ReadCampfire()
     ns.GroupBuffs.EndRound()
     NoteWhoIsDead()
     -- In a group, or not yet known (#370): the looks read it again (#373).
@@ -625,33 +634,40 @@ function Auto.OnBuffed()
     if Cfg().autoOnBuffed == true then TurnOn("someone buffed you") end
 end
 
--- Whether you wear the campfire buff (#39): true, false, or nil when your
--- auras can't be read (an error, a secret list, aura or spell ID).
+-- The campfire auras you wear (#39): { [spell ID] = true }, or nil when
+-- your auras can't be read (an error, a secret list, aura or spell ID).
 function Auto.ReadCampfire()
     local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
     if type(api) ~= "function" then return nil end
+    local found = {}
     for i = 1, ns.Offers.MAX_AURAS do
         local ok, aura = pcall(api, "player", i, "HELPFUL")
         if not ok or ns.Util.IsSecret(aura) then return nil end
-        if aura == nil then return false end
+        if aura == nil then return found end
         if type(aura) ~= "table" then return nil end
         local id = aura.spellId
         if ns.Util.IsSecret(id) then return nil end
-        if type(id) == "number" and Auto.CAMPFIRE_AURAS[id] then return true end
+        if type(id) == "number" and Auto.CAMPFIRE_AURAS[id] then found[id] = true end
     end
-    return false
+    return found
 end
 
--- UNIT_AURA for you: gaining the campfire buff turns buff mode on (#39), if
--- that trigger is on. A read that can't tell keeps what the last one saw.
+-- UNIT_AURA for you: a campfire aura added to you turns buff mode on (#39),
+-- if that trigger is on: one the last read didn't see. A read that can't
+-- tell keeps what the last one saw; before any read could (a login whose
+-- auras couldn't be read), nothing counts as added.
 function Auto.OnPlayerAura(unit)
     if unit ~= "player" or not ready then return end
     local now = Auto.ReadCampfire()
     if now == nil then return end
-    local was = byFire
-    byFire = now
-    if now and was == false and Cfg().autoOnCampfire == true then
-        TurnOn("you're by a campfire", nil, true)
+    local was = fireAuras
+    fireAuras = now
+    if was == nil or Cfg().autoOnCampfire ~= true then return end
+    for id in pairs(now) do
+        if not was[id] then
+            TurnOn("you're by a campfire", nil, true)
+            return
+        end
     end
 end
 

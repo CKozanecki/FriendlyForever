@@ -521,11 +521,12 @@ describe("Passers-by (#39)", function()
 
         local function sitByFire(id) return wow.gainBuff({ spellId = id or COZY, name = "Cozy Fire" }) end
 
-        it("is on by default, and every campfire aura the data gives turns it on for a passer-by", function()
+        it("is on by default, and every campfire aura and camp benefit the data gives turns it on for a passer-by", function()
             boot({ autoBuffMode = true, noBuffMode = true, keepDefault = true })
             assert.is_true(ns.db.buffBack.autoOnCampfire)
             assert.is_false(ns.db.buffBack.passersBy, "passers-by stay off by default")
-            for _, id in ipairs({ 1232234, 7353, 7358, 1229736, 1229739, 1289723 }) do
+            for _, id in ipairs({ 1232234, 7353, 7358, 1229736, 1229739, 1289723, 1229487, 1229741, 1230587,
+                1230172, 1230653, 1230124, 1230098, 1229513, 1230164, 1229519, 1229718 }) do
                 bootAuto()
                 stranger()
                 sitByFire(id)
@@ -573,6 +574,33 @@ describe("Passers-by (#39)", function()
             wow.loseBuff(COZY)
             sitByFire()
             assert.is_true(ns.BuffMode.IsAuto(), "back by the fire")
+        end)
+
+        it("a camp benefit added while you're already by the fire turns it on again (the owner's correction)", function()
+            bootAuto()
+            stranger()
+            sitByFire()
+            slash("buffmode off")
+            wow.gainBuff({ spellId = 1229741, name = "Camp Benefits", duration = 3600 })
+            assert.is_true(ns.BuffMode.IsAuto(), "Camp Benefits was added")
+            slash("buffmode off")
+            wow.gainBuff({ spellId = 1229718, name = "Boosted Spirit", duration = 3600 })
+            assert.is_true(ns.BuffMode.IsAuto(), "a feature's bonus was added")
+            slash("buffmode off")
+            wow.loseBuff(COZY)
+            assert.is_false(ns.BuffMode.IsOn(), "losing one adds nothing")
+        end)
+
+        it("a benefit that stays on after you leave isn't added again", function()
+            bootAuto()
+            stranger()
+            wow.gainBuff({ spellId = 1229741, name = "Camp Benefits", duration = 3600 })
+            assert.is_true(ns.BuffMode.IsAuto())
+            slash("buffmode off")
+            wow.gainBuff({ spellId = 1126, name = "Mark of the Wild" })
+            wow.advance(60)
+            wow.fire("UNIT_AURA", "player", {})
+            assert.is_false(ns.BuffMode.IsOn(), "still wearing it, an hour long")
         end)
 
         it("already by a fire at a login isn't gaining it", function()
