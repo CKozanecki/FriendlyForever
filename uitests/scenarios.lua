@@ -606,6 +606,17 @@ test("the Buff Thanks tab's two dropdowns list every choice inside the options (
                 name .. " isn't a dropdown with " .. #texts .. " choices")
             dropdown:GetScript("OnClick")(dropdown)
             check(dropdown.list:IsShown(), name .. "'s list didn't open")
+            -- The rows must sit above the click-away catcher, or a click on a
+            -- row only closes the list (#427).
+            local catcher = dropdown.list.catcher
+            check(catcher, name .. " has no click-away catcher")
+            for i, row in ipairs(dropdown.rows) do
+                check(row:GetFrameStrata() == catcher:GetFrameStrata(), name .. " row " .. i .. " is in another strata")
+                check(row:GetFrameLevel() > catcher:GetFrameLevel(), name .. " row " .. i .. " (level "
+                    .. row:GetFrameLevel() .. ") isn't above its catcher (level " .. catcher:GetFrameLevel() .. ")")
+            end
+            report("LAYOUT " .. name .. ": rows at level " .. dropdown.rows[1]:GetFrameLevel()
+                .. " above the catcher at " .. catcher:GetFrameLevel())
         end)
         if not ok then Fail(err) return end
         for i, row in ipairs(dropdown.rows) do

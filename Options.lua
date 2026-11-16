@@ -112,13 +112,24 @@ local function Dropdown(parent, order, texts, width, get, pick)
     list:SetPoint("TOPLEFT", dd, "BOTTOMLEFT", 0, -2)
     list:SetSize(width, 22 * #order)
     list:Hide()
-    -- Behind the rows (made first): a click anywhere else closes the list.
+    -- Behind the rows: a click anywhere else closes the list.
     local catcher = CreateFrame("Button", nil, list)
     catcher:SetAllPoints(UIParent)
     catcher:EnableMouse(true)
     catcher:SetScript("OnClick", function() list:Hide() end)
     list.catcher = catcher
     dd.list, dd.rows = list, {}
+    -- Frames made from one parent get one frame level, and the game doesn't
+    -- say which of them takes a click where they overlap, so the catcher
+    -- could take the click meant for a row and close the list without saving
+    -- (#427). Give the rows an explicit level above it, again each time the
+    -- list opens, whatever the panel did to the levels meanwhile.
+    local function Layer()
+        local base = list:GetFrameLevel()
+        catcher:SetFrameLevel(base)
+        for _, row in ipairs(dd.rows) do row:SetFrameLevel(base + 2) end
+    end
+    list:SetScript("OnShow", Layer)
     for i, value in ipairs(order) do
         local row = Button(list, texts[value], width, function()
             list:Hide()
@@ -138,7 +149,10 @@ local function Dropdown(parent, order, texts, width, get, pick)
             if row.value == current then row:LockHighlight() else row:UnlockHighlight() end
         end
     end
-    dd:SetScript("OnClick", function() list:SetShown(not list:IsShown()) end)
+    dd:SetScript("OnClick", function()
+        if not list:IsShown() then Layer() end
+        list:SetShown(not list:IsShown())
+    end)
     dd:SetScript("OnHide", function() list:Hide() end)
     return dd
 end
