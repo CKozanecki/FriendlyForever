@@ -1145,6 +1145,7 @@ describe("The simulated client's chat from players (#40)", function()
         end)
 
         it("answers IsUsableItem from the item alone, never from how many you carry", function()
+            assert.are.equal(0, _G.GetItemCount(wow.WEAPON.brilliantWizardOil), "the case: none carried")
             assert.is_true(_G.IsUsableItem(wow.WEAPON.brilliantWizardOil), "none carried, and still usable")
             assert.is_true(_G.C_Item.IsUsableItem(wow.WEAPON.brilliantWizardOil))
             wow.state.unusableItems[wow.WEAPON.brilliantWizardOil] = true
