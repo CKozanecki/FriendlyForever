@@ -1,4 +1,4 @@
--- Spec: #101, #196, #281, #392
+-- Spec: #101, #196, #281, #392, #406
 -- WoW Forever names are a first name plus a mandatory surname, and the pair
 -- is the player's identity. These tests use names in both shapes the client
 -- may report them: "First-Surname" in one string, or the first name with the
@@ -179,8 +179,9 @@ describe("Forever first name + surname", function()
             error = function() error("boom") end,
         }) do
             _G.IsInGuild = answer
-            wow.printed = {}
+            wow.printed, wow.errors = {}, {}
             slash("names")
+            assert.are.same({}, wow.errors, label)
             local all = table.concat(wow.printed, "\n")
             assert.is_truthy(all:find("guild roster: can't tell", 1, true), label)
             assert.is_nil(all:find("guild roster #1", 1, true), label)
@@ -193,8 +194,9 @@ describe("Forever first name + surname", function()
         for label, count in pairs({ empty = function() return 0 end, secret = function() return wow.secret(5) end,
             none = function() return nil end, text = function() return "5" end }) do
             _G.GetNumGuildMembers = count
-            wow.printed = {}
+            wow.printed, wow.errors = {}, {}
             slash("names")
+            assert.are.same({}, wow.errors, label)
             assert.is_nil(table.concat(wow.printed, "\n"):find("guild roster #1", 1, true), label)
         end
         _G.GetNumGuildMembers = real

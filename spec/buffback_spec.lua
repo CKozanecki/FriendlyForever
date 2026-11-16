@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353, #387
+-- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353, #387, #369
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -494,7 +494,8 @@ describe("Buff back", function()
             assert.is_true(printedHas("not armed: nobody is owed a buff"))
         end)
 
-        it("after such an import the button is already empty, and stays so at the next re-check (black)", function()
+        it("importing a line whose ignore list holds the player on the button empties it at once, with no wait for the"
+            .. " re-check (white)", function()
             local settings = ns.Profiles.Snapshot(ns.db, true)
             settings.ignore = { ["bob-stone"] = "bob-stone" }
             stranger()

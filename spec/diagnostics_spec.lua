@@ -1,4 +1,4 @@
--- Spec: #101, #46, #47, #392
+-- Spec: #101, #46, #47, #392, #406
 local wow = require("spec.support.wow")
 
 describe("Diagnostics", function()
@@ -216,8 +216,9 @@ describe("Diagnostics", function()
                 error = function() error("boom") end,
             }) do
                 _G.IsInGuild = answer
-                wow.printed = {}
+                wow.printed, wow.errors = {}, {}
                 slash("status")
+                assert.are.same({}, wow.errors, label)
                 assert.is_true(printedHas("guild: can't tell, "), label)
             end
             _G.IsInGuild = real
