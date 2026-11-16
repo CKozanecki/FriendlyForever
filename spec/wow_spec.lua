@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40
+-- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -1113,5 +1113,53 @@ describe("The simulated client's chat from players (#40)", function()
         frame:UnregisterEvent("CHAT_MSG_SAY")
         wow.say("mark pls", "Bob-Stone")
         assert.are.equal(1, count)
+    end)
+end)
+
+describe("The simulated client's strangers on nameplates (#39)", function()
+    before_each(function()
+        wow.boot({ before = function(state)
+            state.class = "DRUID"
+            state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
+        end })
+        wow.addUnit("nameplate1", { name = "Ann", surname = "Stone", class = "MAGE", id = "Ann-Stone" })
+    end)
+
+    it("UnitCanAssist is true for a friendly player, false for cantAssist, a hostile unit or nobody", function()
+        assert.is_true(_G.UnitCanAssist("player", "nameplate1"))
+        wow.state.units.nameplate1.cantAssist = true
+        assert.is_false(_G.UnitCanAssist("player", "nameplate1"))
+        wow.state.units.nameplate1.cantAssist, wow.state.units.nameplate1.hostile = nil, true
+        assert.is_false(_G.UnitCanAssist("player", "nameplate1"))
+        assert.is_false(_G.UnitCanAssist("player", "nameplate9"))
+    end)
+
+    it("UnitAffectingCombat follows inCombat, and your own fight for you", function()
+        assert.is_false(_G.UnitAffectingCombat("nameplate1"))
+        wow.state.units.nameplate1.inCombat = true
+        assert.is_true(_G.UnitAffectingCombat("nameplate1"))
+        assert.is_false(_G.UnitAffectingCombat("player"))
+        wow.state.inCombat = true
+        assert.is_true(_G.UnitAffectingCombat("player"))
+    end)
+
+    it("secrets.canAssist, secrets.combat and restricted units give secrets", function()
+        wow.state.units.nameplate1.secrets = { canAssist = true, combat = true }
+        assert.is_true(_G.issecretvalue(_G.UnitCanAssist("player", "nameplate1")))
+        assert.is_true(_G.issecretvalue(_G.UnitAffectingCombat("nameplate1")))
+        wow.state.units.nameplate1.secrets = nil
+        wow.state.unitsRestricted = true
+        assert.is_true(_G.issecretvalue(_G.UnitCanAssist("player", "nameplate1")))
+        assert.is_true(_G.issecretvalue(_G.UnitAffectingCombat("nameplate1")))
+    end)
+
+    it("a [help] macro casts nothing on someone you can't assist", function()
+        wow.state.units.nameplate1.cantAssist = true
+        wow.runMacro(MACRO)
+        assert.are.equal(0, #wow.casts)
+        wow.state.units.nameplate1.cantAssist = nil
+        wow.runMacro(MACRO)
+        assert.are.equal(1, #wow.casts)
+        assert.are.equal("Ann-Stone", wow.casts[1].target)
     end)
 end)

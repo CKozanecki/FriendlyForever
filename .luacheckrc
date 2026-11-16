@@ -44,6 +44,8 @@ read_globals = {
     -- Self-buffs (#44): whether you can have one now.
     "IsMounted", "UnitOnTaxi", "GetShapeshiftForm", "IsUsableSpell", "UnitPowerType",
     "UnitGroupRolesAssigned", "GetPartyAssignment", "GetBattlefieldWinner",
+    -- Passers-by (#39): whether you can help a stranger, and whether they're fighting.
+    "UnitCanAssist", "UnitAffectingCombat",
     "CreateSettingsListSectionHeaderInitializer",
 }
 

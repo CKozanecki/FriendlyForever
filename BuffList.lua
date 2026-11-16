@@ -43,7 +43,9 @@ local function RowText(offer, current)
         end
     end
     local name = offer.self and "You" or Util.StripChat(Util.DisplayName(offer.name))
-    return (current and "> " or "") .. name .. ": " .. Util.StripChat(offer.spell)
+    -- A passer-by (#39) says so.
+    local passing = offer.passerBy == true and " (passing by)" or ""
+    return (current and "> " or "") .. name .. ": " .. Util.StripChat(offer.spell) .. passing
 end
 
 local function MakeRow(i)

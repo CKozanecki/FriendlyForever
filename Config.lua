@@ -205,6 +205,8 @@ Config.DEFAULTS = {
         autoOnDeath = true,
         autoOnBuffed = true,
         autoOnMissing = true,
+        -- Gaining the campfire buff (#39, the owner): on by default like the others (#72).
+        autoOnCampfire = true,
         autoOffPull = true,
         autoOffDone = true,
         autoOffMinutes = 5,
@@ -227,6 +229,9 @@ Config.DEFAULTS = {
         -- chat asking for one of your buffs queues that player on the button. Off by
         -- default (the owner's decision on #40).
         requests = false,
+        -- Passers-by (PassersBy.lua, #39): in buff mode, also offer your
+        -- buffs to players nearby who aren't in your group. Off by default.
+        passersBy = false,
         -- Unending Breath and Water Breathing only near water (Water.lua, #136).
         -- Off: offered anywhere, as before.
         breathNearWater = true,
@@ -307,6 +312,7 @@ Config.FIELD_VALIDATORS = {
     autoOnDeath = Bool,
     autoOnBuffed = Bool,
     autoOnMissing = Bool,
+    autoOnCampfire = Bool,
     autoOffPull = Bool,
     autoOffDone = Bool,
     autoOffMinutes = Limited("autoOffMinutes"),
@@ -317,6 +323,7 @@ Config.FIELD_VALIDATORS = {
     bgPrepBuff = Bool,
     breathNearWater = Bool,
     requests = Bool,
+    passersBy = Bool,
     selfBuffs = Bool,
     soloOwnBuffs = Bool,
     unlocked = Bool,

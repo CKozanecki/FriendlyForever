@@ -537,6 +537,17 @@ for name, ids in pairs({
 --                         "first" (default), "full" or "none"
 --   state.cvars.ActionButtonUseKeyDown  "1" (default): secure buttons act
 --                         on key down; "0": on key up
+--   Passers-by (#39; UNCONFIRMED in game, #414 says how to check each):
+--                         a stranger on a nameplate answers UnitIsPlayer,
+--                         UnitIsUnit, UnitCanAssist, UnitIsDeadOrGhost,
+--                         UnitIsConnected, UnitAffectingCombat and UnitIsPVP
+--                         with plain booleans out of combat, and their aura
+--                         list and times as a group member's. Unit fields:
+--                         cantAssist (UnitCanAssist false: the other faction,
+--                         a duel; also fails the macro's [help]), inCombat
+--                         (UnitAffectingCombat true); secrets.canAssist and
+--                         secrets.combat make those answers secrets. A
+--                         hostile unit can't be assisted either.
 --   /cast [@player] Spell (#198) casts on that unit without changing your
 --                         target; the other conditions ([nodead]) test that unit.
 --                         An empty condition list after the @ is fine. SENT
@@ -881,7 +892,7 @@ end
 
 -- Macro conditions on a unit: help (friendly), nodead.
 local CONDITIONS = {
-    help = function(t) return t ~= nil and not t.hostile end,
+    help = function(t) return t ~= nil and not t.hostile and not t.cantAssist end,
     nodead = function(t) return t ~= nil and not t.dead end,
 }
 local function conditionsHold(list, unit)
@@ -1901,6 +1912,19 @@ function M.reset()
         if u.secrets and u.secrets.subgroup then subgroup = M.secret(subgroup) end
         return u.name, 0, subgroup, 60, u.class, u.class, "Zone", not u.offline, u.dead == true
     end
+    -- Passers-by (#39; see ASSUMPTIONS): unit.cantAssist, unit.inCombat.
+    _G.UnitCanAssist = restricted(function(_, unit)
+        local u = M.state.units[unit]
+        local can = u ~= nil and not u.hostile and not u.cantAssist
+        if u and u.secrets and u.secrets.canAssist then return M.secret(can) end
+        return can
+    end)
+    _G.UnitAffectingCombat = restricted(function(unit)
+        if unit == "player" then return M.state.inCombat == true end
+        local u = M.state.units[unit]
+        if u and u.secrets and u.secrets.combat then return M.secret(u.inCombat == true) end
+        return u ~= nil and u.inCombat == true
+    end)
     _G.UnitIsPVP = restricted(function(unit)
         if unit == "player" then return M.state.pvp == true end
         local u = M.state.units[unit]
@@ -2071,7 +2095,7 @@ function M.load()
 end
 
 -- Buff mode's turn-on triggers, which boot switches off for most specs.
-M.TURN_ON_TRIGGERS = { "autoOnJoin", "autoOnDeath", "autoOnBuffed", "autoOnMissing" }
+M.TURN_ON_TRIGGERS = { "autoOnJoin", "autoOnDeath", "autoOnBuffed", "autoOnMissing", "autoOnCampfire" }
 
 -- The Settings panel's search (state.settingsSearch, see ASSUMPTIONS): vertical
 -- pages, whose headings M.searchSettings finds by their search tags.

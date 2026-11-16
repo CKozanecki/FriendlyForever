@@ -261,6 +261,9 @@ local function NextOffer()
         -- offers in the list: the button takes the first.
         _, selfReason = ns.SelfBuffs.Next(list)
         if selfReason then groupReason = (groupReason and (groupReason .. "; ") or "") .. "You: " .. selfReason end
+        -- Passers-by (#39) come last of all: only when nothing above is
+        -- offered does the button reach them.
+        ns.PassersBy.Next(list)
     end
     -- One offer per player: the first, which is the one the button would
     -- make (a player owed a favour who is also in your group appears in both,
@@ -394,7 +397,8 @@ local function ArmButton()
 
     SetSecureMacro(macroText)
     armedOffer = { name = offer.name, spell = offer.spell, buff = offer.buff, group = offer.group,
-        cast = offer.cast, hint = offer.hint, self = offer.self, selfBuff = offer.selfBuff, macroText = macroText }
+        passerBy = offer.passerBy, cast = offer.cast, hint = offer.hint, self = offer.self, selfBuff = offer.selfBuff,
+        macroText = macroText }
     notArmedReason = nil
     button.icon:SetTexture(ns.BuffData.Icon(offer.buff) or BuffButton.PLACEHOLDER_ICON)
     if offer.cast then
@@ -409,6 +413,9 @@ local function ArmButton()
     elseif offer.request then
         -- They asked for it in chat (Requests.lua, #40).
         SetLabels(Util.DisplayName(offer.name), "asked for " .. offer.spell)
+    elseif offer.passerBy then
+        -- A passer-by (#39): nobody owes them, and nothing is said to them.
+        SetLabels(Util.DisplayName(offer.name), offer.spell .. " (passing by)")
     else
         SetLabels(offer.self and "You" or Util.DisplayName(offer.name),
             (offer.group and "missing your " or "buffed you - give ") .. offer.spell)
@@ -432,6 +439,7 @@ function BuffButton.Refresh()
     if not button then return end
     ns.BuffMode.Apply()
     ns.GroupBuffs.Prune()
+    ns.PassersBy.Prune()
     -- Your buffs or settings may have changed what you give in a raid.
     ns.RaidSplit.Check()
     ArmButton()
@@ -535,7 +543,7 @@ end
 local function TakeArmedOffer(press)
     press.name, press.spell, press.buff = armedOffer.name, armedOffer.spell, armedOffer.buff
     press.group, press.self, press.cast = armedOffer.group, armedOffer.self, armedOffer.cast
-    press.selfBuff = armedOffer.selfBuff
+    press.selfBuff, press.passerBy = armedOffer.selfBuff, armedOffer.passerBy
     ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
     return press
 end
@@ -569,6 +577,9 @@ end
 -- holds another favour, that favour is what the up half casts.
 local function OnPreClick(_, mouseButton, isDown)
     if mouseButton ~= "LeftButton" then return end
+    -- A press reads passers-by afresh (#39): the last second's look never
+    -- decides a cast.
+    ns.PassersBy.Fresh()
     ArmButton()
     if isDown == true then
         pressFromDownHalf = armedOffer and AddPress(false) or nil
@@ -639,6 +650,12 @@ local function OnPostClick(_, mouseButton, isDown)
                 .. " to the Never list: " .. why .. ".", true)
         end
         ns.Options.Refresh()
+    elseif offer.passerBy then
+        -- A passer-by (#39): Shift adds them to no list (the ignore list is
+        -- the place for a name).
+        ns.PassersBy.SkipName(name)
+        ShowResult(string.format("Skipping %s for %d minutes.", Util.DisplayName(name),
+            ns.PassersBy.SKIP_SECONDS / 60))
     elseif offer.group then
         ns.GroupBuffs.Skip(name)
         ShowResult(string.format("Skipping %s for %d minutes.", offer.self and "yourself" or Util.DisplayName(name),
@@ -779,6 +796,9 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
             for _, covered in ipairs(press.cast.covers) do ns.GroupBuffs.NoteRoundCast(covered, press.buff) end
         elseif press.group then
             ns.GroupBuffs.NoteRoundCast(press.name, press.buff)
+        elseif press.passerBy then
+            -- A passer-by (#39) isn't offered it again at every press.
+            ns.PassersBy.NoteGiven(press.name, press.buff)
         end
         ShowResult("Cast " .. press.spell .. ", but the game didn't say it reached " .. who .. ".")
     elseif press.cast then
@@ -795,7 +815,12 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
         -- Their copy hears it was you, in case their game can't say (#138).
         ns.Receipts.Send(press.name, press.buff)
         local returned, asked = ns.Offers.MarkReturned(press.name, press.spell)
-        if returned and asked then
+        -- A passer-by (#39) isn't offered that buff again for a while.
+        if press.passerBy then ns.PassersBy.NoteGiven(press.name, press.buff) end
+        if press.passerBy and not returned then
+            -- Nothing is said to a passer-by, and nothing was owed.
+            ShowResult("Gave " .. press.spell .. " to " .. who .. " (passing by).")
+        elseif returned and asked then
             -- A request in chat (#40): no favour, so no buff-back line.
             ShowResult("Gave " .. press.spell .. " to " .. who .. ", who asked for it.")
         elseif returned then
@@ -820,6 +845,8 @@ local function ReportRefusal(press, text)
         ns.SelfBuffs.NoteRefused(press.buff)
     elseif press.group and ns.GroupBuffs.IsTargetRefusal(text) then
         ns.GroupBuffs.NoteRefused(press.name)
+    elseif press.passerBy and ns.GroupBuffs.IsTargetRefusal(text) then
+        ns.PassersBy.NoteRefused(press.name)
     end
     ShowResult("Couldn't buff " .. (press.self and "you" or Util.DisplayName(press.name))
         .. ": " .. Util.StripChat(text), true)

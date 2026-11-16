@@ -24,7 +24,14 @@
 --   an arena or battleground. Buff mode you turned off yourself stays off
 --   until another buff, or another member, goes missing or runs low: the
 --   pairs low or missing then are dismissed until they're seen recast,
---   even as a fight ends (#397, the owner), or the member leaves the group.
+--   even as a fight ends (#397, the owner), or the member leaves the group;
+--   gaining the campfire buff (#39, the owner): your auras show one of
+--   CAMPFIRE_AURAS that the last read didn't. For this trigger passers-by
+--   count as something to do (PassersBy.lua, when that switch is on), and
+--   the buff mode it turns on stays on while one waits for a buff: it ends
+--   when nobody, passers-by included, is missing one, at the pull or at the
+--   timeout. No other trigger counts a passer-by. A read that errors or
+--   gives a secret changes nothing.
 -- Turns off (on by default), but only buff mode a trigger turned on, never
 -- buff mode you turned on yourself:
 --   the first pull (PLAYER_REGEN_DISABLED);
@@ -67,6 +74,10 @@ local dismissed = {}     -- [name .. "\1" .. buff key] = as in lastMissing: low 
 local watching = false   -- the look for missing buffs is scheduled
 local groupUnsure = false -- a roster update couldn't read IsInGroup() (#373): the
                           -- looks read it again until an answer decides
+local byFire              -- the last read of your auras saw the campfire buff (#39): true,
+                          -- false, or nil before the first read that could tell
+local pendingFire         -- the trigger that waits for a fight is the campfire's
+local fireMode = false    -- the buff mode a trigger turned on counts passers-by (#39)
 
 -- Buff Back's settings, read only. A section lost mid-session reads as an
 -- empty one: every trigger off, the timeout at its default (#387).
@@ -83,6 +94,14 @@ Auto.NEARBY_SECONDS = 120
 -- How often, in a group, members are looked at for a buff of yours gone
 -- missing (#272).
 Auto.WATCH_SECONDS = 5
+-- The auras you wear by a campfire (#39), from Forever's spell data (build
+-- 1.60.1.70685; docs/forever-facts.md): "Cozy Fire", Forever's own
+-- (1232234) and Classic's two ranks (7353, 7358), and Forever's campfire
+-- auras "Campfire" (1229736) and "Welcoming Campfire" (1229739, 1289723).
+-- Which of them the game puts on you is unconfirmed (#416);
+-- any of them means you're by a fire, and the trigger never casts.
+Auto.CAMPFIRE_AURAS = { [1232234] = true, [7353] = true, [7358] = true,
+    [1229736] = true, [1229739] = true, [1289723] = true }
 
 local function InGroup()
     return ns.Util.ReadGameValues(IsInGroup) == true
@@ -111,8 +130,11 @@ end
 -- there with you (#256). withSelf: your self-buffs too (#44): "everyone has
 -- your buffs" waits for them, but a missing self-buff alone never turns buff
 -- mode on (the owner, #44 Q6). Also why, for the message.
-local function Settled(inside, withSelf)
+-- withPassersBy: a passer-by waiting for a buff counts too (the campfire's
+-- buff mode, #39).
+local function Settled(inside, withSelf, withPassersBy)
     if ns.Offers.Count() > 0 then return false end
+    if withPassersBy and ns.PassersBy.Waiting() then return false end
     local offer, groupWhy, settled, held = ns.GroupBuffs.Next()
     if offer ~= nil or settled ~= true then return false end
     if withSelf then
@@ -149,7 +171,7 @@ function Auto.Check(timedOutAfter)
     end
     if InCombatLockdown() then return end
     if cfg.autoOffDone ~= true then return end
-    local done, why = Settled(insideWait, true)
+    local done, why = Settled(insideWait, true, fireMode)
     if done then
         ns.BuffMode.Set(false, { why = why })
         if not ns.BuffMode.IsAuto() then ns.Diag.Log("buffMode", "auto turned off: %s", why) end
@@ -172,7 +194,8 @@ local function WaitInside()
 end
 
 -- inside: the dungeon-or-raid trigger, so buff mode waits for everyone.
-local function TurnOn(why, inside)
+-- fire: the campfire's (#39), so passers-by count.
+local function TurnOn(why, inside, fire)
     -- A battle under way: nothing turns on, and nobody's buffs are read. The
     -- trigger is kept in case it was only the phase not being read yet.
     if ns.Battleground.Quiet() then
@@ -182,17 +205,22 @@ local function TurnOn(why, inside)
     if fighting or InCombatLockdown() then
         -- The first trigger waits, but the dungeon-or-raid one outranks
         -- the others: after the fight it waits for everyone.
-        if not pendingWhy or (inside and not pendingInside) then pendingWhy, pendingInside = why, inside end
+        if not pendingWhy or (inside and not pendingInside) then
+            pendingWhy, pendingInside, pendingFire = why, inside, fire
+        end
         return
     end
     if ns.BuffMode.IsOn() then
         -- A trigger's buff mode, met by the dungeon or raid: it waits for
-        -- everyone now. Yours is yours: no trigger turns it off.
+        -- everyone now. Yours is yours: no trigger turns it off. Met by the
+        -- campfire, it counts passers-by from now on.
         if inside and ns.BuffMode.IsAuto() then WaitInside() end
+        if fire and ns.BuffMode.IsAuto() then fireMode = true end
         return
     end
     -- Nothing to do: don't lend a key just to hand it back.
-    if Settled(inside) then return end
+    if Settled(inside, nil, fire) then return end
+    fireMode = fire == true
     -- Set first: turning on refreshes the button, which checks it at once.
     if inside then WaitInside() else insideWait = false end
     ns.BuffMode.Set(true, { auto = true, why = why })
@@ -519,7 +547,9 @@ function Auto.OnEnteringWorld(isLogin, isReload)
     ready = true
     inGroup = GroupAnswer()
     pulled, deathSeen, pendingWhy, pendingInside, insideWait, joinedAt = false, false, nil, nil, false, nil
-    lastMissing, groupUnsure = nil, false
+    lastMissing, groupUnsure, pendingFire = nil, false, nil
+    -- Already by a fire at a login isn't gaining its buff.
+    byFire = Auto.ReadCampfire()
     ns.GroupBuffs.EndRound()
     NoteWhoIsDead()
     -- In a group, or not yet known (#370): the looks read it again (#373).
@@ -532,7 +562,7 @@ function Auto.OnCombatStart()
     fighting = true
     ns.GroupBuffs.EndRound() -- the round lasts up to the first pull (#256)
     if inGroup then pulled = true end
-    deathSeen, pendingWhy, pendingInside = false, nil, nil
+    deathSeen, pendingWhy, pendingInside, pendingFire = false, nil, nil, nil
     if Cfg().autoOffPull == true and ns.BuffMode.IsAuto() then
         ns.BuffMode.EndForFight("the fight started")
         ns.Diag.Log("buffMode", "auto turned off: the fight started")
@@ -552,13 +582,13 @@ end
 
 function Auto.OnCombatEnd()
     fighting = false
-    local why, inside = pendingWhy, pendingInside
-    pendingWhy, pendingInside = nil, nil
+    local why, inside, fire = pendingWhy, pendingInside, pendingFire
+    pendingWhy, pendingInside, pendingFire = nil, nil, nil
     if deathSeen then
         deathSeen = false
         OnDeath()
     end
-    if why then TurnOn(why, inside) end
+    if why then TurnOn(why, inside, fire) end
     CheckMissing(true)
 end
 
@@ -595,6 +625,36 @@ function Auto.OnBuffed()
     if Cfg().autoOnBuffed == true then TurnOn("someone buffed you") end
 end
 
+-- Whether you wear the campfire buff (#39): true, false, or nil when your
+-- auras can't be read (an error, a secret list, aura or spell ID).
+function Auto.ReadCampfire()
+    local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    if type(api) ~= "function" then return nil end
+    for i = 1, ns.Offers.MAX_AURAS do
+        local ok, aura = pcall(api, "player", i, "HELPFUL")
+        if not ok or ns.Util.IsSecret(aura) then return nil end
+        if aura == nil then return false end
+        if type(aura) ~= "table" then return nil end
+        local id = aura.spellId
+        if ns.Util.IsSecret(id) then return nil end
+        if type(id) == "number" and Auto.CAMPFIRE_AURAS[id] then return true end
+    end
+    return false
+end
+
+-- UNIT_AURA for you: gaining the campfire buff turns buff mode on (#39), if
+-- that trigger is on. A read that can't tell keeps what the last one saw.
+function Auto.OnPlayerAura(unit)
+    if unit ~= "player" or not ready then return end
+    local now = Auto.ReadCampfire()
+    if now == nil then return end
+    local was = byFire
+    byFire = now
+    if now and was == false and Cfg().autoOnCampfire == true then
+        TurnOn("you're by a campfire", nil, true)
+    end
+end
+
 function Auto.Create()
     if frame then return end
     inGroup = InGroup()
@@ -607,6 +667,9 @@ function Auto.Create()
         UNIT_HEALTH = Auto.OnUnitHealth,
     }
     for event in pairs(handlers) do frame:RegisterEvent(event) end
+    -- Your own auras only (#39): every unit's would be far more often.
+    handlers.UNIT_AURA = Auto.OnPlayerAura
+    frame:RegisterUnitEvent("UNIT_AURA", "player")
     frame:SetScript("OnEvent", function(_, event, ...) ns.Diag.Call(handlers[event], ...) end)
     ns.Offers.OnOwe(Auto.OnBuffed)
 end
