@@ -15,7 +15,7 @@ local Config = {}
 ns.Config = Config
 
 
-Config.SCHEMA_VERSION = 7
+Config.SCHEMA_VERSION = 8
 Config.NUM_MESSAGES = 30
 Config.MAX_LOG = 400 -- diagnostic log lines kept in saved variables
 Config.MAX_IGNORED = 500
@@ -249,9 +249,23 @@ Config.DEFAULTS = {
         -- of any class, so one profile serves all your characters.
         buffOrder = {},
         neverOffer = {},
-        -- Who gets each buff in buff mode (BuffRules.lua): [buff key] =
-        -- { rule, classes, always, never }. Empty: every buff gets everyone.
+        -- Who gets each buff in buff mode, 1.3.3's rules (BuffRules.lua):
+        -- [buff key] = { rule, classes, always, never }. Empty: every buff
+        -- gets everyone. Read only until the choice below is made (#408).
         whoGets = {},
+        -- Who gets each buff, by place (BuffRules.lua, #408): [buff key] =
+        -- { everyone, tanks, healers, damage, classes, always, never }, for
+        -- strangers (no roles or names), parties, raids, and battlegrounds
+        -- and arenas. Empty: each place's defaults. Flat fields, not one map
+        -- of places: a settings line nests at most 6 deep (Serialize.lua).
+        -- whoChoice: "pending" until the player chooses to keep 1.3.3's
+        -- rules ("kept") or take the defaults ("new"); "pending" reads
+        -- whoGets, as 1.3.3 did. Checked together in BuffRules.Repair.
+        whoChoice = "pending",
+        whoStrangers = {},
+        whoParty = {},
+        whoRaid = {},
+        whoPvP = {},
         messages = DefaultMessages.buffBack,
     },
 }
@@ -369,6 +383,13 @@ Config.FIELD_VALIDATORS = {
         return clean
     end,
     whoGets = function(value) return ns.BuffRules.Clean(value) end,
+    -- A damaged choice is worked out from the section's places' rules
+    -- (section: the whole section as saved, the one validator that reads it).
+    whoChoice = function(value, _, section) return ns.BuffRules.ChoiceFor(value, section) end,
+    whoStrangers = function(value) return ns.BuffRules.CleanPlace(value, true) end,
+    whoParty = function(value) return ns.BuffRules.CleanPlace(value) end,
+    whoRaid = function(value) return ns.BuffRules.CleanPlace(value) end,
+    whoPvP = function(value) return ns.BuffRules.CleanPlace(value) end,
     messages = function(value, default)
         if type(value) ~= "table" then return CopyList(default) end
         local clean = {}
@@ -378,7 +399,8 @@ Config.FIELD_VALIDATORS = {
 }
 
 -- A clean copy of one type's settings: exactly the fields its defaults have,
--- each through its validator. Unknown keys (a hand-edited file, a pasted
+-- each through its validator (given the value, its default, and the section
+-- as saved, which only whoChoice reads, #408). Unknown keys (a hand-edited file, a pasted
 -- settings line) are dropped, so nothing else can grow the saved file.
 local function ValidateType(saved, defaults)
     local src = type(saved) == "table" and saved or {}
@@ -386,7 +408,7 @@ local function ValidateType(saved, defaults)
     for key, default in pairs(defaults) do
         local validate = Config.FIELD_VALIDATORS[key]
         if validate then
-            cfg[key] = validate(src[key], default)
+            cfg[key] = validate(src[key], default, src)
         else
             cfg[key] = Util.DeepCopy(default) -- unreachable while the spec holds
         end
@@ -429,6 +451,14 @@ end
 
 -- Each entry upgrades a saved file from version (key - 1) to key.
 local MIGRATIONS = {
+    [8] = function(db)
+        -- Who gets each buff became a rule for each place (#408). Settings
+        -- saved before it wait for the player's choice: until then the rules
+        -- they had (whoGets) apply as they did. Nothing else changes.
+        if type(db.buffBack) == "table" and db.buffBack.whoChoice == nil then
+            db.buffBack.whoChoice = "pending"
+        end
+    end,
     [7] = function(db)
         -- The Guild Login delay default went from 3 to 15 seconds (#392). A
         -- saved delay still exactly 3 is the old default and becomes 15; any
@@ -630,6 +660,8 @@ local function ValidateSettings(db)
     for _, msgType in ipairs(Config.TYPES) do
         db[msgType] = ValidateType(db[msgType], Config.DEFAULTS[msgType])
     end
+    -- Who gets each buff: the choice and the name cap, across fields (#408).
+    ns.BuffRules.Repair(db.buffBack)
 
     -- Message rotation (see Messages.lua): line numbers still to use, and the
     -- last one used, per type. Anything malformed just starts a fresh round.
@@ -730,10 +762,10 @@ function Config.Field(msgType, field)
     if default == nil then return nil end
     local validate = Config.FIELD_VALIDATORS[field]
     local cfg = Config.Section(msgType)
-    if Same(validate(cfg[field], default), cfg[field]) then return cfg[field] end
+    if Same(validate(cfg[field], default, cfg), cfg[field]) then return cfg[field] end
     Config.Repair()
     cfg = Config.Section(msgType) -- the repair puts a new section in place
-    local checked = validate(cfg[field], default)
+    local checked = validate(cfg[field], default, cfg)
     if not Same(checked, cfg[field]) then cfg[field] = checked end
     return cfg[field]
 end

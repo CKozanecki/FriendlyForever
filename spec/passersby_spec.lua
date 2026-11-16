@@ -465,6 +465,36 @@ describe("Passers-by (#39)", function()
             end
         end)
 
+        it("follows your Buff Back rule for strangers (#408): Off, chosen classes, the new defaults", function()
+            ns.BuffRules.Choose("new")
+            stranger("nameplate1", { class = "WARRIOR" })
+            assert.are.equal("Mark of the Wild", offer().spell, "Everyone, by default")
+            ns.BuffRules.SetOff("motw", "strangers")
+            assert.are.equal("Thorns", offer().spell, "Mark of the Wild is Off for strangers")
+            ns.BuffRules.SetPlaceClass("motw", "strangers", "WARRIOR", true)
+            assert.are.equal("Mark of the Wild", offer().spell, "warriors ticked")
+            stranger("nameplate1", { class = "ROGUE" })
+            assert.are.equal("Thorns", offer().spell, "a rogue isn't ticked")
+            ns.BuffRules.SetOff("thorns", "strangers")
+            assert.is_nil(offer(), "nothing left your rules give a rogue")
+            -- Might goes only to its classes on the new defaults.
+            local MIGHT = 19740
+            boot({ class = "PALADIN", known = { [MIGHT] = true } })
+            ns.BuffRules.Choose("new")
+            stranger("nameplate1", { class = "MAGE" })
+            assert.is_nil(offer(), "a mage gets no Might")
+            stranger("nameplate1", { class = "WARRIOR" })
+            assert.are.equal("Blessing of Might", offer().spell)
+        end)
+
+        it("while your choice is pending, offers any buff their class can use, as 1.3.3's strangers got", function()
+            assert.is_true(ns.BuffRules.Pending())
+            local MIGHT = 19740
+            boot({ class = "PALADIN", known = { [MIGHT] = true } })
+            stranger("nameplate1", { class = "MAGE" })
+            assert.are.equal("Blessing of Might", offer().spell)
+        end)
+
         it("never offers a self-buff or a buff only given when asked", function()
             -- A shaman knows Water Walking (asked only, #350) and Lightning Shield (a self-buff).
             local seen = {}

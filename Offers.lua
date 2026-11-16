@@ -86,6 +86,27 @@ local function Changed()
     for _, fn in ipairs(listeners) do fn() end
 end
 
+-- Whether your rules leave a buff of yours for this favour (#408): after
+-- the choice, one of your buffs for others that their class can use and
+-- your Buff Back rule gives them (a class that can't be read may yet show
+-- one). A request, or a favour that asked for a buff, always may: a request
+-- is given whatever the rules say. While pending every favour counts, as in
+-- 1.3.3. One your rules leave nothing for isn't counted (Count), holds no
+-- place on the button (Current) and turns nothing on (OnOwe), so buff mode
+-- never lends its key for a favour the button can't return (#366's lesson).
+local function Givable(favour)
+    if favour.request or (favour.requested and ns.Requests.Listening()) or ns.BuffRules.Pending() then
+        return true
+    end
+    for _, buff in ipairs(ns.BuffData.Offerable()) do
+        if not buff.selfCast and ns.BuffData.Useful(buff, favour.class)
+            and ns.BuffRules.AllowsStranger(buff, favour.class) ~= false then
+            return true
+        end
+    end
+    return false
+end
+
 local function IndexOf(name)
     for i, favour in ipairs(favours) do
         if favour.name == name then return i end
@@ -308,6 +329,10 @@ function Offers.Owe(name, unit, ledgerEntry)
     end
     ns.Diag.Log("buffBack", "you owe %s a buff", name)
     Changed()
+    if not Givable(favour) then
+        ns.Diag.Log("buffBack", "your Buff Back rules leave %s nothing: not offered", name)
+        return
+    end
     for _, fn in ipairs(oweListeners) do fn() end
 end
 
@@ -418,9 +443,10 @@ local function FlaggedMayBeBuffed(favour)
 end
 
 -- The buff a request asks for, if it can be given now: one you still know
--- and offer when asked (BuffData.Requestable: you may have marked it "never
--- offer" since; one offered only on request, #350, counts; a water buff
--- isn't held for water, as they asked), and not one they wear, unless
+-- and give when asked (BuffData.Requestable: "never offer" and your rules
+-- for who gets it don't stop a request, #408; one offered only on request,
+-- #350, counts; a water buff isn't held for water, as they asked), that
+-- their class can use, and not one they wear, unless
 -- theirs is partly worn off (#269). nil and why not; away is true, with no
 -- reason, when the game says your buff can't reach them.
 local function Requested(favour, unit)
@@ -434,6 +460,9 @@ local function Requested(favour, unit)
         end
     end
     if not offered then return nil, "they asked for " .. spell .. ", which you don't offer" end
+    -- A request is granted whatever your rules and Never offer say (the
+    -- owner, #408), but never a buff their class can't use.
+    if not ns.BuffData.Useful(buff, favour.class) then return nil, "their class can't use " .. spell end
     -- Unknown (hidden in a fight) counts as not wearing it, as for favours.
     if Offers.Wears(unit, buff, WornOff) == true then return nil, "they already have " .. spell end
     if OutOfReach(buff, unit) then return nil, nil, true end
@@ -466,9 +495,15 @@ local function ChooseBuff(favour, myBuffs, held, visible)
         if #ns.BuffData.Mine() > 0 then return nil, "you've marked all your buffs never offer" end
         return nil, "you know no buffs to give"
     end
-    local suitable = 0
+    local suitable, unsure = 0, false
     for _, buff in ipairs(myBuffs) do
-        if not buff.selfCast and ns.BuffData.Useful(buff, favour.class) then
+        -- Your Buff Back rule for the buff (#408): everyone, chosen
+        -- classes, or off. A class that can't be read gets no buff by class.
+        local usable = not buff.selfCast and ns.BuffData.Useful(buff, favour.class)
+        local rule = usable and ns.BuffRules.AllowsStranger(buff, favour.class)
+        local allowed = rule == true
+        if usable and rule == nil then unsure = true end
+        if allowed then
             suitable = suitable + 1
             -- Unknown (hidden in a fight) counts as not wearing it.
             local wears, aura = Offers.Wears(unit, buff, WornOff)
@@ -487,7 +522,10 @@ local function ChooseBuff(favour, myBuffs, held, visible)
             end
         end
     end
-    return nil, suitable > 0 and "they already have your buffs" or "none of your buffs suit them"
+    if suitable > 0 then return nil, "they already have your buffs" end
+    -- (A favour your rules leave nothing for isn't here: Givable.)
+    if unsure then return nil, "can't see their class" end
+    return nil, "none of your buffs suit them"
 end
 
 -- What the button should offer now: { name, buff, spell }, or nil and why
@@ -511,10 +549,16 @@ function Offers.Current(list)
     -- Water breathing waits for water (Water.lua).
     local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
     local visible = VisiblePlayers()
-    local firstReason, first
+    local firstReason, first, owed = nil, nil, false
     for i = #favours, 1, -1 do
         local favour = favours[i]
-        local buff, reason, away = ChooseBuff(favour, myBuffs, held, visible)
+        local buff, reason, away
+        if Givable(favour) then
+            owed = true
+            buff, reason, away = ChooseBuff(favour, myBuffs, held, visible)
+        else
+            away = true -- your rules leave them nothing: it holds no place (#408)
+        end
         local spell = buff and ns.BuffData.SpellName(buff)
         if spell then
             local offer = { name = favour.name, buff = buff, spell = spell, request = favour.request }
@@ -527,6 +571,7 @@ function Offers.Current(list)
         end
     end
     if first then return first end
+    if not owed then return nil, "nobody is owed a buff" end
     if not firstReason then return nil, "everyone you owe is out of sight or out of range", true end
     return nil, firstReason
 end
@@ -681,8 +726,13 @@ function Offers.Has(name)
     return IndexOf(name) ~= nil
 end
 
--- How many are owed: none to a player on the ignore list.
+-- How many are owed: none to a player on the ignore list, and none your
+-- rules leave nothing for (Givable, #408).
 function Offers.Count()
     DropIgnored()
-    return #favours
+    local n = 0
+    for _, favour in ipairs(favours) do
+        if Givable(favour) then n = n + 1 end
+    end
+    return n
 end

@@ -67,6 +67,7 @@ local pendingInside      -- and whether it was the dungeon-or-raid trigger
 local insideWait = false -- buff mode that trigger turned on waits for everyone (#256)
 local timeoutToken = 0   -- bumps each auto start, so an old timer does nothing
 local quietWhy           -- a trigger refused while a battleground was quiet
+local pvpOffWhy          -- the last trigger refused as every buff is off in PvP (#408), said once
 local joinedAt           -- when you joined a group out in the world, while it waits for someone close by
 local lastMissing = {}   -- [name .. "\1" .. buff key] = true: missing at the last look (#272),
                          -- or when the copy running low was put up (#397); nil after
@@ -228,6 +229,15 @@ local function TurnOn(why, inside, fire)
         if fire and ns.BuffMode.IsAuto() then fireMode = true end
         return
     end
+    -- In a battleground or arena whose rules give nobody any buff (#408:
+    -- every buff Off there by default), there's nothing to turn on for.
+    local places = ns.BuffRules.Place()
+    if #places == 1 and places[1] == "pvp" and not ns.BuffRules.GivesAnyone("pvp") then
+        if pvpOffWhy ~= why then ns.Diag.Log("buffMode", "not turning on (%s): every buff is off in PvP", why) end
+        pvpOffWhy = why
+        return
+    end
+    pvpOffWhy = nil
     -- Nothing to do: don't lend a key just to hand it back.
     if Settled(inside, nil, fire) then return end
     fireMode = fire == true

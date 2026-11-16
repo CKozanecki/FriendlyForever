@@ -26,10 +26,11 @@
 -- of the list, after everyone who isn't, so they're your last buff.
 --
 -- Which buff: your buffs for others in your order (BuffData.Offerable, then
--- Water.Filter), one their class can use and your rules for strangers give
--- them, not a Blessing while they wear another of yours (a paladin keeps one
--- on each player, as GroupBuffs does; one you gave them a moment ago counts
--- though it may not show yet), that they're missing or whose copy has less
+-- Water.Filter), one their class can use and your Buff Back rule for
+-- strangers gives them (BuffRules.AllowsStranger, #408), not a Blessing
+-- while they wear another of yours (a paladin keeps one on each player, as
+-- GroupBuffs does; one you gave them a moment ago counts though it may not
+-- show yet), that they're missing or whose copy has less
 -- than half its full time left (the owner, #39 Q4: a single rank yours can replace, with times the
 -- game shows). Their auras must be readable, and the game must say your
 -- spell reaches them: a doubt never costs a cast. One buff per press.
@@ -185,10 +186,12 @@ end
 local function Choose(candidate, myBuffs)
     local unit, wanted = candidate.unit, nil
     for _, buff in ipairs(myBuffs) do
-        -- Every buff their class can use, as a favour's (#408's Buff Back
-        -- rules for strangers join this when they arrive).
+        -- A buff their class can use that your Buff Back rule for strangers
+        -- gives them (#408: Everyone, or their class ticked; Off never), as
+        -- a favour's. Only a plain yes counts.
         local hasOther = true -- not a buff to give them, unless all below say so
         if ns.BuffData.Useful(buff, candidate.class)
+            and ns.BuffRules.AllowsStranger(buff, candidate.class) == true
             and not Recently(given[candidate.name .. "\1" .. buff.key], PassersBy.SKIP_SECONDS) then
             hasOther = OtherOfFamily(candidate, buff, myBuffs)
             if hasOther == nil then return nil, "can't tell whose Blessing they have" end

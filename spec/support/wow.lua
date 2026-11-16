@@ -661,6 +661,8 @@ for name, ids in pairs({
 --                         answer for group units (unit.role, unit.mainTank;
 --                         Main Tank answers false outside a raid);
 --                         which of them Forever has was confirmed in game at launch.
+--                         Roles are TANK, HEALER, DAMAGER, or NONE until chosen
+--                         (HEALER and DAMAGER: the owner's fact, #408).
 --   UnitInRange(unit) answers inRange, checkedRange for group units (unit
 --                         fields outOfRange, rangeUnknown); in a raid, setGroup
 --                         gives you your own raid slot (#255: the game puts you
