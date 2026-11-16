@@ -10,6 +10,7 @@ local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
 local FORT, SPIRIT, INNER_FIRE = 10938, 27841, 10952
+local INTELLECT, ICE_ARMOR, MAGE_ARMOR = 10157, 10220, 22783
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
 
@@ -22,7 +23,7 @@ describe("Buff mode turns on by itself solo (#426)", function()
     local function boot(opts)
         opts = opts or {}
         ns = wow.boot({ buffSelf = true, autoBuffMode = true, before = function(state)
-            state.class = "PRIEST"
+            state.class = opts.class or "PRIEST"
             state.knownSpells = {}
             for _, id in ipairs(opts.known or { FORT, SPIRIT }) do state.knownSpells[id] = true end
         end })
@@ -218,6 +219,92 @@ describe("Buff mode turns on by itself solo (#426)", function()
             assert.is_true(ns.BuffMode.IsAuto(), "the fight ended and it's still missing")
             wow.advance(ns.db.buffBack.autoOffMinutes * 60 + 1)
             assert.is_false(ns.BuffMode.IsOn(), "the timeout")
+        end)
+    end)
+
+    describe("self-buffs and their families (white)", function()
+        it("a self-buff running low says so", function()
+            boot({ known = { FORT, INNER_FIRE }, wearing = { FORT } })
+            wear(INNER_FIRE, 600)
+            local aura = wow.state.playerAuras[#wow.state.playerAuras]
+            aura.duration, aura.expirationTime = 600, wow.now + 90
+            look()
+            assert.is_false(ns.BuffMode.IsOn())
+            wow.advance(40)
+            look()
+            assert.is_true(ns.BuffMode.IsAuto())
+            assert.is_true(printedHas("your Inner Fire is running low"))
+        end)
+
+        it("a self-buff turned off by hand while low stays dismissed when it only stops counting as low", function()
+            boot({ known = { FORT, INNER_FIRE }, wearing = { FORT } })
+            wear(INNER_FIRE, 600)
+            local aura = wow.state.playerAuras[#wow.state.playerAuras]
+            aura.duration, aura.expirationTime = 600, wow.now + 300
+            look()
+            wow.advance(250)
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "running low")
+            slash("buffmode off")
+            ns.db.buffBack.topUpMinutes = 0 -- no longer "low": not a fresh copy
+            look()
+            ns.db.buffBack.topUpMinutes = 5
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "the same copy, low again")
+        end)
+
+        it("an armor counts by its family: wearing another of yours covers it, and its recast forgets a dismissal",
+            function()
+            boot({ class = "MAGE", known = { INTELLECT, ICE_ARMOR, MAGE_ARMOR }, wearing = { INTELLECT, MAGE_ARMOR } })
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "Mage Armor covers the family")
+            fade(MAGE_ARMOR)
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "no armor of yours")
+            slash("buffmode off")
+            -- You put up the other armor, then it fades: a fresh copy dropped.
+            wear(ICE_ARMOR)
+            look()
+            fade(ICE_ARMOR)
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "the family was recast, then dropped")
+        end)
+
+        it("turned off by hand just as a buff fades, before any look, it stays off for that buff", function()
+            boot({ known = { FORT, INNER_FIRE }, wearing = { FORT, INNER_FIRE } })
+            slash("buffmode on")
+            fade(INNER_FIRE)
+            slash("buffmode off")
+            look()
+            look()
+            assert.is_false(ns.BuffMode.IsOn())
+        end)
+
+        it("a buff that fades as you leave a group isn't new at the first solo look", function()
+            boot()
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.wearBuff("party1", FORT, { source = "player" })
+            wow.wearBuff("party1", SPIRIT, { source = "player" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            look()
+            assert.is_false(ns.BuffMode.IsOn())
+            fade(FORT)
+            wow.setGroup(nil, {})
+            wow.fire("GROUP_ROSTER_UPDATE")
+            look()
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "the first solo look only notes")
+        end)
+
+        it("a fight's end while the group answer isn't known since the login does nothing", function()
+            boot()
+            wow.state.inGroupUnreadable = true
+            wow.reloadInPlace(true)
+            wow.state.inGroupUnreadable = nil
+            fade(FORT)
+            wow.enterCombat()
+            wow.leaveCombat()
+            assert.is_false(ns.BuffMode.IsOn())
         end)
     end)
 

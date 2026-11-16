@@ -82,6 +82,7 @@ local lastMissing = {}   -- [name .. "\1" .. buff key] = true: missing at the la
 local dismissed = {}     -- [name .. "\1" .. buff key] = as in lastMissing: low or missing
                          -- when you turned buff mode off yourself, until recast (#397)
 local watching = false   -- the look for missing buffs is scheduled
+local Watch, WatchWanted -- below: the looks, and whether they go on (#426)
 local groupUnsure = false -- a roster update couldn't read IsInGroup() (#373): the
                           -- looks read it again until an answer decides
 local pendingFire         -- the trigger that waits for a fight is the campfire's
@@ -184,6 +185,8 @@ end
 -- Turn buff mode off if a trigger turned it on and it's done. Called on every
 -- button refresh, and by the timeout's own timer with the minutes it waited.
 function Auto.Check(timedOutAfter)
+    -- The missing-buff trigger switched on solo (#426): the looks start again.
+    if ns.db and ready and not watching and WatchWanted() then Watch() end
     if not ns.db or not ns.BuffMode.IsAuto() then return end
     local cfg = Cfg()
     if timedOutAfter then
@@ -408,10 +411,18 @@ end
 
 local GroupChanged -- below: a join or a leave, as a roster update read it
 
+-- Whether the looks go on: in a group, while it isn't known whether you're
+-- in one (#370, #373), and solo only while the missing-buff trigger is on
+-- (#426). Solo with it off, nothing ticks; turning it on starts them again
+-- (Auto.Check, at the next button refresh).
+function WatchWanted()
+    return inGroup ~= false or groupUnsure or Cfg().autoOnMissing == true
+end
+
 -- Look again every WATCH_SECONDS while in a group, while it isn't yet known
 -- after a login (#370), or while a roster update couldn't read it (#373).
 -- The next look is scheduled first, so one that fails doesn't end them.
-local function Watch()
+function Watch()
     if watching then return end
     watching = true
     C_Timer.After(Auto.WATCH_SECONDS, ns.Diag.Wrap(function()
@@ -434,8 +445,9 @@ local function Watch()
                 GroupChanged(answer)
             end
         end
-        -- In a group, or solo (#426): the look goes on. (While the game
-        -- won't say which, CheckMissing looks at nothing.)
+        -- In a group, or solo (#426) while the trigger is on: the look goes
+        -- on. (While the game won't say which, CheckMissing looks at nothing.)
+        if not WatchWanted() then return end
         Watch()
         CheckMissing(false)
     end))
@@ -578,7 +590,7 @@ function GroupChanged(nowIn)
         ns.GroupBuffs.EndRound()
     end
     inGroup = nowIn
-    Watch()
+    if WatchWanted() then Watch() end
 end
 
 -- PLAYER_ENTERING_WORLD. A login or reload: the group as it is now is where
@@ -612,9 +624,9 @@ function Auto.OnEnteringWorld(isLogin, isReload)
     Resync(false)
     ns.GroupBuffs.EndRound()
     NoteWhoIsDead()
-    -- The looks go on solo too (#426), and read the group again while it
-    -- isn't known (#370, #373).
-    Watch()
+    -- The looks go on solo too while the trigger is on (#426), and read the
+    -- group again while it isn't known (#370, #373).
+    if WatchWanted() then Watch() end
 end
 
 -- PLAYER_REGEN_DISABLED. The button empties itself for the fight in the
