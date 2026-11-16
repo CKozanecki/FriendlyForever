@@ -188,6 +188,18 @@ describe("Forever first name + surname", function()
         _G.IsInGuild = real
     end)
 
+    it("/friendly names lists no roster entry when the guild roster is empty or its count unreadable (#406)", function()
+        local real = _G.GetNumGuildMembers
+        for label, count in pairs({ empty = function() return 0 end, secret = function() return wow.secret(5) end,
+            none = function() return nil end, text = function() return "5" end }) do
+            _G.GetNumGuildMembers = count
+            wow.printed = {}
+            slash("names")
+            assert.is_nil(table.concat(wow.printed, "\n"):find("guild roster #1", 1, true), label)
+        end
+        _G.GetNumGuildMembers = real
+    end)
+
     it("/friendly names reads no roster when you're not in a guild", function()
         wow.state.inGuild = false
         slash("names")
