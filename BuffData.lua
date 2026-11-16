@@ -364,7 +364,7 @@ function BuffData.ClassBuffs()
     return class and BuffData.CLASSES[class] or {}
 end
 
--- buffs reordered by order (a list of buff keys, from the Buff Back tab):
+-- buffs reordered by order (a list of buff keys, from the Buffs tab):
 -- the buffs it names come first, in its order; the rest follow in the order
 -- they came. A copy; anything in order that isn't a key is passed over.
 function BuffData.InOrder(buffs, order)
@@ -386,7 +386,7 @@ function BuffData.InOrder(buffs, order)
     return out
 end
 
--- Whether buff is marked "never offer" on the Buff Back tab: as you
+-- Whether buff is marked "never offer" on the Buffs tab: as you
 -- ticked or unticked it, or until you have, its default (Righteous Fury's
 -- is on, #44). Only true and false are a choice.
 function BuffData.NeverOffered(buff)

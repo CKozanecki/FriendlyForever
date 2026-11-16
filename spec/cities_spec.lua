@@ -1,4 +1,4 @@
--- Spec: #34, #101, #36, #140, #269
+-- Spec: #34, #101, #36, #140, #269, #408
 -- Quiet mode in capital cities: no thank-yous and no buff-back button there,
 -- unless buff mode is on; the ledger and the favours still count.
 local wow = require("spec.support.wow")
@@ -379,7 +379,9 @@ describe("Quiet mode in capital cities", function()
             assert.is_true(below(w.nameplateWarning, w.quiet), "then the nameplate warning")
             assert.is_true(below(w.showInCities, w.sayLine), "the capital-city button option under the line")
             assert.is_true(below(w.steppers.renewPercent.label, w.showInCities), "then the renew setting (#269)")
-            assert.is_true(below(w.buffOrderHeader, w.steppers.renewPercent.label), "then the buff order")
+            assert.is_true(below(w.buffsLink, w.steppers.renewPercent.label), "then the link to the Buffs tab (#408)")
+            assert.is_true(below(w.openBuffs, w.buffsLink), "its button under it")
+            assert.is_true(below(w.autoHeader, w.openBuffs), "then the turn-on triggers")
         end)
 
         it("has the two options on their tabs, and they change the settings", function()

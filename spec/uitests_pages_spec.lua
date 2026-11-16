@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383, #45
+-- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383, #408, #45
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -75,6 +75,34 @@ describe("the UI simulator's options tabs", function()
             assert.is_nil(names[tab.name], "two tabs called " .. tab.name)
             names[tab.name] = true
         end
+    end)
+
+    -- The Buffs tab (#408): not a message type, so its own list of shots.
+    it("has the screenshot job shoot every Buffs tab shot, each from its own script (white, #408)", function()
+        local workflow = wow.readFile(".github/workflows/ui-sim.yml")
+        assert.are.equal(table.concat(Pages.BUFFS_SHOTS, " "), workflow:match("\n%s*BUFFS_SHOTS: ([^\n]-)%s*\n"))
+        assert.is_truthy(workflow:find('for shot in $BUFFS_SHOTS; do\n%s*shoot "options%-buffs%-$shot" '
+            .. '%-%-exec%-lua "@/shot%-lua/buffs%-$shot%.lua"\n'))
+        assert.is_truthy(workflow:find('FriendlyForeverUIPages.ShowBuffs("%s")', 1, true), "the scripts")
+        local places = {}
+        for _, p in ipairs(Pages.BUFFS_PLACES) do places[p.name] = true end
+        for _, shot in ipairs(Pages.BUFFS_SHOTS) do
+            local place = shot == "buff-back" and shot or shot:match("^[a-z]+")
+            assert.is_true(places[place] == true, shot .. " names no place")
+        end
+    end)
+
+    it("answers a Buffs place it doesn't know with a message, not a Lua error (black, #408)", function()
+        local panel = _G.FriendlyForeverOptionsPanel
+        local tab = ns.Options.widgets.tabs.buffs
+        panel.GetChildren = function() return tab end
+        tab.GetObjectType = function() return "Button" end
+        local ok, content, why = pcall(Pages.OpenBuffs, "nowhere")
+        assert.is_true(ok, tostring(content))
+        assert.is_nil(content)
+        assert.are.equal("no such place", why)
+        assert.are.equal("no Buffs place called nowhere", printed[#printed])
+        assert.are.equal("buffs", ns.Options.CurrentType(), "the tab was opened by its button")
     end)
 
     it("has the screenshot job shoot every tab, each named after it (white)", function()
@@ -167,12 +195,12 @@ describe("the UI simulator's Buff Back names", function()
         _G.A_Print = nil
     end)
 
-    -- The row texts the Buff Back tab shows now.
+    -- The row texts the Buffs tab shows now (#408).
     local function rows()
-        ns.Options.SelectType("buffBack")
+        ns.Options.SelectType("buffs")
         local texts = {}
         for _, row in ipairs(ns.Options.widgets.buffRows) do
-            if row.name:IsShown() then texts[#texts + 1] = row.name:GetText() end
+            if row.name:IsVisible() then texts[#texts + 1] = row.name:GetText() end
         end
         return texts
     end
@@ -208,7 +236,7 @@ describe("the UI simulator's Buff Back names", function()
         assert.is_nil(Pages.UnnamedBuff())
     end)
 
-    it("shows each row of the tab with the name the client gives, the longest Blessing of Wisdom (white)", function()
+    it("shows each row of the Buffs tab with the name the client gives, the longest Blessing of Wisdom (white)", function()
         local names = {}
         for _, buff in ipairs(Pages.BUFF_NAMES) do
             for _, rank in ipairs(buff.ranks) do names[rank] = buff.name end
@@ -395,12 +423,12 @@ describe("the UI simulator's walkthrough steps", function()
     end)
 
     -- The simulated client has no child lists, layout or ranges: this gives
-    -- the options panel a scroll frame holding the real group versions check
+    -- the options panel a scroll frame holding the real buff requests check
     -- box, 700 px down a 2000 px child, in a 600 px view.
     local function Layout()
         local scroll = ns.Options.widgets.scroll
         local content = ns.Options.widgets.content
-        local row = ns.Options.widgets.groupVersions
+        local row = ns.Options.widgets.buffRequests
         scroll.scrollRange = 1500
         scroll.GetHeight = function() return 600 end
         scroll.GetScrollChild = function() return content end
@@ -413,7 +441,7 @@ describe("the UI simulator's walkthrough steps", function()
         return scroll, row
     end
 
-    it("scrolls the Buff Back tab to its group versions row for the lower shot, and the undo puts the scroll back (white, #254)", function()
+    it("scrolls the Buff Back tab to its buff requests row for the lower shot, and the undo puts the scroll back (white, #254)", function()
         ns.Options.OpenTab("buffBack")
         local scroll = Layout()
         scroll:SetVerticalScroll(40)
@@ -457,13 +485,13 @@ describe("the UI simulator's walkthrough steps", function()
         assert.are.equal(why, printed[#printed])
     end)
 
-    -- #383: the middle shot starts at the self-buffs row, which a paladin's
-    -- tab has (BuffData: Righteous Fury and the auras), above the lower shot's.
-    it("scrolls the Buff Back tab to its self-buffs row for the middle shot, above the lower shot's row (white, #383)", function()
+    -- #383: the middle shot starts at buff mode's first turn-on switch, above
+    -- the lower shot's row (#408: the buff rows moved to the Buffs tab).
+    it("scrolls the Buff Back tab to its turn-on switches for the middle shot, above the lower shot's row (white, #383)", function()
         ns.Options.OpenTab("buffBack")
         local scroll = Layout()
         local content = ns.Options.widgets.content
-        local selfRow, lowerRow = ns.Options.widgets.selfBuffs, ns.Options.widgets.groupVersions
+        local selfRow, lowerRow = ns.Options.widgets.auto.autoOnJoin, ns.Options.widgets.buffRequests
         assert.is_truthy(selfRow.label:GetText():find(Pages.MIDDLE_ROW, 1, true) == 1, selfRow.label:GetText())
         selfRow.GetTop = function() return 1000 - 400 end
         content.GetChildren = function() return selfRow, lowerRow end
@@ -475,13 +503,13 @@ describe("the UI simulator's walkthrough steps", function()
         assert.are.equal(700 - 12, scroll:GetVerticalScroll())
     end)
 
-    it("answers a tab with no self-buffs row with a message, not a Lua error, for the middle shot (black, #383)", function()
+    it("answers a tab with no turn-on row with a message, not a Lua error, for the middle shot (black, #383)", function()
         ns.Options.OpenTab("buffBack")
         Layout()
         local ok, undo, why = pcall(Pages.ShowTabMiddle, "buff-back")
         assert.is_true(ok)
         assert.is_nil(undo)
-        assert.are.equal("the options panel has no row \"Offer my self-buffs\" to scroll to", why)
+        assert.are.equal("the options panel has no row \"with my group\" to scroll to", why)
         assert.are.equal(why, printed[#printed])
     end)
 

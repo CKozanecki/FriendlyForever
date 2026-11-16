@@ -1,4 +1,4 @@
--- Spec: #166, #171
+-- Spec: #166, #171, #408
 -- The options panel with a settings section damaged mid-session (#166), and
 -- number boxes finishing their edit before a reset or tab switch (#171).
 local wow = require("spec.support.wow")
@@ -153,20 +153,27 @@ describe("Options panel", function()
                 local count = 0
                 for name, stepper in pairs(w.steppers) do
                     -- The tab it shows on.
+                    -- The tab it shows on: a message type's, or the Buffs tab (#408),
+                    -- whose settings are Buff Back's.
                     local home
                     for _, tab in ipairs(ns.Config.TYPES) do
                         wow.run(w.tabs[tab], "OnClick")
-                        if not home and stepper.box:IsShown() then home = tab end
+                        if not home and stepper.box:IsVisible() then home = tab end
+                    end
+                    local section = home
+                    if not home then
+                        wow.run(w.tabs.buffs, "OnClick")
+                        if stepper.box:IsVisible() then home, section = "buffs", "buffBack" end
                     end
                     assert.is_truthy(home, name .. " shows on a tab")
                     wow.run(w.tabs[home], "OnClick")
                     local limits = ns.Config.LIMITS[name]
-                    local typed = ns.db[home][name] == limits.min and limits.min + 1 or limits.min
+                    local typed = ns.db[section][name] == limits.min and limits.min + 1 or limits.min
                     typeInto(stepper.box, tostring(typed))
                     local other = home == "buff" and "guildLogin" or "buff"
                     wow.run(w.tabs[other], "OnClick")
                     assert.is_false(stepper.box:HasFocus(), name)
-                    assert.are.equal(typed, ns.db[home][name], name .. " saved to its own tab")
+                    assert.are.equal(typed, ns.db[section][name], name .. " saved to its own tab")
                     count = count + 1
                 end
                 assert.is_true(count >= 8, "every stepper was checked")

@@ -203,7 +203,7 @@ jobs:
               *)
                 case "$file" in
                   .pkgmeta | *.toc | *.xml) hit=yes ;;
-                  Battleground.lua | BuffButton.lua | BuffData.lua | BuffList.lua | BuffMode.lua | BuffModeAuto.lua | BuffRules.lua | ChatQueue.lua | Core.lua \
+                  Battleground.lua | BuffButton.lua | BuffData.lua | BuffList.lua | BuffMode.lua | BuffModeAuto.lua | BuffRules.lua | BuffsTab.lua | ChatQueue.lua | Core.lua \
                     | Colours.lua | Minimap.lua | Nameplates.lua | Options.lua | OptionsIndex.lua | Walkthrough.lua | Water.lua \
                     | Window.lua) hit=yes ;;
                 esac ;;
@@ -859,6 +859,9 @@ jobs:
       # Pages.WALKTHROUGH_STEPS names (spec/uitests_pages_spec.lua checks
       # they match).
       WALKTHROUGH_STEPS: welcome buff-mode-key buff-mode-triggers whats-new-requests
+      # The Buffs tab's shots (#408): uitests/pages.lua's Pages.BUFFS_SHOTS
+      # (spec/uitests_pages_spec.lua checks they match).
+      BUFFS_SHOTS: buff-back party raid pvp party-list raid-names party-choice
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -896,12 +899,18 @@ jobs:
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowTab("%s")\n' "$tab"; } \
               > "$states/tab-$tab.lua"
           done
-          # The Buff Back tab scrolled to its lower rows, from "Use group versions" down (#254).
+          # The Buff Back tab scrolled to its lower rows, from the buff requests row down (#254).
           { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowTabLower("buff-back")\n'; } \
             > "$states/tab-buff-back-lower.lua"
-          # And to its middle rows, from "Offer my self-buffs" down (#383).
+          # And to its middle rows, from buff mode's turn-on switches down (#383).
           { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowTabMiddle("buff-back")\n'; } \
             > "$states/tab-buff-back-middle.lua"
+          # The Buffs tab (#408): each place, a who-gets list and names open,
+          # and the choice before it's made.
+          for shot in $BUFFS_SHOTS; do
+            { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowBuffs("%s")\n' "$shot"; } \
+              > "$states/buffs-$shot.lua"
+          done
           # The walkthrough at each step shot, taken again from Start here (#47).
           for step in $WALKTHROUGH_STEPS; do
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowWalkthrough("%s")\n' "$step"; } \
@@ -930,8 +939,8 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Every shot
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so a pass of 31 shots can take about 103 minutes in the
-        # worst case, and both passes together about 207. No shot starts
+        # clean-up, so a pass of 38 shots can take about 127 minutes in the
+        # worst case, and both passes together about 253. No shot starts
         # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
         # so the last one ends by about 4400 s with the probe: inside this
         # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a
@@ -1022,11 +1031,15 @@ jobs:
             for tab in $OPTIONS_TABS; do
               shoot "options-$tab" --exec-lua "@/shot-lua/tab-$tab.lua"
             done
-            # The Buff Back tab scrolled to "Offer my self-buffs" (#383): the self-buffs, Who, the raid
-            # Blessings, the buff-mode switches and the top-up stepper, between the top and lower shots.
+            # The Buff Back tab scrolled to buff mode's turn-on switches (#383): the switches and the
+            # top-up stepper, between the top and lower shots.
             shoot options-buff-back-middle --exec-lua "@/shot-lua/tab-buff-back-middle.lua"
-            # The Buff Back tab scrolled to "Use group versions" (#254): the rows below the turn-on triggers.
+            # The Buff Back tab scrolled to the buff requests row (#254): its last row before the lines.
             shoot options-buff-back-lower --exec-lua "@/shot-lua/tab-buff-back-lower.lua"
+            # The Buffs tab (#408): options-buffs-party, options-buffs-party-list...
+            for shot in $BUFFS_SHOTS; do
+              shoot "options-buffs-$shot" --exec-lua "@/shot-lua/buffs-$shot.lua"
+            done
             # The Buff Thanks tab (#101), with the longest "Thank them with" choice.
             shoot options-buff --exec-lua "if FriendlyForeverWalkthrough and FriendlyForeverWalkthrough:IsShown() then FriendlyForeverWalkthrough.skip:Click() end; FriendlyForeverDB.buff.thankStyle = 'both'; SlashCmdList.FRIENDLYFOREVER(''); for _, f in ipairs({ FriendlyForeverOptionsPanel:GetChildren() }) do local c = f.GetScrollChild and f:GetScrollChild(); for _, b in ipairs(c and { c:GetChildren() } or {}) do if b.GetText and b:GetText() == 'Buff Thanks' then b:GetScript('OnClick')(b) end end end"
             # The General page (#35): it doesn't scroll, so everything must fit.
