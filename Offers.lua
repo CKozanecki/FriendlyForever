@@ -412,9 +412,10 @@ local function FlaggedMayBeBuffed(favour)
 end
 
 -- The buff a request asks for, if it can be given now: one you still know
--- and offer when asked (BuffData.Requestable: you may have marked it "never
--- offer" since; one offered only on request, #350, counts; a water buff
--- isn't held for water, as they asked), and not one they wear, unless
+-- and give when asked (BuffData.Requestable: "never offer" and your rules
+-- for who gets it don't stop a request, #408; one offered only on request,
+-- #350, counts; a water buff isn't held for water, as they asked), that
+-- their class can use, and not one they wear, unless
 -- theirs is partly worn off (#269). nil and why not; away is true, with no
 -- reason, when the game says your buff can't reach them.
 local function Requested(favour, unit)
@@ -428,6 +429,9 @@ local function Requested(favour, unit)
         end
     end
     if not offered then return nil, "they asked for " .. spell .. ", which you don't offer" end
+    -- A request is granted whatever your rules and Never offer say (the
+    -- owner, #408), but never a buff their class can't use.
+    if not ns.BuffData.Useful(buff, favour.class) then return nil, "their class can't use " .. spell end
     -- Unknown (hidden in a fight) counts as not wearing it, as for favours.
     if Offers.Wears(unit, buff, WornOff) == true then return nil, "they already have " .. spell end
     if OutOfReach(buff, unit) then return nil, nil, true end
@@ -460,9 +464,14 @@ local function ChooseBuff(favour, myBuffs, held, visible)
         if #ns.BuffData.Mine() > 0 then return nil, "you've marked all your buffs never offer" end
         return nil, "you know no buffs to give"
     end
-    local suitable = 0
+    local suitable, ruled = 0, false
     for _, buff in ipairs(myBuffs) do
-        if not buff.selfCast and ns.BuffData.Useful(buff, favour.class) then
+        -- Your Buff Back rule for the buff (#408): everyone, chosen
+        -- classes, or off. A class that can't be read gets no buff by class.
+        local usable = not buff.selfCast and ns.BuffData.Useful(buff, favour.class)
+        local allowed = usable and ns.BuffRules.AllowsStranger(buff, favour.class) == true
+        if usable and not allowed then ruled = true end
+        if allowed then
             suitable = suitable + 1
             -- Unknown (hidden in a fight) counts as not wearing it.
             local wears, aura = Offers.Wears(unit, buff, WornOff)
@@ -481,7 +490,8 @@ local function ChooseBuff(favour, myBuffs, held, visible)
             end
         end
     end
-    return nil, suitable > 0 and "they already have your buffs" or "none of your buffs suit them"
+    if suitable > 0 then return nil, "they already have your buffs" end
+    return nil, ruled and "your Buff Back rules leave them out" or "none of your buffs suit them"
 end
 
 -- What the button should offer now: { name, buff, spell }, or nil and why

@@ -1,4 +1,4 @@
--- Spec: #68, #76, #208, #70, #368, #376
+-- Spec: #68, #76, #208, #70, #368, #376, #394, #408
 -- My Blessings in this raid (paladins): choose which of your Blessings you
 -- give in the raid you're in, so two paladins don't both give Kings. The
 -- choice is never saved and is forgotten once you're out of the raid, as the
@@ -225,9 +225,12 @@ describe("My Blessings in this raid", function()
         it("isn't saved", function()
             group("raid", { "Ann-Vale" })
             ns.BuffRules.SetRaidBlessings({ "might" })
-            -- raidSplit is the raid buff split's switch (#70), not this choice.
+            -- raidSplit is the raid buff split's switch (#70), and whoRaid who
+            -- gets each buff in a raid (#408), not this choice.
             for key in pairs(ns.db.buffBack) do
-                if key ~= "raidSplit" then assert.is_falsy(key:lower():find("raid", 1, true), key) end
+                if key ~= "raidSplit" and key ~= "whoRaid" then
+                    assert.is_falsy(key:lower():find("raid", 1, true), key)
+                end
             end
         end)
 
@@ -1136,7 +1139,7 @@ describe("My Blessings in this raid", function()
             raid(TEN, "Ann-Vale")
             ns.BuffRules.SetRaidBlessings({ "might" })
             enterBattleground()
-            assert.are.same({ false, "you're in a battleground (your raid's choice applies again when you're back)" },
+            assert.are.same({ false, "you're in a battleground or arena (your raid's choice applies again when you're back)" },
                 { ns.BuffRules.SetRaidBlessings({ "wisdom" }) })
             local n = #wow.printed
             slash("blessings")
@@ -1149,7 +1152,7 @@ describe("My Blessings in this raid", function()
             enterBattleground()
             assert.is_true(ns.BuffRules.SetRaidBlessings(nil))
             assert.is_false(ns.BuffRules.RaidBlessingsHeld())
-            assert.are.same({ false, "you're in a battleground" }, { ns.BuffRules.SetRaidBlessings({ "wisdom" }) })
+            assert.are.same({ false, "you're in a battleground or arena" }, { ns.BuffRules.SetRaidBlessings({ "wisdom" }) })
             backToRaid()
             assert.is_false(chosen(), "stopped in the battleground: stays stopped")
             assert.are.same({}, wow.errors)

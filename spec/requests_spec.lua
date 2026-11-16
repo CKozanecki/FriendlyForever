@@ -1,4 +1,4 @@
--- Spec: #40, #353, #350
+-- Spec: #40, #353, #350, #408
 -- Buff requests in chat: a whisper or /say asking for one of your buffs
 -- queues that player on the buff-back button, for that buff. It never casts,
 -- says nothing in chat, and is off by default. Chat text is untrusted:
@@ -737,7 +737,7 @@ describe("Buff requests in chat", function()
             end
         end)
 
-        it("ignores requests for buffs you don't have: another class's, unlearned, never offered", function()
+        it("ignores requests for buffs you don't have: another class's, unlearned", function()
             boot({ class = "MAGE" })
             stranger()
             for _, text in ipairs({ "mark pls", "fort pls", "kings pls", "thorns pls", "wb pls", "battle shout pls" }) do
@@ -748,18 +748,41 @@ describe("Buff requests in chat", function()
             stranger()
             wow.whisper("thorns pls", "Bob-Stone")
             assert.are.equal(0, ns.Offers.Count(), "Thorns not learned")
-            ns.db.buffBack.neverOffer = { motw = true }
-            wow.whisper("mark pls", "Bob-Stone")
-            assert.are.equal(0, ns.Offers.Count(), "Mark marked never offer")
         end)
 
-        it("a buff marked never offer after the request isn't offered", function()
+        -- The owner (#408, question 5): a request always gets the buff
+        -- while requests are on; Never offer and the place rules don't stop it.
+        it("a buff marked never offer, before or after the request, is still given when asked for", function()
+            stranger()
+            ns.db.buffBack.neverOffer = { motw = true }
+            wow.whisper("mark pls", "Bob-Stone")
+            assert.are.equal(1, ns.Offers.Count(), "Mark marked never offer, then asked for")
+            local offer = ns.Offers.Current()
+            assert.are.equal("Mark of the Wild", offer and offer.spell)
+            boot()
             stranger()
             wow.whisper("mark pls", "Bob-Stone")
             ns.db.buffBack.neverOffer = { motw = true }
+            offer = ns.Offers.Current()
+            assert.are.equal("Mark of the Wild", offer and offer.spell)
+        end)
+
+        it("a request is given even when your Buff Back rule for it is Off (after the choice)", function()
+            stranger()
+            assert.is_true(ns.BuffRules.Choose("new"))
+            assert.is_true(ns.BuffRules.SetOff("motw", "strangers"))
+            wow.whisper("mark pls", "Bob-Stone")
+            local offer = ns.Offers.Current()
+            assert.are.equal("Mark of the Wild", offer and offer.spell)
+        end)
+
+        it("a request for a buff their class can't use isn't given (#408)", function()
+            boot({ class = "MAGE" })
+            stranger(nil, { class = "WARRIOR" })
+            wow.whisper("int pls", "Bob-Stone")
             local offer, why = ns.Offers.Current()
             assert.is_nil(offer)
-            assert.is_truthy(why:find("which you don't offer", 1, true))
+            assert.is_truthy(why and why:find("their class can't use", 1, true), why)
         end)
 
         it("a warrior's Battle Shout is never asked for: it reaches only your party", function()
