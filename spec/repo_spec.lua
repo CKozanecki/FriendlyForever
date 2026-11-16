@@ -2715,12 +2715,12 @@ describe("UI simulator workflow", function()
         -- publish job's workspace holds its downloaded shots (#360's review).
         -- The input a command reads: a file after <, a process
         -- substitution's command after < <( ), or a string after <<<.
-        local function inputOf(text)
-            local substituted = text:match("<%s*<(%b())")
+        local function inputOf(command)
+            local substituted = command:match("<%s*<(%b())")
             if substituted then return nil, substituted:sub(2, -2) end
-            local here = text:match("<<<%s*(%S+)")
+            local here = command:match("<<<%s*(%S+)")
             if here then return nil, nil, here end
-            return text:match("[^<>&%d]<%s*([^%s<(][^%s]*)") or text:match("^<%s*([^%s<(][^%s]*)")
+            return command:match("[^<>&%d]<%s*([^%s<(][^%s]*)") or command:match("^<%s*([^%s<(][^%s]*)")
         end
 
         -- A safe-name check on one line (#367): case "$x" in *[!A-Za-z0-9._-]*)
@@ -2766,13 +2766,13 @@ describe("UI simulator workflow", function()
             -- printing process substitution in it (#375). docker logs and a
             -- container in the foreground replay its stderr on their own.
             local function errorsKept(piece)
-                local text = piece.text
+                local words = piece.text
                 -- echo and printf read no file, so their errors name none.
-                local command = stripped(text).command
+                local command = stripped(words).command
                 local reads = not (command:match("^echo%f[%W]") or command:match("^printf%f[%W]"))
                 -- The command's own redirections, not those of a process
                 -- substitution in it (checked below).
-                local outer = text:gsub("[<>]%b()", "")
+                local outer = words:gsub("[<>]%b()", "")
                 if reads and not (outer:find(ERRORS) or outer:find(INTO_PIPE) or piece.after == "|&" or outer:find("&>", 1, true)) then
                     return false
                 end
@@ -2784,7 +2784,7 @@ describe("UI simulator workflow", function()
                     for at in outer:gmatch("()[^%d&>]>>?%s*[^&%s]") do out = at end
                     if into and out and into < out then return false end
                 end
-                for body in text:gmatch("[<>](%b())") do
+                for body in words:gmatch("[<>](%b())") do
                     local inside = body:sub(2, -2)
                     local first = inside:match("^([^|]*)")
                     if printsOutput(inside, state.inTree, sources, nil, unchecked())
@@ -2796,12 +2796,12 @@ describe("UI simulator workflow", function()
             end
             -- leaks: a reader in it sends its errors, which name its file, to
             -- the log: shown and a file take only stdout (#375).
-            local function check(command, line, filtered, leaks)
+            local function check(command, line, filtered, leaked)
                 seen = seen + 1
                 local problem
                 if not (filtered or toFile(command) or command:find("| shown", 1, true)) then
                     problem = "prints unfiltered output: " .. line
-                elseif not filtered and leaks then
+                elseif not filtered and leaked then
                     problem = "filters only stdout: " .. line
                 end
                 if problem and not reported[line] then

@@ -397,7 +397,11 @@ end
 -- also fails if its text is wider than that width: the game wraps it onto a
 -- second line, into the row below (#177). Prints a LAYOUT line, which names
 -- any edges or count the client can't give, and returns it.
-local function TextInside(frame, region, label, maxLines, oneLine)
+-- grows: frame is sized from the text's own height (the walkthrough's body,
+-- Walkthrough.lua), so the game's wrapped text makes it taller too; up and
+-- down, the text is then compared with it as the client lays both out, not
+-- as the game would wrap the text alone (#362).
+local function TextInside(frame, region, label, maxLines, oneLine, grows)
     local fl, fr = Edges(frame, "GetLeft", "GetRight")
     local tl, tr = Edges(region, "GetLeft", "GetRight")
     if not (fl and tl) then
@@ -422,7 +426,9 @@ local function TextInside(frame, region, label, maxLines, oneLine)
     local ft, fb = Edges(frame, "GetTop", "GetBottom")
     local tt, tb = Edges(region, "GetTop", "GetBottom")
     if ft and tt then
-        local textTop, textBottom = DrawnUpDown(region, tt, tb, wrapped and wrapped / math.max(count or 1, 1) or 1)
+        local growth = wrapped and wrapped / math.max(count or 1, 1) or 1
+        if grows then growth = 1 end
+        local textTop, textBottom = DrawnUpDown(region, tt, tb, growth)
         inside = inside and textTop <= ft + 1 and textBottom >= fb - 1
         line = line .. ("; up and down: text %.0f..%.0f, frame %.0f..%.0f"):format(textBottom, textTop, fb, ft)
     else
@@ -1233,10 +1239,17 @@ local function TabTextInside(content, label)
     end
     -- A line pinned at one point has the width it was given (the Buff Back
     -- rows' names, 220), so a name wider than that wraps into the next row
-    -- (#177). Lines pinned on two sides may wrap on purpose.
+    -- (#177). Lines pinned on two sides may wrap on purpose. Since the
+    -- self-buffs (#44), a buff row's name ("8. Shadow Resistance Aura (you
+    -- only)") may wrap onto a second line, centred on its row, which
+    -- spec/layout_spec.lua checks never reaches the next row's: two lines.
     for _, region in ipairs(Texts(content)) do
         local oneLine = Measure(region, "GetNumPoints") == 1 and not AnchoredOn(region, "RIGHT")
-        Add(content, region, "", nil, oneLine)
+        if oneLine and (region:GetText() or ""):find("^%d+%. ") then
+            Add(content, region, "", 2)
+        else
+            Add(content, region, "", nil, oneLine)
+        end
     end
     for _, child in ipairs({ content:GetChildren() }) do
         if child:IsVisible() then
@@ -1669,7 +1682,7 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
             OnScreen(walkthrough, label)
             CheckAll({
                 function() FrameTextInside(walkthrough, label, 1) end,
-                function() TextInside(walkthrough.body, walkthrough.stepText, label .. " text") end,
+                function() TextInside(walkthrough.body, walkthrough.stepText, label .. " text", nil, nil, true) end,
                 function() AcrossInside(walkthrough.scroll, walkthrough.body, label .. " text area") end,
             })
             local row = STEP_ROWS[step.name]

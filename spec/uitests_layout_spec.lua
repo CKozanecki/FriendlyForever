@@ -1,4 +1,4 @@
--- Spec: #35, #52, #90, #112, #148, #158, #47, #173, #208, #160, #177, #343
+-- Spec: #35, #52, #90, #112, #148, #158, #47, #173, #208, #160, #177, #343, #362
 -- The UI simulator's layout check (uitests/scenarios.lua), run here against
 -- stand-in regions whose edges, anchors and text sizes each test sets
 -- itself, so the expected answer comes from those numbers and not from the
@@ -78,6 +78,32 @@ describe("UI simulator layout check (TextInside)", function()
         it("passes a hint that wraps when no line limit is asked for", function()
             local line = checks.TextInside(region(BUTTON), hint(2), "hint")
             assert.are.equal("LAYOUT hint: text 46..214, frame 0..220; up and down: text 6..30, frame 0..44", line)
+        end)
+
+        -- #362: the walkthrough's text, in a body the addon sizes from the
+        -- text's own height. The simulator doesn't wrap it (docs/ui-simulator.md),
+        -- so the check's wrap estimate (4 lines for a 1500-pixel paragraph in
+        -- 400) outgrows the body sized to the client's 3 lines; the game's body
+        -- grows with the wrapped text. grows compares the two as laid out.
+        local function walkthroughText(height)
+            return region({
+                left = 296, right = 696, top = 316, bottom = 316 - height,
+                points = { "TOPLEFT", "TOPRIGHT" }, width = 1500, height = height, lines = 3,
+            }, { CanWordWrap = function() return true end, GetMaxLines = function() return 0 end })
+        end
+        local BODY = { left = 296, right = 696, top = 316, bottom = 263 }
+
+        it("compares a text with the body sized from it as the client lays both out, when the body grows (grows)", function()
+            local line = checks.TextInside(region(BODY), walkthroughText(45), "walkthrough text", nil, nil, true)
+            assert.are.equal("LAYOUT walkthrough text: text 296..696, frame 296..696; up and down: text 271..316, frame 263..316", line)
+            -- Without grows, the estimate hangs below the body.
+            local err = fails(function() checks.TextInside(region(BODY), walkthroughText(45), "walkthrough text") end)
+            assert.truthy(err:find("up and down: text 256..316, frame 263..316: spills out of its frame", 1, true), err)
+            -- A text taller than its body as laid out still fails.
+            local tall = fails(function()
+                checks.TextInside(region(BODY), walkthroughText(60), "walkthrough text", nil, nil, true)
+            end)
+            assert.truthy(tall:find("up and down: text 256..316, frame 263..316: spills out of its frame", 1, true), tall)
         end)
 
         it("fails a line pinned on its top whose wrapped text hangs below the frame", function()
@@ -626,16 +652,41 @@ describe("UI simulator layout check for an options tab (TabTextInside, #112)", f
     it("reports a Buff Back row's name at its drawn width, not its label's 220 (white)", function()
         checks.TabTextInside(content({ text("1. Blessing of Wisdom", 100, 150, true, 220) }), "Buff Back tab")
         assert.are.equal('LAYOUT Buff Back tab "1. Blessing of Wisdom": text 100..250, frame 0..600; '
-            .. "up and down: text 268..280, frame 0..300", printed[1])
+            .. "up and down: text 268..280, frame 0..300, 1 line", printed[1])
     end)
 
-    it("fails a row whose name is wider than its label, though it's inside the panel (black)", function()
+    -- #44, #343: a buff row's name may wrap onto a second line, centred on
+    -- its row (spec/layout_spec.lua checks it clears the next row's), but no
+    -- more. Any other line pinned at one point still keeps to one (#177).
+    local function wrapping(r, lines)
+        r.CanWordWrap = function() return true end
+        r.GetMaxLines = function() return 0 end
+        r.GetNumLines = function() return lines or 1 end
+        return r
+    end
+
+    it("passes a row whose name wraps onto a second line, and says so (white)", function()
+        checks.TabTextInside(content({ wrapping(text("8. Shadow Resistance Aura (you only)", 100, 300, true, 220)) }),
+            "Buff Back tab")
+        assert.truthy(printed[1]:find('LAYOUT Buff Back tab "8. Shadow Resistance Aura (you only)": ', 1, true), printed[1])
+        assert.truthy(printed[1]:find("2 lines once wrapped at its width", 1, true), printed[1])
+    end)
+
+    it("fails a row whose name would wrap onto a third line, though it's inside the panel (black)", function()
         local err = fails(function()
-            checks.TabTextInside(content({ text("5. Blessing of Salvation (not known yet)", 100, 240, true, 220) }),
+            checks.TabTextInside(content({ wrapping(text("5. Blessing of Salvation (not known yet)", 100, 480, true, 220)) }),
                 "Buff Back tab")
         end)
-        assert.truthy(err:find('LAYOUT Buff Back tab "5. Blessing of Salvation (not known yet)": text 100..340, '
-            .. "frame 0..600, wider than its width of 220", 1, true), err)
+        assert.truthy(err:find('LAYOUT Buff Back tab "5. Blessing of Salvation (not known yet)": ', 1, true), err)
+        assert.truthy(err:find("3 lines once wrapped at its width", 1, true), err)
+        assert.truthy(err:find("wraps onto more lines than 2", 1, true), err)
+    end)
+
+    it("fails any other line pinned at one point that is wider than its width (black, #177)", function()
+        local err = fails(function()
+            checks.TabTextInside(content({ text("Whisper them while they're offline", 100, 240, true, 220) }), "Buff Back tab")
+        end)
+        assert.truthy(err:find("frame 0..600, wider than its width of 220", 1, true), err)
         assert.truthy(err:find("wider than its width, so it wraps onto a second line", 1, true), err)
         assert.is_nil(err:find("spills out of its frame", 1, true), err)
     end)
