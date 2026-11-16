@@ -330,7 +330,7 @@ describe("Layout", function()
             w.scroll.top = 700
             w.scroll:SetHeight(500) -- the view: 700 down to 200
             local function open(top)
-                row.names.top = top
+                row.who.top = top
                 if w.whoList:IsShown() then wow.run(row.who, "OnClick") end
                 wow.run(row.who, "OnClick")
                 assert.is_true(w.whoList:IsShown())
@@ -347,8 +347,14 @@ describe("Layout", function()
             w.scroll:SetHeight(150)
             assert.are.equal("TOPRIGHT BOTTOMRIGHT", open(690), "more room below")
             assert.are.equal("BOTTOMRIGHT TOPRIGHT", open(600), "more room above")
+            -- Strangers have no Names button shown: the who button measures the row.
+            w.scroll:SetHeight(500)
+            wow.run(w.whoRows[1].who, "OnClick")
+            wow.run(w.placeTabs.strangers, "OnClick")
+            assert.is_false(row.names:IsVisible())
+            assert.are.equal("BOTTOMRIGHT TOPRIGHT", open(240), "strangers, near the bottom: above")
             -- Edges not laid out yet: below.
-            row.names.top = nil
+            row.who.top = nil
             wow.run(row.who, "OnClick")
             wow.run(row.who, "OnClick")
             assert.are.equal("TOPRIGHT", (w.whoList:GetPoint(1)))

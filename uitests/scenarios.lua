@@ -1477,27 +1477,22 @@ local function OpenList(content)
     end
 end
 
--- Scrolls the options so frame sits near the top ("top") or the bottom
--- ("bottom") of the view, as a player scrolls a row into view before
--- clicking it; nil frame: back to the top. The offset stays inside the range.
-local function ScrollRowTo(content, frame, at)
+-- The who-gets buttons (200 wide) wholly inside the panel's view, top to
+-- bottom, as the panel shows them unscrolled.
+local function WhoRowsInView(content)
     local scroll = content:GetParent()
-    if not (scroll and scroll.SetVerticalScroll) then return end
-    local offset = 0
-    if frame then
-        Settle(content)
-        local top, rowTop = Measure(content, "GetTop"), Measure(frame, "GetTop")
-        local view, height = Measure(scroll, "GetHeight"), Measure(frame, "GetHeight")
-        if top and rowTop then
-            offset = top - rowTop - 12
-            if at == "bottom" and view and height then offset = top - rowTop - (view - height - 12) end
+    local viewTop, viewBottom = Edges(scroll, "GetTop", "GetBottom")
+    local found = {}
+    if not viewTop then return found end
+    Settle(content)
+    for _, child in ipairs({ content:GetChildren() }) do
+        if child:IsShown() and child:GetObjectType() == "Button" and child:GetWidth() == 200 then
+            local top, bottom = Edges(child, "GetTop", "GetBottom")
+            if top and top <= viewTop + 1 and bottom >= viewBottom - 1 then found[#found + 1] = child end
         end
     end
-    local range = Measure(scroll, "GetVerticalScrollRange")
-    offset = math.max(0, math.min(offset, range or offset))
-    scroll:SetVerticalScroll(offset)
-    report(("LAYOUT Buffs tab: scrolled to %.0f of %s for a row near the %s"):format(offset,
-        tostring(range), tostring(at)))
+    table.sort(found, function(a, b) return a:GetTop() > b:GetTop() end)
+    return found
 end
 
 test("the Buffs tab stays inside its page at its tallest, at every place, names and list open (#408)", function()
@@ -1539,32 +1534,33 @@ test("the Buffs tab stays inside its page at its tallest, at every place, names 
                 end
                 check(raid ~= nil, "the raid Blessings rows aren't shown on the Raid place")
             end
-            -- The who-gets list of the first buff, opened as a player would:
-            -- its row scrolled into view, near the top and then near the
-            -- bottom of the view, where the list opens above it. On screen,
-            -- holding all it lists, inside the options.
-            local who
-            for _, child in ipairs({ content:GetChildren() }) do
-                if child:IsShown() and child:GetObjectType() == "Button" and child:GetWidth() == 200 then
-                    who = child
-                    break
+            -- The who-gets list, opened as a player would, from a row in
+            -- view: the first, and the lowest, whose list opens above it
+            -- when the view has too little room below. On screen, holding
+            -- all it lists, inside the options. Unscrolled: the client reads
+            -- a scrolled panel's rows unscrolled (docs/ui-simulator.md), so
+            -- a size that shows no who-gets row says so and checks none.
+            local inView = WhoRowsInView(content)
+            if #inView == 0 then
+                report("LAYOUT " .. name .. ": no who-gets row in view at this size, so no list opened")
+            end
+            local opened = {}
+            for _, which in ipairs({ { "first", inView[1] }, { "lowest", inView[#inView] } }) do
+                local who = which[2]
+                if who and not opened[who] then
+                    opened[who] = true
+                    -- Closed and opened again: the list is placed as it opens.
+                    if OpenList(content) then who:GetScript("OnClick")(who) end
+                    who:GetScript("OnClick")(who)
+                    local list = OpenList(content)
+                    check(list ~= nil, name .. ": the who-gets list didn't open")
+                    local label = ("%s who-gets list (the %s row in view)"):format(name, which[1])
+                    OnScreen(list, label)
+                    ListHoldsAll(list, label)
+                    EndsInside(content, list, label)
+                    who:GetScript("OnClick")(who)
                 end
             end
-            check(who ~= nil, "no who-gets button at " .. place.label)
-            for _, at in ipairs({ "top", "bottom" }) do
-                ScrollRowTo(content, who, at)
-                -- Closed and opened again: the list is placed as it opens.
-                local list = OpenList(content)
-                if list then who:GetScript("OnClick")(who) end
-                who:GetScript("OnClick")(who)
-                list = OpenList(content)
-                check(list ~= nil, name .. ": the who-gets list didn't open")
-                local label = ("%s who-gets list (row near the %s)"):format(name, at)
-                OnScreen(list, label)
-                ListHoldsAll(list, label)
-                EndsInside(content, list, label)
-            end
-            ScrollRowTo(content, nil)
         end
     end)
     -- The saved settings as they were.

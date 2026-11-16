@@ -172,14 +172,16 @@ end
 -- At the row's right end, so it stays inside the page: below the row, or
 -- above it when the view shows too little below and more above (a row near
 -- the bottom of the view would hang its list off the screen; the UI
--- simulator). Edges the game can't give yet leave it below.
+-- simulator). Edges the game can't give yet leave it below. The row is
+-- measured by its who button, always shown when the list can open (Names
+-- isn't, for strangers); both are 22 high, side by side.
 local function PlaceList(list, row)
     list:ClearAllPoints()
     local scroll = ns.Options.widgets.scroll
-    local rowTop, viewTop = row.names:GetTop(), scroll and scroll:GetTop()
+    local rowTop, viewTop = row.who:GetTop(), scroll and scroll:GetTop()
     local up = false
     if type(rowTop) == "number" and type(viewTop) == "number" then
-        local below = rowTop - row.names:GetHeight() - (viewTop - scroll:GetHeight())
+        local below = rowTop - row.who:GetHeight() - (viewTop - scroll:GetHeight())
         local above = viewTop - rowTop
         up = below < BuffsTab.LIST_HEIGHT + 2 and above > below
     end
