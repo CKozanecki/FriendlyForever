@@ -18,6 +18,12 @@
 -- than it, titled "What's new"; a new player, or the replay from Start here,
 -- sees every step. Finishing or skipping saves the current version, and
 -- never turns the addon on or off.
+--
+-- The one exception to "it changes no setting" (#408): the step about the
+-- Buffs tab offers the player's choice of how their buff rules start, while
+-- it is still to be made (BuffRules.Pending). Its two buttons call
+-- BuffRules.Choose, as the Buffs tab's do, and only a press chooses:
+-- Next, Back, Skip, closing and a fight leave the choice waiting on the tab.
 local _, ns = ...
 
 local Walkthrough = {}
@@ -38,6 +44,31 @@ end
 
 local function OnOff(value)
     return value == true and ns.Colours.Text("good", "on") or ns.Colours.Text("bad", "off")
+end
+
+-- How many buffs have a rule of their own in 1.3.3's settings
+-- (buffBack.whoGets: a buff is saved there only once changed, #219), from
+-- settings that may be damaged: your class's, and the rest. The settings
+-- are shared by every character on the account (Config.lua), so the rest
+-- are rules changed on your other characters, which the choice covers too.
+-- A key kept known without a buff (BuffTable.absent, #209) isn't counted.
+local function RulesChanged()
+    local saved = Section("buffBack").whoGets
+    if type(saved) ~= "table" then return 0, 0 end
+    local mine, theirs = 0, 0
+    local own = {}
+    for _, buff in ipairs(ns.BuffData.ClassBuffs()) do own[buff.key] = true end
+    for key, rule in pairs(saved) do
+        if type(rule) == "table" and type(key) == "string" and ns.BuffData.ByKey(key) then
+            if own[key] then mine = mine + 1 else theirs = theirs + 1 end
+        end
+    end
+    return mine, theirs
+end
+
+-- Whether the step shown offers the choice of how buff rules start (#408).
+local function Choosing(info)
+    return info.choice == true and ns.BuffRules.Pending()
 end
 
 local function KeyText()
@@ -163,6 +194,49 @@ Walkthrough.STEPS = {
         end,
     },
     {
+        -- Who gets each buff, by place (#408): the Buffs tab, and the
+        -- player's choice of how their rules start (the owner's decisions).
+        since = 3,
+        title = "Your buffs have a tab of their own",
+        choice = true,
+        open = function() ns.Options.OpenTab(ns.Options.BUFFS_TAB, "buffsHeader") end,
+        text = function()
+            local lines = { "Who gets each buff now has its own rules for strangers (Buff Back), Party, Raid and "
+                .. "PvP (battlegrounds and arenas): by role (Tanks, Healers, Damage), class or name. In PvP every "
+                .. "buff is off unless you turn it on. They're on the new Buffs tab.", "" }
+            local choice = ns.BuffRules.Choice()
+            if choice == "pending" then
+                local mine, theirs = RulesChanged()
+                local function Buffs(n) return n == 1 and "1 buff" or n .. " buffs" end
+                if mine + theirs == 0 then
+                    lines[#lines + 1] = "You've never changed who gets your buffs, so the new defaults are "
+                        .. "recommended."
+                elseif theirs == 0 then
+                    lines[#lines + 1] = ("You changed who gets %d of your buffs. How would you like to start?")
+                        :format(mine)
+                elseif mine == 0 then
+                    lines[#lines + 1] = ("You changed who gets %s on your other characters. How would you like "
+                        .. "to start?"):format(Buffs(theirs))
+                else
+                    lines[#lines + 1] = ("You changed who gets %d of your buffs, and %s on your other "
+                        .. "characters. How would you like to start?"):format(mine, Buffs(theirs))
+                end
+                lines[#lines + 1] = "  Keep my settings: your rules go to Party and Raid; PvP starts off."
+                lines[#lines + 1] = "  Use the new defaults: recommended if you never changed them, or aren't sure."
+                lines[#lines + 1] = "The choice is for all your characters."
+                lines[#lines + 1] = ""
+                lines[#lines + 1] = "Finishing, skipping or closing without choosing changes nothing: your buffs "
+                    .. "work as before until you choose, and the choice waits on the Buffs tab."
+            elseif choice == "kept" then
+                lines[#lines + 1] = "You kept your settings: your rules apply in Party and Raid, and every buff "
+                    .. "starts off in PvP. Change them on the Buffs tab."
+            else
+                lines[#lines + 1] = "Your buffs use the new defaults. Change them on the Buffs tab."
+            end
+            return table.concat(lines, "\n")
+        end,
+    },
+    {
         since = 1,
         title = "That's it",
         open = function() ns.Options.OpenStart() end,
@@ -184,9 +258,18 @@ function Walkthrough.StepsSince(seen)
     return out
 end
 
+-- The window's height, and its text area's bottom: taller, with a row for
+-- the two choice buttons above the others, while the choice is offered.
+local HEIGHT, CHOICE_ROW = 240, 30
+
 local function Fill()
     local info = steps[step]
     local last = step == #steps
+    local choosing = Choosing(info)
+    frame:SetHeight(HEIGHT + (choosing and CHOICE_ROW or 0))
+    frame.scroll:SetPoint("BOTTOMRIGHT", -34, 44 + (choosing and CHOICE_ROW or 0))
+    frame.keep:SetShown(choosing)
+    frame.new:SetShown(choosing)
     frame.title:SetText((whatsNew and "What's new: " or "") .. info.title)
     frame.count:SetText(("%d of %d"):format(step, #steps))
     frame.stepText:SetText(info.text())
@@ -220,7 +303,7 @@ end
 
 local function Create()
     frame = CreateFrame("Frame", Walkthrough.NAME, UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(460, 240)
+    frame:SetSize(460, HEIGHT)
     -- Low on the screen but clear of the action bars, over the bottom of
     -- the options, whose rows it scrolls to the top. Above the options
     -- window.
@@ -275,6 +358,13 @@ local function Create()
     frame.back:SetPoint("RIGHT", frame.next, "LEFT", -8, 0)
     frame.skip = Button("Skip the walkthrough", 160, function() Walkthrough.Skip() end)
     frame.skip:SetPoint("BOTTOMLEFT", 14, 12)
+    -- The choice of how buff rules start (#408), shown only while offered.
+    frame.keep = Button("Keep my settings", 150, function() Walkthrough.Choose("kept") end)
+    frame.keep:SetPoint("BOTTOMLEFT", 14, 12 + CHOICE_ROW)
+    frame.new = Button("Use the new defaults (recommended)", 240, function() Walkthrough.Choose("new") end)
+    frame.new:SetPoint("LEFT", frame.keep, "RIGHT", 8, 0)
+    frame.keep:Hide()
+    frame.new:Hide()
 
     -- It closes as a fight starts, and one asked for in a fight starts
     -- once the fight is over.
@@ -316,6 +406,23 @@ function Walkthrough.Next()
     if not step then return end
     if step == #steps then return Close(true) end
     Show(step + 1)
+end
+
+-- A press of a choice button (#408): "kept" or "new". Only on the step
+-- that offers it, while it does. The Buffs tab's own buttons do the same
+-- (BuffsTab.Choose: BuffRules.Choose, which makes it once, says in chat
+-- what it did and refreshes this step to say so, then the tab shown beside
+-- this refreshed). Returns whether the choice is now made.
+function Walkthrough.Choose(choice)
+    if not step or not Choosing(steps[step]) then return false end
+    ns.BuffsTab.Choose(choice)
+    return not ns.BuffRules.Pending()
+end
+
+-- The choice was made somewhere (here, or the Buffs tab beside it):
+-- the step shown says so at once, its buttons gone (BuffRules.Choose).
+function Walkthrough.Refresh()
+    if step and frame then Fill() end
 end
 
 function Walkthrough.Back()
