@@ -1,4 +1,4 @@
--- Spec: #44, #329, #402
+-- Spec: #44, #329, #402, #45
 -- Self-buffs: in buff mode, once the favours you owe and your group are
 -- done, the button offers your own missing self-buffs (Inner Fire, armors,
 -- Aspects, auras, Battle Shout...), one per press, on you, through the same
@@ -1286,7 +1286,7 @@ describe("Self-buffs in buff mode", function()
             party({ "Ann-Vale" })
             wear(FORT, 3600)
             refresh()
-            ns.BuffButton.Choose(ns.SelfBuffs.Next().name, true)
+            ns.BuffButton.Choose(ns.SelfBuffs.Next().name, "self")
             assert.are.equal("/cast [@player,nodead] Inner Fire", macro())
         end)
 

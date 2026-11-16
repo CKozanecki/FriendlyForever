@@ -1169,6 +1169,18 @@ test("the General page, with a long ignore list and several profiles, keeps its 
     end)
 end)
 
+test("the Weapon buffs page, switched on with a kind for each hand, keeps its text inside it (#45)", function()
+    WithPagesFilled(function()
+        local page = FriendlyForeverUIPages.Open("weapon")
+        check(page:IsVisible(), "the Weapon buffs page didn't open")
+        OnScreen(page, "Weapon buffs page")
+        CheckAll({
+            function() FrameTextInside(page, "Weapon buffs page") end,
+            function() PushedDownInside(page, "Weapon buffs page") end,
+        })
+    end)
+end)
+
 test("the Favour Ledger page, with a full page of long entries, keeps its text inside it", function()
     WithPagesFilled(function()
         local page = FriendlyForeverUIPages.Open("ledger")
