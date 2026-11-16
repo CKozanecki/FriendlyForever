@@ -14,7 +14,8 @@ local MAX_SPELL_ID = 10000000
 -- added to its ID list (#44; docs/forever-facts.md has how it was made).
 local SOURCE = ROOT .. "/scripts/data/forever-spells-extended.json"
 local SOURCE_SHA = "43d0cfa0a207b9fc0bc9ae5ea76b70b3d2ecb8779f4b33b92e288ce45d7cc45b"
--- Upstream's own, smaller extraction, the copy the UI simulator checks (#160).
+-- Upstream's own, smaller extraction, the copy the UI simulator checked until
+-- #343 (#160); since then it checks SOURCE, which holds every row of this one.
 local UPSTREAM = ROOT .. "/scripts/data/forever-spells.json"
 local BUFFS = ROOT .. "/scripts/spell-buffs.json"
 local GENERATOR = ROOT .. "/scripts/gen_spell_table.py"
