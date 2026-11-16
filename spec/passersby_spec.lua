@@ -907,6 +907,22 @@ describe("Passers-by (#39)", function()
             assert.is_false(ns.BuffMode.IsOn())
         end)
 
+        it("a campfire aura whose instance ID is NaN raises no error, and still counts (#108)", function()
+            local nan = 0 / 0
+            bootAuto()
+            stranger()
+            wow.fire("UNIT_AURA", "player", { addedAuras = { { spellId = COZY, auraInstanceID = nan } } })
+            assert.are.same({}, wow.errors, "in an update")
+            assert.is_true(ns.BuffMode.IsAuto(), "in an update")
+            -- In the list read after an update that couldn't be read.
+            bootAuto()
+            stranger()
+            wearFire(nan)
+            wow.fire("UNIT_AURA", "player", wow.secret({}))
+            assert.are.same({}, wow.errors, "in the list")
+            assert.is_true(ns.BuffMode.IsAuto(), "in the list")
+        end)
+
         it("a fire you zone in beside is noted by the full update, so its refresh isn't new", function()
             bootAuto()
             stranger()
@@ -1146,12 +1162,12 @@ describe("Passers-by (#39)", function()
             for seed = 1, 6 do
                 random.seed(seed)
                 boot()
-                -- Some players' answers raise an error (unit.erroring).
+                -- Some players' answers raise an error (unit.erroring names the call).
                 for _, api in ipairs({ "UnitCanAssist", "UnitIsPVP", "UnitAffectingCombat" }) do
                     local real = _G[api]
                     _G[api] = function(a, b)
                         local u = wow.state.units[api == "UnitCanAssist" and b or a]
-                        if u and u.erroring then error(api .. " failed") end
+                        if u and u.erroring == api then error(api .. " failed") end
                         return real(a, b)
                     end
                 end
@@ -1207,7 +1223,8 @@ describe("Passers-by (#39)", function()
                                     isPlayer = chance(0.9), hostile = chance(0.1),
                                     cantAssist = chance(0.1), dead = chance(0.1),
                                     offline = chance(0.05), pvp = chance(0.2),
-                                    inCombat = chance(0.3), erroring = chance(0.05) })
+                                    inCombat = chance(0.3), erroring = chance(0.05)
+                                        and pick({ "UnitCanAssist", "UnitIsPVP", "UnitAffectingCombat" }) or nil })
                                 if chance(0.1) then
                                     u.secrets = { [pick({ "pvp", "name", "canAssist", "combat", "auras",
                                         "isPlayer", "offline" })] = true }
