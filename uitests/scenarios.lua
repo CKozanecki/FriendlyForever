@@ -397,7 +397,11 @@ end
 -- also fails if its text is wider than that width: the game wraps it onto a
 -- second line, into the row below (#177). Prints a LAYOUT line, which names
 -- any edges or count the client can't give, and returns it.
-local function TextInside(frame, region, label, maxLines, oneLine)
+-- grows: frame is sized from the text's own height (the walkthrough's body,
+-- Walkthrough.lua), so the game's wrapped text makes it taller too; up and
+-- down, the text is then compared with it as the client lays both out, not
+-- as the game would wrap the text alone (#362).
+local function TextInside(frame, region, label, maxLines, oneLine, grows)
     local fl, fr = Edges(frame, "GetLeft", "GetRight")
     local tl, tr = Edges(region, "GetLeft", "GetRight")
     if not (fl and tl) then
@@ -422,7 +426,9 @@ local function TextInside(frame, region, label, maxLines, oneLine)
     local ft, fb = Edges(frame, "GetTop", "GetBottom")
     local tt, tb = Edges(region, "GetTop", "GetBottom")
     if ft and tt then
-        local textTop, textBottom = DrawnUpDown(region, tt, tb, wrapped and wrapped / math.max(count or 1, 1) or 1)
+        local growth = wrapped and wrapped / math.max(count or 1, 1) or 1
+        if grows then growth = 1 end
+        local textTop, textBottom = DrawnUpDown(region, tt, tb, growth)
         inside = inside and textTop <= ft + 1 and textBottom >= fb - 1
         line = line .. ("; up and down: text %.0f..%.0f, frame %.0f..%.0f"):format(textBottom, textTop, fb, ft)
     else
@@ -707,6 +713,23 @@ test("with a favour owed, the button names the player and the buff, and its text
         TextInside(button, button.title, "favour title", 1)
         TextInside(button, button.subtitle, "favour hint")
         OnScreen(button, "buff-back button (favour)")
+    end)
+end)
+
+-- A buff asked for in chat (#40, #362): the button names who asked, over
+-- "asked for" and the longest buff name a request can ask for, inside it.
+test("with a buff asked for in chat, the button names who asked and the buff, and its text stays inside it", function()
+    InState("asked for", FriendlyForeverUIStates.Requested, function(button, States)
+        Expect(button:IsShown(), "the button isn't up")
+        Expect(button.title:GetText() == States.ASKER, "the title doesn't name " .. States.ASKER)
+        Expect(button.subtitle:GetText() == "asked for " .. States.SPELL.name,
+            "the hint doesn't say they asked for " .. States.SPELL.name)
+        Expect(States.MacroTarget() == States.ASKER, "the macro doesn't target " .. States.ASKER)
+        Expect((States.Macro() or ""):find("/cast [help,nodead] " .. States.SPELL.name, 1, true) ~= nil,
+            "the macro doesn't cast " .. States.SPELL.name)
+        TextInside(button, button.title, "asked-for title", 1)
+        TextInside(button, button.subtitle, "asked-for hint")
+        OnScreen(button, "buff-back button (asked for)")
     end)
 end)
 
@@ -1216,10 +1239,17 @@ local function TabTextInside(content, label)
     end
     -- A line pinned at one point has the width it was given (the Buff Back
     -- rows' names, 220), so a name wider than that wraps into the next row
-    -- (#177). Lines pinned on two sides may wrap on purpose.
+    -- (#177). Lines pinned on two sides may wrap on purpose. Since the
+    -- self-buffs (#44), a buff row's name ("8. Shadow Resistance Aura (you
+    -- only)") may wrap onto a second line, centred on its row, which
+    -- spec/layout_spec.lua checks never reaches the next row's: two lines.
     for _, region in ipairs(Texts(content)) do
         local oneLine = Measure(region, "GetNumPoints") == 1 and not AnchoredOn(region, "RIGHT")
-        Add(content, region, "", nil, oneLine)
+        if oneLine and (region:GetText() or ""):find("^%d+%. ") then
+            Add(content, region, "", 2)
+        else
+            Add(content, region, "", nil, oneLine)
+        end
     end
     for _, child in ipairs({ content:GetChildren() }) do
         if child:IsVisible() then
@@ -1632,18 +1662,27 @@ end
 -- that scroll.
 local STEP_ROWS = { ["buff-mode-triggers"] = "Buff mode turns on by itself" }
 
-test("each walkthrough step shown keeps its text inside it, on the screen, its row in view (#47)", function()
+-- A What's new step (#169, #362) is taken as a returning player logging in,
+-- which starts the login grace again (Announcer.lua): it's waited out after,
+-- as the button scenarios do, so nothing after this test is held by it.
+test("each walkthrough step shown keeps its text inside it, on the screen, its row in view (#47, #362)", function()
     local Pages = FriendlyForeverUIPages
     local failures = {}
+    local loggedIn = false
     for _, step in ipairs(Pages.WALKTHROUGH_STEPS) do
         local ok, err = pcall(function()
             local label = "walkthrough (" .. step.name .. ")"
+            loggedIn = loggedIn or step.whatsNew == true
             local walkthrough = Pages.OpenWalkthrough(step.name)
             check(walkthrough ~= nil, label .. ": didn't get there")
+            if step.whatsNew then
+                local title = walkthrough.title:GetText() or ""
+                check(title == "What's new: " .. step.title, ("%s: titled %q, not as What's new"):format(label, title))
+            end
             OnScreen(walkthrough, label)
             CheckAll({
                 function() FrameTextInside(walkthrough, label, 1) end,
-                function() TextInside(walkthrough.body, walkthrough.stepText, label .. " text") end,
+                function() TextInside(walkthrough.body, walkthrough.stepText, label .. " text", nil, nil, true) end,
                 function() AcrossInside(walkthrough.scroll, walkthrough.body, label .. " text area") end,
             })
             local row = STEP_ROWS[step.name]
@@ -1677,6 +1716,8 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
         if not ok then failures[#failures + 1] = tostring(err) end
     end
     Pages.SkipWalkthrough()
+    local States = FriendlyForeverUIStates
+    if loggedIn and type(States) == "table" then States.Advance(States.LOGIN_GRACE_SECONDS) end
     check(#failures == 0, table.concat(failures, "\n"))
 end)
 

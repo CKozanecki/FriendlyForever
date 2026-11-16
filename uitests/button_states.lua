@@ -529,9 +529,47 @@ States.LongReason = {
     end,
 }
 
+-- A buff asked for in chat (#40, #362): buff requests switched on, as the
+-- Buff Back tab's checkbox does (the saved setting, then the events
+-- re-registered, here by /friendly on, which the addon already is), and a
+-- stranger you target whispers "fort pls". The button shows them over
+-- "asked for Power Word: Fortitude", the longest buff name a request can ask
+-- for. A request needs the sender's whole name, "First-Surname" (Requests.lua).
+-- Undo lets the request go with a right-click, as a player would, and puts the
+-- setting back, which also drops any request still waiting.
+States.ASKER = "Ingrid Halvorsen"
+States.ASKED = "fort pls"
+local requestsSaved
+States.Requested = {
+    Set = function()
+        States.PassLoginGrace()
+        States.Learn()
+        local buffBack = FriendlyForeverDB.buffBack
+        if requestsSaved == nil then requestsSaved = { value = buffBack.requests } end
+        buffBack.requests = true
+        Command("on")
+        States.Target(States.ASKER)
+        States.Fire("CHAT_MSG_WHISPER", States.ASKED, (States.ASKER:gsub(" ", "-")))
+    end,
+    Undo = function()
+        if InCombatLockdown() then States.Combat(false) end
+        local button = States.Button()
+        if button and States.MacroTarget() == States.ASKER then button:Click("RightButton") end
+        if requestsSaved then
+            FriendlyForeverDB.buffBack.requests = requestsSaved.value
+            requestsSaved = nil
+            Command("on")
+        end
+        States.Target(nil)
+        States.Unlearn()
+        States.Advance(States.RESULT_SECONDS)
+    end,
+}
+
 -- For the screenshot job: set a state up and leave it.
 local SHOWN = { favour = States.Favour, buffmode = States.GroupMissing, bufflist = States.ListFilled,
-    buffgroup = States.ListGroupCast, alreadydone = States.AlreadyDone, longreason = States.LongReason }
+    buffgroup = States.ListGroupCast, alreadydone = States.AlreadyDone, longreason = States.LongReason,
+    asked = States.Requested }
 function States.Show(name)
     local state = SHOWN[name]
     if not state then error("no button state called " .. tostring(name)) end
