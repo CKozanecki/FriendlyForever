@@ -1,4 +1,4 @@
--- Spec: #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45
+-- Spec: #427, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -6,6 +6,53 @@ local MOTW, MOTW_1 = 9885, 1126
 local MACRO = "/targetexact Ann Stone\n/cast [help,nodead] Mark of the Wild"
 
 describe("The simulated client", function()
+    describe("frame strata, levels and which frame gets a click (#427, white)", function()
+        local function pair()
+            local parent = wow.newFrame("Frame", nil, UIParent)
+            return parent, wow.newFrame("Button", nil, parent), wow.newFrame("Button", nil, parent)
+        end
+
+        it("a new frame takes its parent's strata and sits one level above it", function()
+            local parent = pair()
+            parent:SetFrameStrata("DIALOG")
+            parent:SetFrameLevel(7)
+            local child = wow.newFrame("Frame", nil, parent)
+            assert.are.equal("DIALOG", child:GetFrameStrata())
+            assert.are.equal(8, child:GetFrameLevel())
+        end)
+
+        it("siblings tie, a higher level wins, and a higher strata beats any level", function()
+            local _, a, b = pair()
+            local winner, tied = wow.hitTest({ a, b })
+            assert.is_nil(winner)
+            assert.are.equal(2, #tied)
+            b:SetFrameLevel(a:GetFrameLevel() + 1)
+            assert.are.equal(b, (wow.hitTest({ a, b })))
+            a:SetFrameStrata("TOOLTIP")
+            assert.are.equal(a, (wow.hitTest({ a, b })))
+        end)
+
+        it("only shown frames that take the mouse count", function()
+            local parent, a, b = pair()
+            b:SetFrameLevel(a:GetFrameLevel() + 1)
+            b:Hide()
+            assert.are.equal(a, (wow.hitTest({ a, b })))
+            b:Show()
+            b:EnableMouse(false)
+            assert.are.equal(a, (wow.hitTest({ a, b })))
+            local plain = wow.newFrame("Frame", nil, parent)
+            plain:SetFrameLevel(50)
+            assert.are.equal(a, (wow.hitTest({ a, plain })))
+            plain:EnableMouse(true)
+            assert.are.equal(plain, (wow.hitTest({ a, plain })))
+        end)
+
+        it("an unknown strata is an error (black)", function()
+            local _, a = pair()
+            assert.has_error(function() a:SetFrameStrata("TOP") end)
+        end)
+    end)
+
     describe("hiding and button text (#274, white)", function()
         it("Hide runs OnHide for a shown frame and the shown frames below it, and for no hidden one", function()
             local ran = {}

@@ -59,6 +59,14 @@ function M.newFrame(kind, name, parent)
         kind = kind, name = name, parent = parent,
         events = {}, scripts = {}, shown = true, enabled = true, text = "",
     }, FrameMT)
+    -- A new frame takes its parent's strata and sits one level above its
+    -- parent, as CreateFrame does (#427; see M.hitTest). Regions (text lines
+    -- and textures) have no level of their own.
+    if type(parent) == "table" and parent.strata then
+        f.strata, f.level = parent.strata, (parent.level or 0) + 1
+    else
+        f.strata, f.level = "MEDIUM", 0
+    end
     M.frames[#M.frames + 1] = f
     if name then _G[name] = f end
     return f
@@ -107,6 +115,22 @@ function methods:RegisterForClicks(...) self.clicks = { ... } end
 function methods:SetAlpha(a) self.alpha = a end
 function methods:GetAlpha() return self.alpha or 1 end
 function methods:IsShown() return self.shown end
+-- Strata (a named layer) and level (a number within it): a frame in a
+-- higher strata is above every frame in a lower one, whatever their levels;
+-- within a strata the higher level is above (#427; see M.hitTest). Changing
+-- a frame's level moves only that frame, not its children.
+local STRATA = { BACKGROUND = 1, LOW = 2, MEDIUM = 3, HIGH = 4, DIALOG = 5,
+    FULLSCREEN = 6, FULLSCREEN_DIALOG = 7, TOOLTIP = 8 }
+function methods:SetFrameStrata(strata)
+    assert(STRATA[strata], "SetFrameStrata: unknown strata " .. tostring(strata))
+    self.strata = strata
+end
+function methods:GetFrameStrata() return self.strata end
+function methods:SetFrameLevel(level)
+    assert(type(level) == "number", "SetFrameLevel needs a number")
+    self.level = math.max(0, level)
+end
+function methods:GetFrameLevel() return self.level end
 -- The parent frame, or nil. (A string in .parent is the old options API's
 -- parent category name, not a frame.)
 function methods:GetParent()
@@ -178,6 +202,31 @@ function methods:Click(mouseButton, down)
     if self.scripts.PostClick then self.scripts.PostClick(self, mouseButton, down) end
 end
 function methods:IsEnabled() return self.enabled end
+
+-- Which of the given overlapping frames the game gives a click, as far as
+-- the rules go (#427; docs/forever-facts.md): only shown frames that take the
+-- mouse (a Button does unless EnableMouse(false); another frame only after
+-- EnableMouse(true)) count; the highest strata wins, then the highest level.
+-- Two at the same strata and level have no defined winner, so a tie returns
+-- nil and the list of tied frames: a spec that expects a winner fails on it.
+function M.hitTest(frames)
+    local best, tied
+    for _, f in ipairs(frames) do
+        local takes = f.mouse
+        if takes == nil then takes = (f.kind == "Button" or f.kind == "CheckButton") end
+        if takes and f:IsVisible() then
+            local rank = STRATA[f.strata] * 100000 + f.level
+            if not best or rank > best.rank then
+                best, tied = { frame = f, rank = rank }, { f }
+            elseif rank == best.rank then
+                tied[#tied + 1] = f
+            end
+        end
+    end
+    if not best then return nil, {} end
+    if #tied > 1 then return nil, tied end
+    return best.frame, tied
+end
 -- A protected frame's size is locked in combat too (#270).
 function methods:SetSize(w, h) guardProtected(self, "SetSize"); self.width, self.height = w, h end
 function methods:SetWidth(w) guardProtected(self, "SetWidth"); self.width = w end
@@ -892,6 +941,18 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         find the name on its own next check. What Forever's
 --                         UnitName returns for a member still loading is
 --                         confirmed in game at launch.
+--   Frame strata and levels (#427). A new frame takes its parent's strata
+--                         and the parent's level + 1 (confirmed: the wiki's
+--                         "UIParent's level is 1, children of UIParent are at
+--                         level 2"; unconfirmed in game that the same holds
+--                         for strata). M.hitTest gives a click to the shown,
+--                         mouse-taking frame with the highest strata, then
+--                         level (confirmed: a Blizzard developer's post, via
+--                         Wowpedia). Frames tied on both have no defined
+--                         winner, so hitTest returns none: pessimistic.
+--                         SetFrameLevel moves only its own frame; whether
+--                         the game moves the children with it is not
+--                         documented, so the addon never relies on it.
 --   Hide runs OnHide for the frame and every visible frame below it, as the
 --                         game does when a shown frame is hidden (#274). The
 --                         options dropdown closes its list that way. A frame
