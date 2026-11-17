@@ -3,6 +3,7 @@
 -- picked: a line deleted (or edited) while the message waits is not said as
 -- it was.
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 
 describe("Announcer reads the line when it is said (#407)", function()
     local ns, release
@@ -97,18 +98,18 @@ describe("Announcer reads the line when it is said (#407)", function()
     end)
 
     it("red: random edits and deletions while messages wait never raise an error or say a blank line", function()
-        math.randomseed(407)
+        random.seed(407)
         for round = 1, 40 do
             ns = wow.boot()
             wow.errors = {}
             ns.db.buff.messages = { "A {name}", "B {name}", "C {name}" }
             schedule()
-            for _ = 1, math.random(0, 3) do
-                local pick = math.random(1, 4)
+            for _ = 1, random.random(0, 3) do
+                local pick = random.random(1, 4)
                 local v = ({ "", "x {name}", 7, false })[pick]
-                ns.db.buff.messages[math.random(1, 3)] = v
+                ns.db.buff.messages[random.random(1, 3)] = v
             end
-            release(math.random(1, 3))
+            release(random.random(1, 3))
             drain()
             for _, line in ipairs(whispers()) do
                 assert.is_truthy(line:find("%S", line:find(":") + 1), "round " .. round)
