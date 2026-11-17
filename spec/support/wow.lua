@@ -468,8 +468,28 @@ end
 
 -- Names of the buff spells the specs use, by ID. Kept apart from the addon's
 -- own table (BuffData.lua) so the specs check it rather than echo it.
+-- Each list is highest rank first: Forever's spell data has it so
+-- (BuffTable.lua's ranks; spec/wow_spec.lua ties the two), and a rank's ID
+-- isn't in rank order (Trueshot Aura's ranks 1 and 2 are Forever's own IDs,
+-- above rank 5's), so the order is kept apart from the IDs (#434).
 M.SPELL_NAMES = {}
-local function nameSpell(name, ids) for _, id in ipairs(ids) do M.SPELL_NAMES[id] = name end end
+-- [spell ID] = { name, rank }: its rank (1 the lowest) under the name it
+-- was given here. A spec that names a spell by hand (M.SPELL_NAMES[id] =
+-- name) gives it no rank, and one that renames it leaves the rank to the
+-- old name.
+M.SPELL_RANK = {}
+local rankLists = {} -- [name] = its IDs as named, highest rank first
+local function nameSpell(name, ids)
+    local list = rankLists[name] or {}
+    rankLists[name] = list
+    for _, id in ipairs(ids) do
+        M.SPELL_NAMES[id] = name
+        local seen = false
+        for _, have in ipairs(list) do seen = seen or have == id end
+        if not seen then list[#list + 1] = id end
+    end
+    for i, id in ipairs(list) do M.SPELL_RANK[id] = { name = name, rank = #list - i + 1 } end
+end
 nameSpell("Mark of the Wild", { 9885, 9884, 8907, 5234, 6756, 5232, 1126 })
 nameSpell("Gift of the Wild", { 21850, 21849 })
 nameSpell("Thorns", { 9910, 9756, 8914, 1075, 782, 467 })
@@ -618,6 +638,14 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         (parent = wow.settings.window), shows it, runs its
 --                         OnShow if it was hidden, and hides the page shown
 --                         before.
+--   /cast <name> (#434; unconfirmed on Forever: #437) casts the highest
+--                         rank of that name in your spellbook, by rank, as on
+--                         Classic Era (a macro without a rank always casts your
+--                         highest rank). Never by spell ID: Forever's Trueshot
+--                         Aura ranks 1 and 2 have IDs above rank 5's, and some
+--                         Classic rank 1s (Battle Shout, Inner Fire, Devotion
+--                         Aura) are above rank 2's. Each name's ranks are its
+--                         nameSpell list, highest first (M.SPELL_RANK).
 --   state.targetNameForm  how /target and /targetexact spell a two-part
 --                         name: "space" ("Nikki Shifts", default) or "hyphen"
 --   state.sentTargetForm  what UNIT_SPELLCAST_SENT gives as the target:
@@ -1007,11 +1035,22 @@ local function setTarget(u)
     M.state.units.target = u
 end
 
--- The highest known rank of a spell name, or nil.
+-- The highest known rank of a spell name, or nil: what the game's
+-- /cast <name> casts. By rank (M.SPELL_RANK), never by ID, which isn't in
+-- rank order (#434). Only when no known ID of the name has a rank (a spec
+-- named them by hand) is the highest ID taken.
 local function knownRank(name)
-    local best
+    local best, bestRank
     for id, n in pairs(M.SPELL_NAMES) do
-        if n == name and M.state.knownSpells[id] and (not best or id > best) then best = id end
+        if n == name and M.state.knownSpells[id] then
+            local ranked = M.SPELL_RANK[id]
+            local rank = ranked and ranked.name == name and ranked.rank or nil
+            if rank and (not bestRank or rank > bestRank) then
+                best, bestRank = id, rank
+            elseif not rank and not bestRank and (not best or id > best) then
+                best = id
+            end
+        end
     end
     return best
 end

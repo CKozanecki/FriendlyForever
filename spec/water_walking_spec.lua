@@ -1,4 +1,4 @@
--- Spec: #350, #408
+-- Spec: #350, #408, #419
 -- The shaman's Water Walking is offered only when someone asks for it in
 -- chat (#40; the owner's decision on #350): "water walking", "ww" or "walk
 -- on water". Buff back and buff mode never offer it unasked, and the water
@@ -184,7 +184,9 @@ describe("Water Walking, offered only on request", function()
             wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
             local spell, _, why = offered()
             assert.is_nil(spell)
-            assert.are.equal("Bob Stone: you know no buffs to give", why)
+            -- Nothing you could give them: not owed at all (#419).
+            assert.are.equal("nobody is owed a buff", why)
+            assert.are.equal(0, ns.Offers.Count())
             assert.are.same({}, ns.BuffData.Offerable())
             assert.are.same({ "waterwalking" }, { ns.BuffData.Requestable()[1].key })
         end)
