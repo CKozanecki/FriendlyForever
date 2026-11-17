@@ -1,4 +1,4 @@
--- Spec: #154, #223, #209, #160, #362
+-- Spec: #154, #223, #209, #160, #362, #424
 -- The UI scenarios' game-event helpers (uitests/button_states.lua), run here
 -- against a stand-in for the simulator's A_Admin that records each call and
 -- event in order. They follow what wow-ui-sim does itself (its admin.rs and
@@ -48,6 +48,11 @@ local function load(opts)
         SetPlayerClass = function(class)
             client.class = class
             record("SetPlayerClass " .. class)
+        end,
+        -- The aura goes on the player, as the simulator's add_buff puts it (#424).
+        AddBuff = function(id, name)
+            record("AddBuff " .. id)
+            client.auras[#client.auras + 1] = { spellId = id, name = name }
         end,
         -- The simulator matches the exact spell ID (wow-ui-sim's remove_buff).
         RemoveBuff = function(id)
@@ -273,5 +278,173 @@ describe("UI scenarios: a buff asked for in chat (#362)", function()
         assert.is_true(button:IsShown())
         assert.are.equal(States.ASKER, button.title:GetText())
         assert.are.equal("asked for " .. States.SPELL.name, button.subtitle:GetText())
+    end)
+end)
+
+-- #424: the button and its list holding a weapon buff (#45), for its
+-- screenshot and scenario. The simulator has no bags or weapon enchants to
+-- set up, so the state answers those reads for its own items while it's set,
+-- and leaves every other question to the simulator.
+describe("UI scenarios: a weapon buff picked in the list (#424)", function()
+    local NAMES = { "GetWeaponEnchantInfo", "GetInventoryItemID", "GetItemInfoInstant", "GetItemSpell", "GetItemCount",
+        "IsUsableItem" }
+    local ITEM_NAMES = { "GetItemInfoInstant", "GetItemSpell", "GetItemCount", "IsUsableItem", "GetItemNameByID" }
+
+    -- The simulator's own functions, each answering its name, and a list
+    -- with your weapon buff's row; put back after fn.
+    local function withClient(fn)
+        local saved = { C_Item = _G.C_Item, FriendlyForeverBuffList = _G.FriendlyForeverBuffList }
+        local originals = { C_Item = {} }
+        for _, name in ipairs(NAMES) do
+            saved[name] = _G[name]
+            originals[name] = function() return "simulator's " .. name end
+            _G[name] = originals[name]
+        end
+        _G.C_Item = {}
+        for _, name in ipairs(ITEM_NAMES) do
+            originals.C_Item[name] = function() return "simulator's C_Item." .. name end
+            _G.C_Item[name] = originals.C_Item[name]
+        end
+        local clicked = {}
+        local function row(text)
+            return { text = { GetText = function() return text end }, IsShown = function() return true end,
+                GetScript = function() return function() clicked[#clicked + 1] = text end end }
+        end
+        _G.FriendlyForeverBuffList = { rows = { row("Sigrun Aasen: Power Word: Fortitude"),
+            row("You: Elemental Sharpening Stone (main)") } }
+        local ok, err = pcall(fn, originals, clicked)
+        for name, value in pairs(saved) do _G[name] = value end
+        assert.is_true(ok, tostring(err))
+    end
+
+    it("answers the weapon reads for its own items only, then picks your row in the list (white)", function()
+        withClient(function(originals, clicked)
+            local db = { buffBack = { weaponBuffs = false, weaponMain = "none", selfBuffs = true } }
+            local States, log = load({ lenient = true, db = db })
+            local W = States.WEAPON
+            States.WeaponOffer.Set()
+            assert.are.same({ true, W.kind, false },
+                { db.buffBack.weaponBuffs, db.buffBack.weaponMain, db.buffBack.selfBuffs })
+            local enchants = { GetWeaponEnchantInfo() }
+            assert.is_false(enchants[1], "the main hand has an enchant")
+            assert.is_false(enchants[5], "the off hand has an enchant")
+            assert.are.equal(W.weapon, GetInventoryItemID("player", W.slot))
+            assert.are.equal("simulator's GetInventoryItemID", GetInventoryItemID("player", 17))
+            assert.are.equal("simulator's GetInventoryItemID", GetInventoryItemID("target", W.slot))
+            for _, holder in ipairs({ _G, _G.C_Item }) do
+                assert.are.equal(2, select(6, holder.GetItemInfoInstant(W.weapon)), "the axe isn't a weapon")
+                assert.are.equal(0, select("#", holder.GetItemSpell(W.weapon)), "the axe has a Use")
+                assert.are.equal(W.count, holder.GetItemCount(W.item))
+                assert.is_true(holder.IsUsableItem(W.item))
+                -- Any other item is the simulator's to count.
+                local own = holder == _G and originals or originals.C_Item
+                assert.are.equal(own.GetItemCount(), holder.GetItemCount(17020))
+            end
+            assert.are.equal("simulator's GetItemSpell", GetItemSpell(W.item))
+            assert.are.equal("simulator's GetItemInfoInstant", GetItemInfoInstant(W.item))
+            assert.are.equal("simulator's IsUsableItem", IsUsableItem(17020))
+            assert.are.equal(W.name, _G.C_Item.GetItemNameByID(W.item))
+            assert.are.equal("simulator's C_Item.GetItemNameByID", _G.C_Item.GetItemNameByID(17020))
+            -- The favour first, then buff mode, then your row picked.
+            local whole = table.concat(log, "\n")
+            local target = whole:find("SetTarget " .. States.WEAPONSTRANGER, 1, true)
+            local aura = whole:find("event UNIT_AURA", 1, true)
+            local mode = whole:find("slash buffmode on", 1, true)
+            assert.is_truthy(target and aura and mode and target < aura and aura < mode, whole)
+            assert.are.same({ "You: Elemental Sharpening Stone (main)" }, clicked)
+        end)
+    end)
+
+    it("puts every read and setting back on Undo, ends buff mode, and a second Undo changes nothing (white)", function()
+        withClient(function(originals)
+            local db = { buffBack = { weaponBuffs = false, weaponMain = "none", selfBuffs = true } }
+            local States, log = load({ lenient = true, db = db })
+            States.WeaponOffer.Set()
+            States.WeaponOffer.Set() -- a second Set keeps the first one's saved reads
+            States.WeaponOffer.Undo()
+            assert.are.same({ weaponBuffs = false, weaponMain = "none", selfBuffs = true }, db.buffBack)
+            for _, name in ipairs(NAMES) do assert.are.equal(originals[name], _G[name], name) end
+            for _, name in ipairs(ITEM_NAMES) do assert.are.equal(originals.C_Item[name], _G.C_Item[name], name) end
+            local whole = table.concat(log, "\n")
+            assert.is_truthy(whole:find("slash buffmode off", 1, true), whole)
+            assert.is_truthy(whole:find("ClearTarget", 1, true), whole)
+            db.buffBack.weaponMain = "kept"
+            States.WeaponOffer.Undo()
+            assert.are.equal("kept", db.buffBack.weaponMain)
+        end)
+    end)
+
+    it("fails loudly when the list has no row for your weapon buff (black)", function()
+        withClient(function()
+            _G.FriendlyForeverBuffList = { rows = {} }
+            local States = load({ lenient = true, db = { buffBack = {} } })
+            assert.has_error(function() States.WeaponOffer.Set() end, "the list has no row for your weapon buff")
+            States.WeaponOffer.Undo()
+        end)
+    end)
+
+    it("is a state the screenshot job stages and shoots as button-weapon, like every shown state (white)", function()
+        local States = load({ lenient = true, db = { buffBack = {} } })
+        local workflow = require("spec.support.wow").readFile(".github/workflows/ui-sim.yml")
+        local list = workflow:match("\n%s*for state in ([%w ]+); do\n%s*{ cat uitests/button_states%.lua;")
+        assert.is_truthy(list, "no staging loop over the button states")
+        local staged = {}
+        for name in list:gmatch("%S+") do staged[name] = true end
+        local shown = {}
+        for name in pairs(States.SHOWN) do shown[name] = true end
+        assert.are.same(shown, staged, "the staged states aren't the ones Show knows")
+        assert.is_true(staged.weapon)
+        local all = workflow:match("shoot_all%(%) {\n(.-)\n%s*}\n")
+        assert.is_truthy(all, "no shoot_all")
+        for name in pairs(shown) do
+            assert.is_truthy(all:find("\n%s*shoot button%-" .. name .. " %-%-exec%-lua @/shot%-lua/" .. name .. "%.lua\n"),
+                "button-" .. name .. " isn't shot from its staged script")
+        end
+    end)
+
+    it("is set up and hovered by Show, so the shot has the tooltip; an unknown state is an error (white, black)", function()
+        withClient(function(_, clicked)
+            local hovered = {}
+            local before = _G.FriendlyForeverBuffButton
+            _G.FriendlyForeverBuffButton = {
+                GetScript = function(_, script) return function() hovered[#hovered + 1] = script end end,
+                GetAttribute = function() return nil end, -- holding no macro, for Undo
+            }
+            local ok, err = pcall(function()
+                local db = { buffBack = { weaponBuffs = false } }
+                local States = load({ lenient = true, db = db })
+                States.Show("weapon")
+                assert.is_true(db.buffBack.weaponBuffs)
+                assert.are.same({ "You: Elemental Sharpening Stone (main)" }, clicked)
+                assert.are.same({ "OnEnter" }, hovered)
+                States.WeaponOffer.Undo()
+                assert.has_error(function() States.Show("nope") end, "no button state called nope")
+            end)
+            _G.FriendlyForeverBuffButton = before
+            assert.is_true(ok, tostring(err))
+        end)
+    end)
+
+    it("is the offer the addon makes from those answers: the best stone, and the words the scenario expects (white)", function()
+        local States = load({ lenient = true, db = { buffBack = {} } })
+        local W = States.WEAPON
+        local wow = require("spec.support.wow")
+        local ns = wow.boot({ db = { buffBack = { weaponBuffs = true, weaponMain = W.kind, selfBuffs = false } },
+            before = function(state)
+                state.class = "PRIEST"
+                state.items = { [W.item] = W.count }
+                state.itemNames = { [W.item] = W.name }
+            end })
+        -- The stone is the best of its kind, offered first; the hand is the main hand.
+        assert.are.equal(W.item, ns.WeaponBuffs.KINDS[W.kind].items[1][1])
+        assert.are.same({ W.slot, W.hand }, { ns.WeaponBuffs.HANDS[1].slot, ns.WeaponBuffs.HANDS[1].words })
+        SlashCmdList.FRIENDLYFOREVER("buffmode on")
+        local button = ns.BuffButton.Frame()
+        assert.are.equal("You", button.title:GetText())
+        assert.are.equal(W.name .. " on your " .. W.hand, button.subtitle:GetText())
+        assert.are.equal(("/use item:%d\n/use %d"):format(W.item, W.slot),
+            button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText))
+        local list = ns.BuffList.Frame()
+        assert.are.equal(("> You: %s (%s)"):format(W.name, W.row), list.rows[1].text:GetText())
     end)
 end)

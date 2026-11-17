@@ -8,9 +8,10 @@
 -- The simulator loads the test files in name order, so this one comes before
 -- scenarios.lua and FriendlyForeverUIStates is there when they run.
 --
--- The simulator (wow-ui-sim 936d5f5, #160) plays WoW Forever, with Forever's
--- spell data: it names our buffs and answers their range itself (in range of
--- every unit it shows: it has no distance model). While a state is set up,
+-- The simulator (wow-ui-sim d54da90, #308; its Forever profile since
+-- 936d5f5, #160) plays WoW Forever, with Forever's spell data: it names our
+-- buffs and answers their range itself (in range of every unit it shows: it
+-- has no distance model). While a state is set up,
 -- the spellbook fixture (Learn) only teaches the player the buff, with
 -- A_Admin.LearnSpell, as a Priest.
 --
@@ -25,6 +26,9 @@
 --   - Time runs on the simulator's manual clock (A_Admin.SetManualClock),
 --     moved on only by Advance, so the login grace and the result line under
 --     the button pass whatever the runner's speed.
+--   - It has no bags to fill and no weapon enchant to set (#424): while the
+--     weapon buff state is set, it answers the weapon reads for its own stone
+--     and axe (WeaponOffer), and leaves every other question to the simulator.
 --
 -- Each state's Undo puts back everything its Set did, except what the
 -- simulator seeded at random and a Set removed (NoFortitude): no scenario
@@ -566,10 +570,151 @@ States.Requested = {
     end,
 }
 
+-- A weapon buff offered (#45, #424): weapon buffs on, Sharpening stone
+-- chosen for the main hand, a bare main hand, an Elemental Sharpening Stone
+-- (the longest item name a weapon buff offers) in your bags, and in buff mode
+-- alone a favour owed to a stranger, so the list shows both rows. Weapon
+-- buffs come last of all (BuffButton.lua), so the button holds the favour
+-- until you pick your weapon buff in the list, as a player would: then it
+-- reads "You" over "Elemental Sharpening Stone on your main hand", and its
+-- row "> You: Elemental Sharpening Stone (main)": the row names the hand in one
+-- word, so the longest item name fits it (BuffList.lua).
+--
+-- The simulator has no bags or weapon enchants to set up, so while the state
+-- is set the game's answers for these reads are given here, and every other
+-- question goes to the simulator: GetWeaponEnchantInfo (no temporary enchant
+-- on either hand), GetInventoryItemID for the main hand (a two-handed axe,
+-- WEAPON.weapon), GetItemInfoInstant for that axe (a weapon, class 2),
+-- GetItemSpell for it (no Use of its own), and the stone's count, whether you
+-- can use it and its name (C_Item's and the old globals alike). Your own
+-- self-buffs are switched off, so none of yours comes before the weapon buff
+-- (the list keeps one offer per player); the stranger's Fortitude on you
+-- counts as yours alone (#329), so buff mode offers you nothing else. Undo
+-- puts every read and setting back, ends buff mode and lets the favour go
+-- with a right-click.
+States.WEAPON = { item = 18262, name = "Elemental Sharpening Stone", kind = "sharpening", count = 5,
+    weapon = 12784, slot = 16, hand = "main hand", row = "main" }
+States.WEAPONSTRANGER = "Sigrun Aasen"
+local weaponSaved
+
+-- Replaces holder[key] with make(the function that was there), and notes
+-- what to put back. A holder the client lacks is left alone.
+local function Replace(saved, holder, key, make)
+    if type(holder) ~= "table" then return end
+    saved[#saved + 1] = { holder = holder, key = key, value = holder[key] }
+    holder[key] = make(holder[key])
+end
+
+-- Asks the simulator's own function, if it has one.
+local function PassOn(real, ...)
+    if type(real) == "function" then return real(...) end
+end
+
+local function AnswerWeaponReads(saved)
+    local W = States.WEAPON
+    Replace(saved, _G, "GetWeaponEnchantInfo", function()
+        return function() return false, 0, 0, 0, false, 0, 0, 0 end
+    end)
+    Replace(saved, _G, "GetInventoryItemID", function(real)
+        return function(unit, slot, ...)
+            if unit == "player" and slot == W.slot then return W.weapon end
+            return PassOn(real, unit, slot, ...)
+        end
+    end)
+    for _, holder in ipairs({ _G, _G.C_Item }) do
+        Replace(saved, holder, "GetItemInfoInstant", function(real)
+            return function(item, ...)
+                if item == W.weapon then return W.weapon, "Weapon", "Two-Handed Axes", "INVTYPE_2HWEAPON", nil, 2, 1 end
+                return PassOn(real, item, ...)
+            end
+        end)
+        Replace(saved, holder, "GetItemSpell", function(real)
+            return function(item, ...)
+                if item == W.weapon then return end
+                return PassOn(real, item, ...)
+            end
+        end)
+        Replace(saved, holder, "GetItemCount", function(real)
+            return function(item, ...)
+                if item == W.item then return W.count end
+                return PassOn(real, item, ...)
+            end
+        end)
+        Replace(saved, holder, "IsUsableItem", function(real)
+            return function(item, ...)
+                if item == W.item then return true, false end
+                return PassOn(real, item, ...)
+            end
+        end)
+    end
+    Replace(saved, _G.C_Item, "GetItemNameByID", function(real)
+        return function(item, ...)
+            if item == W.item then return W.name end
+            return PassOn(real, item, ...)
+        end
+    end)
+end
+
+States.WeaponOffer = {
+    Set = function()
+        States.PassLoginGrace()
+        States.Learn()
+        States.Party(nil)
+        if not weaponSaved then
+            local buffBack = FriendlyForeverDB.buffBack
+            weaponSaved = { reads = {}, settings = { weaponBuffs = buffBack.weaponBuffs,
+                weaponMain = buffBack.weaponMain, selfBuffs = buffBack.selfBuffs } }
+            AnswerWeaponReads(weaponSaved.reads)
+            buffBack.weaponBuffs, buffBack.weaponMain, buffBack.selfBuffs = true, States.WEAPON.kind, false
+        end
+        States.Target(States.WEAPONSTRANGER)
+        States.BuffedBy("target")
+        Command("buffmode on")
+        -- Pick your weapon buff in the list, so the button holds it.
+        local list = _G.FriendlyForeverBuffList
+        local mine
+        for _, row in ipairs(list and list.rows or {}) do
+            local text = row:IsShown() and row.text:GetText() or ""
+            if text:find("^You: ") then mine = row end
+        end
+        if not mine then error("the list has no row for your weapon buff", 2) end
+        mine:GetScript("OnClick")(mine)
+    end,
+    -- For the shot: the pointer over the button, so its tooltip shows too.
+    Hover = function()
+        local button = States.Button()
+        if button then button:GetScript("OnEnter")(button) end
+    end,
+    Undo = function()
+        if InCombatLockdown() then States.Combat(false) end
+        if weaponSaved then
+            local buffBack = FriendlyForeverDB.buffBack
+            for key, value in pairs(weaponSaved.settings) do buffBack[key] = value end
+            for i = #weaponSaved.reads, 1, -1 do
+                local put = weaponSaved.reads[i]
+                put.holder[put.key] = put.value
+            end
+            weaponSaved = nil
+        end
+        if GameTooltip then GameTooltip:Hide() end
+        Command("buffmode off")
+        local button = States.Button()
+        if button and States.MacroTarget() == States.WEAPONSTRANGER then button:Click("RightButton") end
+        States.RestoreParty()
+        States.Unbuff()
+        States.Target(nil)
+        States.Unlearn()
+        States.Advance(States.RESULT_SECONDS)
+    end,
+}
+
 -- For the screenshot job: set a state up and leave it.
 local SHOWN = { favour = States.Favour, buffmode = States.GroupMissing, bufflist = States.ListFilled,
     buffgroup = States.ListGroupCast, alreadydone = States.AlreadyDone, longreason = States.LongReason,
-    asked = States.Requested }
+    asked = States.Requested, weapon = States.WeaponOffer }
+-- Each is staged and shot as button-<name> (.github/workflows/ui-sim.yml), as
+-- spec/uitests_states_spec.lua checks.
+States.SHOWN = SHOWN
 function States.Show(name)
     local state = SHOWN[name]
     if not state then error("no button state called " .. tostring(name)) end
@@ -579,4 +724,5 @@ function States.Show(name)
     local walkthrough = _G.FriendlyForeverWalkthrough
     if type(walkthrough) == "table" and walkthrough:IsShown() then walkthrough.skip:Click() end
     state.Set()
+    if state.Hover then state.Hover() end
 end

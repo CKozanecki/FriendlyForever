@@ -744,6 +744,71 @@ test("with a buff asked for in chat, the button names who asked and the buff, an
     end)
 end)
 
+-- A weapon buff (#45, #424): picked in the list, the button reads "You"
+-- over the item and the hand, its tooltip says what a press does, and the
+-- list's row names the item and the hand. The longest item name a weapon
+-- buff offers, so the row is the longest one a weapon buff makes.
+test("with a weapon buff picked in the list, the button, its tooltip and its row name the item and hand", function()
+    -- What the simulator itself answers for the reads the state gives (docs/ui-simulator.md).
+    local W = FriendlyForeverUIStates.WEAPON
+    local function Ask(fn, ...)
+        if type(fn) ~= "function" then return "missing" end
+        local got = { pcall(fn, ...) }
+        if not got[1] then return "error" end
+        local out = {}
+        for i = 2, math.min(#got, 6) do out[#out + 1] = tostring(got[i]) end
+        return #out > 0 and table.concat(out, ",") or "nothing"
+    end
+    local items = _G.C_Item or {}
+    report(("FACT sim weapon reads: GetWeaponEnchantInfo %s; main hand item %s; %d count %s, usable %s, name %s")
+        :format(Ask(_G.GetWeaponEnchantInfo), Ask(_G.GetInventoryItemID, "player", W.slot), W.item,
+            Ask(items.GetItemCount or _G.GetItemCount, W.item), Ask(items.IsUsableItem or _G.IsUsableItem, W.item),
+            Ask(items.GetItemNameByID, W.item)))
+    InState("weapon buff", FriendlyForeverUIStates.WeaponOffer, function(button, States)
+        Expect(button:IsShown(), "the button isn't up")
+        Expect(button.title:GetText() == "You", "the title doesn't say You")
+        Expect(button.subtitle:GetText() == W.name .. " on your " .. W.hand,
+            ("the hint reads %q, not %q"):format(button.subtitle:GetText() or "", W.name .. " on your " .. W.hand))
+        Expect(States.Macro() == ("/use item:%d\n/use %d"):format(W.item, W.slot),
+            ("the macro reads %q, not the stone on the main hand"):format(States.Macro() or ""))
+        TextInside(button, button.title, "weapon buff title", 1)
+        TextInside(button, button.subtitle, "weapon buff hint")
+        OnScreen(button, "buff-back button (weapon buff)")
+        -- The list: the favour, then your weapon buff, marked as the one the button holds.
+        local list = _G.FriendlyForeverBuffList
+        Expect(list ~= nil and list:IsShown(), "the list isn't up")
+        local shown = {}
+        for _, row in ipairs(list and list.rows or {}) do
+            if row:IsShown() then shown[#shown + 1] = row end
+        end
+        Expect(#shown == 2, ("the list has %d rows, not the favour and your weapon buff"):format(#shown))
+        local want = ("> You: %s (%s)"):format(W.name, W.row)
+        local row = shown[#shown]
+        local text = row and row.text:GetText() or ""
+        Expect(text == want, ("the weapon row reads %q, not %q"):format(text, want))
+        Expect(shown[1] and (shown[1].text:GetText() or ""):find(States.WEAPONSTRANGER, 1, true) == 1,
+            "the first row isn't the favour owed to " .. States.WEAPONSTRANGER)
+        for i, each in ipairs(shown) do TextInside(each, each.text, "weapon buff list row " .. i, 1) end
+        OnScreen(list, "buff list (weapon buff)")
+        report("LAYOUT weapon buff row: " .. text)
+        -- The tooltip, as the pointer over the button shows it.
+        button:GetScript("OnEnter")(button)
+        local lines = {}
+        for i = 1, (GameTooltip.NumLines and GameTooltip:NumLines() or 0) do
+            local region = _G["GameTooltipTextLeft" .. i]
+            lines[#lines + 1] = region and region:GetText() or ""
+        end
+        local said = table.concat(lines, " / ")
+        report("LAYOUT weapon buff tooltip: " .. said)
+        Expect(said:find("Puts " .. W.name .. " on your " .. W.hand .. ".", 1, true) ~= nil,
+            "the tooltip doesn't say it puts the stone on your main hand: " .. said)
+        Expect(said:find("Right-click to skip your weapon buffs for 5 minutes.", 1, true) ~= nil,
+            "the tooltip doesn't say what a right-click does: " .. said)
+        OnScreen(GameTooltip, "buff-back button tooltip (weapon buff)")
+        GameTooltip:Hide()
+    end)
+end)
+
 -- In buff mode the button offers you first (#198), then the party member
 -- missing your buff. The list beside the button (#43) makes the member the
 -- next offer, so both states are measured.

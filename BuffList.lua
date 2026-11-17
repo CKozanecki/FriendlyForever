@@ -43,9 +43,12 @@ local function RowText(offer, current)
         end
     end
     local name = offer.self and "You" or Util.StripChat(Util.DisplayName(offer.name))
-    -- A passer-by (#39) says so; a weapon buff (#45) says which hand.
+    -- A passer-by (#39) says so; a weapon buff (#45) says which hand, in
+    -- one word ("main", "off"): "(main hand)" after the longest item name,
+    -- Elemental Sharpening Stone, cut the row short (#424). The button and
+    -- its tooltip keep the whole words.
     local passing = offer.passerBy == true and " (passing by)" or ""
-    local hand = offer.hand and (" (" .. offer.hand .. ")") or ""
+    local hand = type(offer.hand) == "string" and (" (" .. offer.hand:gsub(" hand$", "") .. ")") or ""
     return (current and "> " or "") .. name .. ": " .. Util.StripChat(offer.spell) .. hand .. passing
 end
 
