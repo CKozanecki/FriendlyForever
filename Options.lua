@@ -344,9 +344,15 @@ local function TakeKey(key)
     widgets.buffModeKey:SetText(KeyButtonText())
 end
 
+-- How far above its tab's content the capture sits. The widgets there are
+-- siblings of the capture (children of that content), one level above it or a
+-- few more for their own lists, so the margin is generous (#429).
+Options.KEY_CAPTURE_LEVEL = 100
+
 function Options.StartKeyCapture()
     if InCombatLockdown() then return ns.Print("keys can't be changed in a fight.") end
     local capture = widgets.keyCapture
+    capture.Layer()
     capture.active = true
     capture:Show()
     capture:EnableKeyboard(true)
@@ -360,6 +366,15 @@ local function CreateKeyCapture(parent)
     local capture = CreateFrame("Frame", nil, parent)
     capture:SetAllPoints(parent)
     capture:Hide()
+    -- It covers the tab, so it must take a click wherever one lands. Frames
+    -- made from one parent share a frame level and the game doesn't say which
+    -- takes a click where they overlap, so the capture could lose one to a
+    -- checkbox under it and change a setting instead of choosing the key
+    -- (#429, as the dropdowns in #427). Set an explicit level well above its
+    -- siblings, each time the capture starts or shows, whatever the panel
+    -- did to the levels meanwhile.
+    function capture.Layer() capture:SetFrameLevel(parent:GetFrameLevel() + Options.KEY_CAPTURE_LEVEL) end
+    capture:SetScript("OnShow", capture.Layer)
     capture:SetScript("OnKeyDown", function(_, key)
         if ns.BuffMode.MODIFIER_KEYS[key] then return end
         if key == "ESCAPE" then return StopKeyCapture() end

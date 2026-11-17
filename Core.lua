@@ -27,8 +27,8 @@ function ns.SetEnabled(on)
 end
 
 -- Back to defaults, keeping settings about this screen (the button's place)
--- and, for Buff Back, the Buffs tab's: that tab's Reset is for its own lines
--- only (#408).
+-- and, for Buff Back, the Buffs tab's and the Weapon buffs page's: each
+-- page's Reset is for its own settings only (#408, #425).
 function ns.ResetType(msgType)
     local fresh = ns.Config.DefaultsFor(msgType)
     -- The Reset button heals the section first (Options.lua), so it's a table.
@@ -37,7 +37,10 @@ function ns.ResetType(msgType)
         for _, key in ipairs(keys or {}) do fresh[key] = live[key] end
     end
     Keep(ns.Profiles.LOCAL_ONLY[msgType])
-    if msgType == "buffBack" then Keep(ns.BuffsTab.FIELDS) end
+    if msgType == "buffBack" then
+        Keep(ns.BuffsTab.FIELDS)
+        Keep(ns.WeaponBuffs.FIELDS)
+    end
     ns.db[msgType] = fresh
     ns.RefreshEvents()
     ns.BuffButton.Refresh()
