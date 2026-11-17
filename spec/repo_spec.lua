@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #360, #345, #308, #343, #367, #371, #375, #408
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #360, #345, #308, #343, #367, #371, #375, #408, #415
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -1550,12 +1550,12 @@ describe("UI simulator workflow", function()
         end)
     end)
 
-    -- #308: upstream's master of 2026-11-14, reviewed on #308 before the pin
-    -- moved (#154 and #160 moved it before). There's no published image at
-    -- that commit, and release binaries are never used, so the simulator job
-    -- builds it and the others run that.
-    it("pins wow-ui-sim at the reviewed 9c48956 and runs only the build made from it (black)", function()
-        assert.is_truthy(text:find("\n%s*SIM_COMMIT: 9c48956c9c85ddb345ebe4fd477ff1b63a8e0943\n"),
+    -- #308: upstream's master of 2026-11-16, reviewed on #308 before the pin
+    -- moved (#154, #160 and #308's first move moved it before). There's no
+    -- published image at that commit, and release binaries are never used,
+    -- so the simulator job builds it and the others run that.
+    it("pins wow-ui-sim at the reviewed d54da90 and runs only the build made from it (black)", function()
+        assert.is_truthy(text:find("\n%s*SIM_COMMIT: d54da90d9ddda641ea6fabf55303a1e72476642e\n"),
             "the simulator isn't pinned at the reviewed commit")
         assert.is_truthy(text:find("\n%s*BUILD_BASE: rust@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c%s"),
             "the build base isn't the reviewed digest")
@@ -2741,6 +2741,41 @@ describe("UI simulator workflow", function()
             end
         end
 
+        -- The here-documents a line opens (#415): each <<WORD or <<-WORD
+        -- outside quotes and comments (not a <<< string), in order, with its
+        -- operator as written, the word that ends it, and whether its body
+        -- expands: only when no part of the word is quoted (<<'MSG', <<"MSG",
+        -- <<\MSG and M'SG' don't).
+        local function heredocsOf(line)
+            local found, i, n = {}, 1, #line
+            while i <= n do
+                local c = line:sub(i, i)
+                if c == "\\" then
+                    i = i + 2
+                elseif c == "'" then
+                    i = (line:find("'", i + 1, true) or n) + 1
+                elseif c == '"' then
+                    local j = i + 1
+                    while j <= n and line:sub(j, j) ~= '"' do j = j + (line:sub(j, j) == "\\" and 2 or 1) end
+                    i = j + 1
+                elseif c == "#" and (i == 1 or line:sub(i - 1, i - 1):match("%s")) then
+                    break
+                elseif line:sub(i, i + 1) == "<<" and line:sub(i + 2, i + 2) ~= "<" and line:sub(i - 1, i - 1) ~= "<" then
+                    local op, dash, word = line:match("^(<<(%-?)%s*([^%s;|&<>()]+))", i)
+                    if op then
+                        local bare = word:gsub("[\"'\\]", "")
+                        found[#found + 1] = { op = op, word = bare, dash = dash == "-", expands = bare == word }
+                        i = i + #op
+                    else
+                        i = i + 2
+                    end
+                else
+                    i = i + 1
+                end
+            end
+            return found
+        end
+
         -- The variables a read sets: its words after its options.
         local function readVariables(command)
             local list = {}
@@ -2833,6 +2868,59 @@ describe("UI simulator workflow", function()
                         if not command:match("^[|>][+-]?$") then all[#all + 1] = command; runIndent = nil end
                     end
                 end
+            end
+            -- Here-documents (#415): their bodies are text the command opening
+            -- them reads, not commands, so they're taken out of the lines and
+            -- kept with the line that opens them. A body ends at a line that
+            -- is its word alone, at the block's indentation, as bash reads it
+            -- once the runner has taken that indentation off (after tabs too,
+            -- for <<-).
+            local docs, base = {}, (all[1] or ""):match("^(%s*)")
+            do
+                local kept, queue, open = {}, {}, nil
+                for _, line in ipairs(all) do
+                    if open then
+                        local rest = line:sub(1, #base) == base and line:sub(#base + 1) or nil
+                        if rest and open.dash then rest = rest:gsub("^\t*", "") end
+                        if rest == open.word then
+                            open = table.remove(queue, 1)
+                        else
+                            open.body[#open.body + 1] = line
+                        end
+                    else
+                        kept[#kept + 1] = line
+                        local found = heredocsOf(line)
+                        if #found > 0 then
+                            for _, doc in ipairs(found) do doc.body = {}; queue[#queue + 1] = doc end
+                            docs[#kept] = found
+                            open = table.remove(queue, 1)
+                        end
+                    end
+                end
+                if open then problems[#problems + 1] = "a here-document that never ends: " .. open.word end
+                all = kept
+            end
+            -- Whether a command reads a here-document that prints a name from
+            -- a source (#415): one whose body expands and names a variable
+            -- holding a name from one, or runs a $( ) or ` ` that prints a
+            -- source. Its reader passes the body on (cat), or quotes it in its
+            -- output or its errors (docker build), so it counts as a reader of
+            -- that source. A source's path on its own is the workflow's text,
+            -- not the shot's or the simulator's, as it is for echo (#367).
+            local function readsNames(command, index)
+                for _, doc in ipairs(docs[index] or {}) do
+                    if doc.expands and command:find(doc.op, 1, true) then
+                        local body, held = table.concat(doc.body, "\n"), unchecked()
+                        if namesOne(body, held) then return true end
+                        local runs = {}
+                        for inside in body:gmatch("%$(%b())") do runs[#runs + 1] = inside:sub(2, -2) end
+                        for inside in body:gmatch("`([^`]*)`") do runs[#runs + 1] = inside end
+                        for _, inside in ipairs(runs) do
+                            if printsOutput(inside, state.inTree, sources, unquotedOf(inside), held) then return true end
+                        end
+                    end
+                end
+                return false
             end
             for index, line in ipairs(all) do
                 local pieces = piecesOf(line)
@@ -2930,7 +3018,8 @@ describe("UI simulator workflow", function()
                     if normal then
                         pipeline[#pipeline + 1] = piece.text
                         from = from or line
-                        if printsOutput(piece.text, state.inTree, sources, piece.bare, unchecked()) then
+                        if printsOutput(piece.text, state.inTree, sources, piece.bare, unchecked())
+                            or readsNames(piece.text, index) then
                             prints = true
                             if not errorsKept(piece) then leaks = true end
                         end
@@ -3572,6 +3661,62 @@ describe("UI simulator workflow", function()
                 assert.are.same({}, (scan(reports)))
                 local leaky = reports:gsub('head %-c 60000 "%$file" 2>&1 | shown', 'head -c 60000 "$file" | shown', 1)
                 assert.are.same({ 'filters only stdout:             head -c 60000 "$file" | shown' }, (scan(leaky)))
+            end)
+        end)
+
+        -- #415: a here-document passes its body to the command that reads
+        -- it, so an unquoted one whose body names a shot's file name prints
+        -- it as surely as echo does (#367). Its body is text, not commands.
+        describe("reads a here-document as its reader's input (#415)", function()
+            local function step(body) return "run: |\n  " .. body:gsub("\n", "\n  ") .. "\n" end
+            local loop = 'for f in shots/*.png; do\n  cat <<MSG\ncopying $f\nMSG\ndone'
+
+            it("flags a here-document whose body names a name from a source, or reads a source, unless filtered (red)", function()
+                for _, body in ipairs({
+                    loop,
+                    'for f in shots/*.png; do\n\tcat <<-MSG\n\tcopying $f\n\tMSG\ndone',
+                    'for f in shots/*.png; do cat << MSG\n${f%.png}\nMSG\ndone',
+                    'for f in shots/*.png; do\n  name=$(basename "$f")\n  cat <<MSG\nskipping $name\nMSG\ndone',
+                    'cat <<EOF\n$(ls "$RUNNER_TEMP/shots")\nEOF',
+                    'cat <<EOF\nreport: $(cat "$ui/x" 2>&1)\nEOF',
+                    'cat <<EOF\nfirst shot: `ls shots | head -n 1`\nEOF',
+                    'for f in shots/*.png; do\n  docker build -t x - <<DOCKERFILE\nFROM $f\nDOCKERFILE\ndone',
+                    'while read -r f; do echo "$f"; done <<EOF\n$(ls shots)\nEOF',
+                }) do
+                    assert.are.equal(1, #scan(step(body)), body)
+                end
+                -- Filtered, its errors must go along too (#375): docker build quotes a bad line in them.
+                local leaky = loop:gsub("cat <<MSG", "cat <<MSG | shown")
+                assert.are.same({ "filters only stdout:     cat <<MSG | shown" }, (scan(step(leaky))))
+            end)
+
+            it("passes a quoted delimiter, a filtered reader, a checked name and a body naming nothing from a source (white)", function()
+                for _, body in ipairs({
+                    loop:gsub("<<MSG", "<<'MSG'"),
+                    loop:gsub("<<MSG", '<<"MSG"'),
+                    loop:gsub("<<MSG", "<<\\MSG"),
+                    loop:gsub("cat <<MSG", "cat <<MSG 2>&1 | shown"),
+                    loop:gsub("cat <<MSG", 'cat <<MSG > "$RUNNER_TEMP/msg.txt" 2>&1'),
+                    loop:gsub("  cat", '  case "$f" in *[!A-Za-z0-9._-]*) continue ;; esac\n  cat'),
+                    'cat <<MSG\nbuilding $BUILD_BASE\nMSG',
+                    -- A source's path is the workflow's own text; what it holds isn't read.
+                    'cat <<MSG\nwriting to $RUNNER_TEMP/shots and $ui\nMSG',
+                    -- The body is text, not commands: ls here prints nothing.
+                    "cat <<'EOF'\nls \"$ui\"\nEOF",
+                    -- Not here-documents: a here-string, and << in quotes or a comment.
+                    'grep -c x <<< "$BUILD_BASE"',
+                    'echo "use <<EOF for long text" # or <<EOF',
+                }) do
+                    assert.are.same({}, (scan(step(body))), body)
+                end
+            end)
+
+            it("reports a here-document that never ends, and ends one only at its word alone (black)", function()
+                assert.are.same({ "a here-document that never ends: MSG" }, (scan(step("cat <<MSG\nhello"))))
+                -- "MSG " and "MSGS" aren't the word, so the body runs on to the real end.
+                assert.are.equal(1, #scan(step('for f in shots/*.png; do\n  cat <<MSG\nMSGS\n  MSG\n$f\nMSG\ndone')))
+                -- <<- takes off tabs, not spaces, before the word.
+                assert.are.same({ "a here-document that never ends: MSG" }, (scan(step("cat <<-MSG\nhello\n  MSG"))))
             end)
         end)
 

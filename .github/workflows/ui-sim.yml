@@ -7,7 +7,7 @@ name: UI simulator
 #
 # Safety:
 # - The simulator is built here from one reviewed commit of its source
-#   (9c48956, #308), with every base image pinned by digest, so it can't
+#   (d54da90, #308), with every base image pinned by digest, so it can't
 #   change under us; read the source at a new commit before moving the pin.
 #   There's no published image at that commit, and we never use the
 #   project's release binaries.
@@ -60,10 +60,11 @@ env:
   # most players use. spec/repo_spec.lua checks both are listed.
   LAYOUT_SIZES: 1024x768 1920x1080
   SIM_REPO: https://github.com/Osso/wow-ui-sim.git
-  # The head of their master on 2026-11-14, with the Forever profile, its
+  # The head of their master on 2026-11-16, with the Forever profile, its
   # spell data and our three contributions (#100). #160 reviewed the source
-  # up to 936d5f5, and #308 the 517 commits from there to here.
-  SIM_COMMIT: 9c48956c9c85ddb345ebe4fd477ff1b63a8e0943
+  # up to 936d5f5, and #308 the 517 commits from there to 9c48956 and the
+  # 348 from there to here.
+  SIM_COMMIT: d54da90d9ddda641ea6fabf55303a1e72476642e
   # The client the simulator plays: WoW Forever, the game the addon ships
   # for (#160, the owner's decision). It names the Blizzard UI cache folder
   # and the spell data folder.
@@ -91,7 +92,7 @@ env:
   # The download with our self-buffs' IDs added to upstream's list (#343):
   # byte for byte scripts/data/forever-spells-extended.json, which #44 made
   # by hand with the same tool and list at 936d5f5, after #160's review of
-  # the download code (unchanged up to 9c48956, #308). The row check below
+  # the download code (unchanged up to d54da90, #308). The row check below
   # ties it to that committed copy. In quotes: YAML would read a hash of
   # digits as a number.
   SPELL_DATA_SHA256: "43d0cfa0a207b9fc0bc9ae5ea76b70b3d2ecb8779f4b33b92e288ce45d7cc45b"
@@ -884,7 +885,7 @@ jobs:
         run: |
           states="$RUNNER_TEMP/shot-lua"
           mkdir -p "$states"
-          for state in favour buffmode bufflist buffgroup alreadydone longreason asked; do
+          for state in favour buffmode bufflist buffgroup alreadydone longreason asked weapon; do
             { cat uitests/button_states.lua; printf '\nFriendlyForeverUIStates.Show("%s")\n' "$state"; } \
               > "$states/$state.lua"
           done
@@ -939,8 +940,8 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Every shot
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so a pass of 39 shots can take about 130 minutes in the
-        # worst case, and both passes together about 260. No shot starts
+        # clean-up, so a pass of 40 shots can take about 133 minutes in the
+        # worst case, and both passes together about 267. No shot starts
         # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
         # so the last one ends by about 4400 s with the probe: inside this
         # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a
@@ -1060,6 +1061,8 @@ jobs:
             shoot button-longreason --exec-lua @/shot-lua/longreason.lua
             # A buff asked for in chat (#362): who asked, over "asked for Power Word: Fortitude".
             shoot button-asked --exec-lua @/shot-lua/asked.lua
+            # A weapon buff picked in the list (#424): "You" over the stone and the hand, its row, and the tooltip.
+            shoot button-weapon --exec-lua @/shot-lua/weapon.lua
             # The General and Favour Ledger pages, filled with long names and
             # many entries, and the copy window as /friendly export opens it (#52).
             shoot options-general --exec-lua @/shot-lua/page-general.lua
