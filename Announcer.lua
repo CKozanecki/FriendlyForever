@@ -149,13 +149,23 @@ function Announcer.Schedule(msgType, key, opts)
         local live = ns.db[msgType] -- may be lost by now (#387)
         local lines = type(live) == "table" and live.messages
         local text = other and type(lines) == "table" and lines[other]
-        if type(text) == "string" and text:find("%S") then template = text end
+        if type(text) == "string" and text:find("%S") then template, line = text, other end
         ns.ChatQueue.Push({
             channel = opts.emote and "EMOTE" or opts.channel,
             target = opts.target,
             emote = opts.emote,
             getTarget = opts.emoteTarget,
             getText = function()
+                -- The line is read again as it goes out, so one deleted or
+                -- edited while it waited (a /say thank-you waits for a key
+                -- press) is not said as it was: a blank line says nothing (#407).
+                local now = ns.db[msgType]
+                local saved = type(now) == "table" and now.messages
+                local said = type(saved) == "table" and line and saved[line]
+                if line then
+                    if type(said) ~= "string" or not said:find("%S") then return nil end
+                    template = said
+                end
                 local vars = opts.vars and opts.vars() or Util.NameVars(key)
                 return Util.Render(template, ns.Flavour.Vars(vars))
             end,
