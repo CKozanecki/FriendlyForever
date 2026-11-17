@@ -7,6 +7,13 @@ local wow = require("spec.support.wow")
 -- page and left off the kept list fails below (#425).
 local KIND -- a kind the rogue can use, found below
 local WEAPON_PAGE = { weaponBuffs = true, weaponMain = true, weaponOff = true }
+-- The Buff Back tab's own settings, which its Reset does put back (the other
+-- Buff Back settings belong to the Buffs tab, the Weapon buffs page, or are
+-- the button's place). Every Buff Back setting must be in exactly one of
+-- these lists, so a new one has to be placed (#425).
+local BUFF_BACK_TAB = { "autoOffDone", "autoOffMinutes", "autoOffPull", "autoOnBuffed", "autoOnCampfire",
+    "autoOnDeath", "autoOnJoin", "autoOnMissing", "buffModeKey", "enabled", "messages", "owedMinutes",
+    "renewPercent", "requests", "sayLine", "showInCities", "topUpMinutes" }
 
 describe("Reset on the Buff Back tab (#425)", function()
     local ns
@@ -35,21 +42,43 @@ describe("Reset on the Buff Back tab (#425)", function()
         wow.run(w.reset, "OnClick")
         assert.is_true(ns.db.buffBack.weaponBuffs)
         assert.are.equal(KIND, ns.db.buffBack.weaponMain)
+        local _, _, weaponPage = ns.Options.Pages()
+        wow.run(weaponPage, "OnShow")
+        assert.is_true(w.weapon.enabled:GetChecked(), "the page shows weapon buffs still on")
+        assert.are.equal(ns.WeaponBuffs.KINDS[KIND].label, w.weapon.main:GetText(), "and the kind it kept")
     end)
 
-    it("every other Buff Back setting still goes back to its default (white)", function()
+    it("every Buff Back setting belongs to exactly one page, so a new one must be placed (white)", function()
+        local owner = {}
+        local function claim(list, who)
+            for _, key in ipairs(list) do
+                assert.is_nil(owner[key], key .. " is on two lists: " .. who .. " and " .. tostring(owner[key]))
+                owner[key] = who
+            end
+        end
+        claim(BUFF_BACK_TAB, "the Buff Back tab")
+        claim(ns.BuffsTab.FIELDS, "the Buffs tab")
+        claim(ns.Profiles.LOCAL_ONLY.buffBack, "the button's place")
+        local weapon = {}
+        for key in pairs(WEAPON_PAGE) do weapon[#weapon + 1] = key end
+        claim(weapon, "the Weapon buffs page")
+        for key in pairs(ns.Config.DefaultsFor("buffBack")) do
+            assert.is_not_nil(owner[key], key .. " is a Buff Back setting no page owns: place it in this list")
+        end
+        for key in pairs(owner) do
+            assert.is_not_nil(ns.Config.DefaultsFor("buffBack")[key], key .. " is listed but isn't a setting")
+        end
+    end)
+
+    it("the Buff Back tab's own settings go back to their defaults (white)", function()
         local defaults = ns.Config.DefaultsFor("buffBack")
-        local kept = {}
-        for key in pairs(WEAPON_PAGE) do kept[key] = true end
-        for _, key in ipairs(ns.BuffsTab.FIELDS) do kept[key] = true end
-        for _, key in ipairs(ns.Profiles.LOCAL_ONLY.buffBack or {}) do kept[key] = true end
-        for key, value in pairs(defaults) do
-            if not kept[key] and type(value) == "boolean" then ns.db.buffBack[key] = not value end
+        for _, key in ipairs(BUFF_BACK_TAB) do
+            if type(defaults[key]) == "boolean" then ns.db.buffBack[key] = not defaults[key] end
         end
         ns.ResetType("buffBack")
-        for key, value in pairs(defaults) do
-            if not kept[key] and type(value) == "boolean" then
-                assert.are.equal(value, ns.db.buffBack[key], key)
+        for _, key in ipairs(BUFF_BACK_TAB) do
+            if type(defaults[key]) == "boolean" then
+                assert.are.equal(defaults[key], ns.db.buffBack[key], key)
             end
         end
     end)
