@@ -769,6 +769,10 @@ function BuffRules.Choose(choice)
         end
     end
     ns.BuffButton.Refresh()
+    -- The walkthrough's step that offers the choice shows it made (#408).
+    -- (After an update that adds a file and a /reload, the addon doesn't
+    -- start, Core.lua, so Walkthrough.lua is always loaded here.)
+    ns.Walkthrough.Refresh()
     return true
 end
 

@@ -1840,6 +1840,30 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
                 function() TextInside(walkthrough.body, walkthrough.stepText, label .. " text", nil, nil, true) end,
                 function() AcrossInside(walkthrough.scroll, walkthrough.body, label .. " text area") end,
             })
+            if step.choice then
+                -- The keep-or-reset choice (#408): both buttons shown, across
+                -- inside the window, in their row between the text and the
+                -- window's own buttons (measured against Next, which every
+                -- step shows; Skip is hidden on a run's last step).
+                check(walkthrough.keep:IsShown() and walkthrough.new:IsShown(), label .. ": the choice isn't offered")
+                CheckAll({
+                    function() AcrossInside(walkthrough, walkthrough.keep, label .. " Keep my settings") end,
+                    function() AcrossInside(walkthrough, walkthrough.new, label .. " Use the new defaults") end,
+                    function()
+                        local _, sb = Edges(walkthrough.scroll, "GetTop", "GetBottom")
+                        local kt, kb = Edges(walkthrough.keep, "GetTop", "GetBottom")
+                        local st = Edges(walkthrough.next, "GetTop", "GetBottom")
+                        if not (sb and kt and st) then
+                            report("LAYOUT " .. label .. " choice row: edges can't be read here")
+                            return
+                        end
+                        local line = ("LAYOUT %s choice row: %.0f..%.0f, text area's bottom %.0f, Next's top %.0f")
+                            :format(label, kb, kt, sb, st)
+                        report(line)
+                        check(kt <= sb + 1 and kb >= st - 1, line .. ": overlaps the text or the buttons")
+                    end,
+                })
+            end
             local row = STEP_ROWS[step.name]
             if row then
                 -- The panel scrolls again a frame later, once laid out. A
@@ -1871,6 +1895,7 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
         if not ok then failures[#failures + 1] = tostring(err) end
     end
     Pages.SkipWalkthrough()
+    Pages.PutBackChoice()
     local States = FriendlyForeverUIStates
     if loggedIn and type(States) == "table" then States.Advance(States.LOGIN_GRACE_SECONDS) end
     check(#failures == 0, table.concat(failures, "\n"))

@@ -225,18 +225,19 @@ describe("The walkthrough", function()
             end
         end)
 
-        it("opens each step's page: Buffs, Buff Back, Buff Thanks, Guild Join, buff requests, then Start here", function()
+        it("opens each step's page: Buffs, Buff Back, Buff Thanks, Guild Join, buff requests, Buffs, then Start here", function()
             local seen = {}
             while ns.Walkthrough.Step() < #ns.Walkthrough.STEPS do
                 wow.run(tour.next, "OnClick")
                 seen[#seen + 1] = wow.settings.opened == 4242 and ns.Options.CurrentType() or wow.settings.opened
             end
-            assert.are.same({ "buffs", "buffBack", "buffBack", "buff", "guildJoin", "buffBack", "Start here" }, seen)
+            assert.are.same({ "buffs", "buffBack", "buffBack", "buff", "guildJoin", "buffBack", "buffs",
+                "Start here" }, seen)
             assert.are.equal("Finish", tour.next:GetText())
             assert.is_false(tour.skip:IsShown())
             wow.run(tour.back, "OnClick")
             assert.are.equal(#ns.Walkthrough.STEPS - 1, ns.Walkthrough.Step())
-            assert.are.equal("buffBack", ns.Options.CurrentType())
+            assert.are.equal("buffs", ns.Options.CurrentType())
         end)
 
         it("scrolls the panel to the step's rows, within its range, now and once laid out", function()
@@ -985,6 +986,382 @@ describe("The walkthrough", function()
             wow.run(w.tour, "OnClick")
             assert.is_false(tour:IsShown())
             assert.are.same({}, wow.errors)
+        end)
+    end)
+end)
+
+-- What's new for #408: the Buffs tab, and the choice of how a player's buff
+-- rules start. Its two buttons call BuffRules.Choose; nothing else chooses.
+describe("What's new: the Buffs tab and the keep-or-reset choice (#408)", function()
+    local ns, tour
+    local STEP = "Your buffs have a tab of their own"
+    local KEPT_LINE, NEW_LINE = "kept your buff rules", "using the new buff defaults"
+    -- A druid's 1.3.3 settings with two of its buffs' rules changed, and a
+    -- rule for another class's buff (not one of "your buffs").
+    local function legacy()
+        return { schemaVersion = 7, enabled = true, walkthrough = { seen = 2, firstRun = false },
+            buffBack = { whoGets = { motw = { rule = "notTanks" }, thorns = { rule = "all" },
+                intellect = { rule = "tanks" } } } }
+    end
+    local function boot(db, class)
+        -- buffDefaults: the rules are the player's own, not the specs' Everyone.
+        ns = wow.boot({ walkthrough = true, buffDefaults = true, db = db,
+            before = function(state)
+                -- false: a class that can't be read.
+                if class == false then state.class = nil else state.class = class or "DRUID" end
+            end })
+        tour = ns.Walkthrough.Frame()
+    end
+    local function said(fragment)
+        local n = 0
+        for _, line in ipairs(wow.printed) do
+            if line:find(fragment, 1, true) then n = n + 1 end
+        end
+        return n
+    end
+    local function text() return tour.stepText:GetText() end
+    -- Whether the choice is offered: both its buttons shown, never one alone.
+    local function choiceShown()
+        assert.are.equal(tour.keep:IsShown(), tour.new:IsShown(), "both choice buttons, or neither")
+        return tour.keep:IsShown()
+    end
+    local function goToStep()
+        for _ = 1, #ns.Walkthrough.STEPS do
+            if (tour.title:GetText() or ""):find(STEP, 1, true) then return end
+            wow.run(tour.next, "OnClick")
+        end
+        error("never reached the step")
+    end
+
+    describe("after the update (white)", function()
+        it("a player who finished version 2 sees the step alone, with both choices, and how many rules they changed", function()
+            boot(legacy())
+            assert.is_true(tour:IsShown())
+            assert.is_true(ns.Walkthrough.WhatsNew())
+            assert.are.equal(1, ns.Walkthrough.Count())
+            assert.are.equal("What's new: " .. STEP, tour.title:GetText())
+            assert.is_true(choiceShown())
+            assert.are.equal("Keep my settings", tour.keep:GetText())
+            assert.are.equal("Use the new defaults (recommended)", tour.new:GetText())
+            assert.is_truthy(text():find("You changed who gets 2 of your buffs, and 1 buff on your other characters. "
+                .. "How would you like to start?", 1, true))
+            assert.is_truthy(text():find("recommended if you never changed them, or aren't sure", 1, true))
+            assert.is_truthy(text():find("Finishing, skipping or closing without choosing changes nothing", 1, true),
+                "What's new shows Finish here, not Skip: the text names both")
+            assert.is_truthy(text():find("The choice is for all your characters.", 1, true))
+            assert.is_truthy(text():find("Buffs tab", 1, true))
+            assert.are.equal(270, tour.height, "taller while the choice is offered")
+            assert.are.equal("pending", ns.db.buffBack.whoChoice, "showing it chose nothing")
+        end)
+
+        it("a player who finished version 1 sees buff requests, then this step", function()
+            local db = legacy()
+            db.walkthrough.seen = 1
+            boot(db)
+            assert.are.equal(2, ns.Walkthrough.Count())
+            assert.is_false(choiceShown(), "not on the requests step")
+            wow.run(tour.next, "OnClick")
+            assert.are.equal("What's new: " .. STEP, tour.title:GetText())
+            assert.is_true(choiceShown())
+        end)
+
+        it("counts the buffs with a rule of their own, damaged ones left out", function()
+            boot(legacy())
+            -- Damaged while the step shows, before anything repairs it.
+            ns.db.buffBack.whoGets.thorns = 7
+            ns.Walkthrough.Refresh()
+            assert.is_truthy(text():find("You changed who gets 1 of your buffs, and 1 buff on your other characters.",
+                1, true))
+            ns.db.buffBack.whoGets = "broken"
+            ns.Walkthrough.Refresh()
+            assert.is_truthy(text():find("You've never changed who gets your buffs", 1, true))
+        end)
+
+        it("a player who changed rules only on this character is told how many, with no other characters", function()
+            local db = legacy()
+            db.buffBack.whoGets = { motw = { rule = "notTanks" }, thorns = { rule = "all" } }
+            boot(db)
+            assert.is_truthy(text():find("You changed who gets 2 of your buffs. How would you like to start?", 1, true))
+            assert.is_falsy(text():find("other characters", 1, true))
+            assert.is_true(choiceShown())
+        end)
+
+        it("counts rules changed on your other characters: the settings are shared, and the choice covers them", function()
+            -- A rogue (no rules of its own changed) on an account whose
+            -- priest and mage changed theirs: never "never changed".
+            local db = legacy()
+            db.buffBack.whoGets = { fortitude = { rule = "tanks", always = { ["ann-vale"] = "Ann-Vale" } },
+                intellect = { rule = "classes", classes = { MAGE = true } } }
+            boot(db, "ROGUE")
+            assert.is_truthy(text():find("You changed who gets 2 buffs on your other characters. How would you like "
+                .. "to start?", 1, true))
+            assert.is_falsy(text():find("You've never changed", 1, true))
+            assert.is_true(choiceShown())
+            -- A druid with one of its own and one elsewhere.
+            db = legacy()
+            db.buffBack.whoGets = { motw = { rule = "tanks" }, fortitude = { rule = "tanks" } }
+            boot(db)
+            assert.is_truthy(text():find("You changed who gets 1 of your buffs, and 1 buff on your other characters.",
+                1, true))
+            -- A class that can't be read: every rule counts as another character's.
+            db = legacy()
+            boot(db, false)
+            assert.is_truthy(text():find("You changed who gets 3 buffs on your other characters.", 1, true))
+        end)
+
+        it("a rule kept for a buff that's gone from the game (#209) isn't counted", function()
+            local db = legacy()
+            db.buffBack.whoGets = { light = { rule = "notTanks" } }
+            boot(db)
+            assert.is_truthy(text():find("You've never changed who gets your buffs", 1, true))
+        end)
+
+        it("a player who never changed a rule is told the new defaults are recommended", function()
+            boot({ schemaVersion = 7, enabled = true, walkthrough = { seen = 2, firstRun = false },
+                buffBack = { whoGets = {} } })
+            assert.is_truthy(text():find("You've never changed who gets your buffs, so the new defaults are "
+                .. "recommended.", 1, true))
+            assert.is_true(choiceShown())
+        end)
+
+        it("Keep my settings applies, says what it did, and Next goes on", function()
+            boot(legacy())
+            wow.run(tour.keep, "OnClick")
+            local b = ns.db.buffBack
+            assert.are.equal("kept", b.whoChoice)
+            assert.are.same({ healers = true, damage = true }, b.whoParty.motw)
+            assert.are.same({ everyone = true }, b.whoRaid.thorns)
+            assert.are.same({}, b.whoGets)
+            assert.are.equal(1, said(KEPT_LINE))
+            assert.is_false(choiceShown(), "the buttons go")
+            assert.are.equal(240, tour.height)
+            assert.is_truthy(text():find("You kept your settings", 1, true))
+            assert.is_falsy(text():find("How would you like to start", 1, true))
+            assert.are.equal("What's new: " .. STEP, tour.title:GetText(), "still on the step")
+            wow.run(tour.next, "OnClick")
+            assert.are.same({ seen = 3, firstRun = false }, ns.db.walkthrough)
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("Use the new defaults applies, says what it did, and Next goes on", function()
+            boot(legacy())
+            wow.run(tour.new, "OnClick")
+            local b = ns.db.buffBack
+            assert.are.equal("new", b.whoChoice)
+            for _, field in ipairs({ "whoGets", "whoParty", "whoRaid", "whoPvP", "whoStrangers" }) do
+                assert.are.same({}, b[field], field)
+            end
+            assert.are.equal(1, said(NEW_LINE))
+            assert.is_false(choiceShown())
+            assert.is_truthy(text():find("Your buffs use the new defaults", 1, true))
+            wow.run(tour.next, "OnClick")
+            assert.is_false(tour:IsShown())
+            assert.are.same({ seen = 3, firstRun = false }, ns.db.walkthrough)
+        end)
+
+        it("opens the new Buffs tab, its choice offered there too", function()
+            boot(legacy())
+            assert.are.equal(4242, wow.settings.opened)
+            assert.are.equal(ns.Options.BUFFS_TAB, ns.Options.CurrentType())
+            assert.is_true(ns.Options.widgets.choice.keep:IsShown())
+        end)
+
+        it("a choice made here shows at once on the Buffs tab beside it", function()
+            boot(legacy())
+            wow.run(tour.new, "OnClick")
+            assert.is_false(ns.Options.widgets.choice.keep:IsShown(), "the tab's banner goes")
+        end)
+
+        it("a new install's full tour shows the step without the choice: it has nothing to choose", function()
+            ns = wow.boot({ walkthrough = true, newInstall = true })
+            tour = ns.Walkthrough.Frame()
+            assert.are.equal("new", ns.BuffRules.Choice())
+            goToStep()
+            assert.is_false(ns.Walkthrough.WhatsNew())
+            assert.is_false(choiceShown())
+            assert.is_truthy(text():find("Your buffs use the new defaults", 1, true))
+        end)
+
+        it("the full tour, with the choice made, shows the step without the choice", function()
+            for _, choice in ipairs({ "new", "kept" }) do
+                boot({ enabled = true, walkthrough = { seen = 3, firstRun = false },
+                    buffBack = { whoChoice = choice, whoParty = { motw = { tanks = true } } } })
+                wow.run(ns.Options.widgets.start.tour, "OnClick")
+                goToStep()
+                assert.is_false(ns.Walkthrough.WhatsNew())
+                assert.is_false(choiceShown(), choice)
+                assert.are.equal(240, tour.height)
+                assert.is_truthy(text():find(choice == "new" and "Your buffs use the new defaults"
+                    or "You kept your settings", 1, true), choice)
+            end
+        end)
+    end)
+
+    describe("before choosing (black)", function()
+        it("Next, Back, Skip and the close button change nothing, and the step isn't shown again", function()
+            for _, how in ipairs({ "skip", "CloseButton", "next" }) do
+                boot(legacy())
+                local before = ns.Util.DeepCopy(settingsBut(ns.db))
+                wow.run(tour[how], "OnClick")
+                assert.is_false(tour:IsShown(), how)
+                assert.are.same(before, settingsBut(ns.db), how .. ": no setting changed")
+                assert.are.equal("pending", ns.BuffRules.Choice(), how)
+                assert.are.same({ seen = 3, firstRun = false }, ns.db.walkthrough, how)
+                assert.are.equal(0, said(KEPT_LINE) + said(NEW_LINE), how)
+                local db = ns.db
+                boot(db)
+                assert.is_false(tour:IsShown(), how .. ": not at the next login")
+                assert.are.equal("pending", ns.BuffRules.Choice(), how .. ": the choice waits on the Buffs tab")
+            end
+        end)
+
+        it("a fight closes it, choosing nothing, and it comes back at the step with the choice", function()
+            boot(legacy())
+            local before = ns.Util.DeepCopy(settingsBut(ns.db))
+            wow.enterCombat()
+            assert.is_false(tour:IsShown())
+            wow.run(tour.keep, "OnClick") -- a stray click on the closed window does nothing
+            assert.are.same(before, settingsBut(ns.db))
+            wow.leaveCombat()
+            assert.are.equal("What's new: " .. STEP, tour.title:GetText())
+            assert.is_true(choiceShown())
+            assert.are.equal("pending", ns.BuffRules.Choice())
+        end)
+
+        it("a reload before choosing changes nothing: still pending, and the step comes back", function()
+            boot(legacy())
+            local before = ns.Util.DeepCopy(settingsBut(ns.db))
+            local db = ns.db
+            boot(db)
+            assert.are.same(before, settingsBut(ns.db))
+            assert.are.equal("pending", ns.BuffRules.Choice())
+            assert.are.equal("What's new: " .. STEP, tour.title:GetText(), "not finished, so shown again (#47)")
+            assert.is_true(choiceShown())
+        end)
+
+        it("a choice already made on the tab shows as made, with no buttons", function()
+            for _, choice in ipairs({ "kept", "new" }) do
+                local db = legacy()
+                db.buffBack = { whoChoice = choice, whoParty = { motw = { tanks = true } } }
+                boot(db)
+                assert.are.equal("What's new: " .. STEP, tour.title:GetText())
+                assert.is_false(choiceShown(), choice)
+                wow.run(tour.keep, "OnClick")
+                wow.run(tour.new, "OnClick")
+                assert.are.equal(choice, ns.BuffRules.Choice(), "a hidden button chooses nothing")
+                assert.are.equal(0, said(KEPT_LINE) + said(NEW_LINE))
+            end
+        end)
+
+        it("made on the tab while the step is open, the step shows it at once and offers nothing", function()
+            boot(legacy())
+            assert.is_true(ns.BuffRules.Choose("new"))
+            assert.is_false(ns.Walkthrough.Choose("kept"))
+            assert.are.equal("new", ns.BuffRules.Choice())
+            assert.is_false(choiceShown())
+            assert.is_truthy(text():find("Your buffs use the new defaults", 1, true))
+        end)
+
+        it("an unknown choice pressed on the step chooses nothing; a known one does, once", function()
+            boot(legacy())
+            assert.is_false(ns.Walkthrough.Choose("both"))
+            assert.are.equal("pending", ns.BuffRules.Choice())
+            assert.is_true(choiceShown())
+            assert.is_true(ns.Walkthrough.Choose("kept"))
+            assert.is_false(ns.Walkthrough.Choose("new"), "no longer offered")
+            assert.are.equal("kept", ns.BuffRules.Choice())
+            assert.are.equal(1, said(KEPT_LINE))
+            assert.are.equal(0, said(NEW_LINE))
+        end)
+
+        it("chosen on the tab after the walkthrough closed, or before it ever opened, no error", function()
+            boot(legacy())
+            wow.run(tour.skip, "OnClick")
+            assert.is_true(ns.BuffRules.Choose("new"))
+            assert.are.same({}, wow.errors)
+            boot({ enabled = true, walkthrough = { seen = 3, firstRun = false } })
+            assert.is_nil(ns.Walkthrough.Step())
+            assert.is_true(ns.BuffRules.Choose("kept"))
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("the choice is only on its own step: Walkthrough.Choose does nothing elsewhere or closed", function()
+            local db = legacy()
+            db.walkthrough.seen = 1
+            boot(db)
+            assert.is_false(ns.Walkthrough.Choose("kept"), "on the requests step")
+            wow.run(tour.skip, "OnClick")
+            assert.is_false(ns.Walkthrough.Choose("new"), "closed")
+            assert.are.equal("pending", ns.BuffRules.Choice())
+        end)
+    end)
+
+    describe("presses in any order (red)", function()
+        local DAMAGE = {
+            function(b) b.whoGets = "broken" end,
+            function(b) b.whoGets = { motw = 7, thorns = { rule = {} }, [3] = true } end,
+            function(b) b.whoChoice = { "pending" } end,
+            function(b) b.whoChoice = 42 end,
+            function(b) b.whoParty = "x" end,
+            function() ns.db.buffBack = "broken" end,
+        }
+        local PRESSES = { "keep", "new", "next", "back", "chooseKept", "chooseNew", "chooseBad", "damage" }
+        local reached = { kept = 0, new = 0, never = 0, damaged = 0, damagedThenChosen = 0, repeated = 0 }
+
+        for seed = 1, 30 do
+            it("apply one choice once and never raise an error (seed " .. seed .. ")", function()
+                random.seed(seed)
+                for _ = 1, 5 do random.random() end
+                local db = legacy()
+                db.walkthrough.seen = 1
+                boot(db, random.random(2) == 1 and "DRUID" or "MAGE")
+                local first  -- the first choice made, worked out from the presses alone
+                local damagedFirst = false
+                for press = 1, 25 do
+                    local where = ("seed %d, press %d"):format(seed, press)
+                    local what = PRESSES[random.random(#PRESSES)]
+                    -- The step is offering the choice exactly when it shows and none is made yet.
+                    local onStep = ns.Walkthrough.Step() ~= nil
+                        and (tour.title:GetText() or ""):find(STEP, 1, true) ~= nil
+                    local offered = onStep and first == nil
+                    assert.are.equal(offered, choiceShown(), where)
+                    if what == "damage" then
+                        -- Damage only before a choice: once one is made, the
+                        -- choice's own repair is BuffRules' (buffplaces_spec).
+                        if first == nil then
+                            DAMAGE[random.random(#DAMAGE)](ns.db.buffBack)
+                            damagedFirst = true
+                            reached.damaged = reached.damaged + 1
+                            if ns.Walkthrough.Step() then
+                                wow.run(tour.back, "OnClick")
+                                wow.run(tour.next, "OnClick")
+                            end
+                        end
+                    elseif what == "next" or what == "back" then
+                        wow.run(tour[what], "OnClick")
+                    else
+                        local choice = (what == "keep" or what == "chooseKept") and "kept"
+                            or (what == "new" or what == "chooseNew") and "new" or "both"
+                        if what == "keep" or what == "new" then
+                            wow.run(tour[what], "OnClick")
+                        else
+                            ns.Walkthrough.Choose(choice)
+                        end
+                        if first ~= nil then reached.repeated = reached.repeated + 1 end
+                        if offered and first == nil and choice ~= "both" then first = choice end
+                    end
+                    assert.are.same({}, wow.errors, where)
+                    assert.are.equal(first or "pending", ns.BuffRules.Choice(), where)
+                    assert.is_true(said(KEPT_LINE) + said(NEW_LINE) == (first and 1 or 0), where .. ": said once")
+                    if not ns.Walkthrough.Step() then break end
+                end
+                reached[first or "never"] = reached[first or "never"] + 1
+                if damagedFirst and first then reached.damagedThenChosen = reached.damagedThenChosen + 1 end
+            end)
+        end
+
+        it("reached every case it's for: each choice, none, damage first, repeated presses", function()
+            for case, count in pairs(reached) do assert.is_true(count > 0, case .. " never happened") end
         end)
     end)
 end)
