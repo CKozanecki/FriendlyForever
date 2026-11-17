@@ -1,4 +1,4 @@
--- Spec: #427, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45
+-- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -1271,5 +1271,102 @@ describe("The simulated client's strangers on nameplates (#39)", function()
         wow.runMacro(MACRO)
         assert.are.equal(1, #wow.casts)
         assert.are.equal("Ann-Stone", wow.casts[1].target)
+    end)
+end)
+
+describe("The simulated client casts a spell's highest known rank, not its highest ID (#434)", function()
+    local TRUESHOT = { 20906, 20905, 19506, 1299348, 1299346 } -- ranks 5 to 1 (Forever's data, #379)
+
+    local function bootKnowing(ids)
+        return wow.boot({ before = function(state)
+            state.knownSpells = {}
+            for _, id in ipairs(ids) do state.knownSpells[id] = true end
+        end })
+    end
+
+    local function lastCast() return wow.casts[#wow.casts] end
+
+    local function myAura(id)
+        for _, a in ipairs(wow.state.playerAuras) do
+            if a.spellId == id then return true end
+        end
+        return false
+    end
+
+    it("a hunter who knows every Trueshot Aura rank casts rank 5 (20906), and wears it (white)", function()
+        bootKnowing(TRUESHOT)
+        wow.runMacro("/cast [@player,nodead] Trueshot Aura")
+        assert.are.equal(20906, lastCast().id)
+        assert.is_true(myAura(20906))
+        assert.is_false(myAura(1299348), "rank 2, the highest ID, isn't cast")
+    end)
+
+    it("a hunter who knows ranks 1 and 2 only casts rank 2, Forever's own ID (white)", function()
+        bootKnowing({ 1299346, 1299348 })
+        wow.runMacro("/cast [@player,nodead] Trueshot Aura")
+        assert.are.equal(1299348, lastCast().id)
+    end)
+
+    for _, case in ipairs({
+        { "Battle Shout", { 6673, 5242 }, 5242 }, -- ranks 1 and 2: rank 1's ID is higher
+        { "Inner Fire", { 588, 7128, 602 }, 602 }, -- ranks 1 to 3: rank 2's ID is the highest
+        { "Devotion Aura", { 465, 10290, 643, 10291, 1032 }, 1032 }, -- ranks 1 to 5
+        { "Mark of the Wild", { 1126, 5232, 6756, 5234 }, 5234 }, -- ranks 1 to 4: rank 3's ID is higher
+    }) do
+        it("casts " .. case[1] .. "'s highest known rank, whose ID isn't the highest (white)", function()
+            bootKnowing(case[2])
+            wow.runMacro("/cast [@player,nodead] " .. case[1])
+            assert.are.equal(case[3], lastCast().id)
+        end)
+    end
+
+    it("names its spells highest rank first, in the order Forever's data has them (BuffTable.lua's ranks)", function()
+        local ns = wow.boot({})
+        local checked = 0
+        for _, list in pairs(ns.BuffTable.classes) do
+            for _, buff in ipairs(list) do
+                if not buff.handListed then
+                    -- One buff can hold two spells' ranks (Ice Armor and Frost
+                    -- Armor): each name's IDs, in the table's order.
+                    local byName, names = {}, {}
+                    for _, id in ipairs(buff.ranks) do
+                        local ranked = wow.SPELL_RANK[id]
+                        if ranked then
+                            if not byName[ranked.name] then
+                                byName[ranked.name] = {}
+                                names[#names + 1] = ranked.name
+                            end
+                            table.insert(byName[ranked.name], ranked.rank)
+                        end
+                    end
+                    for _, name in ipairs(names) do
+                        local ranks = byName[name]
+                        for i, rank in ipairs(ranks) do
+                            checked = checked + 1
+                            assert.are.equal(#ranks - i + 1, rank, buff.key .. ": " .. name .. " rank " .. i)
+                        end
+                    end
+                end
+            end
+        end
+        assert.is_true(checked >= 100, "most of the table's IDs are named here: " .. checked)
+    end)
+
+    it("a name a spec gives by hand, with no rank, falls back to the highest ID (black)", function()
+        bootKnowing({ 990001, 990002 })
+        wow.SPELL_NAMES[990001], wow.SPELL_NAMES[990002] = "Test Spell", "Test Spell"
+        local ok = pcall(wow.runMacro, "/cast [@player,nodead] Test Spell")
+        wow.SPELL_NAMES[990001], wow.SPELL_NAMES[990002] = nil, nil
+        assert.is_true(ok)
+        assert.are.equal(990002, lastCast().id)
+    end)
+
+    it("a spell renamed by a spec keeps no rank under its new name (black)", function()
+        bootKnowing({ 1126, 5232 })
+        local saved = { wow.SPELL_NAMES[1126], wow.SPELL_NAMES[5232] }
+        wow.SPELL_NAMES[1126], wow.SPELL_NAMES[5232] = "Renamed", "Renamed"
+        wow.runMacro("/cast [@player,nodead] Renamed")
+        wow.SPELL_NAMES[1126], wow.SPELL_NAMES[5232] = saved[1], saved[2]
+        assert.are.equal(5232, lastCast().id)
     end)
 end)

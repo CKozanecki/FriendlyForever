@@ -1,4 +1,4 @@
--- Spec: #408, #394
+-- Spec: #408, #394, #419
 -- Who gets each buff, by place (#408): Buff Back (strangers), Party, Raid and
 -- PvP (battlegrounds and arenas), each with its own rule for each buff: by
 -- role (Tanks, Healers, Damage), class, Everyone, or Off, plus Always and
@@ -513,7 +513,7 @@ describe("Who gets each buff, by place (#408)", function()
             assert.is_truthy(macro():find("Blessing of Might", 1, true))
         end)
 
-        it("a favour none of your buffs suit counts as in 1.3.3 while pending, and not once you've chosen", function()
+        it("a favour none of your buffs suit isn't counted, while pending (#419) or once you've chosen", function()
             for _, choice in ipairs({ false, "new" }) do
                 ns = wow.boot({ autoBuffMode = true, buffDefaults = true, before = function(state)
                     state.class = "MAGE"
@@ -523,7 +523,7 @@ describe("Who gets each buff, by place (#408)", function()
                 if choice then assert.is_true(ns.BuffRules.Choose(choice)) end
                 wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", id = "Bob-Stone", class = "WARRIOR" })
                 wow.gainBuff({ sourceUnit = "nameplate1", name = "Mark of the Wild", spellId = MOTW })
-                assert.are.equal(choice and 0 or 1, ns.Offers.Count(), tostring(choice))
+                assert.are.equal(0, ns.Offers.Count(), tostring(choice))
             end
         end)
 

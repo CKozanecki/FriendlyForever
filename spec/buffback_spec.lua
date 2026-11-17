@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353, #387, #369
+-- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353, #387, #369, #419
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -148,7 +148,9 @@ describe("Buff back", function()
             buffedBy()
             local offer, why = ns.Offers.Current()
             assert.is_nil(offer)
-            assert.is_truthy(why:find("none of your buffs suit them", 1, true))
+            -- None of your buffs suit them: not owed at all (#419).
+            assert.are.equal("nobody is owed a buff", why)
+            assert.are.equal(0, ns.Offers.Count())
         end)
 
         it("waits while they're dead", function()
@@ -273,8 +275,10 @@ describe("Buff back", function()
             buffedBy()
             local offer, why = ns.Offers.Current()
             assert.is_nil(offer)
-            -- Battle Shout is a self-buff (#44): not one of the buffs you give.
-            assert.is_truthy(why:find("you know no buffs to give", 1, true))
+            -- Battle Shout is a self-buff (#44): not one of the buffs you
+            -- give, so nothing is owed (#419).
+            assert.are.equal("nobody is owed a buff", why)
+            assert.are.equal(0, ns.Offers.Count())
         end)
 
         it("can't tell what someone wears when the whole aura, or its spell ID, is secret", function()
