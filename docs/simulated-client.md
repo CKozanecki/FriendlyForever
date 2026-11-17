@@ -79,6 +79,10 @@ The rules are in AGENTS.md's [Tests](../AGENTS.md#tests) section; in short:
 5. **Tested.** A change to the simulated client is reviewed like addon code, and its own behaviour has tests in `spec/wow_spec.lua`. A change to a test helper after a review approved goes back to that review (#72).
 6. **Unknown widget methods** (capitalised names such as `SetJustifyH`) are accepted as no-ops; unset data fields stay `nil`, so a test can't be fooled by a value the client never set. When a test needs a no-op method to do something, give it real behaviour and a test of its own.
 
+## Strata, levels and clicks (#427)
+
+Every frame has a strata and a level (`SetFrameStrata`, `SetFrameLevel` and their getters): a new frame takes its parent's strata and the parent's level + 1. `wow.hitTest(frames)` says which of some overlapping frames gets a click: only shown frames that take the mouse count (a Button does unless `EnableMouse(false)`, another frame only after `EnableMouse(true)`), the highest strata wins, then the highest level. Two frames tied on both have no defined winner in the game, so it returns `nil` and the list of tied frames; a spec that expects a winner fails on a tie. `spec/dropdown_levels_spec.lua` uses it for every options dropdown. The facts are in [forever-facts.md](forever-facts.md#frame-levels-and-mouse-clicks-427). It models no screen position: the spec names the frames that overlap.
+
 ## Several clients
 
 For behaviour between two copies of the addon (#32), `wow.newClient({ name, surname, before })` boots a whole client, with its own globals, state and records, and leaves it live. Only one client is live at a time:
