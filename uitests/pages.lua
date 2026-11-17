@@ -413,6 +413,30 @@ function Pages.ShowTab(name)
     Pages.OpenTab(name)
 end
 
+-- A message line's hover (#441), for the screenshot job: the tab (by TABS name)
+-- with its line 4 holding a line that uses flavour placeholders, and the
+-- pointer over that box, as a player's would be. The text is put in the box
+-- only (no typing, so nothing is saved); the simulator is left as it is.
+Pages.HOVER_LINE = "{greeting}, {name}! {blessing}"
+function Pages.ShowMessageHover(name)
+    local content = Pages.OpenTab(name)
+    if not content then return nil end
+    local boxes = {}
+    for _, child in ipairs({ content:GetChildren() }) do
+        -- The message boxes are the wide ones; the steppers' number boxes are narrow.
+        if child:GetObjectType() == "EditBox" and child:GetWidth() >= 300 then boxes[#boxes + 1] = child end
+    end
+    local box = boxes[4]
+    if not box then
+        report("the " .. tostring(name) .. " tab has no fourth message box")
+        return nil
+    end
+    box:SetText(Pages.HOVER_LINE)
+    local enter = box:GetScript("OnEnter")
+    if enter then enter(box) end
+    return box
+end
+
 -- The options panel's scroll frame (the one holding the tab's rows), or nil.
 local function PanelScroll()
     local panel = _G[Pages.PANEL]

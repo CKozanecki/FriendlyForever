@@ -188,6 +188,13 @@ local function Tooltip(frame, text)
     frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
+-- The message boxes' hover (#441): sample values for what a line fills in,
+-- how many examples it shows, and the most phrases it lists for one placeholder.
+Options.SAMPLE_NAME = "Nikki-Shifts"
+Options.SAMPLE_BUFF = "Power Word: Fortitude"
+Options.PREVIEW_EXAMPLES = 3
+Options.PREVIEW_POOL_MAX = 24
+
 Options.RAID_SPLIT_TOOLTIP = "In a raid, copies of Friendly Forever share out the buffs their class has "
     .. "in common, so three priests give Fortitude, Spirit and Shadow Protection between them. Buff mode then "
     .. "offers you only your share; the button's tooltip says what it is. Players of a class who outnumber "
@@ -914,6 +921,41 @@ function Options.Create()
     widgets.buffRequests:SetPoint("TOPLEFT", topUp.label, "BOTTOMLEFT", -4, -10)
     Tooltip(widgets.buffRequests, ns.Requests.TOOLTIP)
 
+    -- Hovering a line shows what it can say for your character (#441): up to
+    -- 3 examples from the real renderer, each flavour placeholder's phrases and
+    -- what {zone}, {timeofday} and {myclass} read now. It only reads the box's
+    -- text: nothing is saved, nothing goes to chat, the shuffle bag and the
+    -- real flavour choices are left alone (Flavour.Preview).
+    local function MessageTip(box)
+        GameTooltip:SetOwner(box, "ANCHOR_RIGHT")
+        local ok, preview = pcall(function()
+            local vars = Config.NameVars(currentType, Options.SAMPLE_NAME)
+            vars.buff = Options.SAMPLE_BUFF
+            return ns.Flavour.Preview(box:GetText(), vars, nil, Options.PREVIEW_EXAMPLES)
+        end)
+        local function Line(colour, text)
+            local r, g, b = ns.Colours.RGB(colour)
+            GameTooltip:AddLine(text, r, g, b, true)
+        end
+        if not ok then
+            Line("muted", "No preview for this line.")
+        elseif preview.empty then
+            Line("muted", "Empty: this line is skipped.")
+        else
+            Line("title", #preview.examples > 1 and "What it can say for you:" or "What it says for you:")
+            for _, said in ipairs(preview.examples) do Line("text", said) end
+            for _, pool in ipairs(preview.pools) do
+                local shown = {}
+                for n = 1, math.min(#pool.phrases, Options.PREVIEW_POOL_MAX) do shown[n] = pool.phrases[n] end
+                local more = #pool.phrases - #shown
+                Line("title", "{" .. pool.key .. "} can be:")
+                Line("text", table.concat(shown, " / ") .. (more > 0 and (" / ... and " .. more .. " more") or ""))
+            end
+            for _, now in ipairs(preview.now) do Line("muted", "{" .. now.key .. "} now reads: " .. now.value) end
+        end
+        GameTooltip:Show()
+    end
+
     local anchor = msgHeader
     for i = 1, Config.NUM_MESSAGES do
         local num = Label(content, i .. ".", "GameFontHighlightSmall")
@@ -927,6 +969,8 @@ function Options.Create()
         edit:SetScript("OnTextChanged", function(self, userInput)
             if userInput then Config.Field(currentType, "messages")[i] = Config.CleanMessage(self:GetText()) end
         end)
+        edit:SetScript("OnEnter", MessageTip)
+        edit:SetScript("OnLeave", function() GameTooltip:Hide() end)
         widgets.edits[i] = edit
         anchor = num
     end
