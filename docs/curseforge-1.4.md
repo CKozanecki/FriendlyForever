@@ -56,7 +56,7 @@ Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets,
 - **Turns itself on and off:**
   - On when you join a group, when someone in your group is missing your buffs, when one of your own buffs is missing or low (solo too), after a death between pulls, when someone buffs you, or at a campfire (when a camp benefit or a near-the-fire aura is added to you).
   - Off again at the first pull, once everyone's buffed, or after a timeout.
-- **Battlegrounds and arenas:** every buff starts off in PvP; turn on the ones you want on the Buffs tab's PvP place. Once the gates open the addon goes quiet for the rest of the battle.
+- **Battlegrounds and arenas:** every buff starts off in PvP; turn on the ones you want on the Buffs tab's PvP place. In a battleground, once the gates open, the addon goes quiet for the rest of the battle.
 
 ## Friendly, not spammy
 
