@@ -58,6 +58,10 @@ WeaponBuffs.HELD_BACK_SECONDS = 15
 WeaponBuffs.REFUSALS_TO_STOP = 2
 WeaponBuffs.STOP_SECONDS = 300
 
+-- The Buff Back settings the Weapon buffs page shows. The Buff Back tab's
+-- Reset leaves them as they are (Core.lua's ns.ResetType, #425).
+WeaponBuffs.FIELDS = { "weaponBuffs", "weaponMain", "weaponOff" }
+
 -- The hands: inventory slot, the position of its "has an enchant" flag in
 -- GetWeaponEnchantInfo's answer, the words for it, and its setting.
 WeaponBuffs.HANDS = {
