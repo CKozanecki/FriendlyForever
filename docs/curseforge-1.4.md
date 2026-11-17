@@ -1,6 +1,6 @@
 <!-- Draft CurseForge description for 1.4.0, for the owner to paste (not shipped: docs/ is in .pkgmeta's ignore list).
      Based on the approved 1.3 draft's layout and voice. Facts come from the merged code, README and PR descriptions.
-     Lines marked CHECK depend on #417 (passers-by), which had not merged when this was drafted. -->
+     The passers-by and campfire lines were checked against the merged code and README on 17 Nov. -->
 ## Description
 
 Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets, welcomes and thanks for you, and returns every kindness with a buff. It's built to stay friendly when a whole guild runs it, without flooding chat.
@@ -32,7 +32,7 @@ Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets,
 - **The Buffs tab:** your buff order, with each buff's icon, and **Never offer** live on one tab. For every buff you choose who gets it in each place: strangers who buff you (Buff Back), Party, Raid and PvP. Choose by role (Tanks, Healers, Damage), by class or Everyone, add names that always or never get it, or turn it Off.
 - **Knows who buffed you:** when the game can't name a stranger who buffed you, their copy of Friendly Forever quietly tells yours, so you can thank them by name.
 - **Buff requests in chat (off by default):** when someone whispers you, or says in /say or party chat, "mark pls", "int please" or "can I get fort?", they go on the button with the buff they asked for. It only counts your own class's buffs, by name or common nickname, and nothing is said back. A request is always granted while this is on, even for a buff you marked Never offer, but never a buff their class can't use. Switch it on with **Offer my buffs to players who ask in chat** on the Buff Back tab.
-- **Passers-by (off by default):** in buff mode, in the open world, the button can also offer your buffs to players nearby who aren't in your group and haven't buffed you. One buff per press, after everything else you owe, and never a word in chat. They're offered a buff only if they lack it (or it's under half its time), your Buff Back rule allows it and their class can use it. Never in a dungeon, a capital city or a fight. Right-click skips someone for 10 minutes. Switch it on with **Also offer my buffs to passers-by** on the Buffs tab. CHECK after #417 merges.
+- **Passers-by (off by default):** in buff mode, in the open world, the button can also offer your buffs to players nearby who aren't in your group and haven't buffed you. One buff per press, after everything else you owe, and never a word in chat. They're offered a buff only if they lack it (or it's under half its time), your Buff Back rule allows it and their class can use it. Never in a dungeon, raid, battleground, arena, capital city or fight, and never someone flagged for PvP while you aren't. Right-click skips someone for 10 minutes. Switch it on with **Also offer my buffs to passers-by** on the Buffs tab's Buff Back place. It needs friendly nameplates.
 - **Safe by design:**
   - never flags you for PvP;
   - never casts on the dead or on someone else;
