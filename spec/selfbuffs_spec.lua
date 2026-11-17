@@ -1,4 +1,4 @@
--- Spec: #44, #329, #402, #408, #45, #379
+-- Spec: #44, #329, #402, #408, #45, #379, #419
 -- Self-buffs: in buff mode, once the favours you owe and your group are
 -- done, the button offers your own missing self-buffs (Inner Fire, armors,
 -- Aspects, auras, Battle Shout...), one per press, on you, through the same
@@ -1333,13 +1333,14 @@ describe("Self-buffs in buff mode", function()
             wow.gainBuff({ sourceUnit = "nameplate1", spellId = INTELLECT })
             ns.db.buffBack.selfBuffs = false
             refresh()
-            assert.are.equal(1, ns.Offers.Count())
+            -- Owed, though only self-buffs are known here: not counted (#419).
+            assert.is_true(ns.Offers.Has("Bob-Stone"))
             -- A hand cast whose SENT names Bob, your target (#326 says how
             -- Forever names a self-only spell's target).
             wow.state.units.target = wow.state.units.nameplate1
             ns.BuffButton.OnSpellcastSent("player", "Bob", "Cast-hand", INNER_FIRE)
             ns.BuffButton.OnSpellcastSucceeded("player", "Cast-hand", INNER_FIRE)
-            assert.are.equal(1, ns.Offers.Count())
+            assert.is_true(ns.Offers.Has("Bob-Stone"), "not returned")
             assert.are.same({}, wow.addonSent)
         end)
     end)

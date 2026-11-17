@@ -167,8 +167,13 @@ end
 -- Who's in it
 ------------------------------------------------------------------------
 
+-- Whether you're in a raid, as far as the game's answer can be believed:
+-- true or false, or nil when it can't be read or the raid's slots disagree
+-- with it (GroupBuffs.RaidAnswer, #372). Only false ends the split or
+-- forgets its peers; nil leaves them as they were, and offers every buff
+-- while it lasts, as without the split.
 local function InRaid()
-    return Read(IsInRaid) == true
+    return ns.GroupBuffs.RaidAnswer()
 end
 
 -- Your class's file name ("PRIEST"), or nil when it can't be read.
@@ -271,7 +276,9 @@ end
 -- read, or nobody else of your class has said lately that they take part.
 local function Players()
     if not RaidSplit.Enabled() then return nil, "switched off" end
-    if not InRaid() then return nil, "not in a raid" end
+    local inRaid = InRaid()
+    if inRaid == false then return nil, "not in a raid" end
+    if inRaid == nil then return nil, "can't tell if you're in a raid" end
     local class = MyClass()
     if not class then return nil, "can't read your class" end
     local me = Util.UnitFullName("player")
@@ -378,7 +385,7 @@ end
 -- announce nothing (not in a raid, the channel is closed, your class
 -- can't be read or has nothing to share).
 local function MyFields()
-    if not RaidSplit.Enabled() or not InRaid() or not ns.Comm.Ready() then return nil end
+    if not RaidSplit.Enabled() or InRaid() ~= true or not ns.Comm.Ready() then return nil end
     local class = MyClass()
     -- A class with nothing to share (warriors) has nothing to say.
     if not class or next(ClassKeys(class)) == nil then return nil end
@@ -495,10 +502,12 @@ local beatToken, beating = 0, false
 -- can be told from a quiet one), or say once that you no longer take part.
 local function Beat(token)
     if token ~= beatToken then return end
-    if not InRaid() then
+    if InRaid() == false then
         beating = false
         return
     end
+    -- Can't tell (#372): the beat goes on, so the others hear you again once
+    -- the answer can be read; nothing is said meanwhile (MyFields).
     Changed()
     RaidSplit.Announce(true)
     C_Timer.After(RaidSplit.HEARTBEAT, ns.Diag.Wrap(function() Beat(token) end))
@@ -506,13 +515,17 @@ end
 
 function RaidSplit.OnRosterUpdate()
     Changed()
-    if not InRaid() then
+    local inRaid = InRaid()
+    if inRaid == false then
         peers, lastSent, lastSentAt = {}, nil, nil
         -- Buff mode's grace is for this raid: the next starts afresh.
         everOn, offAt = false, nil
         beatToken, beating = beatToken + 1, false
         return
     end
+    -- One update whose answer can't be read or believed (#372) ends
+    -- nothing: the peers, the grace and the heartbeat stay as they were.
+    if inRaid == nil then return end
     if not beating then
         beating = true
         local token = beatToken
@@ -529,8 +542,10 @@ end
 
 -- A fight ended (PLAYER_REGEN_ENABLED). Heartbeats sent in it may have been
 -- blocked, so the others may have stopped counting you: say it again now.
+-- An answer that can't be read yet (#372) still asks: the message waits
+-- SETTLE seconds, and goes only if you're in a raid by then (MyFields).
 function RaidSplit.OnCombatEnd()
-    if InRaid() then RaidSplit.Announce(true) end
+    if InRaid() ~= false then RaidSplit.Announce(true) end
 end
 
 function RaidSplit.PeerCount()
