@@ -58,7 +58,7 @@ ns.BuffTable = {
             {
                 key = "trueshot",
                 name = "Trueshot Aura",
-                ranks = { 20906, 20905, 19506 },
+                ranks = { 20906, 20905, 19506, 1299348, 1299346 },
                 selfCast = true,
             },
         },

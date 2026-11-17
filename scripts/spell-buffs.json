@@ -63,7 +63,7 @@
       { "key": "hawk", "name": "Aspect of the Hawk", "family": "aspect", "selfCast": true, "toggle": true },
       { "key": "monkey", "name": "Aspect of the Monkey", "family": "aspect", "selfCast": true, "toggle": true },
       { "key": "wildaspect", "name": "Aspect of the Wild", "family": "aspect", "selfCast": true, "toggle": true },
-      { "key": "trueshot", "name": "Trueshot Aura", "selfCast": true }
+      { "key": "trueshot", "name": "Trueshot Aura", "selfCast": true, "handRanks": [1299348, 1299346] }
     ]
   },
   "familyAuras": {

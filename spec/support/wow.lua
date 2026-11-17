@@ -479,8 +479,8 @@ nameSpell("Prayer of Fortitude", { 21564, 21562 })
 nameSpell("Prayer of Spirit", { 27681 })
 nameSpell("Prayer of Shadow Protection", { 27683 })
 -- The group versions (#41): each covers the target's party (in a raid, their
--- subgroup) and uses one reagent, by item ID, as in Classic Era; Forever's
--- are unconfirmed (#202). Kept apart from the addon's table (BuffData.lua).
+-- subgroup) and uses one reagent, by item ID, as in Classic Era, and as
+-- Forever's own data has them (docs/forever-facts.md, #202). Kept apart from the addon's table (BuffData.lua).
 M.ITEM = { arcanePowder = 17020, holyCandle = 17028, sacredCandle = 17029, wildBerries = 17021,
     wildThornroot = 17026, symbolOfKings = 21177 }
 M.GROUP_CASTS = {
@@ -543,8 +543,9 @@ for name, ids in pairs({
     ["Aspect of the Cheetah"] = { 5118 }, ["Aspect of the Pack"] = { 13159 }, ["Aspect of the Beast"] = { 13161 },
 }) do selfSpell(name, ids, { duration = 0, toggle = true, family = "aspect" }) end
 -- Trueshot Aura lasts 30 minutes on Forever (its spell data, #44), where
--- Classic's stays on: a timed buff. Forever's ranks 1 and 2 are on #379.
-selfSpell("Trueshot Aura", { 20906, 20905, 19506 }, { duration = 1800 })
+-- Classic's stays on: a timed buff. Forever's ranks 1 and 2 are 1299346 and
+-- 1299348 (its spell data, build 1.60.1.70938: docs/forever-facts.md, #379).
+selfSpell("Trueshot Aura", { 20906, 20905, 19506, 1299348, 1299346 }, { duration = 1800 })
 for name, ids in pairs({
     ["Devotion Aura"] = { 10293, 10292, 1032, 10291, 643, 10290, 465 },
     ["Retribution Aura"] = { 10301, 10300, 10299, 10298, 7294 }, ["Concentration Aura"] = { 19746 },
@@ -879,9 +880,10 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         the target's party (a raid's subgroup) less anyone
 --                         offline, dead, out of range or sight, uses one
 --                         reagent, and fails with none: the reagents are
---                         Classic's. Forever's reagents, whether the slot
---                         number is the raid unit's number, and the counts'
---                         readability are unconfirmed (#202).
+--                         Classic's, and as Forever's own data has them
+--                         (docs/forever-facts.md). Whether the slot number is
+--                         the raid unit's number, and the counts'
+--                         readability, are unconfirmed (#202).
 --                         state.auraDelay: the covered players' buffs show only
 --                         that many seconds after the cast (0 by default);
 --                         state.groupBuffSeconds: how long they last (an hour by default).
