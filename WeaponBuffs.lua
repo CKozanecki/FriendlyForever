@@ -30,6 +30,13 @@
 --   gets no item, as a "/use 16" the item didn't prepare would fire it;
 --   your bags: the item's count (as group versions' reagents, #41), and
 --   whether you can use it (an oil's level);
+--   resting (#449, the owner's decision): while the game says you're
+--   resting (IsResting(): a city, an inn, a town with one), nothing is
+--   offered, as a weapon buff costs money and is put on before a fight, not
+--   in town. Only an answer of exactly false is "not resting"; anything else
+--   (a secret, no such function, an error, junk) counts as resting. It is
+--   settled either way, so it never keeps buff mode on. Self-buffs and solo
+--   buff mode (#426) don't read it;
 --   forms (Q3, the owner's choice B): offered in a form too, a druid's or
 --   Ghost Wolf. A press may drop you out of the form to apply it, as using it
 --   by hand does (the game's own unshift); the macro never cancels a form
@@ -181,6 +188,15 @@ local function YouCant()
     local taxi = Util.ReadGameValues(UnitOnTaxi, "player")
     if taxi == true then return "you're on a flight path", false end
     if taxi ~= false then return "can't tell whether you're on a flight path", true end
+end
+
+-- Why nothing is offered while you rest (#449), or nil when the game says
+-- you aren't: only false is "not resting" (see the top).
+local function Resting()
+    local resting = Util.ReadGameValues(IsResting)
+    if resting == false then return nil end
+    if resting == true then return "you're resting" end
+    return "can't tell whether you're resting"
 end
 
 -- The has-an-enchant flags of your weapons, as GetWeaponEnchantInfo gives
@@ -340,6 +356,10 @@ function WeaponBuffs.Next(out)
         Say({ why })
         return nil, why, not open
     end
+    -- Resting first (#449): settled, so it never keeps buff mode on, even
+    -- in a fight in town.
+    local resting = Resting()
+    if resting then return Stop(resting, false) end
     if InCombatLockdown() then return nil, "in combat", false end
     local me = Util.UnitFullName("player")
     if not me then return Stop("your name can't be read", true) end
