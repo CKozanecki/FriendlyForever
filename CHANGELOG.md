@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.1
+
+- **Trueshot Aura ranks 1 and 2 are recognised:** a hunter who knows rank 1 or 2 now gets the aura offered, and wearing it (yours, or another hunter's) counts as having it, as for ranks 3 to 5. Their spell IDs are in Forever's own data. (#379)
+- **Weapon buff rows fit the list:** the list beside the buff-back button names a weapon buff's hand in one word, "(main)" or "(off)", so the longest item names, such as Elemental Sharpening Stone, are no longer cut short. The button and its tooltip still say "main hand" or "off hand". (#424)
+- **Weapon buffs survive a Buff Back reset.** The Buff Back tab's "Reset this tab to defaults" no longer switches off weapon buffs or clears the kind chosen for each hand: those belong to the Weapon buffs page. (#425)
+- **Choosing the buff mode key can't change a setting by accident.** While the key chooser waits for a key, its click catcher now sits explicitly above the other controls on the tab, so a click can't land on a checkbox or button beneath it. (#429)
+- **If the game refuses to open the options, you're told how to open them by hand.** The game can block an addon's call to open its settings window; Friendly Forever now prints one chat line (Esc, Options, AddOns, Friendly Forever) instead of leaving you with nothing, and never tries again by itself. (#431)
+
 ## 1.4.0
 
 - **Buffs for passers-by:** with "Also offer my buffs to passers-by" on (the Buffs tab's Buff Back place, off by default), buff mode offers your buffs to players nearby who aren't in your group and are missing one, or whose copy is half gone, after everyone else, one press each. Never in a dungeon, raid, battleground, arena or capital city, never to anyone flagged for PvP while you aren't, and nothing is said to them. Buff mode also turns on by itself at a campfire: when its warmth or a camp benefit is added to you (you can switch that off). This version adds a file (PassersBy.lua): after updating, restart the game; /reload isn't enough. (#39)
