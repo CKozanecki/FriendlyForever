@@ -64,12 +64,26 @@ describe("Druid buffs in a form (#452)", function()
                 assert.are.equal(MOTW, wow.casts[1].id)
                 assert.are.equal(0, wow.state.form, "the game took you out of the form")
                 assert.are.equal(1, wow.formsCancelled, "the game did, not the addon")
+                -- The click is a press like any other: its own result shows.
+                assert.matches("Gave Mark of the Wild to Ann Vale.", button.result:GetText(), 1, true)
             end)
         end
 
+        it("a click in a form the game refuses shows the game's reason, as any press does", function()
+            boot({ form = CAT })
+            wow.state.castFailures["Ann-Vale"] = "Spell is not ready yet."
+            click()
+            assert.matches("Couldn't buff Ann Vale: Spell is not ready yet.", button.result:GetText(), 1, true)
+        end)
+
         it("a scroll that waits is no press: no 'No answer', and the member isn't held back", function()
             boot({ form = CAT })
+            ns.db.debug = true
+            ns.db.diagLog = {}
             scroll()
+            for _, line in ipairs(ns.db.diagLog) do
+                assert.is_nil(line:find("pressed: ", 1, true), "no press logged: " .. line)
+            end
             wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
             local lines = table.concat(ns.BuffButton.StatusLines(), "\n")
             assert.matches("last result: Click the button to buff: you're in a form.", lines, 1, true)
@@ -126,6 +140,7 @@ describe("Druid buffs in a form (#452)", function()
             click()
             assert.are.equal(1, castCount())
             assert.are.equal("Bob-Stone", wow.casts[1].target)
+            assert.matches("Returned Mark of the Wild to Bob Stone.", button.result:GetText(), 1, true)
         end)
 
         it("a buff asked for in chat waits for a click too", function()
@@ -138,6 +153,7 @@ describe("Druid buffs in a form (#452)", function()
             assert.are.equal(0, castCount())
             click()
             assert.are.equal(THORNS, wow.casts[1].id)
+            assert.matches("Gave Thorns to Bob Stone, who asked for it.", button.result:GetText(), 1, true)
         end)
 
         it("weapon buffs still work with the key in a form (#45's choice B)", function()
@@ -259,18 +275,33 @@ describe("Druid buffs in a form (#452)", function()
     end)
 
     describe("storms (red)", function()
-        -- Form changes, scrolls, clicks, fights, aura updates and the setting,
-        -- at random. Checked from the simulated client's own state, as each
-        -- press happens: a scroll in a form (or with the form unreadable),
-        -- with the setting off, never casts and never ends the form; and no
-        -- binding or secure attribute ever changes in a fight.
+        -- Form changes, scrolls, clicks, fights, favours, aura updates and the
+        -- setting, at random. Checked from the simulated client's own state,
+        -- as each press happens: a scroll in a form (or with the form
+        -- unreadable), with the setting off, never casts and never ends the
+        -- form; and no binding or secure attribute ever changes in a fight.
+        -- Each hazard is counted only where it bites (out of a fight, a buff
+        -- armed, the setting off), and every seed must reach each one.
+        local HAZARDS = { "cat", "bear", "travel", "unreadable in caster form", "unreadable in a form" }
+        local FORM_NAME = { [CAT] = "cat", [BEAR] = "bear", [TRAVEL] = "travel" }
+        -- Strangers who buff you (a player's name has letters only).
+        local STRANGERS = { "Bob", "Dot", "Eve", "Fay", "Gil", "Hal", "Ivy" }
+        local SURNAMES = { "Stone", "Brook", "Vale", "Marsh", "Holt" }
+
+        local function hazardOf()
+            if wow.state.selfSecrets.form == true then
+                return wow.state.form == 0 and "unreadable in caster form" or "unreadable in a form"
+            end
+            return FORM_NAME[wow.state.form]
+        end
+
         for _, seed in ipairs({ 452, 7, 1117, 2026, 31337 }) do
             it("seed " .. seed .. ": never casts on a scroll in a form with the setting off, "
-                .. "and never changes a binding in a fight", function()
+                .. "and never changes a binding or the button in a fight", function()
                 random.seed(seed)
                 boot()
                 local errors = ns.Diag.Counters().luaErrors or 0
-                local inFight = {}
+                local inFight, fightRefreshes, fightOffers = {}, 0, 0
                 local realSet, realClear = _G.SetOverrideBindingClick, _G.ClearOverrideBindings
                 _G.SetOverrideBindingClick = function(...)
                     if wow.state.inCombat then inFight[#inFight + 1] = "SetOverrideBindingClick" end
@@ -285,58 +316,94 @@ describe("Druid buffs in a form (#452)", function()
                     if wow.state.inCombat then inFight[#inFight + 1] = "SetAttribute" end
                     return realAttr(self, ...)
                 end
-                local scrolls, held, clicked, keyCasts = 0, 0, 0, 0
-                for _ = 1, 400 do
-                    local roll = random.random(1, 12)
-                    if roll <= 4 then
-                        local formed = wow.state.form ~= 0 or wow.state.selfSecrets.form == true
+                local realRefresh = ns.BuffButton.Refresh
+                ns.BuffButton.Refresh = function(...)
+                    if wow.state.inCombat then
+                        fightRefreshes = fightRefreshes + 1
+                        if ns.Offers.Current() then fightOffers = fightOffers + 1 end
+                    end
+                    return realRefresh(...)
+                end
+                local reached, clicked, keyCasts, strangers = {}, 0, 0, 0
+                for _, h in ipairs(HAZARDS) do reached[h] = 0 end
+                local function strip()
+                    for _, token in ipairs({ "party1", "party2" }) do
+                        if wow.state.units[token] then wow.state.units[token].auras = {} end
+                    end
+                    wow.fire("UNIT_AURA", "party1", { isFullUpdate = true })
+                    wow.fire("UNIT_AURA", "party2", { isFullUpdate = true })
+                end
+                for _ = 1, 1000 do
+                    local roll = random.random(1, 14)
+                    if roll <= 5 then
+                        if random.random() < 0.5 then strip() end
+                        local hazard = hazardOf()
                         local fast = ns.db.buffBack.fastCastInForm == true
+                        local fight = wow.state.inCombat
                         local before, cancelled, form = castCount(), wow.formsCancelled, wow.state.form
                         scroll()
-                        scrolls = scrolls + 1
-                        if formed and not fast then
-                            held = held + 1
-                            assert.are.equal(before, castCount(), "seed " .. seed .. ": a scroll in a form cast")
-                            assert.are.equal(cancelled, wow.formsCancelled)
-                            assert.are.equal(form, wow.state.form)
+                        -- The press re-armed the button: a buff it holds now is
+                        -- what the scroll would have cast.
+                        local armed = not fight and clickMacro() ~= nil
+                        if hazard and not fast then
+                            assert.are.equal(before, castCount(), "seed " .. seed .. ": a scroll cast, " .. hazard)
+                            assert.are.equal(cancelled, wow.formsCancelled, "seed " .. seed)
+                            assert.are.equal(form, wow.state.form, "seed " .. seed)
+                            if armed then reached[hazard] = reached[hazard] + 1 end
                         elseif castCount() > before then
                             keyCasts = keyCasts + 1
                         end
-                    elseif roll == 5 then
+                    elseif roll == 6 then
                         if not wow.state.inCombat then
                             local before = castCount()
                             click()
                             if castCount() > before then clicked = clicked + 1 end
                         end
-                    elseif roll <= 7 then
-                        wow.setForm(({ 0, 0, CAT, BEAR, TRAVEL })[random.random(1, 5)])
-                    elseif roll == 8 then
-                        wow.state.selfSecrets.form = random.random() < 0.3
-                        wow.fire("UPDATE_SHAPESHIFT_FORM")
+                    elseif roll <= 8 then
+                        wow.setForm(({ 0, CAT, BEAR, TRAVEL })[random.random(1, 4)])
                     elseif roll == 9 then
-                        if wow.state.inCombat then wow.leaveCombat() else wow.enterCombat() end
-                    elseif roll == 10 then
-                        for _, token in ipairs({ "party1", "party2" }) do
-                            if wow.state.units[token] then wow.state.units[token].auras = {} end
-                        end
-                        wow.fire("UNIT_AURA", "party1", { isFullUpdate = true })
-                    elseif roll == 11 then
+                        wow.state.selfSecrets.form = random.random() < 0.4
+                        wow.fire("UPDATE_SHAPESHIFT_FORM")
+                    elseif roll == 10 and not wow.state.inCombat and random.random() < 0.5 then
+                        wow.enterCombat()
+                    elseif roll == 10 and wow.state.inCombat and random.random() < 0.5 then
+                        -- Fights are short: out again soon after.
+                        wow.leaveCombat()
+                    elseif roll == 11 or roll == 10 then
+                        -- A stranger buffs you, in a fight or out (often just as
+                        -- one starts): a favour the button would arm for, if
+                        -- anything let it in a fight.
+                        strangers = strangers + 1
+                        local first = STRANGERS[strangers % #STRANGERS + 1]
+                        local last = SURNAMES[math.floor(strangers / #STRANGERS) % #SURNAMES + 1]
+                        wow.addUnit("nameplate1", { name = first, surname = last, id = first .. "-" .. last,
+                            class = "WARRIOR" })
+                        wow.gainBuff({ sourceUnit = "nameplate1", name = "Power Word: Fortitude", spellId = 10938 })
+                    elseif roll == 12 then
                         if not wow.state.inCombat then
-                            ns.db.buffBack.fastCastInForm = random.random() < 0.3
+                            ns.db.buffBack.fastCastInForm = random.random() < 0.25
                             ns.BuffButton.Refresh()
                         end
                     else
+                        if wow.state.inCombat and random.random() < 0.5 then wow.leaveCombat() end
                         wow.advance(random.random(0, 20) / 10)
                     end
                 end
                 if wow.state.inCombat then wow.leaveCombat() end
                 _G.SetOverrideBindingClick, _G.ClearOverrideBindings = realSet, realClear
                 button.SetAttribute = realAttr
+                ns.BuffButton.Refresh = realRefresh
                 assert.are.same({}, inFight, "seed " .. seed)
                 assert.are.equal(errors, ns.Diag.Counters().luaErrors or 0, "seed " .. seed .. ": no Lua error")
-                -- The storm really exercised both sides.
-                assert.is_true(held > 5, "seed " .. seed .. ": scrolls held in a form: " .. held)
-                assert.is_true(keyCasts + clicked > 0, "seed " .. seed .. ": something cast")
+                -- The storm reached every hazard where it bites, and the button
+                -- was asked to re-arm in fights, so the fight check could fail.
+                for _, h in ipairs(HAZARDS) do
+                    assert.is_true(reached[h] >= 2, ("seed %d: %s reached %d times"):format(seed, h, reached[h]))
+                end
+                assert.is_true(fightRefreshes > 0, "seed " .. seed .. ": no re-arm was asked for in a fight")
+                assert.is_true(fightOffers > 0, "seed " .. seed .. ": nothing was owed in a fight")
+                assert.is_true(keyCasts > 0 and clicked > 0, ("seed %d: key casts %d, clicks %d"):format(seed,
+                    keyCasts, clicked))
             end)
         end
     end)

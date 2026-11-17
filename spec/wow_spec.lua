@@ -1,4 +1,4 @@
--- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45
+-- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -1223,6 +1223,79 @@ describe("The simulated client's chat from players (#40)", function()
             assert.are.equal(1, wow.formsCancelled)
             assert.are.equal(19, wow.enchantOn(16).id)
         end)
+    end)
+end)
+
+describe("The simulated client's druid forms and button names (#452)", function()
+    local events
+    before_each(function()
+        wow.boot({ before = function(state)
+            state.class = "DRUID"
+            state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
+        end })
+        events = 0
+        local f = _G.CreateFrame("Frame")
+        f:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+        f:SetScript("OnEvent", function() events = events + 1 end)
+    end)
+
+    it("setForm changes the form GetShapeshiftForm gives and fires UPDATE_SHAPESHIFT_FORM", function()
+        wow.setForm(3)
+        assert.are.equal(3, _G.GetShapeshiftForm())
+        assert.are.equal(1, events)
+        wow.setForm(0)
+        assert.are.equal(0, _G.GetShapeshiftForm())
+        assert.are.equal(2, events)
+    end)
+
+    it("a buff cast in a form, with autoUnshift on, takes the druid out of it and lands", function()
+        wow.setForm(1)
+        events = 0
+        wow.runMacro("/cast [@player,nodead] Mark of the Wild")
+        assert.are.equal(0, wow.state.form)
+        assert.are.equal(1, wow.formsCancelled)
+        assert.are.equal(1, events, "the game's own unshift fires the event")
+        assert.are.equal(1, #wow.casts)
+        assert.are.equal(MOTW, wow.casts[1].id)
+    end)
+
+    it("a buff cast in a form, with autoUnshift off, is refused: still in the form, nothing cast", function()
+        wow.setForm(5)
+        wow.state.cvars.autoUnshift = "0"
+        local errors = {}
+        local f = _G.CreateFrame("Frame")
+        f:RegisterEvent("UI_ERROR_MESSAGE")
+        f:SetScript("OnEvent", function(_, _, _, message) errors[#errors + 1] = message end)
+        wow.runMacro("/cast [@player,nodead] Mark of the Wild")
+        assert.are.equal(5, wow.state.form)
+        assert.are.equal(0, wow.formsCancelled)
+        assert.are.equal(0, #wow.casts)
+        assert.are.same({ wow.SHAPESHIFT_ERROR }, errors)
+    end)
+
+    it("another class's form doesn't stop a cast (a priest's Shadowform)", function()
+        wow.state.class = "PRIEST"
+        wow.state.form = 1
+        wow.state.knownSpells = { [10938] = true }
+        wow.runMacro("/cast [@player,nodead] Power Word: Fortitude")
+        assert.are.equal(1, wow.state.form)
+        assert.are.equal(1, #wow.casts)
+    end)
+
+    it("gives a button's attribute suffix as Blizzard's SecureButton_GetButtonSuffix does", function()
+        assert.are.equal("1", wow.buttonSuffix("LeftButton"))
+        assert.are.equal("2", wow.buttonSuffix("RightButton"))
+        assert.are.equal("3", wow.buttonSuffix("MiddleButton"))
+        assert.are.equal("5", wow.buttonSuffix("Button5"))
+        assert.are.equal("31", wow.buttonSuffix("Button31"))
+        assert.are.equal("-BuffModeKey", wow.buttonSuffix("BuffModeKey"))
+        assert.are.equal("", wow.buttonSuffix(nil))
+        local button = _G.CreateFrame("Button", "WowSpecSecure", nil, "SecureActionButtonTemplate")
+        button:SetAttribute("*type1", "macro")
+        assert.are.equal("macro", wow.modifiedAttribute(button, "type", "LeftButton"))
+        assert.is_nil(wow.modifiedAttribute(button, "type", "BuffModeKey"), "a key's own name finds no click's action")
+        button:SetAttribute("*type-BuffModeKey", "macro")
+        assert.are.equal("macro", wow.modifiedAttribute(button, "type", "BuffModeKey"))
     end)
 end)
 

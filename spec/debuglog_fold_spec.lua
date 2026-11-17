@@ -122,10 +122,18 @@ describe("The debug log folds repeated press and result lines (#453)", function(
     end)
 
     describe("debug off, and safety (black)", function()
-        it("with debug off nothing is logged, and turning it on starts afresh", function()
+        it("with debug off nothing is formatted or logged, and turning it on starts afresh", function()
             boot({ debug = false })
             refuseAnn()
+            local formatted = 0
+            local safe = ns.Diag.Safe
+            ns.Diag.Safe = function(...)
+                formatted = formatted + 1
+                return safe(...)
+            end
             presses(4)
+            ns.Diag.Safe = safe
+            assert.are.equal(0, formatted, "nothing was formatted")
             assert.are.equal(0, #ns.db.diagLog)
             assert.are.equal(4, #wow.casts)
             slash("debug")
@@ -146,20 +154,23 @@ describe("The debug log folds repeated press and result lines (#453)", function(
     end)
 
     describe("a storm (red)", function()
-        it("presses, refusals and fights fold, the casts match an unfolded run, and no error is raised",
-            function()
-            random.seed(453)
+        -- One storm of presses, refusals, fights and aura changes. unfolded:
+        -- the same storm with folding switched off (every line logged as
+        -- before #453). The casts, the button's results and the debug log
+        -- lines it gives.
+        local function storm(seed, unfolded)
+            random.seed(seed)
             boot()
+            if unfolded then
+                ns.Diag.LogFolded = function(_, ...) return ns.Diag.Log(...) end
+            end
+            local results = {}
             local errors = ns.Diag.Counters().luaErrors or 0
-            local pressed = 0
             for _ = 1, 300 do
                 local roll = random.random(1, 10)
                 if roll <= 5 then
-                    if not wow.state.inCombat then
-                        local before = #wow.casts
-                        presses(1)
-                        if #wow.casts > before then pressed = pressed + 1 end
-                    end
+                    -- A wheel notch: a burst of presses.
+                    if not wow.state.inCombat then presses(random.random(1, 6)) end
                 elseif roll == 6 then
                     if wow.state.castFailures["Ann-Vale"] then wow.state.castFailures["Ann-Vale"] = nil
                     else refuseAnn() end
@@ -172,20 +183,43 @@ describe("The debug log folds repeated press and result lines (#453)", function(
                 else
                     wow.advance(random.random(0, 30) / 10)
                 end
+                results[#results + 1] = ns.BuffButton.Frame().result:GetText() or ""
             end
             if wow.state.inCombat then wow.leaveCombat() end
             wow.advance(ns.Diag.FOLD_SECONDS + 1)
-            assert.are.equal(errors, ns.Diag.Counters().luaErrors or 0)
-            -- Every press that cast is in the log: logged, or counted on a count line.
-            local logged = 0
-            for _, line in ipairs(ns.db.diagLog) do
-                if line:find("buffBack: pressed: ", 1, true) then
-                    logged = logged + 1 + tonumber(line:match("%(repeated (%d+) more times?%)$") or 0)
+            assert.are.equal(errors, ns.Diag.Counters().luaErrors or 0, "no Lua error")
+            local casts = {}
+            for i, c in ipairs(wow.casts) do casts[i] = c.id .. " " .. tostring(c.target) end
+            local log = {}
+            for i, line in ipairs(ns.db.diagLog) do log[i] = line end
+            return casts, results, log
+        end
+
+        -- Lines of the log holding fragment, each count line counted as the
+        -- repeats it stands for.
+        local function lines(log, fragment)
+            local n = 0
+            for _, line in ipairs(log) do
+                if line:find(fragment, 1, true) then
+                    n = n + (tonumber(line:match("%(repeated (%d+) more times?%)$")) or 1)
                 end
             end
-            assert.is_true(pressed > 0, "the storm pressed")
-            assert.is_true(logged >= pressed, logged .. " logged presses for " .. pressed .. " casts")
-            assert.is_true(#ns.db.diagLog <= ns.Diag.MAX_LOG)
-        end)
+            return n
+        end
+
+        for _, seed in ipairs({ 453, 17, 2026 }) do
+            it("seed " .. seed .. ": the casts and the button's results match an unfolded run, every press and "
+                .. "result is accounted for, and the log is shorter", function()
+                local casts, results, log = storm(seed, false)
+                local plainCasts, plainResults, plainLog = storm(seed, true)
+                assert.is_true(#casts > 10, "the storm cast: " .. #casts)
+                assert.are.same(plainCasts, casts)
+                assert.are.same(plainResults, results)
+                assert.are.equal(lines(plainLog, "buffBack: pressed: "), lines(log, "buffBack: pressed: "))
+                assert.are.equal(lines(plainLog, "buffBack: Couldn't buff"), lines(log, "buffBack: Couldn't buff"))
+                assert.is_true(#log < #plainLog, #log .. " folded lines, " .. #plainLog .. " unfolded")
+                assert.is_true(#log <= ns.Diag.MAX_LOG)
+            end)
+        end
     end)
 end)
