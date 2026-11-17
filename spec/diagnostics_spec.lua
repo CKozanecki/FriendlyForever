@@ -1,5 +1,6 @@
--- Spec: #101, #46, #47, #392, #406
+-- Spec: #101, #46, #47, #392, #406, #431
 local wow = require("spec.support.wow")
+local random = require("spec.support.random")
 
 describe("Diagnostics", function()
     local ns
@@ -301,6 +302,91 @@ describe("Diagnostics", function()
             local n = 0
             for _, line in ipairs(wow.printed) do if line:find("forbidden", 1, true) then n = n + 1 end end
             assert.are.equal(3, n)
+        end)
+
+        local function optionsLines()
+            local n = 0
+            for _, line in ipairs(wow.printed) do
+                if line:find("let the options open", 1, true) then n = n + 1 end
+            end
+            return n
+        end
+
+        it("tells the player how to open the options by hand when the game blocks that call (#431)", function()
+            wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", "OpenSettingsPanel()")
+            assert.are.equal(1, optionsLines())
+            assert.is_true(printedHas("Esc, then Options, AddOns, Friendly Forever"))
+            assert.is_false(printedHas("the game blocked a call to"))
+            assert.are.equal(1, ns.Diag.Counters().actionsBlocked)
+        end)
+
+        it("prints the options line once for a burst, and again only after 10 seconds (#431)", function()
+            for _ = 1, 50 do wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", "OpenSettingsPanel()") end
+            assert.are.equal(1, optionsLines())
+            assert.are.equal(50, ns.Diag.Counters().actionsBlocked)
+            wow.advance(9.9)
+            wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", "OpenSettingsPanel()")
+            assert.are.equal(1, optionsLines())
+            wow.advance(0.1)
+            wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", "OpenSettingsPanel()")
+            assert.are.equal(2, optionsLines())
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("never retries the protected call by itself (#431)", function()
+            local calls = 0
+            _G.Settings.OpenToCategory = function() calls = calls + 1 end
+            for _ = 1, 20 do wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", "OpenSettingsPanel()") end
+            wow.advance(60)
+            assert.are.equal(0, calls)
+        end)
+
+        it("handles a damaged function name or another addon or a forbidden kind without error (#431)", function()
+            for _, bad in ipairs({ 42, true, {}, "", string.rep("x", 5000) }) do
+                wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", bad)
+                assert.are.same({}, wow.errors)
+            end
+            assert.are.equal(0, optionsLines())
+            wow.fire("ADDON_ACTION_BLOCKED", "SomeOtherAddon", "OpenSettingsPanel()")
+            wow.fire("ADDON_ACTION_FORBIDDEN", "FriendlyForever", "OpenSettingsPanel()")
+            assert.are.equal(0, optionsLines())
+        end)
+
+        it("survives a storm of mixed blocked events with at most one options line per 10 seconds (#431)", function()
+            random.seed(431)
+            local funcs = { "OpenSettingsPanel()", "SendChatMessage()", "X()", "OpenSettingsPanel()", 42, true, {} }
+            local kinds = { "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }
+            local lines, lastTime, refused, allowed, reports = 0, nil, 0, 0, 0
+            for _ = 1, 600 do
+                local f, k = funcs[random.random(#funcs)], kinds[random.random(#kinds)]
+                local before = optionsLines()
+                local isOpen = k == "ADDON_ACTION_BLOCKED" and f == "OpenSettingsPanel()"
+                local now = GetTime()
+                wow.fire(k, "FriendlyForever", f)
+                assert.are.same({}, wow.errors)
+                local after = optionsLines()
+                assert.is_true(after - before <= 1)
+                if after > before then
+                    assert.is_true(isOpen)
+                    if lastTime then
+                        assert.is_true(now - lastTime >= 10)
+                        allowed = allowed + 1
+                    end
+                    lastTime = now
+                    lines = lines + 1
+                elseif isOpen and lastTime then
+                    assert.is_true(now - lastTime < 10)
+                    refused = refused + 1
+                end
+                if random.random() < 0.1 then wow.advance(random.random(0, 14)) end
+            end
+            assert.is_true(lines >= 2)
+            assert.is_true(refused > 0) -- a block inside the gap came up
+            assert.is_true(allowed > 0) -- a line after the gap came up
+            for _, line in ipairs(wow.printed) do
+                if line:find("the game ", 1, true) and line:find("a call to", 1, true) then reports = reports + 1 end
+            end
+            assert.is_true(reports <= 3)
         end)
 
         it("ignores other addons being blocked", function()

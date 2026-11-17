@@ -1,4 +1,4 @@
--- Spec: #135, #136, #209, #44
+-- Spec: #135, #136, #209, #44, #419
 -- The warlock's Unending Breath through buff thanks, buff back and buff mode,
 -- and its data: Water Breathing (131) is the shaman's, a blocker, not a
 -- group version. The tests here swim, since it's offered only near water
@@ -225,7 +225,8 @@ describe("Unending Breath", function()
             wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
             local offer, why = ns.Offers.Current()
             assert.is_nil(offer)
-            assert.are.equal("Bob Stone: " .. "you know no buffs to give", why)
+            -- Nothing you could give them: not owed at all (#419).
+            assert.are.equal("nobody is owed a buff", why)
             wow.press(button)
             assert.are.equal(0, #wow.casts)
             assert.are.same({}, wow.errors)
@@ -260,7 +261,7 @@ describe("Unending Breath", function()
             wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
             local offer, why = ns.Offers.Current()
             assert.is_nil(offer)
-            assert.are.equal("Bob Stone: " .. "you've marked all your buffs never offer", why)
+            assert.are.equal("nobody is owed a buff", why) -- nothing you'd give them (#419)
             wow.press(button)
             assert.are.equal(0, #wow.casts)
             assert.are.same({}, wow.errors)

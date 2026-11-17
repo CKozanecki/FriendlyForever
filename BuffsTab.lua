@@ -318,7 +318,13 @@ end
 local function FillRaidBlessings(shown, last)
     local who = w.who
     local mine = shown and ns.BuffRules.MyBlessings() or {}
-    local inRaid = ns.Util.ReadGameValues(IsInRaid) == true
+    -- Whether you're in a raid, as buff mode reads it (#372): true or false,
+    -- or nil when the game won't say or its answer and the raid's slots
+    -- disagree. Only true lets the boxes change the choice (BuffRules.
+    -- SetRaidBlessings takes a new one only in a raid); a choice kept while
+    -- the answer can't be read still shows ticked, under a header that says
+    -- so (the owner's decision on #372).
+    local inRaid = ns.GroupBuffs.RaidAnswer()
     who.raidHeader:SetShown(#mine > 0)
     for i, cb in ipairs(who.raidBlessings) do
         local buff = mine[i]
@@ -327,14 +333,15 @@ local function FillRaidBlessings(shown, last)
         if buff then
             cb.label:SetText(ns.BuffData.SpellName(buff) or buff.key)
             cb:SetChecked(ns.BuffRules.CoversInRaid(buff))
-            cb:SetEnabled(inRaid)
+            cb:SetEnabled(inRaid == true)
         end
     end
     if #mine == 0 then return last end
     who.raidHeader:ClearAllPoints()
     who.raidHeader:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -12)
     who.raidHeader:SetText("Blessings I give in this raid:  "
-        .. ns.Colours.Text("muted", inRaid and "(until you leave it)" or "(join a raid to choose)"))
+        .. ns.Colours.Text("muted", inRaid == true and "(until you leave it)"
+            or inRaid == nil and "(can't tell if you're in a raid)" or "(join a raid to choose)"))
     return who.raidBlessings[1]
 end
 

@@ -1,4 +1,4 @@
--- Spec: #31, #71, #76, #136, #42, #46, #208, #41, #209, #70, #44, #40, #408
+-- Spec: #31, #71, #76, #136, #42, #46, #208, #41, #209, #70, #44, #40, #408, #419
 -- Buff order and the never-offer list: which of your buffs the button offers
 -- first, and which it never offers.
 local wow = require("spec.support.wow")
@@ -66,12 +66,13 @@ describe("Buff order and never offer", function()
             assert.are.equal("Thorns", offered())
         end)
 
-        it("says so when every buff you know is marked never offer", function()
+        it("owes nobody when every buff you know is marked never offer (#419)", function()
             ns.db.buffBack.neverOffer = { motw = true, thorns = true }
             owed()
             local spell, why = offered()
             assert.is_nil(spell)
-            assert.are.equal("Bob Stone: you've marked all your buffs never offer", why)
+            assert.are.equal("nobody is owed a buff", why)
+            assert.are.equal(0, ns.Offers.Count())
         end)
 
         it("moves on to the next buff in your order when they already wear the first", function()

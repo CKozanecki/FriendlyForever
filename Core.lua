@@ -179,10 +179,25 @@ end
 -- The game raises these when it stops an addon from calling a protected
 -- function. They are the clearest sign the game itself is refusing a send.
 local blockedReports = 0
+-- The game restricts C_SettingsUtil.OpenSettingsPanel (HasRestrictions, Forever
+-- 1.60.1.70938: docs/forever-facts.md), so our call to open the options can
+-- be refused (#431). One local chat line says how to open them by hand; a
+-- burst of refusals prints it once. We never call it again ourselves.
+local OPTIONS_BLOCKED_GAP = 10 -- seconds between two of that line
+local lastOptionsLine
 function ns.OnActionBlocked(kind, addon, func)
     if addon ~= ADDON_NAME then return end
     ns.Diag.Count("actionsBlocked")
     ns.Diag.Log("game", "the game %s our call to %s", kind, func)
+    if kind == "blocked" and type(func) == "string" and func:find("OpenSettingsPanel", 1, true) then
+        local now = GetTime()
+        if not lastOptionsLine or now - lastOptionsLine >= OPTIONS_BLOCKED_GAP or now < lastOptionsLine then
+            lastOptionsLine = now
+            ns.Print(ns.Colours.Text("warn", "The game didn't let the options open.")
+                .. " Press Esc, then Options, AddOns, Friendly Forever.")
+        end
+        return
+    end
     if blockedReports < 3 then
         blockedReports = blockedReports + 1
         ns.Print(ns.Colours.Text("bad", "the game " .. kind .. " a call to " .. ns.Diag.Safe(func))
