@@ -115,8 +115,10 @@ Auto.WATCH_SECONDS = 5
 -- The auras a campfire puts on you (#39), from Forever's spell data (build
 -- 1.60.1.70685; docs/forever-facts.md). Near the fire: "Cozy Fire",
 -- Forever's own (1232234) and Classic's two ranks (7353, 7358), "Campfire"
--- (1229736), "Welcoming Campfire" (1229739, 1289723) and "Camp Tent"
--- (1229487). A camp's benefits, an hour each, added as you sit there (the
+-- (1229736), "Welcoming Campfire" (1229739, 1289723), "Camp Tent"
+-- (1229487) and "Campfire Nearby" (1283391), an aura on everyone within
+-- about 100 yards of a fire, seen on you in game (the owner, 17 Nov: #451).
+-- A camp's benefits, an hour each, added as you sit there (the
 -- owner's correction): "Camp Benefits" (1229741) and the bonus of each camp
 -- feature, Mana Well 1230587, Sharpening Wheel 1230172, Enchanted Lute
 -- 1230653, First Aid Kit 1230124, Fish Bowl 1230098, Incense Candle
@@ -125,7 +127,7 @@ Auto.WATCH_SECONDS = 5
 -- of them added means you're at a fire, and the trigger never casts.
 Auto.CAMPFIRE_AURAS = {
     [1232234] = true, [7353] = true, [7358] = true, [1229736] = true, [1229739] = true, [1289723] = true,
-    [1229487] = true, [1229741] = true, [1230587] = true, [1230172] = true, [1230653] = true,
+    [1229487] = true, [1283391] = true, [1229741] = true, [1230587] = true, [1230172] = true, [1230653] = true,
     [1230124] = true, [1230098] = true, [1229513] = true, [1230164] = true, [1229519] = true, [1229718] = true,
 }
 

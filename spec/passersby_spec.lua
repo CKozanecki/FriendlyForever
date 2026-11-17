@@ -1,4 +1,4 @@
--- Spec: #39, #459, #462
+-- Spec: #39, #451, #459, #462
 -- Passers-by: in buff mode, the button also offers your buffs to players on a
 -- nameplate who aren't in your group, haven't buffed you and haven't asked.
 local wow = require("spec.support.wow")
@@ -616,13 +616,59 @@ describe("Passers-by (#39)", function()
             boot({ autoBuffMode = true, noBuffMode = true, keepDefault = true })
             assert.is_true(ns.db.buffBack.autoOnCampfire)
             assert.is_false(ns.db.buffBack.passersBy, "passers-by stay off by default")
-            for _, id in ipairs({ 1232234, 7353, 7358, 1229736, 1229739, 1289723, 1229487, 1229741, 1230587,
+            for _, id in ipairs({ 1232234, 7353, 7358, 1229736, 1229739, 1289723, 1229487, 1283391, 1229741, 1230587,
                 1230172, 1230653, 1230124, 1230098, 1229513, 1230164, 1229519, 1229718 }) do
                 bootAuto()
                 stranger()
                 sitByFire(id)
                 assert.is_true(ns.BuffMode.IsAuto(), "spell " .. id)
             end
+        end)
+
+        it("\"Campfire Nearby\" (1283391), gained out of combat, turns it on with the campfire's reason (#451)", function()
+            bootAuto()
+            stranger()
+            wow.gainBuff({ spellId = 1283391, name = "Campfire Nearby" })
+            assert.is_true(ns.BuffMode.IsAuto())
+            local said = false
+            for _, line in ipairs(wow.printed) do
+                if line:find("you're by a campfire", 1, true) then said = true end
+            end
+            assert.is_true(said, "the campfire's reason is printed")
+        end)
+
+        it("every campfire aura is backed by Forever's data: named by ID above the set and in the facts file (#451)", function()
+            bootAuto()
+            local function read(path)
+                local f = assert(io.open(path, "r"))
+                local text = f:read("*a")
+                f:close()
+                return text
+            end
+            -- The comment block right above the set, in BuffModeAuto.lua.
+            local code = read("BuffModeAuto.lua")
+            local before = assert(code:find("\nAuto%.CAMPFIRE_AURAS = {"), "the set is where the spec looks")
+            local comment = {}
+            for line in code:sub(1, before):gmatch("[^\n]*\n") do
+                if line:find("^%-%-") then comment[#comment + 1] = line else comment = {} end
+            end
+            comment = table.concat(comment):gsub("\n%-%-%s*", " ")
+            assert.matches("Forever's spell data %(build 1%.60%.1%.%d+", comment)
+            -- The facts file's campfire entry: each ID on a line that isn't the "not an aura you get" one.
+            local facts = read("docs/forever-facts.md")
+            local entry = assert(facts:match("%- %*%*The campfire buff%*%*.-\n%- %*%*Passers%-by"))
+            local count = 0
+            for id in pairs(ns.BuffModeAuto.CAMPFIRE_AURAS) do
+                count = count + 1
+                local pattern = "%f[%d]" .. id .. "%f[%D]"
+                assert.is_truthy(comment:find(pattern), "spell " .. id .. " has no data-backed comment above the set")
+                local backed = false
+                for line in entry:gmatch("[^\n]+") do
+                    if line:find(pattern) and not line:find("not an aura you get", 1, true) then backed = true end
+                end
+                assert.is_true(backed, "spell " .. id .. " isn't in the facts file as an aura you get")
+            end
+            assert.matches("any of these " .. count .. " auras", entry, 1, true)
         end)
 
         it("does nothing with nothing to do, or for an aura that isn't a campfire's", function()

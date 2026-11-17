@@ -1,4 +1,4 @@
--- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45
+-- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #449
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -1368,5 +1368,26 @@ describe("The simulated client casts a spell's highest known rank, not its highe
         wow.runMacro("/cast [@player,nodead] Renamed")
         wow.SPELL_NAMES[1126], wow.SPELL_NAMES[5232] = saved[1], saved[2]
         assert.are.equal(5232, lastCast().id)
+    end)
+end)
+
+describe("The simulated client's resting (#449)", function()
+    it("answers false by default, the new answer inside PLAYER_UPDATE_RESTING, and a secret when told (white)", function()
+        wow.boot()
+        assert.are.equal(false, _G.IsResting(), "false, never nil")
+        local seen = {}
+        local frame = _G.CreateFrame("Frame")
+        frame:RegisterEvent("PLAYER_UPDATE_RESTING")
+        frame:SetScript("OnEvent", function(_, event, ...)
+            seen[#seen + 1] = { event = event, resting = _G.IsResting(), payload = select("#", ...) }
+        end)
+        wow.rest(true)
+        wow.rest(false)
+        assert.are.same({ { event = "PLAYER_UPDATE_RESTING", resting = true, payload = 0 },
+            { event = "PLAYER_UPDATE_RESTING", resting = false, payload = 0 } }, seen)
+        wow.state.restingSecret = true
+        assert.is_true(_G.issecretvalue(_G.IsResting()))
+        wow.state.restingSecret = nil
+        assert.is_false(_G.issecretvalue(_G.IsResting()))
     end)
 end)
