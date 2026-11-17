@@ -1122,6 +1122,8 @@ local function CreateEventFrame()
         ZONE_CHANGED = RefreshSoon,
         ZONE_CHANGED_INDOORS = RefreshSoon,
         ZONE_CHANGED_NEW_AREA = RefreshSoon,
+        -- Into or out of a rested place, where weapon buffs aren't offered (#449).
+        PLAYER_UPDATE_RESTING = RefreshSoon,
         PLAYER_REGEN_DISABLED = BuffButton.OnCombatStart,
         PLAYER_REGEN_ENABLED = BuffButton.Refresh,
         SPELLS_CHANGED = OnSpellsChanged,

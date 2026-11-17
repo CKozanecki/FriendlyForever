@@ -719,6 +719,14 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         state.unusableItems only, never from how many you
 --                         carry (whether Forever's does is unconfirmed: the
 --                         pessimistic reading).
+--   Resting (#449; the API is Forever's own UI data, docs/forever-facts.md;
+--                         where it is true is UNCONFIRMED in game, #450):
+--                         IsResting() answers true or false, never nil
+--                         (state.resting), and a secret with
+--                         state.restingSecret, which the data doesn't
+--                         allow for (the pessimistic side).
+--                         PLAYER_UPDATE_RESTING fires, with no payload,
+--                         after the answer changes (M.rest).
 --   /cleartarget then /targetexact X leaves your old target as the "last
 --                         target", so /targetlasttarget brings it back (setTarget)
 --   Mouse clicks, like key presses, act on the half the key-down setting
@@ -1618,6 +1626,14 @@ function M.enterCombat()
     M.state.inCombat = true
 end
 
+-- Into (true) or out of (false) a rested place: a city, an inn or a town
+-- with one (#449). The game flips IsResting, then fires PLAYER_UPDATE_RESTING
+-- with no payload (see ASSUMPTIONS).
+function M.rest(on)
+    M.state.resting = on == true
+    M.fire("PLAYER_UPDATE_RESTING")
+end
+
 function M.leaveCombat()
     M.state.inCombat = false
     M.fire("PLAYER_REGEN_ENABLED")
@@ -2119,7 +2135,12 @@ function M.reset()
     _G.GetRealZoneText = function() return M.state.zone end
     _G.GetZoneText = function() return M.state.zone end
     _G.GetGameTime = function() return M.state.hour, 0 end
-    _G.IsResting = function() return M.state.resting == true end
+    -- Resting (#449; see ASSUMPTIONS): true or false, a secret with
+    -- state.restingSecret. M.rest changes it and fires PLAYER_UPDATE_RESTING.
+    _G.IsResting = function()
+        if M.state.restingSecret then return M.secret(M.state.resting == true) end
+        return M.state.resting == true
+    end
     -- Water (#136; see ASSUMPTIONS): state.swimming, state.submerged, and
     -- state.breath ("draining" underwater, "refilling" after, nil: no bar).
     -- state.waterSecret: all three read as secrets.
