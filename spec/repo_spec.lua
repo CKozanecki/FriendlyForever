@@ -2905,7 +2905,8 @@ describe("UI simulator workflow", function()
                 end
                 local i = reader
                 while i and pieces[i] do
-                    for word in pieces[i].text:gmatch("[^%s\"']+") do
+                    -- Split at quotes and operators too: bash<<'EOF' is a shell (round 5's note).
+                    for word in pieces[i].text:gmatch("[^%s\"'<>|;&()]+") do
                         if SHELLS[(word:gsub("^.*/", ""))] then return true end
                     end
                     if pieces[i].after ~= "|" and pieces[i].after ~= "|&" then break end
@@ -3852,6 +3853,8 @@ describe("UI simulator workflow", function()
                     -- The shell after another command on its line (the testing review's round 2).
                     "cd \"$RUNNER_TEMP\" && bash <<'EOF'\nls shots\nEOF",
                     "for d in a b; do bash <<'EOF'\nls shots\nEOF\ndone",
+                    "bash<<'EOF'\nls shots\nEOF",
+                    "timeout 60 bash<<EOF\nls shots\nEOF",
                 }) do
                     assert.are.equal(1, #scan(step(body)), body)
                 end
