@@ -8,9 +8,10 @@
 -- The simulator loads the test files in name order, so this one comes before
 -- scenarios.lua and FriendlyForeverUIStates is there when they run.
 --
--- The simulator (wow-ui-sim 936d5f5, #160) plays WoW Forever, with Forever's
--- spell data: it names our buffs and answers their range itself (in range of
--- every unit it shows: it has no distance model). While a state is set up,
+-- The simulator (wow-ui-sim d54da90, #308; its Forever profile since
+-- 936d5f5, #160) plays WoW Forever, with Forever's spell data: it names our
+-- buffs and answers their range itself (in range of every unit it shows: it
+-- has no distance model). While a state is set up,
 -- the spellbook fixture (Learn) only teaches the player the buff, with
 -- A_Admin.LearnSpell, as a Priest.
 --
@@ -25,6 +26,9 @@
 --   - Time runs on the simulator's manual clock (A_Admin.SetManualClock),
 --     moved on only by Advance, so the login grace and the result line under
 --     the button pass whatever the runner's speed.
+--   - It has no bags to fill and no weapon enchant to set (#424): while the
+--     weapon buff state is set, it answers the weapon reads for its own stone
+--     and axe (WeaponOffer), and leaves every other question to the simulator.
 --
 -- Each state's Undo puts back everything its Set did, except what the
 -- simulator seeded at random and a Set removed (NoFortitude): no scenario

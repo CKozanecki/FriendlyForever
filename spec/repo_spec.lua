@@ -2907,16 +2907,27 @@ describe("UI simulator workflow", function()
             -- output or its errors (docker build), so it counts as a reader of
             -- that source. A source's path on its own is the workflow's text,
             -- not the shot's or the simulator's, as it is for echo (#367).
+            -- The second answer: the reader runs in a $( ) still open where
+            -- the here-document starts, which captures its output (msg=$(cat
+            -- <<EOF ... EOF)), as printsOutput skips a captured echo (#432's
+            -- architecture review).
             local function readsNames(command, index)
                 for _, doc in ipairs(docs[index] or {}) do
-                    if doc.expands and command:find(doc.op, 1, true) then
+                    local at = doc.expands and command:find(doc.op, 1, true)
+                    if at then
+                        local before = command:sub(1, at - 1)
+                        local _, opened = before:gsub("%$%(", "")
+                        local _, closed = before:gsub("%)", "")
+                        local captured = opened > closed
                         local body, held = table.concat(doc.body, "\n"), unchecked()
-                        if namesOne(body, held) then return true end
+                        if namesOne(body, held) then return true, captured end
                         local runs = {}
                         for inside in body:gmatch("%$(%b())") do runs[#runs + 1] = inside:sub(2, -2) end
                         for inside in body:gmatch("`([^`]*)`") do runs[#runs + 1] = inside end
                         for _, inside in ipairs(runs) do
-                            if printsOutput(inside, state.inTree, sources, unquotedOf(inside), held) then return true end
+                            if printsOutput(inside, state.inTree, sources, unquotedOf(inside), held) then
+                                return true, captured
+                            end
                         end
                     end
                 end
@@ -3011,15 +3022,20 @@ describe("UI simulator workflow", function()
                         local held = unchecked()
                         if (file and (namesOne(file, sources) or namesOne(file, held) or (state.inTree and not file:match('^"?%$'))))
                             or (command and printsOutput(command, state.inTree, sources, unquotedOf(command), held))
-                            or (here and namesOne(here, held)) then
+                            or (here and namesOne(here, held))
+                            -- read -r x <<EOF: its variables hold what the body names (#432's review).
+                            or readsNames(piece.text, index) then
                             for _, name in ipairs(readVariables(info.command)) do names[name] = true end
                         end
                     end
                     if normal then
                         pipeline[#pipeline + 1] = piece.text
                         from = from or line
+                        -- A here-document's reader prints its body, unless it's a read,
+                        -- which keeps it, or a $( ) captures it (#432's review).
+                        local fed, captured = readsNames(piece.text, index)
                         if printsOutput(piece.text, state.inTree, sources, piece.bare, unchecked())
-                            or readsNames(piece.text, index) then
+                            or (fed and not captured and not info.command:match("^read%f[%W]")) then
                             prints = true
                             if not errorsKept(piece) then leaks = true end
                         end
@@ -3032,6 +3048,13 @@ describe("UI simulator workflow", function()
                         end
                     end
                     capture(piece.text, sources, temps, names, state.inTree)
+                    -- A $( ) that captures a here-document holding a name holds one (msg=$(cat <<EOF).
+                    local assigned = piece.text:match("^([%a_][%w_]*)=\"?%$%(")
+                        or piece.text:match("^%a+%s+([%a_][%w_]*)=\"?%$%(")
+                    if assigned then
+                        local fed, captured = readsNames(piece.text, index)
+                        if fed and captured then names[assigned] = true end
+                    end
                     advance(state, piece, sources, temps)
                     -- The end of a loop ends the checks made in its body.
                     if piece.text:match("^done%f[^%w_]") then
@@ -3709,6 +3732,19 @@ describe("UI simulator workflow", function()
                 }) do
                     assert.are.same({}, (scan(step(body))), body)
                 end
+            end)
+
+            -- #432's architecture review: a read keeps its here-document, and a
+            -- $( ) captures one; what they hold is a name, printed later.
+            it("passes a here-document a read keeps or a $( ) captures, and flags what then prints it (white, red)", function()
+                local captured = 'for f in shots/*.png; do\n  msg=$(cat <<EOF\ncopying $f\nEOF\n)\ndone'
+                local kept = 'read -r first <<EOF\n$(ls shots)\nEOF'
+                assert.are.same({}, (scan(step(captured))))
+                assert.are.same({}, (scan(step(kept))))
+                assert.are.equal(1, #scan(step(captured:gsub("\ndone$", '\n  echo "$msg"\ndone'))))
+                assert.are.equal(1, #scan(step(kept .. '\necho "$first"')))
+                -- A quoted here-document holds the text as written: no name.
+                assert.are.same({}, (scan(step("read -r first <<'EOF'\n$(ls shots)\nEOF\necho \"$first\""))))
             end)
 
             it("reports a here-document that never ends, and ends one only at its word alone (black)", function()
