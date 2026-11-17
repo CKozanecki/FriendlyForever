@@ -239,10 +239,16 @@ end
 -- renewing it would leave them with less time. A time that can't be read is
 -- never worn off.
 local function WornOff(aura, buff)
+    return Offers.WornOffBelow(aura, buff, RenewShare())
+end
+
+-- The same test with the share given: under share of its full time left.
+-- Passers-by use a half (#39, the owner's Q4).
+function Offers.WornOffBelow(aura, buff, share)
     if not IsSingleRank(buff, aura.spellId) then return false end
     local duration, left = TimesOf(aura)
     if not duration then return false end
-    if left >= duration * RenewShare() then return false end
+    if left >= duration * share then return false end
     return ns.BuffData.CanReplace(buff, aura.spellId)
 end
 
@@ -712,6 +718,12 @@ function Offers.Forget(name)
         end
     end
     if any then Changed() end
+end
+
+-- Whether a favour or a request waits for them (passers-by leave them to
+-- these, #39).
+function Offers.Has(name)
+    return IndexOf(name) ~= nil
 end
 
 -- How many are owed: none to a player on the ignore list, and none your

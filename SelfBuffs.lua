@@ -90,6 +90,17 @@ local function YouCant()
     end
 end
 
+-- When aura was put up (GetTime() clock), from its own times, or nil when
+-- they can't be read or it never runs out. Secrets are never compared.
+local function AppliedAt(aura)
+    local duration, expires = aura.duration, aura.expirationTime
+    if Util.IsSecret(duration) or Util.IsSecret(expires) then return nil end
+    if type(duration) ~= "number" or type(expires) ~= "number" then return nil end
+    -- Each test is true only for a real number, so NaN is a no.
+    if not (duration > 0 and expires > 0) then return nil end
+    return expires - duration
+end
+
 -- Whether a timed self-buff of yours (aura, readable) is running low. No,
 -- whenever its times are secret or not real numbers: they're never compared.
 local function RunningLow(aura, buff)
@@ -109,17 +120,19 @@ end
 -- Your own buffs, as far as self-buffs go: { [buff key or family] = true }
 -- for each that needs nothing now, and { [buff key or family] = buff } for a
 -- timed one of yours running low (it is topped up, not swapped for another
--- of its family); or nil and why when they can't be read. A toggle or a
+-- of its family); or nil and why when they can't be read. Fourth, when each
+-- copy counted was put up ({ [buff key or family] = GetTime() }, where its
+-- times can be read), for buff mode's trigger (#426). A toggle or a
 -- family counts only when yours; a timed buff, whoever's it is (never cast
 -- over another's).
 local function Worn()
     local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
     if type(api) ~= "function" then return nil, "can't see your buffs" end
-    local worn, low = {}, {}
+    local worn, low, at = {}, {}, {}
     for i = 1, ns.Offers.MAX_AURAS do
         local ok, aura = pcall(api, "player", i, "HELPFUL")
         if not ok or Util.IsSecret(aura) then return nil, "can't see your buffs" end
-        if aura == nil then return worn, nil, low end
+        if aura == nil then return worn, nil, low, at end
         if type(aura) ~= "table" then return nil, "can't see your buffs" end
         local id = aura.spellId
         if Util.IsSecret(id) or type(id) ~= "number" then return nil, "can't see your buffs" end
@@ -128,6 +141,7 @@ local function Worn()
         local family = ns.BuffData.SelfFamilyOf(id)
         if buff or family then
             local yours = Util.CastByYou(aura.sourceUnit)
+            at[family or buff.key] = at[family or buff.key] or AppliedAt(aura)
             if buff and not buff.toggle then
                 -- Timed: anyone's counts; only yours is topped up.
                 if yours == true and RunningLow(aura, buff) then
@@ -144,7 +158,7 @@ local function Worn()
     end
     -- More buffs than the addon looks through: what it saw is what counts
     -- (a self-buff past them is cast again, which only renews it).
-    return worn, nil, low
+    return worn, nil, low, at
 end
 
 -- Whether the game says you can cast buff now: true; false, and why, and
@@ -251,6 +265,31 @@ function SelfBuffs.Next(out)
     Say(reasons)
     if first then return first end
     return nil, firstWhy, not open
+end
+
+-- Solo, the self-buffs buff mode's missing-buff trigger counts (#426): what
+-- the button would offer you now (Next's rules, "Offer my self-buffs"
+-- included), keyed as GroupBuffs.Missing keys a member's buff, your name
+-- and the buff's slot (its family, or its key). Returns the list { { name,
+-- buff, slot } }, the slots seen worn ({ [name .. "\1" .. slot] = when put
+-- up, or true }), and those only running low (= when put up, or true); nil
+-- when your buffs can't be read: then nothing counts as missing or worn.
+function SelfBuffs.Missing()
+    local list = {}
+    SelfBuffs.Next(list)
+    local worn, _, low, at = Worn()
+    if not worn then return nil end
+    local me = Util.UnitFullName("player")
+    if not me then return nil end
+    local seen, running = {}, {}
+    for slot in pairs(worn) do seen[me .. "\1" .. slot] = at[slot] or true end
+    for slot in pairs(low) do running[me .. "\1" .. slot] = at[slot] or true end
+    local out = {}
+    for _, offer in ipairs(list) do
+        out[#out + 1] = { name = me, buff = offer.buff, slot = offer.buff.family or offer.buff.key, self = true,
+            selfBuff = true }
+    end
+    return out, seen, running
 end
 
 -- Your self-buff landed (the game said so).

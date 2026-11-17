@@ -415,9 +415,11 @@ end
 -- Whether they wear another buff of this family (another Blessing) that you
 -- cast: true, false, or nil when the game won't say (their buffs, or who
 -- cast one, can't be read). A Blessing of yours that you've since left to
--- others in this raid doesn't count, so the one you switched to replaces it.
+-- others in this raid doesn't count, so the one you switched to replaces it,
+-- unless every is true: then every one of yours counts (a passer-by, #39,
+-- isn't in the raid the split shares out).
 -- offered itself is Wears's to judge (running low, or renewed: #256).
-local function WearsMyFamily(unit, family, offered)
+local function WearsMyFamily(unit, family, offered, every)
     local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
     if not api then return nil end
     for i = 1, ns.Offers.MAX_AURAS do
@@ -427,7 +429,8 @@ local function WearsMyFamily(unit, family, offered)
         local id = aura.spellId
         if Util.IsSecret(id) then return nil end
         local buff = ns.BuffData.ForAura(id)
-        if buff and buff.family == family and buff.key ~= offered.key and ns.BuffRules.CoversInRaid(buff) then
+        if buff and buff.family == family and buff.key ~= offered.key
+            and (every or ns.BuffRules.CoversInRaid(buff)) then
             local mine = Util.CastByYou(aura.sourceUnit)
             if mine == nil then return nil end
             if mine then return true end
@@ -435,6 +438,9 @@ local function WearsMyFamily(unit, family, offered)
     end
     return false
 end
+
+-- Passers-by (#39) keep the one-Blessing rule too.
+GroupBuffs.WearsMyFamily = WearsMyFamily
 
 -- Reasons a member is left out that still leave a buff of yours to give
 -- once they can have it (they're dead, out of reach for now, or can't be
@@ -570,15 +576,13 @@ local function Look(out, units, groupKnown, inRaid)
     end
     local unknownWhy = "the game won't say whether you're in a raid or a group"
     -- Solo (#329): the game says you're in no group, and you're offered your
-    -- own buffs (SoloOn); the look below is then of you alone. Never for
-    -- Missing (presentOnly): the missing-buff trigger (#272) is a group's,
-    -- and solo nothing turns buff mode on by itself (#329), whatever buff
-    -- mode's triggers last read of the group (#373 keeps "in a group" through
-    -- a roster update that can't be read).
+    -- own buffs (SoloOn); the look below is then of you alone. For Missing
+    -- too (#426, the owner): solo, a missing or running-low buff of your own
+    -- turns buff mode on, as a member's does in a group (#272).
     local solo = false
     if #units == 0 then
         if not groupKnown then return nil, unknownWhy, false end
-        if presentOnly or not GroupBuffs.SoloOn() then return nil, "you're not in a group", true end
+        if not GroupBuffs.SoloOn() then return nil, "you're not in a group", true end
         solo = true
     end
     -- Water breathing waits for water (Water.lua): nothing to do now, and

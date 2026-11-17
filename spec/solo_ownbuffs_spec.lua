@@ -1,4 +1,4 @@
--- Spec: #329, #408
+-- Spec: #329, #408, #426
 -- Buff mode when solo: in no group, buff mode still offers you your own copy
 -- of the buffs you give, as #198 does in a group, under the same rules (your
 -- buff order, Never offer, who gets each buff, top-up time), single versions
@@ -351,27 +351,31 @@ describe("Buff mode when solo: your own buffs (#329)", function()
             assert.is_true(printedHas("buff mode off (you have your buffs)"))
         end)
 
-        it("nothing solo turns buff mode on by itself", function()
+        it("solo, a buff missing since the login isn't new, but the fight's end turns buff mode on (#426)",
+            function()
             boot({ noMode = true, auto = true })
             for _ = 1, 5 do wow.advance(ns.BuffModeAuto.WATCH_SECONDS) end
+            assert.is_false(ns.BuffMode.IsOn(), "the login's look only notes it")
             wow.enterCombat()
             wow.leaveCombat()
             wow.advance(1)
-            assert.is_false(ns.BuffMode.IsOn())
-            assert.are.equal(0, #wow.casts)
+            assert.is_true(ns.BuffMode.IsAuto(), "as a fight ends, as in a group (#272)")
+            assert.are.equal(0, #wow.casts, "never casts")
         end)
 
-        it("the missing-buff look (#272) never lists you solo, at its own API", function()
+        it("the missing-buff look (#272) lists you solo now (#426), at its own API", function()
             boot({ noMode = true })
             local list, worn, groupKnown = ns.GroupBuffs.Missing()
-            assert.are.same({}, list)
+            assert.is_true(#list > 0)
+            for _, offer in ipairs(list) do assert.is_true(offer.self, "only you, solo") end
+            assert.are.equal("fortitude", list[1].buff.key, "your first buff first")
             assert.are.same({}, worn)
             assert.is_true(groupKnown)
-            assert.are.equal("Power Word: Fortitude", ns.GroupBuffs.Next().spell, "though buff mode would offer it")
+            assert.are.equal("Power Word: Fortitude", ns.GroupBuffs.Next().spell)
         end)
 
         it("leaving a group in a fight with a roster update that can't be read, then the fight ending with your "
-            .. "buff gone, doesn't turn buff mode on (black)", function()
+            .. "buff gone, turns buff mode on for you alone (#426), with no error (black)", function()
             boot({ class = "DRUID", known = { MOTW }, noMode = true, auto = true,
                 db = { buffBack = { autoOnMissing = true, autoOnJoin = false, autoOnDeath = false,
                     autoOnBuffed = false } } })
@@ -390,11 +394,9 @@ describe("Buff mode when solo: your own buffs (#329)", function()
             wow.advance(1)
             wow.leaveCombat() -- inside WATCH_SECONDS of the unreadable update
             wow.advance(0)
-            assert.is_false(ns.BuffMode.IsOn())
+            assert.is_true(ns.BuffMode.IsAuto(), "solo now, your Mark gone as the fight ended")
             assert.are.same({}, wow.errors)
-            -- Turned on by hand, it offers your Mark, as solo buff mode does.
-            slash("buffmode on")
-            assert.are.equal("Mark of the Wild", armed())
+            assert.are.equal("Mark of the Wild", armed(), "it offers your Mark, as solo buff mode does")
         end)
 
         it("joining a group is #198's, leaving one is solo again, with no reload", function()
