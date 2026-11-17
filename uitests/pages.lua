@@ -413,6 +413,39 @@ function Pages.ShowTab(name)
     Pages.OpenTab(name)
 end
 
+-- A message line's hover (#441), for the screenshot job: the tab (by TABS name)
+-- with its line 4 holding a line that uses flavour placeholders, and the
+-- pointer over that box, as a player's would be. The text is put in the box
+-- only (no typing, so nothing is saved); the simulator is left as it is.
+Pages.MESSAGE_LINES = 30 -- Config.NUM_MESSAGES; spec/uitests_pages_spec.lua checks it
+Pages.HOVER_LINE = "{greeting}, {name}! {blessing}"
+function Pages.ShowMessageHover(name)
+    local content = Pages.OpenTab(name)
+    if not content then return nil end
+    local boxes = {}
+    for _, child in ipairs({ content:GetChildren() }) do
+        -- The message boxes are the wide ones; the steppers' number boxes are narrow.
+        if child:GetObjectType() == "EditBox" and child:GetWidth() >= 300 then boxes[#boxes + 1] = child end
+    end
+    -- Other wide boxes come first (a stand-in name's); the 30 message lines are the last 30.
+    local box = boxes[#boxes - Pages.MESSAGE_LINES + 4]
+    if #boxes < Pages.MESSAGE_LINES or not box then
+        report("the " .. tostring(name) .. " tab has no fourth message box")
+        return nil
+    end
+    -- The panel fills its boxes from the saved settings and lays itself out on
+    -- the next frame, so the line goes in and the pointer arrives then (as
+    -- ShowFrameAt does); the first time is for a client with no timer.
+    local function Hover()
+        box:SetText(Pages.HOVER_LINE)
+        local enter = box:GetScript("OnEnter")
+        if enter then enter(box) end
+    end
+    Hover()
+    if C_Timer and C_Timer.After then C_Timer.After(0, Hover) end
+    return box
+end
+
 -- The options panel's scroll frame (the one holding the tab's rows), or nil.
 local function PanelScroll()
     local panel = _G[Pages.PANEL]

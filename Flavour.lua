@@ -186,6 +186,97 @@ end
 -- Every placeholder name Flavour understands (for help text and tests).
 Flavour.KEYS = { "greeting", "thanks", "blessing", "cheer", "zone", "timeofday", "myclass", "class" }
 
+-- Every phrase a slot can turn into for this moment, as said (the fragment's
+-- own {zone} and the like filled in), each once, in pool order: race, faction,
+-- place, hour, general. Chooses nothing, so it leaves the random state and the
+-- memory of recent fragments alone (#441).
+function Flavour.Pool(slot, ctx)
+    local out, seen = {}, {}
+    if not SLOT[slot] then return out end
+    for _, pool in ipairs(Pools(slot, ctx)) do
+        for _, fragment in ipairs(pool.lines) do
+            local said = Flavour.RenderFragment(fragment, ctx)
+            if said and not seen[said] then
+                seen[said] = true
+                out[#out + 1] = said
+            end
+        end
+    end
+    return out
+end
+
+-- A small generator of our own for previews (Park-Miller, whose products stay
+-- exact in a double), so a preview never draws from math.random or from
+-- Flavour.random, which the next real message does. Its seed is the line, so
+-- a line shows the same examples every time it is hovered.
+local function Generator(seed)
+    local state = seed % 2147483646 + 1
+    return function(n)
+        state = (state * 16807) % 2147483647
+        return state % n + 1
+    end
+end
+
+local function Seed(text)
+    local seed = #text
+    for i = 1, #text do seed = (seed * 31 + text:byte(i)) % 2147483629 end
+    return seed
+end
+
+-- What a message line can turn into, for the options hover (#441). template
+-- is the line as typed, vars its sample values ({name}, {buff}), ctx the moment
+-- (read now if not given). Returns a table:
+--   empty     true for a line with nothing in it;
+--   examples  up to count different renderings with the real renderer;
+--   pools     { key = "greeting", phrases = { ... } } for each slot the line
+--             uses, once, in order of first use;
+--   now       { key = "zone", value = "Elwynn Forest" } for each of {zone},
+--             {timeofday} and {myclass} the line uses.
+-- It changes nothing: not vars, nor the settings, nor the memory of recent
+-- fragments, nor the real random state.
+function Flavour.Preview(template, vars, ctx, count)
+    local out = { examples = {}, pools = {}, now = {} }
+    if type(template) ~= "string" or not template:find("%S") then
+        out.empty = true
+        return out
+    end
+    ctx = ctx or Flavour.Context()
+    local used, order = {}, {}
+    for key in template:gmatch("{(%a+)}") do
+        key = key:lower()
+        if not used[key] then
+            used[key] = true
+            order[#order + 1] = key
+        end
+    end
+    for _, key in ipairs(order) do
+        if SLOT[key] then
+            out.pools[#out.pools + 1] = { key = key, phrases = Flavour.Pool(key, ctx) }
+        elseif key == "zone" or key == "timeofday" or key == "myclass" then
+            out.now[#out.now + 1] = { key = key, value = Plain(key, ctx) }
+        end
+    end
+
+    local savedRandom, savedRecent = Flavour.random, recent
+    Flavour.random, recent = Generator(Seed(template)), {}
+    local ok = pcall(function()
+        local seen = {}
+        for _ = 1, (count or 3) * 6 do
+            if #out.examples >= (count or 3) then break end
+            local own = {}
+            for k, v in pairs(vars or {}) do own[k] = v end
+            local said = Util.Render(template, Flavour.Vars(own, ctx))
+            if said and not seen[said] then
+                seen[said] = true
+                out.examples[#out.examples + 1] = said
+            end
+        end
+    end)
+    Flavour.random, recent = savedRandom, savedRecent
+    if not ok then out.examples = {} end
+    return out
+end
+
 function Flavour.ResetMemory()
     recent = {}
 end

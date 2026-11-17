@@ -909,6 +909,9 @@ jobs:
           # And to its middle rows, from buff mode's turn-on switches down (#383).
           { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowTabMiddle("buff-back")\n'; } \
             > "$states/tab-buff-back-middle.lua"
+          # A message line's hover (#441): the Buff Thanks tab with the pointer over its line 4.
+          { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowMessageHover("buff-thanks")\n'; } \
+            > "$states/tab-buff-thanks-hover.lua"
           # The Buffs tab (#408): each place, a who-gets list and names open,
           # and the choice before it's made.
           for shot in $BUFFS_SHOTS; do
@@ -943,8 +946,8 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Every shot
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so a pass of 40 shots can take about 133 minutes in the
-        # worst case, and both passes together about 267. No shot starts
+        # clean-up, so a pass of 41 shots can take about 137 minutes in the
+        # worst case, and both passes together about 273. No shot starts
         # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
         # so the last one ends by about 4400 s with the probe: inside this
         # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a
@@ -1040,6 +1043,8 @@ jobs:
             shoot options-buff-back-middle --exec-lua "@/shot-lua/tab-buff-back-middle.lua"
             # The Buff Back tab scrolled to the buff requests row (#254): its last row before the lines.
             shoot options-buff-back-lower --exec-lua "@/shot-lua/tab-buff-back-lower.lua"
+            # A message line's hover (#441): what its placeholders can turn into for your character.
+            shoot options-buff-thanks-hover --exec-lua "@/shot-lua/tab-buff-thanks-hover.lua"
             # The Buffs tab (#408): options-buffs-party, options-buffs-party-list...
             for shot in $BUFFS_SHOTS; do
               shoot "options-buffs-$shot" --exec-lua "@/shot-lua/buffs-$shot.lua"
