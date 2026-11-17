@@ -113,6 +113,14 @@ describe("the agents' instruction files", function()
         assert.is_falsy(claude:find("word about the game is a fact", 1, true), "written once, not repeated in CLAUDE.md")
     end)
 
+    it("CLAUDE.md records the owner's research rule once, under Models and effort (white)", function()
+        local _, count = claude:gsub("Research facts with cheap `haiku` subagents", "")
+        assert.are.equal(1, count)
+        assert.is_truthy(claude:find("doesn't guess, assume Classic values, or defer a fact to an in-game check until"
+            .. " the research is done", 1, true))
+        assert.is_falsy(agents:find("cheap `haiku` subagents", 1, true), "written once, not repeated in AGENTS.md")
+    end)
+
     it("CLAUDE.md keeps only Claude's own sections", function()
         local sections = {}
         for heading in claude:gmatch("\n## ([^\n]*)") do sections[#sections + 1] = heading end

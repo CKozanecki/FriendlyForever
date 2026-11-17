@@ -1,1 +1,0 @@
-- **A buff asked for in chat is given even when it's marked "Never offer".** With "Offer my buffs to players who ask in chat" on, a request is offered whatever your other buff settings say, but never a buff the player's class can't use (Intellect to a warrior, say). (#408)
