@@ -34,7 +34,8 @@ Water.BREATH_TIMER = "BREATH"
 Water.TIMER_NAMES = { BREATH = true, EXHAUSTION = true, FEIGNDEATH = true, UNKNOWN = true }
 
 -- Underwater dungeons, by instance ID (GetInstanceInfo's 8th value).
--- Blackfathom Deeps is Classic Era's 48: Forever's isn't checked yet (#207).
+-- Blackfathom Deeps is 48, Classic Era's ID: confirmed from Forever's Map data
+-- on 16 Nov 2026 (docs/forever-facts.md), not yet in game (#207).
 Water.UNDERWATER_INSTANCES = { [48] = "Blackfathom Deeps" }
 -- By their English name, while the ID isn't known: The Drowned City is new
 -- on Forever (off Stranglethorn Vale), so its ID isn't checked yet (#207).

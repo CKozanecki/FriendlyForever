@@ -479,8 +479,8 @@ nameSpell("Prayer of Fortitude", { 21564, 21562 })
 nameSpell("Prayer of Spirit", { 27681 })
 nameSpell("Prayer of Shadow Protection", { 27683 })
 -- The group versions (#41): each covers the target's party (in a raid, their
--- subgroup) and uses one reagent, by item ID, as in Classic Era; Forever's
--- are unconfirmed (#202). Kept apart from the addon's table (BuffData.lua).
+-- subgroup) and uses one reagent, by item ID, as in Classic Era, and as
+-- Forever's own data has them (docs/forever-facts.md, #202). Kept apart from the addon's table (BuffData.lua).
 M.ITEM = { arcanePowder = 17020, holyCandle = 17028, sacredCandle = 17029, wildBerries = 17021,
     wildThornroot = 17026, symbolOfKings = 21177 }
 M.GROUP_CASTS = {

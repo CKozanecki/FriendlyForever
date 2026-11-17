@@ -447,6 +447,14 @@ def build(spells, classes, removed, family_auras=None, misc=None, costed=None):
                 if hand_ranks:
                     report.append(f"HAND-LISTED  {cls} {key}: ranks {hand_ranks} are not in the data; "
                                   f"used after {data_ranks}")
+            if hand_ranks:
+                # They must be exactly the lowest ranks the data lacks, so the
+                # table stays highest rank first (#379's architecture review).
+                numbers = sorted(spells[i][1] for i in data_ranks if i in spells)
+                missing = [n for n in range(1, (numbers[-1] if numbers else 0) + 1) if n not in numbers]
+                if not numbers or numbers[0] < 1 or missing != list(range(1, len(hand_ranks) + 1)):
+                    raise Problem(f"{key}: handRanks {hand_ranks} must be exactly the lowest ranks the data lacks "
+                                  f"(rank 1 to {len(hand_ranks)}); the data's rank numbers are {numbers}")
             ranks = data_ranks + hand_ranks
             if not ranks:
                 absent.append(key)

@@ -1086,12 +1086,26 @@ describe("The generated buff table", function()
                 1, true), text)
         end)
 
-        it("still warns when the hand-listed ranks don't fill the gap (white)", function()
-            local code, text, out = run('"handRanks":[1299348]')
+        it("refuses hand-listed ranks that aren't exactly the lowest ones the data lacks: too few, too many, "
+            .. "or a hole above them (black)", function()
+            for _, case in ipairs({
+                -- too few for the gap (ranks 1 and 2 missing)
+                { '"handRanks":[1299348]', nil },
+                -- too many
+                { '"handRanks":[1299348,1299346,1299999]', nil },
+                -- the data has rank 1 but not rank 2: the hand rank would be written below rank 1
+                { '"handRanks":[1299348]', { [1299346] = 1 } },
+            }) do
+                local code, text, out = run(case[1], case[2])
+                assert.are.equal(1, code, case[1] .. ": " .. text)
+                assert.is_truthy(text:find("must be exactly the lowest ranks the data lacks", 1, true), text)
+                assert.is_truthy(text:find("nothing written", 1, true), text)
+                assert.are.equal("KEEP", out)
+            end
+            -- The data has rank 2 only: rank 1 is the hand-listed one, and comes last.
+            local code, text, out = run('"handRanks":[1299346]', { [1299348] = 2 })
             assert.are.equal(0, code, text)
-            assert.is_truthy(out:find("ranks = { 20906, 20905, 19506, 1299348 },", 1, true), out)
-            assert.is_truthy(text:find("WARNING  trueshot: 'Trueshot Aura' has ranks [3, 4, 5]: rank 1, 2 not in the data",
-                1, true), text)
+            assert.is_truthy(out:find("ranks = { 20906, 20905, 19506, 1299348, 1299346 },", 1, true), out)
         end)
 
         it("uses the data's rank once it has the ID, and says to drop it from the list (white)", function()
