@@ -712,6 +712,9 @@ States.WeaponOffer = {
 local SHOWN = { favour = States.Favour, buffmode = States.GroupMissing, bufflist = States.ListFilled,
     buffgroup = States.ListGroupCast, alreadydone = States.AlreadyDone, longreason = States.LongReason,
     asked = States.Requested, weapon = States.WeaponOffer }
+-- Each is staged and shot as button-<name> (.github/workflows/ui-sim.yml), as
+-- spec/uitests_states_spec.lua checks.
+States.SHOWN = SHOWN
 function States.Show(name)
     local state = SHOWN[name]
     if not state then error("no button state called " .. tostring(name)) end

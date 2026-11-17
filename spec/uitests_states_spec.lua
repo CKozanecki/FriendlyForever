@@ -383,6 +383,48 @@ describe("UI scenarios: a weapon buff picked in the list (#424)", function()
         end)
     end)
 
+    it("is a state the screenshot job stages and shoots as button-weapon, like every shown state (white)", function()
+        local States = load({ lenient = true, db = { buffBack = {} } })
+        local workflow = require("spec.support.wow").readFile(".github/workflows/ui-sim.yml")
+        local list = workflow:match("\n%s*for state in ([%w ]+); do\n%s*{ cat uitests/button_states%.lua;")
+        assert.is_truthy(list, "no staging loop over the button states")
+        local staged = {}
+        for name in list:gmatch("%S+") do staged[name] = true end
+        local shown = {}
+        for name in pairs(States.SHOWN) do shown[name] = true end
+        assert.are.same(shown, staged, "the staged states aren't the ones Show knows")
+        assert.is_true(staged.weapon)
+        local all = workflow:match("shoot_all%(%) {\n(.-)\n%s*}\n")
+        assert.is_truthy(all, "no shoot_all")
+        for name in pairs(shown) do
+            assert.is_truthy(all:find("\n%s*shoot button%-" .. name .. " %-%-exec%-lua @/shot%-lua/" .. name .. "%.lua\n"),
+                "button-" .. name .. " isn't shot from its staged script")
+        end
+    end)
+
+    it("is set up and hovered by Show, so the shot has the tooltip; an unknown state is an error (white, black)", function()
+        withClient(function(_, clicked)
+            local hovered = {}
+            local before = _G.FriendlyForeverBuffButton
+            _G.FriendlyForeverBuffButton = {
+                GetScript = function(_, script) return function() hovered[#hovered + 1] = script end end,
+                GetAttribute = function() return nil end, -- holding no macro, for Undo
+            }
+            local ok, err = pcall(function()
+                local db = { buffBack = { weaponBuffs = false } }
+                local States = load({ lenient = true, db = db })
+                States.Show("weapon")
+                assert.is_true(db.buffBack.weaponBuffs)
+                assert.are.same({ "You: Elemental Sharpening Stone (main)" }, clicked)
+                assert.are.same({ "OnEnter" }, hovered)
+                States.WeaponOffer.Undo()
+                assert.has_error(function() States.Show("nope") end, "no button state called nope")
+            end)
+            _G.FriendlyForeverBuffButton = before
+            assert.is_true(ok, tostring(err))
+        end)
+    end)
+
     it("is the offer the addon makes from those answers: the best stone, and the words the scenario expects (white)", function()
         local States = load({ lenient = true, db = { buffBack = {} } })
         local W = States.WEAPON

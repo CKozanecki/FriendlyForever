@@ -2890,18 +2890,44 @@ describe("UI simulator workflow", function()
             -- for <<-).
             local docs, base = {}, (all[1] or ""):match("^(%s*)")
             -- A command left open on its line (msg="$(cat <<EOF) goes on on the
-            -- line after the last body, which is joined back to it.
+            -- line after the last body, which is joined back to it. A shell
+            -- reading one (bash <<'EOF', timeout 60 sh <<EOF) runs its body,
+            -- so that body stays commands (#432's testing review).
+            local SHELLS = { bash = true, sh = true, dash = true, zsh = true, ksh = true }
+            local WRAPPERS = { timeout = true, sudo = true, env = true, nice = true, nohup = true, stdbuf = true,
+                setsid = true }
+            local function shellReads(line, op)
+                for _, piece in ipairs(piecesOf(line)) do
+                    if piece.text:find(op, 1, true) then
+                        local words = {}
+                        for word in stripped(piece.text).command:gmatch("%S+") do words[#words + 1] = word end
+                        local i = 1
+                        while words[i] do
+                            local word = words[i]:gsub("^.*/", "")
+                            if not WRAPPERS[word] then return SHELLS[word] == true end
+                            i = i + 1
+                            -- A wrapper's options and arguments: -k 5, a duration, NAME=value.
+                            while words[i] and (words[i]:match("^%-") or words[i]:match("^%d")
+                                or words[i]:match("^[%a_][%w_]*=")) do
+                                i = i + 1
+                            end
+                        end
+                        return false
+                    end
+                end
+                return false
+            end
             do
                 local kept, queue, open, join = {}, {}, nil, false
                 for _, line in ipairs(all) do
-                    if open then
-                        local rest = line:sub(1, #base) == base and line:sub(#base + 1) or nil
-                        if rest and open.dash then rest = rest:gsub("^\t*", "") end
-                        if rest == open.word then
-                            open = table.remove(queue, 1)
-                        else
-                            open.body[#open.body + 1] = line
-                        end
+                    local rest = open and line:sub(1, #base) == base and line:sub(#base + 1) or nil
+                    if rest and open.dash then rest = rest:gsub("^\t*", "") end
+                    if open and rest == open.word then
+                        open = table.remove(queue, 1)
+                    elseif open and open.shell then
+                        kept[#kept + 1] = line
+                    elseif open then
+                        open.body[#open.body + 1] = line
                     elseif join then
                         kept[#kept] = kept[#kept] .. " " .. line:gsub("^%s+", "")
                         join = false
@@ -2909,7 +2935,10 @@ describe("UI simulator workflow", function()
                         kept[#kept + 1] = line
                         local found, unfinished = heredocsOf(line)
                         if #found > 0 then
-                            for _, doc in ipairs(found) do doc.body = {}; queue[#queue + 1] = doc end
+                            for _, doc in ipairs(found) do
+                                doc.body, doc.shell = {}, shellReads(line, doc.op)
+                                queue[#queue + 1] = doc
+                            end
                             docs[#kept] = found
                             open = table.remove(queue, 1)
                             join = unfinished
@@ -3786,6 +3815,10 @@ describe("UI simulator workflow", function()
                 }) do
                     assert.are.equal(1, #scan(step(body)), body)
                 end
+                -- Only the first command's own redirection counts: a 2>&1 at the end
+                -- of the pipeline covers head, not ls (#432's testing review).
+                assert.are.equal(1, #scan(step('cat <<EOF 2>&1 | shown\nfirst: $(ls shots | head -n 1 2>&1)\nEOF')))
+                assert.are.equal(1, #scan(step('msg=$(cat <<EOF\n$(ls shots | head -n 1 2>&1)\nEOF\n)')))
                 -- Its own 2>&1 keeps them with the body.
                 assert.are.same({}, (scan(step('cat <<EOF 2>&1 | shown\nfirst: $(head -n 1 shots/*.log 2>&1)\nEOF'))))
                 assert.are.same({}, (scan(step('msg=$(cat <<EOF\n$(head -n 1 shots/*.log 2>/dev/null)\nEOF\n)'))))
@@ -3806,6 +3839,24 @@ describe("UI simulator workflow", function()
                 local checked = 'for f in shots/*.png; do\n  case "$f" in *[!A-Za-z0-9._-]*) continue ;; esac\n'
                     .. '  msg="$(cat <<EOF\ncopying $f\nEOF\n)"; done\necho "last: $f"'
                 assert.are.same({ 'prints unfiltered output:   echo "last: $f"' }, (scan(step(checked))))
+            end)
+
+            -- #432's testing review: a shell reading a here-document runs it.
+            it("scans a shell's here-document as commands, however the shell is started (red, white)", function()
+                for _, body in ipairs({
+                    "bash <<'EOF'\nls shots\nEOF",
+                    "sh <<'EOF'\nfor f in shots/*.png; do echo \"$f\"; done\nEOF",
+                    "timeout 60 bash <<EOF\ncat \"$ui/x\"\nEOF",
+                    "sudo -E /bin/bash -s <<'EOF'\nls shots\nEOF",
+                    "env FOO=1 dash <<'EOF'\nls shots\nEOF",
+                }) do
+                    assert.are.equal(1, #scan(step(body)), body)
+                end
+                -- Its body filtered as a shell's commands, and another reader's body as text.
+                assert.are.same({}, (scan(step("bash <<'EOF'\nls shots 2>&1 | shown\nEOF"))))
+                assert.are.same({}, (scan(step("cat <<'EOF'\nls shots\nEOF"))))
+                -- The word after the body still ends it, and what follows is scanned again.
+                assert.are.equal(1, #scan(step("bash <<'EOF'\necho hello\nEOF\nls shots")))
             end)
 
             it("reports a here-document that never ends, and ends one only at its word alone (black)", function()
