@@ -72,6 +72,14 @@ describe("Hovering a message box (#441)", function()
             assert.is_nil(text:find("Light be with you", 1, true))
         end)
 
+        it("a Horde troll's pool has the troll voice and the Horde-wide one, which no troll line repeats", function()
+            boot({ race = "Troll", faction = "Horde" })
+            local text = hover(1, "{greeting}, {name}!")
+            assert.is_truthy(text:find("Spirits be with ya", 1, true))
+            assert.is_truthy(text:find("Throm-ka", 1, true))
+            assert.is_truthy(text:find("Strength and honor", 1, true))
+        end)
+
         it("fills {name} and {buff} with sample values and says what {zone}, {timeofday} and {myclass} read now", function()
             boot({ class = "MAGE" })
             local text = hover(1, "{thanks}, {name}, for the {buff}! In {zone} this {timeofday}, from a {myclass}.")
@@ -218,6 +226,9 @@ describe("Hovering a message box (#441)", function()
             assert.is_truthy(first and bagged)
             -- The memory of recent fragments is as the real picks left it: with the
             -- roll fixed, the next pick is the same as in a run with no hovers.
+            -- The real generators are back where they were, not the preview's own.
+            assert.are.equal(counted, ns.Flavour.random)
+            assert.are.equal(counted, ns.Messages.random)
             ns.Flavour.random = function() return 1 end
             local after = ns.Flavour.Pick("greeting", ctx)
             ns.Flavour.ResetMemory()

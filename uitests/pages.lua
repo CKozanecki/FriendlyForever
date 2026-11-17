@@ -431,9 +431,16 @@ function Pages.ShowMessageHover(name)
         report("the " .. tostring(name) .. " tab has no fourth message box")
         return nil
     end
-    box:SetText(Pages.HOVER_LINE)
-    local enter = box:GetScript("OnEnter")
-    if enter then enter(box) end
+    -- The panel fills its boxes from the saved settings and lays itself out on
+    -- the next frame, so the line goes in and the pointer arrives then (as
+    -- ShowFrameAt does); the first time is for a client with no timer.
+    local function Hover()
+        box:SetText(Pages.HOVER_LINE)
+        local enter = box:GetScript("OnEnter")
+        if enter then enter(box) end
+    end
+    Hover()
+    if C_Timer and C_Timer.After then C_Timer.After(0, Hover) end
     return box
 end
 
