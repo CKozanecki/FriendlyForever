@@ -165,6 +165,7 @@ function BuffsTab.ToggleList(key)
     UI().ClearEditFocus()
     if listKey == key and w.whoList:IsShown() then return CloseList() end
     listKey = key
+    w.whoList.Layer()
     w.whoList:Show()
     ns.Options.Refresh()
 end
@@ -259,6 +260,20 @@ local function CreateList()
     list.off = ui.Button(list, "Off", 60, function() BuffsTab.SetOff() end)
     list.off:SetPoint("TOPLEFT", rowStart, "BOTTOMLEFT", 4, -4)
     ui.Tooltip(list.off, "Nobody gets it here: every tick cleared. Always names still get it.")
+    -- The catcher and these controls are children of one list, so they share
+    -- a frame level, and the game doesn't say which takes a click where they
+    -- overlap: the catcher could take a tick's click and close the list
+    -- without saving (#427, as in the options dropdowns). Put the controls
+    -- above it, each time the list opens.
+    function list.Layer()
+        local base = list:GetFrameLevel()
+        catcher:SetFrameLevel(base)
+        list.everyone:SetFrameLevel(base + 2)
+        for _, tick in ipairs(ns.BuffRules.ROLE_TICKS) do list[tick]:SetFrameLevel(base + 2) end
+        for _, class in ipairs(ns.BuffRules.CLASSES) do list.classes[class]:SetFrameLevel(base + 2) end
+        list.off:SetFrameLevel(base + 2)
+    end
+    list:SetScript("OnShow", list.Layer)
     list:SetScript("OnHide", function() listKey = nil end)
     w.whoList = list
 end
