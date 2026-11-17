@@ -148,6 +148,7 @@ From #71 ([research comment](https://github.com/CKozanecki/FriendlyForever/issue
 - A macro's conditions (`[help,nodead]`) apply to the unit the cast goes to. Source: #84. **Confirmed in game** (launch, Nov 4).
 - Which half of a key press acts (`ActionButtonUseKeyDown`), whether `/targetlasttarget` works after `/cleartarget`, whether "Out of range" fires `UNIT_SPELLCAST_FAILED` or only `UI_ERROR_MESSAGE`, and #28's override bindings (the scroll wheel as the lent key; changes in `PLAYER_REGEN_DISABLED`): all **confirmed in game** (launch, Nov 4) (#28, #100).
 - Text widths and cut-off text, the button's hint and tooltip, and the message boxes' alignment: **confirmed in game** (launch, Nov 4) (from #64 and #85).
+- `C_SettingsUtil.OpenSettingsPanel` (which `Settings.OpenToCategory` calls) is documented with `HasRestrictions = true` in Forever 1.60.1.70938 (`Blizzard_APIDocumentationGenerated/SettingsUtilDocumentation.lua`), so the game can refuse our call to open the options even from a click, raising `ADDON_ACTION_BLOCKED`. Which state triggers it is not known. The fallback is one chat line, rate-limited, never a retry (#431). Source: Blizzard's UI source, read on #431.
 
 ## Frame levels and mouse clicks (#427)
 
