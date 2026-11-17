@@ -56,7 +56,16 @@ BuffButton.BOTTOM_PAD = 6
 local SECURE_ATTRIBUTE = {
     leftButtonActionType = "*type1",
     leftButtonMacroText = "*macrotext1",
+    keyActionType = "*type-BuffModeKey",
+    keyMacroText = "*macrotext-BuffModeKey",
 }
+-- Buff mode's key (BuffMode.lua) presses the button as a button of its own
+-- (#452), so the game looks up its action under its own name: Blizzard's
+-- SecureButton_GetButtonSuffix gives "-" .. name for any button but the
+-- mouse's, and a press finds no action where none is written. Only these
+-- four attributes are ever written: no plain "type" or "*type*" that a
+-- press by any button would fall back on.
+BuffButton.KEY_BUTTON = "BuffModeKey"
 local MACRO_ACTION_TYPE = "macro"
 
 -- The text shown for the binding in Key Bindings > AddOns (Bindings.xml).
@@ -65,6 +74,7 @@ _G["BINDING_NAME_CLICK " .. BuffButton.FRAME_NAME .. ":LeftButton"] = "Friendly 
 local button, eventFrame
 local armedOffer          -- what the button holds: { name, spell, buff, group, cast, self, macroText }
 local appliedMacroText    -- the macro text last written to the button (to skip rewriting it)
+local appliedKeyText      -- and for buff mode's key (#452): nil while the key waits
 local shownResult         -- the last result under the button: { text, shownAt }
 local lastResultText = "nothing pressed yet"
 local notArmedReason      -- why the button is empty, for /friendly buffback
@@ -137,12 +147,39 @@ end
 -- Arming the button
 ------------------------------------------------------------------------
 
--- Write the macro (or nothing) to the button, only when it changed.
-local function SetSecureMacro(macroText)
-    if macroText == appliedMacroText then return end
-    button:SetAttribute(SECURE_ATTRIBUTE.leftButtonActionType, macroText and MACRO_ACTION_TYPE or nil)
-    button:SetAttribute(SECURE_ATTRIBUTE.leftButtonMacroText, macroText)
-    appliedMacroText = macroText
+-- Write the macro (or nothing) to the button, only when it changed: for a
+-- click, and for buff mode's key unless keyWaits (#452: the key doesn't
+-- cast a druid's buff in a form). Out of combat only, as every caller is.
+local function SetSecureMacro(macroText, keyWaits)
+    local keyText = (macroText and not keyWaits) and macroText or nil
+    if macroText ~= appliedMacroText then
+        button:SetAttribute(SECURE_ATTRIBUTE.leftButtonActionType, macroText and MACRO_ACTION_TYPE or nil)
+        button:SetAttribute(SECURE_ATTRIBUTE.leftButtonMacroText, macroText)
+        appliedMacroText = macroText
+    end
+    if keyText ~= appliedKeyText then
+        button:SetAttribute(SECURE_ATTRIBUTE.keyActionType, keyText and MACRO_ACTION_TYPE or nil)
+        button:SetAttribute(SECURE_ATTRIBUTE.keyMacroText, keyText)
+        appliedKeyText = keyText
+    end
+end
+
+-- Why buff mode's key waits for this offer (#452), or nil when it may press
+-- the button: a druid's buff while you're in a form, unless "Fast-cast buffs
+-- in form" is on. A click still casts it (the game takes you out of the
+-- form). Weapon buffs never wait (#45's choice B). A form or class the game
+-- won't say counts as a form: the key waits.
+function BuffButton.KeyWaits(offer)
+    if not offer or offer.weapon then return nil end
+    local buffBack = ns.db and ns.db.buffBack
+    if type(buffBack) == "table" and buffBack.fastCastInForm == true then return nil end
+    local _, class = Util.ReadGameValues(UnitClass, "player")
+    if type(class) ~= "string" then return "can't tell whether you're in a form" end
+    if class ~= "DRUID" then return nil end
+    local form = Util.ReadGameValues(GetShapeshiftForm)
+    if type(form) ~= "number" or form ~= form then return "can't tell whether you're in a form" end
+    if form ~= 0 then return "you're in a form" end
+    return nil
 end
 
 -- One of a text line's measures (GetStringWidth, GetStringHeight), if the
@@ -228,10 +265,22 @@ local function Empty(reason, keepShown)
     end
 end
 
--- "Buff mode: <key>" above the button while a key is lent to it.
-local function ShowMode()
+-- "Buff mode: <key>" above the button while a key is lent to it; while the
+-- key waits for the offer shown (#452), that it does, and why.
+local function ShowMode(keyWaits)
     local lent = ns.BuffMode.LentKey()
-    button.mode:SetText(lent and (ns.Colours.Text("title", "Buff mode:") .. " " .. ns.BuffMode.KeyText(lent)) or "")
+    local text = ""
+    if lent and keyWaits then
+        text = ns.Colours.Text("title", "Buff mode:") .. " " .. BuffButton.KeyWaitText(keyWaits)
+    elseif lent then
+        text = ns.Colours.Text("title", "Buff mode:") .. " " .. ns.BuffMode.KeyText(lent)
+    end
+    button.mode:SetText(text)
+end
+
+-- What the button says while buff mode's key waits (#452).
+function BuffButton.KeyWaitText(why)
+    return "click to buff (" .. why .. ")"
 end
 
 -- Whether you have a target. When the game won't say, assume you do: then
@@ -406,8 +455,12 @@ local function ArmButton()
     local macroText = BuffButton.MacroFor(offer, hadTarget)
     if not macroText then return Empty("the name or spell can't be put in a macro safely", showingResult) end
 
-    SetSecureMacro(macroText)
-    armedOffer = { name = offer.name, spell = offer.spell, buff = offer.buff, group = offer.group,
+    -- Read now, as the macro is written: a press re-arms first (OnPreClick),
+    -- so the form at the moment of the press decides (#452).
+    local keyWaits = BuffButton.KeyWaits(offer)
+    SetSecureMacro(macroText, keyWaits ~= nil)
+    ShowMode(keyWaits)
+    armedOffer = { keyWaits = keyWaits, name = offer.name, spell = offer.spell, buff = offer.buff, group = offer.group,
         passerBy = offer.passerBy, cast = offer.cast, hint = offer.hint, self = offer.self, selfBuff = offer.selfBuff,
         macroText = macroText, weapon = offer.weapon, slot = offer.slot, hand = offer.hand, castIds = offer.castIds,
         weaponItem = offer.weaponItem, weaponKind = offer.weaponKind }
@@ -478,7 +531,7 @@ end
 local function ShowResult(text, alsoInChat)
     shownResult = { text = text, shownAt = GetTime() }
     lastResultText = text
-    ns.Diag.Log("buffBack", "%s", text)
+    ns.Diag.LogFolded("result", "buffBack", "%s", text) -- repeats fold (#453)
     if alsoInChat then ns.Print(text) end
 end
 
@@ -568,7 +621,8 @@ local function TakeArmedOffer(press)
     press.weapon, press.slot, press.hand, press.castIds =
         armedOffer.weapon, armedOffer.slot, armedOffer.hand, armedOffer.castIds
     press.weaponItem, press.weaponKind = armedOffer.weaponItem, armedOffer.weaponKind
-    ns.Diag.Log("buffBack", "pressed: %s", armedOffer.macroText)
+    -- A held key or a wheel notch presses many times: repeats fold (#453).
+    ns.Diag.LogFolded("press", "buffBack", "pressed: %s", armedOffer.macroText)
     return press
 end
 
@@ -600,14 +654,26 @@ end
 -- brought up to date: if the game hasn't cast for it yet and the button now
 -- holds another favour, that favour is what the up half casts.
 local function OnPreClick(_, mouseButton, isDown)
-    if mouseButton ~= "LeftButton" then return end
+    local key = mouseButton == BuffButton.KEY_BUTTON
+    if mouseButton ~= "LeftButton" and not key then return end
     -- A press reads passers-by afresh (#39): the last second's look never
     -- decides a cast.
     ns.PassersBy.Fresh()
     ArmButton()
+    -- Buff mode's key finds no action while it waits (#452): ArmButton has
+    -- just written none for it, so its press is no press, and says so.
+    local armed = armedOffer
+    if key and armed and armed.keyWaits then
+        armed = nil
+        -- Once a press: on its down half, or its up half when no down half came.
+        if isDown ~= false or not downHalfFoundNothing then
+            ShowResult("Click the button to buff: " .. armedOffer.keyWaits .. ".")
+            ShowRecentResult()
+        end
+    end
     if isDown == true then
-        pressFromDownHalf = armedOffer and AddPress(false) or nil
-        downHalfFoundNothing = not armedOffer
+        pressFromDownHalf = armed and AddPress(false) or nil
+        downHalfFoundNothing = not armed
         return
     end
     local press = pressFromDownHalf
@@ -617,20 +683,20 @@ local function OnPreClick(_, mouseButton, isDown)
         -- No down half, or it had nothing armed: this half is the press. If
         -- the down half came with the button empty, the game may have acted
         -- on it (doing nothing), so silence isn't reported as "No answer".
-        if armedOffer then AddPress(true, downHalfWasEmpty) end
+        if armed then AddPress(true, downHalfWasEmpty) end
         return
     end
     if not ForgetPress(press) then
         -- Answered already (the down half acted), or given up on while the
         -- key was held: only then is this half a press of its own.
-        if press.expired and not press.sent and armedOffer then AddPress(true) end
+        if press.expired and not press.sent and armed then AddPress(true) end
         return
     end
     presses[#presses + 1] = press
     press.complete = true
     if press.sent then return end -- the down half acted; its wait continues
-    if armedOffer and (armedOffer.name ~= press.name or armedOffer.spell ~= press.spell
-        or CastDiffers(armedOffer.cast, press.cast)) then
+    if armed and (armed.name ~= press.name or armed.spell ~= press.spell
+        or CastDiffers(armed.cast, press.cast)) then
         TakeArmedOffer(press)
     end
     press.lastHalfAt = GetTime()
@@ -1059,6 +1125,9 @@ local function CreateEventFrame()
         PLAYER_REGEN_DISABLED = BuffButton.OnCombatStart,
         PLAYER_REGEN_ENABLED = BuffButton.Refresh,
         SPELLS_CHANGED = OnSpellsChanged,
+        -- Into or out of a form: whether buff mode's key waits (#452). A
+        -- press re-reads the form anyway; this keeps the button's words right.
+        UPDATE_SHAPESHIFT_FORM = RefreshSoon,
     }
     for event in pairs(handlers) do
         if event:find("^UNIT_") then
@@ -1181,6 +1250,9 @@ function BuffButton.StatusLines()
         out[#out + 1] = "armed: " .. armedOffer.spell .. " for " .. Util.DisplayName(armedOffer.name)
         -- Lines joined with " ; " ("|" is the game's escape character in chat).
         out[#out + 1] = "macro: " .. armedOffer.macroText:gsub("\n", " ; ")
+        -- Whether buff mode's key presses it too (#452, checked in game on #454).
+        out[#out + 1] = armedOffer.keyWaits and ("buff mode's key waits: " .. armedOffer.keyWaits)
+            or "buff mode's key presses it too"
     else
         out[#out + 1] = "not armed: " .. tostring(notArmedReason or "nothing to offer")
     end

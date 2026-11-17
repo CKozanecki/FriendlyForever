@@ -684,7 +684,9 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         of an unusable spell fails with the game's error. An
 --                         unknown spell is not usable. IsMounted, UnitOnTaxi,
 --                         GetShapeshiftForm and UnitPowerType answer from
---                         state.mounted, state.onTaxi, state.form (0: none)
+--                         state.mounted, state.onTaxi, state.form (0: none,
+--                         unconfirmed on Forever: #454; M.setForm changes it
+--                         and fires UPDATE_SHAPESHIFT_FORM, #452)
 --                         and state.powerType ("MANA" unless set);
 --                         state.selfSecrets = { mounted, taxi, form, power,
 --                         usable } makes those answers secrets. Your own
@@ -703,7 +705,9 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         by itself (state.imbuePicks: it waits for a
 --                         weapon to be picked, as an item does). Every one lasts 30 minutes (Forever's
 --                         data). In a druid's form or Ghost Wolf, with the
---                         autoUnshift setting on (the default, as Classic's),
+--                         autoUnshift setting on (the default, as Classic's;
+--                         the same for every buff spell, all "not while
+--                         shapeshifted" in Forever's data, #452),
 --                         the game cancels the form and carries on: the
 --                         pessimistic choice. Off, it refuses with "You
 --                         can't do that while shapeshifted." A sharpening
@@ -1106,6 +1110,7 @@ M.LINE_OF_SIGHT_ERROR = "Target not in line of sight"
 
 local castCount = 0
 local imbue -- a shaman's imbue (#45), below
+local formStops -- whether your form stops an action (#45, #452), below
 local function cast(args)
     local conds, name = args:match("^%[(.-)%]%s*(.+)$")
     local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
@@ -1137,6 +1142,9 @@ local function cast(args)
     end
     -- A shaman's imbue (#45) goes on your main hand.
     if M.IMBUES[id] then return imbue(id) end
+    -- Every buff here is "not while shapeshifted" in Forever's data (#452):
+    -- the game pulls a druid out of a form to cast it, or refuses.
+    if formStops() then return end
     -- A helpful spell with no friendly target lands on yourself.
     local target = aimed or M.state.units.target
     if not (target and not target.hostile) then target = M.state.units.player end
@@ -1329,17 +1337,24 @@ end
 -- Whether the game would stop an action for your form: a druid's forms and a
 -- shaman's Ghost Wolf. With autoUnshift on, the game cancels the form and
 -- carries on (counted in M.formsCancelled); off, it refuses. true: refused.
-local function formStops()
+formStops = function()
     if (M.state.form or 0) == 0 or not (M.state.class == "DRUID" or M.state.class == "SHAMAN") then return false end
     if M.state.cvars.autoUnshift ~= "0" then
-        M.state.form = 0
         M.formsCancelled = M.formsCancelled + 1
+        M.setForm(0)
         return false
     end
     M.uiError(M.SHAPESHIFT_ERROR)
     return true
 end
 M.formStops = formStops
+
+-- Shift into a form (0: back to caster form), as the game does: the form
+-- changes, then UPDATE_SHAPESHIFT_FORM fires (#452).
+function M.setForm(form)
+    M.state.form = form
+    M.fire("UPDATE_SHAPESHIFT_FORM")
+end
 
 -- A weapon buff's cast: sent at once, answered at once or after
 -- state.castLatency; state.weaponRefusal (text) makes the server refuse it.
@@ -1538,10 +1553,19 @@ end
 
 -- Blizzard's secure attribute lookup (SecureButton_GetModifiedAttribute):
 -- prefix..name..suffix, "*"..name..suffix, prefix..name.."*",
--- "*"..name.."*", then name alone.
+-- "*"..name.."*", then name alone. The suffix is SecureButton_GetButtonSuffix's
+-- (classic_era SecureTemplates.lua, #452): "1" to "3" for the left, right and
+-- middle buttons, the number for Button4 to Button31, and "-" before any
+-- other name, as a key bound to a button of its own ("BuffModeKey") gives.
+local BUTTON_SUFFIX = { LeftButton = "1", RightButton = "2", MiddleButton = "3" }
+for n = 4, 31 do BUTTON_SUFFIX["Button" .. n] = tostring(n) end
+function M.buttonSuffix(mouseButton)
+    if mouseButton == nil or mouseButton == "" then return "" end
+    return BUTTON_SUFFIX[mouseButton] or ("-" .. tostring(mouseButton))
+end
 function M.modifiedAttribute(button, name, mouseButton, mods)
     local a = button.attributes or {}
-    local suffix = ({ LeftButton = "1", RightButton = "2", MiddleButton = "3" })[mouseButton] or mouseButton
+    local suffix = M.buttonSuffix(mouseButton)
     local prefix = modifierPrefix(mods)
     for _, key in ipairs({ prefix .. name .. suffix, "*" .. name .. suffix, prefix .. name .. "*",
         "*" .. name .. "*", name }) do
