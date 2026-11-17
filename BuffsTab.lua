@@ -506,8 +506,9 @@ function BuffsTab.Create(content, tabsBottom)
     w.openBuffBack = ui.Button(area, "Open the Buff Back tab", 170, function() ns.Options.SelectType("buffBack") end)
     -- Passers-by (#39): the switch, what it does, and the nameplates it needs.
     w.passersBy = Check("passersBy", "Also offer my buffs to passers-by in buff mode", ns.Options.PASSERS_BY_TIP)
+    -- Pinned on both sides as it's placed (FillOptions), so it wraps inside
+    -- the page at any width, as the place's help above does.
     w.passersByHelp = ui.Label(area, ns.Options.PASSERS_BY_HELP, "GameFontHighlightSmall")
-    w.passersByHelp:SetWidth(540)
     w.passersByHelp:SetWordWrap(true)
     w.passersByNameplates = ui.Label(area, ns.Colours.Text("warn", "Friendly player nameplates are off, "
         .. "so nobody nearby can be seen."), "GameFontHighlightSmall")
@@ -686,6 +687,7 @@ local function FillOptions(last)
     Below(w.passersBy, place == "strangers", -4)
     if place == "strangers" then w.passersBy:SetChecked(b.passersBy == true) end
     Below(w.passersByHelp, place == "strangers", 4, -4)
+    if place == "strangers" then w.passersByHelp:SetPoint("RIGHT", area, "RIGHT", -24, 0) end
     -- Without friendly nameplates nobody nearby shows (Nameplates.lua).
     local blind = place == "strangers" and ns.Nameplates.FriendlyShown() == false
     Below(w.passersByNameplates, blind, 0, -6)

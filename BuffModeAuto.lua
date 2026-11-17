@@ -289,14 +289,16 @@ local function GroupSlots()
 end
 
 -- Every member of the group by name, you included; nil when a member's
--- name can't be read, or the group's slots can't be told (GroupSlots):
--- then nobody is taken to have left.
+-- name can't be read (yours too: solo, you're the only member, #417's
+-- testing review), or the group's slots can't be told (GroupSlots): then
+-- nobody is taken to have left.
 local function RosterNames()
     local prefix, count = GroupSlots()
     if not prefix then return nil end
     local names = {}
     local me = ns.Util.UnitFullName("player")
-    if me then names[me] = true end
+    if not me then return nil end
+    names[me] = true
     for i = 1, count do
         local unit = prefix .. i
         if ns.Util.ReadGameValues(UnitExists, unit) ~= false then

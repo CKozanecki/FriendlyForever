@@ -272,6 +272,30 @@ describe("Buff mode turns on by itself solo (#426)", function()
             assert.is_false(ns.BuffMode.IsOn(), "the same copy, low again")
         end)
 
+        -- #417's testing review: only the negative side was tested, so a recast
+        -- read with no time of its own kept the dismissal forever.
+        it("a self-buff turned off by hand while low, then recast: its fading turns buff mode on again", function()
+            boot({ known = { FORT, INNER_FIRE }, wearing = { FORT } })
+            wear(INNER_FIRE, 600)
+            local aura = wow.state.playerAuras[#wow.state.playerAuras]
+            aura.duration, aura.expirationTime = 600, wow.now + 300
+            look()
+            wow.advance(250)
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "running low")
+            slash("buffmode off")
+            look()
+            wear(INNER_FIRE)
+            aura = wow.state.playerAuras[#wow.state.playerAuras]
+            aura.duration, aura.expirationTime = 600, wow.now + 600 -- a fresh copy
+            look()
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "recast: nothing to do")
+            fade(INNER_FIRE)
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "the fresh copy faded")
+        end)
+
         it("an armor counts by its family: wearing another of yours covers it, and its recast forgets a dismissal",
             function()
             boot({ class = "MAGE", known = { INTELLECT, ICE_ARMOR, MAGE_ARMOR }, wearing = { INTELLECT, MAGE_ARMOR } })
@@ -402,6 +426,47 @@ describe("Buff mode turns on by itself solo (#426)", function()
             aura.duration, aura.expirationTime = 600, expires -- the same copy, read again
             look()
             assert.is_false(ns.BuffMode.IsOn(), "the same copy, still low")
+            assert.are.same({}, wow.errors)
+        end)
+
+        -- #417's testing review: with your own name unreadable for one look,
+        -- you counted as having left the group, and the dismissal was forgotten.
+        it("your own name unreadable for a look: a buff turned off by hand stays off, and nothing errors", function()
+            -- Wearing a self-buff too, so the look reads your self-buffs by name.
+            boot({ known = { FORT, SPIRIT, INNER_FIRE }, wearing = { FORT, SPIRIT, INNER_FIRE } })
+            fade(FORT)
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "your Fortitude faded")
+            slash("buffmode off")
+            look()
+            look()
+            wow.state.units.player.secrets = { name = true }
+            look()
+            wow.state.units.player.secrets = nil
+            look()
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "the same buff, still missing")
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("in a group, your own name unreadable for a look: your buff turned off by hand stays off", function()
+            boot()
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.wearBuff("party1", FORT, { source = "player" })
+            wow.wearBuff("party1", SPIRIT, { source = "player" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            look()
+            fade(FORT)
+            look()
+            assert.is_true(ns.BuffMode.IsAuto(), "you're missing your Fortitude")
+            slash("buffmode off")
+            look()
+            wow.state.units.player.secrets = { name = true }
+            look()
+            wow.state.units.player.secrets = nil
+            look()
+            look()
+            assert.is_false(ns.BuffMode.IsOn(), "the same buff, still missing")
             assert.are.same({}, wow.errors)
         end)
 

@@ -55,6 +55,18 @@ describe("Passers-by and the campfire in the settings (#39)", function()
             end
         end)
 
+        -- #417's testing review: sized to a width and pinned on one side, the
+        -- simulator read it unwrapped and spilling out of its frame.
+        it("its help line wraps inside the page: pinned on both sides, as the place's help is", function()
+            boot()
+            buffsPlace("strangers")
+            local _, helpRight = wow.horizontalEdges(w.passersByHelp, w.content)
+            local _, placeRight = wow.horizontalEdges(w.placeHelp, w.content)
+            assert.are.equal(placeRight, helpRight)
+            local drawn = wow.drawnText(w.passersByHelp, w.content)
+            assert.is_true(drawn.right <= helpRight, "its text stays inside its frame")
+        end)
+
         it("says when friendly nameplates are off, and its button turns them on", function()
             boot({ nameplatesOff = true })
             buffsPlace("strangers")
