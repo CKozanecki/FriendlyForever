@@ -12,7 +12,8 @@
 --   someone outside your group buffing you (a group member's buff isn't a
 --   favour, so it doesn't count), except where quiet mode holds in a capital
 --   city: there it would end quiet mode at the first stranger's buff (#34);
---   in any group, out of combat, a member missing a buff of yours (#272:
+--   in any group, or solo for your own buffs (#426, below), out of combat,
+--   a member missing a buff of yours (#272:
 --   never cast, or fully faded; anyone's copy counts as theirs) or whose
 --   buff of yours is running low (#397: as the button would top it up, so
 --   a minute left for a buff of 10 minutes or less, the Top up time for a
@@ -25,6 +26,21 @@
 --   until another buff, or another member, goes missing or runs low: the
 --   pairs low or missing then are dismissed until they're seen recast,
 --   even as a fight ends (#397, the owner), or the member leaves the group.
+--   Solo (#426, the owner) it's you alone: your own copy of the buffs you
+--   give while "Offer my own buffs when I'm not in a group" is on (#329),
+--   and your self-buffs while "Offer my self-buffs" is on (#44), as the
+--   button would offer them; a self-buff counts solo only (in a group a
+--   missing self-buff alone never turns it on, #44 Q6). Leaving a group,
+--   the first look only notes what you're missing;
+--   a campfire aura added to you (#39, the owner): UNIT_AURA's list of
+--   auras added to you holds one of CAMPFIRE_AURAS, a near-the-fire aura or
+--   a camp benefit. Only that list is read, never your whole aura list, and
+--   a full update (zoning, a login) adds nothing. For this trigger passers-by
+--   count as something to do (PassersBy.lua, when that switch is on), and
+--   the buff mode it turns on stays on while one waits for a buff: it ends
+--   when nobody, passers-by included, is missing one, at the pull or at the
+--   timeout. No other trigger counts a passer-by. A payload, list, aura or
+--   spell ID that is a secret, or not what it should be, is passed over.
 -- Turns off (on by default), but only buff mode a trigger turned on, never
 -- buff mode you turned on yourself:
 --   the first pull (PLAYER_REGEN_DISABLED);
@@ -66,8 +82,19 @@ local lastMissing = {}   -- [name .. "\1" .. buff key] = true: missing at the la
 local dismissed = {}     -- [name .. "\1" .. buff key] = as in lastMissing: low or missing
                          -- when you turned buff mode off yourself, until recast (#397)
 local watching = false   -- the look for missing buffs is scheduled
+local Watch, WatchWanted -- below: the looks, and whether they go on (#426)
 local groupUnsure = false -- a roster update couldn't read IsInGroup() (#373): the
                           -- looks read it again until an answer decides
+local pendingFire         -- the trigger that waits for a fight is the campfire's
+local fireMode = false    -- the buff mode a trigger turned on counts passers-by (#39)
+-- The campfire auras you wear (#39), as the updates and reads saw them:
+-- { [auraInstanceID] = spell ID }. unsure: an update couldn't be read (in a
+-- fight they come restricted), so the next look reads your aura list once:
+-- at once out of a fight, else as the fight ends. known: a read of your
+-- aura list has worked since the login, so the remembered auras are all of
+-- yours; until then, the first read only notes what's there.
+local fireSeen = { auras = {}, unsure = true, known = false }
+local Resync -- below: that one read of your aura list
 
 -- Buff Back's settings, read only. A section lost mid-session reads as an
 -- empty one: every trigger off, the timeout at its default (#387).
@@ -84,6 +111,22 @@ Auto.NEARBY_SECONDS = 120
 -- How often, in a group, members are looked at for a buff of yours gone
 -- missing (#272).
 Auto.WATCH_SECONDS = 5
+-- The auras a campfire puts on you (#39), from Forever's spell data (build
+-- 1.60.1.70685; docs/forever-facts.md). Near the fire: "Cozy Fire",
+-- Forever's own (1232234) and Classic's two ranks (7353, 7358), "Campfire"
+-- (1229736), "Welcoming Campfire" (1229739, 1289723) and "Camp Tent"
+-- (1229487). A camp's benefits, an hour each, added as you sit there (the
+-- owner's correction): "Camp Benefits" (1229741) and the bonus of each camp
+-- feature, Mana Well 1230587, Sharpening Wheel 1230172, Enchanted Lute
+-- 1230653, First Aid Kit 1230124, Fish Bowl 1230098, Incense Candle
+-- 1229513, Lodestone 1230164, Camp Chair 1229519 and Faction Banner
+-- 1229718. Which of them the game puts on you is unconfirmed (#416); any
+-- of them added means you're at a fire, and the trigger never casts.
+Auto.CAMPFIRE_AURAS = {
+    [1232234] = true, [7353] = true, [7358] = true, [1229736] = true, [1229739] = true, [1289723] = true,
+    [1229487] = true, [1229741] = true, [1230587] = true, [1230172] = true, [1230653] = true,
+    [1230124] = true, [1230098] = true, [1229513] = true, [1230164] = true, [1229519] = true, [1229718] = true,
+}
 
 local function InGroup()
     return ns.Util.ReadGameValues(IsInGroup) == true
@@ -112,8 +155,11 @@ end
 -- there with you (#256). withSelf: your self-buffs too (#44): "everyone has
 -- your buffs" waits for them, but a missing self-buff alone never turns buff
 -- mode on (the owner, #44 Q6). Also why, for the message.
-local function Settled(inside, withSelf)
+-- withPassersBy: a passer-by waiting for a buff counts too (the campfire's
+-- buff mode, #39).
+local function Settled(inside, withSelf, withPassersBy)
     if ns.Offers.Count() > 0 then return false end
+    if withPassersBy and ns.PassersBy.Waiting() then return false end
     local offer, groupWhy, settled, held = ns.GroupBuffs.Next()
     if offer ~= nil or settled ~= true then return false end
     if withSelf then
@@ -142,6 +188,8 @@ end
 -- Turn buff mode off if a trigger turned it on and it's done. Called on every
 -- button refresh, and by the timeout's own timer with the minutes it waited.
 function Auto.Check(timedOutAfter)
+    -- The missing-buff trigger switched on solo (#426): the looks start again.
+    if ns.db and ready and not watching and WatchWanted() then Watch() end
     if not ns.db or not ns.BuffMode.IsAuto() then return end
     local cfg = Cfg()
     if timedOutAfter then
@@ -153,7 +201,7 @@ function Auto.Check(timedOutAfter)
     end
     if InCombatLockdown() then return end
     if cfg.autoOffDone ~= true then return end
-    local done, why = Settled(insideWait, true)
+    local done, why = Settled(insideWait, true, fireMode)
     if done then
         ns.BuffMode.Set(false, { why = why })
         if not ns.BuffMode.IsAuto() then ns.Diag.Log("buffMode", "auto turned off: %s", why) end
@@ -176,7 +224,9 @@ local function WaitInside()
 end
 
 -- inside: the dungeon-or-raid trigger, so buff mode waits for everyone.
-local function TurnOn(why, inside)
+-- fire: the campfire's (#39), so passers-by count. withSelf: your
+-- self-buffs count as something to do (solo, #426).
+local function TurnOn(why, inside, fire, withSelf)
     -- A battle under way: nothing turns on, and nobody's buffs are read. The
     -- trigger is kept in case it was only the phase not being read yet.
     if ns.Battleground.Quiet() then
@@ -186,13 +236,19 @@ local function TurnOn(why, inside)
     if fighting or InCombatLockdown() then
         -- The first trigger waits, but the dungeon-or-raid one outranks
         -- the others: after the fight it waits for everyone.
-        if not pendingWhy or (inside and not pendingInside) then pendingWhy, pendingInside = why, inside end
+        if not pendingWhy or (inside and not pendingInside) then
+            pendingWhy, pendingInside = why, inside
+        end
+        -- The campfire counts passers-by (#39) whichever trigger came first.
+        pendingFire = pendingFire or fire
         return
     end
     if ns.BuffMode.IsOn() then
         -- A trigger's buff mode, met by the dungeon or raid: it waits for
-        -- everyone now. Yours is yours: no trigger turns it off.
+        -- everyone now. Yours is yours: no trigger turns it off. Met by the
+        -- campfire, it counts passers-by from now on.
         if inside and ns.BuffMode.IsAuto() then WaitInside() end
+        if fire and ns.BuffMode.IsAuto() then fireMode = true end
         return
     end
     -- In a battleground or arena whose rules give nobody any buff (#408:
@@ -205,7 +261,8 @@ local function TurnOn(why, inside)
     end
     pvpOffWhy = nil
     -- Nothing to do: don't lend a key just to hand it back.
-    if Settled(inside) then return end
+    if Settled(inside, withSelf, fire) then return end
+    fireMode = fire == true
     -- Set first: turning on refreshes the button, which checks it at once.
     if inside then WaitInside() else insideWait = false end
     ns.BuffMode.Set(true, { auto = true, why = why })
@@ -232,14 +289,16 @@ local function GroupSlots()
 end
 
 -- Every member of the group by name, you included; nil when a member's
--- name can't be read, or the group's slots can't be told (GroupSlots):
--- then nobody is taken to have left.
+-- name can't be read (yours too: solo, you're the only member, #417's
+-- testing review), or the group's slots can't be told (GroupSlots): then
+-- nobody is taken to have left.
 local function RosterNames()
     local prefix, count = GroupSlots()
     if not prefix then return nil end
     local names = {}
     local me = ns.Util.UnitFullName("player")
-    if me then names[me] = true end
+    if not me then return nil end
+    names[me] = true
     for i = 1, count do
         local unit = prefix .. i
         if ns.Util.ReadGameValues(UnitExists, unit) ~= false then
@@ -259,13 +318,42 @@ end
 -- turned off stays off until someone else goes missing. After a login the
 -- first look only notes who is (buff mode is off after one), unless a
 -- fight has ended; while the group can't be told, it notes nothing.
+-- The key a missing buff is remembered by: the member's name, and the
+-- buff's key (or, for a self-buff, its slot: its family or key, #426).
+local function KeyOf(offer)
+    return offer.name .. "\1" .. (offer.slot or offer.buff.key)
+end
+
+-- GroupBuffs.Missing's answer and, solo (#426), your missing self-buffs
+-- merged into it, in its shape: list, worn, whether the group was known,
+-- and the pairs only running low; fifth, whether this look saw you solo.
+-- inGroup is only the last answer read (#373): a group joined in a fight,
+-- or a game that won't say now, isn't solo. Self-buffs count only when the
+-- game says so at this look too, and the last answer agrees: a leave not
+-- yet read hasn't started the solo looks (GroupChanged), whose first only
+-- notes what you're missing.
+local function MissingNow()
+    local list, worn, groupKnown, low = ns.GroupBuffs.Missing()
+    local solo = inGroup == false and GroupAnswer() == false
+    if solo then
+        local mine, mineWorn, mineLow = ns.SelfBuffs.Missing()
+        if mine then
+            for _, offer in ipairs(mine) do list[#list + 1] = offer end
+            for key, at in pairs(mineWorn) do worn[key] = at end
+            for key, at in pairs(mineLow) do low[key] = at end
+        end
+    end
+    return list, worn, groupKnown, low, solo
+end
+
 local function CheckMissing(fightEnded)
-    if not ready or not inGroup or fighting or InCombatLockdown() then return end
+    -- In a group, or solo (#426); not while the game won't say which.
+    if not ready or inGroup == nil or fighting or InCombatLockdown() then return end
     if Cfg().autoOnMissing ~= true or InPvP() or ns.Battleground.Quiet() then
         lastMissing = {}
         return
     end
-    local list, worn, groupKnown, low = ns.GroupBuffs.Missing()
+    local list, worn, groupKnown, low, solo = MissingNow()
     -- A pair dismissed is forgotten once it's recast (#397): any copy, if
     -- it was missing; one put up after the low one, if it was low. Not a
     -- copy whose times can't be read, nor one that only stopped counting as
@@ -276,7 +364,7 @@ local function CheckMissing(fightEnded)
     end
     local now, first = {}, nil
     for _, offer in ipairs(list) do
-        local key = offer.name .. "\1" .. offer.buff.key
+        local key = KeyOf(offer)
         now[key] = low[key] or true
         if not first and not dismissed[key] and (fightEnded or (lastMissing and not lastMissing[key])) then
             first = offer
@@ -302,13 +390,14 @@ local function CheckMissing(fightEnded)
     if not first then return end
     local spell = ns.BuffData.SpellName(first.buff) or "buff"
     local why
-    if low[first.name .. "\1" .. first.buff.key] then
+    if low[KeyOf(first)] then
         why = (first.self and "your" or (ns.Util.DisplayName(first.name) .. "'s")) .. " " .. spell
             .. " is running low"
     else
         why = (first.self and "you're" or (ns.Util.DisplayName(first.name) .. " is")) .. " missing your " .. spell
     end
-    TurnOn(fightEnded and ("the fight ended and " .. why) or why)
+    -- Solo at this look, your self-buffs are something to do too (#426).
+    TurnOn(fightEnded and ("the fight ended and " .. why) or why, nil, nil, solo)
 end
 
 -- You turned buff mode off yourself (BuffMode.Set): the members low on or
@@ -319,9 +408,9 @@ end
 -- The look only reads (out of a group it lists nobody); one that fails
 -- dismisses no more than the last did.
 local function DismissNow()
-    local list, _, _, low = ns.GroupBuffs.Missing()
+    local list, _, _, low = MissingNow()
     for _, offer in ipairs(list) do
-        local key = offer.name .. "\1" .. offer.buff.key
+        local key = KeyOf(offer)
         dismissed[key] = low[key] or true
     end
 end
@@ -333,10 +422,18 @@ end
 
 local GroupChanged -- below: a join or a leave, as a roster update read it
 
+-- Whether the looks go on: in a group, while it isn't known whether you're
+-- in one (#370, #373), and solo only while the missing-buff trigger is on
+-- (#426). Solo with it off, nothing ticks; turning it on starts them again
+-- (Auto.Check, at the next button refresh).
+function WatchWanted()
+    return inGroup ~= false or groupUnsure or Cfg().autoOnMissing == true
+end
+
 -- Look again every WATCH_SECONDS while in a group, while it isn't yet known
 -- after a login (#370), or while a roster update couldn't read it (#373).
 -- The next look is scheduled first, so one that fails doesn't end them.
-local function Watch()
+function Watch()
     if watching then return end
     watching = true
     C_Timer.After(Auto.WATCH_SECONDS, ns.Diag.Wrap(function()
@@ -359,10 +456,9 @@ local function Watch()
                 GroupChanged(answer)
             end
         end
-        -- Out of a group: no look. Leaving the group forgot who was missing
-        -- (OnRosterUpdate), and joining one or the login starts afresh, so
-        -- nothing is kept here.
-        if not inGroup then return end
+        -- In a group, or solo (#426) while the trigger is on: the look goes
+        -- on. (While the game won't say which, CheckMissing looks at nothing.)
+        if not WatchWanted() then return end
         Watch()
         CheckMissing(false)
     end))
@@ -500,11 +596,12 @@ function GroupChanged(nowIn)
         JoinedNearby()
     elseif not nowIn then
         pulled, deathSeen, joinedAt = false, false, nil
-        lastMissing = {}
+        -- Solo now (#426): the first look only notes what you're missing.
+        lastMissing = nil
         ns.GroupBuffs.EndRound()
     end
     inGroup = nowIn
-    if nowIn then Watch() end
+    if WatchWanted() then Watch() end
 end
 
 -- PLAYER_ENTERING_WORLD. A login or reload: the group as it is now is where
@@ -532,11 +629,15 @@ function Auto.OnEnteringWorld(isLogin, isReload)
     ready = true
     inGroup = GroupAnswer()
     pulled, deathSeen, pendingWhy, pendingInside, insideWait, joinedAt = false, false, nil, nil, false, nil
-    lastMissing, groupUnsure = nil, false
+    lastMissing, groupUnsure, pendingFire = nil, false, nil
+    -- What you wear at a login was there already: noted, not added.
+    fireSeen.auras, fireSeen.unsure, fireSeen.known = {}, true, false
+    Resync(false)
     ns.GroupBuffs.EndRound()
     NoteWhoIsDead()
-    -- In a group, or not yet known (#370): the looks read it again (#373).
-    if inGroup ~= false then Watch() end
+    -- The looks go on solo too while the trigger is on (#426), and read the
+    -- group again while it isn't known (#370, #373).
+    if WatchWanted() then Watch() end
 end
 
 -- PLAYER_REGEN_DISABLED. The button empties itself for the fight in the
@@ -545,7 +646,7 @@ function Auto.OnCombatStart()
     fighting = true
     ns.GroupBuffs.EndRound() -- the round lasts up to the first pull (#256)
     if inGroup then pulled = true end
-    deathSeen, pendingWhy, pendingInside = false, nil, nil
+    deathSeen, pendingWhy, pendingInside, pendingFire = false, nil, nil, nil
     if Cfg().autoOffPull == true and ns.BuffMode.IsAuto() then
         ns.BuffMode.EndForFight("the fight started")
         ns.Diag.Log("buffMode", "auto turned off: the fight started")
@@ -565,13 +666,15 @@ end
 
 function Auto.OnCombatEnd()
     fighting = false
-    local why, inside = pendingWhy, pendingInside
-    pendingWhy, pendingInside = nil, nil
+    local why, inside, fire = pendingWhy, pendingInside, pendingFire
+    pendingWhy, pendingInside, pendingFire = nil, nil, nil
     if deathSeen then
         deathSeen = false
         OnDeath()
     end
-    if why then TurnOn(why, inside) end
+    if why then TurnOn(why, inside, fire) end
+    -- A campfire aura added in the fight came restricted (#39): look once.
+    if fireSeen.unsure then Resync(true) end
     CheckMissing(true)
 end
 
@@ -608,6 +711,149 @@ function Auto.OnBuffed()
     if Cfg().autoOnBuffed == true then TurnOn("someone buffed you") end
 end
 
+-- The spell IDs in a { [instance] = spell ID } table, as a set.
+local function SpellsOf(auras)
+    local out = {}
+    for _, id in pairs(auras) do out[id] = true end
+    return out
+end
+
+-- A value that is plain data: not a secret, and of the type wanted.
+local function Plain(value, kind)
+    if ns.Util.IsSecret(value) or type(value) ~= kind then return nil end
+    return value
+end
+
+-- Your campfire auras, read from your aura list: { [instance] = spell ID },
+-- or nil when the list (or one of its auras, or their IDs) can't be read.
+-- Only for a look the updates couldn't give (above): never on every update.
+local function ReadFireAuras()
+    local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    if type(api) ~= "function" then return nil end
+    local out = {}
+    for i = 1, ns.Offers.MAX_AURAS do
+        local ok, aura = pcall(api, "player", i, "HELPFUL")
+        if not ok or ns.Util.IsSecret(aura) then return nil end
+        if aura == nil then return out end
+        if type(aura) ~= "table" then return nil end
+        local id, instance = aura.spellId, aura.auraInstanceID
+        if ns.Util.IsSecret(id) or ns.Util.IsSecret(instance) then return nil end
+        if Auto.CAMPFIRE_AURAS[id] then
+            out[(Plain(instance, "number") and instance == instance) and instance or -i] = id
+        end
+    end
+    return out
+end
+
+-- Whether a campfire aura has been added: one whose spell you weren't
+-- wearing just before. A refresh (the same spell put up again) isn't, nor
+-- is anything seen first at a login or a full update (zoning).
+local function Announce(added)
+    if not added then return end
+    -- Never before the login has finished: what loads then was there already.
+    if not ready or Cfg().autoOnCampfire ~= true then return end
+    -- Not where quiet mode holds in a capital city: there it would end
+    -- quiet mode at the first fire you pass (as for a stranger's buff, #34).
+    if ns.Cities.ThanksQuiet() or ns.Cities.ButtonHidden() then return end
+    TurnOn("you're by a campfire", nil, true)
+end
+
+-- Read your aura list once, after updates that couldn't be read: a campfire
+-- spell there that wasn't before was added meanwhile (announce). A list
+-- that can't be read leaves it for the next look.
+function Resync(announce)
+    local now = ReadFireAuras()
+    if not now then return end
+    local before = SpellsOf(fireSeen.auras)
+    -- A login whose read failed (a /reload in a fight): what the first read
+    -- that works finds may have been there all along.
+    if not fireSeen.known then announce = false end
+    fireSeen.auras, fireSeen.unsure, fireSeen.known = now, false, true
+    local added = false
+    for _, id in pairs(now) do
+        if not before[id] then added = true end
+    end
+    if announce then Announce(added) end
+end
+
+-- What one UNIT_AURA payload for you says (#39): its removed instances
+-- forgotten, its added campfire auras noted, and true when one is a spell
+-- you weren't wearing before it (a refresh, removed and added together, is
+-- not). Anything in it that can't be read makes the next look read the
+-- list; a full update gives no list of what's new, so it is read too, but
+-- adds nothing.
+function Auto.TakeAuraUpdate(updateInfo)
+    if Plain(updateInfo, "table") == nil then
+        fireSeen.unsure = true
+        return false
+    end
+    local full = updateInfo.isFullUpdate
+    if ns.Util.IsSecret(full) then
+        fireSeen.unsure = true
+        return false
+    end
+    if full == true then
+        fireSeen.unsure = true
+        return nil, true
+    end
+    local before = SpellsOf(fireSeen.auras)
+    local removed, added = updateInfo.removedAuraInstanceIDs, updateInfo.addedAuras
+    if removed ~= nil then
+        if Plain(removed, "table") == nil then
+            fireSeen.unsure = true
+        else
+            for i = 1, ns.Offers.MAX_AURAS do
+                local instance = removed[i]
+                if instance == nil then break end
+                -- Only a plain number is a key (NaN, a secret, anything else isn't).
+                if Plain(instance, "number") and instance == instance then
+                    fireSeen.auras[instance] = nil
+                else
+                    fireSeen.unsure = true
+                end
+            end
+        end
+    end
+    local new = false
+    if added ~= nil then
+        if Plain(added, "table") == nil then
+            fireSeen.unsure = true
+            return false
+        end
+        for i = 1, ns.Offers.MAX_AURAS do
+            local aura = added[i]
+            if aura == nil then break end
+            local id = Plain(aura, "table") and aura.spellId
+            if not Plain(aura, "table") or ns.Util.IsSecret(id) then
+                fireSeen.unsure = true
+            elseif Auto.CAMPFIRE_AURAS[id] then
+                local instance = aura.auraInstanceID
+                if not (Plain(instance, "number") and instance == instance) then instance = -1000 - i end
+                fireSeen.auras[instance] = id
+                if not before[id] then new = true end
+            end
+        end
+    end
+    -- Before any read has worked since the login, what you wear isn't
+    -- known, so nothing counts as added: the first read notes it (Resync).
+    return new and fireSeen.known
+end
+
+-- UNIT_AURA for you: a campfire aura added turns buff mode on (#39), if
+-- that trigger is on. An update that couldn't be read is made up by one
+-- read of your aura list, at once out of a fight, else when it ends.
+function Auto.OnPlayerAura(unit, updateInfo)
+    if unit ~= "player" then return end
+    local new, full = Auto.TakeAuraUpdate(updateInfo)
+    if full then
+        if not InCombatLockdown() then Resync(false) end
+        return
+    end
+    -- What this update added counts, and the read makes up what it hid.
+    if fireSeen.unsure and not InCombatLockdown() then Resync(true) end
+    Announce(new)
+end
+
 function Auto.Create()
     if frame then return end
     inGroup = InGroup()
@@ -620,6 +866,9 @@ function Auto.Create()
         UNIT_HEALTH = Auto.OnUnitHealth,
     }
     for event in pairs(handlers) do frame:RegisterEvent(event) end
+    -- Your own auras only (#39): every unit's would be far more often.
+    handlers.UNIT_AURA = Auto.OnPlayerAura
+    frame:RegisterUnitEvent("UNIT_AURA", "player")
     frame:SetScript("OnEvent", function(_, event, ...) ns.Diag.Call(handlers[event], ...) end)
     ns.Offers.OnOwe(Auto.OnBuffed)
 end
