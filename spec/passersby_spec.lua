@@ -244,7 +244,7 @@ describe("Passers-by (#39)", function()
             for _, row in ipairs(ns.BuffList.Rows()) do
                 if row:IsShown() then rows[#rows + 1] = row.text:GetText() end
             end
-            assert.are.same({ "> You: Brilliant Wizard Oil (main hand)", "Bob Stone: Arcane Intellect (passing by)" },
+            assert.are.same({ "> You: Brilliant Wizard Oil (main)", "Bob Stone: Arcane Intellect (passing by)" },
                 rows)
         end)
 

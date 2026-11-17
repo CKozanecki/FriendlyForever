@@ -782,7 +782,7 @@ test("with a weapon buff picked in the list, the button, its tooltip and its row
             if row:IsShown() then shown[#shown + 1] = row end
         end
         Expect(#shown == 2, ("the list has %d rows, not the favour and your weapon buff"):format(#shown))
-        local want = ("> You: %s (%s)"):format(W.name, W.hand)
+        local want = ("> You: %s (%s)"):format(W.name, W.row)
         local row = shown[#shown]
         local text = row and row.text:GetText() or ""
         Expect(text == want, ("the weapon row reads %q, not %q"):format(text, want))

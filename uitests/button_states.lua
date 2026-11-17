@@ -573,7 +573,8 @@ States.Requested = {
 -- buffs come last of all (BuffButton.lua), so the button holds the favour
 -- until you pick your weapon buff in the list, as a player would: then it
 -- reads "You" over "Elemental Sharpening Stone on your main hand", and its
--- row "> You: Elemental Sharpening Stone (main hand)".
+-- row "> You: Elemental Sharpening Stone (main)": the row names the hand in one
+-- word, so the longest item name fits it (BuffList.lua).
 --
 -- The simulator has no bags or weapon enchants to set up, so while the state
 -- is set the game's answers for these reads are given here, and every other
@@ -588,7 +589,7 @@ States.Requested = {
 -- puts every read and setting back, ends buff mode and lets the favour go
 -- with a right-click.
 States.WEAPON = { item = 18262, name = "Elemental Sharpening Stone", kind = "sharpening", count = 5,
-    weapon = 12784, slot = 16, hand = "main hand" }
+    weapon = 12784, slot = 16, hand = "main hand", row = "main" }
 States.WEAPONSTRANGER = "Sigrun Aasen"
 local weaponSaved
 

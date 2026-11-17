@@ -1,4 +1,4 @@
--- Spec: #43, #227, #252, #305, #313
+-- Spec: #43, #227, #252, #305, #313, #424
 -- The clickable list beside the buff button: everyone the button would offer
 -- to, and the buff for each; a click makes that player the next offer.
 local wow = require("spec.support.wow")
@@ -164,6 +164,40 @@ describe("The list beside the buff button (#43)", function()
             click(1)
             assert.are.equal("You", button.title:GetText())
             assert.are.same({ "> You: Mark of the Wild", "Ann Vale: Mark of the Wild" }, rows())
+        end)
+    end)
+
+    -- #424: a weapon buff's row (#45) names the hand in one word, so the
+    -- longest item name and its hand fit the row; the button keeps the words.
+    describe("a weapon buff's row (#424)", function()
+        local STONE = 18262 -- Elemental Sharpening Stone, the longest item name a weapon buff offers
+
+        local function bootWeapon(before)
+            ns = wow.boot({ db = { buffBack = { weaponBuffs = true, weaponMain = "sharpening", weaponOff = "sharpening" } },
+                before = function(state)
+                    state.class = "MAGE"
+                    state.knownSpells = {}
+                    state.items = { [STONE] = 2 }
+                    state.itemNames = { [STONE] = "Elemental Sharpening Stone" }
+                    state.equipped[17] = wow.GEAR.dagger
+                    if before then before(state) end
+                end })
+            button = ns.BuffButton.Frame()
+            slash("buffmode on")
+        end
+
+        it("says (main) for the main hand, while the button says the whole hand (white)", function()
+            bootWeapon()
+            assert.are.same({ "> You: Elemental Sharpening Stone (main)" }, rows())
+            assert.are.equal("Elemental Sharpening Stone on your main hand", button.subtitle:GetText())
+        end)
+
+        it("says (off) for the off hand, once the main hand is covered (white)", function()
+            bootWeapon()
+            wow.enchant(16, 1643)
+            ns.BuffButton.Refresh()
+            assert.are.same({ "> You: Elemental Sharpening Stone (off)" }, rows())
+            assert.are.equal("Elemental Sharpening Stone on your off hand", button.subtitle:GetText())
         end)
     end)
 

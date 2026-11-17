@@ -311,7 +311,7 @@ describe("UI scenarios: a weapon buff picked in the list (#424)", function()
                 GetScript = function() return function() clicked[#clicked + 1] = text end end }
         end
         _G.FriendlyForeverBuffList = { rows = { row("Sigrun Aasen: Power Word: Fortitude"),
-            row("You: Elemental Sharpening Stone (main hand)") } }
+            row("You: Elemental Sharpening Stone (main)") } }
         local ok, err = pcall(fn, originals, clicked)
         for name, value in pairs(saved) do _G[name] = value end
         assert.is_true(ok, tostring(err))
@@ -351,7 +351,7 @@ describe("UI scenarios: a weapon buff picked in the list (#424)", function()
             local aura = whole:find("event UNIT_AURA", 1, true)
             local mode = whole:find("slash buffmode on", 1, true)
             assert.is_truthy(target and aura and mode and target < aura and aura < mode, whole)
-            assert.are.same({ "You: Elemental Sharpening Stone (main hand)" }, clicked)
+            assert.are.same({ "You: Elemental Sharpening Stone (main)" }, clicked)
         end)
     end)
 
@@ -403,6 +403,6 @@ describe("UI scenarios: a weapon buff picked in the list (#424)", function()
         assert.are.equal(("/use item:%d\n/use %d"):format(W.item, W.slot),
             button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText))
         local list = ns.BuffList.Frame()
-        assert.are.equal(("> You: %s (%s)"):format(W.name, W.hand), list.rows[1].text:GetText())
+        assert.are.equal(("> You: %s (%s)"):format(W.name, W.row), list.rows[1].text:GetText())
     end)
 end)
