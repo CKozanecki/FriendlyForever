@@ -194,6 +194,7 @@ Options.SAMPLE_NAME = "Nikki-Shifts"
 Options.SAMPLE_BUFF = "Power Word: Fortitude"
 Options.PREVIEW_EXAMPLES = 3
 Options.PREVIEW_POOL_MAX = 24
+Options.PREVIEW_WIDTH = 70
 
 Options.RAID_SPLIT_TOOLTIP = "In a raid, copies of Friendly Forever share out the buffs their class has "
     .. "in common, so three priests give Fortitude, Spirit and Shadow Protection between them. Buff mode then "
@@ -949,7 +950,20 @@ function Options.Create()
                 for n = 1, math.min(#pool.phrases, Options.PREVIEW_POOL_MAX) do shown[n] = pool.phrases[n] end
                 local more = #pool.phrases - #shown
                 Line("title", "{" .. pool.key .. "} can be:")
-                Line("text", table.concat(shown, " / ") .. (more > 0 and (" / ... and " .. more .. " more") or ""))
+                if more > 0 then shown[#shown + 1] = "... and " .. more .. " more" end
+                -- Broken into lines of about PREVIEW_WIDTH letters here, so a long pool
+                -- stays inside the screen whether or not the game wraps the tooltip.
+                local row = ""
+                for n, phrase in ipairs(shown) do
+                    local piece = phrase .. (n < #shown and " /" or "")
+                    if row ~= "" and #row + 1 + #piece > Options.PREVIEW_WIDTH then
+                        Line("text", row)
+                        row = piece
+                    else
+                        row = row == "" and piece or (row .. " " .. piece)
+                    end
+                end
+                if row ~= "" then Line("text", row) end
             end
             for _, now in ipairs(preview.now) do Line("muted", "{" .. now.key .. "} now reads: " .. now.value) end
         end

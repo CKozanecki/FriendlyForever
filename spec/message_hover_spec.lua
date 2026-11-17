@@ -61,7 +61,7 @@ describe("Hovering a message box (#441)", function()
             end
             assert.are.equal(3, (function() local n = 0 for _ in pairs(distinct) do n = n + 1 end return n end)())
             assert.is_truthy(text:find("{greeting} can be:", 1, true))
-            assert.is_truthy(text:find(table.concat(HUMAN_GREETINGS, " / "), 1, true))
+            assert.is_truthy((text:gsub("\n", " ")):find(table.concat(HUMAN_GREETINGS, " / "), 1, true))
             assert.is_true(_G.GameTooltip:IsShown())
         end)
 
@@ -172,6 +172,10 @@ describe("Hovering a message box (#441)", function()
             assert.is_truthy(out:find("Phrase20", 1, true))
             assert.is_nil(out:find("Phrase21", 1, true))
             assert.is_truthy(out:find("... and 20 more", 1, true))
+            -- ...in lines that fit the screen, however long the pool.
+            for _, line in ipairs(_G.GameTooltip.lines) do
+                assert.is_true(#line <= ns.Options.PREVIEW_WIDTH, line)
+            end
         end)
     end)
 
