@@ -34,14 +34,19 @@ describe("ChatQueue protects a message's render (#446)", function()
         assert.is_false(bad.sent)
         assert.are.equal("message failed to render", bad.why)
         assert.is_true(good.sent)
-        assert.are.same({}, wow.errors)
+        assert.are.equal(1, ns.Diag.Counters().luaErrors, "the error is counted, not hidden")
+        assert.is_truthy(ns.Diag.lastError and ns.Diag.lastError:find("bad render", 1, true))
+        assert.are.equal(1, #wow.errors, "and reaches the game's error display")
     end)
 
-    it("white: the drop is logged without the message text", function()
+    it("white: the drop is logged with its reason", function()
         ns.db.debug = true
-        push(nil, { getText = function() error("secret chat text") end })
-        for _, line in ipairs(wow.printed) do assert.is_nil(line:find("secret chat text", 1, true)) end
-        assert.is_true((ns.Diag.Counters().renderErrors or 0) >= 1)
+        push(nil, { getText = function() error("boom") end })
+        local found = false
+        for _, line in ipairs(ns.db.diagLog) do
+            if line:find("dropped test: message failed to render", 1, true) then found = true end
+        end
+        assert.is_true(found)
     end)
 
     it("black: a getText returning a non-string or a secret value is dropped, never sent", function()
@@ -77,6 +82,7 @@ describe("ChatQueue protects a message's render (#446)", function()
         assert.are.same({}, wow.emotes)
         assert.is_false(r.sent)
         assert.are.equal("emote target failed to resolve", r.why)
+        assert.are.equal(1, ns.Diag.Counters().luaErrors)
     end)
 
     it("white: an emote with a good target still goes out", function()
@@ -92,19 +98,20 @@ describe("ChatQueue protects a message's render (#446)", function()
             function() return "ok" end, function() error("boom") end, function() return nil end,
             function() return 7 end, function() return wow.secret("x") end,
         }
-        local results, valid = {}, 0
+        local results, valid, erroring = {}, 0, 0
         for _ = 1, 60 do
             wow.state.lockdown = true
             for _ = 1, random.random(1, 4) do
                 local k = random.random(1, #kinds)
-                if k == 1 then valid = valid + 1 end
+                if k == 1 then valid = valid + 1 elseif k == 2 then erroring = erroring + 1 end
                 results[#results + 1] = push(nil, { getText = kinds[k], maxAge = 600 })
             end
             wow.state.lockdown = false
             for _ = 1, 30 do wow.advance(Q.MIN_INTERVAL + 1) end
-            assert.are.same({}, wow.errors)
         end
         wow.advance(Q.MAX_AGE + 5)
+        assert.are.equal(erroring, ns.Diag.Counters().luaErrors or 0, "every erroring render was counted")
+        assert.are.equal(erroring, #wow.errors)
         local sentOk, droppedOk = 0, 0
         for _, r in ipairs(results) do
             assert.are.equal(1, r.done, "every message hears onDone exactly once")

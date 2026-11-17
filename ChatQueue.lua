@@ -267,16 +267,17 @@ function ChatQueue.Pump(hardware)
             elseif channel == "EMOTE" then
                 text = "/" .. item.emote:lower()
                 if item.getTarget then
-                    local got, value = pcall(item.getTarget)
+                    local got, value = xpcall(item.getTarget, ns.Diag.OnError)
                     if got then target = value else skip = "emote target failed to resolve" end
                 end
             else
                 -- The caller's render runs protected: an error in it (damaged
                 -- settings, a bad placeholder) drops this message with its
                 -- reason, and the pump carries on with the next (#446).
-                local ok, rendered = pcall(item.getText)
+                -- Diag.OnError still counts it, keeps it for /friendly status
+                -- and hands it to the game's error display: nothing is hidden.
+                local ok, rendered = xpcall(item.getText, ns.Diag.OnError)
                 if not ok then
-                    ns.Diag.Count("renderErrors")
                     skip = "message failed to render"
                 elseif rendered == nil then
                     skip = "message rendered empty"
