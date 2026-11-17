@@ -2891,29 +2891,25 @@ describe("UI simulator workflow", function()
             local docs, base = {}, (all[1] or ""):match("^(%s*)")
             -- A command left open on its line (msg="$(cat <<EOF) goes on on the
             -- line after the last body, which is joined back to it. A shell
-            -- reading one (bash <<'EOF', timeout 60 sh <<EOF) runs its body,
-            -- so that body stays commands (#432's testing review).
+            -- reading one runs its body, so that body stays commands (#432's
+            -- testing review): any word of the command reading it, or of a later
+            -- command in its pipeline, that names a shell (bash <<'EOF',
+            -- timeout -s TERM 60 bash <<EOF, cat <<'EOF' | sh). A word that only
+            -- looks like one fails closed: its body is scanned as commands
+            -- (#432's architecture review).
             local SHELLS = { bash = true, sh = true, dash = true, zsh = true, ksh = true }
-            local WRAPPERS = { timeout = true, sudo = true, env = true, nice = true, nohup = true, stdbuf = true,
-                setsid = true }
             local function shellReads(line, op)
-                for _, piece in ipairs(piecesOf(line)) do
-                    if piece.text:find(op, 1, true) then
-                        local words = {}
-                        for word in stripped(piece.text).command:gmatch("%S+") do words[#words + 1] = word end
-                        local i = 1
-                        while words[i] do
-                            local word = words[i]:gsub("^.*/", "")
-                            if not WRAPPERS[word] then return SHELLS[word] == true end
-                            i = i + 1
-                            -- A wrapper's options and arguments: -k 5, a duration, NAME=value.
-                            while words[i] and (words[i]:match("^%-") or words[i]:match("^%d")
-                                or words[i]:match("^[%a_][%w_]*=")) do
-                                i = i + 1
-                            end
-                        end
-                        return false
+                local pieces, reader = piecesOf(line), nil
+                for i, piece in ipairs(pieces) do
+                    if not reader and piece.text:find(op, 1, true) then reader = i end
+                end
+                local i = reader
+                while i and pieces[i] do
+                    for word in pieces[i].text:gmatch("[^%s\"']+") do
+                        if SHELLS[(word:gsub("^.*/", ""))] then return true end
                     end
+                    if pieces[i].after ~= "|" and pieces[i].after ~= "|&" then break end
+                    i = i + 1
                 end
                 return false
             end
@@ -3849,6 +3845,13 @@ describe("UI simulator workflow", function()
                     "timeout 60 bash <<EOF\ncat \"$ui/x\"\nEOF",
                     "sudo -E /bin/bash -s <<'EOF'\nls shots\nEOF",
                     "env FOO=1 dash <<'EOF'\nls shots\nEOF",
+                    -- Wrapper options with arguments, and a shell later in the pipeline (round 4).
+                    "timeout -s TERM -k 10 120 bash <<'EOF'\nls shots\nEOF",
+                    "sudo -u runner bash <<'EOF'\nls shots\nEOF",
+                    "cat <<'EOF' | bash\nls shots\nEOF",
+                    -- The shell after another command on its line (the testing review's round 2).
+                    "cd \"$RUNNER_TEMP\" && bash <<'EOF'\nls shots\nEOF",
+                    "for d in a b; do bash <<'EOF'\nls shots\nEOF\ndone",
                 }) do
                     assert.are.equal(1, #scan(step(body)), body)
                 end
