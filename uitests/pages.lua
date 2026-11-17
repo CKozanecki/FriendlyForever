@@ -417,6 +417,7 @@ end
 -- with its line 4 holding a line that uses flavour placeholders, and the
 -- pointer over that box, as a player's would be. The text is put in the box
 -- only (no typing, so nothing is saved); the simulator is left as it is.
+Pages.MESSAGE_LINES = 30 -- Config.NUM_MESSAGES; spec/uitests_pages_spec.lua checks it
 Pages.HOVER_LINE = "{greeting}, {name}! {blessing}"
 function Pages.ShowMessageHover(name)
     local content = Pages.OpenTab(name)
@@ -426,8 +427,9 @@ function Pages.ShowMessageHover(name)
         -- The message boxes are the wide ones; the steppers' number boxes are narrow.
         if child:GetObjectType() == "EditBox" and child:GetWidth() >= 300 then boxes[#boxes + 1] = child end
     end
-    local box = boxes[4]
-    if not box then
+    -- Other wide boxes come first (a stand-in name's); the 30 message lines are the last 30.
+    local box = boxes[#boxes - Pages.MESSAGE_LINES + 4]
+    if #boxes < Pages.MESSAGE_LINES or not box then
         report("the " .. tostring(name) .. " tab has no fourth message box")
         return nil
     end
