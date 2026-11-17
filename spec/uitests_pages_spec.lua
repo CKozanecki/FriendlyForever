@@ -105,6 +105,34 @@ describe("the UI simulator's options tabs", function()
         assert.are.equal("buffs", ns.Options.CurrentType(), "the tab was opened by its button")
     end)
 
+    -- The hover shot (#441): the pointer goes over message line 4, not another wide box.
+    it("hovers message line 4 for the tooltip shot, whatever wide boxes come first (white, #441)", function()
+        assert.are.equal(ns.Config.NUM_MESSAGES, Pages.MESSAGE_LINES)
+        -- The simulated panel has no tab buttons, so OpenTab is given the tab's content.
+        ns.Options.Open()
+        local edits = ns.Options.widgets.edits
+        local content = edits[1]:GetParent()
+        -- The simulated frames list no children: give the content the real ones, after two
+        -- wide boxes of another kind (as the tab has) and a narrow number box.
+        local children = {}
+        for _, stand in ipairs({ { 400 }, { 300 }, { 60 } }) do
+            children[#children + 1] = { GetObjectType = function() return "EditBox" end,
+                GetWidth = function() return stand[1] end }
+        end
+        for _, edit in ipairs(edits) do
+            edit.GetObjectType = function() return "EditBox" end
+            children[#children + 1] = edit
+        end
+        content.GetChildren = function() return unpack(children) end
+        Pages.OpenTab = function() return content end
+        local box = Pages.ShowMessageHover("buff-thanks")
+        assert.are.equal(ns.Options.widgets.edits[4], box)
+        assert.are.equal(Pages.HOVER_LINE, box:GetText())
+        assert.is_truthy(table.concat(_G.GameTooltip.lines, "\n"):find("{greeting} can be:", 1, true))
+        Pages.OpenTab = function() return nil end
+        assert.is_nil(Pages.ShowMessageHover("nowhere"))
+    end)
+
     it("has the screenshot job shoot every tab, each named after it (white)", function()
         local workflow = wow.readFile(".github/workflows/ui-sim.yml")
         local names = {}
