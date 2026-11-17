@@ -86,16 +86,18 @@ local function Changed()
     for _, fn in ipairs(listeners) do fn() end
 end
 
--- Whether your rules leave a buff of yours for this favour (#408): after
--- the choice, one of your buffs for others that their class can use and
--- your Buff Back rule gives them (a class that can't be read may yet show
--- one). A request, or a favour that asked for a buff, always may: a request
--- is given whatever the rules say. While pending every favour counts, as in
--- 1.3.3. One your rules leave nothing for isn't counted (Count), holds no
--- place on the button (Current) and turns nothing on (OnOwe), so buff mode
--- never lends its key for a favour the button can't return (#366's lesson).
+-- Whether your rules leave a buff of yours for this favour (#408): one of
+-- your buffs for others that their class can use and your Buff Back rule
+-- gives them (a class that can't be read may yet show one). A request, or a
+-- favour that asked for a buff, always may: a request is given whatever the
+-- rules say. While the #408 choice is pending the rules give everyone
+-- everything (BuffRules.AllowsStranger), as in 1.3.3, but a favour none of
+-- your buffs suit still isn't counted (#419). One your rules leave nothing
+-- for isn't counted (Count), holds no place on the button (Current) and
+-- turns nothing on (OnOwe), so buff mode never lends its key for a favour
+-- the button can't return (#366's lesson).
 local function Givable(favour)
-    if favour.request or (favour.requested and ns.Requests.Listening()) or ns.BuffRules.Pending() then
+    if favour.request or (favour.requested and ns.Requests.Listening()) then
         return true
     end
     for _, buff in ipairs(ns.BuffData.Offerable()) do
@@ -495,7 +497,7 @@ local function ChooseBuff(favour, myBuffs, held, visible)
         if #ns.BuffData.Mine() > 0 then return nil, "you've marked all your buffs never offer" end
         return nil, "you know no buffs to give"
     end
-    local suitable, unsure = 0, false
+    local suitable, unsure, whose = 0, false, false
     for _, buff in ipairs(myBuffs) do
         -- Your Buff Back rule for the buff (#408): everyone, chosen
         -- classes, or off. A class that can't be read gets no buff by class.
@@ -507,21 +509,37 @@ local function ChooseBuff(favour, myBuffs, held, visible)
             suitable = suitable + 1
             -- Unknown (hidden in a fight) counts as not wearing it.
             local wears, aura = Offers.Wears(unit, buff, WornOff)
-            if wears ~= true then
+            -- One Blessing of yours per player (#422), as buff mode and
+            -- passers-by keep it (GroupBuffs.WearsMyFamily): another of
+            -- yours they wear, any of them (a favour isn't in the raid the
+            -- split shares out), would be replaced. A caster that can't be
+            -- read leaves this buff unchosen; a buff of no family is still
+            -- offered.
+            local other = false
+            if wears ~= true and buff.family then
+                other = ns.GroupBuffs.WearsMyFamily(unit, buff.family, buff, true)
+                if other == nil then whose = true end
+            end
+            if wears ~= true and other == false then
                 if OutOfReach(buff, unit) then return nil, nil, true end
                 return buff
             end
             -- Said once per favour and buff: the button re-arms often.
             favour.skipLogged = favour.skipLogged or {}
-            if not favour.skipLogged[buff.key] then
+            if wears == true and not favour.skipLogged[buff.key] then
                 favour.skipLogged[buff.key] = true
                 local stronger = not ns.BuffData.CanReplace(buff, aura.spellId)
                 ns.Diag.Log("buffBack", "skipping %s for %s: they wear %s (%s)",
                     ns.BuffData.SpellName(buff) or buff.key, favour.name,
                     stronger and "one yours can't replace" or "it", LeftText(aura))
+            elseif other == true and not favour.skipLogged[buff.key .. "\1family"] then
+                favour.skipLogged[buff.key .. "\1family"] = true
+                ns.Diag.Log("buffBack", "skipping %s for %s: they wear another of your %s buffs",
+                    ns.BuffData.SpellName(buff) or buff.key, favour.name, buff.family)
             end
         end
     end
+    if whose then return nil, "can't tell whose Blessing they have" end
     if suitable > 0 then return nil, "they already have your buffs" end
     -- (A favour your rules leave nothing for isn't here: Givable.)
     if unsure then return nil, "can't see their class" end
