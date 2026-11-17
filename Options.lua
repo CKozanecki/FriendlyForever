@@ -52,7 +52,7 @@ Options.GENERAL_PAGE = "FriendlyForeverGeneralPage"
 Options.START_PAGE = "FriendlyForeverStartPage"
 -- The Start here page's scrolling content (#47), with room to spare for its
 -- notes wrapping more in the game than expected.
-Options.START_HEIGHT = 560
+Options.START_HEIGHT = 680
 Options.LEDGER_PAGE = "FriendlyForeverLedgerPage"
 Options.WEAPON_PAGE = "FriendlyForeverWeaponPage"
 
@@ -490,16 +490,16 @@ Options.AUTO_MISSING_TIP = "In any group, out of combat: when someone close by (
 
 -- The campfire trigger (#39).
 Options.AUTO_CAMPFIRE_TIP = "When a campfire's warmth (Cozy Fire) or a camp benefit is added to you, out "
-    .. "of combat. Then passers-by count too (Buffs tab, Buff Back), and buff mode stays on while one is "
+    .. "of combat. Then passers-by count too (Buffs tab), and buff mode stays on while one is "
     .. "missing a buff. Not in a capital city where quiet mode holds."
 
--- Passers-by (#39), on the Buffs tab's Buff Back place.
+-- Passers-by (#39), at the top of the Buffs tab (#455).
 Options.PASSERS_BY_TIP = "In buff mode, after everyone else, offer your buffs to players nearby who aren't "
-    .. "in your group: a buff they're missing, or one with less than half its time left, as the rules above "
-    .. "allow. Only in the open world, never in a capital city or a fight; never anyone flagged for PvP "
+    .. "in your group: a buff they're missing, or one with less than half its time left, as the Buff Back rules "
+    .. "below allow. Only in the open world, never in a capital city or a fight; never anyone flagged for PvP "
     .. "while you aren't. Nothing is said to them. Right-click skips one for 10 minutes."
 Options.PASSERS_BY_HELP = "Players nearby who aren't in your group and are missing a buff, or whose buff "
-    .. "is half gone. Uses the rules above. Needs friendly nameplates."
+    .. "is half gone. Uses the Buff Back rules below. Needs friendly nameplates."
 
 -- Top-up timing (#42, #397): the stepper's mouse-over.
 Options.TOP_UP_TIP = "A buff you give with less than this many minutes left is offered again in buff mode, "
@@ -1135,7 +1135,18 @@ function Options.CreateStartPage()
     w.nameplates = Note(area, w.thanks, "")
     w.buttonKey = Note(area, w.nameplates, "")
     w.buffModeKey = Note(area, w.buttonKey, "")
-    w.change = Note(area, w.buffModeKey, ns.Colours.Text("muted", "Each is changed on its own page, below."))
+    -- How to turn buff mode on by hand (#458), and where the passers-by
+    -- switch is (#455); the link opens it at the top of the Buffs tab.
+    w.buffModeSwitch = Note(area, w.buffModeKey, "Turn buff mode on or off by hand: shift-click the minimap button "
+        .. "(its tooltip shows whether it's on), or type /friendly buffmode. Right-click on the minimap button "
+        .. "turns the whole addon on or off.")
+    w.passersByNote = Note(area, w.buffModeSwitch, "Buff mode also offers your buffs to players nearby who aren't in "
+        .. "your group, when you turn that on. It's off until you do:")
+    w.openPassersBy = Button(area, "Passers-by switch (Buffs tab)", 220, function()
+        Options.OpenTab(Options.BUFFS_TAB, "passersBy")
+    end)
+    w.openPassersBy:SetPoint("TOPLEFT", w.passersByNote, "BOTTOMLEFT", 0, -6)
+    w.change = Note(area, w.openPassersBy, ns.Colours.Text("muted", "Each is changed on its own page, below."))
 
     local more = Section(area, w.change, "Every other page")
     w.openMessages = Button(area, "Messages and Buff Back", 180, function() Options.Open() end)

@@ -1,5 +1,6 @@
 -- Minimap button: left-click opens options, right-click turns the addon
--- on/off, drag moves it around the minimap edge. The same entry goes in the
+-- on/off, shift-click turns buff mode on/off (#458), drag moves it around
+-- the minimap edge. The same entry goes in the
 -- addon compartment (the drop-down of addons by the minimap), where the
 -- client has one.
 local _, ns = ...
@@ -60,18 +61,30 @@ local function FillTooltip(tooltip)
     tooltip:AddLine(ns.LedgerSummaryText(), r, g, b, true)
 end
 
+-- Shift-click's tooltip line (#458), with whether buff mode is on now. The
+-- addon's own on/off is right-click's, kept apart.
+function MinimapButton.BuffModeLine()
+    local state = ns.BuffMode.IsOn() and ns.Colours.Text("good", "on") or ns.Colours.Text("muted", "off")
+    return ns.Colours.Text("bright", "Shift-click:") .. " buff mode on/off (now " .. state .. ")"
+end
+
 local function OnEnter(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
     FillTooltip(GameTooltip)
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine(ns.Colours.Text("bright", "Left-click:") .. " open options", ns.Colours.RGB("text"))
     GameTooltip:AddLine(ns.Colours.Text("bright", "Right-click:") .. " turn on/off", ns.Colours.RGB("text"))
+    GameTooltip:AddLine(MinimapButton.BuffModeLine(), ns.Colours.RGB("text"))
     GameTooltip:AddLine(ns.Colours.Text("bright", "Drag:") .. " move button", ns.Colours.RGB("text"))
     GameTooltip:Show()
 end
 
 function MinimapButton.OnClick(_, mouseButton)
-    if mouseButton == "RightButton" then
+    if ns.Util.ReadGameValues(IsShiftKeyDown) == true then
+        -- The same path as /friendly buffmode: the same rules for combat, the
+        -- lockdown and the key it lends (BuffMode.Set).
+        ns.BuffMode.Toggle()
+    elseif mouseButton == "RightButton" then
         ns.SetEnabled(not ns.db.enabled)
     else
         ns.Options.Open()
@@ -137,6 +150,7 @@ function MinimapButton.RegisterCompartment()
             FillTooltip(GameTooltip)
             GameTooltip:AddLine(ns.Colours.Text("bright", "Click:") .. " options  "
                 .. ns.Colours.Text("bright", "Right-click:") .. " on/off", ns.Colours.RGB("text"))
+            GameTooltip:AddLine(MinimapButton.BuffModeLine(), ns.Colours.RGB("text"))
             GameTooltip:Show()
         end),
         funcOnLeave = function() GameTooltip:Hide() end,

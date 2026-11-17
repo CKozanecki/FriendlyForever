@@ -1687,6 +1687,107 @@ test("the Buffs tab stays inside its page at its tallest, at every place, names 
     if not ok then error(err, 0) end
 end)
 
+-- The passers-by switch at the top of the Buffs tab (#455): above the places'
+-- tabs, at every place, its help line inside the page, and with the
+-- nameplate warning and its button when friendly nameplates are off, the
+-- tabs still below all of it and nothing across anything else.
+local PASSERS_LABEL = "Also offer my buffs to passers-by in buff mode"
+
+test("the Buffs tab's passers-by switch sits above the places' tabs, inside the page, at every place (#455)", function()
+    local Pages = FriendlyForeverUIPages
+    local had = GetCVar and GetCVar("nameplateShowFriendlyPlayers")
+    local ok, err = pcall(function()
+        for _, nameplates in ipairs({ "1", "0" }) do
+            if SetCVar then pcall(SetCVar, "nameplateShowFriendlyPlayers", nameplates) end
+            for _, place in ipairs(Pages.BUFFS_PLACES) do
+                local content = Pages.OpenBuffs(place.name)
+                check(content ~= nil, "couldn't open the Buffs tab at " .. place.label)
+                Settle(content)
+                local name = ("passers-by switch, %s place, nameplates %s"):format(place.label, nameplates)
+                local box
+                for _, child in ipairs({ content:GetChildren() }) do
+                    if child.label and child.label.GetText and child.label:GetText() == PASSERS_LABEL then
+                        box = child
+                    end
+                end
+                check(box ~= nil and box:IsVisible(), name .. ": the switch isn't shown")
+                local tab
+                for _, child in ipairs({ content:GetChildren() }) do
+                    if child:IsVisible() and child.GetText and child:GetText() == place.label then tab = child end
+                end
+                check(tab ~= nil, name .. ": the place's tab isn't shown")
+                local _, boxBottom = Edges(box, "GetTop", "GetBottom")
+                local tabTop = Edges(tab, "GetTop", "GetBottom")
+                if boxBottom and tabTop then
+                    local line = ("LAYOUT %s: switch bottom %.0f, place tabs top %.0f"):format(name, boxBottom, tabTop)
+                    report(line)
+                    check(tabTop <= boxBottom + 1, line .. ": the tabs aren't below the switch")
+                else
+                    report("LAYOUT " .. name .. ": edges can't be read here")
+                end
+                check(ShowsText(content, "Players nearby who aren't in your group"),
+                    name .. ": its help line isn't shown")
+                CheckAll({
+                    function() TabTextInside(content, name) end,
+                    function() PushedDownInside(content, name) end,
+                })
+            end
+        end
+    end)
+    if SetCVar and had then pcall(SetCVar, "nameplateShowFriendlyPlayers", had) end
+    OpenTab(FriendlyForeverUIPages.TABS[1].label)
+    if not ok then error(err, 0) end
+end)
+
+-- Start here's buff mode lines and its link to the switch (#455, #458).
+test("the Start here page shows how to turn buff mode on and links to the passers-by switch (#455, #458)", function()
+    local page = FriendlyForeverUIPages.Open("start")
+    check(page:IsVisible(), "the Start here page didn't open")
+    check(ShowsText(page.content, "shift-click the minimap button"), "Start here doesn't mention shift-click")
+    local link
+    for _, child in ipairs({ page.content:GetChildren() }) do
+        if child.GetText and child:GetText() == "Passers-by switch (Buffs tab)" then link = child end
+    end
+    check(link ~= nil and link:IsVisible(), "Start here has no passers-by link")
+    OnScreen(link, "Start here passers-by link")
+    link:GetScript("OnClick")(link)
+    local panel = _G.FriendlyForeverOptionsPanel
+    local shown = false
+    for _, child in ipairs({ panel:GetChildren() }) do
+        local content = child.GetScrollChild and child:GetScrollChild()
+        if content then
+            for _, c in ipairs({ content:GetChildren() }) do
+                if c.label and c.label.GetText and c.label:GetText() == PASSERS_LABEL and c:IsVisible() then
+                    shown = true
+                end
+            end
+        end
+    end
+    check(shown, "the link didn't open the Buffs tab at the passers-by switch")
+    OpenTab(FriendlyForeverUIPages.TABS[1].label)
+end)
+
+-- The minimap button's tooltip: the shift-click line, apart from right-click's.
+test("the minimap button's tooltip has the shift-click buff mode line, apart from right-click's (#458)", function()
+    local button = _G.FriendlyForeverMinimapButton
+    check(button ~= nil, "no minimap button")
+    button:GetScript("OnEnter")(button)
+    local shift, right
+    local read = pcall(function()
+        for i = 1, GameTooltip:NumLines() do
+            local line = _G["GameTooltipTextLeft" .. i]
+            local text = line and line:GetText() or ""
+            if text:find("Shift-click:", 1, true) then shift = text end
+            if text:find("Right-click:", 1, true) then right = text end
+        end
+    end)
+    GameTooltip:Hide()
+    if not read then return report("LAYOUT minimap tooltip: its lines can't be read here") end
+    check(shift ~= nil and shift:find("buff mode on/off", 1, true), "the tooltip has no shift-click buff mode line")
+    check(right ~= nil and not right:find("buff mode", 1, true), "right-click's line should stay about the addon")
+    report("LAYOUT minimap tooltip: " .. tostring(shift))
+end)
+
 -- The Buff Back tab's top-up row (#42): its label and stepper on one line
 -- inside the options, between buff mode's minutes and buff requests in
 -- chat (the battleground rows moved to the Buffs tab, #408), overlapping neither.

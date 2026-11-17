@@ -3,7 +3,7 @@
 --
 -- At the top, for every place: your buffs in the order they're offered,
 -- each with its icon, Up and Down, and Never offer; then the self-buff,
--- water-breathing and group-version options. Below, a sub-tab for each place
+-- water-breathing, group-version and passers-by options (#455). Below, a sub-tab for each place
 -- (BuffRules.PLACES): Buff Back (strangers who buff you), Party, Raid and
 -- PvP (battlegrounds and arenas), each with a row per buff for others: its
 -- icon, its name, and a labelled "who gets it" button whose list ticks
@@ -433,13 +433,34 @@ function BuffsTab.Create(content, tabsBottom)
     enough.label:SetPoint("TOPLEFT", w.groupVersions, "BOTTOMLEFT", 4, -8)
     w.steppers.groupEnough = enough
 
+    -- Passers-by (#39, #455): the switch, what it does, and the nameplates it
+    -- needs. It decides whether buff mode ever looks at strangers, whichever
+    -- place you're on, so it sits with the other switches above the places.
+    w.passersBy = Check("passersBy", "Also offer my buffs to passers-by in buff mode", ns.Options.PASSERS_BY_TIP)
+    w.passersBy:SetPoint("TOPLEFT", enough.label, "BOTTOMLEFT", -4, -10)
+    -- Pinned on both sides, so it wraps inside the page at any width, as the
+    -- place's help below does.
+    w.passersByHelp = ui.Label(area, ns.Options.PASSERS_BY_HELP, "GameFontHighlightSmall")
+    w.passersByHelp:SetPoint("TOPLEFT", w.passersBy, "BOTTOMLEFT", 4, -4)
+    w.passersByHelp:SetPoint("RIGHT", area, "RIGHT", -24, 0)
+    w.passersByHelp:SetWordWrap(true)
+    w.passersByNameplates = ui.Label(area, ns.Colours.Text("warn", "Friendly player nameplates are off, "
+        .. "so nobody nearby can be seen."), "GameFontHighlightSmall")
+    w.passersByNameplates:SetPoint("TOPLEFT", w.passersByHelp, "BOTTOMLEFT", 0, -6)
+    w.passersByShow = ui.Button(area, "Show friendly player names", 200, function()
+        local ok, reason = ns.Nameplates.EnableFriendlyNames()
+        ns.Print(ok and "friendly player names are now shown (names only)." or ("couldn't turn them on: " .. reason))
+        ns.Options.Refresh()
+    end)
+    w.passersByShow:SetPoint("LEFT", w.passersByNameplates, "RIGHT", 10, 0)
+
     -- The places' sub-tabs.
     w.placeTabs = {}
     local prev
     for i, p in ipairs(ns.BuffRules.PLACES) do
         local tab = ui.Button(area, BuffsTab.PLACE_TEXT[p], 90, function() BuffsTab.SelectPlace(p) end)
         if i == 1 then
-            tab:SetPoint("TOPLEFT", enough.label, "BOTTOMLEFT", 0, -18)
+            tab:SetPoint("TOPLEFT", w.passersByHelp, "BOTTOMLEFT", 0, -18)
         else
             tab:SetPoint("LEFT", prev, "RIGHT", 6, 0)
         end
@@ -511,20 +532,6 @@ function BuffsTab.Create(content, tabsBottom)
 
     -- Each place's own options.
     w.openBuffBack = ui.Button(area, "Open the Buff Back tab", 170, function() ns.Options.SelectType("buffBack") end)
-    -- Passers-by (#39): the switch, what it does, and the nameplates it needs.
-    w.passersBy = Check("passersBy", "Also offer my buffs to passers-by in buff mode", ns.Options.PASSERS_BY_TIP)
-    -- Pinned on both sides as it's placed (FillOptions), so it wraps inside
-    -- the page at any width, as the place's help above does.
-    w.passersByHelp = ui.Label(area, ns.Options.PASSERS_BY_HELP, "GameFontHighlightSmall")
-    w.passersByHelp:SetWordWrap(true)
-    w.passersByNameplates = ui.Label(area, ns.Colours.Text("warn", "Friendly player nameplates are off, "
-        .. "so nobody nearby can be seen."), "GameFontHighlightSmall")
-    w.passersByShow = ui.Button(area, "Show friendly player names", 200, function()
-        local ok, reason = ns.Nameplates.EnableFriendlyNames()
-        ns.Print(ok and "friendly player names are now shown (names only)." or ("couldn't turn them on: " .. reason))
-        ns.Options.Refresh()
-    end)
-    w.passersByShow:SetPoint("LEFT", w.passersByNameplates, "RIGHT", 10, 0)
     w.soloOwnBuffs = Check("soloOwnBuffs", "Offer my own buffs when I'm not in a group",
         ns.Options.SOLO_OWN_BUFFS_TOOLTIP)
     w.raidSplit = Check("raidSplit", "Share buffs with other copies in raids", ns.Options.RAID_SPLIT_TOOLTIP)
@@ -607,6 +614,15 @@ local function FillOrder(buffs)
     w.breathNearWater:SetChecked(b.breathNearWater == true)
     w.groupVersions:SetChecked(b.groupVersions == true)
     UI().FillBox(w.steppers.groupEnough.box, tostring(b.groupEnough))
+    w.passersBy:SetChecked(b.passersBy == true)
+    -- Without friendly nameplates nobody nearby shows (Nameplates.lua): say
+    -- so, and the places' tabs move down under the line.
+    local blind = ns.Nameplates.FriendlyShown() == false
+    w.passersByNameplates:SetShown(blind)
+    w.passersByShow:SetShown(blind)
+    local first = w.placeTabs[ns.BuffRules.PLACES[1]]
+    first:ClearAllPoints()
+    first:SetPoint("TOPLEFT", blind and w.passersByNameplates or w.passersByHelp, "BOTTOMLEFT", 0, blind and -12 or -18)
 end
 
 -- The names boxes' labels sit this far in from their row's icon.
@@ -691,14 +707,6 @@ local function FillOptions(last)
         last = frame
     end
     Below(w.openBuffBack, place == "strangers", 0, -12)
-    Below(w.passersBy, place == "strangers", -4)
-    if place == "strangers" then w.passersBy:SetChecked(b.passersBy == true) end
-    Below(w.passersByHelp, place == "strangers", 4, -4)
-    if place == "strangers" then w.passersByHelp:SetPoint("RIGHT", area, "RIGHT", -24, 0) end
-    -- Without friendly nameplates nobody nearby shows (Nameplates.lua).
-    local blind = place == "strangers" and ns.Nameplates.FriendlyShown() == false
-    Below(w.passersByNameplates, blind, 0, -6)
-    w.passersByShow:SetShown(blind)
     Below(w.soloOwnBuffs, place == "party", -4)
     if place == "party" then w.soloOwnBuffs:SetChecked(b.soloOwnBuffs == true) end
     Below(w.raidSplit, place == "raid", -4)
