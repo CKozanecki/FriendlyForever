@@ -12,7 +12,7 @@ local FORT = 10938
 local ICE_ARMOR, FROST_ARMOR, MAGE_ARMOR = 10220, 7301, 22783
 local INTELLECT = 10157
 local HAWK, MONKEY, WILD, CHEETAH, PACK, BEAST = 25296, 13163, 20190, 5118, 13159, 13161
-local TRUESHOT = 20906
+local TRUESHOT, TRUESHOT_2, TRUESHOT_1 = 20906, 1299348, 1299346 -- ranks 1 and 2 on Forever: #379
 local DEVOTION, RETRIBUTION, CONCENTRATION = 10293, 10301, 19746
 local RIGHTEOUS_FURY = 25780
 local BATTLE_SHOUT = 25289
@@ -383,6 +383,24 @@ describe("Self-buffs in buff mode", function()
             wow.state.playerAuras[2].expirationTime = wow.now + 5
             refresh()
             assert.is_nil(macro())
+        end)
+
+        it("knows Trueshot Aura at ranks 1 and 2 too (1299346, 1299348, #379): offers it, and wearing it counts", function()
+            for _, rank in ipairs({ TRUESHOT_1, TRUESHOT_2 }) do
+                boot({ class = "HUNTER", known = { HAWK, rank } })
+                wear(HAWK, 0)
+                refresh()
+                assert.are.equal("/cast [@player,nodead] Trueshot Aura", macro(), rank)
+                press()
+                assert.is_nil(macro(), rank)
+                -- Another hunter's copy at that rank counts as well, and is never cast over.
+                boot({ class = "HUNTER", known = { HAWK, rank } })
+                party({ "Ann-Vale" })
+                wear(HAWK, 0)
+                wear(rank, 1800, "party1")
+                refresh()
+                assert.is_nil(macro(), rank)
+            end
         end)
 
         it("another paladin's aura, or another hunter's Aspect of the Wild, isn't yours", function()

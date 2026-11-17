@@ -543,8 +543,9 @@ for name, ids in pairs({
     ["Aspect of the Cheetah"] = { 5118 }, ["Aspect of the Pack"] = { 13159 }, ["Aspect of the Beast"] = { 13161 },
 }) do selfSpell(name, ids, { duration = 0, toggle = true, family = "aspect" }) end
 -- Trueshot Aura lasts 30 minutes on Forever (its spell data, #44), where
--- Classic's stays on: a timed buff. Forever's ranks 1 and 2 are on #379.
-selfSpell("Trueshot Aura", { 20906, 20905, 19506 }, { duration = 1800 })
+-- Classic's stays on: a timed buff. Forever's ranks 1 and 2 are 1299346 and
+-- 1299348 (its spell data, build 1.60.1.70938: docs/forever-facts.md, #379).
+selfSpell("Trueshot Aura", { 20906, 20905, 19506, 1299348, 1299346 }, { duration = 1800 })
 for name, ids in pairs({
     ["Devotion Aura"] = { 10293, 10292, 1032, 10291, 643, 10290, 465 },
     ["Retribution Aura"] = { 10301, 10300, 10299, 10298, 7294 }, ["Concentration Aura"] = { 19746 },

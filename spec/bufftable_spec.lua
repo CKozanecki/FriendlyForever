@@ -176,7 +176,10 @@ describe("The generated buff table", function()
             -- Hand-listed from a Forever source the owner gave (#350): Water
             -- Walking (546) and the other spells that give it. Not in the
             -- extraction; used only while it lacks them.
-            local HAND = { [546] = true, [1299351] = true, [11319] = true, [1310296] = true }
+            -- Trueshot Aura's ranks 2 and 1 (#379) are hand-listed too, after
+            -- the data's ranks 5, 4 and 3: found in a later build than the extraction.
+            local HAND = { [546] = true, [1299351] = true, [11319] = true, [1310296] = true,
+                [1299348] = true, [1299346] = true }
             local handListed = {}
             for _, list in pairs(ns.BuffTable.classes) do
                 for _, buff in ipairs(list) do
@@ -695,15 +698,20 @@ describe("The generated buff table", function()
                             local line = text:match("\nFOUND  %u+ " .. buff.key .. ": ([^\n]*)")
                             assert.is_truthy(line, buff.key)
                             for _, id in ipairs(buff.ranks) do
-                                assert.is_truthy(line:find("%f[%d]" .. id .. " %([^)]*, duration %d+: [^)]+%)"), buff.key .. " " .. id)
+                                -- Trueshot's ranks 2 and 1 are hand-listed (#379): no data row, so no duration.
+                                if id ~= 1299348 and id ~= 1299346 then
+                                    assert.is_truthy(line:find("%f[%d]" .. id .. " %([^)]*, duration %d+: [^)]+%)"), buff.key .. " " .. id)
+                                end
                             end
                         end
                     end
                 end
                 assert.is_truthy(text:find("16864 (Omen of Clarity, duration 0: no duration)", 1, true), text)
                 assert.is_truthy(text:find("WARNING  omen: passive (Attributes_0 has 0x40), not a buff you cast: [16864]", 1, true), text)
-                assert.is_truthy(text:find("WARNING  trueshot: 'Trueshot Aura' has ranks [3, 4, 5]: rank 1, 2 not in the data", 1, true),
-                    text)
+                -- Ranks 1 and 2 are hand-listed (#379), so the gap isn't a warning any more.
+                assert.is_truthy(text:find("HAND-LISTED  HUNTER trueshot: ranks [1299348, 1299346] are not in the data;"
+                    .. " used after [20906, 20905, 19506]", 1, true), text)
+                assert.is_falsy(text:find("WARNING  trueshot", 1, true), text)
                 assert.is_truthy(text:find("19506 (Trueshot Aura, rank 3, duration 30: 30 minutes)", 1, true), text)
                 assert.is_truthy(text:find("WARNING  devotion: no SpellPower row (no cost)", 1, true), text)
                 -- Each index's text, as docs/forever-facts.md records it (#410's testing review).
@@ -1030,6 +1038,112 @@ describe("The generated buff table", function()
             assert.is_truthy(out:find("ranks = { 546 },", 1, true), out)
             assert.is_falsy(out:find("handListed", 1, true), out)
         end)
+    end)
+
+    describe("the generator's hand-listed ranks (#379)", function()
+        local dir
+        before_each(function() dir = tmpdir() end)
+        after_each(function() os.execute('rm -rf "' .. dir .. '"') end)
+
+        -- Trueshot Aura's ranks 3 to 5 in the data (19506, 20905, 20906), and
+        -- the ranks named in `more` ({ id = rank }) as well.
+        local function data(more)
+            local spell, names = {}, {}
+            local rows = { { 19506, 3 }, { 20905, 4 }, { 20906, 5 } }
+            -- A `more` value is a rank, or { rank, name } for another spell's name.
+            for id, rank in pairs(more or {}) do
+                rows[#rows + 1] = type(rank) == "table" and { id, rank[1], rank[2] } or { id, rank }
+            end
+            for _, row in ipairs(rows) do
+                spell[#spell + 1] = ('{"ID":%d,"NameSubtext_lang":"Rank %d"}'):format(row[1], row[2])
+                names[#names + 1] = ('{"ID":%d,"Name_lang":"%s"}'):format(row[1], row[3] or "Trueshot Aura")
+            end
+            return '{"schema":1,"build":"1.60.1.70685","tables":{"Spell":{"rows":[' .. table.concat(spell, ",")
+                .. ']},"SpellName":{"rows":[' .. table.concat(names, ",") .. ']}}}'
+        end
+        local function run(fields, more)
+            write(dir .. "/spells.json", data(more))
+            write(dir .. "/buffs.json", '{"format":1,"classes":{"HUNTER":[{"key":"trueshot","name":"Trueshot Aura",'
+                .. '"selfCast":true' .. (fields and ("," .. fields) or "") .. '}]},"removed":[]}')
+            write(dir .. "/out.lua", "KEEP")
+            local code, text = generate(dir .. "/spells.json", dir .. "/buffs.json", dir .. "/out.lua")
+            return code, text, read(dir .. "/out.lua")
+        end
+
+        it("adds the hand-listed ranks after the data's, highest first, with no rank-gap warning (white)", function()
+            local code, text, out = run('"handRanks":[1299348,1299346]')
+            assert.are.equal(0, code, text)
+            assert.is_truthy(out:find("ranks = { 20906, 20905, 19506, 1299348, 1299346 },", 1, true), out)
+            assert.is_falsy(out:find("handListed", 1, true), out)
+            assert.is_truthy(text:find("HAND-LISTED  HUNTER trueshot: ranks [1299348, 1299346] are not in the data;"
+                .. " used after [20906, 20905, 19506]", 1, true), text)
+            assert.is_falsy(text:find("WARNING  trueshot", 1, true), text)
+            -- Without them the gap is warned of, and the table is the data's.
+            code, text, out = run(nil)
+            assert.are.equal(0, code, text)
+            assert.is_truthy(out:find("ranks = { 20906, 20905, 19506 },", 1, true), out)
+            assert.is_truthy(text:find("WARNING  trueshot: 'Trueshot Aura' has ranks [3, 4, 5]: rank 1, 2 not in the data",
+                1, true), text)
+        end)
+
+        it("still warns when the hand-listed ranks don't fill the gap (white)", function()
+            local code, text, out = run('"handRanks":[1299348]')
+            assert.are.equal(0, code, text)
+            assert.is_truthy(out:find("ranks = { 20906, 20905, 19506, 1299348 },", 1, true), out)
+            assert.is_truthy(text:find("WARNING  trueshot: 'Trueshot Aura' has ranks [3, 4, 5]: rank 1, 2 not in the data",
+                1, true), text)
+        end)
+
+        it("uses the data's rank once it has the ID, and says to drop it from the list (white)", function()
+            local code, text, out = run('"handRanks":[1299348,1299346]', { [1299348] = 2 })
+            assert.are.equal(0, code, text)
+            assert.is_truthy(out:find("ranks = { 20906, 20905, 19506, 1299348, 1299346 },", 1, true), out)
+            assert.is_truthy(text:find("remove it from handRanks", 1, true), text)
+            assert.is_truthy(text:find("HAND-LISTED  HUNTER trueshot: ranks [1299346] are not in the data", 1, true), text)
+            assert.is_truthy(text:find("1299348 (Trueshot Aura, rank 2)", 1, true), text)
+            code, text, out = run('"handRanks":[1299348,1299346]', { [1299348] = 2, [1299346] = 1 })
+            assert.are.equal(0, code, text)
+            assert.is_truthy(out:find("ranks = { 20906, 20905, 19506, 1299348, 1299346 },", 1, true), out)
+            assert.is_falsy(text:find("HAND-LISTED  HUNTER trueshot", 1, true), text)
+            assert.is_falsy(text:find("WARNING  trueshot", 1, true), text)
+            -- A hand-listed ID that is a rank in the data is a notice, not a second copy.
+            code, text, out = run('"handRanks":[20906,1299348,1299346]')
+            assert.are.equal(0, code, text)
+            assert.is_truthy(out:find("ranks = { 20906, 20905, 19506, 1299348, 1299346 },", 1, true), out)
+            assert.is_truthy(text:find("the data has 20906 ('Trueshot Aura') now; remove it from handRanks", 1, true), text)
+        end)
+
+        it("refuses a bad list, an ID that is already a rank, and a list on a buff the data lacks; it writes nothing (black)",
+            function()
+                for _, case in ipairs({
+                    { '"handRanks":[]', "handRanks must be a list of spell IDs, each once" },
+                    { '"handRanks":1299348', "handRanks must be a list of spell IDs, each once" },
+                    { '"handRanks":[1299348,1299348]', "handRanks must be a list of spell IDs, each once" },
+                    { '"handRanks":[0]', "trueshot handRanks: spell ID 0 is not a whole number" },
+                    { '"handRanks":["1299348"]', "trueshot handRanks: spell ID '1299348' is not a whole number" },
+                    { '"handRanks":[1299348.5]', "spell ID 1299348.5 is not a whole number" },
+                    { '"handRanks":[10000001]', "spell ID 10000001 is not a whole number from 1 to 10000000" },
+                    { '"handRanks":[1299348],"handIds":[1299346]', "handRanks needs ranks in the data and can't be used with handIds" },
+                }) do
+                    local code, text, out = run(case[1])
+                    assert.are.equal(1, code, case[1] .. ": " .. text)
+                    assert.is_truthy(text:find("nothing written", 1, true), case[1])
+                    assert.is_truthy(text:find(case[2], 1, true), case[1] .. " gives the wrong reason: " .. text)
+                    assert.are.equal("KEEP", out, case[1])
+                end
+                -- An ID that is another spell in the data is refused, as handIds does.
+                local code, text, out = run('"handRanks":[1299348]', { [1299348] = { 2, "Earth Shock" } })
+                assert.are.equal(1, code, text)
+                assert.is_truthy(text:find("hand-listed rank 1299348 is 'Earth Shock' in the data, not 'Trueshot Aura'", 1, true), text)
+                assert.are.equal("KEEP", out)
+                -- A buff the data doesn't have at all can't have hand-listed lower ranks.
+                write(dir .. "/spells.json", '{"schema":1,"build":"1.60.1.70685","tables":{"Spell":{"rows":[]},"SpellName":{"rows":[]}}}')
+                write(dir .. "/out.lua", "KEEP")
+                code, text = generate(dir .. "/spells.json", dir .. "/buffs.json", dir .. "/out.lua")
+                assert.are.equal(1, code, text)
+                assert.is_truthy(text:find("handRanks needs ranks in the data", 1, true), text)
+                assert.are.equal("KEEP", read(dir .. "/out.lua"))
+            end)
     end)
 
     describe("a buff that is not in the table (black)", function()

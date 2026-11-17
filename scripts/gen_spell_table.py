@@ -204,7 +204,7 @@ def duration_text(spell_id, misc):
     return f", duration {index}: {DURATIONS.get(index, 'unknown')}"
 
 
-def warnings_for(key, buff, spells, misc, costed, report):
+def warnings_for(key, buff, spells, misc, costed, report, hand_count=0):
     """The report's warnings for one buff's ranks (#380). They never change the table."""
     ranks = buff["ranks"]
     if misc is not None:
@@ -237,8 +237,13 @@ def warnings_for(key, buff, spells, misc, costed, report):
         expected = list(range(1, numbers[-1] + 1))
         if numbers != expected:
             absent = [n for n in expected if n not in numbers]
+            if absent and len(absent) <= hand_count:
+                hand_count -= len(absent)  # the buff's handRanks fill them (#379)
+                absent = []
             twice = sorted({n for n in numbers if numbers.count(n) > 1})
             said = []
+            if not absent and not twice:
+                continue
             if absent:
                 said.append("rank " + ", ".join(map(str, absent)) + " not in the data")
             if twice:
@@ -301,7 +306,7 @@ def group_cast(key, spec, buff, spells, index, report):
             continue
         if found[0] not in buff.get("group", []):
             raise Problem(f"{key}: group cast {found[0]} is not one of its group versions")
-        same = [i for i in buff["ranks"] if spells[i][1] == equals_rank]
+        same = [i for i in buff["ranks"] if i in spells and spells[i][1] == equals_rank]
         if len(same) != 1:
             raise Problem(f"{key}: no single rank {equals_rank} to match group cast {found[0]}")
         out.append({"id": found[0], "reagent": reagent, "equals": same[0]})
@@ -416,6 +421,33 @@ def build(spells, classes, removed, family_auras=None, misc=None, costed=None):
                     hand_listed = True
                     report.append(f"HAND-LISTED  {cls} {key}: {name!r} is not in the data; "
                                   f"hand-listed IDs {hand} are used, offered only when the client names them {name!r}")
+            # handRanks (#379): lower ranks of a buff the data does have, whose
+            # IDs the extraction missed (Trueshot Aura rank 1 and 2, found in
+            # Forever's later build, 1.60.1.70938), highest first. Each is
+            # added after the data's ranks, and only while the data has none
+            # of that ID; the next extraction can add them to
+            # scripts/data/forever-spell-ids-extra.txt, and this then says to
+            # drop them.
+            data_ranks = list(ranks)
+            hand_ranks = []
+            if "handRanks" in spec:
+                hand = spec["handRanks"]
+                if "handIds" in spec or not data_ranks:
+                    raise Problem(f"{key}: handRanks needs ranks in the data and can't be used with handIds")
+                if not isinstance(hand, list) or not hand or len(set(map(repr, hand))) != len(hand):
+                    raise Problem(f"{key}: handRanks must be a list of spell IDs, each once")
+                for i in hand:
+                    check_id(i, f"{key} handRanks")
+                    if i in spells and spells[i][0] != name:
+                        raise Problem(f"{key}: hand-listed rank {i} is {spells[i][0]!r} in the data, not {name!r}")
+                    if i in spells:
+                        report.append(f"FOUND  {key}: the data has {i} ({spells[i][0]!r}) now; remove it from handRanks")
+                    else:
+                        hand_ranks.append(i)
+                if hand_ranks:
+                    report.append(f"HAND-LISTED  {cls} {key}: ranks {hand_ranks} are not in the data; "
+                                  f"used after {data_ranks}")
+            ranks = data_ranks + hand_ranks
             if not ranks:
                 absent.append(key)
                 report.append(f"NOT FOUND  {key}: no spell named {name!r} in the data; the buff is left out")
@@ -500,9 +532,9 @@ def build(spells, classes, removed, family_auras=None, misc=None, costed=None):
                     raise Problem(f"{key}: duplicate ID in {field}")
             if not hand_listed:
                 used = ", ".join(f"{i} ({spells[i][0]}{', rank ' + str(spells[i][1]) if spells[i][1] else ''}"
-                                 f"{duration_text(i, misc)})" for i in ranks)
+                                 f"{duration_text(i, misc)})" for i in data_ranks)
                 report.append(f"FOUND  {cls} {key}: ranks {used}")
-                warnings_for(key, buff, spells, misc, costed, report)
+                warnings_for(key, dict(buff, ranks=data_ranks), spells, misc, costed, report, len(hand_ranks))
             if group:
                 report.append(f"FOUND  {key} group versions {group}")
             if blockers:
