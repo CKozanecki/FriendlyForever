@@ -2745,35 +2745,48 @@ describe("UI simulator workflow", function()
         -- outside quotes and comments (not a <<< string), in order, with its
         -- operator as written, the word that ends it, and whether its body
         -- expands: only when no part of the word is quoted (<<'MSG', <<"MSG",
-        -- <<\MSG and M'SG' don't).
+        -- <<\MSG and M'SG' don't). A $( ) or ` ` is a command of its own,
+        -- inside double quotes too ("$(cat <<EOF", #432's re-review). The
+        -- second answer: the line ends inside a quote, a $( ) or a ` `, so
+        -- the command goes on after the last body.
         local function heredocsOf(line)
-            local found, i, n = {}, 1, #line
+            local found, stack, i, n = {}, {}, 1, #line
             while i <= n do
-                local c = line:sub(i, i)
-                if c == "\\" then
-                    i = i + 2
-                elseif c == "'" then
-                    i = (line:find("'", i + 1, true) or n) + 1
-                elseif c == '"' then
-                    local j = i + 1
-                    while j <= n and line:sub(j, j) ~= '"' do j = j + (line:sub(j, j) == "\\" and 2 or 1) end
-                    i = j + 1
+                local c, two, top = line:sub(i, i), line:sub(i, i + 1), stack[#stack]
+                local size = 1
+                if top == "'" then
+                    if c == "'" then table.remove(stack) end
+                elseif c == "\\" then
+                    size = 2
+                elseif top == '"' then
+                    if c == '"' then table.remove(stack)
+                    elseif two == "$(" then stack[#stack + 1] = "("; size = 2
+                    elseif c == "`" then stack[#stack + 1] = "`" end
+                elseif c == "'" or c == '"' then
+                    stack[#stack + 1] = c
+                elseif two == "$(" then
+                    stack[#stack + 1] = "("; size = 2
+                elseif top == "(" and c == "(" then
+                    stack[#stack + 1] = "("
+                elseif top == "(" and c == ")" then
+                    table.remove(stack)
+                elseif c == "`" then
+                    if top == "`" then table.remove(stack) else stack[#stack + 1] = "`" end
                 elseif c == "#" and (i == 1 or line:sub(i - 1, i - 1):match("%s")) then
                     break
-                elseif line:sub(i, i + 1) == "<<" and line:sub(i + 2, i + 2) ~= "<" and line:sub(i - 1, i - 1) ~= "<" then
+                elseif two == "<<" and line:sub(i + 2, i + 2) ~= "<" and line:sub(i - 1, i - 1) ~= "<" then
                     local op, dash, word = line:match("^(<<(%-?)%s*([^%s;|&<>()]+))", i)
                     if op then
                         local bare = word:gsub("[\"'\\]", "")
                         found[#found + 1] = { op = op, word = bare, dash = dash == "-", expands = bare == word }
-                        i = i + #op
+                        size = #op
                     else
-                        i = i + 2
+                        size = 2
                     end
-                else
-                    i = i + 1
                 end
+                i = i + size
             end
-            return found
+            return found, #stack > 0
         end
 
         -- The variables a read sets: its words after its options.
@@ -2876,8 +2889,10 @@ describe("UI simulator workflow", function()
             -- once the runner has taken that indentation off (after tabs too,
             -- for <<-).
             local docs, base = {}, (all[1] or ""):match("^(%s*)")
+            -- A command left open on its line (msg="$(cat <<EOF) goes on on the
+            -- line after the last body, which is joined back to it.
             do
-                local kept, queue, open = {}, {}, nil
+                local kept, queue, open, join = {}, {}, nil, false
                 for _, line in ipairs(all) do
                     if open then
                         local rest = line:sub(1, #base) == base and line:sub(#base + 1) or nil
@@ -2887,13 +2902,17 @@ describe("UI simulator workflow", function()
                         else
                             open.body[#open.body + 1] = line
                         end
+                    elseif join then
+                        kept[#kept] = kept[#kept] .. " " .. line:gsub("^%s+", "")
+                        join = false
                     else
                         kept[#kept + 1] = line
-                        local found = heredocsOf(line)
+                        local found, unfinished = heredocsOf(line)
                         if #found > 0 then
                             for _, doc in ipairs(found) do doc.body = {}; queue[#queue + 1] = doc end
                             docs[#kept] = found
                             open = table.remove(queue, 1)
+                            join = unfinished
                         end
                     end
                 end
@@ -2907,31 +2926,38 @@ describe("UI simulator workflow", function()
             -- output or its errors (docker build), so it counts as a reader of
             -- that source. A source's path on its own is the workflow's text,
             -- not the shot's or the simulator's, as it is for echo (#367).
-            -- The second answer: the reader runs in a $( ) still open where
-            -- the here-document starts, which captures its output (msg=$(cat
-            -- <<EOF ... EOF)), as printsOutput skips a captured echo (#432's
-            -- architecture review).
+            -- Answers fed (that), captured (the command is an assignment whose
+            -- $( ) is open where the here-document starts, x=$(cat <<EOF:
+            -- its output goes to x, not the log, #432's review) and leaky (a
+            -- $( ) in the body that prints a source sends its errors to the
+            -- log: the body expands before the reader's own redirections
+            -- apply, and outside any capture, so only its own 2>&1 or
+            -- 2>/dev/null keeps them out, #432's re-review).
             local function readsNames(command, index)
+                local fed, captured, leaky = false, false, false
+                local assigned = command:match("^[%a_][%w_]*=\"?%$%(") or command:match("^%a+%s+[%a_][%w_]*=\"?%$%(")
                 for _, doc in ipairs(docs[index] or {}) do
                     local at = doc.expands and command:find(doc.op, 1, true)
                     if at then
                         local before = command:sub(1, at - 1)
                         local _, opened = before:gsub("%$%(", "")
                         local _, closed = before:gsub("%)", "")
-                        local captured = opened > closed
+                        captured = captured or (assigned ~= nil and opened > closed)
                         local body, held = table.concat(doc.body, "\n"), unchecked()
-                        if namesOne(body, held) then return true, captured end
+                        if namesOne(body, held) then fed = true end
                         local runs = {}
                         for inside in body:gmatch("%$(%b())") do runs[#runs + 1] = inside:sub(2, -2) end
                         for inside in body:gmatch("`([^`]*)`") do runs[#runs + 1] = inside end
                         for _, inside in ipairs(runs) do
                             if printsOutput(inside, state.inTree, sources, unquotedOf(inside), held) then
-                                return true, captured
+                                fed = true
+                                local first = inside:match("^([^|]*)")
+                                if not (first:find(ERRORS) or first:find(INTO_PIPE)) then leaky = true end
                             end
                         end
                     end
                 end
-                return false
+                return fed, captured, leaky
             end
             for index, line in ipairs(all) do
                 local pieces = piecesOf(line)
@@ -3033,11 +3059,11 @@ describe("UI simulator workflow", function()
                         from = from or line
                         -- A here-document's reader prints its body, unless it's a read,
                         -- which keeps it, or a $( ) captures it (#432's review).
-                        local fed, captured = readsNames(piece.text, index)
+                        local fed, captured, leaky = readsNames(piece.text, index)
                         if printsOutput(piece.text, state.inTree, sources, piece.bare, unchecked())
-                            or (fed and not captured and not info.command:match("^read%f[%W]")) then
+                            or (fed and not captured and not info.command:match("^read%f[%W]")) or leaky then
                             prints = true
-                            if not errorsKept(piece) then leaks = true end
+                            if leaky or not errorsKept(piece) then leaks = true end
                         end
                         if piece.after ~= "|" and piece.after ~= "|&" then
                             if prints then
@@ -3738,13 +3764,48 @@ describe("UI simulator workflow", function()
             -- $( ) captures one; what they hold is a name, printed later.
             it("passes a here-document a read keeps or a $( ) captures, and flags what then prints it (white, red)", function()
                 local captured = 'for f in shots/*.png; do\n  msg=$(cat <<EOF\ncopying $f\nEOF\n)\ndone'
-                local kept = 'read -r first <<EOF\n$(ls shots)\nEOF'
+                local kept = 'read -r first <<EOF\n$(ls shots 2>&1)\nEOF'
                 assert.are.same({}, (scan(step(captured))))
                 assert.are.same({}, (scan(step(kept))))
                 assert.are.equal(1, #scan(step(captured:gsub("\ndone$", '\n  echo "$msg"\ndone'))))
                 assert.are.equal(1, #scan(step(kept .. '\necho "$first"')))
                 -- A quoted here-document holds the text as written: no name.
                 assert.are.same({}, (scan(step("read -r first <<'EOF'\n$(ls shots)\nEOF\necho \"$first\""))))
+            end)
+
+            -- #432's re-review: a $( ) in the body runs before the reader's own
+            -- redirections and outside any capture, so it keeps its own errors;
+            -- and a here-document opened in "$( )" is found, its command going
+            -- on after the body.
+            it("flags a $( ) in the body that sends its errors to the log, whatever reads the body (red)", function()
+                for _, body in ipairs({
+                    'cat <<EOF 2>&1 | shown\nfirst: $(head -n 1 shots/*.log)\nEOF',
+                    'read -r first <<EOF\n$(head -n 1 shots/*.log)\nEOF',
+                    'msg=$(cat <<EOF\n$(head -n 1 shots/*.log)\nEOF\n)',
+                    'msg=$(cat <<EOF\n`head -n 1 shots/*.log`\nEOF\n)',
+                }) do
+                    assert.are.equal(1, #scan(step(body)), body)
+                end
+                -- Its own 2>&1 keeps them with the body.
+                assert.are.same({}, (scan(step('cat <<EOF 2>&1 | shown\nfirst: $(head -n 1 shots/*.log 2>&1)\nEOF'))))
+                assert.are.same({}, (scan(step('msg=$(cat <<EOF\n$(head -n 1 shots/*.log 2>/dev/null)\nEOF\n)'))))
+            end)
+
+            it("finds a here-document opened in \"$( )\", and reads its command on after the body (red, white)", function()
+                for _, body in ipairs({
+                    'for f in shots/*.png; do msg="$(cat <<EOF\ncopying $f\nEOF\n)"; echo "$msg"; done',
+                    'for f in shots/*.png; do echo "$(cat <<EOF\ncopying $f\nEOF\n)"; done',
+                    'for f in shots/*.png; do echo $(cat <<EOF\ncopying $f\nEOF\n); done',
+                }) do
+                    assert.are.equal(1, #scan(step(body)), body)
+                end
+                assert.are.same({}, (scan(step('for f in shots/*.png; do msg="$(cat <<EOF\ncopying $f\nEOF\n)"; done'))))
+                -- "<<EOF" as text inside double quotes, outside a $( ), opens nothing.
+                assert.are.same({}, (scan(step('echo "use <<EOF here"'))))
+                -- What follows the body is code: a done there ends its loop, and the safe-name check with it.
+                local checked = 'for f in shots/*.png; do\n  case "$f" in *[!A-Za-z0-9._-]*) continue ;; esac\n'
+                    .. '  msg="$(cat <<EOF\ncopying $f\nEOF\n)"; done\necho "last: $f"'
+                assert.are.same({ 'prints unfiltered output:   echo "last: $f"' }, (scan(step(checked))))
             end)
 
             it("reports a here-document that never ends, and ends one only at its word alone (black)", function()
