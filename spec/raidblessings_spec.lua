@@ -1,4 +1,4 @@
--- Spec: #68, #76, #208, #70, #368, #376, #394, #408
+-- Spec: #68, #76, #208, #70, #368, #376, #394, #408, #372
 -- My Blessings in this raid (paladins): choose which of your Blessings you
 -- give in the raid you're in, so two paladins don't both give Kings. The
 -- choice is never saved and is forgotten once you're out of the raid, as the
@@ -262,6 +262,58 @@ describe("My Blessings in this raid", function()
             assert.are.equal("Ann Vale: Blessing of Might", armed())
             slash("blessings all")
             assert.is_true(r.raidBlessings[1]:GetChecked(), "the slash command shows in the panel")
+        end)
+
+        -- The owner's decision on #372: while the game won't say whether
+        -- you're in a raid, the boxes stay greyed, a kept choice still ticked,
+        -- and the header says why.
+        for _, case in ipairs({
+            { "a secret", function() wow.state.inRaidUnreadable = true end },
+            { "false in a raid", function() _G.IsInRaid = function() return false end end },
+            { "an error", function() _G.IsInRaid = function() error("IsInRaid: not now") end end },
+        }) do
+            it("IsInRaid() " .. case[1] .. " with a choice kept: greyed, still ticked, and says it can't tell "
+                .. "(black, #372)", function()
+                local w = ns.Options.widgets
+                wow.run(w.tabs.buffs, "OnClick")
+                wow.run(w.placeTabs.raid, "OnClick")
+                local r = w.who
+                group("raid", { "Ann-Vale" })
+                slash("blessings might")
+                local real = _G.IsInRaid
+                case[2]()
+                ns.Options.Refresh()
+                assert.is_true(ns.BuffRules.RaidBlessingsChosen(), "the choice is kept")
+                assert.is_truthy(r.raidHeader:GetText():find("(can't tell if you're in a raid)", 1, true),
+                    r.raidHeader:GetText())
+                local ticked = {}
+                for _, cb in ipairs(r.raidBlessings) do
+                    if cb:IsShown() then
+                        assert.is_false(cb:IsEnabled(), cb.key)
+                        if cb:GetChecked() then ticked[#ticked + 1] = cb.key end
+                    end
+                end
+                assert.are.same({ "might" }, ticked, "the kept choice still shows")
+                -- Readable again: the boxes work.
+                _G.IsInRaid, wow.state.inRaidUnreadable = real, nil
+                ns.Options.Refresh()
+                assert.is_true(r.raidBlessings[1]:IsEnabled())
+                assert.is_truthy(r.raidHeader:GetText():find("until you leave it", 1, true))
+                assert.are.same({}, wow.errors)
+            end)
+        end
+
+        it("IsInRaid() true in a party: the boxes stay greyed, and say they can't tell (black, #372)", function()
+            local w = ns.Options.widgets
+            wow.run(w.tabs.buffs, "OnClick")
+            wow.run(w.placeTabs.raid, "OnClick")
+            group("party", { "Ann-Vale" })
+            local real = _G.IsInRaid
+            _G.IsInRaid = function() return true end
+            ns.Options.Refresh()
+            _G.IsInRaid = real
+            assert.is_false(w.who.raidBlessings[1]:IsEnabled())
+            assert.is_truthy(w.who.raidHeader:GetText():find("(can't tell if you're in a raid)", 1, true))
         end)
 
         it("the boxes follow your group while the tab is open", function()
