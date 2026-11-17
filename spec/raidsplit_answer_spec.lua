@@ -38,6 +38,17 @@ describe("The raid buff split reads the raid as buff mode does (#372)", function
         return n
     end
 
+    -- The text of each SHARE c sent on the RAID route after the first n.
+    local function raidTexts(c, n)
+        wow.use(c)
+        local out = {}
+        for i = n + 1, #wow.addonSent do
+            local msg = wow.addonSent[i]
+            if msg.channel == "RAID" then out[#out + 1] = msg.text end
+        end
+        return out
+    end
+
     -- Put clients in one raid with Tor, a warrior without the addon, and let
     -- the shares go round.
     local function form()
@@ -152,13 +163,34 @@ describe("The raid buff split reads the raid as buff mode does (#372)", function
             assert.are.equal(0, clients[1].ns.RaidSplit.PeerCount(), "out of the raid: its peers are forgotten")
             clients[1].ns.BuffMode.Set(false)
             wow.advance(600)
+            local before = #wow.addonSent
             form()
+            -- The new raid's first word from Ann asks the others for theirs
+            -- (its last field): what she last said was the old raid's.
+            local said = raidTexts(clients[1], before)
+            assert.is_truthy(said[1], "Ann says she doesn't take part")
+            assert.is_truthy(said[1]:find(";1$"), said[1])
             local mine, why = clients[1].ns.RaidSplit.Current()
             assert.is_nil(mine)
             assert.are.equal("you take part while buff mode is on", why)
             assert.is_nil(share(clients[2]), "Bob covers everything: Ann isn't in the split")
         end)
     end
+
+    it("a leave and a rejoin within one heartbeat leave one heartbeat, not two (black)", function()
+        local split = clients[1].ns.RaidSplit
+        wow.use(clients[1])
+        wow.setGroup(nil)
+        wow.fire("GROUP_ROSTER_UPDATE")
+        -- Back before the old heartbeat's next beat could see the leave.
+        wow.advance(1)
+        form()
+        local before = raidSends(clients[1])
+        wow.use(clients[1])
+        local BEATS = 5
+        wow.advance(split.HEARTBEAT * BEATS)
+        assert.are.equal(BEATS, raidSends(clients[1]) - before, "one share a heartbeat")
+    end)
 
     it("while the answer can't be believed nothing is announced; the heartbeat goes on and speaks once it can be "
         .. "(black)", function()
@@ -212,6 +244,9 @@ describe("The raid buff split reads the raid as buff mode does (#372)", function
         for _, seed in ipairs({ 1, 2, 3, 4, 5, 6, 7, 8 }) do
             random.seed(seed)
             answer(nil)
+            -- What the storm is for: answers that lie "in a raid" out of one,
+            -- and messages that do go out in a raid (the split isn't just mute).
+            local liesOutside, sendsInRaid = 0, 0
             for _ = 1, 60 do
                 wow.use(clients[1])
                 local roll = random.random(6)
@@ -223,8 +258,10 @@ describe("The raid buff split reads the raid as buff mode does (#372)", function
                     wow.setGroup("raid", { "Bob-Lake", "Tor-Axe" })
                     wow.addUnit("raid3", { name = "Ann", surname = "Vale", id = "Ann-Vale", class = "PRIEST" })
                 end
-                answer(HOWS[random.random(#HOWS)])
+                local how = HOWS[random.random(#HOWS)]
+                answer(how)
                 local inRaid = wow.state.groupType == "raid"
+                if how == true and not inRaid then liesOutside = liesOutside + 1 end
                 local sent = raidSends(clients[1])
                 wow.fire("GROUP_ROSTER_UPDATE")
                 wow.use(clients[1])
@@ -232,9 +269,13 @@ describe("The raid buff split reads the raid as buff mode does (#372)", function
                 if not inRaid then
                     assert.are.equal(sent, raidSends(clients[1]),
                         "seed " .. seed .. ": a raid message while the client's state says no raid")
+                elseif raidSends(clients[1]) > sent then
+                    sendsInRaid = sendsInRaid + 1
                 end
                 wow.deliver(net)
             end
+            assert.is_true(liesOutside > 0, "seed " .. seed .. " never lied \"in a raid\" out of one")
+            assert.is_true(sendsInRaid > 0, "seed " .. seed .. " never sent in a raid")
             wow.use(clients[1])
             assert.are.same({}, wow.errors, "seed " .. seed)
             wow.use(clients[2])
