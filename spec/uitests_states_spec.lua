@@ -330,6 +330,7 @@ describe("UI scenarios: a weapon buff picked in the list (#424)", function()
             assert.is_false(enchants[5], "the off hand has an enchant")
             assert.are.equal(W.weapon, GetInventoryItemID("player", W.slot))
             assert.are.equal("simulator's GetInventoryItemID", GetInventoryItemID("player", 17))
+            assert.are.equal("simulator's GetInventoryItemID", GetInventoryItemID("target", W.slot))
             for _, holder in ipairs({ _G, _G.C_Item }) do
                 assert.are.equal(2, select(6, holder.GetItemInfoInstant(W.weapon)), "the axe isn't a weapon")
                 assert.are.equal(0, select("#", holder.GetItemSpell(W.weapon)), "the axe has a Use")

@@ -736,8 +736,6 @@ jobs:
           {
             # The simulator logs each A_Print line twice (as it runs, and in its
             # console at the end), so repeats are dropped.
-            echo "--- client facts"
-            grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
             echo "--- layout"
             grep "LAYOUT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
             echo "--- scenario results"
@@ -752,6 +750,11 @@ jobs:
             grep -i -B2 -A8 "FriendlyForever" "$report/lua-errors.json" | head -80 || echo "none"
             echo "--- frame tree lines naming FriendlyForever"
             grep -i "FriendlyForever" "$report/frame-tree.txt" | head -40 || echo "none"
+            # Last, so the end of the job's log holds them: a session's log
+            # tool reads only its last 5,000 lines, which the layout lines
+            # above fill (#308).
+            echo "--- client facts"
+            grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
           } 2>&1 | shown
 
       - name: Summary
