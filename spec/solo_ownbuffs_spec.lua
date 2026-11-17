@@ -1,4 +1,4 @@
--- Spec: #329, #408, #426
+-- Spec: #329, #408, #426, #459
 -- Buff mode when solo: in no group, buff mode still offers you your own copy
 -- of the buffs you give, as #198 does in a group, under the same rules (your
 -- buff order, Never offer, who gets each buff, top-up time), single versions
@@ -52,7 +52,7 @@ describe("Buff mode when solo: your own buffs (#329)", function()
         refresh()
         local text = macro()
         if not text then return nil end
-        local spell = text:match("^/cast %[@player,nodead%] ([^\n]+)$")
+        local spell = wow.unranked(text:match("^/cast %[@player,nodead%] ([^\n]+)$"))
         assert(spell, "not a cast on you: " .. text)
         return spell
     end
@@ -80,7 +80,7 @@ describe("Buff mode when solo: your own buffs (#329)", function()
         it("offers a buff of yours you're missing on you, and a press casts it without touching your target", function()
             boot()
             assert.are.equal("Power Word: Fortitude", armed())
-            assert.are.equal("/cast [@player,nodead] Power Word: Fortitude", macro())
+            assert.are.equal("/cast [@player,nodead] Power Word: Fortitude(Rank 6)", macro())
             assert.are.equal("You", button.title:GetText())
             local cast = press()
             assert.are.equal(FORT, cast.id)
@@ -256,7 +256,7 @@ describe("Buff mode when solo: your own buffs (#329)", function()
             w.soloOwnBuffs:SetChecked(true)
             wow.run(w.soloOwnBuffs, "OnClick", "LeftButton")
             assert.is_true(ns.db.buffBack.soloOwnBuffs)
-            assert.are.equal("/cast [@player,nodead] Power Word: Fortitude", macro())
+            assert.are.equal("/cast [@player,nodead] Power Word: Fortitude(Rank 6)", macro())
             wow.run(w.tabs.buff, "OnClick")
             assert.is_false(w.soloOwnBuffs:IsVisible())
             wow.run(w.tabs.buffs, "OnClick")

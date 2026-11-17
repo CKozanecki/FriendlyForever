@@ -1,4 +1,4 @@
--- Spec: #43, #227, #252, #305, #313, #424
+-- Spec: #43, #227, #252, #305, #313, #424, #459
 -- The clickable list beside the buff button: everyone the button would offer
 -- to, and the buff for each; a click makes that player the next offer.
 local wow = require("spec.support.wow")
@@ -30,7 +30,7 @@ describe("The list beside the buff button (#43)", function()
     local function armed()
         local text = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
         if not text then return nil end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
+        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
     end
 
     -- The rows shown, as text.
@@ -521,7 +521,7 @@ describe("A group cast in the list (#227)", function()
     local function armed()
         local text = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
         if not text then return nil end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
+        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
     end
 
     local function click(i) ns.BuffList.Rows()[i].scripts.OnClick(ns.BuffList.Rows()[i]) end
@@ -780,7 +780,7 @@ describe("Two group casts aimed at the same player (#305)", function()
     local function armed()
         local text = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
         if not text then return nil end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
+        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
     end
 
     -- Both Fortitude spells (the group version and the single buff) can't go
@@ -903,7 +903,7 @@ describe("A member's later single buff (#313)", function()
     local function armed()
         local text = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
         if not text then return nil end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
+        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
     end
 
     local function click(i) ns.BuffList.Rows()[i].scripts.OnClick(ns.BuffList.Rows()[i]) end

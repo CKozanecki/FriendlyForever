@@ -1,4 +1,4 @@
--- Spec: #30, #76, #99, #208, #253, #259, #44
+-- Spec: #30, #76, #99, #208, #253, #259, #44, #459, #461
 -- Buff mode buffs group members missing your buffs, one per press, with the
 -- same safety rules as buff back.
 local wow = require("spec.support.wow")
@@ -29,7 +29,7 @@ describe("Buffing your group in buff mode", function()
     local function armed()
         local text = macro()
         if not text then return nil end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
+        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
     end
 
     -- The unit token showing this player id, if any.
@@ -208,33 +208,18 @@ describe("Buffing your group in buff mode", function()
             assert.are.equal(0, #ns.db.ledger.entries, "a group buff is no favour")
         end)
 
-        it("a refusal about you (the global cooldown, mana) moves no one back", function()
-            party({ "Ann-Vale", "Cid-Rock" })
+        it("a refusal about you (the global cooldown, mana) holds that member back too: any refusal does (#459)",
+            function()
             for _, why in ipairs({ "Spell is not ready yet.", "Not enough mana", "Can't do that while stunned" }) do
+                boot()
+                party({ "Ann-Vale", "Cid-Rock" })
                 wow.state.castFailures["Ann-Vale"] = why
                 wow.pressKey("MOUSEWHEELUP")
-                assert.are.equal("Ann Vale: Mark of the Wild", armed(), why)
+                assert.are.equal("Cid Rock: Mark of the Wild", armed(), why)
+                wow.state.castFailures["Ann-Vale"] = nil
+                wow.advance(ns.GroupBuffs.HELD_BACK_SECONDS + 1)
+                assert.are.equal("Ann Vale: Mark of the Wild", armed(), why .. ": back after the wait")
             end
-            wow.state.castFailures["Ann-Vale"] = nil
-            scroll()
-            assert.are.equal("Cid Rock: Mark of the Wild", armed())
-        end)
-
-        it("knows the game's own text for target refusals", function()
-            local is = ns.GroupBuffs.IsTargetRefusal
-            assert.is_true(is("Out of range."))
-            assert.is_true(is("Target not in line of sight"))
-            assert.is_true(is("|cffff0000Invalid target|r"))
-            assert.is_true(is("A more powerful spell is already active."), "#253, on the safe side")
-            assert.is_false(is("Spell is not ready yet."))
-            assert.is_false(is(nil))
-            assert.is_false(is(wow.secret("Out of range.")))
-            finally(function() _G.SPELL_FAILED_LINE_OF_SIGHT = nil end)
-            _G.SPELL_FAILED_LINE_OF_SIGHT = "Ziel nicht im Sichtfeld"
-            assert.is_true(is("Ziel nicht im Sichtfeld"), "a translated client's own string")
-            finally(function() _G.SPELL_FAILED_AURA_BOUNCED = nil end)
-            _G.SPELL_FAILED_AURA_BOUNCED = "Ein mächtigerer Zauber ist bereits aktiv."
-            assert.is_true(is("Ein mächtigerer Zauber ist bereits aktiv."), "#253: the client's own string")
         end)
 
         it("a press that casts nothing (a mind-controlled member) holds that member back too", function()
@@ -243,14 +228,15 @@ describe("Buffing your group in buff mode", function()
             wow.pressKey("MOUSEWHEELUP")
             assert.are.equal(0, #wow.casts)
             wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 0.5)
-            assert.is_truthy(button.result:GetText():find("No answer", 1, true))
+            assert.is_truthy(wow.lastResult(ns):find("No answer", 1, true))
             assert.are.equal("Cid Rock: Mark of the Wild", armed())
         end)
 
         it("right-click skips a member for a while, and the button says so", function()
             party({ "Ann-Vale", "Cid-Rock" })
             wow.press(button, "RightButton")
-            assert.are.equal("Skipping Ann Vale for 5 minutes.", button.result:GetText())
+            assert.are.equal("Skipping Ann Vale for 5 minutes.", wow.lastResult(ns))
+            assert.are.equal("", button.result:GetText(), "not under Cid's offer (#461)")
             assert.are.equal("Cid Rock: Mark of the Wild", armed())
             scroll()
             scroll()
@@ -276,7 +262,7 @@ describe("Buffing your group in buff mode", function()
             party({ "Ann-Vale", "Cid-Rock" })
             wow.state.castFailures["Ann-Vale"] = "Target not in line of sight"
             wow.pressKey("MOUSEWHEELUP")
-            assert.is_truthy(button.result:GetText():find("Target not in line of sight", 1, true))
+            assert.is_truthy(wow.lastResult(ns):find("Target not in line of sight", 1, true))
             assert.are.equal("Cid Rock: Mark of the Wild", armed())
             scroll()
             scroll() -- Cid's Thorns
@@ -293,7 +279,7 @@ describe("Buffing your group in buff mode", function()
             party({ "Ann-Vale", "Cid-Rock" })
             wow.state.castFailures["Ann-Vale"] = "A more powerful spell is already active."
             wow.pressKey("MOUSEWHEELUP")
-            assert.is_truthy(button.result:GetText():find("A more powerful spell is already active", 1, true))
+            assert.is_truthy(wow.lastResult(ns):find("A more powerful spell is already active", 1, true))
             assert.are.equal("Cid Rock: Mark of the Wild", armed(), "the next press goes to the next member")
             scroll()
             scroll() -- Cid's Thorns

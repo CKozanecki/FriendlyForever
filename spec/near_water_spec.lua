@@ -1,4 +1,4 @@
--- Spec: #136, #208, #209, #44, #350, #408
+-- Spec: #136, #208, #209, #44, #350, #408, #459
 -- Water breathing only near water: a warlock's Unending Breath and a
 -- shaman's Water Breathing are offered (buff back and buff mode) only while
 -- you're swimming, underwater, with your breath bar showing, in an
@@ -43,7 +43,7 @@ describe("Water breathing near water", function()
     local function armed()
         local text = macro()
         if not text then return nil end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
+        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
     end
 
     local function party(names)
@@ -338,7 +338,7 @@ describe("Water breathing near water", function()
             assert.is_nil(list[2].water)
             assert.are.equal("lightningshield", list[3].key)
             assert.is_true(list[3].selfCast)
-            assert.are.same({ key = "waterbreathing", name = "Water Breathing", ranks = { WATER_BREATHING }, blockers = { BREATH }, water = true },
+            assert.are.same({ key = "waterbreathing", name = "Water Breathing", ranks = { WATER_BREATHING }, levels = { 22 }, blockers = { BREATH }, water = true },
                 list[1])
             assert.is_true(ns.BuffData.KEYS.waterbreathing)
             assert.is_true(ns.BuffData.Covers(list[1], BREATH))

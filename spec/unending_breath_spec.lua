@@ -1,4 +1,4 @@
--- Spec: #135, #136, #209, #44, #419
+-- Spec: #135, #136, #209, #44, #419, #459
 -- The warlock's Unending Breath through buff thanks, buff back and buff mode,
 -- and its data: Water Breathing (131) is the shaman's, a blocker, not a
 -- group version. The tests here swim, since it's offered only near water
@@ -34,7 +34,7 @@ describe("Unending Breath", function()
     local function armed()
         local text = macro()
         if not text then return nil end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
+        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
     end
 
     -- Bob Stone, a stranger, as a unit the game names (a nameplate).

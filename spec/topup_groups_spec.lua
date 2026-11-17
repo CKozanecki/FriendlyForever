@@ -1,4 +1,4 @@
--- Spec: #206, #397
+-- Spec: #206, #397, #459
 -- Top-up timing for group versions: a group version you can cast (Arcane
 -- Brilliance, the Prayers, Gift of the Wild, the Greater Blessings) counts as
 -- the single rank of the same strength. When a member's has less than the
@@ -45,9 +45,9 @@ describe("Top-up timing renews group versions (#206)", function()
         ns.BuffButton.Refresh()
         local text = macro()
         if not text then return nil end
-        local self = text:match("/cast %[@player,nodead%] ([^\n]+)")
+        local self = wow.unranked(text:match("/cast %[@player,nodead%] ([^\n]+)"))
         if self then return "me: " .. self end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
+        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
     end
 
     -- token wears spell, cast by source (default you; false: nobody the game

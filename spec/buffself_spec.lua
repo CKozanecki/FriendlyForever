@@ -1,4 +1,4 @@
--- Spec: #198, #44, #329, #408
+-- Spec: #198, #44, #329, #408, #459
 -- Buff mode also buffs you: your own copy of each buff you give is offered
 -- on you, after the group's, under the same rules.
 local wow = require("spec.support.wow")
@@ -29,9 +29,9 @@ describe("Buff mode buffing you too", function()
     local function armed()
         local text = macro()
         if not text then return nil end
-        local spell = text:match("/cast %[@player,nodead%] ([^\n]+)")
+        local spell = wow.unranked(text:match("/cast %[@player,nodead%] ([^\n]+)"))
         if spell then return "me: " .. spell end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
+        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
     end
 
     -- Scroll once, and let the buff show on whoever it reached.

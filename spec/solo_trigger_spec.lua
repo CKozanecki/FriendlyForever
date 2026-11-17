@@ -1,4 +1,4 @@
--- Spec: #426
+-- Spec: #426, #459
 -- Solo, buff mode turns on by itself when one of your own buffs is missing
 -- or running low (the owner, 16 Nov), by the group trigger's rules (#272,
 -- #397): the same running-low times, looked for every WATCH_SECONDS and as
@@ -43,7 +43,7 @@ describe("Buff mode turns on by itself solo (#426)", function()
     local function armed()
         ns.BuffButton.Refresh()
         local text = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
-        return text and text:match("^/cast %[@player,nodead%] ([^\n]+)$")
+        return text and wow.unranked(text:match("^/cast %[@player,nodead%] ([^\n]+)$"))
     end
 
     -- Your buff of this spell fades (or is cancelled).

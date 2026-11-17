@@ -1,4 +1,4 @@
--- Spec: #41, #256, #302, #165, #408
+-- Spec: #41, #256, #302, #165, #408, #461, #459
 -- Group versions in buff mode: Arcane Brilliance, the Prayers and Gift of the
 -- Wild are offered before the single buff when you know them, carry the
 -- reagent, and enough of the party (in a raid, the subgroup) is missing the
@@ -43,9 +43,9 @@ describe("Group versions in buff mode (#41)", function()
         ns.BuffButton.Refresh()
         local text = macro()
         if not text then return nil end
-        local self = text:match("/cast %[@player,nodead%] ([^\n]+)")
+        local self = wow.unranked(text:match("/cast %[@player,nodead%] ([^\n]+)"))
         if self then return "me: " .. self end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
+        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
     end
 
     local function raid(names)
@@ -105,7 +105,7 @@ describe("Group versions in buff mode (#41)", function()
             wow.fire("UNIT_SPELLCAST_SUCCEEDED", "player", wow.lastCastGuid, BRILLIANCE)
             assert.are.equal(text, button.result:GetText(), "not the press's answer")
             wow.advance(6)
-            assert.are.equal("Gave Arcane Intellect to Ann Vale.", button.result:GetText())
+            assert.are.equal("Gave Arcane Intellect to Ann Vale.", wow.lastResult(ns))
         end)
 
         it("forgets skipped groups once their time is up", function()

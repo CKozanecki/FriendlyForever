@@ -73,7 +73,7 @@ ns.GroupBuffs = GroupBuffs
 GroupBuffs.JUST_GIVEN_SECONDS = 10
 -- Right-click skips a member for this long.
 GroupBuffs.SKIP_SECONDS = 300
--- A member whose cast the game refused (out of range or sight) waits this long.
+-- A member whose cast the game refused, for any reason (#459), waits this long.
 GroupBuffs.HELD_BACK_SECONDS = 15
 
 -- Where you come in (#198): your own copy of each buff you give is offered
@@ -680,9 +680,15 @@ local function Look(out, units, groupKnown, inRaid)
                 if groupOffer then
                     local mineFirst = list[1] and list[1].self and not groupOffer.cast.coversSelf
                         and Needs(buff, list[1])
-                    if mineFirst then
-                        local offer = { name = list[1].name, buff = buff, spell = spell, group = true, self = true }
+                    -- Your own copy, cast by name and rank (#459): the
+                    -- highest you know.
+                    local mineCast = mineFirst and ns.BuffData.CastFor(buff, "player", true)
+                    if mineCast then
+                        local offer = { name = list[1].name, buff = buff, spell = spell, castSpell = mineCast,
+                            group = true, self = true }
                         if Found(offer) then return offer end
+                    elseif mineFirst then
+                        Why(list[1], "the game won't name the rank of " .. spell)
                     end
                     if Found(groupOffer) then return groupOffer end
                 end
@@ -690,13 +696,26 @@ local function Look(out, units, groupKnown, inRaid)
             for _, member in ipairs(spell and list or {}) do
                 if Needs(buff, member) then
                     -- Range is about other people: you are always in reach of yourself.
+                    -- The rank their level allows, by name and rank (#459).
+                    local cast, levelWhy, tooLow
                     if not member.self and InSpellRange(spell, member.unit) == false then
                         if not outOfRange[member.name] then Why(member, "out of range") end
                         outOfRange[member.name] = true
                     else
-                        local offer = { name = member.name, buff = buff, spell = spell, group = true,
-                            self = member.self, note = not quiet and note or nil, hint = quiet and note or nil }
+                        cast, levelWhy, tooLow = ns.BuffData.CastFor(buff, member.unit, member.self)
+                    end
+                    if cast then
+                        local offer = { name = member.name, buff = buff, spell = spell, castSpell = cast,
+                            group = true, self = member.self, note = not quiet and note or nil,
+                            hint = quiet and note or nil }
                         if Found(offer) then return offer end
+                    elseif tooLow then
+                        -- Too low for every rank you know: nothing to give
+                        -- them until they level, so it's said but settled
+                        -- (not missing: buff mode doesn't wait for them).
+                        firstReason = firstReason or (Util.DisplayName(member.name) .. ": " .. levelWhy)
+                    elseif levelWhy then
+                        Why(member, levelWhy)
                     end
                 end
             end
@@ -808,44 +827,10 @@ function GroupBuffs.InRound() return round ~= nil end
 -- for one ends with it), or nil.
 function GroupBuffs.Round() return round end
 
--- The game refused a cast to them (out of range or sight): try the others
--- first for a moment.
+-- The game refused a cast to them, for any reason (#459, the owner: not
+-- only out of range or sight): try the others first for a moment.
 function GroupBuffs.NoteRefused(name)
     heldBack[name] = GetTime()
-end
-
--- The game's refusals that are about the target, not you: the client's own
--- strings where it has them, and their English text otherwise. A refusal
--- about you (the global cooldown, mana, being stunned) moves no one back.
--- "A more powerful spell is already active" (SPELL_FAILED_AURA_BOUNCED) is
--- on the safe side (#253): not seen in game, but if a top-up of a group
--- version is ever refused with it, that member waits like any refusal.
-local TARGET_REFUSAL_GLOBALS = {
-    "SPELL_FAILED_LINE_OF_SIGHT", "SPELL_FAILED_OUT_OF_RANGE", "ERR_OUT_OF_RANGE",
-    "SPELL_FAILED_BAD_TARGETS", "SPELL_FAILED_BAD_IMPLICIT_TARGETS", "SPELL_FAILED_TARGETS_DEAD",
-    "SPELL_FAILED_AURA_BOUNCED",
-}
-local TARGET_REFUSAL_TEXT = {
-    "target not in line of sight", "out of range", "invalid target", "no target", "target is dead",
-    "a more powerful spell is already active",
-}
-
-local function Normalise(text)
-    return (text:lower():gsub("[%.!]+$", ""):gsub("^%s+", ""):gsub("%s+$", ""))
-end
-
-function GroupBuffs.IsTargetRefusal(text)
-    if type(text) ~= "string" or Util.IsSecret(text) then return false end
-    -- Colour codes come off first, so their letters don't stay behind.
-    local said = Normalise(Util.StripChat((text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))))
-    for _, name in ipairs(TARGET_REFUSAL_GLOBALS) do
-        local known = rawget(_G, name)
-        if type(known) == "string" and known ~= "" and Normalise(known) == said then return true end
-    end
-    for _, known in ipairs(TARGET_REFUSAL_TEXT) do
-        if said == known then return true end
-    end
-    return false
 end
 
 -- Right-click: leave them out for a while.

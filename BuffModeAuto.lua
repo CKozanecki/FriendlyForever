@@ -36,16 +36,18 @@
 --   auras added to you holds one of CAMPFIRE_AURAS, a near-the-fire aura or
 --   a camp benefit. Only that list is read, never your whole aura list, and
 --   a full update (zoning, a login) adds nothing. For this trigger passers-by
---   count as something to do (PassersBy.lua, when that switch is on), and
---   the buff mode it turns on stays on while one waits for a buff: it ends
---   when nobody, passers-by included, is missing one, at the pull or at the
---   timeout. No other trigger counts a passer-by. A payload, list, aura or
---   spell ID that is a secret, or not what it should be, is passed over.
+--   count as something to do (PassersBy.lua, when that switch is on): a
+--   passer-by waiting turns buff mode on only at the campfire. No other
+--   trigger turns it on for a passer-by. A payload, list, aura or spell ID
+--   that is a secret, or not what it should be, is passed over.
 -- Turns off (on by default), but only buff mode a trigger turned on, never
 -- buff mode you turned on yourself:
 --   the first pull (PLAYER_REGEN_DISABLED);
 --   everyone being buffed (never assumed when someone's buffs can't be read;
---   solo, you having your own buffs, #329);
+--   solo, you having your own buffs, #329). With passers-by on, a passer-by
+--   the button offers a buff counts as someone not yet buffed, whatever
+--   turned buff mode on (#462, the owner): it stays on until they're buffed,
+--   skipped or gone, or the pull or the timeout ends it;
 --   a timeout, whichever comes first.
 -- Turned on in a dungeon or raid, it waits for everyone (#256): it stays on
 -- until every member is in there with you and has your buffs, or until the
@@ -86,7 +88,6 @@ local Watch, WatchWanted -- below: the looks, and whether they go on (#426)
 local groupUnsure = false -- a roster update couldn't read IsInGroup() (#373): the
                           -- looks read it again until an answer decides
 local pendingFire         -- the trigger that waits for a fight is the campfire's
-local fireMode = false    -- the buff mode a trigger turned on counts passers-by (#39)
 -- The campfire auras you wear (#39), as the updates and reads saw them:
 -- { [auraInstanceID] = spell ID }. unsure: an update couldn't be read (in a
 -- fight they come restricted), so the next look reads your aura list once:
@@ -155,8 +156,8 @@ end
 -- there with you (#256). withSelf: your self-buffs too (#44): "everyone has
 -- your buffs" waits for them, but a missing self-buff alone never turns buff
 -- mode on (the owner, #44 Q6). Also why, for the message.
--- withPassersBy: a passer-by waiting for a buff counts too (the campfire's
--- buff mode, #39).
+-- withPassersBy: a passer-by waiting for a buff counts too: for turning on,
+-- only the campfire's (#39); for turning off, every trigger's (#462).
 local function Settled(inside, withSelf, withPassersBy)
     if ns.Offers.Count() > 0 then return false end
     if withPassersBy and ns.PassersBy.Waiting() then return false end
@@ -201,7 +202,9 @@ function Auto.Check(timedOutAfter)
     end
     if InCombatLockdown() then return end
     if cfg.autoOffDone ~= true then return end
-    local done, why = Settled(insideWait, true, fireMode)
+    -- A passer-by the button offers is work left for any trigger's buff
+    -- mode (#462); PassersBy.Waiting says no while that switch is off.
+    local done, why = Settled(insideWait, true, true)
     if done then
         ns.BuffMode.Set(false, { why = why })
         if not ns.BuffMode.IsAuto() then ns.Diag.Log("buffMode", "auto turned off: %s", why) end
@@ -245,10 +248,8 @@ local function TurnOn(why, inside, fire, withSelf)
     end
     if ns.BuffMode.IsOn() then
         -- A trigger's buff mode, met by the dungeon or raid: it waits for
-        -- everyone now. Yours is yours: no trigger turns it off. Met by the
-        -- campfire, it counts passers-by from now on.
+        -- everyone now. Yours is yours: no trigger turns it off.
         if inside and ns.BuffMode.IsAuto() then WaitInside() end
-        if fire and ns.BuffMode.IsAuto() then fireMode = true end
         return
     end
     -- In a battleground or arena whose rules give nobody any buff (#408:
@@ -262,7 +263,6 @@ local function TurnOn(why, inside, fire, withSelf)
     pvpOffWhy = nil
     -- Nothing to do: don't lend a key just to hand it back.
     if Settled(inside, withSelf, fire) then return end
-    fireMode = fire == true
     -- Set first: turning on refreshes the button, which checks it at once.
     if inside then WaitInside() else insideWait = false end
     ns.BuffMode.Set(true, { auto = true, why = why })

@@ -1,4 +1,4 @@
--- Spec: #31, #71, #76, #136, #42, #46, #208, #41, #209, #70, #44, #40, #408, #419
+-- Spec: #31, #71, #76, #136, #42, #46, #208, #41, #209, #70, #44, #40, #408, #419, #459
 -- Buff order and the never-offer list: which of your buffs the button offers
 -- first, and which it never offers.
 local wow = require("spec.support.wow")
@@ -119,7 +119,7 @@ describe("Buff order and never offer", function()
             -- What the armed button casts, read from its macro.
             local function armed()
                 local macro = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText)
-                return macro and macro:match("/cast %[help,nodead%] ([^\n]+)")
+                return macro and wow.unranked(macro:match("/cast %[help,nodead%] ([^\n]+)"))
             end
             owed()
             assert.are.equal("Mark of the Wild", armed())
