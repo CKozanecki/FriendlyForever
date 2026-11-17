@@ -189,7 +189,7 @@ end
 -- and rank, #459), or nil and why not. myBuffs never holds a self-buff or
 -- one only given when asked (BuffData.Offerable).
 local function Choose(candidate, myBuffs)
-    local unit, wanted, cast, tooLow = candidate.unit, nil, nil, nil
+    local unit, wanted, cast, notCast = candidate.unit, nil, nil, nil
     for _, buff in ipairs(myBuffs) do
         -- A buff their class can use that your Buff Back rule for strangers
         -- gives them (#408: Everyone, or their class ticked; Off never), as
@@ -205,20 +205,19 @@ local function Choose(candidate, myBuffs)
             local wears = ns.Offers.Wears(unit, buff, HalfGone)
             if wears == nil then return nil, "can't read their buffs" end
             if wears == false then
-                -- The rank their level allows (#459); too low for every rank
-                -- of this one, your next buff.
-                local why, low
-                cast, why, low = ns.BuffData.CastFor(buff, unit)
+                -- The rank their level allows (#459); none (too low for
+                -- every rank, or their level unreadable), your next buff.
+                local why
+                cast, why = ns.BuffData.CastFor(buff, unit)
                 if cast then
                     wanted = buff
                     break
                 end
-                if not low then return nil, why end
-                tooLow = tooLow or why
+                notCast = notCast or why
             end
         end
     end
-    if not wanted then return nil, tooLow or "has your buffs" end
+    if not wanted then return nil, notCast or "has your buffs" end
     local spell = ns.BuffData.SpellName(wanted)
     if not spell then return nil, "the spell's name isn't known" end
     if Util.InSpellRange(spell, unit) ~= true then return nil, "out of range, or the game won't say" end

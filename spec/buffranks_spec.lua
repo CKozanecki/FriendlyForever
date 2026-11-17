@@ -127,6 +127,22 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             assert.are.equal("/cast [@player,nodead] Mark of the Wild(Rank 7)", macro())
         end)
 
+        it("your own copy before a group version for another subgroup is your highest rank too", function()
+            local AI = { 10157, 10156, 1461, 1460, 1459 }
+            local known = { 23028 }
+            for _, id in ipairs(AI) do known[#known + 1] = id end
+            boot(known, { class = "MAGE", buffSelf = true, before = function(state)
+                state.items = { [wow.ITEM.arcanePowder] = 5 }
+            end })
+            wow.setGroup("raid", { "Ann-Vale", "Bo-Fern", "Cid-Rock" })
+            for i = 1, 3 do wow.state.units["raid" .. i].class = "MAGE" end
+            -- You're in subgroup 2, so Arcane Brilliance for subgroup 1 doesn't cover you.
+            wow.state.units.player.subgroup = 2
+            wow.state.units.player.level = 1 -- your own level is never read for your copy
+            ns.BuffButton.Refresh()
+            assert.are.equal("/cast [@player,nodead] Arcane Intellect(Rank 5)", macro())
+        end)
+
         it("a buff of one rank is cast by its name alone: Blessing of Kings", function()
             boot({ KINGS }, { class = "PALADIN" })
             party({ "Ann-Vale" }, { 10 })

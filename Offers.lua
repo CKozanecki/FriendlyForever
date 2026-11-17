@@ -509,7 +509,7 @@ local function ChooseBuff(favour, myBuffs, held, visible)
         if #ns.BuffData.Mine() > 0 then return nil, "you've marked all your buffs never offer" end
         return nil, "you know no buffs to give"
     end
-    local suitable, unsure, whose, tooLow = 0, false, false, nil
+    local suitable, unsure, whose, notCast = 0, false, false, nil
     for _, buff in ipairs(myBuffs) do
         -- Your Buff Back rule for the buff (#408): everyone, chosen
         -- classes, or off. A class that can't be read gets no buff by class.
@@ -534,13 +534,12 @@ local function ChooseBuff(favour, myBuffs, held, visible)
             end
             if wears ~= true and other == false then
                 if OutOfReach(buff, unit) then return nil, nil, true end
-                -- The rank their level allows (#459). A level the game won't
-                -- give stops here; one too low for every rank you know of
-                -- this buff tries your next.
-                local cast, why, low = ns.BuffData.CastFor(buff, unit)
+                -- The rank their level allows (#459). When none can be cast
+                -- (too low for every rank, or their level unreadable), your
+                -- next buff is tried, and the first reason kept.
+                local cast, why = ns.BuffData.CastFor(buff, unit)
                 if cast then return buff, nil, nil, cast end
-                if not low then return nil, why end
-                tooLow = tooLow or why
+                notCast = notCast or why
             end
             -- Said once per favour and buff: the button re-arms often.
             favour.skipLogged = favour.skipLogged or {}
@@ -558,7 +557,7 @@ local function ChooseBuff(favour, myBuffs, held, visible)
         end
     end
     if whose then return nil, "can't tell whose Blessing they have" end
-    if tooLow then return nil, tooLow end
+    if notCast then return nil, notCast end
     if suitable > 0 then return nil, "they already have your buffs" end
     -- (A favour your rules leave nothing for isn't here: Givable.)
     if unsure then return nil, "can't see their class" end
