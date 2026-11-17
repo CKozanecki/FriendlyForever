@@ -8,7 +8,7 @@ local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
 local W = wow.WEAPON
-local FORT, INNER_FIRE = 10938, 10952
+local FORT, INNER_FIRE, ROCKBITER_4 = 10938, 10952, 10399
 local OIL_MACRO = "/use item:20749\n/use 16"
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
@@ -16,12 +16,13 @@ local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
 describe("Weapon buffs while resting (#449)", function()
     local ns, button
 
-    -- A mage with a bare main hand and wizard oil in the bags, weapon buffs
-    -- on, resting if opts.resting, in buff mode unless opts.noMode.
+    -- A mage with a bare main hand and wizard oil in the bags (opts.main: the
+    -- kind), weapon buffs on, resting if opts.resting, in buff mode unless
+    -- opts.noMode.
     local function boot(opts)
         opts = opts or {}
-        ns = wow.boot({ db = { buffBack = { weaponBuffs = true, weaponMain = "wizardOil", weaponOff = "none" } },
-            buffSelf = true, autoBuffMode = opts.auto, before = function(state)
+        ns = wow.boot({ db = { buffBack = { weaponBuffs = true, weaponMain = opts.main or "wizardOil",
+            weaponOff = "none" } }, buffSelf = true, autoBuffMode = opts.auto, before = function(state)
                 state.class = opts.class or "MAGE"
                 state.knownSpells = {}
                 for _, id in ipairs(opts.known or {}) do state.knownSpells[id] = true end
@@ -85,6 +86,16 @@ describe("Weapon buffs while resting (#449)", function()
                 boot({ resting = true, zone = zone })
                 nothingOffered("you're resting")
             end
+        end)
+
+        it("a shaman's imbue waits too, and is offered again once you leave", function()
+            boot({ class = "SHAMAN", main = "rockbiter", known = { ROCKBITER_4 }, resting = true })
+            nothingOffered("you're resting")
+            assert.are.equal(0, #wow.weaponCasts, "no imbue cast")
+            wow.rest(false)
+            wow.advance(0)
+            assert.are.equal("/cast [@player,nodead] Rockbiter Weapon\n/use 16", macro())
+            assert.are.equal(1, weaponRows())
         end)
 
         it("walking into a rested place takes the offer away at once, with no refresh but the game's event", function()
@@ -204,6 +215,47 @@ describe("Weapon buffs while resting (#449)", function()
             assert.is_false(ns.BuffMode.IsOn())
         end)
 
+        -- Resting decides before any other read that could leave it open
+        -- (#390's lesson): each of these alone gives an open reason outside.
+        local OTHER_READS = {
+            { "dead", function(s) s.units.player.dead = true end },
+            { "whether you're mounted unreadable", function(s) s.selfSecrets.mounted = true end },
+            { "whether you're on a flight path unreadable", function(s) s.selfSecrets.taxi = true end },
+            { "the enchants erroring", function(s) s.weaponSecrets.error = true end },
+            { "your name unreadable", nil, function() _G.UnitName = function() return nil end end },
+        }
+
+        it("decides on resting first, when another read fails at the same moment: still resting, and settled", function()
+            for _, case in ipairs(OTHER_READS) do
+                boot({ resting = true, before = case[2] })
+                if case[3] then case[3]() end
+                local offer, why, settled = ns.WeaponBuffs.Next()
+                assert.is_nil(offer, case[1])
+                assert.are.equal("you're resting", why, case[1])
+                assert.is_true(settled, case[1])
+                -- Outside, the same read is what stops it, and it's open.
+                wow.state.resting = false
+                local _, outside, outsideSettled = ns.WeaponBuffs.Next()
+                assert.are_not.equal("you're resting", outside, case[1])
+                assert.is_false(outsideSettled, case[1])
+            end
+        end)
+
+        it("resting with your mount unreadable never keeps buff mode on", function()
+            boot({ auto = true, noMode = true, class = "PRIEST", known = { FORT }, resting = true,
+                before = function(s) s.selfSecrets.mounted = true end })
+            wow.gainBuff({ spellId = FORT, sourceUnit = "player", duration = 3600, expirationTime = wow.now + 3600 })
+            wow.setGroup("party", { "Ann-Vale" })
+            ns.db.buffBack.autoOnMissing = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(30)
+            assert.is_true(ns.BuffMode.IsAuto())
+            press()
+            wow.wearBuff("party1", FORT, { source = "player" })
+            refresh()
+            assert.is_false(ns.BuffMode.IsOn())
+        end)
+
         it("in a fight in town, says you're resting, and it's settled", function()
             boot({ resting = true })
             wow.enterCombat()
@@ -234,56 +286,75 @@ describe("Weapon buffs while resting (#449)", function()
     describe("a storm of places (red)", function()
         local SEEDS = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 }
         local ZONES = { "Stormwind City", "Goldshire", "Valanaar", "Elwynn Forest", "Duskwood", "Orgrimmar" }
-        local offeredOutside, refusedInside = 0, 0
 
+        -- Nothing refreshes the button here but the game's own events and
+        -- presses (no refresh after each step, #113's lesson), so presses meet
+        -- a button armed before you started resting, with no event yet.
         for _, seed in ipairs(SEEDS) do
             it("never offers or puts on a weapon buff while resting, and never errors (seed " .. seed .. ")", function()
                 random.seed(seed)
                 local function int(m, n) return random.random(m, n) end
-                boot({ before = function(s) s.items[W.brilliantWizardOil] = 50 end })
+                boot({ before = function(s) s.items[W.brilliantWizardOil] = 500 end })
                 -- Whether the client says you rest, worked out from its own state.
                 local function resting() return wow.state.resting == true or wow.state.restingSecret == true end
-                for step = 1, 150 do
+                -- The answer changed with no event yet: the button may be stale until one comes.
+                local pending = false
+                -- Counted for this seed: presses while resting with the oil still armed,
+                -- presses while resting, and oil put on outside.
+                local staleArmed, refusedInside, offeredOutside = 0, 0, 0
+                for step = 1, 300 do
                     local where = string.format("seed %d step %d", seed, step)
                     local s = wow.state
                     local roll = int(1, 12)
-                    if roll <= 3 then
+                    if pending and int(1, 3) > 1 then roll = 12 end -- a press, mostly, before the event comes
+                    if roll <= 2 then
                         s.zone = ZONES[int(1, #ZONES)]
                         wow.fire(({ "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA" })[int(1, 3)])
-                    elseif roll <= 5 then
+                        pending = false
+                    elseif roll <= 4 then
                         wow.rest(int(1, 2) == 1)
-                    elseif roll == 6 then
-                        -- The answer changes with no event yet.
-                        s.resting = int(1, 2) == 1
+                        pending = false
+                    elseif roll <= 6 then
+                        -- You walk in (or out) and the answer changes, the event not yet sent.
+                        s.resting = not s.resting
+                        pending = true
                     elseif roll == 7 then
-                        s.restingSecret = int(1, 4) == 1 or nil
-                    elseif roll == 8 then
+                        s.restingSecret = not s.restingSecret or nil
+                        pending = true
+                    elseif roll <= 9 then
+                        -- The oil wears off (and the moment after it lands has passed); the
+                        -- button sees it at its next refresh, as in game.
                         s.weaponEnchants[16] = nil
+                        wow.advance(ns.WeaponBuffs.JUST_GIVEN_SECONDS + 1)
+                        if not pending then refresh() end
+                    elseif roll == 10 then
+                        wow.advance(int(1, 30))
                     else
                         local before = #wow.applied
                         local wasResting = resting()
+                        local armed = macro() == OIL_MACRO
                         press()
+                        wow.advance(0)
                         if wasResting then
                             assert.are.equal(before, #wow.applied, where .. ": put on while resting")
                             refusedInside = refusedInside + 1
+                            if armed then staleArmed = staleArmed + 1 end
                         elseif #wow.applied > before then
                             offeredOutside = offeredOutside + 1
                         end
+                        pending = false -- a press re-arms the button from fresh reads
                     end
-                    wow.advance(int(0, 2))
-                    refresh()
-                    if resting() then
+                    wow.advance(0)
+                    if resting() and not pending then
                         assert.is_nil(macro(), where .. ": armed while resting")
                         assert.are.equal(0, weaponRows(), where .. ": a row while resting")
                     end
                     assert.are.same({}, wow.errors, where)
                 end
+                assert.is_true(staleArmed > 0, "pressed while resting with the oil still armed")
+                assert.is_true(refusedInside > 0, "pressed while resting")
+                assert.is_true(offeredOutside > 0, "put oil on outside")
             end)
         end
-
-        it("the storms pressed both resting and not, and put oil on outside, so they test something", function()
-            assert.is_true(refusedInside > 0)
-            assert.is_true(offeredOutside > 0)
-        end)
     end)
 end)
