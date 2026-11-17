@@ -85,7 +85,8 @@ function BuffData.ByKey(key)
 end
 
 -- The reagents of the group versions (#41), by item ID. The IDs and names are
--- Classic Era's; Forever's are unconfirmed (#202, #225). They are hand-listed,
+-- Classic Era's, and confirmed from Forever's SpellReagents and ItemSparse
+-- data on 16 Nov 2026 (docs/forever-facts.md; #202, #225). They are hand-listed,
 -- not generated: the spell data has no items (scripts/spell-buffs.json holds
 -- the reagent of each group cast, checked only for range). The name is only a
 -- fallback for messages: the client's own is used when it has it.
