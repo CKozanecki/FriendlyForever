@@ -320,13 +320,17 @@ describe("Diagnostics", function()
             assert.are.equal(1, ns.Diag.Counters().actionsBlocked)
         end)
 
-        it("prints the options line once for a burst, and again after the gap (#431)", function()
+        it("prints the options line once for a burst, and again only after 10 seconds (#431)", function()
             for _ = 1, 50 do wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", "OpenSettingsPanel()") end
             assert.are.equal(1, optionsLines())
             assert.are.equal(50, ns.Diag.Counters().actionsBlocked)
-            wow.advance(11)
+            wow.advance(9.9)
+            wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", "OpenSettingsPanel()")
+            assert.are.equal(1, optionsLines())
+            wow.advance(0.1)
             wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", "OpenSettingsPanel()")
             assert.are.equal(2, optionsLines())
+            assert.are.same({}, wow.errors)
         end)
 
         it("never retries the protected call by itself (#431)", function()
@@ -339,7 +343,8 @@ describe("Diagnostics", function()
 
         it("handles a damaged function name or another addon or a forbidden kind without error (#431)", function()
             for _, bad in ipairs({ 42, true, {}, "", string.rep("x", 5000) }) do
-                assert.has_no.errors(function() wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", bad) end)
+                wow.fire("ADDON_ACTION_BLOCKED", "FriendlyForever", bad)
+                assert.are.same({}, wow.errors)
             end
             assert.are.equal(0, optionsLines())
             wow.fire("ADDON_ACTION_BLOCKED", "SomeOtherAddon", "OpenSettingsPanel()")
@@ -347,21 +352,37 @@ describe("Diagnostics", function()
             assert.are.equal(0, optionsLines())
         end)
 
-        it("survives a storm of mixed blocked events with at most one options line per gap (#431)", function()
+        it("survives a storm of mixed blocked events with at most one options line per 10 seconds (#431)", function()
             random.seed(431)
-            local funcs = { "OpenSettingsPanel()", "SendChatMessage()", "X()", "OpenSettingsPanel()" }
+            local funcs = { "OpenSettingsPanel()", "SendChatMessage()", "X()", "OpenSettingsPanel()", 42, true, {} }
             local kinds = { "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }
-            local opens = 0
-            for _ = 1, 500 do
+            local lines, lastTime, refused, allowed, reports = 0, nil, 0, 0, 0
+            for _ = 1, 600 do
                 local f, k = funcs[random.random(#funcs)], kinds[random.random(#kinds)]
-                if f == "OpenSettingsPanel()" and k == "ADDON_ACTION_BLOCKED" then opens = opens + 1 end
-                assert.has_no.errors(function() wow.fire(k, "FriendlyForever", f) end)
-                if random.random() < 0.05 then wow.advance(random.random(0, 30)) end
+                local before = optionsLines()
+                local isOpen = k == "ADDON_ACTION_BLOCKED" and f == "OpenSettingsPanel()"
+                local now = GetTime()
+                wow.fire(k, "FriendlyForever", f)
+                assert.are.same({}, wow.errors)
+                local after = optionsLines()
+                assert.is_true(after - before <= 1)
+                if after > before then
+                    assert.is_true(isOpen)
+                    if lastTime then
+                        assert.is_true(now - lastTime >= 10)
+                        allowed = allowed + 1
+                    end
+                    lastTime = now
+                    lines = lines + 1
+                elseif isOpen and lastTime then
+                    assert.is_true(now - lastTime < 10)
+                    refused = refused + 1
+                end
+                if random.random() < 0.1 then wow.advance(random.random(0, 14)) end
             end
-            assert.is_true(opens > 0)
-            assert.is_true(optionsLines() >= 1)
-            assert.is_true(optionsLines() <= opens)
-            local reports = 0
+            assert.is_true(lines >= 2)
+            assert.is_true(refused > 0) -- a block inside the gap came up
+            assert.is_true(allowed > 0) -- a line after the gap came up
             for _, line in ipairs(wow.printed) do
                 if line:find("the game ", 1, true) and line:find("a call to", 1, true) then reports = reports + 1 end
             end
