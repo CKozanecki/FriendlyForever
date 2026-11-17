@@ -261,14 +261,31 @@ function ChatQueue.Pump(hardware)
             i = i + 1
         else
             table.remove(pending, i)
-            local text, skip
+            local text, skip, target
             if SkipForAFK(item) then
                 skip = "you are AFK (\"Don't send messages while I'm AFK\" is on)"
             elseif channel == "EMOTE" then
                 text = "/" .. item.emote:lower()
+                if item.getTarget then
+                    local got, value = xpcall(item.getTarget, ns.Diag.OnError)
+                    if got then target = value else skip = "emote target failed to resolve" end
+                end
             else
-                text = item.getText()
-                if text == nil then skip = "message rendered empty" end
+                -- The caller's render runs protected: an error in it (damaged
+                -- settings, a bad placeholder) drops this message with its
+                -- reason, and the pump carries on with the next (#446).
+                -- Diag.OnError still counts it, keeps it for /friendly status
+                -- and hands it to the game's error display: nothing is hidden.
+                local ok, rendered = xpcall(item.getText, ns.Diag.OnError)
+                if not ok then
+                    skip = "message failed to render"
+                elseif rendered == nil then
+                    skip = "message rendered empty"
+                elseif Util.IsSecret(rendered) or type(rendered) ~= "string" then
+                    skip = "message rendered as something that can't be sent"
+                else
+                    text = rendered
+                end
             end
             if skip then
                 Drop(item, skip)
@@ -279,7 +296,6 @@ function ChatQueue.Pump(hardware)
                 local ok, err
                 if channel == "EMOTE" then
                     -- target: a unit token, or nil for "You thank everyone around you."
-                    local target = item.getTarget and item.getTarget() or nil
                     ok, err = RawEmote(item.emote, target)
                     if target then text = text .. " " .. target end
                 else
