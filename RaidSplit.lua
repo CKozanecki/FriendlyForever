@@ -498,12 +498,23 @@ end
 -- raid, and say what you give once it settles (a new member needs to hear).
 local beatToken, beating = 0, false
 
+-- You're out of the raid, as far as the game's answer can be believed:
+-- forget it, its peers and what you last said there, and stop the
+-- heartbeat. Buff mode's grace is for this raid: the next starts afresh.
+-- Run by whichever look sees it first: a leave whose one roster update
+-- couldn't be read is seen by the next heartbeat (#372).
+local function LeftRaid()
+    peers, lastSent, lastSentAt = {}, nil, nil
+    everOn, offAt = false, nil
+    beatToken, beating = beatToken + 1, false
+end
+
 -- Every HEARTBEAT seconds while in a raid: say it again (so a silent copy
 -- can be told from a quiet one), or say once that you no longer take part.
 local function Beat(token)
     if token ~= beatToken then return end
     if InRaid() == false then
-        beating = false
+        LeftRaid()
         return
     end
     -- Can't tell (#372): the beat goes on, so the others hear you again once
@@ -517,10 +528,7 @@ function RaidSplit.OnRosterUpdate()
     Changed()
     local inRaid = InRaid()
     if inRaid == false then
-        peers, lastSent, lastSentAt = {}, nil, nil
-        -- Buff mode's grace is for this raid: the next starts afresh.
-        everOn, offAt = false, nil
-        beatToken, beating = beatToken + 1, false
+        LeftRaid()
         return
     end
     -- One update whose answer can't be read or believed (#372) ends

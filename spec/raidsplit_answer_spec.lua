@@ -136,6 +136,30 @@ describe("The raid buff split reads the raid as buff mode does (#372)", function
         assert.are.equal(0, split.PeerCount())
     end)
 
+    -- The architecture review of #439: a leave whose one roster update can't
+    -- be read is seen by the next heartbeat, which forgets the raid as the
+    -- update would have. Both ways round, the next raid starts afresh.
+    for _, how in ipairs({ "truth", "secret" }) do
+        it("a leave whose roster update is " .. how .. " forgets the raid: buff mode off since, the next raid "
+            .. "doesn't take you in (black)", function()
+            answer(how)
+            wow.use(clients[1])
+            wow.setGroup(nil)
+            wow.fire("GROUP_ROSTER_UPDATE")
+            answer(nil)
+            wow.use(clients[1])
+            wow.advance(clients[1].ns.RaidSplit.HEARTBEAT + 1)
+            assert.are.equal(0, clients[1].ns.RaidSplit.PeerCount(), "out of the raid: its peers are forgotten")
+            clients[1].ns.BuffMode.Set(false)
+            wow.advance(600)
+            form()
+            local mine, why = clients[1].ns.RaidSplit.Current()
+            assert.is_nil(mine)
+            assert.are.equal("you take part while buff mode is on", why)
+            assert.is_nil(share(clients[2]), "Bob covers everything: Ann isn't in the split")
+        end)
+    end
+
     it("while the answer can't be believed nothing is announced; the heartbeat goes on and speaks once it can be "
         .. "(black)", function()
         answer("secret")
