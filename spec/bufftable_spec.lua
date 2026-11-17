@@ -1,4 +1,4 @@
--- Spec: #209, #44, #350, #380
+-- Spec: #209, #44, #350, #380, #379
 -- The buff table (BuffTable.lua) is generated from Forever's own spell data
 -- by scripts/gen_spell_table.py, once per game version. The addon never looks
 -- IDs up while you play. This spec checks the committed table is valid, that
@@ -1084,6 +1084,23 @@ describe("The generated buff table", function()
             assert.is_truthy(out:find("ranks = { 20906, 20905, 19506 },", 1, true), out)
             assert.is_truthy(text:find("WARNING  trueshot: 'Trueshot Aura' has ranks [3, 4, 5]: rank 1, 2 not in the data",
                 1, true), text)
+        end)
+
+        it("keeps working for a buff with a group version: its group cast matches a data rank (white)", function()
+            local base = data()
+            -- A made-up group version, "Mass Trueshot" (id 600, no rank), beside the three data ranks.
+            base = base:gsub('"Spell":{"rows":%[', '"Spell":{"rows":[{"ID":600,"NameSubtext_lang":""},', 1)
+            base = base:gsub('"SpellName":{"rows":%[', '"SpellName":{"rows":[{"ID":600,"Name_lang":"Mass Trueshot"},', 1)
+            write(dir .. "/spells.json", base)
+            write(dir .. "/buffs.json", '{"format":1,"classes":{"HUNTER":[{"key":"trueshot","name":"Trueshot Aura",'
+                .. '"handRanks":[1299348,1299346],"group":["Mass Trueshot"],"groupCast":{"scope":"party","spells":'
+                .. '[{"name":"Mass Trueshot","reagent":17020,"equalsRank":5}]}}]},"removed":[]}')
+            write(dir .. "/out.lua", "KEEP")
+            local code, text = generate(dir .. "/spells.json", dir .. "/buffs.json", dir .. "/out.lua")
+            assert.are.equal(0, code, text)
+            local out = read(dir .. "/out.lua")
+            assert.is_truthy(out:find("ranks = { 20906, 20905, 19506, 1299348, 1299346 },", 1, true), out)
+            assert.is_truthy(out:find("id = 600, reagent = 17020, equals = 20906", 1, true), out)
         end)
 
         it("refuses hand-listed ranks that aren't exactly the lowest ones the data lacks: too few, too many, "

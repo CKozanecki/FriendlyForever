@@ -1,4 +1,4 @@
--- Spec: #44, #329, #402, #408, #45
+-- Spec: #44, #329, #402, #408, #45, #379
 -- Self-buffs: in buff mode, once the favours you owe and your group are
 -- done, the button offers your own missing self-buffs (Inner Fire, armors,
 -- Aspects, auras, Battle Shout...), one per press, on you, through the same

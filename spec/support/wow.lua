@@ -880,9 +880,10 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         the target's party (a raid's subgroup) less anyone
 --                         offline, dead, out of range or sight, uses one
 --                         reagent, and fails with none: the reagents are
---                         Classic's. Forever's reagents, whether the slot
---                         number is the raid unit's number, and the counts'
---                         readability are unconfirmed (#202).
+--                         Classic's, and as Forever's own data has them
+--                         (docs/forever-facts.md). Whether the slot number is
+--                         the raid unit's number, and the counts'
+--                         readability, are unconfirmed (#202).
 --                         state.auraDelay: the covered players' buffs show only
 --                         that many seconds after the cast (0 by default);
 --                         state.groupBuffSeconds: how long they last (an hour by default).
