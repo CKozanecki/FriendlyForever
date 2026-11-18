@@ -1778,6 +1778,17 @@ describe("UI simulator workflow", function()
         assert.is_true(checked >= 5, "expected redirects and copies to check")
     end)
 
+    -- #473: the log and the summary are cut on the grounds that every line is in this artifact.
+    it("uploads the ui-sim report, whole, after the summary and whatever happens before (white)", function()
+        local steps = jobs["ui-sim"].steps
+        local summary = indexOf(steps, "name: Summary\n")
+        local upload = indexOf(steps, "name: ui%-sim%-report\n")
+        assert.is_truthy(summary and upload and summary < upload, "ui-sim-report isn't uploaded after the Summary step")
+        local step = steps[upload].text
+        assert.is_truthy(step:find("path: ${{ runner.temp }}/report\n", 1, true), "the report folder moved")
+        assert.is_falsy(step:find("%f[%w_]if:"), "the upload can be skipped")
+    end)
+
     it("keeps the shots' logs in the artifacts and the job's log groups", function()
         local job = jobs.screenshots
         assert.is_truthy(job.text:find('docker logs "$cid" > "$RUNNER_TEMP/shot-logs/$name$SUFFIX.log"', 1, true),
@@ -2135,6 +2146,17 @@ describe("UI simulator workflow", function()
             assert.is_true(at("### UI scenarios") < at("### Layout checks"), "layout lines come before the results")
             local layoutAt = at("### Layout checks")
             assert.is_true(#r.summary - layoutAt < 3 * 160000, "a layout section isn't cut")
+        end)
+
+        it("cuts the summary at the cap when the sections before the layout lines alone are over it (black)", function()
+            -- 50 lines of 20 KB naming FriendlyForever: `grep | head -50` keeps whole lines, 1 MB.
+            local errors = {}
+            for i = 1, 50 do errors[i] = "FriendlyForever " .. i .. " " .. ("e"):rep(20000) end
+            local r = summarize(ALL_FINISHED, { ["lua-errors.json"] = table.concat(errors, "\n") .. "\n" })
+            assert.are.equal(0, r.status)
+            assert.is_true(#r.summary > 650000, "the input never needed the cut: " .. #r.summary)
+            assert.is_true(#r.summary <= 700000, "the summary is " .. #r.summary .. " bytes")
+            assert.are.equal("## UI simulator (report only)\n\n", r.summary:sub(1, 31))
         end)
 
         it("keeps the summary's size cap in the workflow, well under 1024k (white)", function()

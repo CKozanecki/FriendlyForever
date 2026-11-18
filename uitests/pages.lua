@@ -266,7 +266,8 @@ Pages.BUFFS_PLACES = {
     { name = "pvp", label = "PvP" },
 }
 -- "top" is the tab unscrolled (#472): the buff order and the first rows. "passers-by" is
--- it scrolled so the passers-by switch is near the top of the view (#474): for a paladin
+-- it scrolled from "Use group versions" (the row the unscrolled shot cuts off) down to the
+-- passers-by switch (#472, #474): for a paladin
 -- (the simulator's class, with 11 buff rows) the switch sits about 690 px under the top
 -- at 1920 x 1080, below the 593 px the panel shows, so it can't be in the unscrolled shot.
 Pages.BUFFS_SHOTS = { "top", "passers-by", "buff-back", "party", "raid", "pvp", "party-list", "raid-names",
@@ -415,15 +416,18 @@ function Pages.ShowBuffs(shot)
         return content
     end
     if shot == "passers-by" then
+        -- Scrolled so "Use group versions", the top row #472 names that the unscrolled shot
+        -- cuts off, is near the top of the view, with the rows below it down to the
+        -- passers-by switch (#474): about 66 px apart, both inside the 593 px view.
         local content = Pages.OpenBuffs()
         if not content then return content end
         local row
         for _, child in ipairs({ content:GetChildren() }) do
             local text = child.label and child.label.GetText and child.label:GetText() or ""
-            if text:find("Also offer my buffs to passers-by", 1, true) == 1 then row = child end
+            if text:find("Use group versions", 1, true) == 1 then row = child end
         end
         if not row then
-            report("the Buffs tab has no passers-by switch to show")
+            report("the Buffs tab has no group versions row to show")
             return content
         end
         Pages.ShowFrameAt(content, row, "top")

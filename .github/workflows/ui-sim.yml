@@ -843,7 +843,8 @@ jobs:
             echo '```'
             # What a reader needs first: the results and the client's facts (#473). The layout
             # sections, about 480k a pass on #479's run, come last and are each cut at 150,000
-            # bytes, so the whole stays under GitHub's limit and a cut only costs layout lines.
+            # bytes, so the whole stays under GitHub's limit; the 700,000-byte cap after it is the last resort,
+            # and cuts from the end.
             echo "### UI scenarios"
             echo '```'
             tail -60 "$report/run-tests.log"

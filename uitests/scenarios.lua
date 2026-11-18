@@ -1709,6 +1709,9 @@ test("the Raid Blessings header and boxes read right and stay inside the page, i
             unreadable = "(can't tell if you're in a raid)",
         }
         for _, state in ipairs({ "out", "in", "unreadable" }) do
+            local realRaid, realUnit = IsInRaid, UnitIsUnit
+            local knew = {}
+            for _, id in ipairs(Pages.RAID_BLESSING_SPELLS) do knew[id] = IsSpellKnown(id) end
             local content, putBack = Pages.ShowRaidBlessings(state)
             check(content ~= nil, "couldn't show the raid Blessings, " .. state .. ": " .. tostring(putBack))
             local done, failed = pcall(function()
@@ -1754,6 +1757,12 @@ test("the Raid Blessings header and boxes read right and stay inside the page, i
                 })
             end)
             putBack()
+            -- Everything it changed is back (the criterion of #444, asserted).
+            check(IsInRaid == realRaid, state .. ": IsInRaid isn't put back")
+            check(UnitIsUnit == realUnit, state .. ": UnitIsUnit isn't put back")
+            for _, id in ipairs(Pages.RAID_BLESSING_SPELLS) do
+                check(IsSpellKnown(id) == knew[id], ("%s: spell %d isn't as it was"):format(state, id))
+            end
             if not done then error(failed, 0) end
         end
     end)
@@ -1800,23 +1809,35 @@ test("the Buffs tab's passers-by switch sits above the places' tabs, inside the 
                     check(tabTop <= boxBottom + 1, line .. ": the tabs aren't below the switch")
                     -- Where a player finds it (#474): unscrolled the switch can sit below the
                     -- first view (11 buff rows for a paladin, about 690 px down at 1920 x 1080
-                    -- in a 593 px view, run on #479), so it's scrolled into view, as the
-                    -- shot does, and has to land inside the view.
+                    -- in a 593 px view, run on #479). So the shot scrolls from "Use group
+                    -- versions" (#472), and that row and the switch must both land inside the view.
                     local scroll = content:GetParent()
                     local contentTop = Edges(content, "GetTop", "GetBottom")
                     local viewTop, viewBottom = Edges(scroll, "GetTop", "GetBottom")
-                    if contentTop and viewTop then
+                    local groupRow
+                    for _, child in ipairs({ content:GetChildren() }) do
+                        local text = child.label and child.label.GetText and child.label:GetText() or ""
+                        if text:find("Use group versions", 1, true) == 1 then groupRow = child end
+                    end
+                    check(groupRow ~= nil, name .. ": no group versions row")
+                    if contentTop and viewTop and groupRow then
                         report(("LAYOUT %s: switch bottom %.0f below the top, view %.0f high")
                             :format(name, contentTop - boxBottom, viewTop - viewBottom))
-                        local offset, putBack = FriendlyForeverUIPages.ShowFrameAt(content, box, "top")
+                        local offset, putBack = FriendlyForeverUIPages.ShowFrameAt(content, groupRow, "top")
                         if offset then
-                            local top, bottom = Edges(box, "GetTop", "GetBottom")
+                            local seen = {}
+                            for _, row in ipairs({ { "group versions", groupRow }, { "switch", box } }) do
+                                local top, bottom = Edges(row[2], "GetTop", "GetBottom")
+                                local rowLine = ("LAYOUT %s: scrolled by %.0f, %s %.0f..%.0f, view %.0f..%.0f")
+                                    :format(name, offset, row[1], bottom or 0, top or 0, viewBottom, viewTop)
+                                seen[#seen + 1] = { rowLine, top, bottom }
+                            end
                             putBack()
-                            local seen = ("LAYOUT %s: scrolled by %.0f, switch %.0f..%.0f, view %.0f..%.0f")
-                                :format(name, offset, bottom or 0, top or 0, viewBottom, viewTop)
-                            report(seen)
-                            check(top and bottom and top <= viewTop + 1 and bottom >= viewBottom - 1,
-                                seen .. ": the switch isn't in view once scrolled to")
+                            for _, one in ipairs(seen) do
+                                report(one[1])
+                                check(one[2] and one[3] and one[2] <= viewTop + 1 and one[3] >= viewBottom - 1,
+                                    one[1] .. ": not in view once scrolled to")
+                            end
                         end
                     end
                 else
