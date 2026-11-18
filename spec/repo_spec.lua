@@ -1969,6 +1969,26 @@ describe("UI simulator workflow", function()
             assert.are.equal("", r.log)
         end)
 
+        -- #473: GitHub drops a step summary over 1024k, and the run's was 1228k.
+        it("keeps the summary under GitHub's 1024k limit however long the reports are (black)", function()
+            local bigLines = {}
+            for i = 1, 20000 do bigLines[#bigLines + 1] = "LAYOUT panel " .. i .. ": " .. ("x"):rep(100) end
+            bigLines[#bigLines + 1] = "a very long line " .. ("y"):rep(50000)
+            local big = table.concat(bigLines, "\n") .. "\n"
+            local r = summarize(ALL_FINISHED, { ["run-tests.log"] = big, ["layout-1024x768.log"] = big })
+            assert.are.equal(0, r.status)
+            assert.is_true(#r.summary > 0, "no summary")
+            assert.is_true(#r.summary <= 700000, "the summary is " .. #r.summary .. " bytes")
+            assert.is_truthy(r.summary:find("## UI simulator (report only)", 1, true))
+        end)
+
+        it("keeps the summary's size cap in the workflow, well under 1024k (white)", function()
+            local step = wow.readFile(path):match("name: Summary\n%s*run: |\n(.-)\n\n")
+            local cap = tonumber(step:match("%-gt (%d+) %]; then\n%s*truncate %-s %1 \"%$GITHUB_STEP_SUMMARY\""))
+            assert.is_truthy(cap, "the summary has no size cap")
+            assert.is_true(cap <= 800000, "the cap is " .. cap)
+        end)
+
         it("shows the end of the frame tree's log when dump-tree timed out (black)", function()
             local r = summarize("lua-errors 1 0 3\nrun-tests 1 0 20\ndump-tree 1 124 130\ndump-tree 2 124 130\n"
                 .. "layout-1024x768 1 0 25\n", { ["frame-tree.txt.timed-out"] = "first tree\n", ["frame-tree.txt"] = "the tree end\n" })
@@ -3732,10 +3752,10 @@ describe("UI simulator workflow", function()
                 for _, candidate in ipairs(jobs["ui-sim"].steps) do
                     if candidate.text:find("Show the reports in the log", 1, true) then reports = candidate.text end
                 end
-                assert.is_truthy(reports and reports:find('head -c 60000 "$file" 2>&1 | shown', 1, true), "the reports step isn't where this test looks")
+                assert.is_truthy(reports and reports:find('head -c 3000 "$file" 2>&1 | shown', 1, true), "the reports step isn't where this test looks")
                 assert.are.same({}, (scan(reports)))
-                local leaky = reports:gsub('head %-c 60000 "%$file" 2>&1 | shown', 'head -c 60000 "$file" | shown', 1)
-                assert.are.same({ 'filters only stdout:             head -c 60000 "$file" | shown' }, (scan(leaky)))
+                local leaky = reports:gsub('head %-c 3000 "%$file" 2>&1 | shown', 'head -c 3000 "$file" | shown', 1)
+                assert.are.same({ 'filters only stdout:             head -c 3000 "$file" | shown' }, (scan(leaky)))
             end)
         end)
 

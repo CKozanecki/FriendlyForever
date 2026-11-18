@@ -722,8 +722,12 @@ jobs:
             # plain (#153, #367); the run step names them all so.
             name=$(basename "$file")
             case "$name" in *[!A-Za-z0-9._-]*) echo "skipping a report with an unsafe name"; continue ;; esac
+            # Only the start of each report goes in the log (#473): a session's log tool
+            # reads the last 5,000 lines, and the full files, every LAYOUT and FACT line
+            # among them, are in the ui-sim-report artifact.
             echo "::group::$name"
-            head -c 60000 "$file" 2>&1 | shown
+            wc -lc < "$file" 2>&1 | shown "lines and bytes: "
+            head -c 3000 "$file" 2>&1 | shown
             echo
             echo "::endgroup::"
           done
@@ -842,6 +846,12 @@ jobs:
             echo '```'
             # A reader's errors, which name its file, go to the summary too (#375).
           } >> "$GITHUB_STEP_SUMMARY" 2>&1
+          # GitHub drops a step summary over 1024k (#473), and a report's lines can be long: the
+          # summary is cut to its first 700,000 bytes. The full reports are in the ui-sim-report
+          # artifact. (The step's summary file holds only this step's text.)
+          if [ "$(wc -c < "$GITHUB_STEP_SUMMARY")" -gt 700000 ]; then
+            truncate -s 700000 "$GITHUB_STEP_SUMMARY"
+          fi
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -865,7 +875,7 @@ jobs:
       WALKTHROUGH_STEPS: welcome buff-mode-key buff-mode-triggers whats-new-requests whats-new-buffs
       # The Buffs tab's shots (#408): uitests/pages.lua's Pages.BUFFS_SHOTS
       # (spec/uitests_pages_spec.lua checks they match).
-      BUFFS_SHOTS: buff-back party raid pvp party-list raid-names party-choice
+      BUFFS_SHOTS: top buff-back party raid pvp party-list raid-names party-choice raid-blessings raid-blessings-in raid-blessings-unreadable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -946,8 +956,8 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Every shot
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so a pass of 41 shots can take about 137 minutes in the
-        # worst case, and both passes together about 273. No shot starts
+        # clean-up, so a pass of 45 shots can take about 150 minutes in the
+        # worst case, and both passes together about 300. No shot starts
         # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
         # so the last one ends by about 4400 s with the probe: inside this
         # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a

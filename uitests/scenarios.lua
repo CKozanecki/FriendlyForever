@@ -1690,6 +1690,79 @@ test("the Buffs tab stays inside its page at its tallest, at every place, names 
     if not ok then error(err, 0) end
 end)
 
+-- The raid Blessings header and boxes on the Raid place (#444, #439): a
+-- paladin who knows Kings, Wisdom and Might, out of a raid, in one with
+-- Might unticked, and with the game's raid answer unreadable. The header
+-- text and the boxes' state are checked, and the header stays inside the
+-- panel's view (its text 55 px longer since #439). The saved settings, the
+-- spells, the party and the globals are put back, even when a check fails.
+test("the Raid Blessings header and boxes read right and stay inside the page, in every raid state (#444)", function()
+    local Pages = FriendlyForeverUIPages
+    local saved = FriendlyForeverDB and FriendlyForeverDB.buffBack
+    check(type(saved) == "table", "no saved Buff Back settings")
+    local had = DeepCopy(saved)
+    local ok, err = pcall(function()
+        saved.whoChoice = "new"
+        local wanted = {
+            out = "(join a raid to choose)",
+            ["in"] = "(until you leave it)",
+            unreadable = "(can't tell if you're in a raid)",
+        }
+        for _, state in ipairs({ "out", "in", "unreadable" }) do
+            local content, putBack = Pages.ShowRaidBlessings(state)
+            check(content ~= nil, "couldn't show the raid Blessings, " .. state .. ": " .. tostring(putBack))
+            local done, failed = pcall(function()
+                Settle(content)
+                local name = "Raid Blessings, " .. state
+                local header
+                for _, region in ipairs({ content:GetRegions() }) do
+                    local text = region.GetText and region:GetText()
+                    if text and region:IsShown() and text:find("Blessings I give in this raid:", 1, true) == 1 then
+                        header = region
+                    end
+                end
+                check(header ~= nil, name .. ": the header isn't shown")
+                check(header:GetText():find(wanted[state], 1, true) ~= nil,
+                    name .. ": the header says '" .. tostring(header:GetText()) .. "', not " .. wanted[state])
+                local boxes = {}
+                for _, child in ipairs({ content:GetChildren() }) do
+                    if child.key and child:IsShown() and child.label then boxes[child.key] = child end
+                end
+                for _, key in ipairs({ "kings", "wisdom", "might" }) do
+                    check(boxes[key] ~= nil, name .. ": no box for " .. key)
+                end
+                if state ~= "out" then
+                    -- Might unticked, the others kept; greyed when the answer can't be read.
+                    check(boxes.might:GetChecked() == false, name .. ": Might should be unticked")
+                    check(boxes.kings:GetChecked() == true and boxes.wisdom:GetChecked() == true,
+                        name .. ": Kings and Wisdom should be ticked")
+                    check(boxes.kings:IsEnabled() == (state == "in"), name .. ": the boxes' enabled state is wrong")
+                end
+                local left, right = Edges(header, "GetLeft", "GetRight")
+                local viewLeft, viewRight = Edges(content:GetParent(), "GetLeft", "GetRight")
+                if left and viewLeft then
+                    local line = ("LAYOUT %s: header %.0f..%.0f, view %.0f..%.0f"):format(name, left, right,
+                        viewLeft, viewRight)
+                    report(line)
+                    check(left >= viewLeft - 1 and right <= viewRight + 1, line .. ": the header leaves the view")
+                else
+                    report("LAYOUT " .. name .. ": edges can't be read here")
+                end
+                CheckAll({
+                    function() TabTextInside(content, name) end,
+                    function() PushedDownInside(content, name) end,
+                })
+            end)
+            putBack()
+            if not done then error(failed, 0) end
+        end
+    end)
+    for k in pairs(saved) do saved[k] = nil end
+    for k, v in pairs(had) do saved[k] = v end
+    OpenTab(FriendlyForeverUIPages.TABS[1].label)
+    if not ok then error(err, 0) end
+end)
+
 -- The passers-by switch at the top of the Buffs tab (#455): above the places'
 -- tabs, at every place, its help line inside the page, and with the
 -- nameplate warning and its button when friendly nameplates are off, the
@@ -1725,6 +1798,14 @@ test("the Buffs tab's passers-by switch sits above the places' tabs, inside the 
                     local line = ("LAYOUT %s: switch bottom %.0f, place tabs top %.0f"):format(name, boxBottom, tabTop)
                     report(line)
                     check(tabTop <= boxBottom + 1, line .. ": the tabs aren't below the switch")
+                    -- Unscrolled, the switch is in the panel's view (#474's shot of the tab's top).
+                    local viewTop, viewBottom = Edges(content:GetParent(), "GetTop", "GetBottom")
+                    if viewBottom then
+                        local seen = ("LAYOUT %s: switch bottom %.0f, view %.0f..%.0f"):format(name, boxBottom,
+                            viewBottom, viewTop)
+                        report(seen)
+                        check(boxBottom >= viewBottom - 1, seen .. ": the switch is below the unscrolled view")
+                    end
                 else
                     report("LAYOUT " .. name .. ": edges can't be read here")
                 end
