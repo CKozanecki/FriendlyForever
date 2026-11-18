@@ -171,8 +171,10 @@ OptionsIndex.SETTINGS = {
         controls = { "start.tour" } },
     { name = "Every other page", page = START, keywords = "start pages links messages buff back general ledger",
         controls = { "start.openMessages", "start.openGeneral", "start.openLedger" } },
+    -- Start here also says how to turn buff mode on by hand (shift-click the minimap button, #458): a note
+    -- isn't a control, so its words are on its link's entry.
     { name = "Passers-by switch (Buffs tab)", page = START,
-        keywords = "start passers-by passersby shift click minimap buff mode on off by hand",
+        keywords = "start passers-by passersby nearby strangers link shift click minimap buff mode on off by hand",
         controls = { "start.openPassersBy" } },
 }
 

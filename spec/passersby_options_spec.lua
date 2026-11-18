@@ -1,6 +1,6 @@
 -- Spec: #39, #455
--- Passers-by and the campfire trigger in the settings: the switch on the
--- Buffs tab's Buff Back place, with its help line and the nameplates it
+-- Passers-by and the campfire trigger in the settings: the switch at the
+-- top of the Buffs tab, with its help line and the nameplates it
 -- needs; the campfire's box among the turn-on triggers; the options search;
 -- the walkthrough; profiles and settings lines.
 local wow = require("spec.support.wow")
@@ -144,7 +144,15 @@ describe("Passers-by and the campfire in the settings (#39)", function()
             local text = start.buffModeSwitch:GetText()
             assert.is_truthy(text:find("shift-click the minimap button", 1, true))
             assert.is_truthy(text:find("/friendly buffmode", 1, true))
-            assert.is_truthy(start.passersByNote:GetText():find("off until you do", 1, true))
+            assert.is_truthy(start.passersByNote:GetText():find("passers-by is off until you turn it on", 1, true))
+            ns.db.buffBack.passersBy = true
+            ns.Options.FillStart()
+            assert.is_truthy(start.passersByNote:GetText():find("passers-by is on", 1, true), "it shows the saved state")
+            local saved = ns.db.buffBack
+            ns.db.buffBack = 7
+            ns.Options.FillStart()
+            assert.is_truthy(start.passersByNote:GetText():find("is off", 1, true), "a damaged section reads as off")
+            ns.db.buffBack = saved
             wow.run(start.openPassersBy, "OnClick")
             assert.are.equal("buffs", ns.Options.CurrentType())
             assert.is_true(w.passersBy:IsVisible())

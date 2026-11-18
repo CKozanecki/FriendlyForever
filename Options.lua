@@ -1140,8 +1140,7 @@ function Options.CreateStartPage()
     w.buffModeSwitch = Note(area, w.buffModeKey, "Turn buff mode on or off by hand: shift-click the minimap button "
         .. "(its tooltip shows whether it's on), or type /friendly buffmode. Right-click on the minimap button "
         .. "turns the whole addon on or off.")
-    w.passersByNote = Note(area, w.buffModeSwitch, "Buff mode also offers your buffs to players nearby who aren't in "
-        .. "your group, when you turn that on. It's off until you do:")
+    w.passersByNote = Note(area, w.buffModeSwitch, "")
     w.openPassersBy = Button(area, "Passers-by switch (Buffs tab)", 220, function()
         Options.OpenTab(Options.BUFFS_TAB, "passersBy")
     end)
@@ -1194,6 +1193,9 @@ FillStart = function()
     local buttonKey = ButtonKeyText()
     w.buttonKey:SetText(buttonKey and ("Buff-back button key: " .. buttonKey .. " (Key Bindings > AddOns).")
         or "Buff-back button key: none yet. Set one in Key Bindings > AddOns, or click the button.")
+    local buffBack = type(ns.db.buffBack) == "table" and ns.db.buffBack or {}
+    w.passersByNote:SetText("Buff mode also offers your buffs to players nearby who aren't in your group: "
+        .. (buffBack.passersBy == true and "passers-by is on." or "passers-by is off until you turn it on."))
     w.buffModeKey:SetText("Buff mode key: " .. ns.BuffMode.KeyText((ns.BuffMode.Key()))
         .. ". Buff mode lends it to the buff-back button to buff a group quickly (the Buff Back tab).")
 end
