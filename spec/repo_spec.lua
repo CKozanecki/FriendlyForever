@@ -1963,12 +1963,6 @@ describe("UI simulator workflow", function()
         end)
     end)
 
-    -- The summary step's own shell, as the job runs it, on a report in which
-    -- runs were stopped at their time limit (#173). Each one stopped is named
-    -- at the top of the summary, with its last scenario and the end of its
-    -- log, and in an annotation, and the job never fails. The logs are
-    -- hostile: none of their text reaches the job log, where the runner reads
-    -- commands, and none can close the summary's code blocks.
     -- The log's digest (#473), run for real: the main pass prints a failed check on two lines, and
     -- the error line holds the failed LAYOUT line, so both are kept.
     describe("the scenario job's log digest, run for real (#473)", function()
@@ -2010,6 +2004,12 @@ describe("UI simulator workflow", function()
         end)
     end)
 
+    -- The summary step's own shell, as the job runs it, on a report in which
+    -- runs were stopped at their time limit (#173). Each one stopped is named
+    -- at the top of the summary, with its last scenario and the end of its
+    -- log, and in an annotation, and the job never fails. The logs are
+    -- hostile: none of their text reaches the job log, where the runner reads
+    -- commands, and none can close the summary's code blocks.
     describe("the scenario job's summary of runs stopped at their time limit, run for real", function()
         local HOSTILE = "START 6 an unknown command is answered, not an error\nLAYOUT ok 1024x768 panel\n"
             .. "START 7 ::error::seven\n```\n::warning::hostile\nx ##[set-env name=A;]b\r::error::carriage\n"
