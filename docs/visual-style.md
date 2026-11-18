@@ -27,3 +27,5 @@ Every colour the addon shows is named once, in `Colours.lua`, and used by name: 
 ## Scroll, don't overflow
 
 The owner's rule (2026-10-29, on #46): any options page, list or window whose content can grow (lists of names, profiles, ledger entries, future settings) scrolls rather than overflowing or trimming content to fit. Scrollable sections share one look (frame, scroll bar, padding), and the UI simulator's layout checks run each page filled with realistic data.
+
+It scrolls only as far as its content (the owner, 2026-11-18, on #482): each options page and sub-tab ends at its last shown control plus a small margin (`Options.SCROLL_MARGIN`), never in an empty pane, and a page that fits has no scroll range and no scroll bar. `FitHeight` in `Options.lua` sizes the scrolling content to its lowest shown row each time the page fills, and again on the next frame; frames that float over the rows (an open list, the key capture) don't count (`Options.Floating`).

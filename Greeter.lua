@@ -11,6 +11,9 @@ Greeter.PENDING_TIMEOUT = 30
 Greeter.MAX_PENDING = 100
 
 local members = {} -- [full name] = their class as players read it ("warrior"), or true
+-- [full name] = the zone an online member is in, from the last readable
+-- roster update (#486): plain text, never a secret, at most MAX_ZONE_BYTES.
+local zones = {}
 local pendingOnline = {}
 local pendingCount = 0
 
@@ -118,6 +121,16 @@ local function NotIgnored(name)
         if ns.Ignore.Has(name) then return false, "on your ignore list" end
         return true
     end
+end
+
+-- A guild message's moment (#486): {zone} is the guildmate's own zone, read
+-- from the roster as the line goes out, or nil when it can't be read.
+local function GuildContext(name)
+    return { zone = zones[name] }
+end
+
+function Greeter.MemberZone(name)
+    return zones[name]
 end
 
 -- {name}, {fullname} and, when the roster says, {class}.
@@ -256,6 +269,7 @@ local function Greet(name)
     end
     ns.Announcer.Schedule("guildLogin", name, {
         channel = GuildChannel, vars = function() return MemberVars(name) end,
+        context = function() return GuildContext(name) end,
         isValid = function()
             local ok, why = NotIgnored(name)()
             if not ok then return false, why end
@@ -334,40 +348,68 @@ local unreadableRun = 0
 -- far above any guild, so a huge number can't stall the client (#412).
 Greeter.MAX_ROSTER_ROWS = 5000
 
--- One roster row's name and class (its first and fifth answers). Called only
--- through Util.ReadGameValues, so an error or a secret reads as nil (#412).
-local function RosterRow(i)
-    local name, _, _, _, class = GetGuildRosterInfo(i)
-    return name, class
+-- A value from the game, or nil when it is a secret.
+local function Plain(value)
+    if Util.IsSecret(value) then return nil end
+    return value
 end
 
--- The guild roster as the game gives it now: [full name] = class or true.
+-- One roster row's name, class, zone and whether they're online (its first,
+-- fifth, sixth and ninth answers; the zone and online for #486), each nil
+-- when it's a secret, and all nil when the game's call fails (#412). One
+-- call a row; each value is read on its own, so a secret zone can't lose
+-- the member.
+local function RosterRow(i)
+    local ok, name, _, _, _, class, zone, _, _, online = pcall(GetGuildRosterInfo, i)
+    if not ok then return nil end
+    return Plain(name), Plain(class), Plain(zone), Plain(online)
+end
+
+-- The longest zone name taken from the roster (#486), in bytes: past every
+-- zone's name. A longer one is treated as unreadable, not cut.
+Greeter.MAX_ZONE_BYTES = 48
+
+-- A roster row's zone as plain text a message may say, or nil: only for a
+-- member the row says is online (an offline row's zone is where they last
+-- were), with nothing the chat could read as an escape, and not too long.
+local function RosterZone(zone, online)
+    if online ~= true or type(zone) ~= "string" then return nil end
+    zone = Util.StripChat(zone)
+    if zone == "" or #zone > Greeter.MAX_ZONE_BYTES then return nil end
+    return zone
+end
+
+-- The guild roster as the game gives it now: [full name] = class or true,
+-- and [full name] = zone for the online members whose zone can be read.
 -- Out of a guild, or when the game won't say whether you're in one, nobody
 -- (#400). Nil when the roster can't be read: the count isn't a readable
 -- number, or no row could be read from a guild, which always lists you (#412).
 local function ReadRoster()
-    if Flag(IsInGuild) ~= true then return {} end
+    if Flag(IsInGuild) ~= true then return {}, {} end
     -- A negative count reads no row, so it's caught below with an empty one.
     local count = Util.ReadGameValues(GetNumGuildMembers)
     if type(count) ~= "number" or count ~= count or count == math.huge then return nil end
-    local roster, found = {}, false
+    local roster, places, found = {}, {}, false
     for i = 1, math.min(Greeter.MAX_ROSTER_ROWS, count) do
-        local rawName, class = Util.ReadGameValues(RosterRow, i)
+        local rawName, class, zone, online = RosterRow(i)
         local name = Util.FullName(rawName)
         if name then
             roster[name] = type(class) == "string" and class ~= "" and class:lower() or true
+            places[name] = RosterZone(zone, online)
             found = true
         end
     end
     if not found then return nil end
-    return roster
+    return roster, places
 end
 
 function Greeter.OnRosterUpdate()
     ns.Diag.Count("rosterUpdates")
-    local roster = ReadRoster()
+    local roster, places = ReadRoster()
     if not roster then
-        -- Keep the guildmates already known until a readable update (#412).
+        -- Keep the guildmates already known until a readable update (#412),
+        -- but not where they are: that can't be told now (#486).
+        zones = {}
         ns.Diag.Count("rosterUnreadable")
         unreadableRun = unreadableRun + 1
         if unreadableRun == 1 then
@@ -379,7 +421,7 @@ function Greeter.OnRosterUpdate()
         ns.Diag.Log("guild", "%d more unreadable roster updates in that run", unreadableRun - 1)
     end
     unreadableRun = 0
-    members = roster
+    members, zones = roster, places
 
     -- Logged only when the count changes: updates come in bursts (#268).
     local count = Greeter.MemberCount()
@@ -716,6 +758,8 @@ function Greeter.OnSystemMessage(msg)
         ns.GuildHellos.OnLogin(name)
         if members[name] then
             Greet(name)
+            -- A fresh roster by the time the hello goes out, for their zone (#486).
+            Greeter.RequestRoster()
         else
             ns.Diag.Log("guildLogin", "%s not in cached roster yet; asking the game for a fresh roster", name)
             AddPending(name, GetTime())
@@ -727,8 +771,11 @@ function Greeter.OnSystemMessage(msg)
         if ns.Announcer.Schedule("guildJoin", name, {
             channel = GuildChannel, isValid = NotIgnored(name),
             vars = function() return ns.Config.NameVars("guildJoin", name) end,
+            context = function() return GuildContext(name) end,
         }) then
             RememberWelcomed(name)
+            -- A roster with the new member in it, for their zone (#486).
+            Greeter.RequestRoster()
         end
     elseif kind == "partyJoin" then
         -- Every joiner would be welcomed, by every addon user, in /bg.

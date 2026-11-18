@@ -6,7 +6,10 @@
 --
 --   {greeting} {thanks} {blessing} {cheer}  chosen by your race, faction,
 --                                          where you are and the hour
---   {zone}       where you are ("Elwynn Forest"; "these lands" if unknown)
+--   {zone}       where you are ("Elwynn Forest"; "these lands" if unknown).
+--                In a guild message, where the guildmate is, from the guild
+--                roster, or nothing at all: a line or phrase that needs it
+--                isn't used when it's unknown (#486)
 --   {timeofday}  "morning", "afternoon" or "evening", by the game's clock
 --   {myclass}    your class ("mage"; "traveler" if unknown)
 --   {class}      their class when the game says ("warrior"), else "friend"
@@ -68,8 +71,11 @@ function Flavour.Voice(race, raceId, faction)
     return race
 end
 
--- What the moment is, read once per message.
-function Flavour.Context()
+-- What the moment is, read once per message. guild: a guild message's own
+-- (#486), { zone = the guildmate's zone or nil }: {zone} reads theirs, never
+-- yours and never "these lands", and the place-based phrases are the guild's
+-- neutral ones, since the roster says where they are, not whether it's a city.
+function Flavour.Context(guild)
     local _, race, raceId = Read(UnitRace, "player")
     local className, class = Read(UnitClass, "player")
     local faction = Read(UnitFactionGroup, "player")
@@ -82,18 +88,42 @@ function Flavour.Context()
         place = "city"
     end
     faction = Text1(faction)
+    local guildOnly = type(guild) == "table"
+    if guildOnly then zone, place = Text1(guild.zone), "guild" end
     return {
         race = Flavour.Voice(race, raceId, faction), class = Text1(class), className = Text1(className),
-        faction = faction, zone = zone, place = place,
+        faction = faction, zone = zone, place = place, guild = guildOnly,
         partOfDay = Flavour.PartOfDay((Read(GetGameTime))),
     }
+end
+
+-- Whether a line or fragment needs {zone}, in any case ({Zone}, {ZONE}).
+function Flavour.NeedsZone(text)
+    return type(text) == "string" and text:lower():find("{zone}", 1, true) ~= nil
+end
+
+-- A guild message whose guildmate's zone is unknown can't say one (#486).
+local function ZoneMissing(ctx)
+    return ctx.guild and ctx.zone == nil
+end
+
+-- pool without the fragments that need a zone the moment hasn't got.
+local function Sayable(pool, ctx)
+    if not ZoneMissing(ctx) then return pool end
+    local out = {}
+    for _, fragment in ipairs(pool) do
+        if not Flavour.NeedsZone(fragment) then out[#out + 1] = fragment end
+    end
+    return out
 end
 
 -- The pools that have lines for this moment, with their weights.
 local function Pools(slot, ctx)
     local text, out = Text[slot], {}
     local function Add(kind, pool)
-        if type(pool) == "table" and #pool > 0 then out[#out + 1] = { weight = Flavour.WEIGHTS[kind], lines = pool } end
+        if type(pool) ~= "table" then return end
+        pool = Sayable(pool, ctx)
+        if #pool > 0 then out[#out + 1] = { weight = Flavour.WEIGHTS[kind], lines = pool } end
     end
     Add("race", text.race and ctx.race and text.race[ctx.race])
     Add("faction", text.faction and ctx.faction and text.faction[ctx.faction])
@@ -143,7 +173,10 @@ end
 
 -- The value of one plain (non-slot) flavour placeholder.
 local function Plain(key, ctx)
-    if key == "zone" then return ctx.zone or Flavour.FALLBACK.zone end
+    if key == "zone" then
+        if ctx.guild then return ctx.zone end
+        return ctx.zone or Flavour.FALLBACK.zone
+    end
     if key == "timeofday" then
         local part = ctx.partOfDay
         if part == "night" or part == nil then return "evening" end
@@ -231,7 +264,8 @@ end
 --   pools     { key = "greeting", phrases = { ... } } for each slot the line
 --             uses, once, in order of first use;
 --   now       { key = "zone", value = "Elwynn Forest" } for each of {zone},
---             {timeofday} and {myclass} the line uses.
+--             {timeofday} and {myclass} the line uses; for a guild message's
+--             {zone} (#486), theirs = true, and none when it's unknown.
 -- It changes nothing: not vars, nor the settings, nor the memory of recent
 -- fragments, nor the real random state.
 function Flavour.Preview(template, vars, ctx, count)
@@ -253,7 +287,11 @@ function Flavour.Preview(template, vars, ctx, count)
         if SLOT[key] then
             out.pools[#out.pools + 1] = { key = key, phrases = Flavour.Pool(key, ctx) }
         elseif key == "zone" or key == "timeofday" or key == "myclass" then
-            out.now[#out.now + 1] = { key = key, value = Plain(key, ctx) }
+            -- A guild message's {zone} is the guildmate's (#486): theirs is true.
+            local value = Plain(key, ctx)
+            if value ~= nil then
+                out.now[#out.now + 1] = { key = key, value = value, theirs = key == "zone" and ctx.guild or nil }
+            end
         end
     end
 

@@ -110,6 +110,10 @@ end
 --              and an emote for the same player don't block each other.
 --   emoteTarget = optional function() -> unit token to aim the emote at, or nil,
 --   dropOverCap = optional true for thanks: dropped, not held, over the chat cap,
+--   context  = optional function() -> { zone = text or nil }: a guild message
+--              (#486), read as it goes out. {zone} is that zone, and a line
+--              that needs it when it's nil gives way to one that doesn't, or
+--              nothing is said (Flavour.Context),
 --   hold     = optional function(go, line, drop): after the delay, call go()
 --              once when the message may be queued (a thank-you waits for
 --              its exchange: #36), or drop(reason) once to send nothing.
@@ -117,6 +121,19 @@ end
 --              instead, if it isn't blank (a guild hello: #38),
 -- }
 -- Returns true if a message was scheduled, or false and the reason not.
+-- The line to say when the zone it may need is unknown (#486): template if
+-- it doesn't need {zone}, else the next line in the bag that doesn't, or nil.
+local function WithoutZone(msgType, saved, template)
+    if not ns.Flavour.NeedsZone(template) then return template end
+    local avoid = {}
+    for i = 1, #saved do
+        if ns.Flavour.NeedsZone(saved[i]) then avoid[i] = true end
+    end
+    local other = ns.Messages.Pick(msgType, saved, avoid)
+    if other and not ns.Flavour.NeedsZone(other) then return other end
+    ns.Diag.Log(msgType, "every line needs {zone}, and their zone can't be read")
+end
+
 local function Skip(msgType, key, reason)
     ns.Diag.Log(msgType, "not sending for %s: %s", key, reason)
     return false, reason
@@ -167,7 +184,15 @@ function Announcer.Schedule(msgType, key, opts)
                     template = said
                 end
                 local vars = opts.vars and opts.vars() or Util.NameVars(key)
-                return Util.Render(template, ns.Flavour.Vars(vars))
+                local ctx
+                if opts.context then
+                    ctx = ns.Flavour.Context(opts.context())
+                    if ctx.zone == nil then
+                        template = type(saved) == "table" and WithoutZone(msgType, saved, template)
+                        if not template then return nil end
+                    end
+                end
+                return Util.Render(template, ns.Flavour.Vars(vars, ctx))
             end,
             isValid = function()
                 local ok, why = StillWanted(msgType)

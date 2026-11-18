@@ -1,4 +1,4 @@
--- Spec: #441
+-- Spec: #441, #486
 -- Hovering a message box shows what its placeholders turn into for your
 -- character, from the real renderer, and changes nothing.
 local wow = require("spec.support.wow")
@@ -82,6 +82,8 @@ describe("Hovering a message box (#441)", function()
 
         it("fills {name} and {buff} with sample values and says what {zone}, {timeofday} and {myclass} read now", function()
             boot({ class = "MAGE" })
+            -- A thanks tab: on the guild tabs {zone} is the guildmate's (#486).
+            ns.Options.SelectType("buff")
             local text = hover(1, "{thanks}, {name}, for the {buff}! In {zone} this {timeofday}, from a {myclass}.")
             assert.is_truthy(text:find("for the Power Word: Fortitude!", 1, true))
             assert.is_truthy(text:find("{zone} now reads: Elwynn Forest", 1, true))
@@ -144,6 +146,7 @@ describe("Hovering a message box (#441)", function()
             _G.UnitRace = function() error("restricted") end
             _G.GetRealZoneText = function() return wow.secret("Elwynn") end
             _G.GetZoneText = function() return nil end
+            ns.Options.SelectType("partyJoin") -- your own zone: not a guild tab (#486)
             local text = hover(1, "{greeting} in {zone}")
             assert.is_truthy(text:find("{zone} now reads: these lands", 1, true))
             assert.is_truthy(text:find("Good to see you", 1, true))
