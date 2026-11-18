@@ -110,8 +110,9 @@ Walkthrough.STEPS = {
                 .. "when you press it.\n\n"
                 .. "On the Buffs tab, the buff order says which of your buffs it offers first: the first that "
                 .. "suits them. Move a buff with Up and Down, and tick \"Never offer\" for any you never want "
-                .. "offered. Below, who gets each buff: strangers (Buff Back), Party, Raid and PvP each have "
-                .. "their own."
+                .. "offered. At the top is the passers-by switch: off until you turn it on, it lets buff mode "
+                .. "offer your buffs to players nearby. Below, who gets each buff: strangers (Buff Back), Party, "
+                .. "Raid and PvP each have their own."
         end,
     },
     {

@@ -1,6 +1,6 @@
--- Spec: #39
--- Passers-by and the campfire trigger in the settings: the switch on the
--- Buffs tab's Buff Back place, with its help line and the nameplates it
+-- Spec: #39, #455
+-- Passers-by and the campfire trigger in the settings: the switch at the
+-- top of the Buffs tab, with its help line and the nameplates it
 -- needs; the campfire's box among the turn-on triggers; the options search;
 -- the walkthrough; profiles and settings lines.
 local wow = require("spec.support.wow")
@@ -30,7 +30,7 @@ describe("Passers-by and the campfire in the settings (#39)", function()
     end
 
     describe("the switch (white)", function()
-        it("is on the Buffs tab's Buff Back place, off by default, with its help line, and saves at once", function()
+        it("is at the top of the Buffs tab, off by default, with its help line, and saves at once", function()
             boot()
             buffsPlace("strangers")
             assert.is_true(w.passersBy:IsVisible())
@@ -44,14 +44,41 @@ describe("Passers-by and the campfire in the settings (#39)", function()
             assert.is_false(ns.db.buffBack.passersBy)
         end)
 
-        it("isn't on the other places, nor its nameplate warning while they're off", function()
+        -- #455: it decides whether buff mode looks at strangers at all, so it
+        -- isn't hidden inside one place.
+        it("shows on every place, above the places' tabs, and the nameplate warning only while they're off", function()
             boot({ nameplatesOff = true })
-            for _, p in ipairs({ "party", "raid", "pvp" }) do
+            for _, p in ipairs({ "strangers", "party", "raid", "pvp" }) do
                 buffsPlace(p)
-                assert.is_false(w.passersBy:IsVisible(), p)
-                assert.is_false(w.passersByHelp:IsVisible(), p)
-                assert.is_false(w.passersByNameplates:IsVisible(), p)
-                assert.is_false(w.passersByShow:IsVisible(), p)
+                assert.is_true(w.passersBy:IsVisible(), p)
+                assert.is_true(w.passersByHelp:IsVisible(), p)
+                assert.is_true(w.passersByNameplates:IsVisible(), p)
+                assert.is_true(w.passersByShow:IsVisible(), p)
+                -- The simulator has no vertical layout: the chain of anchors says the order.
+                local _, tabAnchor = w.placeTabs.strangers:GetPoint()
+                assert.are.equal(w.passersByNameplates, tabAnchor, p .. ": the first tab hangs from the warning")
+            end
+        end)
+
+        it("is the same saved setting as before, so nothing needs moving (#455)", function()
+            boot({ db = { buffBack = { passersBy = true } } })
+            buffsPlace("raid")
+            assert.is_true(w.passersBy:GetChecked(), "an old saved true reads as on, on any place")
+            click(w.passersBy, false)
+            assert.is_false(ns.db.buffBack.passersBy)
+            assert.is_nil(ns.db.passersBy, "no new field, no migration")
+        end)
+
+        it("the places' tabs hang from the help line, or from the nameplate warning when it shows", function()
+            for _, off in ipairs({ false, true }) do
+                boot({ nameplatesOff = off })
+                buffsPlace("party")
+                local _, anchor = w.placeTabs.strangers:GetPoint()
+                assert.are.equal(off and w.passersByNameplates or w.passersByHelp, anchor, "off=" .. tostring(off))
+                local _, below = w.passersByHelp:GetPoint()
+                assert.are.equal(w.passersBy, below, "the help sits under the switch")
+                local _, switchAnchor = w.passersBy:GetPoint()
+                assert.are.equal(w.steppers.groupEnough.label, switchAnchor, "the switch sits with the other switches")
             end
         end)
 
@@ -109,6 +136,45 @@ describe("Passers-by and the campfire in the settings (#39)", function()
         end)
     end)
 
+    describe("Start here and the walkthrough (white, #455, #458)", function()
+        it("Start here says how to turn buff mode on by hand, and links to the switch at the top of the Buffs tab", function()
+            boot()
+            local start = w.start
+            wow.run(ns.Options.StartPage(), "OnShow")
+            local text = start.buffModeSwitch:GetText()
+            assert.is_truthy(text:find("shift-click the minimap button", 1, true))
+            assert.is_truthy(text:find("/friendly buffmode", 1, true))
+            assert.is_truthy(start.passersByNote:GetText():find("passers-by is off until you turn it on", 1, true))
+            ns.db.buffBack.passersBy = true
+            ns.Options.FillStart()
+            assert.is_truthy(start.passersByNote:GetText():find("passers-by is on", 1, true), "it shows the saved state")
+            local saved = ns.db.buffBack
+            ns.db.buffBack = 7
+            ns.Options.FillStart()
+            assert.is_truthy(start.passersByNote:GetText():find("is off", 1, true), "a damaged section reads as off")
+            ns.db.buffBack = saved
+            -- The link scrolls the tab to the switch (#455's testing review):
+            -- the switch can sit below the fold of a short panel.
+            w.content.top, w.passersBy.top, w.scroll.scrollRange = 1000, 600, 2000
+            wow.run(start.openPassersBy, "OnClick")
+            assert.are.equal(388, w.scroll:GetVerticalScroll(), "scrolled to the switch, a margin above it")
+            assert.are.equal("buffs", ns.Options.CurrentType())
+            assert.is_true(w.passersBy:IsVisible())
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("the walkthrough's Buffs step mentions the passers-by switch at the top", function()
+            boot()
+            local text
+            for _, step in ipairs(ns.Walkthrough.STEPS) do
+                if step.title:find("buff order", 1, true) then text = step.text() end
+            end
+            assert.is_truthy(text, "the Buffs step")
+            assert.is_truthy(text:find("passers-by switch", 1, true))
+            assert.is_truthy(text:find("At the top", 1, true))
+        end)
+    end)
+
     describe("finding them (white)", function()
         it("the options search finds the switch under passers-by, nearby and strangers, and the campfire", function()
             boot()
@@ -118,7 +184,7 @@ describe("Passers-by and the campfire in the settings (#39)", function()
                 return out
             end
             for _, word in ipairs({ "passers-by", "nearby", "strangers" }) do
-                assert.are.equal("the Buffs tab's Buff Back place", names(word)["Also offer my buffs to passers-by"],
+                assert.are.equal("the Buffs tab", names(word)["Also offer my buffs to passers-by"],
                     word)
             end
             assert.are.equal("the Buff Back tab", names("campfire")["Buff mode turns on by itself"])
