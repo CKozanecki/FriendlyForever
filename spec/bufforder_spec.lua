@@ -1,4 +1,4 @@
--- Spec: #31, #71, #76, #136, #42, #46, #208, #41, #209, #70, #44, #40, #408, #419
+-- Spec: #31, #71, #76, #136, #42, #46, #208, #41, #209, #70, #44, #40, #408, #419, #452
 -- Buff order and the never-offer list: which of your buffs the button offers
 -- first, and which it never offers.
 local wow = require("spec.support.wow")
@@ -193,7 +193,8 @@ describe("Buff order and never offer", function()
             assert.is_true(w.buffRows[1].name:IsVisible())
             assert.are.equal(w.buffRows[2].icon, select(2, w.selfBuffs:GetPoint()), "self-buffs follow the list (#44)")
             assert.are.equal(w.selfBuffs, select(2, w.breathNearWater:GetPoint()), "then water breathing (#136)")
-            assert.are.equal(w.breathNearWater, select(2, w.groupVersions:GetPoint()), "then group versions (#41)")
+            assert.are.equal(w.breathNearWater, select(2, w.fastCastInForm:GetPoint()), "then fast-cast in form (#452)")
+            assert.are.equal(w.fastCastInForm, select(2, w.groupVersions:GetPoint()), "then group versions (#41)")
             assert.are.equal(w.groupVersions, select(2, w.steppers.groupEnough.label:GetPoint()), "and their threshold")
             assert.is_false(w.msgHeader:IsVisible(), "no lines on the Buffs tab")
             wow.run(w.tabs.buffBack, "OnClick")

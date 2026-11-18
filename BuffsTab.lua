@@ -45,7 +45,11 @@ BuffsTab.SUMMARY_LETTERS = 24
 -- them as they are (Core.lua's ns.ResetType): it's for that tab's lines.
 BuffsTab.FIELDS = { "buffOrder", "neverOffer", "whoGets", "whoChoice", "whoStrangers", "whoParty", "whoRaid",
     "whoPvP", "selfBuffs", "soloOwnBuffs", "groupVersions", "groupEnough", "raidSplit", "bgPrepBuff",
-    "breathNearWater", "passersBy" }
+    "breathNearWater", "passersBy", "fastCastInForm" }
+-- "Fast-cast buffs in form" (#452, the owner's words).
+BuffsTab.FAST_CAST_TOOLTIP = "For druids. In a form, buff mode's key doesn't cast your buffs, so scrolling never "
+    .. "takes you out of the form; a click on the button still does. On: the key casts them in a form too, "
+    .. "and the game takes you out of the form. Weapon buffs always work with the key."
 -- The who-gets list's height, from the top: Everyone (6 + 32), the roles
 -- (2 + 32), "Classes:" (4 + 12), three rows of classes (3 x (2 + 32)), Off
 -- (4 + 22) and a margin of 8. Its shade covers all it holds (#408's review).
@@ -428,7 +432,9 @@ function BuffsTab.Create(content, tabsBottom)
     w.breathNearWater:SetPoint("TOPLEFT", w.selfBuffs, "BOTTOMLEFT", 0, -2)
     w.groupVersions = Check("groupVersions", "Use group versions (Arcane Brilliance, the Prayers, Gift of the Wild)",
         ns.Options.GROUP_VERSIONS_TOOLTIP)
-    w.groupVersions:SetPoint("TOPLEFT", w.breathNearWater, "BOTTOMLEFT", 0, -2)
+    w.fastCastInForm = Check("fastCastInForm", "Fast-cast buffs in form", BuffsTab.FAST_CAST_TOOLTIP)
+    w.fastCastInForm:SetPoint("TOPLEFT", w.breathNearWater, "BOTTOMLEFT", 0, -2)
+    w.groupVersions:SetPoint("TOPLEFT", w.fastCastInForm, "BOTTOMLEFT", 0, -2)
     local enough = ui.Stepper(area, "...when at least this many are missing the buff:", "groupEnough", BuffBack)
     enough.label:SetPoint("TOPLEFT", w.groupVersions, "BOTTOMLEFT", 4, -8)
     w.steppers.groupEnough = enough
@@ -612,6 +618,7 @@ local function FillOrder(buffs)
     local b = ns.db.buffBack
     w.selfBuffs:SetChecked(b.selfBuffs == true)
     w.breathNearWater:SetChecked(b.breathNearWater == true)
+    w.fastCastInForm:SetChecked(b.fastCastInForm == true)
     w.groupVersions:SetChecked(b.groupVersions == true)
     UI().FillBox(w.steppers.groupEnough.box, tostring(b.groupEnough))
     w.passersBy:SetChecked(b.passersBy == true)

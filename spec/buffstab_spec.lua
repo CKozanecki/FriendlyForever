@@ -1,4 +1,4 @@
--- Spec: #408, #39
+-- Spec: #408, #39, #452
 -- The Buffs tab (#408): the buff order and options for every place, then a
 -- sub-tab for each place (Buff Back, Party, Raid, PvP) with a "who gets it"
 -- row per buff, its list of ticks, its Always and Never names, and the
@@ -75,7 +75,7 @@ describe("The Buffs tab (#408)", function()
                 end
             end
             assert.are.same({ "1. Mark of the Wild", "2. Thorns" }, rows)
-            for _, cb in ipairs({ w.selfBuffs, w.breathNearWater, w.groupVersions }) do
+            for _, cb in ipairs({ w.selfBuffs, w.breathNearWater, w.fastCastInForm, w.groupVersions }) do
                 assert.is_true(cb:IsVisible())
                 assert.is_truthy(cb.tooltip)
             end
@@ -225,7 +225,7 @@ describe("The Buffs tab (#408)", function()
             -- the options for every place and for each.
             local shown = { "buffOrder", "neverOffer", "whoGets", "whoChoice", "whoStrangers", "whoParty",
                 "whoRaid", "whoPvP", "selfBuffs", "breathNearWater", "groupVersions", "groupEnough",
-                "soloOwnBuffs", "raidSplit", "bgPrepBuff", "passersBy" }
+                "soloOwnBuffs", "raidSplit", "bgPrepBuff", "passersBy", "fastCastInForm" }
             local listed = {}
             for _, field in ipairs(ns.BuffsTab.FIELDS) do
                 assert.is_not_nil(ns.Config.DEFAULTS.buffBack[field], field .. " is a Buff Back setting")
@@ -431,6 +431,7 @@ describe("The Buffs tab (#408)", function()
                 { "groupVersions", "yes" },
                 { "selfBuffs", 3 },
                 { "breathNearWater", { true } },
+                { "fastCastInForm", "yes" },
                 { "raidSplit", "on" },
             }
             for _, case in ipairs(cases) do
@@ -444,7 +445,7 @@ describe("The Buffs tab (#408)", function()
                 assert.are.same(expected, b[field], what .. " healed as the tab filled")
                 assert.are.equal("new", b.whoChoice, what)
                 assert.are.equal(tostring(b.groupEnough), w.steppers.groupEnough.box:GetText(), what)
-                for _, name in ipairs({ "selfBuffs", "breathNearWater", "groupVersions", "raidSplit" }) do
+                for _, name in ipairs({ "selfBuffs", "breathNearWater", "fastCastInForm", "groupVersions", "raidSplit" }) do
                     local want = b[name] == true
                     if name == "raidSplit" then want = ns.RaidSplit.Enabled() end
                     assert.are.equal(want, w[name]:GetChecked() == true, what .. ": " .. name)
