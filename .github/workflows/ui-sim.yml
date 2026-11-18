@@ -875,7 +875,7 @@ jobs:
       WALKTHROUGH_STEPS: welcome buff-mode-key buff-mode-triggers whats-new-requests whats-new-buffs
       # The Buffs tab's shots (#408): uitests/pages.lua's Pages.BUFFS_SHOTS
       # (spec/uitests_pages_spec.lua checks they match).
-      BUFFS_SHOTS: top buff-back party raid pvp party-list raid-names party-choice raid-blessings raid-blessings-in raid-blessings-unreadable
+      BUFFS_SHOTS: top passers-by buff-back party raid pvp party-list raid-names party-choice raid-blessings raid-blessings-in raid-blessings-unreadable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -956,8 +956,8 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Every shot
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so a pass of 45 shots can take about 150 minutes in the
-        # worst case, and both passes together about 300. No shot starts
+        # clean-up, so a pass of 46 shots can take about 153 minutes in the
+        # worst case, and both passes together about 307. No shot starts
         # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
         # so the last one ends by about 4400 s with the probe: inside this
         # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a

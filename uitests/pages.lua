@@ -265,8 +265,12 @@ Pages.BUFFS_PLACES = {
     { name = "raid", label = "Raid" },
     { name = "pvp", label = "PvP" },
 }
--- "top" is the tab unscrolled (#472, #474), the rows above the places' tabs.
-Pages.BUFFS_SHOTS = { "top", "buff-back", "party", "raid", "pvp", "party-list", "raid-names", "party-choice",
+-- "top" is the tab unscrolled (#472): the buff order and the first rows. "passers-by" is
+-- it scrolled so the passers-by switch is near the top of the view (#474): for a paladin
+-- (the simulator's class, with 11 buff rows) the switch sits about 690 px under the top
+-- at 1920 x 1080, below the 593 px the panel shows, so it can't be in the unscrolled shot.
+Pages.BUFFS_SHOTS = { "top", "passers-by", "buff-back", "party", "raid", "pvp", "party-list", "raid-names",
+    "party-choice",
     "raid-blessings", "raid-blessings-in", "raid-blessings-unreadable" }
 
 -- Every button under frame (to depth) whose text is label, in order.
@@ -345,6 +349,14 @@ function Pages.ShowRaidBlessings(state)
         end
         A_Admin.FireEvent("SPELLS_CHANGED")
     end
+    -- The panel fills its rows when it is shown, not when it is already open: it is
+    -- hidden first, so each state is read afresh (the run on #479 showed the
+    -- header of the state before).
+    local function OpenFresh()
+        local panel = _G[Pages.PANEL]
+        if type(panel) == "table" and panel.IsShown and panel:IsShown() then panel:Hide() end
+        return Pages.OpenBuffs("raid")
+    end
     local content
     local ok, err = pcall(function()
         if state ~= "out" then
@@ -355,7 +367,7 @@ function Pages.ShowRaidBlessings(state)
                 return realIsUnit(a, b, ...)
             end
         end
-        content = Pages.OpenBuffs("raid")
+        content = OpenFresh()
         if state ~= "out" and content then
             -- Might unticked, as a player does it: a click on its box.
             for _, child in ipairs({ content:GetChildren() }) do
@@ -364,7 +376,7 @@ function Pages.ShowRaidBlessings(state)
         end
         if state == "unreadable" then
             _G.IsInRaid = function() return nil end
-            content = Pages.OpenBuffs("raid") -- the tab lays itself out again from the new answer
+            content = OpenFresh() -- the tab fills itself again from the new answer
         end
     end)
     if not ok or not content then
@@ -399,6 +411,22 @@ function Pages.ShowBuffs(shot)
             end
             if header then Pages.ShowFrameAt(content, header, "top") end
         end
+        return content
+    end
+    if shot == "passers-by" then
+        local content = Pages.OpenBuffs()
+        if not content then return content end
+        local row
+        for _, child in ipairs({ content:GetChildren() }) do
+            local text = child.label and child.label.GetText and child.label:GetText() or ""
+            if text:find("Also offer my buffs to passers-by", 1, true) == 1 then row = child end
+        end
+        if not row then
+            report("the Buffs tab has no passers-by switch to show")
+            return content
+        end
+        Pages.ShowFrameAt(content, row, "top")
+        if C_Timer and C_Timer.After then C_Timer.After(0, function() Pages.ShowFrameAt(content, row, "top") end) end
         return content
     end
     if shot == "top" then

@@ -1798,19 +1798,26 @@ test("the Buffs tab's passers-by switch sits above the places' tabs, inside the 
                     local line = ("LAYOUT %s: switch bottom %.0f, place tabs top %.0f"):format(name, boxBottom, tabTop)
                     report(line)
                     check(tabTop <= boxBottom + 1, line .. ": the tabs aren't below the switch")
-                    -- Unscrolled (the panel at offset 0), the switch is within the first view's
-                    -- height of the content's top (#474's shot of the tab's top). Measured from
-                    -- the content, not the view: the run on #479 read the content far from the view.
+                    -- Where a player finds it (#474): unscrolled the switch can sit below the
+                    -- first view (11 buff rows for a paladin, about 690 px down at 1920 x 1080
+                    -- in a 593 px view, run on #479), so it's scrolled into view, as the
+                    -- shot does, and has to land inside the view.
                     local scroll = content:GetParent()
-                    local offset = scroll.GetVerticalScroll and scroll:GetVerticalScroll() or 0
                     local contentTop = Edges(content, "GetTop", "GetBottom")
                     local viewTop, viewBottom = Edges(scroll, "GetTop", "GetBottom")
                     if contentTop and viewTop then
-                        local seen = ("LAYOUT %s: scrolled %.0f, switch bottom %.0f below the top, view %.0f high")
-                            :format(name, offset, contentTop - boxBottom, viewTop - viewBottom)
-                        report(seen)
-                        check(offset == 0, seen .. ": the panel isn't unscrolled")
-                        check(contentTop - boxBottom <= viewTop - viewBottom, seen .. ": below the first view")
+                        report(("LAYOUT %s: switch bottom %.0f below the top, view %.0f high")
+                            :format(name, contentTop - boxBottom, viewTop - viewBottom))
+                        local offset, putBack = FriendlyForeverUIPages.ShowFrameAt(content, box, "top")
+                        if offset then
+                            local top, bottom = Edges(box, "GetTop", "GetBottom")
+                            putBack()
+                            local seen = ("LAYOUT %s: scrolled by %.0f, switch %.0f..%.0f, view %.0f..%.0f")
+                                :format(name, offset, bottom or 0, top or 0, viewBottom, viewTop)
+                            report(seen)
+                            check(top and bottom and top <= viewTop + 1 and bottom >= viewBottom - 1,
+                                seen .. ": the switch isn't in view once scrolled to")
+                        end
                     end
                 else
                     report("LAYOUT " .. name .. ": edges can't be read here")
