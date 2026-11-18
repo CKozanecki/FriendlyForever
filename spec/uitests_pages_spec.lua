@@ -88,7 +88,8 @@ describe("the UI simulator's options tabs", function()
         for _, p in ipairs(Pages.BUFFS_PLACES) do places[p.name] = true end
         for _, shot in ipairs(Pages.BUFFS_SHOTS) do
             local place = shot == "buff-back" and shot or shot:match("^[a-z]+")
-            assert.is_true(places[place] == true, shot .. " names no place")
+            -- "top" and "passers-by" are the tab at no place of its own (#472, #474).
+            assert.is_true(shot == "top" or shot == "passers-by" or places[place] == true, shot .. " names no place")
         end
     end)
 

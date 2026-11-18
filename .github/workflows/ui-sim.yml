@@ -722,8 +722,12 @@ jobs:
             # plain (#153, #367); the run step names them all so.
             name=$(basename "$file")
             case "$name" in *[!A-Za-z0-9._-]*) echo "skipping a report with an unsafe name"; continue ;; esac
+            # Only the start of each report goes in the log (#473): a session's log tool
+            # reads the last 5,000 lines, and the full files, every LAYOUT and FACT line
+            # among them, are in the ui-sim-report artifact.
             echo "::group::$name"
-            head -c 60000 "$file" 2>&1 | shown
+            wc -lc < "$file" 2>&1 | shown "lines and bytes: "
+            head -c 3000 "$file" 2>&1 | shown
             echo
             echo "::endgroup::"
           done
@@ -736,13 +740,24 @@ jobs:
           {
             # The simulator logs each A_Print line twice (as it runs, and in its
             # console at the end), so repeats are dropped.
-            echo "--- layout"
-            grep "LAYOUT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
+            # A session's log tool reads only the last 5,000 lines (#308, #473), and a run's
+            # LAYOUT lines are about 9,500, so the log holds each pass's count, its results
+            # and, in full, the last size's lines (the one most players use). Every LAYOUT
+            # line of every pass is in the ui-sim-report artifact, and a failed check prints
+            # its line in the results ("✗").
+            echo "--- layout (main pass): $(grep "LAYOUT " "$report/run-tests.log" | awk '!seen[$0]++' | grep -c .) lines"
             echo "--- scenario results"
-            grep -E "✓|✗|tests," "$report/run-tests.log" || true
+            # The main pass prints a failure on two lines, "✗ file > name" and then its error,
+            # which holds the failed LAYOUT line: the line after each ✗ is kept too.
+            awk '/✗/ { print; if ((getline more) > 0) print more; next } /✓|tests,/' "$report/run-tests.log" || true
+            last=${LAYOUT_SIZES##* }
             for size in $LAYOUT_SIZES; do
-              echo "--- layout at $size (#148)"
-              grep "LAYOUT " "$report/layout-$size.log" | awk '!seen[$0]++' | grep . || echo "none printed"
+              if [ "$size" = "$last" ]; then
+                echo "--- layout at $size (#148)"
+                grep "LAYOUT " "$report/layout-$size.log" | awk '!seen[$0]++' | grep . || echo "none printed"
+              else
+                echo "--- layout at $size (#148): $(grep "LAYOUT " "$report/layout-$size.log" | awk '!seen[$0]++' | grep -c .) lines"
+              fi
               echo "--- scenario results at $size"
               grep -E "✓|✗|tests," "$report/layout-$size.log" | awk '!seen[$0]++' || true
             done
@@ -750,9 +765,7 @@ jobs:
             grep -i -B2 -A8 "FriendlyForever" "$report/lua-errors.json" | head -80 || echo "none"
             echo "--- frame tree lines naming FriendlyForever"
             grep -i "FriendlyForever" "$report/frame-tree.txt" | head -40 || echo "none"
-            # Last, so the end of the job's log holds them: a session's log
-            # tool reads only its last 5,000 lines, which the layout lines
-            # above fill (#308).
+            # Last, so the end of the job's log holds them (#308).
             echo "--- client facts"
             grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
           } 2>&1 | shown
@@ -813,6 +826,13 @@ jobs:
               echo '```'
             done < "$RUNNER_TEMP/runs.txt"
           }
+          # A report's LAYOUT lines, repeats dropped, the first 150,000 bytes (#473). Through a
+          # file, so a cut can't end a pipeline early with an error in the step.
+          layoutLines() {
+            local lines="$RUNNER_TEMP/layout-lines.txt"
+            grep "LAYOUT " "$1" | awk '!seen[$0]++' | grep . > "$lines" || true
+            if [ -s "$lines" ]; then head -c 150000 "$lines"; echo; else echo "none printed"; fi
+          }
           {
             echo "## UI simulator (report only)"
             echo
@@ -821,27 +841,42 @@ jobs:
             echo '```'
             grep -i "FriendlyForever" "$report/lua-errors.json" | head -50 || echo "none"
             echo '```'
-            echo "### Layout checks"
-            echo '```'
-            grep "LAYOUT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
-            echo '```'
-            for size in $LAYOUT_SIZES; do
-              echo "### Layout checks at $size"
-              echo '```'
-              grep "LAYOUT " "$report/layout-$size.log" | awk '!seen[$0]++' | grep . || echo "none printed"
-              grep -E "✗|tests," "$report/layout-$size.log" | awk '!seen[$0]++' || true
-              echo '```'
-            done
+            # What a reader needs first: the results and the client's facts (#473). The layout
+            # sections, about 480k a pass on #479's run, come last and are each cut at 150,000
+            # bytes, so the whole stays under GitHub's limit; the 700,000-byte cap after it is the last resort,
+            # and cuts from the end.
             echo "### UI scenarios"
             echo '```'
             tail -60 "$report/run-tests.log"
             echo '```'
+            for size in $LAYOUT_SIZES; do
+              echo "### Scenario results at $size"
+              echo '```'
+              grep -E "✗|tests," "$report/layout-$size.log" | awk '!seen[$0]++' || true
+              echo '```'
+            done
             echo "### Client facts"
             echo '```'
             grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
             echo '```'
+            echo "### Layout checks (each cut at 150,000 bytes; all of them are in the ui-sim-report artifact)"
+            echo '```'
+            layoutLines "$report/run-tests.log"
+            echo '```'
+            for size in $LAYOUT_SIZES; do
+              echo "### Layout checks at $size"
+              echo '```'
+              layoutLines "$report/layout-$size.log"
+              echo '```'
+            done
             # A reader's errors, which name its file, go to the summary too (#375).
           } >> "$GITHUB_STEP_SUMMARY" 2>&1
+          # GitHub drops a step summary over 1024k (#473), and a report's lines can be long: the
+          # summary is cut to its first 700,000 bytes. The full reports are in the ui-sim-report
+          # artifact. (The step's summary file holds only this step's text.)
+          if [ "$(wc -c < "$GITHUB_STEP_SUMMARY")" -gt 700000 ]; then
+            truncate -s 700000 "$GITHUB_STEP_SUMMARY"
+          fi
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -865,7 +900,7 @@ jobs:
       WALKTHROUGH_STEPS: welcome buff-mode-key buff-mode-triggers whats-new-requests whats-new-buffs
       # The Buffs tab's shots (#408): uitests/pages.lua's Pages.BUFFS_SHOTS
       # (spec/uitests_pages_spec.lua checks they match).
-      BUFFS_SHOTS: buff-back party raid pvp party-list raid-names party-choice
+      BUFFS_SHOTS: top passers-by buff-back party raid pvp party-list raid-names party-choice raid-blessings raid-blessings-in raid-blessings-unreadable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -946,8 +981,8 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Every shot
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so a pass of 41 shots can take about 137 minutes in the
-        # worst case, and both passes together about 273. No shot starts
+        # clean-up, so a pass of 46 shots can take about 153 minutes in the
+        # worst case, and both passes together about 307. No shot starts
         # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
         # so the last one ends by about 4400 s with the probe: inside this
         # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a
