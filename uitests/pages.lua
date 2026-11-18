@@ -315,11 +315,13 @@ end
 -- Kings, Wisdom and Might (their lowest ranks, which BuffData.lua lists), in
 -- one of three states: "out" of a raid; "in" one, with Might unticked; or
 -- with the game's answer to IsInRaid() unreadable ("unreadable"), the choice
--- kept. The simulator has no raid setter: SetPartySize(7) makes IsInRaid()
--- true and fills raid slots (docs/ui-simulator.md), and UnitIsUnit answers
--- "raid1 is you" through a wrapper, so the addon finds itself in the raid.
+-- kept. The simulator has no raid setter, and a party change takes it
+-- 20 to 90 seconds (docs/ui-simulator.md), too long for a shot: so "in"
+-- wraps IsInRaid (true) and UnitIsUnit (raid1 is you) as the addon reads
+-- them, and "unreadable" wraps IsInRaid (nothing). The run on #479 showed
+-- SetPartySize(7) hadn't made IsInRaid true when the tab opened.
 -- Returns the panel's content and a function that puts everything back
--- (the globals, the party's size, the spells), or nothing and why.
+-- (the globals, the spells), or nothing and why.
 Pages.RAID_BLESSING_SPELLS = { 20217, 19742, 19740 } -- Kings, Wisdom, Might
 Pages.RAID_STATES = { out = true, ["in"] = true, unreadable = true }
 function Pages.ShowRaidBlessings(state)
@@ -338,7 +340,6 @@ function Pages.ShowRaidBlessings(state)
     local realIsInRaid, realIsUnit = IsInRaid, UnitIsUnit
     local function putBack()
         _G.IsInRaid, _G.UnitIsUnit = realIsInRaid, realIsUnit
-        A_Admin.SetPartySize(4)
         for _, id in ipairs(Pages.RAID_BLESSING_SPELLS) do
             if not knew[id] then A_Admin.UnlearnSpell(id) end
         end
@@ -347,7 +348,7 @@ function Pages.ShowRaidBlessings(state)
     local content
     local ok, err = pcall(function()
         if state ~= "out" then
-            A_Admin.SetPartySize(7)
+            _G.IsInRaid = function() return true end
             _G.UnitIsUnit = function(a, b, ...)
                 if a == "raid1" and b == "player" then return true end
                 if b == "player" and type(a) == "string" and a:find("^raid%d") then return false end

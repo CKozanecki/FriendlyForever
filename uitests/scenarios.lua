@@ -1798,13 +1798,19 @@ test("the Buffs tab's passers-by switch sits above the places' tabs, inside the 
                     local line = ("LAYOUT %s: switch bottom %.0f, place tabs top %.0f"):format(name, boxBottom, tabTop)
                     report(line)
                     check(tabTop <= boxBottom + 1, line .. ": the tabs aren't below the switch")
-                    -- Unscrolled, the switch is in the panel's view (#474's shot of the tab's top).
-                    local viewTop, viewBottom = Edges(content:GetParent(), "GetTop", "GetBottom")
-                    if viewBottom then
-                        local seen = ("LAYOUT %s: switch bottom %.0f, view %.0f..%.0f"):format(name, boxBottom,
-                            viewBottom, viewTop)
+                    -- Unscrolled (the panel at offset 0), the switch is within the first view's
+                    -- height of the content's top (#474's shot of the tab's top). Measured from
+                    -- the content, not the view: the run on #479 read the content far from the view.
+                    local scroll = content:GetParent()
+                    local offset = scroll.GetVerticalScroll and scroll:GetVerticalScroll() or 0
+                    local contentTop = Edges(content, "GetTop", "GetBottom")
+                    local viewTop, viewBottom = Edges(scroll, "GetTop", "GetBottom")
+                    if contentTop and viewTop then
+                        local seen = ("LAYOUT %s: scrolled %.0f, switch bottom %.0f below the top, view %.0f high")
+                            :format(name, offset, contentTop - boxBottom, viewTop - viewBottom)
                         report(seen)
-                        check(boxBottom >= viewBottom - 1, seen .. ": the switch is below the unscrolled view")
+                        check(offset == 0, seen .. ": the panel isn't unscrolled")
+                        check(contentTop - boxBottom <= viewTop - viewBottom, seen .. ": below the first view")
                     end
                 else
                     report("LAYOUT " .. name .. ": edges can't be read here")
