@@ -113,7 +113,7 @@ describe("Start here", function()
                     buttons[#buttons + 1] = frame
                 end
             end
-            assert.are.equal(4, #buttons)
+            assert.are.equal(5, #buttons) -- the four, and the link to the passers-by switch (#455)
             local before = ns.Util.DeepCopy(settingsBut(ns.db))
             for _, button in ipairs(buttons) do wow.run(button, "OnClick") end
             ns.Walkthrough.Skip()
