@@ -740,13 +740,22 @@ jobs:
           {
             # The simulator logs each A_Print line twice (as it runs, and in its
             # console at the end), so repeats are dropped.
-            echo "--- layout"
-            grep "LAYOUT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
+            # A session's log tool reads only the last 5,000 lines (#308, #473), and a run's
+            # LAYOUT lines are about 9,500, so the log holds each pass's count, its results
+            # and, in full, the last size's lines (the one most players use). Every LAYOUT
+            # line of every pass is in the ui-sim-report artifact, and a failed check prints
+            # its line in the results ("✗").
+            echo "--- layout (main pass): $(grep "LAYOUT " "$report/run-tests.log" | awk '!seen[$0]++' | grep -c .) lines"
             echo "--- scenario results"
             grep -E "✓|✗|tests," "$report/run-tests.log" || true
+            last=${LAYOUT_SIZES##* }
             for size in $LAYOUT_SIZES; do
-              echo "--- layout at $size (#148)"
-              grep "LAYOUT " "$report/layout-$size.log" | awk '!seen[$0]++' | grep . || echo "none printed"
+              if [ "$size" = "$last" ]; then
+                echo "--- layout at $size (#148)"
+                grep "LAYOUT " "$report/layout-$size.log" | awk '!seen[$0]++' | grep . || echo "none printed"
+              else
+                echo "--- layout at $size (#148): $(grep "LAYOUT " "$report/layout-$size.log" | awk '!seen[$0]++' | grep -c .) lines"
+              fi
               echo "--- scenario results at $size"
               grep -E "✓|✗|tests," "$report/layout-$size.log" | awk '!seen[$0]++' || true
             done
@@ -754,9 +763,7 @@ jobs:
             grep -i -B2 -A8 "FriendlyForever" "$report/lua-errors.json" | head -80 || echo "none"
             echo "--- frame tree lines naming FriendlyForever"
             grep -i "FriendlyForever" "$report/frame-tree.txt" | head -40 || echo "none"
-            # Last, so the end of the job's log holds them: a session's log
-            # tool reads only its last 5,000 lines, which the layout lines
-            # above fill (#308).
+            # Last, so the end of the job's log holds them (#308).
             echo "--- client facts"
             grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
           } 2>&1 | shown
@@ -817,6 +824,13 @@ jobs:
               echo '```'
             done < "$RUNNER_TEMP/runs.txt"
           }
+          # A report's LAYOUT lines, repeats dropped, the first 150,000 bytes (#473). Through a
+          # file, so a cut can't end a pipeline early and fail the step under pipefail.
+          layoutLines() {
+            local lines="$RUNNER_TEMP/layout-lines.txt"
+            grep "LAYOUT " "$1" | awk '!seen[$0]++' | grep . > "$lines" || true
+            if [ -s "$lines" ]; then head -c 150000 "$lines"; echo; else echo "none printed"; fi
+          }
           {
             echo "## UI simulator (report only)"
             echo
@@ -825,25 +839,33 @@ jobs:
             echo '```'
             grep -i "FriendlyForever" "$report/lua-errors.json" | head -50 || echo "none"
             echo '```'
-            echo "### Layout checks"
-            echo '```'
-            grep "LAYOUT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
-            echo '```'
-            for size in $LAYOUT_SIZES; do
-              echo "### Layout checks at $size"
-              echo '```'
-              grep "LAYOUT " "$report/layout-$size.log" | awk '!seen[$0]++' | grep . || echo "none printed"
-              grep -E "✗|tests," "$report/layout-$size.log" | awk '!seen[$0]++' || true
-              echo '```'
-            done
+            # What a reader needs first: the results and the client's facts (#473). The layout
+            # sections, about 480k a pass on #479's run, come last and are each cut at 150,000
+            # bytes, so the whole stays under GitHub's limit and a cut only costs layout lines.
             echo "### UI scenarios"
             echo '```'
             tail -60 "$report/run-tests.log"
             echo '```'
+            for size in $LAYOUT_SIZES; do
+              echo "### Scenario results at $size"
+              echo '```'
+              grep -E "✗|tests," "$report/layout-$size.log" | awk '!seen[$0]++' || true
+              echo '```'
+            done
             echo "### Client facts"
             echo '```'
             grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
             echo '```'
+            echo "### Layout checks (each cut at 150,000 bytes; all of them are in the ui-sim-report artifact)"
+            echo '```'
+            layoutLines "$report/run-tests.log"
+            echo '```'
+            for size in $LAYOUT_SIZES; do
+              echo "### Layout checks at $size"
+              echo '```'
+              layoutLines "$report/layout-$size.log"
+              echo '```'
+            done
             # A reader's errors, which name its file, go to the summary too (#375).
           } >> "$GITHUB_STEP_SUMMARY" 2>&1
           # GitHub drops a step summary over 1024k (#473), and a report's lines can be long: the

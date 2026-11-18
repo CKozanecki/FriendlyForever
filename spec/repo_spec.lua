@@ -909,8 +909,13 @@ describe("UI simulator workflow", function()
             for i, line in ipairs(rows) do
                 if not line:match("^%s*#") then
                     local code = line:gsub("%s#.*$", "")
-                    local key = "%f[%w_]" .. name .. "%s*:"
-                    if code:match("^%s*" .. key) or code:match("[{,]%s*" .. key) then found[#found + 1] = i end
+                    -- A key may be quoted ("SIM_COMMIT": x); a shell assignment (SIM_COMMIT=x)
+                    -- in a run block overrides it too (the architecture review of #479).
+                    local key = "[\"']?%f[%w_]" .. name .. "%f[^%w_][\"']?%s*:"
+                    local assign = "%f[%w_]" .. name .. "="
+                    if code:match("^%s*" .. key) or code:match("[{,]%s*" .. key) or code:match(assign) then
+                        found[#found + 1] = i
+                    end
                 end
             end
             if #found ~= 1 then
@@ -948,6 +953,20 @@ describe("UI simulator workflow", function()
             assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(flow))
         end)
 
+        it("fails a quoted key and a shell assignment that set SIM_COMMIT again (red)", function()
+            for _, line in ipairs({ '"SIM_COMMIT": abc', "'SIM_COMMIT': abc", "SIM_COMMIT : abc" }) do
+                local job = text:gsub("\n  simulator:\n", "\n  simulator:\n    env:\n      " .. line:gsub("%%", "%%%%") .. "\n", 1)
+                assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(job), line)
+            end
+            local flow = text:gsub("\n  simulator:\n", "\n  simulator:\n    env: {\"SIM_COMMIT\": abc}\n", 1)
+            assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(flow))
+            local shell = text .. "\n      - run: SIM_COMMIT=abc git fetch\n"
+            assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(shell))
+            -- Not a key: the name in another name, or read ($SIM_COMMIT).
+            local reads = text .. '\n      - run: echo "$SIM_COMMIT" "$MY_SIM_COMMIT: x" XSIM_COMMIT=1\n'
+            assert.are.same({}, pinProblems(reads))
+        end)
+
         it("fails a pinned name moved out of the top-level env, or defined twice in it (red)", function()
             local twice = text:gsub("\n  SIM_PROFILE:", "\n  SIM_COMMIT: abc\n  SIM_PROFILE:", 1)
             assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(twice))
@@ -965,8 +984,8 @@ describe("UI simulator workflow", function()
 
         it("fails a write to $GITHUB_ENV, however the name reaches it (red)", function()
             local direct = text .. '\n      - run: echo "SIM_COMMIT=abc" >> "$GITHUB_ENV"\n'
-            assert.are.same({ "line " .. select(2, direct:gsub("\n", "\n")) .. " writes $GITHUB_ENV" },
-                pinProblems(direct))
+            assert.are.same({ "SIM_COMMIT is defined 2 times, not once",
+                "line " .. select(2, direct:gsub("\n", "\n")) .. " writes $GITHUB_ENV" }, pinProblems(direct))
             local indirect = text .. '\n      - run: echo "$x" >> $GITHUB_ENV\n'
             assert.are.equal(1, #pinProblems(indirect))
         end)
@@ -2056,12 +2075,25 @@ describe("UI simulator workflow", function()
             local bigLines = {}
             for i = 1, 20000 do bigLines[#bigLines + 1] = "LAYOUT panel " .. i .. ": " .. ("x"):rep(100) end
             bigLines[#bigLines + 1] = "a very long line " .. ("y"):rep(50000)
+            bigLines[#bigLines + 1] = "FACT sim a fact the summary must keep"
+            bigLines[#bigLines + 1] = "✗ a scenario that failed"
+            bigLines[#bigLines + 1] = "41 tests, 40 passed, 1 failed"
             local big = table.concat(bigLines, "\n") .. "\n"
             local r = summarize(ALL_FINISHED, { ["run-tests.log"] = big, ["layout-1024x768.log"] = big })
             assert.are.equal(0, r.status)
             assert.is_true(#r.summary > 0, "no summary")
             assert.is_true(#r.summary <= 700000, "the summary is " .. #r.summary .. " bytes")
             assert.is_truthy(r.summary:find("## UI simulator (report only)", 1, true))
+            -- A cut loses layout lines only (the architecture review of #479): the results
+            -- and the client's facts come before them and are all there.
+            local function at(needle) return r.summary:find(needle, 1, true) end
+            assert.is_truthy(at("41 tests, 40 passed, 1 failed"), "the result line was cut")
+            assert.is_truthy(at("FACT sim a fact the summary must keep"), "the client facts were cut")
+            assert.is_truthy(at("### Scenario results at 1024x768"), "the sized results were cut")
+            assert.is_true(at("### Client facts") < at("### Layout checks"), "layout lines come before the results")
+            assert.is_true(at("### UI scenarios") < at("### Layout checks"), "layout lines come before the results")
+            local layoutAt = at("### Layout checks")
+            assert.is_true(#r.summary - layoutAt < 3 * 160000, "a layout section isn't cut")
         end)
 
         it("keeps the summary's size cap in the workflow, well under 1024k (white)", function()

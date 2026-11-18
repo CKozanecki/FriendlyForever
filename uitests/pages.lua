@@ -322,8 +322,9 @@ end
 -- kept. The simulator has no raid setter, and a party change takes it
 -- 20 to 90 seconds (docs/ui-simulator.md), too long for a shot: so "in"
 -- wraps IsInRaid (true) and UnitIsUnit (raid1 is you) as the addon reads
--- them, and "unreadable" wraps IsInRaid (nothing). The run on #479 showed
--- SetPartySize(7) hadn't made IsInRaid true when the tab opened.
+-- them, and "unreadable" keeps both wraps and then makes IsInRaid answer
+-- nothing. The run on #479 showed SetPartySize(7) hadn't made IsInRaid true
+-- when the tab opened.
 -- Returns the panel's content and a function that puts everything back
 -- (the globals, the spells), or nothing and why.
 Pages.RAID_BLESSING_SPELLS = { 20217, 19742, 19740 } -- Kings, Wisdom, Might

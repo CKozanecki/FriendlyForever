@@ -1695,7 +1695,7 @@ end)
 -- Might unticked, and with the game's raid answer unreadable. The header
 -- text and the boxes' state are checked, and the header stays inside the
 -- panel's view (its text 55 px longer since #439). The saved settings, the
--- spells, the party and the globals are put back, even when a check fails.
+-- spells and the globals are put back, even when a check fails.
 test("the Raid Blessings header and boxes read right and stay inside the page, in every raid state (#444)", function()
     local Pages = FriendlyForeverUIPages
     local saved = FriendlyForeverDB and FriendlyForeverDB.buffBack
