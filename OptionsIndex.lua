@@ -130,7 +130,7 @@ OptionsIndex.SETTINGS = {
             .. "missing faded fade combat solo alone campfire camp fire cozy",
         controls = { "auto.autoOnJoin", "auto.autoOnDeath", "auto.autoOnBuffed", "auto.autoOnMissing",
             "auto.autoOnCampfire" } },
-    { name = "Also offer my buffs to passers-by", page = "the Buffs tab's Buff Back place",
+    { name = "Also offer my buffs to passers-by", page = BUFFS,
         keywords = "passers-by passersby passer nearby strangers stranger players around buff mode",
         controls = { "passersBy", "passersByShow" } },
     { name = "Buff mode turns off again", page = BUFF_BACK, keywords = "buff mode automatic auto pull minutes",
@@ -172,6 +172,11 @@ OptionsIndex.SETTINGS = {
         controls = { "start.tour" } },
     { name = "Every other page", page = START, keywords = "start pages links messages buff back general ledger",
         controls = { "start.openMessages", "start.openGeneral", "start.openLedger" } },
+    -- Start here also says how to turn buff mode on by hand (shift-click the minimap button, #458): a note
+    -- isn't a control, so its words are on its link's entry.
+    { name = "Passers-by switch (Buffs tab)", page = START,
+        keywords = "start passers-by passersby nearby strangers link shift click minimap buff mode on off by hand",
+        controls = { "start.openPassersBy" } },
 }
 
 -- The page words a setting is found by: its page, less an exception the page
