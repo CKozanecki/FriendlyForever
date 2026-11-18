@@ -121,6 +121,14 @@ describe("the agents' instruction files", function()
         assert.is_falsy(agents:find("cheap `haiku` subagents", 1, true), "written once, not repeated in AGENTS.md")
     end)
 
+    it("CLAUDE.md says research subagents never attach a repository, once, under Models and effort (white)", function()
+        local _, count = claude:gsub("Research subagents may read public repositories", "")
+        assert.are.equal(1, count)
+        assert.is_truthy(claude:find("but never call `add_repo`; only the coordinator attaches a repository, with the"
+            .. " owner's OK", 1, true))
+        assert.is_falsy(agents:find("Research subagents may read", 1, true), "written once, not repeated in AGENTS.md")
+    end)
+
     it("CLAUDE.md keeps only Claude's own sections", function()
         local sections = {}
         for heading in claude:gmatch("\n## ([^\n]*)") do sections[#sections + 1] = heading end
