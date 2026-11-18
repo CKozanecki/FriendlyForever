@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.3
+
+- **`/friendly blessings` agrees with the Buffs tab when the game's raid answer can't be trusted.** Choosing your Blessings for a raid now reads the raid the way everything else does: when the game says "raid" in a party, or can't say, the command answers "can't tell if you're in a raid" and keeps the choice you had, instead of taking a choice that would never apply. `/friendly blessings all` still stops a choice anywhere. (#442)
+- **The raid buff split forms even when joining a raid sends one update the game won't let addons read.** The split's once-a-minute check now starts on that update too, and the first answer it can read decides: in a raid it shares your buffs as usual, out of one it stops and sends nothing. Before, two players of a class could both offer the same buffs until the next roster change. (#443)
+- **Chat sending is sturdier.** An error in one queued message's checks drops only that message, and the next one still goes out. A `/thank` is aimed only at a player the game names plainly; anything else is said to everyone around you, as it is today. (#448)
+- **Scrolling no longer knocks a shaman out of Ghost Wolf.** In Ghost Wolf, buff mode's key doesn't cast your Water Walking or Water Breathing, as it already doesn't for a druid in a form: the button still shows the buff, says "click to buff (you're in Ghost Wolf)", and a click on it casts (the game takes you out of Ghost Wolf, as before). "Fast-cast buffs in form" on the Buffs tab covers Ghost Wolf too. Weapon imbues work with the key as before. (#466)
+
 ## 1.4.2
 
 - **The raid buff split and "Blessings I give in this raid" hold through an unreadable raid answer.** When the game won't say, or can't be believed, whether you're in a raid, the split no longer ends and forgets the others in it: you're offered every buff until the answer can be read again, nothing is sent to the raid meanwhile, and the split picks up where it was. The Buffs tab's Raid Blessings boxes stay greyed then, still showing a choice you kept, and say "(can't tell if you're in a raid)" instead of "(join a raid to choose)". (#372)

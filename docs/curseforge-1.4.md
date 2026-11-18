@@ -2,7 +2,8 @@
      Based on the approved 1.3 draft's layout and voice. Facts come from the merged code, README and PR descriptions.
      The passers-by and campfire lines were checked against the merged code and README on 17 Nov.
      Updated for 1.4.2 on 18 Nov: the hover preview, weapon buffs while resting, druid forms, level-appropriate ranks,
-     the passers-by switch and minimap shift-click. The last two were checked against the merged #464 code and its notes on 18 Nov. -->
+     the passers-by switch and minimap shift-click. The last two were checked against the merged #464 code and its notes on 18 Nov.
+     Updated for 1.4.3 on 18 Nov from its changelog notes: Ghost Wolf, the raid Blessings answer, the raid split and chat sending. -->
 ## Description
 
 Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets, welcomes and thanks for you, and returns every kindness with a buff. It's built to stay friendly when a whole guild runs it, without flooding chat.
@@ -18,6 +19,12 @@ Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets,
 - the buff button picks the rank a player's level allows, and waits for druid buffs while you're in a form;
 - weapon buffs stay quiet while you're resting in town;
 - the passers-by switch is at the top of the Buffs tab, and Shift-clicking the minimap button turns buff mode on or off.
+
+**New in 1.4.3:**
+- buff mode's key no longer knocks a shaman out of Ghost Wolf;
+- `/friendly blessings` agrees with the Buffs tab when the game's raid answer can't be trusted;
+- the raid buff split forms even when joining a raid sends an update the game won't let addons read;
+- chat sending is sturdier: an error in one queued message drops only that message.
 
 ## Getting started
 
@@ -90,6 +97,6 @@ When a whole guild runs Friendly Forever, it should feel warm, not noisy:
 - **Stays out of the way:** respects AFK, the game's chat lockdown and combat. Settings are checked on load and repaired if damaged, even mid-session.
 - **Safe with untrusted input:** never runs text as code, and other players can't control it. A buff request or a passer-by can only put someone on your button; you still press it.
 
-**Updating to 1.4:** this version adds new files, so restart the game after updating. /reload isn't enough. Coming from 1.3 or earlier, restart after updating; from 1.4.0 or 1.4.1 a /reload is enough, since 1.4.2 adds no files.
+**Updating to 1.4:** this version adds new files, so restart the game after updating. /reload isn't enough. Coming from 1.3 or earlier, restart after updating; from 1.4.0 or 1.4.1 a /reload is enough, since 1.4.2 and 1.4.3 add no files.
 
 In active development for WoW Forever. See the changelog for what's in each release.
