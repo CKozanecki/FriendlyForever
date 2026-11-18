@@ -1,4 +1,4 @@
--- Spec: #45
+-- Spec: #45, #483
 -- Weapon buffs (experimental, off by default): in buff mode, after your
 -- group and your self-buffs, the button offers the kind you chose for a hand
 -- with no temporary enchant: the best you carry and can use. One press puts
@@ -538,6 +538,16 @@ describe("Weapon buffs", function()
             wow.advance(ns.WeaponBuffs.HELD_BACK_SECONDS + 1)
             refresh()
             assert.are.equal("/use item:20749\n/use 16", macro())
+        end)
+
+        it("a press in the global cooldown is no refusal: the hand isn't held, not even after two (#483)", function()
+            boot({ before = function(s) s.weaponRefusal = "Spell is not ready yet." end })
+            for i = 1, 2 do
+                press()
+                refresh()
+                assert.are.equal("/use item:20749\n/use 16", macro(), "press " .. i .. ": still offered")
+                assert.is_nil((subtitle() or ""):find("the game refused", 1, true), "press " .. i .. ": not held")
+            end
         end)
 
         it("can't tell whether you can use the item: offers nothing", function()

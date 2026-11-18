@@ -40,6 +40,13 @@
 --   passer-by waiting turns buff mode on only at the campfire. No other
 --   trigger turns it on for a passer-by. A payload, list, aura or spell ID
 --   that is a secret, or not what it should be, is passed over.
+-- Passers-by count only out of resting areas (#484, the owner): where
+-- IsResting() is true (a town with an inn, a capital), or won't say, they
+-- never turn buff mode on or keep it on; the button still offers them
+-- while it's on for something else. After you turn buff mode off yourself,
+-- they don't turn it back on anywhere until you change zone (a new zone,
+-- or a loading screen); out of resting areas they still keep on buff mode
+-- something else turned on (#462).
 -- Turns off (on by default), but only buff mode a trigger turned on, never
 -- buff mode you turned on yourself:
 --   the first pull (PLAYER_REGEN_DISABLED);
@@ -47,7 +54,8 @@
 --   solo, you having your own buffs, #329). With passers-by on, a passer-by
 --   the button offers a buff counts as someone not yet buffed, whatever
 --   turned buff mode on (#462, the owner): it stays on until they're buffed,
---   skipped or gone, or the pull or the timeout ends it;
+--   skipped or gone, or the pull or the timeout ends it. Not in a resting
+--   area (#484, above);
 --   a timeout, whichever comes first.
 -- Turned on in a dungeon or raid, it waits for everyone (#256): it stays on
 -- until every member is in there with you and has your buffs, or until the
@@ -88,6 +96,8 @@ local Watch, WatchWanted -- below: the looks, and whether they go on (#426)
 local groupUnsure = false -- a roster update couldn't read IsInGroup() (#373): the
                           -- looks read it again until an answer decides
 local pendingFire         -- the trigger that waits for a fight is the campfire's
+local passersByOff = false -- you turned buff mode off yourself: passers-by don't turn it
+                           -- back on until you change zone (#484)
 -- The campfire auras you wear (#39), as the updates and reads saw them:
 -- { [auraInstanceID] = spell ID }. unsure: an update couldn't be read (in a
 -- fight they come restricted), so the next look reads your aura list once:
@@ -159,10 +169,15 @@ end
 -- your buffs" waits for them, but a missing self-buff alone never turns buff
 -- mode on (the owner, #44 Q6). Also why, for the message.
 -- withPassersBy: a passer-by waiting for a buff counts too: for turning on,
--- only the campfire's (#39); for turning off, every trigger's (#462).
+-- only the campfire's (#39), and not after you turned buff mode off
+-- yourself until you change zone (TurnOn, #484); for turning off, every
+-- trigger's (#462). Never in a resting area, or where the game won't say
+-- you aren't in one (#484, the owner).
 local function Settled(inside, withSelf, withPassersBy)
     if ns.Offers.Count() > 0 then return false end
-    if withPassersBy and ns.PassersBy.Waiting() then return false end
+    if withPassersBy and ns.Util.ReadGameValues(IsResting) == false and ns.PassersBy.Waiting() then
+        return false
+    end
     local offer, groupWhy, settled, held = ns.GroupBuffs.Next()
     if offer ~= nil or settled ~= true then return false end
     if withSelf then
@@ -263,8 +278,9 @@ local function TurnOn(why, inside, fire, withSelf)
         return
     end
     pvpOffWhy = nil
-    -- Nothing to do: don't lend a key just to hand it back.
-    if Settled(inside, withSelf, fire) then return end
+    -- Nothing to do: don't lend a key just to hand it back. Passers-by don't
+    -- turn back on buff mode you turned off, until you change zone (#484).
+    if Settled(inside, withSelf, fire and not passersByOff) then return end
     -- Set first: turning on refreshes the button, which checks it at once.
     if inside then WaitInside() else insideWait = false end
     ns.BuffMode.Set(true, { auto = true, why = why })
@@ -418,6 +434,8 @@ local function DismissNow()
 end
 
 function Auto.OnTurnedOffByYou()
+    -- Passers-by don't turn it back on until you change zone (#484).
+    passersByOff = true
     for key, was in pairs(lastMissing or {}) do dismissed[key] = was end
     ns.Diag.Call(DismissNow)
 end
@@ -613,6 +631,8 @@ end
 -- A loading screen that can't read IsInGroup() goes by the group as last
 -- read (#377).
 function Auto.OnEnteringWorld(isLogin, isReload)
+    -- A loading screen is a change of zone (#484); a login starts afresh.
+    passersByOff = false
     if not (isLogin or isReload) then
         -- IsInGroup() can't be read (#377): the group as last read (#373).
         -- Not known either (a login that couldn't read it, #370): nothing
@@ -640,6 +660,12 @@ function Auto.OnEnteringWorld(isLogin, isReload)
     -- The looks go on solo too while the trigger is on (#426), and read the
     -- group again while it isn't known (#370, #373).
     if WatchWanted() then Watch() end
+end
+
+-- ZONE_CHANGED_NEW_AREA: a new zone. Passers-by count again after you
+-- turned buff mode off yourself (#484).
+function Auto.OnZoneChanged()
+    passersByOff = false
 end
 
 -- PLAYER_REGEN_DISABLED. The button empties itself for the fight in the
@@ -866,6 +892,7 @@ function Auto.Create()
         PLAYER_REGEN_DISABLED = Auto.OnCombatStart,
         PLAYER_REGEN_ENABLED = Auto.OnCombatEnd,
         UNIT_HEALTH = Auto.OnUnitHealth,
+        ZONE_CHANGED_NEW_AREA = Auto.OnZoneChanged,
     }
     for event in pairs(handlers) do frame:RegisterEvent(event) end
     -- Your own auras only (#39): every unit's would be far more often.

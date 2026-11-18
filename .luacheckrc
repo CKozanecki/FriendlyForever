@@ -43,7 +43,8 @@ read_globals = {
     "IsShiftKeyDown", "IsControlKeyDown", "IsAltKeyDown",
     "UnitInRange", "UnitIsConnected", "UnitIsVisible", "IsSpellInRange",
     -- Self-buffs (#44): whether you can have one now.
-    "IsMounted", "UnitOnTaxi", "GetShapeshiftForm", "IsUsableSpell", "UnitPowerType",
+    "IsMounted", "UnitOnTaxi", "GetShapeshiftForm", "GetShapeshiftFormInfo", "GetShapeshiftFormID",
+    "IsUsableSpell", "UnitPowerType",
     "UnitGroupRolesAssigned", "GetPartyAssignment", "GetBattlefieldWinner",
     -- Passers-by (#39): whether you can help a stranger, and whether they're fighting.
     "UnitCanAssist", "UnitAffectingCombat",

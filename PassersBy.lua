@@ -36,8 +36,10 @@
 -- spell reaches them: a doubt never costs a cast. One buff per press, at
 -- the highest rank you know that their level allows (BuffData.CastFor,
 -- #459): your highest by its plain name, a lower one by name and rank. A level the game won't give skips them; one too
--- low for every rank of a buff is offered your next buff instead. After any
--- refusal by the game they wait HELD_BACK_SECONDS.
+-- low for every rank of a buff is offered your next buff instead. After a
+-- refusal by the game about them (out of range, out of sight, too low
+-- level: BuffButton.RefusalKind, #483) they wait HELD_BACK_SECONDS; one
+-- about you (no mana, the global cooldown) holds nobody.
 --
 -- Limits: at most MAX_CHECKED players get the costly checks (auras, range)
 -- per look, at most MAX_LISTED are listed, and a look runs at most once
@@ -57,7 +59,7 @@ PassersBy.INTERVAL = 1         -- seconds a look is reused for, unless a press a
 PassersBy.SKIP_SECONDS = 600   -- a right-click, or your buff reaching them, skips them this long
 PassersBy.MAX_SKIPPED = 50     -- players whose skip is remembered; the oldest goes first
 PassersBy.MAX_GIVEN = 200      -- (player, buff) pairs given a buff, remembered; the oldest goes first
-PassersBy.HELD_BACK_SECONDS = 15 -- a passer-by the game refused any cast to waits this long (#459)
+PassersBy.HELD_BACK_SECONDS = 15 -- refused for a reason about them (#459, #483), a passer-by waits this long
 PassersBy.LOG_SECONDS = 60     -- debug says why a player was skipped once per reason this often
 PassersBy.MAX_LOGGED = 100     -- (player, reason) pairs remembered for that
 PassersBy.HALF = 0.5           -- a copy with less than this share of its time left is topped up
@@ -288,7 +290,7 @@ end
 -- the campfire's trigger (BuffModeAuto.lua) turns buff mode on for them,
 -- and buff mode stays on while one waits (#462). Reads afresh when buff
 -- mode is off. In buff mode, a passer-by the game refused a moment ago
--- (#459: any refusal, the global cooldown included) still waits until
+-- (#459: a refusal about them, #483) still waits until
 -- their hold ends, as a held-back group member does, so a refusal never
 -- ends buff mode; then they're looked at again.
 function PassersBy.Waiting()
@@ -326,8 +328,8 @@ function PassersBy.NoteGiven(name, buff)
     cache = nil
 end
 
--- The game refused a cast to them, for any reason (#459): the next press
--- tries someone else for a moment.
+-- The game refused a cast to them, for a reason about them (#459, #483:
+-- BuffButton.RefusalKind): the next press tries someone else for a moment.
 function PassersBy.NoteRefused(name)
     if type(name) ~= "string" then return end
     MakeRoom(heldBack, name, PassersBy.MAX_SKIPPED)

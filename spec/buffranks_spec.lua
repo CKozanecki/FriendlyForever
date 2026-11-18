@@ -1,10 +1,10 @@
--- Spec: #459
+-- Spec: #459, #483
 -- The rank a player's level allows (#459, the owner's decision of 17 Nov):
 -- a buff for another player is cast by name and rank, the highest rank you
 -- know whose level (Forever's SpellLevels data) is at most theirs + 10. A
 -- player whose level the game won't give is skipped, with the reason; one
--- too low for every rank of a buff gets your next buff. After any refusal by
--- the game, the button leaves that player for a while.
+-- too low for every rank of a buff gets your next buff. After a refusal by
+-- the game about them (#483), the button leaves that player for a while.
 --
 -- The expected ranks are worked out here from the simulated client's own
 -- copy of the levels (wow.SPELL_LEVEL, read from the committed data file)
@@ -489,10 +489,10 @@ describe("Buffing a player with the rank their level allows (#459)", function()
         end)
     end)
 
-    describe("after a refusal (#459: any refusal)", function()
-        it("a group member refused for any reason waits, the next press goes to the next member, and they "
+    describe("after a refusal about them (#459, #483)", function()
+        it("a group member refused for a reason about them waits, the next press goes to the next member, and they "
             .. "come back after the wait (white)", function()
-            for _, why in ipairs({ "Target is too low level", "Spell is not ready yet.", "Not enough mana" }) do
+            for _, why in ipairs({ "Target is too low level", "Target not in line of sight", "Out of range." }) do
                 boot(MOTW)
                 party({ "Ann-Vale", "Cid-Rock" }, { 60, 60 })
                 wow.state.castFailures["Ann-Vale"] = why
@@ -508,7 +508,7 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             boot(MOTW, { passersBy = true })
             stranger("nameplate1", "Bob", "Stone")
             stranger("nameplate2", "Cid", "Rock")
-            wow.state.castFailures["Bob-Stone"] = "Spell is not ready yet."
+            wow.state.castFailures["Bob-Stone"] = "Target not in line of sight"
             assert.are.equal("Bob Stone: Mark of the Wild", armed())
             wow.press(button)
             assert.are.equal("Cid Rock: Mark of the Wild", armed(), "the passer-by waits")
@@ -532,7 +532,7 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             boot(MOTW, { noMode = true })
             stranger("nameplate1", "Bob", "Stone")
             wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
-            wow.state.castFailures["Bob-Stone"] = "Interrupted"
+            wow.state.castFailures["Bob-Stone"] = "Invalid target."
             wow.press(button)
             local casts = #wow.casts
             wow.press(button)
@@ -579,7 +579,7 @@ describe("Buffing a player with the rank their level allows (#459)", function()
                     elseif roll == 2 then
                         u.auras = {}
                     elseif roll == 3 then
-                        wow.state.castFailures[u.id] = random.random(1, 2) == 1 and "Spell is not ready yet." or nil
+                        wow.state.castFailures[u.id] = random.random(1, 2) == 1 and "Target not in line of sight" or nil
                     elseif roll == 4 then
                         wow.advance(random.random(1, 20))
                     else

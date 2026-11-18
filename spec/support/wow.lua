@@ -747,7 +747,15 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         GetShapeshiftForm and UnitPowerType answer from
 --                         state.mounted, state.onTaxi, state.form (0: none,
 --                         unconfirmed on Forever: #454; M.setForm changes it
---                         and fires UPDATE_SHAPESHIFT_FORM, #452)
+--                         and fires UPDATE_SHAPESHIFT_FORM, #452; each
+--                         form has its spell, #485: M.setForm(n, spellId)
+--                         names it, GetShapeshiftFormInfo(n) gives it as its
+--                         fourth answer and GetShapeshiftFormID its number
+--                         (M.FORM_IDS: Moonkin 24858 is 31), all Classic
+--                         Era's, UNCONFIRMED on Forever (#488); a druid in Moonkin Form
+--                         casts every buff without leaving it (the owner,
+--                         18 Nov), but not a weapon buff (unknown: the
+--                         pessimistic side)
 --                         and state.powerType ("MANA" unless set);
 --                         state.selfSecrets = { mounted, taxi, form, power,
 --                         usable } makes those answers secrets. A shaman's
@@ -787,7 +795,8 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         carry (whether Forever's does is unconfirmed: the
 --                         pessimistic reading).
 --   Resting (#449; the API is Forever's own UI data, docs/forever-facts.md;
---                         where it is true is UNCONFIRMED in game, #450):
+--                         true in an inn, confirmed in game in Brill on 18
+--                         Nov; elsewhere unconfirmed, #450 closed unchecked):
 --                         IsResting() answers true or false, never nil
 --                         (state.resting), and a secret with
 --                         state.restingSecret, which the data doesn't
@@ -1251,8 +1260,9 @@ local function cast(args)
     -- A shaman's imbue (#45) goes on your main hand.
     if M.IMBUES[id] then return imbue(id) end
     -- Every buff here is "not while shapeshifted" in Forever's data (#452):
-    -- the game pulls a druid out of a form to cast it, or refuses.
-    if formStops() then return end
+    -- the game pulls a druid out of a form to cast it, or refuses; but not
+    -- out of Moonkin Form, for a buff (#485, the owner).
+    if formStops(true) then return end
     -- A helpful spell with no friendly target lands on yourself.
     local target = aimed or M.state.units.target
     if not (target and not target.hostile) then target = M.state.units.player end
@@ -1455,11 +1465,15 @@ end
 -- Whether the game would stop an action for your form: a druid's forms and a
 -- shaman's Ghost Wolf. With autoUnshift on, the game cancels the form and
 -- carries on (counted in M.formsCancelled); off, it refuses. true: refused.
-formStops = function()
+-- buff: the action is a cast of a buff spell, which a druid casts in Moonkin
+-- Form without leaving it (#485, the owner); an item's use (a weapon buff)
+-- still stops there (unknown: the pessimistic side).
+formStops = function(buff)
     local class = M.state.class
     local shifted = ((M.state.form or 0) ~= 0 and (class == "DRUID" or class == "SHAMAN"))
         or (class == "SHAMAN" and M.state.ghostWolf == true)
     if not shifted then return false end
+    if buff and class == "DRUID" and M.state.formSpell == M.MOONKIN_FORM then return false end
     if M.state.cvars.autoUnshift ~= "0" then
         M.formsCancelled = M.formsCancelled + 1
         if class == "SHAMAN" then M.setGhostWolf(false) else M.setForm(0) end
@@ -1471,11 +1485,21 @@ end
 M.formStops = formStops
 
 -- Shift into a form (0: back to caster form), as the game does: the form
--- changes, then UPDATE_SHAPESHIFT_FORM fires (#452).
-function M.setForm(form)
+-- changes, then UPDATE_SHAPESHIFT_FORM fires (#452). spellId: the form's
+-- spell (M.MOONKIN_FORM, M.CAT_FORM...), which GetShapeshiftFormInfo and
+-- GetShapeshiftFormID read (#485); none for a form a spec doesn't name.
+function M.setForm(form, spellId)
     M.state.form = form
+    M.state.formSpell = form ~= 0 and spellId or nil
     M.fire("UPDATE_SHAPESHIFT_FORM")
 end
+
+-- A druid's forms by spell (Classic Era's IDs, #485), and the number
+-- GetShapeshiftFormID gives in each (Blizzard's Classic constants have
+-- CAT_FORM 1, BEAR_FORM 5 and MOONKIN_FORM 31; the rest are cmangos-classic's
+-- 1.12.1 ShapeshiftForm). Forever's are unconfirmed (#488).
+M.MOONKIN_FORM, M.CAT_FORM, M.BEAR_FORM, M.TRAVEL_FORM, M.AQUATIC_FORM = 24858, 768, 5487, 783, 1066
+M.FORM_IDS = { [24858] = 31, [768] = 1, [5487] = 5, [9634] = 8, [783] = 3, [1066] = 4 }
 
 -- Ghost Wolf's aura (#466): Classic Era's spell ID, unconfirmed on Forever (#467).
 M.GHOST_WOLF = 2645
@@ -2403,6 +2427,25 @@ function M.reset()
         return selfRead("taxi", M.state.onTaxi == true)
     end
     _G.GetShapeshiftForm = function() return selfRead("form", M.state.form or 0) end
+    -- The form at a stance bar index (#485): icon, active, castable and its
+    -- spell. Only the form you're in is listed; state.formInfoError makes
+    -- the call fail, and state.selfSecrets.formInfo its spell a secret.
+    _G.GetShapeshiftFormInfo = function(index)
+        if M.state.formInfoError then error("GetShapeshiftFormInfo failed") end
+        local form = M.state.form or 0
+        if index ~= form or form == 0 then return nil end
+        local spell = M.state.formSpell
+        return "Interface\\Icons\\Form", true, true, spell and selfRead("formInfo", spell) or nil
+    end
+    -- The number of the form you're in (#485), nil in none or one with no
+    -- spell named; state.formId overrides it (false: nil), and
+    -- state.selfSecrets.formId makes it a secret.
+    _G.GetShapeshiftFormID = function()
+        local id = M.state.formId
+        if id == nil then id = (M.state.form or 0) ~= 0 and M.FORM_IDS[M.state.formSpell or 0] or nil end
+        if id == false or id == nil then return nil end
+        return selfRead("formId", id)
+    end
     _G.UnitPowerType = function(unit)
         if unit ~= "player" then return 0, "MANA" end
         local token = M.state.powerType or "MANA"

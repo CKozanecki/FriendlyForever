@@ -1,4 +1,4 @@
--- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471
+-- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471, #485
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -1296,6 +1296,95 @@ describe("The simulated client's druid forms and button names (#452)", function(
         assert.is_nil(wow.modifiedAttribute(button, "type", "BuffModeKey"), "a key's own name finds no click's action")
         button:SetAttribute("*type-BuffModeKey", "macro")
         assert.are.equal("macro", wow.modifiedAttribute(button, "type", "BuffModeKey"))
+    end)
+end)
+
+describe("The simulated client's form spells and Moonkin Form (#485)", function()
+    before_each(function()
+        wow.boot({ before = function(state)
+            state.class = "DRUID"
+            state.knownSpells = { [MOTW_1] = true, [MOTW] = true }
+        end })
+    end)
+
+    it("GetShapeshiftFormInfo gives the spell of the form you're in, fourth, and nothing for another index", function()
+        assert.is_nil(_G.GetShapeshiftFormInfo(1), "in no form")
+        wow.setForm(5, wow.MOONKIN_FORM)
+        local _, active, castable, spell = _G.GetShapeshiftFormInfo(5)
+        assert.are.same({ true, true, 24858 }, { active, castable, spell })
+        assert.is_nil(_G.GetShapeshiftFormInfo(1), "another index")
+        wow.setForm(2)
+        assert.is_nil(select(4, _G.GetShapeshiftFormInfo(2)), "a form with no spell named gives none")
+        wow.setForm(0)
+        assert.is_nil(_G.GetShapeshiftFormInfo(0))
+    end)
+
+    it("GetShapeshiftFormInfo fails with state.formInfoError, and its spell is a secret with selfSecrets.formInfo",
+        function()
+            wow.setForm(5, wow.MOONKIN_FORM)
+            wow.state.formInfoError = true
+            assert.is_false((pcall(_G.GetShapeshiftFormInfo, 5)))
+            wow.state.formInfoError = nil
+            wow.state.selfSecrets.formInfo = true
+            assert.is_true(_G.issecretvalue(select(4, _G.GetShapeshiftFormInfo(5))))
+        end)
+
+    it("GetShapeshiftFormID gives the form's number from FORM_IDS, state.formId overriding it, nil in none", function()
+        assert.is_nil(_G.GetShapeshiftFormID())
+        wow.setForm(5, wow.MOONKIN_FORM)
+        assert.are.equal(31, _G.GetShapeshiftFormID())
+        wow.setForm(1, wow.CAT_FORM)
+        assert.are.equal(1, _G.GetShapeshiftFormID())
+        wow.setForm(3)
+        assert.is_nil(_G.GetShapeshiftFormID(), "a form with no spell named has no number")
+        wow.setForm(5, wow.MOONKIN_FORM)
+        wow.state.formId = 8
+        assert.are.equal(8, _G.GetShapeshiftFormID())
+        wow.state.formId = false
+        assert.is_nil(_G.GetShapeshiftFormID())
+        wow.state.formId = nil
+        wow.state.selfSecrets.formId = true
+        assert.is_true(_G.issecretvalue(_G.GetShapeshiftFormID()))
+    end)
+
+    it("a buff cast in Moonkin Form stays in the form and lands, with autoUnshift on or off", function()
+        for _, unshift in ipairs({ "1", "0" }) do
+            wow.boot({ before = function(state)
+                state.class = "DRUID"
+                state.knownSpells = { [MOTW] = true }
+            end })
+            wow.state.cvars.autoUnshift = unshift
+            wow.setForm(5, wow.MOONKIN_FORM)
+            wow.runMacro("/cast [@player,nodead] Mark of the Wild")
+            assert.are.equal(5, wow.state.form, unshift)
+            assert.are.equal(0, wow.formsCancelled, unshift)
+            assert.are.equal(1, #wow.casts, unshift)
+            assert.is_nil(wow.casts[1].failed, unshift)
+        end
+    end)
+
+    it("an item's use in Moonkin Form is still stopped: the form is cancelled, or with autoUnshift off refused",
+        function()
+            wow.state.equipped[16] = wow.GEAR.mace
+            wow.state.items[wow.WEAPON.roughWeightstone] = 2
+            wow.setForm(5, wow.MOONKIN_FORM)
+            wow.runMacro("/use item:3239\n/use 16")
+            assert.are.equal(0, wow.state.form, "the game took the druid out of the form")
+            assert.are.equal(1, wow.formsCancelled)
+            wow.setForm(5, wow.MOONKIN_FORM)
+            wow.state.cvars.autoUnshift = "0"
+            wow.runMacro("/use item:3239\n/use 16")
+            assert.are.equal(5, wow.state.form, "refused: still in the form")
+            assert.are.equal(1, wow.formsCancelled)
+            assert.are.equal(1, wow.state.items[wow.WEAPON.roughWeightstone], "only the first went on")
+        end)
+
+    it("a buff cast in another form with Moonkin's number but not its spell still unshifts", function()
+        wow.setForm(1, wow.CAT_FORM)
+        wow.state.formId = 31
+        wow.runMacro("/cast [@player,nodead] Mark of the Wild")
+        assert.are.equal(0, wow.state.form)
+        assert.are.equal(1, wow.formsCancelled)
     end)
 end)
 

@@ -45,7 +45,8 @@ ns.SelfBuffs = SelfBuffs
 SelfBuffs.JUST_GIVEN_SECONDS = 10
 -- Right-click skips your self-buffs for this long.
 SelfBuffs.SKIP_SECONDS = 300
--- A self-buff the game refused waits this long, so the next press tries the next one.
+-- A self-buff the game refused, for a reason about it on you (#483), waits this long,
+-- so the next press tries the next one.
 SelfBuffs.HELD_BACK_SECONDS = 15
 
 local justGiven = {} -- [buff key or family] = GetTime() it landed
@@ -298,7 +299,8 @@ function SelfBuffs.NoteGiven(buff)
     heldBack[buff.key] = nil
 end
 
--- The game refused your self-buff: try the next one first for a moment.
+-- The game refused your self-buff, for a reason about it on you (#483: a
+-- stronger copy worn, not no mana): try the next one first for a moment.
 function SelfBuffs.NoteRefused(buff)
     heldBack[buff.key] = GetTime()
 end

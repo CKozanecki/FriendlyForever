@@ -203,6 +203,34 @@ local function WearsGhostWolf()
     return nil
 end
 
+-- Moonkin Form (#485), by the two ways the game names a form: the spell
+-- of the form you're in (GetShapeshiftFormInfo's fourth answer, as
+-- Blizzard's stance bar reads it), Classic Era's 24858, and the form's
+-- number (GetShapeshiftFormID), MOONKIN_FORM = 31 in Blizzard's Classic
+-- constants. That Forever's are the same is unconfirmed (#488); a
+-- different one only makes the key wait.
+BuffButton.MOONKIN_FORM_SPELL = 24858
+BuffButton.MOONKIN_FORM_ID = 31
+
+-- Whether form (GetShapeshiftForm's answer, not 0) is Moonkin Form: true
+-- only when one of the two says so and neither says otherwise. Anything
+-- unreadable (an error, a secret, not a number) says nothing; nothing said
+-- is not Moonkin.
+local function InMoonkin(form)
+    local bySpell, byId
+    local info = GetShapeshiftFormInfo
+    if type(info) == "function" then
+        local ok, _, _, _, spellId = pcall(info, form)
+        if ok and not Util.IsSecret(spellId) and type(spellId) == "number" then
+            bySpell = spellId == BuffButton.MOONKIN_FORM_SPELL
+        end
+    end
+    local id = Util.ReadGameValues(GetShapeshiftFormID)
+    if type(id) == "number" then byId = id == BuffButton.MOONKIN_FORM_ID end
+    if bySpell == false or byId == false then return false end
+    return bySpell == true or byId == true
+end
+
 -- Why buff mode's key waits for this offer (#452, #466), or nil when it may
 -- press the button: a druid's buff while you're in a form, or a shaman's in
 -- Ghost Wolf, unless "Fast-cast buffs in form" is on. A click still casts it
@@ -210,6 +238,9 @@ end
 -- choice B). A form or class the game won't say counts as a form: the key
 -- waits. Ghost Wolf counts when either the game's form or your buffs say
 -- so: which of the two Forever reports it by is unconfirmed (#467).
+-- Moonkin Form never holds the key (#485, the owner): a druid casts every
+-- buff of ours in it without leaving it. Only a form the game says is
+-- Moonkin counts (InMoonkin); any doubt, the key waits.
 function BuffButton.KeyWaits(offer)
     if not offer or offer.weapon then return nil end
     local buffBack = ns.db and ns.db.buffBack
@@ -221,7 +252,10 @@ function BuffButton.KeyWaits(offer)
     local unsure = "can't tell whether " .. why
     local form = Util.ReadGameValues(GetShapeshiftForm)
     if type(form) ~= "number" or form ~= form then return unsure end
-    if form ~= 0 then return why end
+    if form ~= 0 then
+        if class == "DRUID" and InMoonkin(form) then return nil end
+        return why
+    end
     if class == "SHAMAN" then
         local wolf = WearsGhostWolf()
         if wolf == nil then return unsure end
@@ -1014,25 +1048,77 @@ end
 -- it (the order of the two isn't known for Forever): { text, at }.
 local unclaimedError
 
+-- What a refusal's text (#483, the owner) is about, read from the words
+-- the game shows, lower case, with any end stops left off (localization
+-- isn't planned: #211). "target": about the player it aimed at, who then
+-- waits (#459): too low level, out of range, out of sight, not a valid
+-- target, or wearing a stronger copy. "cooldown": a press in the global
+-- cooldown, which is no refusal at all. Anything else, "you": about you
+-- (mana, combat, a form, silence) or a text not known to be about them,
+-- unreadable included: it holds nobody. The first three are the texts of
+-- the owner's 1.4.3 log (docs/forever-facts.md); the others are Classic's,
+-- unconfirmed on Forever (#488).
+BuffButton.TARGET_REFUSALS = {
+    ["target is too low level"] = true,
+    ["out of range"] = true,
+    ["target not in line of sight"] = true,
+    ["invalid target"] = true,
+    ["a more powerful spell is already active"] = true,
+}
+BuffButton.COOLDOWN_REFUSALS = {
+    ["spell is not ready yet"] = true,
+    ["ability is not ready yet"] = true,
+}
+function BuffButton.RefusalKind(text)
+    if Util.IsSecret(text) or type(text) ~= "string" then return "you" end
+    local words = Util.StripChat(text):lower():gsub("[%s%.!]+$", "")
+    if BuffButton.COOLDOWN_REFUSALS[words] then return "cooldown" end
+    if BuffButton.TARGET_REFUSALS[words] then return "target" end
+    return "you"
+end
+
+-- The last refusal line said in chat, so a key held down on a refusal
+-- about you (no mana: the button offers the same player again) says it
+-- once, not at every press: { text, at }.
+local lastRefusalSaid
+
 local function ReportRefusal(press, text)
     ForgetPress(press)
-    -- A refused self-buff (#44) waits a moment, whatever the reason: the
-    -- usable check should have caught it, so the next press tries the next.
-    -- So does a player, after any refusal (#459, the owner): a group member
-    -- (a group version's aim too), a passer-by, or a favour or request.
+    local kind = BuffButton.RefusalKind(text)
+    if kind == "cooldown" then
+        -- A press in the global cooldown (#483) isn't a refusal: nobody
+        -- waits and nothing is said. The next press offers the same.
+        ns.Diag.LogFolded("cooldown", "buffBack", "not ready yet: %s", press.spell)
+        BuffButton.Refresh()
+        return
+    end
+    -- A weapon buff (#45) keeps its own count of refusals. For a player
+    -- (#459, #483, the owner), only a refusal about them holds them a
+    -- moment, so the next press tries the next: a group member (a group
+    -- version's aim too), a passer-by, or a favour or request. A self-buff
+    -- waits too, when the refusal is about it on you (a stronger copy
+    -- worn). A refusal about you holds nobody: the button stays on them
+    -- and shows why.
     if press.weapon then
         ns.WeaponBuffs.NoteRefused(press.slot, press.weaponItem, press.weaponKind)
-    elseif press.selfBuff then
-        ns.SelfBuffs.NoteRefused(press.buff)
-    elseif press.group then
-        ns.GroupBuffs.NoteRefused(press.name)
-    elseif press.passerBy then
-        ns.PassersBy.NoteRefused(press.name)
-    else
-        ns.Offers.NoteRefused(press.name)
+    elseif kind == "target" then
+        if press.selfBuff then
+            ns.SelfBuffs.NoteRefused(press.buff)
+        elseif press.group then
+            ns.GroupBuffs.NoteRefused(press.name)
+        elseif press.passerBy then
+            ns.PassersBy.NoteRefused(press.name)
+        else
+            ns.Offers.NoteRefused(press.name)
+        end
     end
-    ShowResult("Couldn't buff " .. (press.self and "you" or Util.DisplayName(press.name))
-        .. ": " .. Util.StripChat(text), true, press.name)
+    local line = "Couldn't buff " .. (press.self and "you" or Util.DisplayName(press.name))
+        .. ": " .. Util.StripChat(text)
+    local said = lastRefusalSaid
+    local repeated = said ~= nil and said.text == line and GetTime() - said.at >= 0
+        and GetTime() - said.at < BuffButton.RESULT_SHOWN_SECONDS
+    if not repeated then lastRefusalSaid = { text = line, at = GetTime() } end
+    ShowResult(line, not repeated, press.name)
     BuffButton.Refresh()
 end
 
@@ -1283,6 +1369,14 @@ end
 ------------------------------------------------------------------------
 
 function BuffButton.Frame() return button end
+
+-- Why buff mode's key waits now (#452, #485), for buff mode's own lines:
+-- for the offer the button holds, or with none, for a buff of yours (a
+-- weapon buff never waits); nil when the key presses the button.
+function BuffButton.KeyWaitsNow()
+    if armedOffer then return armedOffer.keyWaits end
+    return BuffButton.KeyWaits({})
+end
 
 -- An offer's kind, for a clicked row: your self-buffs (#44) and your weapon
 -- buffs (#45) share your name with your own copy of a group buff, so each
