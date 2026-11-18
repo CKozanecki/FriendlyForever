@@ -64,7 +64,7 @@ Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets,
 - **Buffs you, too:** solo, it keeps your own Fortitude, Intellect, Mark or Blessing up, and turns itself on when one is missing or running low.
 - **Your self-buffs:** Inner Fire, mage and warlock armors, Lightning Shield, Battle Shout, Aspects, Trueshot Aura, paladin auras and Righteous Fury, after everyone else is done. Each is marked "(you only)" in your buff order.
 - **Weapon buffs (new, experimental, off by default):** pick a stone, oil, poison or shaman imbue for each hand on the new Weapon buffs page. Once everyone else is done, the button offers it for a hand with nothing on it, and one press puts it on. A weapon with its own Use is left for you. While you're resting (in a city, an inn or a town with one) weapon buffs wait until you leave. It's offered in a druid's form or Ghost Wolf too, and a press may drop you out of the form, as doing it by hand would.
-- **Druid forms:** in cat, bear, travel or any other form, the key leaves your druid buffs alone so scrolling never knocks you out of the form. The button still shows the buff, and a click casts it. Turn on **Fast-cast buffs in form** on the Buffs tab (off by default) to let the key cast them in a form too; weapon buffs work with the key as before.
+- **Druid forms and Ghost Wolf:** in cat, bear, travel or any other druid form, or a shaman's Ghost Wolf, the key leaves your buffs alone so scrolling never knocks you out of the form. The button still shows the buff, and a click casts it. Turn on **Fast-cast buffs in form** on the Buffs tab (off by default) to let the key cast them in a form or Ghost Wolf too; weapon buffs work with the key as before.
 - **Tops up before it runs out:** a buff of yours with under 5 minutes left (you choose) counts as missing, so you renew it in time.
 - **Shares the work in raids:** copies of Friendly Forever split the buffs between them, so three priests give Fortitude, Spirit and Shadow Protection between them, and paladins split their Blessings instead of all giving Kings.
 - **Paladin-aware:** gives one Blessing each, never overwriting yours.
@@ -97,6 +97,6 @@ When a whole guild runs Friendly Forever, it should feel warm, not noisy:
 - **Stays out of the way:** respects AFK, the game's chat lockdown and combat. Settings are checked on load and repaired if damaged, even mid-session.
 - **Safe with untrusted input:** never runs text as code, and other players can't control it. A buff request or a passer-by can only put someone on your button; you still press it.
 
-**Updating to 1.4:** this version adds new files, so restart the game after updating. /reload isn't enough. Coming from 1.3 or earlier, restart after updating; from 1.4.0 or 1.4.1 a /reload is enough, since 1.4.2 and 1.4.3 add no files.
+**Updating to 1.4:** this version adds new files, so restart the game after updating. /reload isn't enough. Coming from 1.3 or earlier, restart after updating; from 1.4.0, 1.4.1 or 1.4.2 a /reload is enough, since 1.4.2 and 1.4.3 add no files.
 
 In active development for WoW Forever. See the changelog for what's in each release.
