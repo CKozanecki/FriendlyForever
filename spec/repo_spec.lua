@@ -1969,6 +1969,47 @@ describe("UI simulator workflow", function()
     -- log, and in an annotation, and the job never fails. The logs are
     -- hostile: none of their text reaches the job log, where the runner reads
     -- commands, and none can close the summary's code blocks.
+    -- The log's digest (#473), run for real: the main pass prints a failed check on two lines, and
+    -- the error line holds the failed LAYOUT line, so both are kept.
+    describe("the scenario job's log digest, run for real (#473)", function()
+        local function digest(files)
+            local step = wow.readFile(path):match("name: Digest %(client facts[^\n]*\n%s*run: |\n(.-)\n\n")
+            assert.is_truthy(step, "no digest step")
+            local dir = os.tmpname()
+            os.remove(dir)
+            assert.is_true(os.execute("mkdir -p '" .. dir .. "/report'") == 0)
+            for name, content in pairs(files) do
+                local f = assert(io.open(dir .. "/report/" .. name, "wb"))
+                f:write(content)
+                f:close()
+            end
+            local f = assert(io.open(dir .. "/run.sh", "wb"))
+            f:write("set -e\nRUNNER_TEMP='" .. dir .. "'\nLAYOUT_SIZES='1024x768 1920x1080'\n" .. step .. "\n")
+            f:close()
+            local p = io.popen("bash '" .. dir .. "/run.sh' 2>&1")
+            local out = p:read("*a")
+            p:close()
+            os.execute("rm -rf '" .. dir .. "'")
+            return out
+        end
+
+        it("keeps the error line after a main-pass failure, the last size's layout lines, and counts the rest (black)", function()
+            local out = digest({
+                ["run-tests.log"] = "LAYOUT main one\n  ✓ fine\n  ✗ scenarios.lua > the raid test\n    LAYOUT bad: spills 30 px\n"
+                    .. "FACT sim a fact\n1 tests, 0 passed, 1 failed\n",
+                ["layout-1024x768.log"] = "LAYOUT narrow one\nLAYOUT narrow two\n",
+                ["layout-1920x1080.log"] = "LAYOUT wide one\n",
+                ["lua-errors.json"] = "", ["frame-tree.txt"] = "" })
+            assert.is_truthy(out:find("✗ scenarios.lua > the raid test\n|     LAYOUT bad", 1, true), out)
+            assert.is_truthy(out:find("LAYOUT bad: spills 30 px", 1, true), "the main pass's error line was dropped:\n" .. out)
+            assert.is_truthy(out:find("--- layout at 1920x1080 (#148)\n| LAYOUT wide one", 1, true), out)
+            assert.is_truthy(out:find("--- layout at 1024x768 (#148): 2 lines", 1, true), out)
+            assert.is_falsy(out:find("LAYOUT narrow one", 1, true), "the narrow pass's lines are in the log")
+            assert.is_falsy(out:find("LAYOUT main one", 1, true), "the main pass's lines are in the log")
+            assert.is_truthy(out:find("FACT sim a fact", 1, true), out)
+        end)
+    end)
+
     describe("the scenario job's summary of runs stopped at their time limit, run for real", function()
         local HOSTILE = "START 6 an unknown command is answered, not an error\nLAYOUT ok 1024x768 panel\n"
             .. "START 7 ::error::seven\n```\n::warning::hostile\nx ##[set-env name=A;]b\r::error::carriage\n"

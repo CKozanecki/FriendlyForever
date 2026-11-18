@@ -747,7 +747,9 @@ jobs:
             # its line in the results ("✗").
             echo "--- layout (main pass): $(grep "LAYOUT " "$report/run-tests.log" | awk '!seen[$0]++' | grep -c .) lines"
             echo "--- scenario results"
-            grep -E "✓|✗|tests," "$report/run-tests.log" || true
+            # The main pass prints a failure on two lines, "✗ file > name" and then its error,
+            # which holds the failed LAYOUT line: the line after each ✗ is kept too.
+            awk '/✗/ { print; if ((getline more) > 0) print more; next } /✓|tests,/' "$report/run-tests.log" || true
             last=${LAYOUT_SIZES##* }
             for size in $LAYOUT_SIZES; do
               if [ "$size" = "$last" ]; then
@@ -825,7 +827,7 @@ jobs:
             done < "$RUNNER_TEMP/runs.txt"
           }
           # A report's LAYOUT lines, repeats dropped, the first 150,000 bytes (#473). Through a
-          # file, so a cut can't end a pipeline early and fail the step under pipefail.
+          # file, so a cut can't end a pipeline early with an error in the step.
           layoutLines() {
             local lines="$RUNNER_TEMP/layout-lines.txt"
             grep "LAYOUT " "$1" | awk '!seen[$0]++' | grep . > "$lines" || true
