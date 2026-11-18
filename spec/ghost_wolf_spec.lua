@@ -88,7 +88,7 @@ describe("A shaman's buffs in Ghost Wolf (#466)", function()
                 assert.is_false(wow.state.ghostWolf, "the game took you out of Ghost Wolf")
                 assert.is_false(wearsWolf())
                 assert.are.equal(1, wow.formsCancelled, "the game did, not the addon")
-                assert.matches("Gave Water Breathing to", button.result:GetText(), 1, true)
+                assert.matches("Gave Water Breathing to", wow.lastResult(ns), 1, true)
             end)
         end
 
@@ -169,8 +169,8 @@ describe("A shaman's buffs in Ghost Wolf (#466)", function()
             end)
         end
 
-        it("Ghost Wolf's aura holds only a shaman's key", function()
-            boot({ class = "MAGE", known = { [10157] = true } })
+        it("Ghost Wolf's aura holds only a shaman's key: a druid out of form wearing it still casts", function()
+            boot({ class = "DRUID", known = { [1126] = true, [9885] = true } })
             wow.gainBuff({ spellId = wow.GHOST_WOLF, name = "Ghost Wolf", sourceUnit = "player" })
             ns.BuffButton.Refresh()
             assert.is_truthy(keyMacro())
