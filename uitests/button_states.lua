@@ -8,7 +8,7 @@
 -- The simulator loads the test files in name order, so this one comes before
 -- scenarios.lua and FriendlyForeverUIStates is there when they run.
 --
--- The simulator (wow-ui-sim d54da90, #308; its Forever profile since
+-- The simulator (wow-ui-sim dbcfbd7, #478; its Forever profile since
 -- 936d5f5, #160) plays WoW Forever, with Forever's spell data: it names our
 -- buffs and answers their range itself (in range of every unit it shows: it
 -- has no distance model). While a state is set up,

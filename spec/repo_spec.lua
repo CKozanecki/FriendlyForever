@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #360, #345, #308, #343, #367, #371, #375, #408, #415
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #360, #345, #308, #343, #367, #371, #375, #408, #415, #478
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -1550,12 +1550,12 @@ describe("UI simulator workflow", function()
         end)
     end)
 
-    -- #308: upstream's master of 2026-11-16, reviewed on #308 before the pin
-    -- moved (#154, #160 and #308's first move moved it before). There's no
+    -- #478: upstream's master of 2026-11-18, reviewed on #478 before the pin
+    -- moved (#154, #160 and #308's two moves moved it before). There's no
     -- published image at that commit, and release binaries are never used,
     -- so the simulator job builds it and the others run that.
-    it("pins wow-ui-sim at the reviewed d54da90 and runs only the build made from it (black)", function()
-        assert.is_truthy(text:find("\n%s*SIM_COMMIT: d54da90d9ddda641ea6fabf55303a1e72476642e\n"),
+    it("pins wow-ui-sim at the reviewed dbcfbd7 and runs only the build made from it (black)", function()
+        assert.is_truthy(text:find("\n%s*SIM_COMMIT: dbcfbd7c33534f4216f5c91485de54392d944514\n"),
             "the simulator isn't pinned at the reviewed commit")
         assert.is_truthy(text:find("\n%s*BUILD_BASE: rust@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c%s"),
             "the build base isn't the reviewed digest")
