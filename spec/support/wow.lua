@@ -848,6 +848,17 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         game at launch. A buff whose expiry has come is gone
 --                         from GetAuraDataByIndex, with no UNIT_AURA, so the
 --                         addon must look again. M.wearBuff puts one on.
+--   GetAuraDataByIndex's filter (#471): nil is read as "HELPFUL", as the
+--                         game does. "HELPFUL" lists only helpful auras (yours
+--                         with isHelpful = true; a group member's unit.auras),
+--                         "HARMFUL" only harmful ones (yours with isHarmful =
+--                         true; a group member's unit.harmfulAuras, spell IDs,
+--                         secret while units are restricted). Any other filter,
+--                         the game's combined ones ("HELPFUL|PLAYER") among
+--                         them, raises an error: the pessimistic choice, so a
+--                         misspelt filter fails its spec instead of passing.
+--                         Source: warcraft.wiki.gg's C_UnitAuras.GetAuraDataByIndex
+--                         page (filter defaults to "HELPFUL").
 --   C_Spell.GetSpellInfo(name) and GetSpellTexture(name) answer only for a
 --                         spell you know (likewise GetSpellInfo(name)), as the
 --                         game's name lookup goes through your spellbook; by
@@ -2505,9 +2516,31 @@ function M.reset()
         end,
     }
     -- Aura queries raise an error while auras are restricted, as on 12.1+.
+    -- Harmful auras (#471): yours with isHarmful = true, a group member's
+    -- unit.harmfulAuras (spell IDs).
+    function M.harmfulAura(unit, index)
+        if unit == "player" or M.state.units[unit] == M.state.units.player then
+            local harmful = {}
+            for _, a in ipairs(M.state.playerAuras) do
+                if not isSecret(a) and a.isHarmful == true then harmful[#harmful + 1] = a end
+            end
+            return harmful[index]
+        end
+        local u = M.state.units[unit]
+        local id = u and u.harmfulAuras and u.harmfulAuras[index]
+        if id == nil then return nil end
+        if M.state.unitsRestricted or (u.secrets and u.secrets.auras) then return M.secret({ spellId = id }) end
+        return { spellId = id, isHelpful = false, isHarmful = true }
+    end
     _G.C_UnitAuras = {
-        GetAuraDataByIndex = function(unit, index)
+        GetAuraDataByIndex = function(unit, index, filter)
+            -- The filter (#471; see ASSUMPTIONS): nil is "HELPFUL".
+            if filter == nil then filter = "HELPFUL" end
+            if filter ~= "HELPFUL" and filter ~= "HARMFUL" then
+                error("GetAuraDataByIndex: a filter the simulated client doesn't know: " .. tostring(filter))
+            end
             if M.state.aurasRestricted then error("aura data is restricted") end
+            if filter == "HARMFUL" then return M.harmfulAura(unit, index) end
             -- (Your own raid slot, if a spec added one, is you.)
             if unit ~= "player" and M.state.units[unit] ~= M.state.units.player then
                 -- Other players: spec.auras = { spellId, ... } (secret while units are restricted).

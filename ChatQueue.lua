@@ -177,8 +177,18 @@ local function RawEmote(token, target)
     return true
 end
 
+-- The caller's callbacks (channel, isValid, getText, getTarget, onDone) run
+-- protected (#446, #448): an error in one drops that message with its
+-- reason, or for onDone ends only its own call, and the pump carries on.
+-- Diag.OnError still counts it, keeps it for /friendly status and hands it
+-- to the game's error display: nothing is hidden.
+local function Protected(fn)
+    return xpcall(fn, ns.Diag.OnError)
+end
+
 local function Finish(item, sent, reason)
-    if item.onDone then item.onDone(sent, reason) end
+    local onDone = item.onDone
+    if onDone then Protected(function() onDone(sent, reason) end) end
 end
 
 local function Drop(item, reason)
@@ -194,9 +204,38 @@ local function Hold(item, reason)
     ns.Diag.Log("send", "holding %s: %s", item.label, reason)
 end
 
+-- The item's channel, or nil and why it can't be used: a function that
+-- errors (#448), or an answer that isn't a plain string.
 local function ResolveChannel(item)
-    if type(item.channel) == "function" then return item.channel() end
-    return item.channel
+    local channel = item.channel
+    if type(channel) == "function" then
+        local ok, value = Protected(channel)
+        if not ok then return nil, "channel failed to resolve" end
+        channel = value
+    end
+    if channel == nil then return nil, "no channel (not in a guild/group any more?)" end
+    if Util.IsSecret(channel) or type(channel) ~= "string" then return nil, "channel can't be used" end
+    return channel
+end
+
+-- Whether the item is still wanted: true, or false and why (#448). An
+-- isValid that errors, or whose answer can't be read, drops it.
+local function StillValid(item)
+    local isValid = item.isValid
+    if not isValid then return true end
+    local ok, valid, why = Protected(isValid)
+    if not ok then return false, "validity check failed" end
+    if Util.IsSecret(valid) then return false, "validity check can't be read" end
+    if valid then return true end
+    if Util.IsSecret(why) or type(why) ~= "string" then why = "no reason given" end
+    return false, "no longer wanted: " .. why
+end
+
+-- Unit tokens such as "party1", "raid12", "nameplate3" or "target": lower-case
+-- letters, then any digits. Never a player's name.
+local function IsUnitToken(value)
+    return not Util.IsSecret(value) and type(value) == "string" and #value <= 32
+        and value:find("^%l+%d*$") ~= nil
 end
 
 local SchedulePump
@@ -213,22 +252,21 @@ function ChatQueue.Pump(hardware)
 
     while i <= #pending do
         local item = pending[i]
-        local channel = ResolveChannel(item)
+        local channel, noChannel = ResolveChannel(item)
 
         local dropReason
         local maxAge = item.maxAge or ChatQueue.MAX_AGE
         if now - item.created > maxAge then
             dropReason = "waited too long (" .. maxAge .. "s)"
         elseif not channel then
-            dropReason = "no channel (not in a guild/group any more?)"
+            dropReason = noChannel
         elseif channel == "EMOTE" and type(item.emote) ~= "string" then
             dropReason = "emote without a name"
         elseif channel == "WHISPER" and type(item.target) ~= "string" then
             dropReason = "whisper without a target"
         else
-            local valid, why = true, nil
-            if item.isValid then valid, why = item.isValid() end
-            if not valid then dropReason = "no longer wanted: " .. (why or "no reason given") end
+            local valid, why = StillValid(item)
+            if not valid then dropReason = why end
         end
 
         if dropReason then
@@ -267,16 +305,20 @@ function ChatQueue.Pump(hardware)
             elseif channel == "EMOTE" then
                 text = "/" .. item.emote:lower()
                 if item.getTarget then
-                    local got, value = xpcall(item.getTarget, ns.Diag.OnError)
-                    if got then target = value else skip = "emote target failed to resolve" end
+                    -- An error drops it (#446). A target that's a secret, not
+                    -- a string or not a unit token aims at no one (#448), as
+                    -- Util.ReadGameValues reads a secret: as nil.
+                    local got, value = Protected(item.getTarget)
+                    if not got then
+                        skip = "emote target failed to resolve"
+                    elseif IsUnitToken(value) then
+                        target = value
+                    end
                 end
             else
-                -- The caller's render runs protected: an error in it (damaged
-                -- settings, a bad placeholder) drops this message with its
-                -- reason, and the pump carries on with the next (#446).
-                -- Diag.OnError still counts it, keeps it for /friendly status
-                -- and hands it to the game's error display: nothing is hidden.
-                local ok, rendered = xpcall(item.getText, ns.Diag.OnError)
+                -- An error in the render (damaged settings, a bad placeholder)
+                -- drops this message with its reason (#446).
+                local ok, rendered = Protected(item.getText)
                 if not ok then
                     skip = "message failed to render"
                 elseif rendered == nil then

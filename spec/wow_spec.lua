@@ -1,4 +1,4 @@
--- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466
+-- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -1677,5 +1677,55 @@ describe("The simulated client's ranks and levels (#459)", function()
             assert.is_nil(GetSpellSubtext(MOTW))
             assert.is_nil(C_Spell.GetSpellSubtext(MOTW))
         end)
+    end)
+end)
+
+describe("The simulated client's aura filter (#471)", function()
+    local CURSE = 11717
+    local function aura(unit, i, filter) return _G.C_UnitAuras.GetAuraDataByIndex(unit, i, filter) end
+
+    -- You with Mark of the Wild and a curse; Ann in your party with the
+    -- Mark and a curse of her own.
+    local function boot()
+        wow.boot()
+        wow.gainBuff({ spellId = MOTW, name = "Mark of the Wild" })
+        wow.gainBuff({ spellId = CURSE, name = "Curse of Recklessness", isHelpful = false, isHarmful = true })
+        wow.setGroup("party", { "Ann-Stone" })
+        wow.state.units.party1.auras = { MOTW }
+        wow.state.units.party1.harmfulAuras = { CURSE }
+    end
+
+    it("\"HARMFUL\" doesn't list your buffs or a group member's, only harmful auras (white)", function()
+        boot()
+        for _, unit in ipairs({ "player", "party1" }) do
+            assert.are.equal(CURSE, aura(unit, 1, "HARMFUL").spellId, unit)
+            assert.is_true(aura(unit, 1, "HARMFUL").isHarmful, unit)
+            assert.is_nil(aura(unit, 2, "HARMFUL"), unit .. ": the Mark isn't harmful")
+        end
+    end)
+
+    it("\"HELPFUL\", or no filter, lists only helpful auras (white)", function()
+        boot()
+        for _, unit in ipairs({ "player", "party1" }) do
+            for _, filter in ipairs({ "HELPFUL", false }) do
+                local f = filter or nil
+                assert.are.equal(MOTW, aura(unit, 1, f).spellId, unit)
+                assert.is_nil(aura(unit, 2, f), unit .. ": the curse isn't helpful")
+            end
+        end
+    end)
+
+    it("a harmful aura is a secret while units are restricted, as a helpful one is (black)", function()
+        boot()
+        wow.state.unitsRestricted = true
+        assert.is_true(_G.issecretvalue(aura("party1", 1, "HARMFUL")))
+    end)
+
+    it("a filter it doesn't know raises an error (black)", function()
+        boot()
+        for _, filter in ipairs({ "HELPFULL", "helpful", "HELPFUL|PLAYER", "", 7, {} }) do
+            assert.has_error(function() aura("player", 1, filter) end, nil, tostring(filter))
+            assert.has_error(function() aura("party1", 1, filter) end, nil, tostring(filter))
+        end
     end)
 end)
