@@ -852,8 +852,10 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         game does. "HELPFUL" lists only helpful auras (yours
 --                         with isHelpful = true; a group member's unit.auras),
 --                         "HARMFUL" only harmful ones (yours with isHarmful =
---                         true; a group member's unit.harmfulAuras, spell IDs,
---                         secret while units are restricted). Any other filter,
+--                         true, also on your own raid slot; a group member's
+--                         unit.harmfulAuras, spell IDs, secret while units are
+--                         restricted or unit.secrets.auras is set, as their
+--                         helpful auras are). Any other filter,
 --                         the game's combined ones ("HELPFUL|PLAYER") among
 --                         them, raises an error: the pessimistic choice, so a
 --                         misspelt filter fails its spec instead of passing.

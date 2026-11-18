@@ -228,8 +228,10 @@ describe("The raid buff split reads the raid as buff mode does (#372)", function
         .. "within one HEARTBEAT + SETTLE, and says it once a HEARTBEAT after that (black, #443)", function()
         local split = clients[1].ns.RaidSplit
         leave()
+        markHeartbeats()
         answer("secret")
         join(clients[1])
+        assert.are.equal(1, heartbeats(), "the unreadable join starts the heartbeat")
         answer(nil)
         -- No other roster update comes.
         wow.advanceAll(net, split.HEARTBEAT + split.SETTLE, 0.5)

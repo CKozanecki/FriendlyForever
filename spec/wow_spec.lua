@@ -1721,6 +1721,27 @@ describe("The simulated client's aura filter (#471)", function()
         assert.is_true(_G.issecretvalue(aura("party1", 1, "HARMFUL")))
     end)
 
+    it("a member whose auras are marked secret answers \"HARMFUL\" with a secret too, as \"HELPFUL\" (black)", function()
+        boot()
+        wow.state.units.party1.secrets = { auras = true }
+        assert.is_true(_G.issecretvalue(aura("party1", 1, "HARMFUL")))
+        assert.is_true(_G.issecretvalue(aura("party1", 1, "HELPFUL")))
+    end)
+
+    it("your own raid slot answers \"HARMFUL\" with your harmful auras, as \"HELPFUL\" with your buffs (white)", function()
+        boot()
+        wow.setGroup("raid", { "Ann-Stone" })
+        local mine
+        for i = 1, 40 do
+            local u = wow.state.units["raid" .. i]
+            if u and u == wow.state.units.player then mine = "raid" .. i end
+        end
+        assert.is_string(mine, "you have a raid slot")
+        assert.are.equal(CURSE, aura(mine, 1, "HARMFUL").spellId)
+        assert.is_nil(aura(mine, 2, "HARMFUL"), "not your Mark")
+        assert.are.equal(MOTW, aura(mine, 1, "HELPFUL").spellId)
+    end)
+
     it("a filter it doesn't know raises an error (black)", function()
         boot()
         for _, filter in ipairs({ "HELPFULL", "helpful", "HELPFUL|PLAYER", "", 7, {} }) do
