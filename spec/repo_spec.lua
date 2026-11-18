@@ -899,14 +899,14 @@ describe("UI simulator workflow", function()
 
     local function pinProblems(workflow)
         local problems, jobsAt = {}, nil
-        local lines = {}
-        for line in (workflow .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
-        for i, line in ipairs(lines) do
+        local rows = {}
+        for line in (workflow .. "\n"):gmatch("([^\n]*)\n") do rows[#rows + 1] = line end
+        for i, line in ipairs(rows) do
             if line:match("^jobs:%s*$") then jobsAt = jobsAt or i end
         end
         for _, name in ipairs(PINNED) do
             local found = {}
-            for i, line in ipairs(lines) do
+            for i, line in ipairs(rows) do
                 if not line:match("^%s*#") then
                     local code = line:gsub("%s#.*$", "")
                     local key = "%f[%w_]" .. name .. "%s*:"
@@ -915,11 +915,11 @@ describe("UI simulator workflow", function()
             end
             if #found ~= 1 then
                 problems[#problems + 1] = name .. " is defined " .. #found .. " times, not once"
-            elseif not (jobsAt and found[1] < jobsAt and lines[found[1]]:match("^  " .. name .. ":")) then
+            elseif not (jobsAt and found[1] < jobsAt and rows[found[1]]:match("^  " .. name .. ":")) then
                 problems[#problems + 1] = name .. " isn't in the top-level env"
             end
         end
-        for i, line in ipairs(lines) do
+        for i, line in ipairs(rows) do
             if not line:match("^%s*#") and line:find("GITHUB_ENV", 1, true) then
                 problems[#problems + 1] = "line " .. i .. " writes $GITHUB_ENV"
             end
