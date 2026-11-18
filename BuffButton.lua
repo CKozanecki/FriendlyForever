@@ -75,7 +75,7 @@ local button, eventFrame
 local armedOffer          -- what the button holds: { name, spell, buff, group, cast, self, macroText }
 local appliedMacroText    -- the macro text last written to the button (to skip rewriting it)
 local appliedKeyText      -- and for buff mode's key (#452): nil while the key waits
-local shownResult         -- the last result under the button: { text, shownAt }
+local shownResult         -- the last result under the button: { text, shownAt, name, stays (a right-click's) }
 local lastResultText = "nothing pressed yet"
 local notArmedReason      -- why the button is empty, for /friendly buffback
 local recheckScheduled = false
@@ -138,9 +138,21 @@ end
 
 -- The macro for an offer: a weapon buff's own (WeaponBuffs.Macro, #45), or
 -- a cast as above. nil when it can't be put in a macro safely.
+-- A buff for a player, you included in buff mode, is cast as
+-- offer.castSpell (#459): the rank their level allows (BuffData.CastFor),
+-- "Mark of the Wild(Rank 5)" when stepping down for a low-level player, its
+-- plain name when that's your highest. An offer without one is never cast:
+-- a plain "/cast Mark of the Wild" casts your highest rank, which the game
+-- refuses on a low-level player. A group version (GroupCasts.lua) and your
+-- self-buffs (SelfBuffs.lua) go on by name: no player's level limits them.
 function BuffButton.MacroFor(offer, hadTarget)
     if offer.weapon then return ns.WeaponBuffs.Macro(offer) end
-    return BuffButton.BuildCastMacro(offer.name, offer.spell, hadTarget, offer.self, offer.toggle)
+    local spell = offer.spell
+    if not offer.cast and not offer.selfBuff then
+        spell = offer.castSpell
+        if spell == nil then return nil end
+    end
+    return BuffButton.BuildCastMacro(offer.name, spell, hadTarget, offer.self, offer.toggle)
 end
 
 ------------------------------------------------------------------------
@@ -449,6 +461,14 @@ local function ArmButton()
     -- NextOffer has just read the group: a buff left alone as in step shows first.
     if ShowAlreadyDone() then return end
     if not offer then return Empty(reason, showingResult) end
+    -- The last result is about the player last pressed for (#461, the
+    -- owner): once the button offers someone else, it goes, so a stranger's
+    -- name never sits above "Gave Thorns to you."
+    -- A right-click's line stays until it times out (the owner, #461).
+    if showingResult and not shownResult.stays and shownResult.name ~= offer.name then
+        shownResult = nil
+        button.result:SetText("")
+    end
     ns.BuffList.Update(button, offerList, offer.name)
 
     local hadTarget = HasTarget()
@@ -528,8 +548,9 @@ end
 -- Pressing, and the game's answer
 ------------------------------------------------------------------------
 
-local function ShowResult(text, alsoInChat)
-    shownResult = { text = text, shownAt = GetTime() }
+-- name: the player it is about (you, for your own buffs), by full name.
+local function ShowResult(text, alsoInChat, name)
+    shownResult = { text = text, shownAt = GetTime(), name = name }
     lastResultText = text
     ns.Diag.LogFolded("result", "buffBack", "%s", text) -- repeats fold (#453)
     if alsoInChat then ns.Print(text) end
@@ -574,15 +595,16 @@ local function Unanswered(press)
     local who = press.self and "you" or Util.DisplayName(press.name)
     if press.failed then
         ShowResult("Couldn't buff " .. who
-            .. " (the game gave no reason).", true)
+            .. " (the game gave no reason).", true, press.name)
     elseif press.sent then
-        ShowResult("No word back on " .. press.spell .. " for " .. who .. ". If it didn't land, press again.")
+        ShowResult("No word back on " .. press.spell .. " for " .. who .. ". If it didn't land, press again.", nil,
+            press.name)
     elseif press.complete and not press.unsure then
         if press.elsewhere and press.elsewhere.landed then
             -- Probably the button's cast, sent to someone else (a redirect). It was
             -- also kept as a cast by hand (#133).
             ShowResult(string.format("%s went to %s, not %s.", press.spell,
-                Util.StripChat(press.elsewhere.name), who), true)
+                Util.StripChat(press.elsewhere.name), who), true, press.name)
         else
             if press.weapon then
                 ns.WeaponBuffs.NoteRefused(press.slot, press.weaponItem, press.weaponKind)
@@ -592,9 +614,9 @@ local function Unanswered(press)
                 ns.GroupBuffs.NoteRefused(press.name)
             end
             if press.weapon then
-                ShowResult("No answer: nothing was put on your " .. press.hand .. ".", true)
+                ShowResult("No answer: nothing was put on your " .. press.hand .. ".", true, press.name)
             else
-                ShowResult("No answer: couldn't find " .. who .. " (out of sight?).", true)
+                ShowResult("No answer: couldn't find " .. who .. " (out of sight?).", true, press.name)
             end
         end
     else
@@ -667,7 +689,8 @@ local function OnPreClick(_, mouseButton, isDown)
         armed = nil
         -- Once a press: on its down half, or its up half when no down half came.
         if isDown ~= false or not downHalfFoundNothing then
-            ShowResult("Click the button to buff: " .. armedOffer.keyWaits .. ".")
+            -- About the offer showing, so it stays under it (#461).
+            ShowResult("Click the button to buff: " .. armedOffer.keyWaits .. ".", nil, armedOffer.name)
             ShowRecentResult()
         end
     end
@@ -722,18 +745,18 @@ local function OnPostClick(_, mouseButton, isDown)
         -- Your weapon buffs (#45): all of them, for a while.
         ns.WeaponBuffs.Skip()
         local minutes = ns.WeaponBuffs.SKIP_SECONDS / 60
-        ShowResult(string.format("Skipping your weapon buffs for %d minutes.", minutes))
+        ShowResult(string.format("Skipping your weapon buffs for %d minutes.", minutes), nil, name)
     elseif offer.selfBuff then
         -- Your self-buffs (#44): all of them, for a while. Shift too: who
         -- gets a buff doesn't apply to them.
         ns.SelfBuffs.Skip()
-        ShowResult(string.format("Skipping your self-buffs for %d minutes.", ns.SelfBuffs.SKIP_SECONDS / 60))
+        ShowResult(string.format("Skipping your self-buffs for %d minutes.", ns.SelfBuffs.SKIP_SECONDS / 60), nil, name)
     elseif offer.cast then
         -- A group version: only that cast is left out; its members are
         -- still offered the single buff. Shift adds nobody to a Never list.
         ns.GroupCasts.Skip(offer.cast.key)
         ShowResult(string.format("Skipping %s on %s for %d minutes.", offer.spell, offer.cast.label,
-            ns.GroupCasts.SKIP_SECONDS / 60))
+            ns.GroupCasts.SKIP_SECONDS / 60), nil, name)
     elseif offer.group and Util.ReadGameValues(IsShiftKeyDown) == true then
         ns.Options.FinishEdits()
         -- The Never list of the place you're in (#408), where the offer was
@@ -752,10 +775,10 @@ local function OnPostClick(_, mouseButton, isDown)
             ShowResult(string.format(ns.BuffRules.Pending()
                 and "%s won't get %s (Never list; \"Keep my settings\" keeps it)."
                 or "%s won't get %s (Never list, on the Buffs tab).",
-                offer.self and "You" or Util.DisplayName(name), offer.spell))
+                offer.self and "You" or Util.DisplayName(name), offer.spell), nil, name)
         else
             ShowResult("Couldn't add " .. (offer.self and "you" or Util.DisplayName(name))
-                .. " to the Never list: " .. why .. ".", true)
+                .. " to the Never list: " .. why .. ".", true, name)
         end
         ns.Options.Refresh()
     elseif offer.passerBy then
@@ -763,15 +786,17 @@ local function OnPostClick(_, mouseButton, isDown)
         -- the place for a name).
         ns.PassersBy.SkipName(name)
         ShowResult(string.format("Skipping %s for %d minutes.", Util.DisplayName(name),
-            ns.PassersBy.SKIP_SECONDS / 60))
+            ns.PassersBy.SKIP_SECONDS / 60), nil, name)
     elseif offer.group then
         ns.GroupBuffs.Skip(name)
         ShowResult(string.format("Skipping %s for %d minutes.", offer.self and "yourself" or Util.DisplayName(name),
-            ns.GroupBuffs.SKIP_SECONDS / 60))
+            ns.GroupBuffs.SKIP_SECONDS / 60), nil, name)
     else
         ns.Offers.LetGo(name)
-        ShowResult("Let " .. Util.DisplayName(name) .. " go.")
+        ShowResult("Let " .. Util.DisplayName(name) .. " go.", nil, name)
     end
+    -- Its line stays until it times out, wherever the button moves (the owner, #461).
+    if shownResult then shownResult.stays = true end
     BuffButton.Refresh()
 end
 
@@ -900,12 +925,12 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
     if press.weapon then
         -- A weapon buff (#45): on your own weapon, no favour, no line.
         ns.WeaponBuffs.NoteGiven(press.slot)
-        ShowResult("Applied " .. press.spell .. " to your " .. press.hand .. ".")
+        ShowResult("Applied " .. press.spell .. " to your " .. press.hand .. ".", nil, press.name)
     elseif press.selfBuff then
         -- A self-buff (#44) can only be cast on you: no favour, no line, no
         -- thanks, and nobody else to note.
         ns.SelfBuffs.NoteGiven(press.buff)
-        ShowResult("Cast " .. press.spell .. " on you.")
+        ShowResult("Cast " .. press.spell .. " on you.", nil, press.name)
     elseif reachedThem == nil then
         -- The dungeon-or-raid round (#256) counts it as given anyway.
         if press.cast then
@@ -916,17 +941,17 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
             -- A passer-by (#39) isn't offered it again at every press.
             ns.PassersBy.NoteGiven(press.name, press.buff)
         end
-        ShowResult("Cast " .. press.spell .. ", but the game didn't say it reached " .. who .. ".")
+        ShowResult("Cast " .. press.spell .. ", but the game didn't say it reached " .. who .. ".", nil, press.name)
     elseif press.cast then
         -- A group version reached the target's party: everyone it covered
         -- counts as just given (the game updates their buffs a moment
         -- later); those out of range are filled in one by one afterwards.
         for _, covered in ipairs(press.cast.covers) do ns.GroupBuffs.NoteGiven(covered, press.buff) end
-        ShowResult(string.format("Cast %s on %s.", press.spell, press.cast.label))
+        ShowResult(string.format("Cast %s on %s.", press.spell, press.cast.label), nil, press.name)
     elseif press.group then
         -- A group buff: no favour, no line, no thanks.
         ns.GroupBuffs.NoteGiven(press.name, press.buff)
-        ShowResult("Gave " .. press.spell .. " to " .. who .. ".")
+        ShowResult("Gave " .. press.spell .. " to " .. who .. ".", nil, press.name)
     else
         -- Their copy hears it was you, in case their game can't say (#138).
         ns.Receipts.Send(press.name, press.buff)
@@ -935,15 +960,15 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
         if press.passerBy then ns.PassersBy.NoteGiven(press.name, press.buff) end
         if press.passerBy and not returned then
             -- Nothing is said to a passer-by, and nothing was owed.
-            ShowResult("Gave " .. press.spell .. " to " .. who .. " (passing by).")
+            ShowResult("Gave " .. press.spell .. " to " .. who .. " (passing by).", nil, press.name)
         elseif returned and asked then
             -- A request in chat (#40): no favour, so no buff-back line.
-            ShowResult("Gave " .. press.spell .. " to " .. who .. ", who asked for it.")
+            ShowResult("Gave " .. press.spell .. " to " .. who .. ", who asked for it.", nil, press.name)
         elseif returned then
-            ShowResult("Returned " .. press.spell .. " to " .. who .. ".")
+            ShowResult("Returned " .. press.spell .. " to " .. who .. ".", nil, press.name)
             SayLineFor(press)
         else
-            ShowResult("Cast " .. press.spell .. " on " .. who .. " (no favour was waiting).")
+            ShowResult("Cast " .. press.spell .. " on " .. who .. " (no favour was waiting).", nil, press.name)
         end
     end
     BuffButton.Refresh()
@@ -957,17 +982,21 @@ local function ReportRefusal(press, text)
     ForgetPress(press)
     -- A refused self-buff (#44) waits a moment, whatever the reason: the
     -- usable check should have caught it, so the next press tries the next.
+    -- So does a player, after any refusal (#459, the owner): a group member
+    -- (a group version's aim too), a passer-by, or a favour or request.
     if press.weapon then
         ns.WeaponBuffs.NoteRefused(press.slot, press.weaponItem, press.weaponKind)
     elseif press.selfBuff then
         ns.SelfBuffs.NoteRefused(press.buff)
-    elseif press.group and ns.GroupBuffs.IsTargetRefusal(text) then
+    elseif press.group then
         ns.GroupBuffs.NoteRefused(press.name)
-    elseif press.passerBy and ns.GroupBuffs.IsTargetRefusal(text) then
+    elseif press.passerBy then
         ns.PassersBy.NoteRefused(press.name)
+    else
+        ns.Offers.NoteRefused(press.name)
     end
     ShowResult("Couldn't buff " .. (press.self and "you" or Util.DisplayName(press.name))
-        .. ": " .. Util.StripChat(text), true)
+        .. ": " .. Util.StripChat(text), true, press.name)
     BuffButton.Refresh()
 end
 

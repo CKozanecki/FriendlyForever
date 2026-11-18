@@ -1,4 +1,4 @@
--- Spec: #452
+-- Spec: #452, #459, #461
 -- In a druid's form, buff mode's key doesn't cast your buffs (#452, the
 -- owner's decision of 17 Nov): the button still shows the buff and a click
 -- casts it (the game takes you out of the form), but scrolling never knocks
@@ -65,7 +65,7 @@ describe("Druid buffs in a form (#452)", function()
                 assert.are.equal(0, wow.state.form, "the game took you out of the form")
                 assert.are.equal(1, wow.formsCancelled, "the game did, not the addon")
                 -- The click is a press like any other: its own result shows.
-                assert.matches("Gave Mark of the Wild to Ann Vale.", button.result:GetText(), 1, true)
+                assert.matches("Gave Mark of the Wild to Ann Vale.", wow.lastResult(ns), 1, true)
             end)
         end
 
@@ -73,7 +73,7 @@ describe("Druid buffs in a form (#452)", function()
             boot({ form = CAT })
             wow.state.castFailures["Ann-Vale"] = "Spell is not ready yet."
             click()
-            assert.matches("Couldn't buff Ann Vale: Spell is not ready yet.", button.result:GetText(), 1, true)
+            assert.matches("Couldn't buff Ann Vale: Spell is not ready yet.", wow.lastResult(ns), 1, true)
         end)
 
         it("a scroll that waits is no press: no 'No answer', and the member isn't held back", function()

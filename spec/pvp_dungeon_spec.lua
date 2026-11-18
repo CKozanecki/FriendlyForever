@@ -1,4 +1,4 @@
--- Spec: #306, #335
+-- Spec: #306, #335, #461, #459
 -- The owner's rule: inside a dungeon or raid, once every member of your group
 -- is in there with you, a member flagged for PvP may be buffed: single buffs,
 -- group versions and Greater Blessings. Everywhere else, and while anyone is
@@ -104,7 +104,7 @@ describe("Buffing a PvP-flagged member once the whole group is inside (#306)", f
             assert.are.equal(1, #wow.casts)
             assert.are.equal(INTELLECT, wow.casts[1].id)
             assert.are.equal("Ann-Vale", wow.casts[1].target)
-            assert.are.equal("Gave Arcane Intellect to Ann Vale.", button.result:GetText())
+            assert.are.equal("Gave Arcane Intellect to Ann Vale.", wow.lastResult(ns))
             assert.are.same({ "Bo Fern: Arcane Intellect", "Cid Rock: Arcane Intellect",
                 "Dot Moss: Arcane Intellect" }, pressThrough())
             assert.are.equal("everyone in your group has your buffs", button.subtitle:GetText())

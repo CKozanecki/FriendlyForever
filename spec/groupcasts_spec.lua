@@ -1,4 +1,4 @@
--- Spec: #41, #256, #302, #165, #408
+-- Spec: #41, #256, #302, #165, #408, #461, #459
 -- Group versions in buff mode: Arcane Brilliance, the Prayers and Gift of the
 -- Wild are offered before the single buff when you know them, carry the
 -- reagent, and enough of the party (in a raid, the subgroup) is missing the
@@ -105,7 +105,7 @@ describe("Group versions in buff mode (#41)", function()
             wow.fire("UNIT_SPELLCAST_SUCCEEDED", "player", wow.lastCastGuid, BRILLIANCE)
             assert.are.equal(text, button.result:GetText(), "not the press's answer")
             wow.advance(6)
-            assert.are.equal("Gave Arcane Intellect to Ann Vale.", button.result:GetText())
+            assert.are.equal("Gave Arcane Intellect to Ann Vale.", wow.lastResult(ns))
         end)
 
         it("forgets skipped groups once their time is up", function()
