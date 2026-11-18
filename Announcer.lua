@@ -187,10 +187,8 @@ function Announcer.Schedule(msgType, key, opts)
                 local ctx
                 if opts.context then
                     ctx = ns.Flavour.Context(opts.context())
-                    if ctx.zone == nil then
-                        template = type(saved) == "table" and WithoutZone(msgType, saved, template)
-                        if not template then return nil end
-                    end
+                    -- No line that can go without their zone: nil, and nothing is said.
+                    if ctx.zone == nil then template = WithoutZone(msgType, saved, template) end
                 end
                 return Util.Render(template, ns.Flavour.Vars(vars, ctx))
             end,

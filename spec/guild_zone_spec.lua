@@ -112,6 +112,20 @@ describe("Guild messages use the guildmate's zone (#486)", function()
             { "empty", function() wow.state.guildZones.Thrall = "" end },
             { "missing from the roster", function() wow.state.guildRoster = { "Jaina" } end },
             { "on a row that isn't online", function() wow.state.guildOffline = { Thrall = true } end },
+            { "on a row whose online flag can't be read", function()
+                local real = _G.GetGuildRosterInfo
+                _G.GetGuildRosterInfo = function(i)
+                    local a, b, c, d, e, f, g, h = real(i)
+                    return a, b, c, d, e, f, g, h, a == "Thrall" and wow.secret(true) or true
+                end
+            end },
+            { "on a row with no online flag", function()
+                local real = _G.GetGuildRosterInfo
+                _G.GetGuildRosterInfo = function(i)
+                    local a, b, c, d, e, f, g, h, isOnline = real(i)
+                    return a, b, c, d, e, f, g, h, a ~= "Thrall" and isOnline or nil
+                end
+            end },
             { "too long", function() wow.state.guildZones.Thrall = string.rep("a", ns.Greeter.MAX_ZONE_BYTES + 1) end },
             { "a whole roster that can't be read", function() _G.GetNumGuildMembers = function() return nil end end },
         }
@@ -153,6 +167,22 @@ describe("Guild messages use the guildmate's zone (#486)", function()
             wow.state.guildZones.Thrall = "Dur|cffff0000otar"
             wow.fire("GUILD_ROSTER_UPDATE")
             assert.are.equal("Durcffff0000otar", ns.Greeter.MemberZone("Thrall"))
+        end)
+    end)
+
+    describe("black: no phrase that needs a zone the guild message hasn't got", function()
+        it("the guild pool and every pick leave out the phrases with {zone}", function()
+            boot()
+            local ctx = ns.Flavour.Context({ zone = nil })
+            ns.Flavour.WEIGHTS = { race = 0, faction = 0, place = 1, time = 0, general = 0 }
+            local pool = ns.Flavour.Pool("blessing", ctx)
+            assert.is_true(#pool > 0)
+            for _, phrase in ipairs(pool) do assert.is_nil(phrase:find("{", 1, true), phrase) end
+            for _ = 1, 200 do
+                local phrase = ns.Flavour.Resolve("blessing", ctx)
+                assert.is_nil(phrase:find("{", 1, true), phrase)
+                assert.is_nil(phrase:find("these lands", 1, true), phrase)
+            end
         end)
     end)
 
