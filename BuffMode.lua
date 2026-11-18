@@ -80,8 +80,12 @@ local function HandBack()
     lentKey = nil
 end
 
+-- The key presses the button as a button of its own (BuffButton.KEY_BUTTON,
+-- #452), not as a left click: the button then holds a separate action for
+-- it, empty while it waits (a druid's buff in a form), whatever a click does.
 local function Lend(key)
-    local ok, err = pcall(SetOverrideBindingClick, owner, true, key, ns.BuffButton.FRAME_NAME, "LeftButton")
+    local ok, err = pcall(SetOverrideBindingClick, owner, true, key, ns.BuffButton.FRAME_NAME,
+        ns.BuffButton.KEY_BUTTON)
     if ok then
         lentKey = key
         return true

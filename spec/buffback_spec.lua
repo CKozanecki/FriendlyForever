@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353, #387, #369, #419, #459
+-- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353, #387, #369, #419, #459, #453
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -1743,13 +1743,14 @@ describe("Buff back", function()
             -- the hand casts of this step, and how many of wow.landed were seen.
             local handNew, landedSeen, returnedSeen, handEver = {}, 0, {}, {}
             local waitingPressAt, overlaps = nil, 0 -- a press with no cast yet; hand casts made then, for someone else
-            local log = ns.Diag.Log
-            ns.Diag.Log = function(category, fmt, ...)
-                if category == "buffBack" and fmt == "%s" then
+            -- The button's results are logged folded (#453): each is seen here, folded or not.
+            local logFolded = ns.Diag.LogFolded
+            ns.Diag.LogFolded = function(kind, category, fmt, ...)
+                if kind == "result" and category == "buffBack" and fmt == "%s" then
                     local text = tostring((...))
                     if text:find("no favour was waiting", 1, true) then nothingWaiting = nothingWaiting + 1 end
                 end
-                return log(category, fmt, ...)
+                return logFolded(kind, category, fmt, ...)
             end
             local names = { "Bob", "Ann", "Cid", "Dot", "Eve", "Fay" }
             local actions = {

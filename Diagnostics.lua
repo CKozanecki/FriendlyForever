@@ -33,19 +33,73 @@ function Diag.Enabled()
     return ns.db ~= nil and ns.db.debug == true
 end
 
--- Diag.Log("buff", "skipped %s: %s", name, reason). Arguments are made
--- display-safe; nothing is formatted unless debug is on.
-function Diag.Log(category, fmt, ...)
-    if not Diag.Enabled() then return end
+-- The text of a log line after its time ("buff: skipped Ann: ..."), with
+-- the arguments made display-safe.
+local function Format(category, fmt, ...)
     local args = { ... }
     for i = 1, select("#", ...) do args[i] = Diag.Safe(args[i]) end
-    local line = string.format("%s %s: " .. fmt, date("%H:%M:%S"), category, unpack(args, 1, select("#", ...)))
+    return string.format("%s: " .. fmt, category, unpack(args, 1, select("#", ...)))
+end
 
+local function Write(text)
+    local line = date("%H:%M:%S") .. " " .. text
     local log = ns.db.diagLog
     log[#log + 1] = line
     while #log > Diag.MAX_LOG do table.remove(log, 1) end
 
     DEFAULT_CHAT_FRAME:AddMessage(ns.Colours.Text("muted", "[FF debug]") .. " " .. line)
+end
+
+-- Diag.Log("buff", "skipped %s: %s", name, reason). Arguments are made
+-- display-safe; nothing is formatted unless debug is on.
+function Diag.Log(category, fmt, ...)
+    if not Diag.Enabled() then return end
+    Write(Format(category, fmt, ...))
+end
+
+-- Folded lines (#453): a line that repeats exactly, within FOLD_SECONDS
+-- of its last repeat, is logged once; the repeats are counted, and the
+-- count is logged when the run ends (a different line of the same kind,
+-- or FOLD_SECONDS with no repeat), as #268 folds its repeats. A run of one
+-- gets no count line. Only the log changes: callers act as before.
+Diag.FOLD_SECONDS = 2
+local folds = {} -- [kind] = { text, repeats, lastAt, timer }
+
+local function EndRun(kind)
+    local run = folds[kind]
+    folds[kind] = nil
+    if run and run.repeats > 0 and Diag.Enabled() then
+        Write(string.format("%s (repeated %d more time%s)", run.text, run.repeats, run.repeats == 1 and "" or "s"))
+    end
+end
+
+-- End kind's run once FOLD_SECONDS pass with no repeat. One timer per run:
+-- a repeat moves lastAt, and the timer waits on from there.
+local function WatchRun(kind, run)
+    if run.timer then return end
+    run.timer = true
+    local wait = run.lastAt + Diag.FOLD_SECONDS - GetTime()
+    C_Timer.After(math.max(wait, 0) + 0.05, Diag.Wrap(function()
+        run.timer = false
+        if folds[kind] ~= run then return end
+        if GetTime() - run.lastAt >= Diag.FOLD_SECONDS then return EndRun(kind) end
+        WatchRun(kind, run)
+    end))
+end
+
+-- Diag.LogFolded("press", "buffBack", "pressed: %s", macroText): as
+-- Diag.Log, folding exact repeats of kind's line.
+function Diag.LogFolded(kind, category, fmt, ...)
+    if not Diag.Enabled() then return end
+    local text = Format(category, fmt, ...)
+    local now, run = GetTime(), folds[kind]
+    if run and run.text == text and now - run.lastAt <= Diag.FOLD_SECONDS then
+        run.repeats, run.lastAt = run.repeats + 1, now
+        return WatchRun(kind, run)
+    end
+    EndRun(kind)
+    folds[kind] = { text = text, repeats = 0, lastAt = now }
+    Write(text)
 end
 
 -- Run fn(...) and, if it raises a Lua error, count and log it, then hand it
@@ -95,6 +149,7 @@ end
 
 function Diag.SetEnabled(on)
     ns.db.debug = on and true or false
+    folds = {} -- a run from before belongs to no log now
     if ns.db.debug then
         ns.db.diagLog = {}
         ns.Print("debug " .. ns.Colours.Text("good", "on") .. ": decisions are shown here and saved to the "

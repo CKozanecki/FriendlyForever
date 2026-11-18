@@ -86,7 +86,7 @@ describe("Unending Breath", function()
             assert.are.equal("demonarmor", list[2].key)
             assert.is_true(list[2].selfCast)
             local breath = list[1]
-            assert.are.same({ key = "breath", name = "Unending Breath", ranks = { BREATH }, blockers = { WATER_BREATHING }, water = true },
+            assert.are.same({ key = "breath", name = "Unending Breath", ranks = { BREATH }, levels = { 16 }, blockers = { WATER_BREATHING }, water = true },
                 breath)
             assert.are.equal(breath, ns.BuffData.ByKey("breath"))
             assert.is_true(ns.BuffData.KEYS.breath)
