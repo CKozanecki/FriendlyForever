@@ -1247,8 +1247,8 @@ describe("Buff back", function()
             stranger()
             buffedBy()
             slash("buffback")
-            assert.is_true(printedHas("macro: /cleartarget ; /targetexact Bob Stone ; /cast [help,nodead] Mark of the Wild(Rank 7) ; /cleartarget"),
-                "the rank Bob's level allows, named (#459)")
+            assert.is_true(printedHas("macro: /cleartarget ; /targetexact Bob Stone ; /cast [help,nodead] Mark of the Wild ; /cleartarget"),
+                "your highest rank, by its plain name (#459)")
         end)
 
         it("notices newly learned buffs", function()

@@ -29,7 +29,7 @@ describe("Buffing your group in buff mode", function()
     local function armed()
         local text = macro()
         if not text then return nil end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
+        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
     end
 
     -- The unit token showing this player id, if any.
@@ -236,7 +236,8 @@ describe("Buffing your group in buff mode", function()
             party({ "Ann-Vale", "Cid-Rock" })
             wow.press(button, "RightButton")
             assert.are.equal("Skipping Ann Vale for 5 minutes.", wow.lastResult(ns))
-            assert.are.equal("", button.result:GetText(), "not under Cid's offer (#461)")
+            assert.are.equal("Skipping Ann Vale for 5 minutes.", button.result:GetText(),
+                "a right-click's line stays under Cid's offer (the owner, #461)")
             assert.are.equal("Cid Rock: Mark of the Wild", armed())
             scroll()
             scroll()

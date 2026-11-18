@@ -51,7 +51,7 @@ describe("Buffing a PvP-flagged member once the whole group is inside (#306)", f
         ns.BuffButton.Refresh()
         local text = macro()
         if not text then return nil end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
+        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
     end
 
     -- Presses until nothing is armed, and returns what was armed each time.

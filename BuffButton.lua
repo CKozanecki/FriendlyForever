@@ -75,7 +75,7 @@ local button, eventFrame
 local armedOffer          -- what the button holds: { name, spell, buff, group, cast, self, macroText }
 local appliedMacroText    -- the macro text last written to the button (to skip rewriting it)
 local appliedKeyText      -- and for buff mode's key (#452): nil while the key waits
-local shownResult         -- the last result under the button: { text, shownAt, name }
+local shownResult         -- the last result under the button: { text, shownAt, name, stays (a right-click's) }
 local lastResultText = "nothing pressed yet"
 local notArmedReason      -- why the button is empty, for /friendly buffback
 local recheckScheduled = false
@@ -138,11 +138,12 @@ end
 
 -- The macro for an offer: a weapon buff's own (WeaponBuffs.Macro, #45), or
 -- a cast as above. nil when it can't be put in a macro safely.
--- A buff for a player, you included in buff mode, is cast by name and rank
--- (#459): offer.castSpell, "Mark of the Wild(Rank 5)", the rank their level
--- allows (BuffData.CastFor). An offer without one is never cast: a plain
--- "/cast Mark of the Wild" casts your highest rank, which the game refuses
--- on a low-level player. A group version (GroupCasts.lua) and your
+-- A buff for a player, you included in buff mode, is cast as
+-- offer.castSpell (#459): the rank their level allows (BuffData.CastFor),
+-- "Mark of the Wild(Rank 5)" when stepping down for a low-level player, its
+-- plain name when that's your highest. An offer without one is never cast:
+-- a plain "/cast Mark of the Wild" casts your highest rank, which the game
+-- refuses on a low-level player. A group version (GroupCasts.lua) and your
 -- self-buffs (SelfBuffs.lua) go on by name: no player's level limits them.
 function BuffButton.MacroFor(offer, hadTarget)
     if offer.weapon then return ns.WeaponBuffs.Macro(offer) end
@@ -463,7 +464,8 @@ local function ArmButton()
     -- The last result is about the player last pressed for (#461, the
     -- owner): once the button offers someone else, it goes, so a stranger's
     -- name never sits above "Gave Thorns to you."
-    if showingResult and shownResult.name ~= offer.name then
+    -- A right-click's line stays until it times out (the owner, #461).
+    if showingResult and not shownResult.stays and shownResult.name ~= offer.name then
         shownResult = nil
         button.result:SetText("")
     end
@@ -793,6 +795,8 @@ local function OnPostClick(_, mouseButton, isDown)
         ns.Offers.LetGo(name)
         ShowResult("Let " .. Util.DisplayName(name) .. " go.", nil, name)
     end
+    -- Its line stays until it times out, wherever the button moves (the owner, #461).
+    if shownResult then shownResult.stays = true end
     BuffButton.Refresh()
 end
 

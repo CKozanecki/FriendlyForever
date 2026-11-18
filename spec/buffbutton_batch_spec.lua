@@ -127,7 +127,8 @@ describe("The buff button batch (1.4.3)", function()
                 "nobody else is offered: the button stays up for its result")
         end)
 
-        it("a right-click's line about one player goes when the next is another (white)", function()
+        it("a right-click's line stays until it times out, wherever the button moves (the owner, #461, white)",
+            function()
             boot()
             wearMine()
             stranger("nameplate1", "Bob", "Stone")
@@ -137,7 +138,10 @@ describe("The buff button batch (1.4.3)", function()
             wow.press(button, "RightButton")
             refresh()
             assert.are.equal("Cid Rock", title())
-            assert.are.equal("", result(), "\"Skipping Bob\" doesn't sit above Cid")
+            assert.are.equal("Skipping Bob Stone for 10 minutes.", result(), "it stays under Cid's offer")
+            wow.advance(ns.BuffButton.RESULT_SHOWN_SECONDS + 1)
+            refresh()
+            assert.are.equal("", result(), "and goes at its time")
         end)
 
         it("a refusal's line about a player goes when the button moves on (black)", function()
@@ -152,7 +156,7 @@ describe("The buff button batch (1.4.3)", function()
             assert.are.equal("", result())
         end)
 
-        it("chaos: whenever a result shows under an offer, it's about the player offered (red)", function()
+        it("chaos: whenever a press's result shows under an offer, it's about the player offered (red)", function()
             for seed = 1, 6 do
                 random.seed(seed)
                 boot()
@@ -175,7 +179,9 @@ describe("The buff button batch (1.4.3)", function()
                     end
                     refresh()
                     local shown, offered = result(), title()
-                    if shown ~= "" and button:IsShown() and offered ~= "" and offered ~= "Buff mode" then
+                    -- A right-click's line stays wherever the button moves (the owner, #461).
+                    local rightClick = shown:find("^Skipping ") or shown:find("^Let ")
+                    if shown ~= "" and not rightClick and button:IsShown() and offered ~= "" and offered ~= "Buff mode" then
                         local about = offered == "You" and "you" or offered
                         assert.is_truthy(shown:find(about, 1, true),
                             ("seed %d, step %d: %q under %s"):format(seed, step, shown, offered))

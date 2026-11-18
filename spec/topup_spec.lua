@@ -1,4 +1,4 @@
--- Spec: #42, #209, #206, #256, #269, #397, #459
+-- Spec: #42, #209, #206, #256, #269, #397
 -- Top-up timing: in buff mode, a group member's buff with less than the set
 -- time left (default 5 minutes; a minute for a buff of 10 minutes or less,
 -- #397) counts as missing, so the button offers to
@@ -41,7 +41,7 @@ describe("Top-up timing in buff mode (#42)", function()
         ns.BuffButton.Refresh()
         local text = macro()
         if not text then return nil end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
+        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
     end
 
     -- Ann wears spell, cast by source (default you; false: nobody the game

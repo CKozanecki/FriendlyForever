@@ -522,13 +522,6 @@ M.SPELL_LEVEL = dofile(M.ROOT .. "scripts/data/forever-spell-levels.lua").levels
 -- whose level plus this is at least the rank's level.
 M.LEVEL_MARGIN = 10
 M.LOW_LEVEL_ERROR = "Target is too low level"
--- A spell as a macro names it, without its rank (#459): "Mark of the
--- Wild(Rank 5)" is "Mark of the Wild". For specs that check who gets what,
--- not which rank (spec/buffranks_spec.lua checks the ranks). nil stays nil.
-function M.unranked(spell)
-    if type(spell) ~= "string" then return spell end
-    return (spell:gsub("%(Rank %d+%)$", ""))
-end
 -- The game's rank text for a spell ID (#459), as GetSpellSubtext gives it:
 -- "Rank 3" for a rank of a name with several, "" for a name with one
 -- (Forever's data gives Blessing of Kings none), nil for a spell the client

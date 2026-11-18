@@ -1,4 +1,4 @@
--- Spec: #45, #459
+-- Spec: #45
 -- Weapon buffs (experimental, off by default): in buff mode, after your
 -- group and your self-buffs, the button offers the kind you chose for a hand
 -- with no temporary enchant: the best you carry and can use. One press puts
@@ -201,7 +201,7 @@ describe("Weapon buffs", function()
 
         it("a clicked row of your own group buff doesn't carry over to a weapon buff ahead of a favour", function()
             priest()
-            assert.are.equal("/cast [@player,nodead] Power Word: Fortitude(Rank 6)", macro())
+            assert.are.equal("/cast [@player,nodead] Power Word: Fortitude", macro())
             clickRow("other")
             press()
             assert.are.equal("/use item:20749\n/use 16", macro(), "your Fortitude is on: the oil is next")

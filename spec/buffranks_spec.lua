@@ -93,7 +93,9 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             for level, rank in pairs({ [50] = 7, [49] = 6, [40] = 6, [39] = 5, [10] = 3, [9] = 2, [1] = 2 }) do
                 boot(MOTW)
                 party({ "Ann-Vale" }, { level })
-                assert.are.equal("Ann Vale: Mark of the Wild(Rank " .. rank .. ")", armed(), "level " .. level)
+                -- Your highest rank by its plain name; a lower one named (the owner, #459).
+                local want = rank == 7 and "Ann Vale: Mark of the Wild" or ("Ann Vale: Mark of the Wild(Rank " .. rank .. ")")
+                assert.are.equal(want, armed(), "level " .. level)
                 wow.pressKey("MOUSEWHEELUP")
                 assert.is_nil(lastCast().failed, "level " .. level)
             end
@@ -102,7 +104,7 @@ describe("Buffing a player with the rank their level allows (#459)", function()
         it("only ranks you know: a druid who knows ranks 1 to 3 casts rank 3 on a level-60 player", function()
             boot({ MOTW[5], MOTW[6], MOTW[7] })
             party({ "Ann-Vale" }, { 60 })
-            assert.are.equal("Ann Vale: Mark of the Wild(Rank 3)", armed())
+            assert.are.equal("Ann Vale: Mark of the Wild", armed(), "rank 3, your highest: its plain name casts it")
         end)
 
         it("a favour returned to a low-level stranger, and a passer-by, get their rank too", function()
@@ -125,7 +127,7 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             party({ "Ann-Vale" }, { 60 })
             wow.state.units.player.level = 1 -- your own level is never read for your copy
             ns.BuffButton.Refresh()
-            assert.are.equal("/cast [@player,nodead] Mark of the Wild(Rank 7)", macro())
+            assert.are.equal("/cast [@player,nodead] Mark of the Wild", macro(), "your highest rank, by its plain name")
         end)
 
         it("your own copy before a group version for another subgroup is your highest rank too", function()
@@ -141,7 +143,7 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             wow.state.units.player.subgroup = 2
             wow.state.units.player.level = 1 -- your own level is never read for your copy
             ns.BuffButton.Refresh()
-            assert.are.equal("/cast [@player,nodead] Arcane Intellect(Rank 5)", macro())
+            assert.are.equal("/cast [@player,nodead] Arcane Intellect", macro())
         end)
 
         it("a buff of one rank is cast by its name alone: Blessing of Kings", function()
@@ -225,14 +227,54 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             assert.are.equal(1, #ns.GroupBuffs.Missing(), "at 20, rank 1 reaches her")
         end)
 
+        it("a favour too low for every buff of yours turns nothing on when the button can't look: in a fight, "
+            .. "or unlocked for moving", function()
+            for _, when in ipairs({ "fight", "unlocked" }) do
+                boot({ KINGS, 19742 }, { class = "PALADIN", noMode = true, auto = true })
+                for _, field in ipairs(wow.TURN_ON_TRIGGERS) do ns.db.buffBack[field] = field == "autoOnBuffed" end
+                stranger("nameplate1", "Bob", "Stone", { level = 3, class = "PRIEST" })
+                if when == "unlocked" then assert.is_true(ns.BuffButton.SetUnlocked(true)) end
+                local turnedOn = 0
+                local set = ns.BuffMode.Set
+                ns.BuffMode.Set = function(on, how)
+                    if on then turnedOn = turnedOn + 1 end
+                    return set(on, how)
+                end
+                if when == "fight" then wow.enterCombat() end
+                wow.gainBuff({ sourceUnit = "nameplate1", name = "Power Word: Fortitude", spellId = FORT[6] })
+                if when == "fight" then wow.leaveCombat() end
+                ns.BuffMode.Set = set
+                assert.are.equal(0, turnedOn, when .. ": the favour was weighed as it was owed")
+                assert.are.equal(0, ns.Offers.Count(), when)
+            end
+        end)
+
+        it("a favour whose rank can't be named (its level readable) is still counted: not settled", function()
+            boot(MOTW, { noMode = true, before = function(state) state.noSpellSubtext = true end })
+            stranger("nameplate1", "Bob", "Stone", { level = 30 })
+            wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
+            local _, why = ns.Offers.Current()
+            assert.are.equal("Bob Stone: the game won't name the rank of Mark of the Wild", why)
+            assert.are.equal(1, ns.Offers.Count(), "not too low: the game only won't name the rank now")
+        end)
+
         it("a favour too low for every buff of yours isn't counted and turns nothing on, until they level up",
             function()
             -- A paladin's Kings is level 20 and Wisdom rank 1 level 14: a level-3 player can have neither.
             boot({ KINGS, 19742 }, { class = "PALADIN", noMode = true, auto = true })
             for _, field in ipairs(wow.TURN_ON_TRIGGERS) do ns.db.buffBack[field] = field == "autoOnBuffed" end
             local bob = stranger("nameplate1", "Bob", "Stone", { level = 3, class = "PRIEST" })
+            local turnedOn = 0
+            local set = ns.BuffMode.Set
+            ns.BuffMode.Set = function(on, how)
+                if on then turnedOn = turnedOn + 1 end
+                return set(on, how)
+            end
+            finally(function() ns.BuffMode.Set = set end)
             wow.gainBuff({ sourceUnit = "nameplate1", name = "Power Word: Fortitude", spellId = FORT[6] })
+            ns.BuffMode.Set = set
             assert.is_false(ns.BuffMode.IsOn(), "buffed by a stranger, but nothing of yours reaches him")
+            assert.are.equal(0, turnedOn, "not even for a moment: the key is never lent for him")
             assert.are.equal(0, ns.Offers.Count(), "not counted (#366's lesson)")
             assert.is_nil(armed())
             local _, why = ns.Offers.Current()
@@ -279,6 +321,7 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             assert.is_nil(armed())
             assert.is_truthy(table.concat(ns.BuffButton.StatusLines(), "\n")
                 :find("Bob Stone: can't see their level", 1, true))
+            assert.are.equal(1, ns.Offers.Count(), "still counted: he may yet have one (not too low, unknown)")
 
             boot(MOTW, { passersBy = true })
             stranger("nameplate1", "Bob", "Stone", { level = -1 })
@@ -294,7 +337,7 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             boot({ SPIRIT[4], FORT[6] }, { class = "PRIEST", passersBy = true })
             ns.db.buffBack.buffOrder = { "spirit", "fortitude" }
             stranger("nameplate1", "Bob", "Stone", { level = 8, class = "MAGE" })
-            assert.are.equal("Bob Stone: Power Word: Fortitude(Rank 1)", armed())
+            assert.are.equal("Bob Stone: Power Word: Fortitude", armed(), "rank 1, the only one known")
         end)
 
         it("a group member whose level can't be read keeps buff mode waiting: not settled (black)", function()
@@ -326,7 +369,7 @@ describe("Buffing a player with the rank their level allows (#459)", function()
                 boot(MOTW, { defaultLevel = false })
                 party({ "Ann-Vale", "Cid-Rock" }, { 60, 60 })
                 damage(wow.state.units.party1)
-                assert.are.equal("Cid Rock: Mark of the Wild(Rank 7)", armed(), how)
+                assert.are.equal("Cid Rock: Mark of the Wild", armed(), how)
                 wow.pressKey("MOUSEWHEELUP")
                 wow.wearBuff("party2", MOTW[1], { source = "player" })
                 assert.is_nil(armed(), how .. ": Ann is never offered")
@@ -346,7 +389,8 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             assert.are.same({}, wow.errors)
         end)
 
-        it("a rank text the game won't give (none, empty, a secret) casts nothing on anyone else", function()
+        it("a rank text the game won't give (none, empty, a secret) steps down for nobody, and never stops your "
+            .. "highest rank (the owner, #459)", function()
             for _, how in ipairs({ "none", "empty", "secret" }) do
                 boot(MOTW, { before = function(state)
                     if how == "none" then state.noSpellSubtext = true end
@@ -356,11 +400,15 @@ describe("Buffing a player with the rank their level allows (#459)", function()
                         for _, id in ipairs(MOTW) do state.spellSubtexts[id] = "" end
                     end
                 end })
-                party({ "Ann-Vale" }, { 60 })
-                assert.is_nil(armed(), how)
+                party({ "Ann-Vale" }, { 30 })
+                assert.is_nil(armed(), how .. ": rank 5 can't be named")
                 assert.is_truthy(button.subtitle:GetText():find("won't name the rank of Mark of the Wild", 1, true), how)
                 wow.pressKey("MOUSEWHEELUP")
                 assert.are.equal(0, #wow.casts, how)
+                wow.state.units.party1.level = 60
+                assert.are.equal("Ann Vale: Mark of the Wild", armed(), how .. ": your highest needs no rank text")
+                wow.pressKey("MOUSEWHEELUP")
+                assert.are.same({ MOTW[1], false }, { lastCast().id, lastCast().failed or false }, how)
             end
         end)
 
@@ -394,7 +442,11 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             assert.is_truthy(why:find("aren't known", 1, true))
             assert.are.same({ nil, "can't see their level", false }, { ns.BuffData.CastFor(buff, nil) })
             assert.are.same({ nil, "can't see their level", false }, { ns.BuffData.CastFor(buff, "nameplate9") })
-            assert.are.same({ "Mark of the Wild(Rank 7)", MOTW[1] }, { ns.BuffData.CastFor(buff, nil, true) })
+            assert.are.same({ "Mark of the Wild", MOTW[1] }, { ns.BuffData.CastFor(buff, nil, true) })
+            party({ "Ann-Vale" }, { 45 })
+            assert.are.same({ "Mark of the Wild(Rank 6)", MOTW[2] }, { ns.BuffData.CastFor(buff, "party1") })
+            wow.state.units.party1.level = 60
+            assert.are.same({ "Mark of the Wild", MOTW[1] }, { ns.BuffData.CastFor(buff, "party1") })
         end)
     end)
 
@@ -406,10 +458,10 @@ describe("Buffing a player with the rank their level allows (#459)", function()
                 party({ "Ann-Vale", "Cid-Rock" }, { 60, 60 })
                 wow.state.castFailures["Ann-Vale"] = why
                 wow.pressKey("MOUSEWHEELUP")
-                assert.are.equal("Cid Rock: Mark of the Wild(Rank 7)", armed(), why)
+                assert.are.equal("Cid Rock: Mark of the Wild", armed(), why)
                 wow.state.castFailures["Ann-Vale"] = nil
                 wow.advance(ns.GroupBuffs.HELD_BACK_SECONDS + 1)
-                assert.are.equal("Ann Vale: Mark of the Wild(Rank 7)", armed(), why .. ": back after the wait")
+                assert.are.equal("Ann Vale: Mark of the Wild", armed(), why .. ": back after the wait")
             end
         end)
 
@@ -418,9 +470,9 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             stranger("nameplate1", "Bob", "Stone")
             stranger("nameplate2", "Cid", "Rock")
             wow.state.castFailures["Bob-Stone"] = "Spell is not ready yet."
-            assert.are.equal("Bob Stone: Mark of the Wild(Rank 7)", armed())
+            assert.are.equal("Bob Stone: Mark of the Wild", armed())
             wow.press(button)
-            assert.are.equal("Cid Rock: Mark of the Wild(Rank 7)", armed(), "the passer-by waits")
+            assert.are.equal("Cid Rock: Mark of the Wild", armed(), "the passer-by waits")
 
             boot(MOTW, { noMode = true })
             stranger("nameplate1", "Bob", "Stone")
@@ -428,13 +480,13 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
             wow.gainBuff({ sourceUnit = "nameplate2", name = "Arcane Intellect", spellId = INTELLECT })
             wow.state.castFailures["Cid-Rock"] = "Target is too low level"
-            assert.are.equal("Cid Rock: Mark of the Wild(Rank 7)", armed(), "the newest favour first")
+            assert.are.equal("Cid Rock: Mark of the Wild", armed(), "the newest favour first")
             wow.press(button)
-            assert.are.equal("Bob Stone: Mark of the Wild(Rank 7)", armed(), "Cid's favour waits")
+            assert.are.equal("Bob Stone: Mark of the Wild", armed(), "Cid's favour waits")
             assert.are.equal(2, ns.Offers.Count(), "and is still owed")
             wow.state.castFailures["Cid-Rock"] = nil
             wow.advance(ns.Offers.HELD_BACK_SECONDS + 1)
-            assert.are.equal("Cid Rock: Mark of the Wild(Rank 7)", armed(), "back after the wait")
+            assert.are.equal("Cid Rock: Mark of the Wild", armed(), "back after the wait")
         end)
 
         it("one favour, refused: the button says why it waits, and nothing is cast meanwhile (black)", function()
@@ -455,7 +507,7 @@ describe("Buffing a player with the rank their level allows (#459)", function()
     describe("chaos (red)", function()
         it("a storm of levels, known ranks, refusals and presses never casts a rank the level forbids, never casts "
             .. "on anyone else without naming the rank, and never errors", function()
-            local casts, ranked = 0, 0
+            local casts, ranked, plain = 0, 0, 0
             for seed = 1, 8 do
                 random.seed(seed)
                 local known = {}
@@ -510,9 +562,22 @@ describe("Buffing a player with the rank their level allows (#459)", function()
                             assert.are_not.equal(wow.LOW_LEVEL_ERROR, c.failed)
                         end
                         if text and text:find("/cast %[help") then
+                            -- Named only when stepping down (the owner, #459): a
+                            -- named rank is never your highest; a plain name casts it.
                             local spell = text:match("/cast %[help,nodead%] ([^\n]+)")
-                            assert.is_truthy(spell:find("%(Rank %d+%)$"), "named rank: " .. spell)
-                            ranked = ranked + 1
+                            local named = tonumber(spell:match("%(Rank (%d+)%)$"))
+                            local highest
+                            for i, id in ipairs(MOTW) do
+                                if not highest and wow.state.knownSpells[id] then highest = #MOTW - i + 1 end
+                            end
+                            if named then
+                                assert.is_true(spell:find("^Mark of the Wild") ~= nil and named < highest,
+                                    ("seed %d, step %d: %s named, your highest is rank %s"):format(seed, step, spell,
+                                    tostring(highest)))
+                                ranked = ranked + 1
+                            else
+                                plain = plain + 1
+                            end
                         end
                     end
                     ns.BuffButton.Refresh()
@@ -520,7 +585,8 @@ describe("Buffing a player with the rank their level allows (#459)", function()
                 assert.are.same({}, wow.errors, "seed " .. seed)
             end
             assert.is_true(casts >= 20, "the storm cast " .. casts .. " times")
-            assert.is_true(ranked >= 20)
+            assert.is_true(ranked >= 10, "named ranks: " .. ranked)
+            assert.is_true(plain >= 10, "plain names: " .. plain)
         end)
     end)
 end)

@@ -1,4 +1,4 @@
--- Spec: #41, #233, #256, #302, #346, #459
+-- Spec: #41, #233, #256, #302, #346
 -- Greater Blessings in buff mode (Kings, Wisdom, Might): in a raid, a
 -- paladin is offered the Greater Blessing for a class when enough of that
 -- class are missing the Blessing, they all can have it under your rules, and
@@ -49,9 +49,9 @@ describe("Greater Blessings in buff mode (#41)", function()
         ns.BuffButton.Refresh()
         local text = macro()
         if not text then return nil end
-        local self = wow.unranked(text:match("/cast %[@player,nodead%] ([^\n]+)"))
+        local self = text:match("/cast %[@player,nodead%] ([^\n]+)")
         if self then return "me: " .. self end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
+        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
     end
 
     local WARRIORS = {

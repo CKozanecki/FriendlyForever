@@ -1,4 +1,4 @@
--- Spec: #408, #394, #419, #461
+-- Spec: #408, #394, #419
 -- Who gets each buff, by place (#408): Buff Back (strangers), Party, Raid and
 -- PvP (battlegrounds and arenas), each with its own rule for each buff: by
 -- role (Tanks, Healers, Damage), class, Everyone, or Off, plus Always and
@@ -613,7 +613,7 @@ describe("Who gets each buff, by place (#408)", function()
             assert.is_truthy(macro():find("Ann Vale", 1, true) or macro():find("Ann-Vale", 1, true))
             wow.press(button, "RightButton", { shift = true })
             assert.are.same({ ["ann-vale"] = "Ann-Vale" }, ns.db.buffBack.whoRaid.motw.never)
-            assert.is_truthy(wow.lastResult(ns):find("(Never list, on the Buffs tab).", 1, true))
+            assert.is_truthy(button.result:GetText():find("(Never list, on the Buffs tab).", 1, true))
             assert.is_true(ns.db.buffBack.whoRaid.motw.everyone)
             assert.is_nil(ns.db.buffBack.whoParty.motw)
         end)

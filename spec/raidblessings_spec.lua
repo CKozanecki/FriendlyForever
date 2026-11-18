@@ -1,4 +1,4 @@
--- Spec: #68, #76, #208, #70, #368, #376, #394, #408, #372, #461, #459
+-- Spec: #68, #76, #208, #70, #368, #376, #394, #408, #372
 -- My Blessings in this raid (paladins): choose which of your Blessings you
 -- give in the raid you're in, so two paladins don't both give Kings. The
 -- choice is never saved and is forgotten once you're out of the raid, as the
@@ -37,7 +37,7 @@ describe("My Blessings in this raid", function()
     local function armed()
         local text = macro()
         if not text then return nil end
-        return text:match("/targetexact ([^\n]+)") .. ": " .. wow.unranked(text:match("/cast %[help,nodead%] ([^\n]+)"))
+        return text:match("/targetexact ([^\n]+)") .. ": " .. text:match("/cast %[help,nodead%] ([^\n]+)")
     end
 
     local function tokenOf(id)
@@ -432,7 +432,7 @@ describe("My Blessings in this raid", function()
             wow.press(button, "RightButton", { shift = true })
             -- While pending (#408's review): Keep carries the list over.
             assert.are.equal("Ann Vale won't get Blessing of Kings (Never list; \"Keep my settings\" keeps it).",
-                wow.lastResult(ns))
+                button.result:GetText())
             assert.are.equal("Ann-Vale", ns.db.buffBack.whoGets.kings.never["ann-vale"])
             assert.are.equal("Bo Lake: Blessing of Kings", armed())
             assert.are.same({
@@ -445,7 +445,7 @@ describe("My Blessings in this raid", function()
             wow.press(button, "RightButton", { shift = true })
             -- While pending (#408's review): Keep carries the list over.
             assert.are.equal("Ann Vale won't get Blessing of Kings (Never list; \"Keep my settings\" keeps it).",
-                wow.lastResult(ns))
+                button.result:GetText())
             assert.are.equal("Ann Vale: Blessing of Might", armed())
             wow.state.units.party1.auras = { MIGHT_1 }
             ns.BuffButton.Refresh()
@@ -488,10 +488,10 @@ describe("My Blessings in this raid", function()
             local real = _G.IsShiftKeyDown
             _G.IsShiftKeyDown = function() error("no") end
             wow.press(button, "RightButton")
-            assert.are.equal("Skipping Ann Vale for 5 minutes.", wow.lastResult(ns))
+            assert.are.equal("Skipping Ann Vale for 5 minutes.", button.result:GetText())
             _G.IsShiftKeyDown = function() return wow.secret(true) end
             wow.press(button, "RightButton")
-            assert.are.equal("Skipping Bo Lake for 5 minutes.", wow.lastResult(ns))
+            assert.are.equal("Skipping Bo Lake for 5 minutes.", button.result:GetText())
             _G.IsShiftKeyDown = real
             assert.are.equal("", ns.BuffRules.NamesText("kings", "never"))
             assert.are.same({}, wow.errors)
@@ -501,7 +501,7 @@ describe("My Blessings in this raid", function()
             group("party", { "Ann-Vale", "Bo-Lake" })
             wow.press(button, "RightButton", { shift = true })
             wow.press(button, "RightButton")
-            assert.are.equal("Skipping Bo Lake for 5 minutes.", wow.lastResult(ns))
+            assert.are.equal("Skipping Bo Lake for 5 minutes.", button.result:GetText())
             assert.are.equal("Ann Vale", ns.BuffRules.NamesText("kings", "never"))
         end)
 
@@ -514,7 +514,7 @@ describe("My Blessings in this raid", function()
         it("plain right-click still skips for 5 minutes, and adds no one", function()
             group("party", { "Ann-Vale", "Bo-Lake" })
             wow.press(button, "RightButton")
-            assert.are.equal("Skipping Ann Vale for 5 minutes.", wow.lastResult(ns))
+            assert.are.equal("Skipping Ann Vale for 5 minutes.", button.result:GetText())
             assert.are.equal("", ns.BuffRules.NamesText("kings", "never"))
         end)
 
@@ -526,7 +526,7 @@ describe("My Blessings in this raid", function()
             group("party", { "Ann-Vale" })
             wow.press(button, "RightButton", { shift = true })
             assert.are.equal("Couldn't add Ann Vale to the Never list: at most " .. ns.BuffRules.MAX_NAMES
-                .. " names.", wow.lastResult(ns))
+                .. " names.", button.result:GetText())
             assert.is_nil(ns.db.buffBack.whoGets.kings.never["ann-vale"])
             assert.are.same({}, wow.errors)
         end)

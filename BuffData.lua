@@ -280,9 +280,9 @@ function BuffData.LevelOf(unit)
     return level
 end
 
--- What "/cast" names rank id of buff by (#459): "Mark of the Wild(Rank 3)",
--- the client's own name and rank text for that spell, so a press casts that
--- rank and no other. A buff of one rank (Blessing of Kings) has no rank text
+-- What "/cast" names rank id of buff by when stepping down (#459): "Mark of
+-- the Wild(Rank 3)", the client's own name and rank text for that spell, so
+-- a press casts that rank and no other. A buff of one rank (Blessing of Kings) has no rank text
 -- in Forever's data, and its name alone casts that one rank. nil when the
 -- client won't give the name, or a rank's text.
 local function RankedName(buff, id)
@@ -296,7 +296,12 @@ local function RankedName(buff, id)
 end
 
 -- What to cast buff as on a player (#459): the highest rank you know that
--- their level allows (LEVEL_MARGIN), by name and rank, and its spell ID.
+-- their level allows (LEVEL_MARGIN), and its spell ID. By its plain name
+-- when that rank is the highest you know, and always on yourself: "/cast
+-- <name>" casts your highest rank, as 1.4.1 did. By name and rank only when
+-- stepping down for a low-level player (the owner's decision on #459, 17
+-- Nov): the rank text and "Spell(Rank N)" are unconfirmed on Forever (#463),
+-- so only a cast 1.4.1 couldn't make depends on them.
 -- unit: a unit token that is them. self: it's you, whose own level allows
 -- every rank you know (no level is read). Otherwise nil, why not (worded to
 -- follow "<name>: "), and true when that's settled until they level up (you
@@ -316,11 +321,14 @@ function BuffData.CastFor(buff, unit, self)
     local knowsOne = false
     for i, id in ipairs(buff.ranks) do
         if KnownAs(buff, id) then
+            -- The first rank known is your highest: its plain name casts it.
+            local highest = not knowsOne
             knowsOne = true
             -- A rank with no level is never cast on someone else.
             local need = not self and buff.levels[i] or nil
             if self or (type(need) == "number" and level + BuffData.LEVEL_MARGIN >= need) then
-                local text = RankedName(buff, id)
+                local text
+                if self or highest then text = RankName(buff, id) else text = RankedName(buff, id) end
                 if not text then return nil, "the game won't name the rank of " .. Spell(), false end
                 return text, id
             end

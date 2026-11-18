@@ -1,4 +1,4 @@
--- Spec: #449, #459
+-- Spec: #449
 -- Weapon buffs aren't offered while you're resting (the owner, 17 Nov): in
 -- a city, an inn or a town with one, by the game's resting flag
 -- (IsResting()), weapon buffs (#45) are never offered: no list row, no
@@ -167,7 +167,7 @@ describe("Weapon buffs while resting (#449)", function()
             wow.advance(ns.BuffModeAuto.WATCH_SECONDS)
             assert.is_true(ns.BuffMode.IsAuto(), "solo, your Fortitude faded: on, resting or not")
             refresh()
-            assert.are.equal("/cast [@player,nodead] Power Word: Fortitude(Rank 6)", macro())
+            assert.are.equal("/cast [@player,nodead] Power Word: Fortitude", macro())
             press()
             wow.advance(0)
             refresh()
