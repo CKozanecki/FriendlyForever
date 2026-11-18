@@ -1,4 +1,4 @@
--- Spec: #68, #76, #208, #70, #368, #376, #394, #408, #372
+-- Spec: #68, #76, #208, #70, #368, #376, #394, #408, #372, #442
 -- My Blessings in this raid (paladins): choose which of your Blessings you
 -- give in the raid you're in, so two paladins don't both give Kings. The
 -- choice is never saved and is forgotten once you're out of the raid, as the
@@ -370,13 +370,50 @@ describe("My Blessings in this raid", function()
             local real = _G.IsInRaid
             _G.IsInRaid = function() return wow.secret(true) end
             assert.is_true(ns.BuffRules.RaidBlessingsChosen())
-            assert.are.same({ false, "you're not in a raid" }, { ns.BuffRules.SetRaidBlessings({ "kings" }) })
+            assert.are.same({ false, "can't tell if you're in a raid" }, { ns.BuffRules.SetRaidBlessings({ "kings" }) })
             _G.IsInRaid = function() error("no") end
             assert.is_false(ns.BuffRules.SetRaidBlessings({ "kings" }))
             _G.IsInRaid = real
             assert.is_true(ns.BuffRules.RaidBlessingsChosen(), "still chosen when it reads again")
             assert.is_false(ns.BuffRules.CoversInRaid(ns.BuffData.ByKey("kings")), "Might only, as chosen")
             assert.is_true(ns.BuffRules.CoversInRaid(ns.BuffData.ByKey("might")))
+        end)
+
+        -- #442: a new choice reads the raid as InForce() does (GroupBuffs.RaidAnswer),
+        -- so the player is never told a choice was made that never applies.
+        it("an IsInRaid() that can't be believed takes no new choice, says it can't tell, keeps a choice made, and \"all\" still stops it (black, #442)", function()
+            local CASES = {
+                { "true in a party", "party", function() _G.IsInRaid = function() return true end end },
+                { "a secret in a raid", "raid", function() wow.state.inRaidUnreadable = true end },
+                { "false in a raid", "raid", function() _G.IsInRaid = function() return false end end },
+            }
+            for _, case in ipairs(CASES) do
+                local what = case[1]
+                boot()
+                local real = _G.IsInRaid
+                group("raid", { "Ann-Vale" })
+                assert.is_true(ns.BuffRules.SetRaidBlessings({ "might" }), what)
+                case[3]()
+                group(case[2], { "Ann-Vale" })
+                local n = #wow.printed
+                assert.are.same({ false, "can't tell if you're in a raid" },
+                    { ns.BuffRules.SetRaidBlessings({ "kings" }) }, what)
+                slash("blessings wisdom")
+                assert.is_truthy(printedSince(n):find("blessings: can't tell if you're in a raid.", 1, true), what .. ": " .. printedSince(n))
+                assert.is_falsy(printedSince(n):find("you're not in a raid", 1, true), what)
+                assert.is_true(ns.BuffRules.RaidBlessingsChosen(), what .. ": the kept choice is untouched")
+                slash("blessings all")
+                assert.is_false(ns.BuffRules.RaidBlessingsChosen(), what .. ": /friendly blessings all still stops it")
+                _G.IsInRaid, wow.state.inRaidUnreadable = real, nil
+                assert.are.same({}, wow.errors, what)
+            end
+        end)
+
+        it("in a raid whose answer reads true, a choice is taken as before (white, #442)", function()
+            group("raid", { "Ann-Vale" })
+            assert.are.same({ true }, { ns.BuffRules.SetRaidBlessings({ "might" }) })
+            assert.is_true(ns.BuffRules.RaidBlessingsChosen())
+            assert.is_false(ns.BuffRules.CoversInRaid(ns.BuffData.ByKey("kings")))
         end)
 
         it("refuses names that aren't your Blessings, and leaves the choice as it was", function()
@@ -1104,9 +1141,17 @@ describe("My Blessings in this raid", function()
 
         it("a slot that can't be read as you or someone else isn't taken for a member (black)", function()
             local real = _G.UnitIsUnit
-            -- Chosen while UnitIsUnit() can't be read: your own slot too.
+            -- Chosen while UnitIsUnit() can't be read: your own slot too. Its
+            -- reads up to your slot, the raid answer's (#442: a choice needs a
+            -- believable raid), find you; every read after, the raid's look, can't.
             raid({ "Ann-Vale", "Bo-Lake", "Cid-Rock", "Dot-Fern" }, "Ann-Vale")
-            _G.UnitIsUnit = function(a, b) return wow.secret(real(a, b)) end
+            local found = false
+            _G.UnitIsUnit = function(a, b)
+                local answer = real(a, b)
+                if found then return wow.secret(answer) end
+                found = answer == true
+                return answer
+            end
             assert.is_true(ns.BuffRules.SetRaidBlessings({ "might" }))
             _G.UnitIsUnit = real
             -- Half replaced, readable now: you aren't counted as gone.

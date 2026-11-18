@@ -860,10 +860,6 @@ local raidOf
 local RAID_UNITS = {}
 for i = 1, 40 do RAID_UNITS[i] = "raid" .. i end
 
-local function InRaid()
-    return Read(IsInRaid) == true
-end
-
 -- In a battleground or an arena, whose group isn't your raid (#376, #394:
 -- the owner): true or false, or nil when IsInInstance() can't be read. The
 -- same answer as the PvP place (BuffRules.Place, #408).
@@ -970,7 +966,8 @@ end
 -- Choose the Blessings you cover in this raid: keys is a list of your
 -- Blessings' keys, or nil to stop choosing (all of them, or your share of the
 -- raid buff split when there is one, #70). Returns true, or false and why.
--- Stopping always works, wherever the game says you are: a choice is kept
+-- A new choice needs the game to say, believably, that you're in a raid
+-- (#442). Stopping always works, wherever the game says you are: a choice is kept
 -- while the raid answer can't be read (#368), and must never be stuck.
 function BuffRules.SetRaidBlessings(keys)
     if keys == nil then
@@ -978,7 +975,11 @@ function BuffRules.SetRaidBlessings(keys)
         ns.BuffButton.Refresh()
         return true
     end
-    if not InRaid() then return false, "you're not in a raid" end
+    -- Read as every other look at the raid reads it (#442: GroupBuffs.RaidAnswer),
+    -- so a choice is taken only where InForce() will keep it.
+    local inRaid = ns.GroupBuffs.RaidAnswer()
+    if inRaid == false then return false, "you're not in a raid" end
+    if inRaid == nil then return false, "can't tell if you're in a raid" end
     -- A choice can't be used here (#376); one made in your raid waits.
     if InBattleground() == true then
         return false, raidBlessings

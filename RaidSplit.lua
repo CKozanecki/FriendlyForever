@@ -524,6 +524,14 @@ local function Beat(token)
     C_Timer.After(RaidSplit.HEARTBEAT, ns.Diag.Wrap(function() Beat(token) end))
 end
 
+-- Start the heartbeat unless it's running.
+local function StartBeat()
+    if beating then return end
+    beating = true
+    local token = beatToken
+    C_Timer.After(RaidSplit.HEARTBEAT, ns.Diag.Wrap(function() Beat(token) end))
+end
+
 function RaidSplit.OnRosterUpdate()
     Changed()
     local inRaid = InRaid()
@@ -532,13 +540,15 @@ function RaidSplit.OnRosterUpdate()
         return
     end
     -- One update whose answer can't be read or believed (#372) ends
-    -- nothing: the peers, the grace and the heartbeat stay as they were.
-    if inRaid == nil then return end
-    if not beating then
-        beating = true
-        local token = beatToken
-        C_Timer.After(RaidSplit.HEARTBEAT, ns.Diag.Wrap(function() Beat(token) end))
+    -- nothing: the peers and the grace stay as they were. It may be the one
+    -- update for joining a raid (#443), so the heartbeat starts if it isn't
+    -- running, and its first readable answer decides: false stops it, true
+    -- speaks (Beat).
+    if inRaid == nil then
+        StartBeat()
+        return
     end
+    StartBeat()
     local roster, unreadable = Roster()
     if not unreadable then
         for name in pairs(peers) do

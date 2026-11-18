@@ -1,4 +1,4 @@
--- Spec: #372
+-- Spec: #372, #443
 -- The raid buff split reads the raid as buff mode does (#372):
 -- GroupBuffs.RaidAnswer, which believes IsInRaid() only when the raid's
 -- slots agree. Only a believable "not in a raid" ends the split or forgets
@@ -49,22 +49,25 @@ describe("The raid buff split reads the raid as buff mode does (#372)", function
         return out
     end
 
-    -- Put clients in one raid with Tor, a warrior without the addon, and let
-    -- the shares go round.
-    local function form()
-        for _, c in ipairs(clients) do
-            wow.use(c)
-            local names = {}
-            for _, m in ipairs(clients) do
-                if m ~= c then names[#names + 1] = m.full end
-            end
-            names[#names + 1] = "Tor-Axe"
-            wow.setGroup("raid", names)
-            for i = 1, #names - 1 do wow.state.units["raid" .. i].class = "PRIEST" end
-            wow.state.units["raid" .. #names].class = "WARRIOR"
-            wow.addUnit("raid" .. (#names + 1), { name = c.name, surname = c.surname, id = c.full, class = "PRIEST" })
-            wow.fire("GROUP_ROSTER_UPDATE")
+    -- Put c in the raid with the other clients and Tor, a warrior without
+    -- the addon, with the roster update the game sends.
+    local function join(c)
+        wow.use(c)
+        local names = {}
+        for _, m in ipairs(clients) do
+            if m ~= c then names[#names + 1] = m.full end
         end
+        names[#names + 1] = "Tor-Axe"
+        wow.setGroup("raid", names)
+        for i = 1, #names - 1 do wow.state.units["raid" .. i].class = "PRIEST" end
+        wow.state.units["raid" .. #names].class = "WARRIOR"
+        wow.addUnit("raid" .. (#names + 1), { name = c.name, surname = c.surname, id = c.full, class = "PRIEST" })
+        wow.fire("GROUP_ROSTER_UPDATE")
+    end
+
+    -- Put clients in one raid and let the shares go round.
+    local function form()
+        for _, c in ipairs(clients) do join(c) end
         wow.advanceAll(net, 30, 0.5)
     end
 
@@ -190,6 +193,95 @@ describe("The raid buff split reads the raid as buff mode does (#372)", function
         local BEATS = 5
         wow.advance(split.HEARTBEAT * BEATS)
         assert.are.equal(BEATS, raidSends(clients[1]) - before, "one share a heartbeat")
+    end)
+
+    -- #443: Ann out of any group, her heartbeat stopped, as a leave leaves it.
+    local function leave()
+        wow.use(clients[1])
+        wow.setGroup(nil)
+        wow.fire("GROUP_ROSTER_UPDATE")
+        wow.advanceAll(net, clients[1].ns.RaidSplit.HEARTBEAT + 1, 0.5)
+        assert.are.equal(0, clients[1].ns.RaidSplit.PeerCount())
+    end
+
+    -- Ann's heartbeats still pending: her C_Timer calls with the split's
+    -- HEARTBEAT, made unlike any other timer's delay for the test.
+    local function heartbeats()
+        wow.use(clients[1])
+        local n = 0
+        for _, t in ipairs(wow.timers) do
+            if t.heartbeat then n = n + 1 end
+        end
+        return n
+    end
+    local function markHeartbeats()
+        wow.use(clients[1])
+        local split, after = clients[1].ns.RaidSplit, _G.C_Timer.After
+        split.HEARTBEAT = 61.25
+        _G.C_Timer.After = function(delay, fn)
+            after(delay, fn)
+            if delay == split.HEARTBEAT then wow.timers[#wow.timers].heartbeat = true end
+        end
+    end
+
+    it("a raid joined on one unreadable roster update, readable after it with no other update: the split forms "
+        .. "within one HEARTBEAT + SETTLE, and says it once a HEARTBEAT after that (black, #443)", function()
+        local split = clients[1].ns.RaidSplit
+        leave()
+        markHeartbeats()
+        answer("secret")
+        join(clients[1])
+        assert.are.equal(1, heartbeats(), "the unreadable join starts the heartbeat")
+        answer(nil)
+        -- No other roster update comes.
+        wow.advanceAll(net, split.HEARTBEAT + split.SETTLE, 0.5)
+        assert.are.equal(1, clients[1].ns.RaidSplit.PeerCount(), "Ann hears Bob")
+        wow.use(clients[2])
+        assert.are.equal(1, clients[2].ns.RaidSplit.PeerCount(), "Bob hears Ann")
+        assert.are.equal("fortitude,shadow,spirit", share(clients[1]) .. "," .. share(clients[2]))
+        local before = raidSends(clients[1])
+        local BEATS = 5
+        wow.advanceAll(net, split.HEARTBEAT * BEATS, 0.5)
+        assert.are.equal(BEATS, raidSends(clients[1]) - before, "one share a heartbeat")
+        assert.are.same({}, wow.errors)
+    end)
+
+    it("out of any group, an unreadable roster update and then a readable \"not in a raid\" send nothing, and "
+        .. "the heartbeat stops at its first beat (black, #443)", function()
+        local split = clients[1].ns.RaidSplit
+        leave()
+        markHeartbeats()
+        local sent = #wow.addonSent
+        answer("secret")
+        wow.use(clients[1])
+        wow.fire("GROUP_ROSTER_UPDATE")
+        assert.are.equal(1, heartbeats(), "the heartbeat starts")
+        answer(nil)
+        wow.use(clients[1])
+        wow.advance(split.HEARTBEAT + 1)
+        assert.are.equal(0, heartbeats(), "its first beat reads \"not in a raid\" and stops it")
+        wow.advance(split.HEARTBEAT * 3)
+        assert.are.equal(0, heartbeats())
+        assert.are.equal(sent, #wow.addonSent, "nothing sent")
+        assert.are.same({}, wow.errors)
+    end)
+
+    it("roster updates in a raid, readable or not, never start a second heartbeat (black, #443)", function()
+        local split = clients[1].ns.RaidSplit
+        leave()
+        markHeartbeats()
+        join(clients[1])
+        assert.are.equal(1, heartbeats())
+        for _, how in ipairs({ "secret", "truth", "secret", "truth" }) do
+            answer(how)
+            wow.use(clients[1])
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.are.equal(1, heartbeats(), how)
+        end
+        answer(nil)
+        wow.use(clients[1])
+        wow.advance(split.HEARTBEAT + 1)
+        assert.are.equal(1, heartbeats(), "the beat goes on, one at a time")
     end)
 
     it("while the answer can't be believed nothing is announced; the heartbeat goes on and speaks once it can be "
