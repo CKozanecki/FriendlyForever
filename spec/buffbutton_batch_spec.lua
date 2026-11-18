@@ -1,4 +1,4 @@
--- Spec: #461, #462
+-- Spec: #461, #462, #483
 -- The 1.4.2 buff button batch (the owner's 1.4.1 play-testing):
 -- #461: the button's last-result line goes as soon as the button offers a
 -- different player, so a stranger's offer never sits under "Gave Thorns to you."
@@ -149,10 +149,10 @@ describe("The buff button batch (1.4.2)", function()
             wearMine()
             stranger("nameplate1", "Bob", "Stone")
             stranger("nameplate2", "Cid", "Rock")
-            wow.state.castFailures["Bob-Stone"] = "Spell is not ready yet."
+            wow.state.castFailures["Bob-Stone"] = "Target not in line of sight"
             press()
             refresh()
-            assert.are.equal("Cid Rock", title(), "Bob waits after the refusal (#459)")
+            assert.are.equal("Cid Rock", title(), "Bob waits after the refusal about him (#459, #483)")
             assert.are.equal("", result())
         end)
 
@@ -169,7 +169,7 @@ describe("The buff button batch (1.4.2)", function()
                     if roll == 1 then
                         local who = names[random.random(1, 3)]
                         wow.state.castFailures[who[1] .. "-" .. who[2]] =
-                            random.random(1, 2) == 1 and "Spell is not ready yet." or nil
+                            random.random(1, 2) == 1 and "Target not in line of sight" or nil
                     elseif roll == 2 then
                         wow.press(button, "RightButton")
                     elseif roll == 3 then
@@ -235,9 +235,9 @@ describe("The buff button batch (1.4.2)", function()
             assert.is_true(ns.BuffMode.IsOn(), "Bob passing by keeps it on")
         end)
 
-        it("a passer-by refused on the global cooldown or for mana still waits: buff mode stays on (#459, black)",
+        it("a passer-by refused for a reason about him still waits: buff mode stays on (#459, #483, black)",
             function()
-            for _, why in ipairs({ "Spell is not ready yet.", "Not enough mana" }) do
+            for _, why in ipairs({ "Target not in line of sight", "Target is too low level" }) do
                 boot({ auto = true })
                 wearMine()
                 stranger("nameplate1", "Bob", "Stone")
@@ -259,7 +259,7 @@ describe("The buff button batch (1.4.2)", function()
         end)
 
         -- Ann's favour turns buff mode on and is returned; Bob, passing by, is
-        -- next, and the game refuses him on the global cooldown.
+        -- next, and the game refuses him: he's out of sight.
         local function bobHeldBack()
             boot({ auto = true })
             wearMine()
@@ -269,7 +269,7 @@ describe("The buff button batch (1.4.2)", function()
             press()
             refresh()
             assert.are.equal("Bob Stone", title())
-            wow.state.castFailures["Bob-Stone"] = "Spell is not ready yet."
+            wow.state.castFailures["Bob-Stone"] = "Target not in line of sight"
             press()
             refresh()
             assert.is_true(ns.BuffMode.IsOn(), "Bob waits out his hold")
@@ -421,10 +421,10 @@ describe("The buff button batch (1.4.2)", function()
                     elseif roll == 4 then
                         wow.advance(random.random(1, 30))
                     elseif roll == 5 then
-                        -- The global cooldown refuses a stranger, or stops refusing.
+                        -- A stranger out of sight is refused, or comes into sight.
                         local who = names[random.random(1, 2)]
                         wow.state.castFailures[who[1] .. "-" .. who[2]] =
-                            random.random(1, 2) == 1 and "Spell is not ready yet." or nil
+                            random.random(1, 2) == 1 and "Target not in line of sight" or nil
                     elseif roll == 6 then
                         if fighting then wow.leaveCombat() else wow.enterCombat() end
                         fighting = not fighting

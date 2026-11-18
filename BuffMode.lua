@@ -165,7 +165,13 @@ function BuffMode.Set(on, how)
     if not changed then return end
     local because = how.why and (" (" .. how.why .. ")") or ""
     if wanted and lentKey then
-        ns.Print("buff mode on" .. because .. ": " .. BuffMode.KeyText(lentKey) .. " presses the buff-back button.")
+        -- In a form the key waits for (#452), the line says to click (#485).
+        local waits = ns.BuffButton.KeyWaitsNow()
+        if waits then
+            ns.Print("buff mode on" .. because .. ": click the buff-back button to buff (" .. waits .. ").")
+        else
+            ns.Print("buff mode on" .. because .. ": " .. BuffMode.KeyText(lentKey) .. " presses the buff-back button.")
+        end
         -- The triggers are on by default, so say once a session where they live.
         if auto and not autoHintShown then
             autoHintShown = true
@@ -215,8 +221,11 @@ end
 
 function BuffMode.StatusLine()
     if lentKey then
-        return "buff mode: on" .. (auto and " (turned on by itself)" or "") .. ", "
-            .. BuffMode.KeyText(lentKey) .. " presses the button"
+        local on = "buff mode: on" .. (auto and " (turned on by itself)" or "") .. ", "
+        -- In a form the key waits for (#452), click the button (#485).
+        local waits = ns.BuffButton.KeyWaitsNow()
+        if waits then return on .. "click the button to buff (" .. waits .. ")" end
+        return on .. BuffMode.KeyText(lentKey) .. " presses the button"
     end
     if wanted and InCombatLockdown() then return "buff mode: on, waiting for the fight to end" end
     if wanted then return "buff mode: on, waiting for the button" end
