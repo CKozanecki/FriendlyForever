@@ -265,7 +265,14 @@ Pages.BUFFS_PLACES = {
     { name = "raid", label = "Raid" },
     { name = "pvp", label = "PvP" },
 }
-Pages.BUFFS_SHOTS = { "buff-back", "party", "raid", "pvp", "party-list", "raid-names", "party-choice" }
+-- "top" is the tab unscrolled (#472): the buff order and the first rows. "passers-by" is
+-- it scrolled from "Use group versions" (the row the unscrolled shot cuts off) down to the
+-- passers-by switch (#472, #474): for a paladin
+-- (the simulator's class, with 11 buff rows) the switch sits about 690 px under the top
+-- at 1920 x 1080, below the 593 px the panel shows, so it can't be in the unscrolled shot.
+Pages.BUFFS_SHOTS = { "top", "passers-by", "buff-back", "party", "raid", "pvp", "party-list", "raid-names",
+    "party-choice",
+    "raid-blessings", "raid-blessings-in", "raid-blessings-unreadable" }
 
 -- Every button under frame (to depth) whose text is label, in order.
 local function FindButtons(frame, label, depth, out)
@@ -309,6 +316,79 @@ function Pages.OpenBuffs(place)
     return content
 end
 
+-- The raid Blessings rows on the Raid place (#444). A paladin who knows
+-- Kings, Wisdom and Might (their lowest ranks, which BuffData.lua lists), in
+-- one of three states: "out" of a raid; "in" one, with Might unticked; or
+-- with the game's answer to IsInRaid() unreadable ("unreadable"), the choice
+-- kept. The simulator has no raid setter, and a party change takes it
+-- 20 to 90 seconds (docs/ui-simulator.md), too long for a shot: so "in"
+-- wraps IsInRaid (true) and UnitIsUnit (raid1 is you) as the addon reads
+-- them, and "unreadable" keeps both wraps and then makes IsInRaid answer
+-- nothing. The run on #479 showed SetPartySize(7) hadn't made IsInRaid true
+-- when the tab opened.
+-- Returns the panel's content and a function that puts everything back
+-- (the globals, the spells), or nothing and why.
+Pages.RAID_BLESSING_SPELLS = { 20217, 19742, 19740 } -- Kings, Wisdom, Might
+Pages.RAID_STATES = { out = true, ["in"] = true, unreadable = true }
+function Pages.ShowRaidBlessings(state)
+    state = (state == nil or state == "") and "out" or state
+    if not Pages.RAID_STATES[state] then
+        local why = "no raid Blessings state called " .. tostring(state)
+        report(why)
+        return nil, why
+    end
+    local knew = {}
+    for _, id in ipairs(Pages.RAID_BLESSING_SPELLS) do
+        knew[id] = IsSpellKnown(id)
+        if not knew[id] then A_Admin.LearnSpell(id) end
+    end
+    A_Admin.FireEvent("SPELLS_CHANGED")
+    local realIsInRaid, realIsUnit = IsInRaid, UnitIsUnit
+    local function putBack()
+        _G.IsInRaid, _G.UnitIsUnit = realIsInRaid, realIsUnit
+        for _, id in ipairs(Pages.RAID_BLESSING_SPELLS) do
+            if not knew[id] then A_Admin.UnlearnSpell(id) end
+        end
+        A_Admin.FireEvent("SPELLS_CHANGED")
+    end
+    -- The panel fills its rows when it is shown, not when it is already open: it is
+    -- hidden first, so each state is read afresh (the run on #479 showed the
+    -- header of the state before).
+    local function OpenFresh()
+        local panel = _G[Pages.PANEL]
+        if type(panel) == "table" and panel.IsShown and panel:IsShown() then panel:Hide() end
+        return Pages.OpenBuffs("raid")
+    end
+    local content
+    local ok, err = pcall(function()
+        if state ~= "out" then
+            _G.IsInRaid = function() return true end
+            _G.UnitIsUnit = function(a, b, ...)
+                if a == "raid1" and b == "player" then return true end
+                if b == "player" and type(a) == "string" and a:find("^raid%d") then return false end
+                return realIsUnit(a, b, ...)
+            end
+        end
+        content = OpenFresh()
+        if state ~= "out" and content then
+            -- Might unticked, as a player does it: a click on its box.
+            for _, child in ipairs({ content:GetChildren() }) do
+                if child.key == "might" and child:IsShown() and child:GetChecked() then child:Click() end
+            end
+        end
+        if state == "unreadable" then
+            _G.IsInRaid = function() return nil end
+            content = OpenFresh() -- the tab fills itself again from the new answer
+        end
+    end)
+    if not ok or not content then
+        putBack()
+        if not ok then report("the raid Blessings state failed: " .. tostring(err)) end
+        return nil, tostring(err or "no Buffs tab")
+    end
+    return content, putBack
+end
+
 -- For the screenshot job: the Buffs tab at one of BUFFS_SHOTS. "party-list"
 -- opens the first buff's who-gets list, "raid-names" the first buff's names,
 -- and "party-choice" shows the choice as a player updating from 1.3.3 sees it.
@@ -320,6 +400,44 @@ function Pages.ShowBuffs(shot)
         db.buffBack.whoChoice = "pending"
     elseif type(db) == "table" and type(db.buffBack) == "table" and db.buffBack.whoChoice == "pending" then
         db.buffBack.whoChoice = "new"
+    end
+    if shot:find("^raid%-blessings") then
+        local content = Pages.ShowRaidBlessings(shot:match("^raid%-blessings%-?(.*)$"))
+        if content then
+            local header
+            for _, region in ipairs({ content:GetRegions() }) do
+                local text = region.GetText and region:GetText()
+                if text and region:IsShown() and text:find("Blessings I give in this raid:", 1, true) == 1 then
+                    header = region
+                end
+            end
+            if header then Pages.ShowFrameAt(content, header, "top") end
+        end
+        return content
+    end
+    if shot == "passers-by" then
+        -- Scrolled so "Use group versions", the top row #472 names that the unscrolled shot
+        -- cuts off, is near the top of the view, with the rows below it down to the
+        -- passers-by switch (#474): about 66 px apart, both inside the 593 px view.
+        local content = Pages.OpenBuffs()
+        if not content then return content end
+        local row
+        for _, child in ipairs({ content:GetChildren() }) do
+            local text = child.label and child.label.GetText and child.label:GetText() or ""
+            if text:find("Use group versions", 1, true) == 1 then row = child end
+        end
+        if not row then
+            report("the Buffs tab has no group versions row to show")
+            return content
+        end
+        Pages.ShowFrameAt(content, row, "top")
+        if C_Timer and C_Timer.After then C_Timer.After(0, function() Pages.ShowFrameAt(content, row, "top") end) end
+        return content
+    end
+    if shot == "top" then
+        -- Opened as a player opens it, and left unscrolled (#472, #474): the buff
+        -- order, the self-buff, water and form rows and the passers-by switch.
+        return (Pages.OpenBuffs())
     end
     local content = Pages.OpenBuffs(place)
     if not content then return content end

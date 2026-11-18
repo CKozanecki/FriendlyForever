@@ -890,6 +890,107 @@ describe("UI simulator workflow", function()
         end
     end)
 
+    -- #481: a pinned name is defined once, in the workflow's top-level env. A
+    -- job-level or step-level env, or a write to $GITHUB_ENV, would override the
+    -- reviewed pin for the job that fetches, checks and builds it, with the cache
+    -- key read in the same job agreeing with it.
+    local PINNED = { "SIM_COMMIT", "BLIZZARD_UI_COMMIT", "BLIZZARD_UI_VERSION", "BUILD_BASE", "BUILD_TOOLCHAIN",
+        "RENDER_BASE", "SPELL_DATA_SHA256", "SPELL_DATA_HOSTS" }
+
+    local function pinProblems(workflow)
+        local problems, jobsAt = {}, nil
+        local rows = {}
+        for line in (workflow .. "\n"):gmatch("([^\n]*)\n") do rows[#rows + 1] = line end
+        for i, line in ipairs(rows) do
+            if line:match("^jobs:%s*$") then jobsAt = jobsAt or i end
+        end
+        for _, name in ipairs(PINNED) do
+            local found = {}
+            for i, line in ipairs(rows) do
+                if not line:match("^%s*#") then
+                    local code = line:gsub("%s#.*$", "")
+                    -- A key may be quoted ("SIM_COMMIT": x); a shell assignment (SIM_COMMIT=x)
+                    -- in a run block overrides it too (the architecture review of #479).
+                    local key = "[\"']?%f[%w_]" .. name .. "%f[^%w_][\"']?%s*:"
+                    local assign = "%f[%w_]" .. name .. "="
+                    if code:match("^%s*" .. key) or code:match("[{,]%s*" .. key) or code:match(assign) then
+                        found[#found + 1] = i
+                    end
+                end
+            end
+            if #found ~= 1 then
+                problems[#problems + 1] = name .. " is defined " .. #found .. " times, not once"
+            elseif not (jobsAt and found[1] < jobsAt and rows[found[1]]:match("^  " .. name .. ":")) then
+                problems[#problems + 1] = name .. " isn't in the top-level env"
+            end
+        end
+        for i, line in ipairs(rows) do
+            if not line:match("^%s*#") and line:find("GITHUB_ENV", 1, true) then
+                problems[#problems + 1] = "line " .. i .. " writes $GITHUB_ENV"
+            end
+        end
+        return problems
+    end
+
+    describe("defines each pinned name once, in the top-level env (#481)", function()
+        it("passes the workflow as it is (white)", function()
+            assert.are.same({}, pinProblems(text))
+        end)
+
+        it("doesn't count a comment that names a pinned name or $GITHUB_ENV (white)", function()
+            local commented = text:gsub("\n  simulator:\n", "\n  # SIM_COMMIT: old, and $GITHUB_ENV\n  simulator:\n", 1)
+            assert.are_not.equal(text, commented)
+            assert.are.same({}, pinProblems(commented))
+        end)
+
+        it("fails a job-level env, a step-level env or a flow-style env that sets SIM_COMMIT again (red)", function()
+            local job = text:gsub("\n  simulator:\n", "\n  simulator:\n    env:\n      SIM_COMMIT: d54da90d9ddda641ea6fabf55303a1e72476642e\n", 1)
+            assert.are_not.equal(text, job, "the simulator job wasn't found")
+            assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(job))
+            local step = text:gsub("(\n      %- name: [^\n]*\n)", "%1        env:\n          SIM_COMMIT: abc\n", 1)
+            assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(step))
+            local flow = text:gsub("\n  simulator:\n", "\n  simulator:\n    env: { SIM_COMMIT: abc }\n", 1)
+            assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(flow))
+        end)
+
+        it("fails a quoted key and a shell assignment that set SIM_COMMIT again (red)", function()
+            for _, line in ipairs({ '"SIM_COMMIT": abc', "'SIM_COMMIT': abc", "SIM_COMMIT : abc" }) do
+                local job = text:gsub("\n  simulator:\n", "\n  simulator:\n    env:\n      " .. line:gsub("%%", "%%%%") .. "\n", 1)
+                assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(job), line)
+            end
+            local flow = text:gsub("\n  simulator:\n", "\n  simulator:\n    env: {\"SIM_COMMIT\": abc}\n", 1)
+            assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(flow))
+            local shell = text .. "\n      - run: SIM_COMMIT=abc git fetch\n"
+            assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(shell))
+            -- Not a key: the name in another name, or read ($SIM_COMMIT).
+            local reads = text .. '\n      - run: echo "$SIM_COMMIT" "$MY_SIM_COMMIT: x" XSIM_COMMIT=1\n'
+            assert.are.same({}, pinProblems(reads))
+        end)
+
+        it("fails a pinned name moved out of the top-level env, or defined twice in it (red)", function()
+            local twice = text:gsub("\n  SIM_PROFILE:", "\n  SIM_COMMIT: abc\n  SIM_PROFILE:", 1)
+            assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(twice))
+            local moved = text:gsub("\n  SIM_COMMIT: ([%x]+)\n", "\n", 1):gsub("\n  simulator:\n",
+                "\n  simulator:\n    env:\n      SIM_COMMIT: abc\n", 1)
+            assert.are.same({ "SIM_COMMIT isn't in the top-level env" }, pinProblems(moved))
+        end)
+
+        it("fails each of the other pinned names defined again at job level (red)", function()
+            for _, name in ipairs(PINNED) do
+                local job = text:gsub("\n  simulator:\n", "\n  simulator:\n    env:\n      " .. name .. ": x\n", 1)
+                assert.are.same({ name .. " is defined 2 times, not once" }, pinProblems(job), name)
+            end
+        end)
+
+        it("fails a write to $GITHUB_ENV, however the name reaches it (red)", function()
+            local direct = text .. '\n      - run: echo "SIM_COMMIT=abc" >> "$GITHUB_ENV"\n'
+            assert.are.same({ "SIM_COMMIT is defined 2 times, not once",
+                "line " .. select(2, direct:gsub("\n", "\n")) .. " writes $GITHUB_ENV" }, pinProblems(direct))
+            local indirect = text .. '\n      - run: echo "$x" >> $GITHUB_ENV\n'
+            assert.are.equal(1, #pinProblems(indirect))
+        end)
+    end)
+
     it("pins the sources and the build and render bases exactly", function()
         local function pinned(prefix, digits)
             return text:find("\n%s*" .. prefix .. ("%x"):rep(digits) .. "%s") ~= nil
@@ -1677,6 +1778,17 @@ describe("UI simulator workflow", function()
         assert.is_true(checked >= 5, "expected redirects and copies to check")
     end)
 
+    -- #473: the log and the summary are cut on the grounds that every line is in this artifact.
+    it("uploads the ui-sim report, whole, after the summary and whatever happens before (white)", function()
+        local steps = jobs["ui-sim"].steps
+        local summary = indexOf(steps, "name: Summary\n")
+        local upload = indexOf(steps, "name: ui%-sim%-report\n")
+        assert.is_truthy(summary and upload and summary < upload, "ui-sim-report isn't uploaded after the Summary step")
+        local step = steps[upload].text
+        assert.is_truthy(step:find("path: ${{ runner.temp }}/report\n", 1, true), "the report folder moved")
+        assert.is_falsy(step:find("%f[%w_]if:"), "the upload can be skipped")
+    end)
+
     it("keeps the shots' logs in the artifacts and the job's log groups", function()
         local job = jobs.screenshots
         assert.is_truthy(job.text:find('docker logs "$cid" > "$RUNNER_TEMP/shot-logs/$name$SUFFIX.log"', 1, true),
@@ -1862,6 +1974,47 @@ describe("UI simulator workflow", function()
         end)
     end)
 
+    -- The log's digest (#473), run for real: the main pass prints a failed check on two lines, and
+    -- the error line holds the failed LAYOUT line, so both are kept.
+    describe("the scenario job's log digest, run for real (#473)", function()
+        local function digest(files)
+            local step = wow.readFile(path):match("name: Digest %(client facts[^\n]*\n%s*run: |\n(.-)\n\n")
+            assert.is_truthy(step, "no digest step")
+            local dir = os.tmpname()
+            os.remove(dir)
+            assert.is_true(os.execute("mkdir -p '" .. dir .. "/report'") == 0)
+            for name, content in pairs(files) do
+                local f = assert(io.open(dir .. "/report/" .. name, "wb"))
+                f:write(content)
+                f:close()
+            end
+            local f = assert(io.open(dir .. "/run.sh", "wb"))
+            f:write("set -e\nRUNNER_TEMP='" .. dir .. "'\nLAYOUT_SIZES='1024x768 1920x1080'\n" .. step .. "\n")
+            f:close()
+            local p = io.popen("bash '" .. dir .. "/run.sh' 2>&1")
+            local out = p:read("*a")
+            p:close()
+            os.execute("rm -rf '" .. dir .. "'")
+            return out
+        end
+
+        it("keeps the error line after a main-pass failure, the last size's layout lines, and counts the rest (black)", function()
+            local out = digest({
+                ["run-tests.log"] = "LAYOUT main one\n  ✓ fine\n  ✗ scenarios.lua > the raid test\n    LAYOUT bad: spills 30 px\n"
+                    .. "FACT sim a fact\n1 tests, 0 passed, 1 failed\n",
+                ["layout-1024x768.log"] = "LAYOUT narrow one\nLAYOUT narrow two\n",
+                ["layout-1920x1080.log"] = "LAYOUT wide one\n",
+                ["lua-errors.json"] = "", ["frame-tree.txt"] = "" })
+            assert.is_truthy(out:find("✗ scenarios.lua > the raid test\n|     LAYOUT bad", 1, true), out)
+            assert.is_truthy(out:find("LAYOUT bad: spills 30 px", 1, true), "the main pass's error line was dropped:\n" .. out)
+            assert.is_truthy(out:find("--- layout at 1920x1080 (#148)\n| LAYOUT wide one", 1, true), out)
+            assert.is_truthy(out:find("--- layout at 1024x768 (#148): 2 lines", 1, true), out)
+            assert.is_falsy(out:find("LAYOUT narrow one", 1, true), "the narrow pass's lines are in the log")
+            assert.is_falsy(out:find("LAYOUT main one", 1, true), "the main pass's lines are in the log")
+            assert.is_truthy(out:find("FACT sim a fact", 1, true), out)
+        end)
+    end)
+
     -- The summary step's own shell, as the job runs it, on a report in which
     -- runs were stopped at their time limit (#173). Each one stopped is named
     -- at the top of the summary, with its last scenario and the end of its
@@ -1967,6 +2120,50 @@ describe("UI simulator workflow", function()
             assert.are.equal(0, r.status)
             assert.are.equal("## UI simulator (report only)\n\n", top(r.summary))
             assert.are.equal("", r.log)
+        end)
+
+        -- #473: GitHub drops a step summary over 1024k, and the run's was 1228k.
+        it("keeps the summary under GitHub's 1024k limit however long the reports are (black)", function()
+            local bigLines = {}
+            for i = 1, 20000 do bigLines[#bigLines + 1] = "LAYOUT panel " .. i .. ": " .. ("x"):rep(100) end
+            bigLines[#bigLines + 1] = "a very long line " .. ("y"):rep(50000)
+            bigLines[#bigLines + 1] = "FACT sim a fact the summary must keep"
+            bigLines[#bigLines + 1] = "✗ a scenario that failed"
+            bigLines[#bigLines + 1] = "41 tests, 40 passed, 1 failed"
+            local big = table.concat(bigLines, "\n") .. "\n"
+            local r = summarize(ALL_FINISHED, { ["run-tests.log"] = big, ["layout-1024x768.log"] = big })
+            assert.are.equal(0, r.status)
+            assert.is_true(#r.summary > 0, "no summary")
+            assert.is_true(#r.summary <= 700000, "the summary is " .. #r.summary .. " bytes")
+            assert.is_truthy(r.summary:find("## UI simulator (report only)", 1, true))
+            -- A cut loses layout lines only (the architecture review of #479): the results
+            -- and the client's facts come before them and are all there.
+            local function at(needle) return r.summary:find(needle, 1, true) end
+            assert.is_truthy(at("41 tests, 40 passed, 1 failed"), "the result line was cut")
+            assert.is_truthy(at("FACT sim a fact the summary must keep"), "the client facts were cut")
+            assert.is_truthy(at("### Scenario results at 1024x768"), "the sized results were cut")
+            assert.is_true(at("### Client facts") < at("### Layout checks"), "layout lines come before the results")
+            assert.is_true(at("### UI scenarios") < at("### Layout checks"), "layout lines come before the results")
+            local layoutAt = at("### Layout checks")
+            assert.is_true(#r.summary - layoutAt < 3 * 160000, "a layout section isn't cut")
+        end)
+
+        it("cuts the summary at the cap when the sections before the layout lines alone are over it (black)", function()
+            -- 50 lines of 20 KB naming FriendlyForever: `grep | head -50` keeps whole lines, 1 MB.
+            local errors = {}
+            for i = 1, 50 do errors[i] = "FriendlyForever " .. i .. " " .. ("e"):rep(20000) end
+            local r = summarize(ALL_FINISHED, { ["lua-errors.json"] = table.concat(errors, "\n") .. "\n" })
+            assert.are.equal(0, r.status)
+            assert.is_true(#r.summary > 650000, "the input never needed the cut: " .. #r.summary)
+            assert.is_true(#r.summary <= 700000, "the summary is " .. #r.summary .. " bytes")
+            assert.are.equal("## UI simulator (report only)\n\n", r.summary:sub(1, 31))
+        end)
+
+        it("keeps the summary's size cap in the workflow, well under 1024k (white)", function()
+            local step = wow.readFile(path):match("name: Summary\n%s*run: |\n(.-)\n\n")
+            local cap = tonumber(step:match("%-gt (%d+) %]; then\n%s*truncate %-s %1 \"%$GITHUB_STEP_SUMMARY\""))
+            assert.is_truthy(cap, "the summary has no size cap")
+            assert.is_true(cap <= 800000, "the cap is " .. cap)
         end)
 
         it("shows the end of the frame tree's log when dump-tree timed out (black)", function()
@@ -3732,10 +3929,10 @@ describe("UI simulator workflow", function()
                 for _, candidate in ipairs(jobs["ui-sim"].steps) do
                     if candidate.text:find("Show the reports in the log", 1, true) then reports = candidate.text end
                 end
-                assert.is_truthy(reports and reports:find('head -c 60000 "$file" 2>&1 | shown', 1, true), "the reports step isn't where this test looks")
+                assert.is_truthy(reports and reports:find('head -c 3000 "$file" 2>&1 | shown', 1, true), "the reports step isn't where this test looks")
                 assert.are.same({}, (scan(reports)))
-                local leaky = reports:gsub('head %-c 60000 "%$file" 2>&1 | shown', 'head -c 60000 "$file" | shown', 1)
-                assert.are.same({ 'filters only stdout:             head -c 60000 "$file" | shown' }, (scan(leaky)))
+                local leaky = reports:gsub('head %-c 3000 "%$file" 2>&1 | shown', 'head -c 3000 "$file" | shown', 1)
+                assert.are.same({ 'filters only stdout:             head -c 3000 "$file" | shown' }, (scan(leaky)))
             end)
         end)
 

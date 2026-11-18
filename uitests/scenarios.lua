@@ -1690,6 +1690,88 @@ test("the Buffs tab stays inside its page at its tallest, at every place, names 
     if not ok then error(err, 0) end
 end)
 
+-- The raid Blessings header and boxes on the Raid place (#444, #439): a
+-- paladin who knows Kings, Wisdom and Might, out of a raid, in one with
+-- Might unticked, and with the game's raid answer unreadable. The header
+-- text and the boxes' state are checked, and the header stays inside the
+-- panel's view (its text 55 px longer since #439). The saved settings, the
+-- spells and the globals are put back, even when a check fails.
+test("the Raid Blessings header and boxes read right and stay inside the page, in every raid state (#444)", function()
+    local Pages = FriendlyForeverUIPages
+    local saved = FriendlyForeverDB and FriendlyForeverDB.buffBack
+    check(type(saved) == "table", "no saved Buff Back settings")
+    local had = DeepCopy(saved)
+    local ok, err = pcall(function()
+        saved.whoChoice = "new"
+        local wanted = {
+            out = "(join a raid to choose)",
+            ["in"] = "(until you leave it)",
+            unreadable = "(can't tell if you're in a raid)",
+        }
+        for _, state in ipairs({ "out", "in", "unreadable" }) do
+            local realRaid, realUnit = IsInRaid, UnitIsUnit
+            local knew = {}
+            for _, id in ipairs(Pages.RAID_BLESSING_SPELLS) do knew[id] = IsSpellKnown(id) end
+            local content, putBack = Pages.ShowRaidBlessings(state)
+            check(content ~= nil, "couldn't show the raid Blessings, " .. state .. ": " .. tostring(putBack))
+            local done, failed = pcall(function()
+                Settle(content)
+                local name = "Raid Blessings, " .. state
+                local header
+                for _, region in ipairs({ content:GetRegions() }) do
+                    local text = region.GetText and region:GetText()
+                    if text and region:IsShown() and text:find("Blessings I give in this raid:", 1, true) == 1 then
+                        header = region
+                    end
+                end
+                check(header ~= nil, name .. ": the header isn't shown")
+                check(header:GetText():find(wanted[state], 1, true) ~= nil,
+                    name .. ": the header says '" .. tostring(header:GetText()) .. "', not " .. wanted[state])
+                local boxes = {}
+                for _, child in ipairs({ content:GetChildren() }) do
+                    if child.key and child:IsShown() and child.label then boxes[child.key] = child end
+                end
+                for _, key in ipairs({ "kings", "wisdom", "might" }) do
+                    check(boxes[key] ~= nil, name .. ": no box for " .. key)
+                end
+                if state ~= "out" then
+                    -- Might unticked, the others kept; greyed when the answer can't be read.
+                    check(boxes.might:GetChecked() == false, name .. ": Might should be unticked")
+                    check(boxes.kings:GetChecked() == true and boxes.wisdom:GetChecked() == true,
+                        name .. ": Kings and Wisdom should be ticked")
+                    check(boxes.kings:IsEnabled() == (state == "in"), name .. ": the boxes' enabled state is wrong")
+                end
+                local left, right = Edges(header, "GetLeft", "GetRight")
+                local viewLeft, viewRight = Edges(content:GetParent(), "GetLeft", "GetRight")
+                if left and viewLeft then
+                    local line = ("LAYOUT %s: header %.0f..%.0f, view %.0f..%.0f"):format(name, left, right,
+                        viewLeft, viewRight)
+                    report(line)
+                    check(left >= viewLeft - 1 and right <= viewRight + 1, line .. ": the header leaves the view")
+                else
+                    report("LAYOUT " .. name .. ": edges can't be read here")
+                end
+                CheckAll({
+                    function() TabTextInside(content, name) end,
+                    function() PushedDownInside(content, name) end,
+                })
+            end)
+            putBack()
+            -- Everything it changed is back (the criterion of #444, asserted).
+            check(IsInRaid == realRaid, state .. ": IsInRaid isn't put back")
+            check(UnitIsUnit == realUnit, state .. ": UnitIsUnit isn't put back")
+            for _, id in ipairs(Pages.RAID_BLESSING_SPELLS) do
+                check(IsSpellKnown(id) == knew[id], ("%s: spell %d isn't as it was"):format(state, id))
+            end
+            if not done then error(failed, 0) end
+        end
+    end)
+    for k in pairs(saved) do saved[k] = nil end
+    for k, v in pairs(had) do saved[k] = v end
+    OpenTab(FriendlyForeverUIPages.TABS[1].label)
+    if not ok then error(err, 0) end
+end)
+
 -- The passers-by switch at the top of the Buffs tab (#455): above the places'
 -- tabs, at every place, its help line inside the page, and with the
 -- nameplate warning and its button when friendly nameplates are off, the
@@ -1725,6 +1807,39 @@ test("the Buffs tab's passers-by switch sits above the places' tabs, inside the 
                     local line = ("LAYOUT %s: switch bottom %.0f, place tabs top %.0f"):format(name, boxBottom, tabTop)
                     report(line)
                     check(tabTop <= boxBottom + 1, line .. ": the tabs aren't below the switch")
+                    -- Where a player finds it (#474): unscrolled the switch can sit below the
+                    -- first view (11 buff rows for a paladin, about 690 px down at 1920 x 1080
+                    -- in a 593 px view, run on #479). So the shot scrolls from "Use group
+                    -- versions" (#472), and that row and the switch must both land inside the view.
+                    local scroll = content:GetParent()
+                    local contentTop = Edges(content, "GetTop", "GetBottom")
+                    local viewTop, viewBottom = Edges(scroll, "GetTop", "GetBottom")
+                    local groupRow
+                    for _, child in ipairs({ content:GetChildren() }) do
+                        local text = child.label and child.label.GetText and child.label:GetText() or ""
+                        if text:find("Use group versions", 1, true) == 1 then groupRow = child end
+                    end
+                    check(groupRow ~= nil, name .. ": no group versions row")
+                    if contentTop and viewTop and groupRow then
+                        report(("LAYOUT %s: switch bottom %.0f below the top, view %.0f high")
+                            :format(name, contentTop - boxBottom, viewTop - viewBottom))
+                        local offset, putBack = FriendlyForeverUIPages.ShowFrameAt(content, groupRow, "top")
+                        if offset then
+                            local seen = {}
+                            for _, row in ipairs({ { "group versions", groupRow }, { "switch", box } }) do
+                                local top, bottom = Edges(row[2], "GetTop", "GetBottom")
+                                local rowLine = ("LAYOUT %s: scrolled by %.0f, %s %.0f..%.0f, view %.0f..%.0f")
+                                    :format(name, offset, row[1], bottom or 0, top or 0, viewBottom, viewTop)
+                                seen[#seen + 1] = { rowLine, top, bottom }
+                            end
+                            putBack()
+                            for _, one in ipairs(seen) do
+                                report(one[1])
+                                check(one[2] and one[3] and one[2] <= viewTop + 1 and one[3] >= viewBottom - 1,
+                                    one[1] .. ": not in view once scrolled to")
+                            end
+                        end
+                    end
                 else
                     report("LAYOUT " .. name .. ": edges can't be read here")
                 end
