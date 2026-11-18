@@ -1,4 +1,4 @@
--- Spec: #30, #76, #99, #208, #253, #259, #44, #459, #461
+-- Spec: #30, #76, #99, #208, #253, #259, #44, #459, #461, #483
 -- Buff mode buffs group members missing your buffs, one per press, with the
 -- same safety rules as buff back.
 local wow = require("spec.support.wow")
@@ -208,17 +208,18 @@ describe("Buffing your group in buff mode", function()
             assert.are.equal(0, #ns.db.ledger.entries, "a group buff is no favour")
         end)
 
-        it("a refusal about you (the global cooldown, mana) holds that member back too: any refusal does (#459)",
+        it("a refusal about you (the global cooldown, mana, a stun) holds nobody: the next press is Ann's again (#483)",
             function()
             for _, why in ipairs({ "Spell is not ready yet.", "Not enough mana", "Can't do that while stunned" }) do
                 boot()
                 party({ "Ann-Vale", "Cid-Rock" })
                 wow.state.castFailures["Ann-Vale"] = why
                 wow.pressKey("MOUSEWHEELUP")
-                assert.are.equal("Cid Rock: Mark of the Wild", armed(), why)
+                assert.are.equal("Ann Vale: Mark of the Wild", armed(), why)
                 wow.state.castFailures["Ann-Vale"] = nil
-                wow.advance(ns.GroupBuffs.HELD_BACK_SECONDS + 1)
-                assert.are.equal("Ann Vale: Mark of the Wild", armed(), why .. ": back after the wait")
+                wow.pressKey("MOUSEWHEELUP")
+                assert.are.equal("Ann-Vale", wow.casts[#wow.casts].target, why)
+                assert.is_nil(wow.casts[#wow.casts].failed, why)
             end
         end)
 

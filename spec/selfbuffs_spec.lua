@@ -1,4 +1,4 @@
--- Spec: #44, #329, #402, #408, #45, #379, #419
+-- Spec: #44, #329, #402, #408, #45, #379, #419, #483
 -- Self-buffs: in buff mode, once the favours you owe and your group are
 -- done, the button offers your own missing self-buffs (Inner Fire, armors,
 -- Aspects, auras, Battle Shout...), one per press, on you, through the same
@@ -923,7 +923,8 @@ describe("Self-buffs in buff mode", function()
         it("a refused cast waits a moment, and the next press goes to the next self-buff", function()
             boot({ class = "PALADIN", known = { DEVOTION, RIGHTEOUS_FURY } })
             ns.Options.SetNeverOffer("righteousfury", false)
-            wow.state.castFailures.Me = "You can't do that right now."
+            -- A refusal about it on you (#483): a stronger copy worn.
+            wow.state.castFailures.Me = "A more powerful spell is already active."
             local cast = press()
             assert.are.equal(RIGHTEOUS_FURY, cast.id, "first in the class's order")
             assert.is_truthy(cast.failed)

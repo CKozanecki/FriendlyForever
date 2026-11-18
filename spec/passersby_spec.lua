@@ -1,4 +1,4 @@
--- Spec: #39, #451, #459, #462
+-- Spec: #39, #451, #459, #462, #484
 -- Passers-by: in buff mode, the button also offers your buffs to players on a
 -- nameplate who aren't in your group, haven't buffed you and haven't asked.
 local wow = require("spec.support.wow")
@@ -612,6 +612,13 @@ describe("Passers-by (#39)", function()
 
         local function sitByFire(id) return wow.gainBuff({ spellId = id or COZY, name = "Cozy Fire" }) end
 
+        -- Buff mode off by hand, then a new zone: only after one may passers-by
+        -- turn it back on (#484), and these specs are about the fire.
+        local function offByHandNewZone()
+            slash("buffmode off")
+            wow.fire("ZONE_CHANGED_NEW_AREA")
+        end
+
         it("is on by default, and every campfire aura and camp benefit the data gives turns it on for a passer-by", function()
             boot({ autoBuffMode = true, noBuffMode = true, keepDefault = true })
             assert.is_true(ns.db.buffBack.autoOnCampfire)
@@ -705,7 +712,7 @@ describe("Passers-by (#39)", function()
             stranger()
             sitByFire()
             assert.is_true(ns.BuffMode.IsAuto())
-            slash("buffmode off")
+            offByHandNewZone()
             wow.gainBuff({ spellId = 1126, name = "Mark of the Wild" })
             assert.is_false(ns.BuffMode.IsOn(), "still by the fire: no new gain")
             wow.loseBuff(COZY)
@@ -717,13 +724,13 @@ describe("Passers-by (#39)", function()
             bootAuto()
             stranger()
             sitByFire()
-            slash("buffmode off")
+            offByHandNewZone()
             wow.gainBuff({ spellId = 1229741, name = "Camp Benefits", duration = 3600 })
             assert.is_true(ns.BuffMode.IsAuto(), "Camp Benefits was added")
-            slash("buffmode off")
+            offByHandNewZone()
             wow.gainBuff({ spellId = 1229718, name = "Boosted Spirit", duration = 3600 })
             assert.is_true(ns.BuffMode.IsAuto(), "a feature's bonus was added")
-            slash("buffmode off")
+            offByHandNewZone()
             wow.loseBuff(COZY)
             assert.is_false(ns.BuffMode.IsOn(), "losing one adds nothing")
         end)
@@ -733,7 +740,7 @@ describe("Passers-by (#39)", function()
             stranger()
             wow.gainBuff({ spellId = 1229741, name = "Camp Benefits", duration = 3600 })
             assert.is_true(ns.BuffMode.IsAuto())
-            slash("buffmode off")
+            offByHandNewZone()
             wow.gainBuff({ spellId = 1126, name = "Mark of the Wild" })
             wow.advance(60)
             wow.fire("UNIT_AURA", "player", {})
@@ -911,7 +918,7 @@ describe("Passers-by (#39)", function()
             bootAuto()
             stranger()
             sitByFire()
-            slash("buffmode off")
+            offByHandNewZone()
             wow.fire("UNIT_AURA", "player", wow.secret({}))
             assert.is_false(ns.BuffMode.IsOn())
         end)
@@ -921,7 +928,7 @@ describe("Passers-by (#39)", function()
                 bootAuto()
                 stranger()
                 local first = sitByFire()
-                slash("buffmode off")
+                offByHandNewZone()
                 local real = _G.C_UnitAuras.GetAuraDataByIndex
                 _G.C_UnitAuras.GetAuraDataByIndex = function(unit, i, filter)
                     if unit ~= "player" then return real(unit, i, filter) end
@@ -944,7 +951,7 @@ describe("Passers-by (#39)", function()
                 bootAuto()
                 stranger()
                 local first = sitByFire()
-                slash("buffmode off")
+                offByHandNewZone()
                 takeOff(first)
                 wow.fire("UNIT_AURA", "player", { removedAuraInstanceIDs = how == "secret list"
                     and wow.secret({ first.auraInstanceID }) or { wow.secret(first.auraInstanceID) } })
@@ -1040,7 +1047,7 @@ describe("Passers-by (#39)", function()
             bootAuto()
             stranger()
             local first = sitByFire()
-            slash("buffmode off")
+            offByHandNewZone()
             -- Refreshed: the old instance goes and a new one comes, in one update.
             for i = #wow.state.playerAuras, 1, -1 do
                 if wow.state.playerAuras[i] == first then table.remove(wow.state.playerAuras, i) end
