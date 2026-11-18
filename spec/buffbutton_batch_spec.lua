@@ -1,5 +1,5 @@
 -- Spec: #461, #462
--- The 1.4.3 buff button batch (the owner's 1.4.1 play-testing):
+-- The 1.4.2 buff button batch (the owner's 1.4.1 play-testing):
 -- #461: the button's last-result line goes as soon as the button offers a
 -- different player, so a stranger's offer never sits under "Gave Thorns to you."
 -- #462: with passers-by on, a passer-by the button offers counts as work left,
@@ -13,7 +13,7 @@ local INTELLECT = 10157
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
 
-describe("The buff button batch (1.4.3)", function()
+describe("The buff button batch (1.4.2)", function()
     local ns, button
 
     -- A druid who knows Mark of the Wild and Thorns, out in the world, with
