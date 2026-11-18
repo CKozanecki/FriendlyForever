@@ -126,6 +126,12 @@ describe("The buff button batch (1.4.4)", function()
             wow.advance(ns.BuffButton.RESULT_SHOWN_SECONDS + 1)
             press()
             assert.are.equal(2, saidSince(from, "Couldn't buff Bob Stone: Not enough mana"))
+            -- Another refusal at once is a new line: it's said.
+            wow.state.unusable = {}
+            wow.state.castFailures["Bob-Stone"] = LOS
+            wow.advance(0.2)
+            press()
+            assert.are.equal(1, saidSince(from, "Couldn't buff Bob Stone: " .. LOS))
         end)
 
         it("every refusal about you leaves a passer-by, a party member and a favour where they were (white)", function()
@@ -217,6 +223,12 @@ describe("The buff button batch (1.4.4)", function()
     end)
 
     describe("#483: a refusal about the target still holds them (#459)", function()
+        it("the hold is #459's 15 seconds, for passers-by, group members, favours and self-buffs (white)", function()
+            boot()
+            assert.are.same({ 15, 15, 15, 15 }, { ns.PassersBy.HELD_BACK_SECONDS, ns.GroupBuffs.HELD_BACK_SECONDS,
+                ns.Offers.HELD_BACK_SECONDS, ns.SelfBuffs.HELD_BACK_SECONDS })
+        end)
+
         it("too low level, out of range, out of sight, not a valid target: the passer-by waits its time (white)",
             function()
                 for _, text in ipairs(ABOUT_THEM) do
@@ -229,7 +241,7 @@ describe("The buff button batch (1.4.4)", function()
                     assert.are.equal("Cid Rock", title(), text .. ": Bob waits")
                     assert.are.equal("Cid-Rock", press().target, text)
                     wow.state.castFailures["Bob-Stone"] = nil
-                    wow.advance(ns.PassersBy.HELD_BACK_SECONDS - 1)
+                    wow.advance(14) -- #459's 15 seconds, less one
                     refresh()
                     assert.are_not.equal("Bob Stone", title(), text .. ": still within the hold")
                     wow.advance(2)
