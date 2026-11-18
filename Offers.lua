@@ -44,6 +44,13 @@
 -- favour, as the button would. And when you return a favour, your copy tells
 -- theirs over the hidden channel (Comm.lua) that this buff answers theirs,
 -- so their copy doesn't owe you one back, however long the favour waited.
+--
+-- Rank and level (#459): the buff is cast at the highest rank you know that
+-- their level allows (BuffData.CastFor): your highest by its plain name, a
+-- lower one by name and rank. A player whose level
+-- the game won't give isn't offered one, and says why; one too low for every
+-- rank of a buff is offered your next buff instead. After any refusal by the
+-- game, their favour waits HELD_BACK_SECONDS before it's offered again.
 local _, ns = ...
 local Util = ns.Util
 local Read = Util.ReadGameValues
@@ -63,11 +70,13 @@ Offers.MAX_CASTS_WAITING = 8    -- hand-cast buffs remembered as sent; the oldes
 Offers.MARK_SECONDS = 30
 Offers.MAX_MARKS = 50           -- marks waiting for their buff at once; the oldest goes first
 Offers.MAX_REQUESTS = 5         -- requests in chat waiting at once (#40); the oldest goes first
+Offers.HELD_BACK_SECONDS = 15   -- after the game refuses a cast to them, their favour waits this long (#459)
 
 local favours = {}          -- newest last: { name, unit, class, owedAt, ledgerEntry, requested, request }
 local buffedAt = {}         -- [full name] = GetTime() a buff of yours last reached them
 local marks = {}            -- [full name] = GetTime() their copy said their buff answers yours
 local castsWaiting = {}     -- newest last: { guid, name, buff, spell, at }, hand-cast buffs sent
+local heldBack = {}         -- [full name] = GetTime() the game refused the button's cast to them (#459)
 local listeners = {}
 local oweListeners = {}
 
@@ -108,6 +117,20 @@ local function Givable(favour)
     end
     return false
 end
+
+-- A favour whose player was too low for every buff of yours that suits
+-- them (#459, tooLowAt: their level then) and still is: their level reads
+-- no higher, or can't be read now. It isn't counted and turns nothing on,
+-- as Givable's rule (#366's lesson): buff mode never lends its key for it.
+-- The button still looks at it, so a level-up brings it back.
+local function StillTooLow(favour)
+    if not favour.tooLowAt then return false end
+    local unit = Offers.UnitFor(favour.name)
+    local level = unit and ns.BuffData.LevelOf(unit)
+    return not level or level <= favour.tooLowAt
+end
+
+local ChooseBuff -- below: the buff to give a favour
 
 local function IndexOf(name)
     for i, favour in ipairs(favours) do
@@ -335,6 +358,13 @@ function Offers.Owe(name, unit, ledgerEntry)
         ns.Diag.Log("buffBack", "your Buff Back rules leave %s nothing: not offered", name)
         return
     end
+    -- Too low for every buff of yours (#459): owed, but not counted, so
+    -- the trigger below finds nothing to do (BuffModeAuto's Settled).
+    local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
+    favour.tooLowAt = select(5, ChooseBuff(favour, myBuffs, held))
+    if StillTooLow(favour) then
+        ns.Diag.Log("buffBack", "%s is too low level for every buff of yours: not counted", name)
+    end
     for _, fn in ipairs(oweListeners) do fn() end
 end
 
@@ -468,13 +498,20 @@ local function Requested(favour, unit)
     -- Unknown (hidden in a fight) counts as not wearing it, as for favours.
     if Offers.Wears(unit, buff, WornOff) == true then return nil, "they already have " .. spell end
     if OutOfReach(buff, unit) then return nil, nil, true end
-    return buff
+    -- The rank their level allows (#459): a request asks for that buff only.
+    local cast, why, low = ns.BuffData.CastFor(buff, unit)
+    if not cast then return nil, why, nil, nil, low and ns.BuffData.LevelOf(unit) or nil end
+    return buff, nil, nil, cast
 end
 
 -- The buff to give this favour, or nil and why not. away is true, with no
 -- reason, when they've left (#270): the game doesn't show them, or says
--- your buff can't reach them.
-local function ChooseBuff(favour, myBuffs, held, visible)
+-- your buff can't reach them. Fourth, with the buff: what to cast it as
+-- (BuffData.CastFor, #459: the rank their level allows). Fifth, with no buff: their level,
+-- when the only reason is that it's too low for every rank of each buff
+-- that suits them, none of them worn (they can't have one from you until
+-- they level up).
+function ChooseBuff(favour, myBuffs, held, visible)
     local unit, flagged = Observe(favour, visible)
     if not unit or OutOfReach(myBuffs[1], unit) then return nil, nil, true end
     if Read(UnitIsDeadOrGhost, unit) == true then return nil, "they're dead" end
@@ -489,15 +526,15 @@ local function ChooseBuff(favour, myBuffs, held, visible)
     -- here: Offers.Current lets theirs go first, #353.)
     if favour.request and not ns.Requests.Listening() then return nil, nil, true end
     if favour.requested and ns.Requests.Listening() then
-        local buff, reason, away = Requested(favour, unit)
-        if buff or favour.request then return buff, reason, away end
+        local buff, reason, away, cast, lowAt = Requested(favour, unit)
+        if buff or favour.request then return buff, reason, away, cast, lowAt end
     end
     if #myBuffs == 0 then
         if held then return nil, ns.Water.HeldReason(held) end
         if #ns.BuffData.Mine() > 0 then return nil, "you've marked all your buffs never offer" end
         return nil, "you know no buffs to give"
     end
-    local suitable, unsure, whose = 0, false, false
+    local suitable, unsure, whose, notCast, allLow = 0, false, false, nil, true
     for _, buff in ipairs(myBuffs) do
         -- Your Buff Back rule for the buff (#408): everyone, chosen
         -- classes, or off. A class that can't be read gets no buff by class.
@@ -522,7 +559,17 @@ local function ChooseBuff(favour, myBuffs, held, visible)
             end
             if wears ~= true and other == false then
                 if OutOfReach(buff, unit) then return nil, nil, true end
-                return buff
+                -- The rank their level allows (#459). When none can be cast
+                -- (too low for every rank, or their level unreadable), your
+                -- next buff is tried, and the first reason kept.
+                local cast, why, low = ns.BuffData.CastFor(buff, unit)
+                if cast then return buff, nil, nil, cast end
+                notCast = notCast or why
+                allLow = allLow and low == true
+            else
+                -- Worn, or another of your Blessings is: wanted again once it
+                -- wears off, so a level too low for the rest settles nothing.
+                allLow = false
             end
             -- Said once per favour and buff: the button re-arms often.
             favour.skipLogged = favour.skipLogged or {}
@@ -540,6 +587,10 @@ local function ChooseBuff(favour, myBuffs, held, visible)
         end
     end
     if whose then return nil, "can't tell whose Blessing they have" end
+    -- Settled as too low only when every buff that may suit them is: none
+    -- worn now, none whose rule can't tell their class yet.
+    if unsure then allLow = false end
+    if notCast then return nil, notCast, nil, nil, allLow and ns.BuffData.LevelOf(unit) or nil end
     if suitable > 0 then return nil, "they already have your buffs" end
     -- (A favour your rules leave nothing for isn't here: Givable.)
     if unsure then return nil, "can't see their class" end
@@ -568,18 +619,27 @@ function Offers.Current(list)
     local myBuffs, held = ns.Water.Filter(ns.BuffData.Offerable())
     local visible = VisiblePlayers()
     local firstReason, first, owed = nil, nil, false
+    for name, at in pairs(heldBack) do
+        if not Within(at, Offers.HELD_BACK_SECONDS, GetTime()) then heldBack[name] = nil end
+    end
     for i = #favours, 1, -1 do
         local favour = favours[i]
-        local buff, reason, away
-        if Givable(favour) then
-            owed = true
-            buff, reason, away = ChooseBuff(favour, myBuffs, held, visible)
-        else
+        local buff, reason, away, cast, lowAt
+        if not Givable(favour) then
             away = true -- your rules leave them nothing: it holds no place (#408)
+        elseif heldBack[favour.name] then
+            -- The game refused the button's last cast to them (#459).
+            owed, reason = true, "the game refused your last cast to them"
+        else
+            owed = true
+            buff, reason, away, cast, lowAt = ChooseBuff(favour, myBuffs, held, visible)
+            favour.tooLowAt = lowAt
         end
         local spell = buff and ns.BuffData.SpellName(buff)
-        if spell then
-            local offer = { name = favour.name, buff = buff, spell = spell, request = favour.request }
+        if spell and cast then
+            -- spell names the buff; cast is what the press casts, with its rank.
+            local offer = { name = favour.name, buff = buff, spell = spell, castSpell = cast,
+                request = favour.request }
             if not list then return offer end
             first = first or offer
             list[#list + 1] = offer
@@ -592,6 +652,15 @@ function Offers.Current(list)
     if not owed then return nil, "nobody is owed a buff" end
     if not firstReason then return nil, "everyone you owe is out of sight or out of range", true end
     return nil, firstReason
+end
+
+-- The game refused the button's cast to them, for any reason (#459): their
+-- favour or request waits HELD_BACK_SECONDS, so the button doesn't go back
+-- to them at every press.
+function Offers.NoteRefused(name)
+    if type(name) ~= "string" then return end
+    MakeRoom(heldBack, name, Offers.MAX)
+    heldBack[name] = GetTime()
 end
 
 -- A buff of yours (spell) reached them, from the button or by hand. Their
@@ -750,7 +819,7 @@ function Offers.Count()
     DropIgnored()
     local n = 0
     for _, favour in ipairs(favours) do
-        if Givable(favour) then n = n + 1 end
+        if Givable(favour) and not StillTooLow(favour) then n = n + 1 end
     end
     return n
 end

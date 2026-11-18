@@ -1,4 +1,4 @@
--- Spec: #209, #44, #350, #380, #379
+-- Spec: #209, #44, #350, #380, #379, #459
 -- The buff table (BuffTable.lua) is generated from Forever's own spell data
 -- by scripts/gen_spell_table.py, once per game version. The addon never looks
 -- IDs up while you play. This spec checks the committed table is valid, that
@@ -18,6 +18,8 @@ local SOURCE_SHA = "43d0cfa0a207b9fc0bc9ae5ea76b70b3d2ecb8779f4b33b92e288ce45d7c
 -- #343 (#160); since then it checks SOURCE, which holds every row of this one.
 local UPSTREAM = ROOT .. "/scripts/data/forever-spells.json"
 local BUFFS = ROOT .. "/scripts/spell-buffs.json"
+-- Each rank's level (#459), as scripts/read_spell_levels.py wrote it.
+local LEVELS = ROOT .. "/scripts/data/forever-spell-levels.lua"
 local GENERATOR = ROOT .. "/scripts/gen_spell_table.py"
 local CHECK = ROOT .. "/scripts/sim-spell-check.py"
 -- The SHA-256 upstream's docs/specs/forever-spell-data.md records for the
@@ -277,7 +279,7 @@ describe("The generated buff table", function()
 
         it("is reproduced exactly when the generator runs on the committed source", function()
             local dir = tmpdir()
-            local code, text = generate(SOURCE, BUFFS, dir .. "/BuffTable.lua")
+            local code, text = generate(SOURCE, BUFFS, dir .. "/BuffTable.lua", '--levels "' .. LEVELS .. '"')
             assert.are.equal(0, code, text)
             assert.is_true(read(dir .. "/BuffTable.lua") == read(ROOT .. "/BuffTable.lua"),
                 "BuffTable.lua differs from what the generator makes: re-run it (CONTRIBUTING.md, Releasing)")
@@ -286,7 +288,7 @@ describe("The generated buff table", function()
 
         it("gives a report that lists every buff and spell found or not found", function()
             local dir = tmpdir()
-            local code, text = generate(SOURCE, BUFFS, dir .. "/BuffTable.lua")
+            local code, text = generate(SOURCE, BUFFS, dir .. "/BuffTable.lua", '--levels "' .. LEVELS .. '"')
             assert.are.equal(0, code, text)
             for _, class in pairs(ns.BuffTable.classes) do
                 for _, buff in ipairs(class) do
@@ -319,6 +321,9 @@ describe("The generated buff table", function()
                 ns = wow.boot({ buffTable = made, before = function(state)
                     state.class = class
                     state.knownSpells = known
+                    -- The client names each moved rank as it names the real one (#459).
+                    state.spellSubtexts = {}
+                    for id in pairs(known) do state.spellSubtexts[id] = wow.spellSubtext(id - offset) end
                 end })
                 -- The whole table: every ID of every buff belongs to it.
                 for _, list in pairs(made.classes) do
@@ -689,7 +694,7 @@ describe("The generated buff table", function()
 
         it("shows every rank's duration and warns of Omen's passive and Trueshot's missing ranks, on the committed data (white)",
             function()
-                local code, text = generate(SOURCE, BUFFS, dir .. "/BuffTable.lua")
+                local code, text = generate(SOURCE, BUFFS, dir .. "/BuffTable.lua", '--levels "' .. LEVELS .. '"')
                 assert.are.equal(0, code, text)
                 assert.is_true(read(dir .. "/BuffTable.lua") == read(ROOT .. "/BuffTable.lua"), "the warnings changed the table")
                 for _, class in pairs(ns.BuffTable.classes) do
@@ -1175,6 +1180,108 @@ describe("The generated buff table", function()
                 assert.is_truthy(text:find("handRanks needs ranks in the data", 1, true), text)
                 assert.are.equal("KEEP", read(dir .. "/out.lua"))
             end)
+    end)
+
+    describe("the generator's rank levels (#459)", function()
+        local dir
+        local BUFF_JSON = '{"format":1,"classes":{"DRUID":[{"key":"thorns","name":"Thorns"}]},"removed":[]}'
+        -- Thorns ranks 2 and 1, in Forever's data's shape.
+        local SPELLS = '{"schema":1,"build":"1.60.1.70685","tables":{"Spell":{"rows":['
+            .. '{"ID":467,"NameSubtext_lang":"Rank 1"},{"ID":782,"NameSubtext_lang":"Rank 2"}]},'
+            .. '"SpellName":{"rows":[{"ID":467,"Name_lang":"Thorns"},{"ID":782,"Name_lang":"Thorns"}]}}}'
+
+        local function levelsFile(rows, build)
+            return "return {\n    build = \"" .. (build or "1.60.1.70959") .. "\",\n    levels = {\n"
+                .. rows .. "    },\n}\n"
+        end
+
+        before_each(function()
+            dir = tmpdir()
+            write(dir .. "/buffs.json", BUFF_JSON)
+            write(dir .. "/spells.json", SPELLS)
+        end)
+        after_each(function() os.execute('rm -rf "' .. dir .. '"') end)
+
+        local function run(levels)
+            write(dir .. "/levels.lua", levels)
+            write(dir .. "/out.lua", "KEEP")
+            return generate(dir .. "/spells.json", dir .. "/buffs.json", dir .. "/out.lua",
+                '--levels "' .. dir .. '/levels.lua"')
+        end
+
+        it("writes each rank's level beside it, highest rank first, and the levels' build (white)", function()
+            local code, text = run(levelsFile("        [467] = 6,\n        [782] = 14,\n"))
+            assert.are.equal(0, code, text)
+            local out = read(dir .. "/out.lua")
+            assert.is_truthy(out:find("ranks = { 782, 467 },\n                levels = { 14, 6 },", 1, true), out)
+            assert.is_truthy(out:find('levelsBuild = "1.60.1.70959"', 1, true))
+            assert.is_truthy(text:find("Rank levels from build 1.60.1.70959 (2 spells)", 1, true), text)
+        end)
+
+        it("without --levels, writes no levels and says the button then offers nothing to others (white)", function()
+            write(dir .. "/out.lua", "KEEP")
+            local code, text = generate(dir .. "/spells.json", dir .. "/buffs.json", dir .. "/out.lua")
+            assert.are.equal(0, code, text)
+            assert.is_falsy(read(dir .. "/out.lua"):find("levels", 1, true))
+            assert.is_truthy(text:find("no --levels", 1, true))
+        end)
+
+        it("refuses a missing rank, a bad line, an ID twice, a level of 0 or 81, no build, no block, "
+            .. "and writes nothing (black)", function()
+            local cases = {
+                ["a rank with no level"] = levelsFile("        [467] = 6,\n"),
+                ["a junk line"] = levelsFile("        [467] = 6,\n        os.exit(1)\n        [782] = 14,\n"),
+                ["a fractional level"] = levelsFile("        [467] = 6.5,\n        [782] = 14,\n"),
+                ["an ID twice"] = levelsFile("        [467] = 6,\n        [467] = 7,\n        [782] = 14,\n"),
+                ["level 0"] = levelsFile("        [467] = 0,\n        [782] = 14,\n"),
+                ["level 81"] = levelsFile("        [467] = 6,\n        [782] = 81,\n"),
+                ["ID 0"] = levelsFile("        [0] = 6,\n        [467] = 6,\n        [782] = 14,\n"),
+                ["no build"] = "return {\n    levels = {\n        [467] = 6,\n        [782] = 14,\n    },\n}\n",
+                ["a bad build"] = levelsFile("        [467] = 6,\n        [782] = 14,\n", "latest"),
+                ["no levels block"] = "return {\n    build = \"1.60.1.70959\",\n}\n",
+                ["an empty block"] = levelsFile(""),
+            }
+            for why, levels in pairs(cases) do
+                local code, text = run(levels)
+                assert.are.equal(1, code, why .. ": " .. text)
+                assert.is_truthy(text:find("nothing written", 1, true), why)
+                assert.are.equal("KEEP", read(dir .. "/out.lua"), why .. ": the old file was touched")
+            end
+        end)
+
+        it("the committed table has a level for every rank, from the committed levels file (white)", function()
+            local data = dofile(ROOT .. "/scripts/data/forever-spell-levels.lua")
+            assert.are.equal(data.build, ns.BuffTable.levelsBuild)
+            for _, list in pairs(ns.BuffTable.classes) do
+                for _, buff in ipairs(list) do
+                    assert.are.equal(#buff.ranks, #buff.levels, buff.key)
+                    for i, id in ipairs(buff.ranks) do
+                        assert.are.equal(data.levels[id], buff.levels[i], buff.key .. " " .. id)
+                    end
+                end
+            end
+        end)
+
+        it("the committed levels file names its source and holds a level for every spell of the table (white)",
+            function()
+            local data = dofile(ROOT .. "/scripts/data/forever-spell-levels.lua")
+            assert.are.equal("1.60.1.70959", data.build)
+            assert.are.equal(1140079, data.fileDataId)
+            assert.are.equal("1e7b93596831e19ce60df01510cc546cbaf7dcb14fb2bdfab573a3eee86d6832", data.sha256)
+            local facts = wow.readFile("docs/forever-facts.md")
+            assert.is_truthy(facts:find(data.sha256, 1, true), "docs/forever-facts.md records its hash")
+            assert.is_truthy(facts:find(data.buildConfig, 1, true), "and its build config")
+            for _, list in pairs(ns.BuffTable.classes) do
+                for _, buff in ipairs(list) do
+                    for _, field in ipairs({ "ranks", "group" }) do
+                        for _, id in ipairs(buff[field] or {}) do
+                            local level = data.levels[id]
+                            assert.is_true(type(level) == "number" and level >= 1 and level <= 80, tostring(id))
+                        end
+                    end
+                end
+            end
+        end)
     end)
 
     describe("a buff that is not in the table (black)", function()

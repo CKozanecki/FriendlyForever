@@ -513,6 +513,38 @@ M.GROUP_CASTS = {
 }
 -- Group casts that cover the target's class in the group, not their party.
 M.CLASS_CASTS = { [25898] = true, [25918] = true, [25894] = true, [25916] = true, [25782] = true }
+-- Each rank's level (#459): [spell ID] = the level it is learned at, as
+-- Forever's SpellLevels data has it. Read from the committed data file
+-- (scripts/read_spell_levels.py's output), never from the addon's
+-- BuffTable.lua, so the specs check the addon's table rather than echo it.
+M.SPELL_LEVEL = dofile(M.ROOT .. "scripts/data/forever-spell-levels.lua").levels
+-- The server's rank rule (#459; see ASSUMPTIONS): a rank reaches a player
+-- whose level plus this is at least the rank's level.
+M.LEVEL_MARGIN = 10
+M.LOW_LEVEL_ERROR = "Target is too low level"
+-- The game's rank text for a spell ID (#459), as GetSpellSubtext gives it:
+-- "Rank 3" for a rank of a name with several, "" for a name with one
+-- (Forever's data gives Blessing of Kings none), nil for a spell the client
+-- doesn't have. state.spellSubtexts[id] overrides it.
+function M.spellSubtext(id)
+    local name = M.SPELL_NAMES[id]
+    if not name then return nil end
+    local given = M.state.spellSubtexts and M.state.spellSubtexts[id]
+    if given ~= nil then return given end
+    -- A spell a spec renamed keeps its rank under its old name.
+    local ranked = M.SPELL_RANK[id]
+    if not ranked or #(rankLists[ranked.name] or {}) < 2 then return "" end
+    return "Rank " .. ranked.rank
+end
+
+-- The button's last result (#461): the line under it goes as soon as it
+-- offers another player, but /friendly buffback still says it.
+function M.lastResult(ns)
+    for _, line in ipairs(ns.BuffButton.StatusLines()) do
+        local text = line:match("^last result: (.*)$")
+        if text then return text end
+    end
+end
 nameSpell("Greater Blessing of Kings", { 25898 })
 nameSpell("Greater Blessing of Wisdom", { 25918, 25894 })
 nameSpell("Greater Blessing of Might", { 25916, 25782 })
@@ -646,6 +678,22 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         Classic rank 1s (Battle Shout, Inner Fire, Devotion
 --                         Aura) are above rank 2's. Each name's ranks are its
 --                         nameSpell list, highest first (M.SPELL_RANK).
+--   /cast <name>(<rank text>) (#459; UNCONFIRMED on Forever, #463 says how
+--                         to check it) casts exactly the known
+--                         spell of that name whose rank text is that, as on
+--                         Classic Era; anything else is "Unknown spell".
+--                         GetSpellSubtext and C_Spell.GetSpellSubtext give a
+--                         spell's rank text: "Rank N" for a name of several
+--                         ranks, "" for a name of one (M.spellSubtext).
+--   The rank rule (#459; the server's, from cmangos-classic and vmangos
+--                         SpellMgr::SelectAuraRankForLevel; Forever's margin
+--                         UNCONFIRMED in game: #463): a rank cast on another player
+--                         fails with "Target is too low level" when their
+--                         level plus 10 is below the rank's level (M.SPELL_LEVEL,
+--                         Forever's SpellLevels data). Never for a group
+--                         version (not known) or a cast on yourself. A player
+--                         is level 60 (state.defaultLevel, set by wow.boot)
+--                         unless unit.level says otherwise.
 --   state.targetNameForm  how /target and /targetexact spell a two-part
 --                         name: "space" ("Nikki Shifts", default) or "hyphen"
 --   state.sentTargetForm  what UNIT_SPELLCAST_SENT gives as the target:
@@ -1149,7 +1197,18 @@ local function cast(args)
     -- "!Spell" (#44): never switches off a toggle that's already on.
     local bang = name:sub(1, 1) == "!"
     if bang then name = name:sub(2) end
-    local id = knownRank(name)
+    -- "Spell(Rank 3)" (#459) casts exactly the known spell of that name
+    -- whose rank text is that; anything else is unknown.
+    local id
+    local base, rankText = name:match("^(.-)%((.*)%)$")
+    if base then
+        name = base
+        for spellId, n in pairs(M.SPELL_NAMES) do
+            if n == base and M.state.knownSpells[spellId] and M.spellSubtext(spellId) == rankText then id = spellId end
+        end
+    else
+        id = knownRank(name)
+    end
     if not id then
         M.uiError("Unknown spell")
         return
@@ -1180,6 +1239,16 @@ local function cast(args)
     local redirected = elsewhere ~= nil and elsewhere.id ~= target.id -- another player, not another token
     if elsewhere then target = elsewhere end
     local failure = M.state.castFailures[target.id]
+    -- The server's rank rule (#459): a rank above what the target's level
+    -- allows is refused. Their real level counts, readable or not; a player
+    -- with none set is level 1 unless state.defaultLevel says otherwise
+    -- (pessimistic). Not for a group version (unknown: #463)
+    -- or a cast on yourself.
+    local need = M.SPELL_LEVEL[id]
+    if not failure and need and not M.GROUP_CASTS[id] and target ~= M.state.units.player
+        and (target.level or M.state.defaultLevel or 1) + M.LEVEL_MARGIN < need then
+        failure = M.LOW_LEVEL_ERROR
+    end
     -- A spell the game says can't be cast now fails (#44).
     local unusable = M.state.unusable[name]
     if not failure and unusable == "power" then
@@ -2015,9 +2084,19 @@ function M.reset()
     _G.UnitFullName = function(unit) return unitField(unit, "name"), unitField(unit, "surname") end
     _G.GetUnitName = function(unit) return unitField(unit, "name") end
     _G.UnitIsPlayer = function(unit) return unitField(unit, "isPlayer") end
-    -- unit.level (#273): what UnitLevel answers for that unit; nobody has one
-    -- until a test gives it. unit.secrets.level makes it a secret.
-    _G.UnitLevel = function(unit) return unitField(unit, "level") end
+    -- unit.level (#273): what UnitLevel answers for that unit; one with none
+    -- answers state.defaultLevel (60 from wow.boot, #459), or nil when that
+    -- isn't set. unit.secrets.level makes it a secret.
+    _G.UnitLevel = function(unit)
+        local u = M.state.units[unit]
+        if u and u.level == nil and M.state.defaultLevel ~= nil then
+            if M.state.unitsRestricted or (u.secrets and u.secrets.level) then
+                return M.secret(M.state.defaultLevel)
+            end
+            return M.state.defaultLevel
+        end
+        return unitField(unit, "level")
+    end
     _G.UnitIsUnit = restricted(function(a, b)
         local ua, ub = resolveUnit(a), resolveUnit(b)
         local same = ua ~= nil and ub ~= nil and ua.id == ub.id
@@ -2229,8 +2308,18 @@ function M.reset()
     _G.C_ChatInfo.PerformEmote = PerformEmote
 
     -- Spells: state.knownSpells[id] = true for spells in my spellbook.
+    -- The rank text of a spell ID (#459): state.noSpellSubtext takes both
+    -- answers away (nil), state.secretSubtext makes them secrets.
+    local function GetSpellSubtext(id)
+        if M.state.noSpellSubtext then return nil end
+        local text = M.spellSubtext(id)
+        if text ~= nil and M.state.secretSubtext then return M.secret(text) end
+        return text
+    end
+    _G.GetSpellSubtext = GetSpellSubtext
     _G.C_Spell = {
         GetSpellName = function(id) return M.SPELL_NAMES[id] end,
+        GetSpellSubtext = GetSpellSubtext,
         -- By ID: any spell the client has. By name: only a spell you know
         -- (the game looks names up in your spellbook).
         GetSpellInfo = function(spell)
@@ -2606,12 +2695,19 @@ end
 -- the player opens them (#267, see below).
 -- opts.buffSelf: keep buff mode offering your own copy of your buffs (#198).
 -- opts.walkthrough: keep a first install's walkthrough (see below).
+-- opts.defaultLevel: the level of a player with no unit.level (60; false for
+-- none, #459, see below).
 -- opts.afterLoad: called with the addon's namespace once its files are
 -- loaded, before its saved settings are (a spec for a later release changes
 -- the code here, such as the walkthrough's steps and version, #169).
 function M.boot(opts)
     opts = opts or {}
     M.reset()
+    -- Every player is level 60 unless a spec says otherwise (#459): the rank
+    -- rule then allows every rank, as specs written before it expect. A
+    -- spec of levels sets unit.level, or opts.defaultLevel (false: none, so
+    -- UnitLevel answers nil and the server takes level 1).
+    if opts.defaultLevel ~= false then M.state.defaultLevel = opts.defaultLevel or 60 end
     -- A group member's buff with no caster set reads as yours (#256): the
     -- game names a group member's caster, and most specs put up a buff to
     -- say "they have yours". A caster the game doesn't name now means someone

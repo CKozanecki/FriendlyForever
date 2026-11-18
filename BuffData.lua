@@ -8,6 +8,10 @@
 --   key       our name for it (saved settings, buff order)
 --   ranks     every rank's spell ID, highest first: "/cast <name>" casts the
 --             highest you know, and any of them on a player means they have it
+--   levels    each rank's level, beside it (#459, Forever's SpellLevels): a
+--             buff for another player is cast at the highest rank their level
+--             allows, your highest by its plain name, a lower one by name and
+--             rank (CastFor)
 --   group     the group versions' IDs (Arcane Brilliance...): they count as having it
 --   groupCast the group version you can cast (GroupCasts.lua, #41): scope
 --             "party" (the target's party) or "class" (every member of the
@@ -254,6 +258,89 @@ function BuffData.KnownRank(buff)
         if KnownAs(buff, id) then return id end
     end
     return nil
+end
+
+-- The level rule for buffing another player (#459): a rank reaches a player
+-- only when their level plus LEVEL_MARGIN is at least the rank's level (the
+-- level it is learned at, BuffTable's levels, from Forever's SpellLevels
+-- data). A higher rank is refused: "Target is too low level". The rule is
+-- the server's, as Classic's emulators have it (cmangos-classic and vmangos,
+-- SpellMgr::SelectAuraRankForLevel: `level + 10 >= spellLevel`); Forever
+-- refused an unranked cast on low players in the owner's test (17 Nov).
+-- docs/forever-facts.md, "Rank levels".
+BuffData.LEVEL_MARGIN = 10
+BuffData.MAX_LEVEL = 80 -- a level above this is junk, not a player's
+
+-- A unit's level, when the game gives it as a whole number from 1 to
+-- MAX_LEVEL; nil otherwise (a secret, an error, nil, or -1 for "??").
+function BuffData.LevelOf(unit)
+    local level = Read(UnitLevel, unit)
+    if type(level) ~= "number" or level ~= math.floor(level) or level < 1 or level > BuffData.MAX_LEVEL then
+        return nil
+    end
+    return level
+end
+
+-- What "/cast" names rank id of buff by when stepping down (#459): "Mark of
+-- the Wild(Rank 3)", the client's own name and rank text for that spell, so
+-- a press casts that rank and no other. A buff of one rank (Blessing of Kings) has no rank text
+-- in Forever's data, and its name alone casts that one rank. nil when the
+-- client won't give the name, or a rank's text.
+local function RankedName(buff, id)
+    local name = RankName(buff, id)
+    if not name then return nil end
+    if #buff.ranks == 1 then return name end
+    local rank = Read(C_Spell and C_Spell.GetSpellSubtext, id)
+    if type(rank) ~= "string" or rank == "" then rank = Read(GetSpellSubtext, id) end
+    if type(rank) ~= "string" or rank == "" then return nil end
+    return name .. "(" .. rank .. ")"
+end
+
+-- What to cast buff as on a player (#459): the highest rank you know that
+-- their level allows (LEVEL_MARGIN), and its spell ID. By its plain name
+-- when that rank is the highest you know, and always on yourself: "/cast
+-- <name>" casts your highest rank, as 1.4.1 did. By name and rank only when
+-- stepping down for a low-level player (the owner's decision on #459, 17
+-- Nov): the rank text and "Spell(Rank N)" are unconfirmed on Forever (#463),
+-- so only a cast 1.4.1 couldn't make depends on them.
+-- unit: a unit token that is them. self: it's you, whose own level allows
+-- every rank you know (no level is read). Otherwise nil, why not (worded to
+-- follow "<name>: "), and true when that's settled until they level up (you
+-- know the buff, and their level is too low for every rank you know), false
+-- when it can't be told now (their level or the rank's text can't be read).
+function BuffData.CastFor(buff, unit, self)
+    -- Its name, for a reason only: a spellbook read per rank.
+    local function Spell() return BuffData.SpellName(buff) or buff.name end
+    local level
+    if not self then
+        level = unit ~= nil and BuffData.LevelOf(unit) or nil
+        if not level then return nil, "can't see their level", false end
+        if type(buff.levels) ~= "table" then
+            return nil, "the levels of " .. Spell() .. "'s ranks aren't known", false
+        end
+    end
+    local knowsOne = false
+    for i, id in ipairs(buff.ranks) do
+        if KnownAs(buff, id) then
+            -- The first rank known is your highest: its plain name casts it.
+            local highest = not knowsOne
+            knowsOne = true
+            -- A rank with no level is never cast on someone else.
+            local need = not self and buff.levels[i] or nil
+            if self or (type(need) == "number" and level + BuffData.LEVEL_MARGIN >= need) then
+                if self or highest then
+                    local text = RankName(buff, id)
+                    if not text then return nil, "the game won't name " .. Spell(), false end
+                    return text, id
+                end
+                local text = RankedName(buff, id)
+                if not text then return nil, "the game won't name the rank of " .. Spell(), false end
+                return text, id
+            end
+        end
+    end
+    if not knowsOne then return nil, "you don't know " .. Spell(), false end
+    return nil, "they're too low level for your " .. Spell(), true
 end
 
 -- The name to cast buff by: the name of the highest rank you know, which is

@@ -33,7 +33,11 @@
 -- show yet), that they're missing or whose copy has less
 -- than half its full time left (the owner, #39 Q4: a single rank yours can replace, with times the
 -- game shows). Their auras must be readable, and the game must say your
--- spell reaches them: a doubt never costs a cast. One buff per press.
+-- spell reaches them: a doubt never costs a cast. One buff per press, at
+-- the highest rank you know that their level allows (BuffData.CastFor,
+-- #459): your highest by its plain name, a lower one by name and rank. A level the game won't give skips them; one too
+-- low for every rank of a buff is offered your next buff instead. After any
+-- refusal by the game they wait HELD_BACK_SECONDS.
 --
 -- Limits: at most MAX_CHECKED players get the costly checks (auras, range)
 -- per look, at most MAX_LISTED are listed, and a look runs at most once
@@ -53,7 +57,7 @@ PassersBy.INTERVAL = 1         -- seconds a look is reused for, unless a press a
 PassersBy.SKIP_SECONDS = 600   -- a right-click, or your buff reaching them, skips them this long
 PassersBy.MAX_SKIPPED = 50     -- players whose skip is remembered; the oldest goes first
 PassersBy.MAX_GIVEN = 200      -- (player, buff) pairs given a buff, remembered; the oldest goes first
-PassersBy.HELD_BACK_SECONDS = 15 -- a passer-by the game refused your cast to waits this long
+PassersBy.HELD_BACK_SECONDS = 15 -- a passer-by the game refused any cast to waits this long (#459)
 PassersBy.LOG_SECONDS = 60     -- debug says why a player was skipped once per reason this often
 PassersBy.MAX_LOGGED = 100     -- (player, reason) pairs remembered for that
 PassersBy.HALF = 0.5           -- a copy with less than this share of its time left is topped up
@@ -181,10 +185,11 @@ local function OtherOfFamily(candidate, buff, myBuffs)
     return ns.GroupBuffs.WearsMyFamily(candidate.unit, buff.family, buff, true)
 end
 
--- The buff to give a candidate, or nil and why not. myBuffs never holds a
--- self-buff or one only given when asked (BuffData.Offerable).
+-- The buff to give a candidate, its name and what to cast it as (by name
+-- and rank, #459), or nil and why not. myBuffs never holds a self-buff or
+-- one only given when asked (BuffData.Offerable).
 local function Choose(candidate, myBuffs)
-    local unit, wanted = candidate.unit, nil
+    local unit, wanted, cast, notCast = candidate.unit, nil, nil, nil
     for _, buff in ipairs(myBuffs) do
         -- A buff their class can use that your Buff Back rule for strangers
         -- gives them (#408: Everyone, or their class ticked; Off never), as
@@ -200,16 +205,23 @@ local function Choose(candidate, myBuffs)
             local wears = ns.Offers.Wears(unit, buff, HalfGone)
             if wears == nil then return nil, "can't read their buffs" end
             if wears == false then
-                wanted = buff
-                break
+                -- The rank their level allows (#459); none (too low for
+                -- every rank, or their level unreadable), your next buff.
+                local why
+                cast, why = ns.BuffData.CastFor(buff, unit)
+                if cast then
+                    wanted = buff
+                    break
+                end
+                notCast = notCast or why
             end
         end
     end
-    if not wanted then return nil, "has your buffs" end
+    if not wanted then return nil, notCast or "has your buffs" end
     local spell = ns.BuffData.SpellName(wanted)
     if not spell then return nil, "the spell's name isn't known" end
     if Util.InSpellRange(spell, unit) ~= true then return nil, "out of range, or the game won't say" end
-    return wanted, spell
+    return wanted, spell, cast
 end
 
 -- The look itself: the offers, in the order the button would reach them.
@@ -241,9 +253,10 @@ local function Look(anyMode)
         for _, candidate in ipairs(bucket) do
             if checked >= PassersBy.MAX_CHECKED or #offers >= PassersBy.MAX_LISTED then break end
             checked = checked + 1
-            local buff, spell = Choose(candidate, myBuffs)
+            local buff, spell, cast = Choose(candidate, myBuffs)
             if buff then
-                offers[#offers + 1] = { name = candidate.name, buff = buff, spell = spell, passerBy = true }
+                offers[#offers + 1] = { name = candidate.name, buff = buff, spell = spell, castSpell = cast,
+                    passerBy = true }
             else
                 Skip(candidate.name, spell)
             end
@@ -253,7 +266,7 @@ local function Look(anyMode)
     return offers
 end
 
--- The next passer-by to buff: { name, buff, spell, passerBy = true }, or
+-- The next passer-by to buff: { name, buff, spell, castSpell, passerBy = true }, or
 -- nil and why not. With a list (#43), every passer-by the button would
 -- offer to (at most MAX_LISTED) is appended to it, in order. A look is
 -- reused for INTERVAL seconds, unless Fresh was called since.
@@ -273,9 +286,20 @@ end
 
 -- Whether a passer-by would be offered a buff now, buff mode on or not:
 -- the campfire's trigger (BuffModeAuto.lua) turns buff mode on for them,
--- and keeps it on while one waits. Reads afresh when buff mode is off.
+-- and buff mode stays on while one waits (#462). Reads afresh when buff
+-- mode is off. In buff mode, a passer-by the game refused a moment ago
+-- (#459: any refusal, the global cooldown included) still waits until
+-- their hold ends, as a held-back group member does, so a refusal never
+-- ends buff mode; then they're looked at again.
 function PassersBy.Waiting()
-    if ns.BuffMode.LentKey() then return PassersBy.Next() ~= nil end
+    if ns.BuffMode.LentKey() then
+        if PassersBy.Next() ~= nil then return true end
+        if WhyNotNow() then return false end
+        for _, at in pairs(heldBack) do
+            if Recently(at, PassersBy.HELD_BACK_SECONDS) then return true end
+        end
+        return false
+    end
     return Look(true)[1] ~= nil
 end
 
@@ -302,7 +326,7 @@ function PassersBy.NoteGiven(name, buff)
     cache = nil
 end
 
--- The game refused a cast to them (out of range or sight): the next press
+-- The game refused a cast to them, for any reason (#459): the next press
 -- tries someone else for a moment.
 function PassersBy.NoteRefused(name)
     if type(name) ~= "string" then return end
