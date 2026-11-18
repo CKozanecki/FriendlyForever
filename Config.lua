@@ -242,9 +242,9 @@ Config.DEFAULTS = {
         -- no group, offer you your own copy of the buffs you give, as #198
         -- does in a group. On by default (the owner).
         soloOwnBuffs = true,
-        -- Fast-cast buffs in form (BuffButton.lua, #452): in a druid's form,
-        -- buff mode's key presses the button for your buffs too, which takes
-        -- you out of the form. Off by default (the owner): then only a click
+        -- Fast-cast buffs in form (BuffButton.lua, #452, #466): in a druid's
+        -- form or a shaman's Ghost Wolf, buff mode's key presses the button
+        -- for your buffs too, which takes you out of the form. Off by default (the owner): then only a click
         -- casts them in a form.
         fastCastInForm = false,
         -- Weapon buffs (WeaponBuffs.lua, #45): in buff mode, after your

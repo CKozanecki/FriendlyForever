@@ -689,7 +689,13 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         and fires UPDATE_SHAPESHIFT_FORM, #452)
 --                         and state.powerType ("MANA" unless set);
 --                         state.selfSecrets = { mounted, taxi, form, power,
---                         usable } makes those answers secrets. Your own
+--                         usable } makes those answers secrets. A shaman's
+--                         Ghost Wolf (M.setGhostWolf, #466) is form 1 and an
+--                         aura of spell 2645 on you, both UNCONFIRMED on
+--                         Forever (#467): a spec can give form 0
+--                         (state.ghostWolfForm) or no such aura
+--                         (state.ghostWolfAura false), and the game still
+--                         stops a cast in it. Your own
 --                         buffs stay listed past their time unless
 --                         state.expirePlayerAuras is set (then, as a group
 --                         member's, one whose time has come is gone).
@@ -1346,10 +1352,13 @@ end
 -- shaman's Ghost Wolf. With autoUnshift on, the game cancels the form and
 -- carries on (counted in M.formsCancelled); off, it refuses. true: refused.
 formStops = function()
-    if (M.state.form or 0) == 0 or not (M.state.class == "DRUID" or M.state.class == "SHAMAN") then return false end
+    local class = M.state.class
+    local shifted = ((M.state.form or 0) ~= 0 and (class == "DRUID" or class == "SHAMAN"))
+        or (class == "SHAMAN" and M.state.ghostWolf == true)
+    if not shifted then return false end
     if M.state.cvars.autoUnshift ~= "0" then
         M.formsCancelled = M.formsCancelled + 1
-        M.setForm(0)
+        if class == "SHAMAN" then M.setGhostWolf(false) else M.setForm(0) end
         return false
     end
     M.uiError(M.SHAPESHIFT_ERROR)
@@ -1361,6 +1370,32 @@ M.formStops = formStops
 -- changes, then UPDATE_SHAPESHIFT_FORM fires (#452).
 function M.setForm(form)
     M.state.form = form
+    M.fire("UPDATE_SHAPESHIFT_FORM")
+end
+
+-- Ghost Wolf's aura (#466): Classic Era's spell ID, unconfirmed on Forever (#467).
+M.GHOST_WOLF = 2645
+
+-- A shaman into Ghost Wolf (on) or out of it, as the game does (#466): your
+-- form and Ghost Wolf's aura change, then UNIT_AURA and
+-- UPDATE_SHAPESHIFT_FORM fire. How Forever reports it is unconfirmed (#467),
+-- so a spec can choose: state.ghostWolfForm is what GetShapeshiftForm gives
+-- in it (1 unless set; 0: the game doesn't count it as a form), and
+-- state.ghostWolfAura false lists no aura of ID 2645 (Forever's ID differs).
+-- The game stops a cast in Ghost Wolf either way (formStops).
+function M.setGhostWolf(on)
+    M.state.ghostWolf = on and true or false
+    M.state.form = on and (M.state.ghostWolfForm or 1) or 0
+    for i = #M.state.playerAuras, 1, -1 do
+        if M.state.playerAuras[i].spellId == M.GHOST_WOLF then table.remove(M.state.playerAuras, i) end
+    end
+    if on and M.state.ghostWolfAura ~= false then
+        -- A form's aura never runs out: no times.
+        M.state.playerAuras[#M.state.playerAuras + 1] = { isHelpful = true, isFromPlayerOrPlayerPet = true,
+            spellId = M.GHOST_WOLF, name = "Ghost Wolf", sourceUnit = "player", duration = 0, expirationTime = 0,
+            auraInstanceID = 690000 + #M.state.playerAuras }
+    end
+    M.fire("UNIT_AURA", "player", { isFullUpdate = true })
     M.fire("UPDATE_SHAPESHIFT_FORM")
 end
 
@@ -1884,6 +1919,8 @@ function M.reset()
         -- Self-buffs (#44; see ASSUMPTIONS): what you're doing, and the spells
         -- the game says can't be cast now ([name] = "power" or "other").
         mounted = false, onTaxi = false, form = 0, powerType = "MANA", unusable = {}, selfSecrets = {},
+        -- A shaman's Ghost Wolf (#466; M.setGhostWolf says how it reads).
+        ghostWolf = false,
         -- Weapon buffs (#45; see ASSUMPTIONS): what you wear in each slot
         -- ([slot] = item ID), the enchant on it ([slot] = { expires, charges,
         -- id }), items the game won't let you use yet, and secrets.

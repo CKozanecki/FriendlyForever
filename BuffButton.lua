@@ -148,8 +148,8 @@ end
 ------------------------------------------------------------------------
 
 -- Write the macro (or nothing) to the button, only when it changed: for a
--- click, and for buff mode's key unless keyWaits (#452: the key doesn't
--- cast a druid's buff in a form). Out of combat only, as every caller is.
+-- click, and for buff mode's key unless keyWaits (#452, #466: the key
+-- doesn't cast a druid's buff in a form, or a shaman's in Ghost Wolf). Out of combat only, as every caller is.
 local function SetSecureMacro(macroText, keyWaits)
     local keyText = (macroText and not keyWaits) and macroText or nil
     if macroText ~= appliedMacroText then
@@ -164,21 +164,57 @@ local function SetSecureMacro(macroText, keyWaits)
     end
 end
 
--- Why buff mode's key waits for this offer (#452), or nil when it may press
--- the button: a druid's buff while you're in a form, unless "Fast-cast buffs
--- in form" is on. A click still casts it (the game takes you out of the
--- form). Weapon buffs never wait (#45's choice B). A form or class the game
--- won't say counts as a form: the key waits.
+-- The classes whose form holds buff mode's key, and what the button says
+-- then: a druid's forms (#452) and a shaman's Ghost Wolf (#466). Every buff
+-- they cast is "not while shapeshifted" in Forever's data.
+local KEY_FORMS = { DRUID = "you're in a form", SHAMAN = "you're in Ghost Wolf" }
+
+-- Ghost Wolf's spell, as the aura it puts on you (#466). It is Classic Era's
+-- ID; that Forever's is the same is unconfirmed (#467), and the form read
+-- below doesn't depend on it.
+BuffButton.GHOST_WOLF_SPELL = 2645
+
+-- Whether you wear Ghost Wolf's aura: true or false, or nil when your buffs
+-- can't be read (a secret, an error, or more than are looked through).
+local function WearsGhostWolf()
+    local api = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    if type(api) ~= "function" then return nil end
+    for i = 1, ns.Offers.MAX_AURAS do
+        local ok, aura = pcall(api, "player", i, "HELPFUL")
+        if not ok or Util.IsSecret(aura) then return nil end
+        if aura == nil then return false end
+        if type(aura) ~= "table" then return nil end
+        local id = aura.spellId
+        if Util.IsSecret(id) or type(id) ~= "number" or id ~= id then return nil end
+        if id == BuffButton.GHOST_WOLF_SPELL then return true end
+    end
+    return nil
+end
+
+-- Why buff mode's key waits for this offer (#452, #466), or nil when it may
+-- press the button: a druid's buff while you're in a form, or a shaman's in
+-- Ghost Wolf, unless "Fast-cast buffs in form" is on. A click still casts it
+-- (the game takes you out of the form). Weapon buffs never wait (#45's
+-- choice B). A form or class the game won't say counts as a form: the key
+-- waits. Ghost Wolf counts when either the game's form or your buffs say
+-- so: which of the two Forever reports it by is unconfirmed (#467).
 function BuffButton.KeyWaits(offer)
     if not offer or offer.weapon then return nil end
     local buffBack = ns.db and ns.db.buffBack
     if type(buffBack) == "table" and buffBack.fastCastInForm == true then return nil end
     local _, class = Util.ReadGameValues(UnitClass, "player")
     if type(class) ~= "string" then return "can't tell whether you're in a form" end
-    if class ~= "DRUID" then return nil end
+    local why = KEY_FORMS[class]
+    if not why then return nil end
+    local unsure = "can't tell whether " .. why
     local form = Util.ReadGameValues(GetShapeshiftForm)
-    if type(form) ~= "number" or form ~= form then return "can't tell whether you're in a form" end
-    if form ~= 0 then return "you're in a form" end
+    if type(form) ~= "number" or form ~= form then return unsure end
+    if form ~= 0 then return why end
+    if class == "SHAMAN" then
+        local wolf = WearsGhostWolf()
+        if wolf == nil then return unsure end
+        if wolf then return why end
+    end
     return nil
 end
 
