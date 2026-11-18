@@ -1,4 +1,4 @@
--- Spec: #453, #459
+-- Spec: #453, #459, #483
 -- The debug log folds a run of identical press and result lines (#453): a
 -- wheel notch presses the button many times, and each press logged a line,
 -- pushing decisions out of the log. The first line of a run is logged, the
@@ -8,7 +8,7 @@ local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
 local MOTW, MOTW_1 = 9885, 1126
-local NOT_READY = "Spell is not ready yet."
+local NO_MANA = "Not enough mana"
 
 local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
 
@@ -28,9 +28,9 @@ describe("The debug log folds repeated press and result lines (#453)", function(
         wow.fire("GROUP_ROSTER_UPDATE")
         ns.db.debug = opts.debug ~= false
         ns.db.diagLog = {}
-        -- A refused member waits a while after any refusal (#459); this spec
-        -- is about the log, so Ann may be refused press after press, as a
-        -- mashed wheel did before that hold.
+        -- A refusal about you holds nobody (#483): Ann is refused press after
+        -- press, as a mashed wheel with no mana is. The hold is off anyway, in
+        -- case the game's words ever read as about her.
         ns.GroupBuffs.HELD_BACK_SECONDS = 0
     end
 
@@ -53,8 +53,8 @@ describe("The debug log folds repeated press and result lines (#453)", function(
         return found
     end
 
-    -- Every cast at Ann is refused as the game does on a cooldown.
-    local function refuseAnn() wow.state.castFailures["Ann-Vale"] = NOT_READY end
+    -- Every cast at Ann is refused as the game does with no mana.
+    local function refuseAnn() wow.state.castFailures["Ann-Vale"] = NO_MANA end
 
     local function presses(n)
         for _ = 1, n do wow.pressKey("MOUSEWHEELUP") end
@@ -76,10 +76,10 @@ describe("The debug log folds repeated press and result lines (#453)", function(
 
         it("the refusals fold the same way, and the button still shows each one", function()
             presses(5)
-            assert.matches(NOT_READY, ns.BuffButton.Frame().result:GetText(), 1, true)
-            assert.are.equal(1, count("Couldn't buff Ann Vale: " .. NOT_READY))
+            assert.matches(NO_MANA, ns.BuffButton.Frame().result:GetText(), 1, true)
+            assert.are.equal(1, count("Couldn't buff Ann Vale: " .. NO_MANA))
             wow.advance(ns.Diag.FOLD_SECONDS + 1)
-            assert.are.equal(1, count("Couldn't buff Ann Vale: " .. NOT_READY .. " (repeated 4 more times)"))
+            assert.are.equal(1, count("Couldn't buff Ann Vale: " .. NO_MANA .. " (repeated 4 more times)"))
         end)
 
         it("a press within the window of the last repeat keeps the run going", function()

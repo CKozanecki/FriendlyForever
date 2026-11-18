@@ -73,7 +73,7 @@ ns.GroupBuffs = GroupBuffs
 GroupBuffs.JUST_GIVEN_SECONDS = 10
 -- Right-click skips a member for this long.
 GroupBuffs.SKIP_SECONDS = 300
--- A member whose cast the game refused, for any reason (#459), waits this long.
+-- A member whose cast the game refused, for a reason about them (#459, #483), waits this long.
 GroupBuffs.HELD_BACK_SECONDS = 15
 
 -- Where you come in (#198): your own copy of each buff you give is offered
@@ -828,8 +828,9 @@ function GroupBuffs.InRound() return round ~= nil end
 -- for one ends with it), or nil.
 function GroupBuffs.Round() return round end
 
--- The game refused a cast to them, for any reason (#459, the owner: not
--- only out of range or sight): try the others first for a moment.
+-- The game refused a cast to them, for a reason about them (#459, #483,
+-- the owner: BuffButton.RefusalKind; a refusal about you, such as no mana,
+-- holds nobody): try the others first for a moment.
 function GroupBuffs.NoteRefused(name)
     heldBack[name] = GetTime()
 end

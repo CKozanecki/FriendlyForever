@@ -71,9 +71,9 @@ describe("Druid buffs in a form (#452)", function()
 
         it("a click in a form the game refuses shows the game's reason, as any press does", function()
             boot({ form = CAT })
-            wow.state.castFailures["Ann-Vale"] = "Spell is not ready yet."
+            wow.state.castFailures["Ann-Vale"] = "Not enough mana"
             click()
-            assert.matches("Couldn't buff Ann Vale: Spell is not ready yet.", wow.lastResult(ns), 1, true)
+            assert.matches("Couldn't buff Ann Vale: Not enough mana", wow.lastResult(ns), 1, true)
         end)
 
         it("a scroll that waits is no press: no 'No answer', and the member isn't held back", function()

@@ -49,8 +49,10 @@
 -- their level allows (BuffData.CastFor): your highest by its plain name, a
 -- lower one by name and rank. A player whose level
 -- the game won't give isn't offered one, and says why; one too low for every
--- rank of a buff is offered your next buff instead. After any refusal by the
--- game, their favour waits HELD_BACK_SECONDS before it's offered again.
+-- rank of a buff is offered your next buff instead. After a refusal by the
+-- game about them (#483: out of range, out of sight, too low level), their
+-- favour waits HELD_BACK_SECONDS before it's offered again; one about you
+-- (no mana, the global cooldown) holds nobody.
 local _, ns = ...
 local Util = ns.Util
 local Read = Util.ReadGameValues
@@ -70,7 +72,7 @@ Offers.MAX_CASTS_WAITING = 8    -- hand-cast buffs remembered as sent; the oldes
 Offers.MARK_SECONDS = 30
 Offers.MAX_MARKS = 50           -- marks waiting for their buff at once; the oldest goes first
 Offers.MAX_REQUESTS = 5         -- requests in chat waiting at once (#40); the oldest goes first
-Offers.HELD_BACK_SECONDS = 15   -- after the game refuses a cast to them, their favour waits this long (#459)
+Offers.HELD_BACK_SECONDS = 15   -- after the game refuses a cast to them, for a reason about them, their favour waits this long (#459, #483)
 
 local favours = {}          -- newest last: { name, unit, class, owedAt, ledgerEntry, requested, request }
 local buffedAt = {}         -- [full name] = GetTime() a buff of yours last reached them
@@ -654,8 +656,8 @@ function Offers.Current(list)
     return nil, firstReason
 end
 
--- The game refused the button's cast to them, for any reason (#459): their
--- favour or request waits HELD_BACK_SECONDS, so the button doesn't go back
+-- The game refused the button's cast to them, for a reason about them
+-- (#459, #483: BuffButton.RefusalKind): their favour or request waits HELD_BACK_SECONDS, so the button doesn't go back
 -- to them at every press.
 function Offers.NoteRefused(name)
     if type(name) ~= "string" then return end
