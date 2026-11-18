@@ -680,15 +680,15 @@ local function Look(out, units, groupKnown, inRaid)
                 if groupOffer then
                     local mineFirst = list[1] and list[1].self and not groupOffer.cast.coversSelf
                         and Needs(buff, list[1])
-                    -- Your own copy, cast by name and rank (#459): the
-                    -- highest you know.
+                    -- Your own copy (#459): the highest rank you know, by
+                    -- its plain name.
                     local mineCast = mineFirst and ns.BuffData.CastFor(buff, "player", true)
                     if mineCast then
                         local offer = { name = list[1].name, buff = buff, spell = spell, castSpell = mineCast,
                             group = true, self = true }
                         if Found(offer) then return offer end
                     elseif mineFirst then
-                        Why(list[1], "the game won't name the rank of " .. spell)
+                        Why(list[1], "the game won't name " .. spell)
                     end
                     if Found(groupOffer) then return groupOffer end
                 end
@@ -696,7 +696,8 @@ local function Look(out, units, groupKnown, inRaid)
             for _, member in ipairs(spell and list or {}) do
                 if Needs(buff, member) then
                     -- Range is about other people: you are always in reach of yourself.
-                    -- The rank their level allows, by name and rank (#459).
+                    -- The rank their level allows (#459): your highest by its
+                    -- plain name, a lower one by name and rank.
                     local cast, levelWhy, tooLow
                     if not member.self and InSpellRange(spell, member.unit) == false then
                         if not outOfRange[member.name] then Why(member, "out of range") end

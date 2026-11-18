@@ -45,8 +45,9 @@
 -- theirs over the hidden channel (Comm.lua) that this buff answers theirs,
 -- so their copy doesn't owe you one back, however long the favour waited.
 --
--- Rank and level (#459): the buff is cast by name and rank, the highest rank
--- you know that their level allows (BuffData.CastFor). A player whose level
+-- Rank and level (#459): the buff is cast at the highest rank you know that
+-- their level allows (BuffData.CastFor): your highest by its plain name, a
+-- lower one by name and rank. A player whose level
 -- the game won't give isn't offered one, and says why; one too low for every
 -- rank of a buff is offered your next buff instead. After any refusal by the
 -- game, their favour waits HELD_BACK_SECONDS before it's offered again.
@@ -505,10 +506,11 @@ end
 
 -- The buff to give this favour, or nil and why not. away is true, with no
 -- reason, when they've left (#270): the game doesn't show them, or says
--- your buff can't reach them. Fourth, with the buff: what to cast it as, by
--- name and rank (BuffData.CastFor, #459). Fifth, with no buff: their level,
+-- your buff can't reach them. Fourth, with the buff: what to cast it as
+-- (BuffData.CastFor, #459: the rank their level allows). Fifth, with no buff: their level,
 -- when the only reason is that it's too low for every rank of each buff
--- that suits them (they can't have one from you until they level up).
+-- that suits them, none of them worn (they can't have one from you until
+-- they level up).
 function ChooseBuff(favour, myBuffs, held, visible)
     local unit, flagged = Observe(favour, visible)
     if not unit or OutOfReach(myBuffs[1], unit) then return nil, nil, true end
@@ -564,6 +566,10 @@ function ChooseBuff(favour, myBuffs, held, visible)
                 if cast then return buff, nil, nil, cast end
                 notCast = notCast or why
                 allLow = allLow and low == true
+            else
+                -- Worn, or another of your Blessings is: wanted again once it
+                -- wears off, so a level too low for the rest settles nothing.
+                allLow = false
             end
             -- Said once per favour and buff: the button re-arms often.
             favour.skipLogged = favour.skipLogged or {}
@@ -581,6 +587,9 @@ function ChooseBuff(favour, myBuffs, held, visible)
         end
     end
     if whose then return nil, "can't tell whose Blessing they have" end
+    -- Settled as too low only when every buff that may suit them is: none
+    -- worn now, none whose rule can't tell their class yet.
+    if unsure then allLow = false end
     if notCast then return nil, notCast, nil, nil, allLow and ns.BuffData.LevelOf(unit) or nil end
     if suitable > 0 then return nil, "they already have your buffs" end
     -- (A favour your rules leave nothing for isn't here: Givable.)

@@ -9,8 +9,9 @@
 --   ranks     every rank's spell ID, highest first: "/cast <name>" casts the
 --             highest you know, and any of them on a player means they have it
 --   levels    each rank's level, beside it (#459, Forever's SpellLevels): a
---             buff for another player is cast by name and rank, the highest
---             their level allows (CastFor)
+--             buff for another player is cast at the highest rank their level
+--             allows, your highest by its plain name, a lower one by name and
+--             rank (CastFor)
 --   group     the group versions' IDs (Arcane Brilliance...): they count as having it
 --   groupCast the group version you can cast (GroupCasts.lua, #41): scope
 --             "party" (the target's party) or "class" (every member of the
@@ -327,8 +328,12 @@ function BuffData.CastFor(buff, unit, self)
             -- A rank with no level is never cast on someone else.
             local need = not self and buff.levels[i] or nil
             if self or (type(need) == "number" and level + BuffData.LEVEL_MARGIN >= need) then
-                local text
-                if self or highest then text = RankName(buff, id) else text = RankedName(buff, id) end
+                if self or highest then
+                    local text = RankName(buff, id)
+                    if not text then return nil, "the game won't name " .. Spell(), false end
+                    return text, id
+                end
+                local text = RankedName(buff, id)
                 if not text then return nil, "the game won't name the rank of " .. Spell(), false end
                 return text, id
             end

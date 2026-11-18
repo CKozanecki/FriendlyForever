@@ -122,7 +122,7 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             assert.are.same({ 5234, "Cid-Rock" }, { lastCast().id, lastCast().target })
         end)
 
-        it("your own copy in buff mode is your highest rank, by name and rank", function()
+        it("your own copy in buff mode is your highest rank, by its plain name", function()
             boot(MOTW, { buffSelf = true })
             party({ "Ann-Vale" }, { 60 })
             wow.state.units.player.level = 1 -- your own level is never read for your copy
@@ -247,6 +247,35 @@ describe("Buffing a player with the rank their level allows (#459)", function()
                 assert.are.equal(0, turnedOn, when .. ": the favour was weighed as it was owed")
                 assert.are.equal(0, ns.Offers.Count(), when)
             end
+        end)
+
+        it("a favour too low for one buff while wearing another of yours stays counted, and gets it once theirs "
+            .. "fades (#465's review)", function()
+            -- Fortitude rank 3 (level 24) reaches a level-15 player; Divine Spirit (30) doesn't.
+            boot({ SPIRIT[4], FORT[4] }, { class = "PRIEST", noMode = true })
+            -- Ann, level 15, wears someone's Fortitude.
+            local ann = stranger("nameplate1", "Ann", "Vale", { level = 15, class = "MAGE", auras = { FORT[4] },
+                auraSources = { false }, auraDurations = { 1800 }, auraExpires = { wow.now + 1800 } })
+            wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
+            local _, why = ns.Offers.Current()
+            assert.is_truthy(why:find("too low level for your Divine Spirit", 1, true), why)
+            assert.are.equal(1, ns.Offers.Count(), "not settled: her Fortitude will wear off")
+            ann.auras, ann.auraSources, ann.auraDurations, ann.auraExpires = {}, {}, {}, {}
+            slash("buffmode on")
+            assert.are.equal("Ann Vale: Power Word: Fortitude", armed(), "the favour is paid back")
+        end)
+
+        it("a favour too low for one buff, whose class can't be read for another's rule, stays counted", function()
+            boot({ SPIRIT[4], FORT[4] }, { class = "PRIEST", noMode = true })
+            ns.db.buffBack.whoChoice = "new"
+            ns.db.buffBack.whoStrangers = { fortitude = { classes = { MAGE = true } } }
+            local ann = stranger("nameplate1", "Ann", "Vale", { level = 15 })
+            ann.class = nil -- the game won't say: Fortitude's rule can't tell yet
+            wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
+            local offer, why = ns.Offers.Current()
+            assert.is_nil(offer)
+            assert.is_truthy(why:find("too low level for your Divine Spirit", 1, true), why)
+            assert.are.equal(1, ns.Offers.Count(), "not settled: her class may yet be read")
         end)
 
         it("a favour whose rank can't be named (its level readable) is still counted: not settled", function()

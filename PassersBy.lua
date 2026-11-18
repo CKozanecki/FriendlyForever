@@ -33,9 +33,9 @@
 -- show yet), that they're missing or whose copy has less
 -- than half its full time left (the owner, #39 Q4: a single rank yours can replace, with times the
 -- game shows). Their auras must be readable, and the game must say your
--- spell reaches them: a doubt never costs a cast. One buff per press, cast
--- by name and rank: the highest rank you know that their level allows
--- (BuffData.CastFor, #459). A level the game won't give skips them; one too
+-- spell reaches them: a doubt never costs a cast. One buff per press, at
+-- the highest rank you know that their level allows (BuffData.CastFor,
+-- #459): your highest by its plain name, a lower one by name and rank. A level the game won't give skips them; one too
 -- low for every rank of a buff is offered your next buff instead. After any
 -- refusal by the game they wait HELD_BACK_SECONDS.
 --
