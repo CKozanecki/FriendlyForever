@@ -1,4 +1,4 @@
--- Spec: #273
+-- Spec: #273, #459
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
@@ -17,7 +17,9 @@ describe("Level-up congratulations", function()
     local function sentLines() return wow.sentTo("PARTY") end
 
     before_each(function()
-        ns = wow.boot()
+        -- Players have no level until a test gives one (#459's default of 60 is
+        -- turned off): a level never read is a case of its own here.
+        ns = wow.boot({ defaultLevel = false })
         ns.db.levelUp.messages = { ns.CasualMessages.levelUp[1] } -- fixed wording: "Congrats, {name}!"
     end)
 
@@ -202,7 +204,7 @@ describe("Level-up congratulations", function()
         end)
 
         it("sends nothing in the login grace period", function()
-            ns = wow.boot({ noGrace = true })
+            ns = wow.boot({ noGrace = true, defaultLevel = false })
             ns.db.levelUp.messages = { ns.CasualMessages.levelUp[1] }
             party(nil, { 10, 20 })
             wow.levelUp("party1", 11)
@@ -431,7 +433,7 @@ describe("Level-up congratulations", function()
 
     describe("a reload in a party (white)", function()
         it("congratulates a member's first level-up even with no roster update after the reload", function()
-            ns = wow.boot({ before = function(state)
+            ns = wow.boot({ defaultLevel = false, before = function(state)
                 state.isLeader = true
                 wow.setGroup("party", { "Alex-Roberts", "Udders-Healz" })
                 wow.state.units.party1.level = 10

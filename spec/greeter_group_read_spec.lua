@@ -1,4 +1,4 @@
--- Spec: #400
+-- Spec: #400, #459
 -- Greeter and LevelUps read IsInGroup(), IsInRaid() and IsInGuild() through
 -- Util.ReadGameValues. An answer that can't be read (a secret, nil, a number,
 -- an error) never errors, is never tested, and decides no greeting: no line
@@ -55,7 +55,8 @@ describe("Greetings when the game's group answers can't be read (#400)", functio
     end
 
     local function boot()
-        ns = wow.boot({ before = function(state) state.guildRoster = { "Thrall", "Jaina" } end })
+        -- No level until a test gives one (#459's default of 60 off), as level-ups expect.
+        ns = wow.boot({ defaultLevel = false, before = function(state) state.guildRoster = { "Thrall", "Jaina" } end })
         wow.fire("GUILD_ROSTER_UPDATE")
         for _, msgType in ipairs(ns.Config.TYPES) do
             ns.db[msgType].messages = { ns.CasualMessages[msgType][1] } -- fixed wording

@@ -157,7 +157,9 @@ describe("The buff button batch (1.4.3)", function()
         end)
 
         it("chaos: whenever a press's result shows under an offer, it's about the player offered (red)", function()
+            local met = 0
             for seed = 1, 6 do
+                local pressedFor
                 random.seed(seed)
                 boot()
                 local names = { { "Bob", "Stone" }, { "Cid", "Rock" }, { "Dee", "Moss" } }
@@ -175,10 +177,18 @@ describe("The buff button batch (1.4.3)", function()
                     elseif roll == 4 then
                         wow.state.playerAuras = {}
                     else
-                        press()
+                        local cast = press()
+                        pressedFor = cast and cast.target or nil
                     end
                     refresh()
                     local shown, offered = result(), title()
+                    -- A press's line met another player's offer (the case #461 is about).
+                    if roll >= 5 and pressedFor and offered ~= "" and offered ~= "Buff mode" then
+                        local u
+                        for _, unit in pairs(wow.state.units) do if unit.id == pressedFor then u = unit end end
+                        local pressedName = u == wow.state.units.player and "You" or (u and (u.name .. " " .. u.surname))
+                        if pressedName and pressedName ~= offered then met = met + 1 end
+                    end
                     -- A right-click's line stays wherever the button moves (the owner, #461).
                     local rightClick = shown:find("^Skipping ") or shown:find("^Let ")
                     if shown ~= "" and not rightClick and button:IsShown() and offered ~= "" and offered ~= "Buff mode" then
@@ -189,6 +199,7 @@ describe("The buff button batch (1.4.3)", function()
                 end
                 assert.are.same({}, wow.errors, "seed " .. seed)
             end
+            assert.is_true(met >= 10, "a press's line met another player's offer " .. met .. " times")
         end)
     end)
 
@@ -247,6 +258,42 @@ describe("The buff button batch (1.4.3)", function()
             end
         end)
 
+        -- Ann's favour turns buff mode on and is returned; Bob, passing by, is
+        -- next, and the game refuses him on the global cooldown.
+        local function bobHeldBack()
+            boot({ auto = true })
+            wearMine()
+            stranger("nameplate1", "Bob", "Stone")
+            stranger("nameplate2", "Ann", "Vale", { class = "MAGE", auras = { THORNS }, auraSources = { false } })
+            wow.gainBuff({ sourceUnit = "nameplate2", name = "Arcane Intellect", spellId = INTELLECT })
+            press()
+            refresh()
+            assert.are.equal("Bob Stone", title())
+            wow.state.castFailures["Bob-Stone"] = "Spell is not ready yet."
+            press()
+            refresh()
+            assert.is_true(ns.BuffMode.IsOn(), "Bob waits out his hold")
+        end
+
+        it("a held-back passer-by who leaves keeps buff mode on only until his hold ends (white)", function()
+            bobHeldBack()
+            wow.state.units.nameplate1 = nil
+            wow.advance(ns.PassersBy.HELD_BACK_SECONDS - 1)
+            refresh()
+            assert.is_true(ns.BuffMode.IsOn(), "still within his hold")
+            wow.advance(2)
+            refresh()
+            assert.is_false(ns.BuffMode.IsOn(), "his hold is over and nobody waits: it ends, long before the timeout")
+        end)
+
+        it("passers-by switched off during a hold: the held passer-by keeps nothing on (black)", function()
+            bobHeldBack()
+            ns.db.buffBack.passersBy = false
+            wow.advance(1)
+            refresh()
+            assert.is_false(ns.BuffMode.IsOn(), "passers-by off: no change from before #462")
+        end)
+
         it("ends when the passer-by is skipped or gone, at the timeout, and at the pull (white, red)", function()
             local ends = {
                 skipped = function() wow.press(button, "RightButton") end,
@@ -299,18 +346,63 @@ describe("The buff button batch (1.4.3)", function()
             assert.is_false(button:IsShown(), "nothing owed, buff mode off: no Bob")
         end)
 
-        it("chaos: buff mode a trigger turned on turns off before its timeout only when no passer-by on a "
-            .. "nameplate lacks a buff of yours, unless right-clicked away (red)", function()
+        it("chaos: buff mode a trigger turned on is on exactly while work is left, a held-back passer-by "
+            .. "included, and ends once none is, at the pull or at the timeout (red)", function()
             local names = { { "Bob", "Stone" }, { "Cid", "Rock" } }
-            local turnedOff = 0
-            for seed = 1, 6 do
+            local ends = { settled = 0, afterHold = 0, pull = 0, timeout = 0 }
+            for seed = 1, 12 do
                 random.seed(seed)
                 boot({ auto = true })
+                ns.db.buffBack.autoOffMinutes = 1
+                local SKIP, HOLD = ns.PassersBy.SKIP_SECONDS, ns.PassersBy.HELD_BACK_SECONDS
+                local lastOff
+                local set = ns.BuffMode.Set
+                ns.BuffMode.Set = function(on, how)
+                    if not on then lastOff = type(how) == "table" and how.why or "" end
+                    return set(on, how)
+                end
                 wearMine()
                 wow.advance(ns.BuffModeAuto.WATCH_SECONDS + 1)
-                local skippedAt, onAt, wasAuto = {}, nil, false
-                for step = 1, 50 do
-                    local roll = random.random(1, 7)
+                local skippedAt, refusedAt, givenAt, selfSkippedAt = {}, {}, {}, nil
+                local wasAuto, fighting = false, false
+                local function wearsBoth(list)
+                    local wears = {}
+                    for _, aura in ipairs(list) do wears[type(aura) == "table" and aura.spellId or aura] = true end
+                    return wears[MOTW] == true and wears[THORNS] == true
+                end
+                -- Work left, from the client's own state: your buffs (unless you
+                -- right-clicked yourself away), a stranger shown who lacks one
+                -- (unless right-clicked away), or a refusal's hold. wide: the
+                -- windows' edges count as work; narrow: they don't.
+                local function workLeft(wide)
+                    local m = wide and 1 or -1
+                    local now = wow.now
+                    if not wearsBoth(wow.state.playerAuras)
+                        and not (selfSkippedAt and now - selfSkippedAt < ns.GroupBuffs.SKIP_SECONDS - m) then
+                        return true
+                    end
+                    -- A buff that reached a stranger isn't offered to them again
+                    -- for SKIP (#39), even if they come back without it.
+                    for i = 1, 2 do
+                        local u = wow.state.units["nameplate" .. i]
+                        local id = u and (u.name .. "-" .. u.surname)
+                        if u and not (skippedAt[id] and now - skippedAt[id] < SKIP - m) then
+                            local wears = {}
+                            for _, aura in ipairs(u.auras or {}) do wears[aura] = true end
+                            for spellId, spell in pairs({ [MOTW] = "Mark of the Wild", [THORNS] = "Thorns" }) do
+                                local given = givenAt[id .. "\1" .. spell]
+                                if not wears[spellId] and not (given and now - given < SKIP - m) then return true end
+                            end
+                        end
+                    end
+                    for _, at in pairs(refusedAt) do
+                        if now - at < HOLD + m then return true end
+                    end
+                    return false
+                end
+                for step = 1, 80 do
+                    local where = ("seed %d, step %d"):format(seed, step)
+                    local roll = random.random(1, 10)
                     if roll == 1 then
                         local i = random.random(1, 2)
                         if wow.state.units["nameplate" .. i] then
@@ -324,39 +416,64 @@ describe("The buff button batch (1.4.3)", function()
                     elseif roll == 3 then
                         local armedFor = ns.BuffButton.ArmedOffer()
                         if armedFor and armedFor.passerBy then skippedAt[armedFor.name] = wow.now end
+                        if armedFor and armedFor.self then selfSkippedAt = wow.now end
                         wow.press(button, "RightButton")
                     elseif roll == 4 then
                         wow.advance(random.random(1, 30))
+                    elseif roll == 5 then
+                        -- The global cooldown refuses a stranger, or stops refusing.
+                        local who = names[random.random(1, 2)]
+                        wow.state.castFailures[who[1] .. "-" .. who[2]] =
+                            random.random(1, 2) == 1 and "Spell is not ready yet." or nil
+                    elseif roll == 6 then
+                        if fighting then wow.leaveCombat() else wow.enterCombat() end
+                        fighting = not fighting
                     else
-                        press()
-                    end
-                    refresh()
-                    -- Buff mode a trigger had on at the end of the last step
-                    -- turned off in this one (often inside the press itself).
-                    if not ns.BuffMode.IsOn() then
-                        if wasAuto and wow.now - onAt < ns.db.buffBack.autoOffMinutes * 60 then
-                            turnedOff = turnedOff + 1
-                            -- Independently, from the client's own state: every
-                            -- stranger shown wears both your buffs, or was skipped.
-                            for i = 1, 2 do
-                                local u = wow.state.units["nameplate" .. i]
-                                local id = u and (u.name .. "-" .. u.surname)
-                                if u and not (skippedAt[id] and wow.now - skippedAt[id] < ns.PassersBy.SKIP_SECONDS) then
-                                    local wears = {}
-                                    for _, aura in ipairs(u.auras or {}) do wears[aura] = true end
-                                    assert.is_true(wears[MOTW] == true and wears[THORNS] == true,
-                                        ("seed %d, step %d: off while %s lacks a buff"):format(seed, step, id))
+                        local cast = press()
+                        if cast and cast.failed then
+                            refusedAt[cast.target] = wow.now
+                            -- Sometimes they walk off: only their hold keeps buff mode on.
+                            if random.random(1, 2) == 1 then
+                                for i = 1, 2 do
+                                    local u = wow.state.units["nameplate" .. i]
+                                    if u and u.name .. "-" .. u.surname == cast.target then
+                                        wow.state.units["nameplate" .. i] = nil
+                                    end
                                 end
                             end
                         end
-                        onAt = nil
+                        if cast and not cast.failed then givenAt[cast.target .. "\1" .. cast.spell] = wow.now end
                     end
-                    wasAuto = ns.BuffMode.IsAuto()
-                    if wasAuto and not onAt then onAt = wow.now end
+                    refresh()
+                    local on, auto = ns.BuffMode.IsOn(), ns.BuffMode.IsAuto()
+                    if fighting then
+                        if wasAuto and not on then ends.pull = ends.pull + 1 end
+                        assert.is_false(on and auto, where .. ": a trigger's buff mode in a fight")
+                    else
+                        if auto then
+                            assert.is_true(workLeft(true), where .. ": on with no work left")
+                        end
+                        if wasAuto and not on then
+                            if lastOff and lastOff:find("minutes passed", 1, true) then
+                                ends.timeout = ends.timeout + 1
+                            else
+                                assert.is_false(workLeft(false), where .. ": off with work left (" .. tostring(lastOff) .. ")")
+                                local held = false
+                                for _, at in pairs(refusedAt) do held = held or wow.now - at < HOLD + 35 end
+                                if held then ends.afterHold = ends.afterHold + 1 else ends.settled = ends.settled + 1 end
+                            end
+                        end
+                    end
+                    wasAuto = auto
                 end
+                if fighting then wow.leaveCombat() end
+                ns.BuffMode.Set = set
                 assert.are.same({}, wow.errors, "seed " .. seed)
             end
-            assert.is_true(turnedOff >= 3, "the storm turned buff mode off " .. turnedOff .. " times")
+            for kind, n in pairs(ends) do
+                assert.is_true(n >= 1, ("the storm ended buff mode by %s %d times"):format(kind, n))
+            end
+            assert.is_true(ends.settled >= 3, "settled " .. ends.settled .. " times")
         end)
     end)
 end)
