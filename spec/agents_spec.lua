@@ -129,6 +129,17 @@ describe("the agents' instruction files", function()
         assert.is_falsy(agents:find("Research subagents may read", 1, true), "written once, not repeated in AGENTS.md")
     end)
 
+    it("CLAUDE.md says how to wait for CI, once, and after-merge points to it (white)", function()
+        local _, count = claude:gsub("%*%*Waiting for CI%*%*", "")
+        assert.are.equal(1, count)
+        assert.is_truthy(claude:find("never wait with a long timed check-in. Subscribe to the PR's activity with the"
+            .. " remote tool `subscribe_pr_activity` right after opening it", 1, true))
+        assert.is_falsy(claude:find("gh api repos", 1, true), "no gh command: sessions may use gh only for search")
+        assert.is_truthy(claude:find("A timed check-in is only a fallback for a job that hangs.", 1, true))
+        assert.is_falsy(agents:find("Waiting for CI", 1, true), "written once, not repeated in AGENTS.md")
+        assert.is_truthy(wow.readFile(".claude/skills/after-merge/SKILL.md"):find("\"Waiting for CI\"", 1, true))
+    end)
+
     it("CLAUDE.md keeps only Claude's own sections", function()
         local sections = {}
         for heading in claude:gmatch("\n## ([^\n]*)") do sections[#sections + 1] = heading end
