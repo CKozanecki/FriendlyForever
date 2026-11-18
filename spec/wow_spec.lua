@@ -1,4 +1,4 @@
--- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449
+-- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -1462,5 +1462,121 @@ describe("The simulated client's resting (#449)", function()
         assert.is_true(_G.issecretvalue(_G.IsResting()))
         wow.state.restingSecret = nil
         assert.is_false(_G.issecretvalue(_G.IsResting()))
+    end)
+end)
+
+describe("The simulated client's ranks and levels (#459)", function()
+    describe("rank levels, the rank rule and ranked casts (#459)", function()
+        local ns
+        local MOTW_6, GIFT = 9884, 21850
+
+        -- A druid who knows every Mark of the Wild rank, in a party with Ann.
+        local function boot(opts)
+            opts = opts or {}
+            ns = wow.boot({ defaultLevel = opts.defaultLevel, before = function(state)
+                state.class = "DRUID"
+                state.knownSpells = {}
+                for _, id in ipairs({ 9885, 9884, 8907, 5234, 6756, 5232, 1126, GIFT }) do state.knownSpells[id] = true end
+                state.items = { [wow.ITEM.wildThornroot] = 5 }
+                if opts.before then opts.before(state) end
+            end })
+            wow.setGroup("party", { "Ann-Vale" })
+        end
+
+        local function castOnAnn(spell)
+            local before = #wow.casts
+            wow.runMacro("/cast [@party1,help,nodead] " .. spell)
+            return wow.casts[before + 1]
+        end
+
+        it("reads each rank's level from the committed data file, as Forever's data has it (white)", function()
+            local data = dofile(wow.ROOT .. "scripts/data/forever-spell-levels.lua")
+            assert.are.same(data.levels, wow.SPELL_LEVEL)
+            assert.are.same({ 60, 50, 1 }, { wow.SPELL_LEVEL[MOTW], wow.SPELL_LEVEL[MOTW_6], wow.SPELL_LEVEL[MOTW_1] })
+        end)
+
+        it("refuses a rank above the target's level + 10, at its edge, and takes one within it (white, black)", function()
+            boot()
+            wow.state.units.party1.level = 49
+            local cast = castOnAnn("Mark of the Wild(Rank 7)")
+            assert.are.equal(MOTW, cast.id)
+            assert.are.equal(wow.LOW_LEVEL_ERROR, cast.failed, "rank 7 is level 60: 49 + 10 falls short")
+            wow.state.units.party1.level = 50
+            assert.is_nil(castOnAnn("Mark of the Wild(Rank 7)").failed, "50 + 10 reaches it")
+            wow.state.units.party1.level = 1
+            assert.is_nil(castOnAnn("Mark of the Wild(Rank 2)").failed, "rank 2 is level 10: 1 + 10 reaches it")
+            assert.are.equal(wow.LOW_LEVEL_ERROR, castOnAnn("Mark of the Wild(Rank 3)").failed)
+            -- A secret level is still the server's real one.
+            wow.state.units.party1.level, wow.state.units.party1.secrets = 50, { level = true }
+            assert.is_nil(castOnAnn("Mark of the Wild").failed)
+        end)
+
+        it("never refuses a cast on yourself or a group version by level (white)", function()
+            boot()
+            wow.state.units.player.level = 1
+            local before = #wow.casts
+            wow.runMacro("/cast [@player,nodead] Mark of the Wild")
+            assert.is_nil(wow.casts[before + 1].failed, "on yourself")
+            wow.state.units.party1.level = 1
+            local gift = castOnAnn("Gift of the Wild")
+            assert.are.equal(GIFT, gift.id)
+            assert.is_nil(gift.failed, "a group version's rule isn't known (#463): not modelled")
+        end)
+
+        it("a player with no level is the boot default, 60, or level 1 to the server with none (white, black)", function()
+            boot()
+            assert.are.equal(60, UnitLevel("party1"))
+            wow.state.units.party1.level = 12
+            assert.are.equal(12, UnitLevel("party1"))
+            boot({ defaultLevel = false })
+            assert.is_nil(UnitLevel("party1"))
+            -- No level at all: the server takes level 1 (pessimistic).
+            assert.is_nil(castOnAnn("Mark of the Wild(Rank 2)").failed, "rank 2 (10) reaches level 1")
+            assert.are.equal(wow.LOW_LEVEL_ERROR, castOnAnn("Mark of the Wild(Rank 3)").failed, "rank 3 (20) doesn't")
+        end)
+
+        it("a default level is a secret where the unit's level is, or every answer is restricted (black)", function()
+            boot()
+            wow.state.units.party1.secrets = { level = true }
+            assert.is_true(ns.Util.IsSecret(UnitLevel("party1")))
+            wow.state.units.party1.secrets = nil
+            wow.state.unitsRestricted = true
+            assert.is_true(ns.Util.IsSecret(UnitLevel("party1")))
+        end)
+
+        it("/cast Name(Rank N) casts exactly that known rank; an unknown or unlearned rank is Unknown spell (white, black)",
+            function()
+            boot({ before = function(state) state.knownSpells[5232] = nil end })
+            assert.are.equal(MOTW_6, castOnAnn("Mark of the Wild(Rank 6)").id)
+            local errors = {}
+            local real = wow.uiError
+            wow.uiError = function(message) errors[#errors + 1] = message return real(message) end
+            finally(function() wow.uiError = real end)
+            for _, spell in ipairs({ "Mark of the Wild(Rank 9)", "Mark of the Wild(Rank 2)", "Mark of the Wild()",
+                "Mark of the Wild(rank 6)" }) do
+                assert.is_nil(castOnAnn(spell), spell)
+            end
+            assert.are.same({ "Unknown spell", "Unknown spell", "Unknown spell", "Unknown spell" }, errors)
+        end)
+
+        it("GetSpellSubtext gives a rank's text, none for a spell of one rank, and can be taken away or made "
+            .. "secret (white, black)", function()
+            boot()
+            for _, get in ipairs({ GetSpellSubtext, C_Spell.GetSpellSubtext }) do
+                assert.are.equal("Rank 7", get(MOTW))
+                assert.are.equal("Rank 1", get(MOTW_1))
+                assert.are.equal("", get(20217), "Blessing of Kings: one rank")
+                assert.is_nil(get(123456789), "a spell the client doesn't have")
+            end
+            wow.state.spellSubtexts = { [MOTW] = "Rang 7" }
+            assert.are.equal("Rang 7", GetSpellSubtext(MOTW))
+            wow.state.spellSubtexts = nil
+            wow.state.secretSubtext = true
+            assert.is_true(ns.Util.IsSecret(C_Spell.GetSpellSubtext(MOTW)))
+            wow.state.secretSubtext = nil
+            wow.state.noSpellSubtext = true
+            assert.is_nil(GetSpellSubtext(MOTW))
+            assert.is_nil(C_Spell.GetSpellSubtext(MOTW))
+        end)
     end)
 end)

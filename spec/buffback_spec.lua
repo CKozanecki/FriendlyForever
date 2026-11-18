@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353, #387, #369, #419, #453
+-- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353, #387, #369, #419, #459, #453
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -1247,7 +1247,8 @@ describe("Buff back", function()
             stranger()
             buffedBy()
             slash("buffback")
-            assert.is_true(printedHas("macro: /cleartarget ; /targetexact Bob Stone ; /cast [help,nodead] Mark of the Wild ; /cleartarget"))
+            assert.is_true(printedHas("macro: /cleartarget ; /targetexact Bob Stone ; /cast [help,nodead] Mark of the Wild ; /cleartarget"),
+                "your highest rank, by its plain name (#459)")
         end)
 
         it("notices newly learned buffs", function()

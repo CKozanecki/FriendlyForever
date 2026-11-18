@@ -1,4 +1,4 @@
--- Spec: #453
+-- Spec: #453, #459
 -- The debug log folds a run of identical press and result lines (#453): a
 -- wheel notch presses the button many times, and each press logged a line,
 -- pushing decisions out of the log. The first line of a run is logged, the
@@ -28,6 +28,10 @@ describe("The debug log folds repeated press and result lines (#453)", function(
         wow.fire("GROUP_ROSTER_UPDATE")
         ns.db.debug = opts.debug ~= false
         ns.db.diagLog = {}
+        -- A refused member waits a while after any refusal (#459); this spec
+        -- is about the log, so Ann may be refused press after press, as a
+        -- mashed wheel did before that hold.
+        ns.GroupBuffs.HELD_BACK_SECONDS = 0
     end
 
     -- Lines holding fragment; firsts: only those that aren't count lines.

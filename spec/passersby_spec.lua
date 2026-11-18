@@ -1,4 +1,4 @@
--- Spec: #39, #451
+-- Spec: #39, #451, #459, #462
 -- Passers-by: in buff mode, the button also offers your buffs to players on a
 -- nameplate who aren't in your group, haven't buffed you and haven't asked.
 local wow = require("spec.support.wow")
@@ -773,7 +773,7 @@ describe("Passers-by (#39)", function()
             assert.is_false(ns.BuffMode.IsOn(), "Bob has both your buffs: everyone has your buffs")
         end)
 
-        it("a later trigger's buff mode doesn't keep counting passers-by after the campfire's", function()
+        it("a later trigger's buff mode counts passers-by too, after the campfire's (#462)", function()
             bootAuto({ autoOnBuffed = true })
             stranger("nameplate1")
             sitByFire()
@@ -785,7 +785,7 @@ describe("Passers-by (#39)", function()
             wow.press(button)
             assert.are.equal("Ann-Vale", lastCast().target)
             ns.BuffButton.Refresh()
-            assert.is_false(ns.BuffMode.IsOn(), "Bob passing by doesn't keep the favour's buff mode on")
+            assert.is_true(ns.BuffMode.IsOn(), "Bob passing by keeps the favour's buff mode on (#462)")
         end)
 
         it("in a fight, the campfire counts passers-by whichever trigger fired first", function()
@@ -814,7 +814,7 @@ describe("Passers-by (#39)", function()
             assert.is_false(ns.BuffMode.IsOn())
         end)
 
-        it("no other trigger counts a passer-by: a favour's buff mode ends once it's returned", function()
+        it("every trigger counts a passer-by waiting (#462): a favour's buff mode stays on for one", function()
             bootAuto({ autoOnBuffed = true })
             stranger("nameplate1")
             stranger("nameplate2", { name = "Ann", surname = "Vale" })
@@ -823,7 +823,19 @@ describe("Passers-by (#39)", function()
             wow.press(button)
             assert.are.equal("Ann-Vale", lastCast().target)
             ns.BuffButton.Refresh()
-            assert.is_false(ns.BuffMode.IsOn(), "Bob passing by doesn't keep it on")
+            assert.is_true(ns.BuffMode.IsOn(), "Bob passing by keeps it on (#462, the owner)")
+            -- Ann's Mark shows on her; then everyone passing by gets your buffs.
+            wow.wearBuff("nameplate2", lastCast().id, { source = "player" })
+            local tokenOf = { ["Bob-Stone"] = "nameplate1", ["Ann-Vale"] = "nameplate2" }
+            for _ = 1, 4 do
+                ns.PassersBy.Fresh()
+                if not ns.BuffMode.IsOn() then break end
+                wow.press(button)
+                wow.wearBuff(tokenOf[lastCast().target], lastCast().id, { source = "player" })
+            end
+            ns.PassersBy.Fresh()
+            ns.BuffButton.Refresh()
+            assert.is_false(ns.BuffMode.IsOn(), "everyone passing by has your buffs: it ends")
         end)
 
         it("an update it can't read (a secret payload, list, aura or spell ID, or the wrong type) adds nothing "
