@@ -28,7 +28,8 @@ describe("Buffing a player with the rank their level allows (#459)", function()
     -- A class who knows `known` (spell IDs), in buff mode unless opts.noMode.
     local function boot(known, opts)
         opts = opts or {}
-        ns = wow.boot({ buffSelf = opts.buffSelf, defaultLevel = opts.defaultLevel, before = function(state)
+        ns = wow.boot({ buffSelf = opts.buffSelf, defaultLevel = opts.defaultLevel, autoBuffMode = opts.auto,
+            before = function(state)
             state.class = opts.class or "DRUID"
             state.knownSpells = {}
             for _, id in ipairs(known) do state.knownSpells[id] = true end
@@ -224,13 +225,23 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             assert.are.equal(1, #ns.GroupBuffs.Missing(), "at 20, rank 1 reaches her")
         end)
 
-        it("a favour too low for every buff of yours says so", function()
-            boot({ SPIRIT[4] }, { class = "PRIEST" })
-            stranger("nameplate1", "Bob", "Stone", { level = 5, class = "MAGE" })
-            wow.gainBuff({ sourceUnit = "nameplate1", name = "Arcane Intellect", spellId = INTELLECT })
+        it("a favour too low for every buff of yours isn't counted and turns nothing on, until they level up",
+            function()
+            -- A paladin's Kings is level 20 and Wisdom rank 1 level 14: a level-3 player can have neither.
+            boot({ KINGS, 19742 }, { class = "PALADIN", noMode = true, auto = true })
+            for _, field in ipairs(wow.TURN_ON_TRIGGERS) do ns.db.buffBack[field] = field == "autoOnBuffed" end
+            local bob = stranger("nameplate1", "Bob", "Stone", { level = 3, class = "PRIEST" })
+            wow.gainBuff({ sourceUnit = "nameplate1", name = "Power Word: Fortitude", spellId = FORT[6] })
+            assert.is_false(ns.BuffMode.IsOn(), "buffed by a stranger, but nothing of yours reaches him")
+            assert.are.equal(0, ns.Offers.Count(), "not counted (#366's lesson)")
             assert.is_nil(armed())
-            assert.is_truthy(button.subtitle:GetText():find("Bob Stone: they're too low level for your Divine Spirit",
-                1, true), button.subtitle:GetText())
+            local _, why = ns.Offers.Current()
+            assert.are.equal("Bob Stone: they're too low level for your Blessing of Kings", why)
+            -- He levels up: Kings reaches a level-10 player.
+            bob.level = 10
+            assert.are.equal(1, ns.Offers.Count(), "counted again")
+            slash("buffmode on")
+            assert.are.equal("Bob Stone: Blessing of Kings", armed())
         end)
     end)
 
@@ -246,14 +257,16 @@ describe("Buffing a player with the rank their level allows (#459)", function()
             assert.is_nil(lastCast().failed)
         end)
 
-        it("a request for a buff no rank of which their level allows says so, and casts nothing (black)", function()
+        it("a request for a buff no rank of which their level allows says so, isn't counted, and casts nothing "
+            .. "(black)", function()
             boot({ SPIRIT[4] }, { class = "PRIEST", noMode = true })
             ns.Requests.SetEnabled(true)
             stranger("nameplate1", "Bob", "Stone", { level = 5, class = "MAGE" })
             wow.whisper("divine spirit pls", "Bob-Stone")
+            local _, why = ns.Offers.Current()
+            assert.are.equal("Bob Stone: they're too low level for your Divine Spirit", why)
+            assert.are.equal(0, ns.Offers.Count(), "nothing to give him: not counted")
             assert.is_nil(armed())
-            assert.is_truthy(table.concat(ns.BuffButton.StatusLines(), "\n")
-                :find("Bob Stone: they're too low level for your Divine Spirit", 1, true))
             wow.press(button)
             assert.are.equal(0, #wow.casts)
         end)

@@ -218,6 +218,29 @@ describe("The buff button batch (1.4.3)", function()
             assert.is_true(ns.BuffMode.IsOn(), "Bob passing by keeps it on")
         end)
 
+        it("a passer-by refused on the global cooldown or for mana still waits: buff mode stays on (#459, black)",
+            function()
+            for _, why in ipairs({ "Spell is not ready yet.", "Not enough mana" }) do
+                boot({ auto = true })
+                wearMine()
+                stranger("nameplate1", "Bob", "Stone")
+                stranger("nameplate2", "Ann", "Vale", { class = "MAGE", auras = { THORNS }, auraSources = { false } })
+                wow.gainBuff({ sourceUnit = "nameplate2", name = "Arcane Intellect", spellId = INTELLECT })
+                press()
+                refresh()
+                assert.are.equal("Bob Stone", title(), why)
+                wow.state.castFailures["Bob-Stone"] = why
+                press()
+                refresh()
+                assert.is_true(ns.BuffMode.IsOn(), why .. ": Bob waits out his hold, buff mode with him")
+                wow.state.castFailures["Bob-Stone"] = nil
+                wow.advance(ns.PassersBy.HELD_BACK_SECONDS + 1)
+                refresh()
+                assert.is_true(ns.BuffMode.IsOn(), why)
+                assert.are.equal("Bob Stone", title(), why .. ": offered again after the hold")
+            end
+        end)
+
         it("ends when the passer-by is skipped or gone, at the timeout, and at the pull (white, red)", function()
             local ends = {
                 skipped = function() wow.press(button, "RightButton") end,

@@ -286,9 +286,20 @@ end
 
 -- Whether a passer-by would be offered a buff now, buff mode on or not:
 -- the campfire's trigger (BuffModeAuto.lua) turns buff mode on for them,
--- and keeps it on while one waits. Reads afresh when buff mode is off.
+-- and buff mode stays on while one waits (#462). Reads afresh when buff
+-- mode is off. In buff mode, a passer-by the game refused a moment ago
+-- (#459: any refusal, the global cooldown included) still waits until
+-- their hold ends, as a held-back group member does, so a refusal never
+-- ends buff mode; then they're looked at again.
 function PassersBy.Waiting()
-    if ns.BuffMode.LentKey() then return PassersBy.Next() ~= nil end
+    if ns.BuffMode.LentKey() then
+        if PassersBy.Next() ~= nil then return true end
+        if WhyNotNow() then return false end
+        for _, at in pairs(heldBack) do
+            if Recently(at, PassersBy.HELD_BACK_SECONDS) then return true end
+        end
+        return false
+    end
     return Look(true)[1] ~= nil
 end
 
