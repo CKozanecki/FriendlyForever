@@ -153,7 +153,11 @@ describe("Passers-by and the campfire in the settings (#39)", function()
             ns.Options.FillStart()
             assert.is_truthy(start.passersByNote:GetText():find("is off", 1, true), "a damaged section reads as off")
             ns.db.buffBack = saved
+            -- The link scrolls the tab to the switch (#455's testing review):
+            -- the switch can sit below the fold of a short panel.
+            w.content.top, w.passersBy.top, w.scroll.scrollRange = 1000, 600, 2000
             wow.run(start.openPassersBy, "OnClick")
+            assert.are.equal(388, w.scroll:GetVerticalScroll(), "scrolled to the switch, a margin above it")
             assert.are.equal("buffs", ns.Options.CurrentType())
             assert.is_true(w.passersBy:IsVisible())
             assert.are.same({}, wow.errors)

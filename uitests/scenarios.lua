@@ -1576,11 +1576,14 @@ local function OpenList(content)
     end
 end
 
--- The first who-gets button (200 wide) shown on content, or nil.
+-- The first who-gets button (200 wide) shown on content, or nil. Not the
+-- passers-by switch's "Show friendly player names" button (also 200 wide,
+-- above the places' tabs when nameplates are off, #455).
 local function FirstWho(content)
     local found
     for _, child in ipairs({ content:GetChildren() }) do
         if child:IsShown() and child:GetObjectType() == "Button" and child:GetWidth() == 200
+            and child:GetText() ~= "Show friendly player names"
             and (not found or (Measure(child, "GetTop") or 0) > (Measure(found, "GetTop") or 0)) then
             found = child
         end
