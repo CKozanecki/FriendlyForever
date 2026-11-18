@@ -92,7 +92,8 @@ OptionsIndex.SETTINGS = {
         keywords = "buff mode self buff inner fire armor aspect aura lightning shield battle shout righteous fury",
         controls = { "selfBuffs" } },
     { name = "Fast-cast buffs in form", page = BUFFS,
-        keywords = "buff mode druid form shapeshift cat bear travel moonkin wheel scroll click fast cast",
+        keywords = "buff mode druid form shapeshift cat bear travel moonkin shaman ghost wolf wheel scroll click "
+            .. "fast cast",
         controls = { "fastCastInForm" } },
     { name = "Water breathing: only near water", page = BUFFS,
         keywords = "buff unending breath water breathing swim underwater",

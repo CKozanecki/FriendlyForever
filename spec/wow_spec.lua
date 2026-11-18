@@ -1,4 +1,4 @@
--- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459
+-- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -1296,6 +1296,105 @@ describe("The simulated client's druid forms and button names (#452)", function(
         assert.is_nil(wow.modifiedAttribute(button, "type", "BuffModeKey"), "a key's own name finds no click's action")
         button:SetAttribute("*type-BuffModeKey", "macro")
         assert.are.equal("macro", wow.modifiedAttribute(button, "type", "BuffModeKey"))
+    end)
+end)
+
+describe("The simulated client's Ghost Wolf (#466)", function()
+    local WATER_BREATHING = 131
+    -- The ways the game might report Ghost Wolf (#467).
+    local READINGS = {
+        { name = "form and aura", form = 1, aura = true },
+        { name = "form only", form = 1, aura = false },
+        { name = "aura only", form = 0, aura = true },
+    }
+    local events, auraEvents
+
+    local function boot(reading)
+        wow.boot({ before = function(state)
+            state.class = "SHAMAN"
+            state.knownSpells = { [WATER_BREATHING] = true }
+            state.ghostWolfForm, state.ghostWolfAura = reading.form, reading.aura
+        end })
+        events, auraEvents = 0, 0
+        local f = _G.CreateFrame("Frame")
+        f:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+        f:RegisterUnitEvent("UNIT_AURA", "player")
+        f:SetScript("OnEvent", function(_, event)
+            if event == "UNIT_AURA" then auraEvents = auraEvents + 1 else events = events + 1 end
+        end)
+    end
+
+    -- Whether your buffs, as the game lists them, hold Ghost Wolf's aura.
+    local function wearsWolf()
+        for i = 1, 40 do
+            local aura = _G.C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
+            if not aura then return false end
+            if aura.spellId == wow.GHOST_WOLF then return true end
+        end
+        return false
+    end
+
+    for _, reading in ipairs(READINGS) do
+        it(reading.name .. ": setGhostWolf sets the form and the aura as chosen, and fires both events", function()
+            boot(reading)
+            wow.setGhostWolf(true)
+            assert.is_true(wow.state.ghostWolf)
+            assert.are.equal(reading.form, _G.GetShapeshiftForm())
+            assert.are.equal(reading.aura, wearsWolf())
+            assert.are.equal(1, events)
+            assert.are.equal(1, auraEvents)
+            wow.setGhostWolf(false)
+            assert.is_false(wow.state.ghostWolf)
+            assert.are.equal(0, _G.GetShapeshiftForm())
+            assert.is_false(wearsWolf())
+            assert.are.equal(2, events)
+            assert.are.equal(2, auraEvents)
+        end)
+
+        it(reading.name .. ": a buff cast in Ghost Wolf, with autoUnshift on, ends Ghost Wolf and lands", function()
+            boot(reading)
+            wow.setGhostWolf(true)
+            events = 0
+            wow.runMacro("/cast [@player,nodead] Water Breathing")
+            assert.is_false(wow.state.ghostWolf)
+            assert.are.equal(0, _G.GetShapeshiftForm())
+            assert.is_false(wearsWolf())
+            assert.are.equal(1, wow.formsCancelled)
+            assert.are.equal(1, events, "the game's own unshift fires the event")
+            assert.are.equal(1, #wow.casts)
+            assert.are.equal(WATER_BREATHING, wow.casts[1].id)
+        end)
+
+        it(reading.name .. ": a buff cast in Ghost Wolf, with autoUnshift off, is refused: still in it, "
+            .. "nothing cast", function()
+            boot(reading)
+            wow.setGhostWolf(true)
+            wow.state.cvars.autoUnshift = "0"
+            local errors = {}
+            local f = _G.CreateFrame("Frame")
+            f:RegisterEvent("UI_ERROR_MESSAGE")
+            f:SetScript("OnEvent", function(_, _, _, message) errors[#errors + 1] = message end)
+            wow.runMacro("/cast [@player,nodead] Water Breathing")
+            assert.is_true(wow.state.ghostWolf)
+            assert.are.equal(reading.form, _G.GetShapeshiftForm())
+            assert.are.equal(reading.aura, wearsWolf())
+            assert.are.equal(0, wow.formsCancelled)
+            assert.are.equal(0, #wow.casts)
+            assert.are.same({ wow.SHAPESHIFT_ERROR }, errors)
+        end)
+    end
+
+    it("out of Ghost Wolf, a shaman's cast goes ahead, and another class's aura of 2645 stops nothing", function()
+        boot(READINGS[1])
+        wow.runMacro("/cast [@player,nodead] Water Breathing")
+        assert.are.equal(1, #wow.casts)
+        assert.are.equal(0, wow.formsCancelled)
+        wow.state.class = "DRUID"
+        wow.state.ghostWolf = true
+        wow.state.knownSpells = { [9885] = true }
+        wow.runMacro("/cast [@player,nodead] Mark of the Wild")
+        assert.are.equal(2, #wow.casts)
+        assert.are.equal(0, wow.formsCancelled)
     end)
 end)
 
