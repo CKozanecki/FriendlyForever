@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #360, #345, #308, #343, #367, #371, #375, #408, #415
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #360, #345, #308, #343, #367, #371, #375, #408, #415, #478
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -890,6 +890,88 @@ describe("UI simulator workflow", function()
         end
     end)
 
+    -- #481: a pinned name is defined once, in the workflow's top-level env. A
+    -- job-level or step-level env, or a write to $GITHUB_ENV, would override the
+    -- reviewed pin for the job that fetches, checks and builds it, with the cache
+    -- key read in the same job agreeing with it.
+    local PINNED = { "SIM_COMMIT", "BLIZZARD_UI_COMMIT", "BLIZZARD_UI_VERSION", "BUILD_BASE", "BUILD_TOOLCHAIN",
+        "RENDER_BASE", "SPELL_DATA_SHA256", "SPELL_DATA_HOSTS" }
+
+    local function pinProblems(workflow)
+        local problems, jobsAt = {}, nil
+        local lines = {}
+        for line in (workflow .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+        for i, line in ipairs(lines) do
+            if line:match("^jobs:%s*$") then jobsAt = jobsAt or i end
+        end
+        for _, name in ipairs(PINNED) do
+            local found = {}
+            for i, line in ipairs(lines) do
+                if not line:match("^%s*#") then
+                    local code = line:gsub("%s#.*$", "")
+                    local key = "%f[%w_]" .. name .. "%s*:"
+                    if code:match("^%s*" .. key) or code:match("[{,]%s*" .. key) then found[#found + 1] = i end
+                end
+            end
+            if #found ~= 1 then
+                problems[#problems + 1] = name .. " is defined " .. #found .. " times, not once"
+            elseif not (jobsAt and found[1] < jobsAt and lines[found[1]]:match("^  " .. name .. ":")) then
+                problems[#problems + 1] = name .. " isn't in the top-level env"
+            end
+        end
+        for i, line in ipairs(lines) do
+            if not line:match("^%s*#") and line:find("GITHUB_ENV", 1, true) then
+                problems[#problems + 1] = "line " .. i .. " writes $GITHUB_ENV"
+            end
+        end
+        return problems
+    end
+
+    describe("defines each pinned name once, in the top-level env (#481)", function()
+        it("passes the workflow as it is (white)", function()
+            assert.are.same({}, pinProblems(text))
+        end)
+
+        it("doesn't count a comment that names a pinned name or $GITHUB_ENV (white)", function()
+            local commented = text:gsub("\n  simulator:\n", "\n  # SIM_COMMIT: old, and $GITHUB_ENV\n  simulator:\n", 1)
+            assert.are_not.equal(text, commented)
+            assert.are.same({}, pinProblems(commented))
+        end)
+
+        it("fails a job-level env, a step-level env or a flow-style env that sets SIM_COMMIT again (red)", function()
+            local job = text:gsub("\n  simulator:\n", "\n  simulator:\n    env:\n      SIM_COMMIT: d54da90d9ddda641ea6fabf55303a1e72476642e\n", 1)
+            assert.are_not.equal(text, job, "the simulator job wasn't found")
+            assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(job))
+            local step = text:gsub("(\n      %- name: [^\n]*\n)", "%1        env:\n          SIM_COMMIT: abc\n", 1)
+            assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(step))
+            local flow = text:gsub("\n  simulator:\n", "\n  simulator:\n    env: { SIM_COMMIT: abc }\n", 1)
+            assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(flow))
+        end)
+
+        it("fails a pinned name moved out of the top-level env, or defined twice in it (red)", function()
+            local twice = text:gsub("\n  SIM_PROFILE:", "\n  SIM_COMMIT: abc\n  SIM_PROFILE:", 1)
+            assert.are.same({ "SIM_COMMIT is defined 2 times, not once" }, pinProblems(twice))
+            local moved = text:gsub("\n  SIM_COMMIT: ([%x]+)\n", "\n", 1):gsub("\n  simulator:\n",
+                "\n  simulator:\n    env:\n      SIM_COMMIT: abc\n", 1)
+            assert.are.same({ "SIM_COMMIT isn't in the top-level env" }, pinProblems(moved))
+        end)
+
+        it("fails each of the other pinned names defined again at job level (red)", function()
+            for _, name in ipairs(PINNED) do
+                local job = text:gsub("\n  simulator:\n", "\n  simulator:\n    env:\n      " .. name .. ": x\n", 1)
+                assert.are.same({ name .. " is defined 2 times, not once" }, pinProblems(job), name)
+            end
+        end)
+
+        it("fails a write to $GITHUB_ENV, however the name reaches it (red)", function()
+            local direct = text .. '\n      - run: echo "SIM_COMMIT=abc" >> "$GITHUB_ENV"\n'
+            assert.are.same({ "line " .. select(2, direct:gsub("\n", "\n")) .. " writes $GITHUB_ENV" },
+                pinProblems(direct))
+            local indirect = text .. '\n      - run: echo "$x" >> $GITHUB_ENV\n'
+            assert.are.equal(1, #pinProblems(indirect))
+        end)
+    end)
+
     it("pins the sources and the build and render bases exactly", function()
         local function pinned(prefix, digits)
             return text:find("\n%s*" .. prefix .. ("%x"):rep(digits) .. "%s") ~= nil
@@ -1550,12 +1632,12 @@ describe("UI simulator workflow", function()
         end)
     end)
 
-    -- #308: upstream's master of 2026-11-16, reviewed on #308 before the pin
-    -- moved (#154, #160 and #308's first move moved it before). There's no
+    -- #478: upstream's master of 2026-11-18, reviewed on #478 before the pin
+    -- moved (#154, #160 and #308's two moves moved it before). There's no
     -- published image at that commit, and release binaries are never used,
     -- so the simulator job builds it and the others run that.
-    it("pins wow-ui-sim at the reviewed d54da90 and runs only the build made from it (black)", function()
-        assert.is_truthy(text:find("\n%s*SIM_COMMIT: d54da90d9ddda641ea6fabf55303a1e72476642e\n"),
+    it("pins wow-ui-sim at the reviewed dbcfbd7 and runs only the build made from it (black)", function()
+        assert.is_truthy(text:find("\n%s*SIM_COMMIT: dbcfbd7c33534f4216f5c91485de54392d944514\n"),
             "the simulator isn't pinned at the reviewed commit")
         assert.is_truthy(text:find("\n%s*BUILD_BASE: rust@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c%s"),
             "the build base isn't the reviewed digest")
