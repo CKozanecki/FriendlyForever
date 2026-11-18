@@ -60,6 +60,16 @@ describe("ChatQueue protects a message's callbacks (#448)", function()
             assert.are.same({}, wow.errors)
         end)
 
+        it("that answers a secret string (the game reports its type as a string) is dropped, never sent", function()
+            local real = _G.issecretvalue
+            _G.issecretvalue = function(v) return v == "GUILD" or real(v) end
+            local r = push("never", { channel = function() return "GUILD" end })
+            _G.issecretvalue = real
+            assert.are.same({}, wow.sent)
+            assert.are.equal("channel can't be used", r.why)
+            assert.are.same({}, wow.errors)
+        end)
+
         it("that answers nil is still dropped as no channel (white)", function()
             local r = push("never", { channel = function() return nil end })
             assert.are.equal("no channel (not in a guild/group any more?)", r.why)
@@ -85,11 +95,22 @@ describe("ChatQueue protects a message's callbacks (#448)", function()
             assert.are.same({}, wow.errors)
         end)
 
+        it("that answers nothing drops it, as false does", function()
+            local r = push("never", { isValid = function() return nil end })
+            assert.are.same({}, wow.sent)
+            assert.are.equal("no longer wanted: no reason given", r.why)
+        end)
+
         it("whose reason is a table or a secret says no reason, without an error", function()
             for _, why in ipairs({ {}, 7, wow.secret("why") }) do
                 local r = push("never", { isValid = function() return false, why end })
                 assert.are.equal("no longer wanted: no reason given", r.why, tostring(why))
             end
+            local real = _G.issecretvalue
+            _G.issecretvalue = function(v) return v == "hidden why" or real(v) end
+            local hidden = push("never", { isValid = function() return false, "hidden why" end })
+            _G.issecretvalue = real
+            assert.are.equal("no longer wanted: no reason given", hidden.why, "a secret string reason")
             local r = push("never", { isValid = function() return false, "left the guild" end })
             assert.are.equal("no longer wanted: left the guild", r.why, "a string reason is kept (white)")
             assert.are.same({}, wow.sent)

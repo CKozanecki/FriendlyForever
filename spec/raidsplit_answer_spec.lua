@@ -264,6 +264,24 @@ describe("The raid buff split reads the raid as buff mode does (#372)", function
         assert.are.same({}, wow.errors)
     end)
 
+    it("roster updates in a raid, readable or not, never start a second heartbeat (black, #443)", function()
+        local split = clients[1].ns.RaidSplit
+        leave()
+        markHeartbeats()
+        join(clients[1])
+        assert.are.equal(1, heartbeats())
+        for _, how in ipairs({ "secret", "truth", "secret", "truth" }) do
+            answer(how)
+            wow.use(clients[1])
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.are.equal(1, heartbeats(), how)
+        end
+        answer(nil)
+        wow.use(clients[1])
+        wow.advance(split.HEARTBEAT + 1)
+        assert.are.equal(1, heartbeats(), "the beat goes on, one at a time")
+    end)
+
     it("while the answer can't be believed nothing is announced; the heartbeat goes on and speaks once it can be "
         .. "(black)", function()
         answer("secret")
