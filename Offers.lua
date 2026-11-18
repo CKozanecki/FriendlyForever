@@ -72,7 +72,7 @@ Offers.MAX_CASTS_WAITING = 8    -- hand-cast buffs remembered as sent; the oldes
 Offers.MARK_SECONDS = 30
 Offers.MAX_MARKS = 50           -- marks waiting for their buff at once; the oldest goes first
 Offers.MAX_REQUESTS = 5         -- requests in chat waiting at once (#40); the oldest goes first
-Offers.HELD_BACK_SECONDS = 15   -- after the game refuses a cast to them, for a reason about them, their favour waits this long (#459, #483)
+Offers.HELD_BACK_SECONDS = 15   -- refused for a reason about them (#459, #483), their favour waits this long
 
 local favours = {}          -- newest last: { name, unit, class, owedAt, ledgerEntry, requested, request }
 local buffedAt = {}         -- [full name] = GetTime() a buff of yours last reached them
