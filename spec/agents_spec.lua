@@ -133,11 +133,12 @@ describe("the agents' instruction files", function()
         local _, count = claude:gsub("%*%*Waiting for CI%*%*", "")
         assert.are.equal(1, count)
         assert.is_truthy(claude:find("never wait with a long timed check-in. Subscribe to the PR's activity with the"
-            .. " remote tool `subscribe_pr_activity` right after opening it", 1, true))
+            .. " remote tool `subscribe_pr_activity` right after opening it, or when you take one over", 1, true))
         assert.is_falsy(claude:find("gh api repos", 1, true), "no gh command: sessions may use gh only for search")
         assert.is_truthy(claude:find("A timed check-in is only a fallback for a job that hangs.", 1, true))
         assert.is_falsy(agents:find("Waiting for CI", 1, true), "written once, not repeated in AGENTS.md")
-        assert.is_truthy(wow.readFile(".claude/skills/after-merge/SKILL.md"):find("\"Waiting for CI\"", 1, true))
+        assert.is_truthy(wow.readFile(".claude/skills/after-merge/SKILL.md"):find("subscribe to the PR's activity first if you"
+            .. " aren't yet", 1, true))
     end)
 
     it("CLAUDE.md keeps only Claude's own sections", function()

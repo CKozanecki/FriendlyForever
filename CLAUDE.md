@@ -20,7 +20,7 @@ The rules every agent session follows, whatever the product, are in AGENTS.md, i
   - **auto-merge:** once every stop holds except the green `check`, turn it on with `enable_pr_auto_merge`, `mergeMethod: SQUASH`. Turn it off (`disable_pr_auto_merge`) before any other push to the branch;
   - **already clean:** if that tool refuses because the PR can already merge, and every stop holds, call `merge_pull_request` with `merge_method: squash` and `expectedHeadSha` set to the head you checked the stops on;
   - **anything else:** if a report-only job is the only one pending, or your permission check blocks the merge, don't find another way: tell the coordinator, which merges it.
-- **Waiting for CI** (the owner, 17 Nov 2026): never wait with a long timed check-in. Subscribe to the PR's activity with the remote tool `subscribe_pr_activity` right after opening it, so CI results and reviews wake the session as soon as they post. A timed check-in is only a fallback for a job that hangs.
+- **Waiting for CI** (the owner, 17 Nov 2026): never wait with a long timed check-in. Subscribe to the PR's activity with the remote tool `subscribe_pr_activity` right after opening it, or when you take one over, so CI results and reviews wake the session as soon as they post. A timed check-in is only a fallback for a job that hangs.
 - **Knowledge files:** AGENTS.md's "Shared knowledge" lists them: [`docs/forever-facts.md`](docs/forever-facts.md), [`docs/simulated-client.md`](docs/simulated-client.md), [`docs/ui-simulator.md`](docs/ui-simulator.md), [`docs/visual-style.md`](docs/visual-style.md) and [`docs/agent-facts.md`](docs/agent-facts.md).
 
 ## Coordinating sessions
