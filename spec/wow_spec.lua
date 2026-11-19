@@ -1,4 +1,4 @@
--- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471, #485
+-- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471, #485, #482, #486
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -1837,5 +1837,75 @@ describe("The simulated client's aura filter (#471)", function()
             assert.has_error(function() aura("player", 1, filter) end, nil, tostring(filter))
             assert.has_error(function() aura("party1", 1, filter) end, nil, tostring(filter))
         end
+    end)
+end)
+
+describe("The simulated client's guild roster zones (#486)", function()
+    before_each(function()
+        wow.boot({ before = function(state)
+            state.guildRoster = { "Thrall", "Jaina" }
+            state.guildZones = { Thrall = "Durotar" }
+        end })
+    end)
+
+    local function zoneOf(i)
+        local _, _, _, _, _, zone, _, _, online = _G.GetGuildRosterInfo(i)
+        return zone, online
+    end
+
+    it("answers the zone as its sixth value, and an empty one for a zone not set (not filled in yet)", function()
+        assert.are.equal("Durotar", (zoneOf(1)))
+        assert.are.equal("", (zoneOf(2)))
+        assert.is_true(select(2, zoneOf(1)))
+    end)
+
+    it("answers a secret zone for everyone (true) or for the members named (a set)", function()
+        wow.state.guildZoneSecret = true
+        assert.is_true(_G.issecretvalue((zoneOf(1))))
+        assert.is_true(_G.issecretvalue((zoneOf(2))))
+        wow.state.guildZoneSecret = { Jaina = true }
+        assert.are.equal("Durotar", (zoneOf(1)))
+        assert.is_true(_G.issecretvalue((zoneOf(2))))
+    end)
+
+    it("answers an offline member as not online, with the zone still given", function()
+        wow.state.guildOffline = { Thrall = true }
+        local zone, online = zoneOf(1)
+        assert.are.equal("Durotar", zone)
+        assert.is_false(online)
+    end)
+end)
+
+describe("The simulated client's layout edges, children and scroll bars (#482)", function()
+    before_each(function() wow.boot() end)
+
+    it("GetTop and GetBottom answer what a spec set, else nil (not laid out)", function()
+        local f = _G.CreateFrame("Frame")
+        assert.is_nil(f:GetTop())
+        assert.is_nil(f:GetBottom())
+        f.top, f.bottom = 100, 40
+        assert.are.equal(100, f:GetTop())
+        assert.are.equal(40, f:GetBottom())
+    end)
+
+    it("GetChildren gives only a frame's own child frames, in the order made; GetRegions its text and textures", function()
+        local parent = _G.CreateFrame("Frame")
+        local a = _G.CreateFrame("Button", nil, parent)
+        local text = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        local b = _G.CreateFrame("Frame", nil, parent)
+        local texture = parent:CreateTexture()
+        _G.CreateFrame("Frame", nil, a) -- a grandchild: not the parent's
+        a:CreateFontString(nil, "OVERLAY", "GameFontNormal") -- a child's text: not the parent's
+        assert.are.same({ a, b }, { parent:GetChildren() })
+        assert.are.same({ text, texture }, { parent:GetRegions() })
+    end)
+
+    it("gives a ScrollBar to the UIPanelScrollFrameTemplate frame only", function()
+        local scroll = _G.CreateFrame("ScrollFrame", nil, nil, "UIPanelScrollFrameTemplate")
+        assert.is_table(rawget(scroll, "ScrollBar"))
+        assert.are.equal(scroll, scroll.ScrollBar:GetParent())
+        -- rawget: a frame answers any unknown method name with a no-op.
+        assert.is_nil(rawget(_G.CreateFrame("ScrollFrame"), "ScrollBar"))
+        assert.is_nil(rawget(_G.CreateFrame("Frame", nil, nil, "BasicFrameTemplateWithInset"), "ScrollBar"))
     end)
 end)

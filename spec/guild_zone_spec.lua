@@ -126,7 +126,7 @@ describe("Guild messages use the guildmate's zone (#486)", function()
                     return a, b, c, d, e, f, g, h, a ~= "Thrall" and isOnline or nil
                 end
             end },
-            { "too long", function() wow.state.guildZones.Thrall = string.rep("a", ns.Greeter.MAX_ZONE_BYTES + 1) end },
+            { "too long (49 bytes)", function() wow.state.guildZones.Thrall = string.rep("a", 49) end },
             { "a whole roster that can't be read", function() _G.GetNumGuildMembers = function() return nil end end },
         }
         local real
@@ -176,6 +176,51 @@ describe("Guild messages use the guildmate's zone (#486)", function()
             ns.GuildHellos.OnGreet("Varian", "Thrall", 3)
             wow.advance(helloWait())
             assert.are.same({ "Two, Thrall." }, wow.sentTo("GUILD"))
+        end)
+
+        it("greets a guildmate whose zone was already secret before they logged in, with no zone", function()
+            boot()
+            lines("guildLogin", { "Hi {name}, how is {zone}?", "Welcome back, {name}." })
+            wow.state.guildZoneSecret = { Thrall = true }
+            wow.fire("GUILD_ROSTER_UPDATE")
+            -- The secret zone loses neither the member nor the roster.
+            assert.is_true(ns.Greeter.IsGuildMember("Thrall"))
+            assert.are.equal(2, ns.Greeter.MemberCount())
+            assert.is_nil(ns.Greeter.MemberZone("Thrall"))
+            wow.state.rosterReplyDelay = 1
+            online("Thrall")
+            wow.advance(helloWait())
+            assert.are.same({ "Welcome back, Thrall." }, wow.sentTo("GUILD"))
+        end)
+
+        it("keeps a guildmate whose online flag is a secret before they log in, and greets them with no zone", function()
+            boot()
+            lines("guildLogin", { "Hi {name}, how is {zone}?", "Welcome back, {name}." })
+            local rosterInfo = _G.GetGuildRosterInfo
+            _G.GetGuildRosterInfo = function(i)
+                local a, b, c, d, e, f, g, h, isOnline = rosterInfo(i)
+                return a, b, c, d, e, f, g, h, a == "Thrall" and wow.secret(isOnline) or isOnline
+            end
+            local ok, err = pcall(function()
+                wow.fire("GUILD_ROSTER_UPDATE")
+                assert.is_true(ns.Greeter.IsGuildMember("Thrall"))
+                assert.is_nil(ns.Greeter.MemberZone("Thrall"))
+                assert.are.equal("Ashenvale", ns.Greeter.MemberZone("Jaina"))
+                online("Thrall")
+                wow.advance(helloWait())
+                assert.are.same({ "Welcome back, Thrall." }, wow.sentTo("GUILD"))
+            end)
+            _G.GetGuildRosterInfo = rosterInfo
+            assert(ok, err)
+        end)
+
+        it("takes a zone of 48 bytes, the most, and not one of 49", function()
+            boot()
+            wow.state.guildZones.Thrall = string.rep("a", 48)
+            wow.state.guildZones.Jaina = string.rep("b", 49)
+            wow.fire("GUILD_ROSTER_UPDATE")
+            assert.are.equal(string.rep("a", 48), ns.Greeter.MemberZone("Thrall"))
+            assert.is_nil(ns.Greeter.MemberZone("Jaina"))
         end)
 
         it("says nothing when every line needs their zone", function()
@@ -327,6 +372,16 @@ describe("Guild messages use the guildmate's zone (#486)", function()
                 lines("guildJoin", { "Welcome {name}, from {Zone}!", "Welcome, {name}! {blessing}" })
                 ns.db.guildLogin.repeatCooldown, ns.db.guildJoin.repeatCooldown = 0, 0
                 local zones = { "Durotar", "Tanaris", "Feralas", "", "Moonglade" }
+                -- Reach: guild lines rendered with their zone, and without it.
+                local reach = { named = 0, unnamed = 0 }
+                local context = ns.Flavour.Context
+                ns.Flavour.Context = function(guild)
+                    if type(guild) == "table" then
+                        local key = guild.zone ~= nil and "named" or "unnamed"
+                        reach[key] = reach[key] + 1
+                    end
+                    return context(guild)
+                end
                 for _ = 1, 300 do
                     local roll, name = rng(6), names[rng(#names)]
                     if roll == 1 then
@@ -345,7 +400,10 @@ describe("Guild messages use the guildmate's zone (#486)", function()
                 end
                 wow.advance(60)
                 local sent = wow.sentTo("GUILD")
+                ns.Flavour.Context = context
                 assert.is_true(#sent > 0, "the storm sent nothing")
+                assert.is_true(reach.named > 0, "no guild line had their zone")
+                assert.is_true(reach.unnamed > 0, "no guild line went without their zone")
                 for _, line in ipairs(sent) do
                     assert.is_nil(line:find("{", 1, true), line)
                     assert.is_nil(line:find(MINE, 1, true), line)
