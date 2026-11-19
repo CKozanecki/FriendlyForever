@@ -604,9 +604,16 @@ local function FillOrder(buffs)
             row.never:SetChecked(ns.BuffData.NeverOffered(buff))
         end
     end
+    -- Moved only when the row above it changes (another class's count of
+    -- buffs): a needless move lays every row below it out again, and the
+    -- UI simulator does that only 16 links deep, so buff mode's rows and the
+    -- places' read stale places there (#491, docs/ui-simulator.md).
     local last = buffs[1] and w.buffRows[#buffs].icon or w.buffOrderHeader
-    w.selfBuffs:ClearAllPoints()
-    w.selfBuffs:SetPoint("TOPLEFT", last, "BOTTOMLEFT", -4, -10)
+    local _, above = w.selfBuffs:GetPoint(1)
+    if above ~= last then
+        w.selfBuffs:ClearAllPoints()
+        w.selfBuffs:SetPoint("TOPLEFT", last, "BOTTOMLEFT", -4, -10)
+    end
     local b = ns.db.buffBack
     w.selfBuffs:SetChecked(b.selfBuffs == true)
     w.breathNearWater:SetChecked(b.breathNearWater == true)

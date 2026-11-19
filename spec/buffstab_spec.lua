@@ -58,6 +58,30 @@ describe("The Buffs tab (#408)", function()
     end
 
     describe("the tab (white)", function()
+        -- #491: the self-buff row moves only when the row above it changes, so a
+        -- fill doesn't lay out every row below it again; it must still follow the
+        -- buff list when that changes (the class read differently: unreadable at
+        -- first, or another class).
+        it("the self-buff row follows the last buff row when the class reads differently, and stays put otherwise",
+            function()
+                boot()
+                local function anchor() return select(2, w.selfBuffs:GetPoint(1)) end
+                local druid = #ns.BuffData.CLASSES.DRUID
+                assert.are.equal(w.buffRows[druid].icon, anchor())
+                ns.Options.Refresh()
+                assert.are.equal(w.buffRows[druid].icon, anchor(), "a fill with the same rows leaves it")
+                wow.state.class = "PALADIN"
+                ns.Options.Refresh()
+                assert.are.equal(w.buffRows[#ns.BuffData.CLASSES.PALADIN].icon, anchor(), "a paladin's longer list")
+                assert.is_true(w.selfBuffs:IsVisible())
+                wow.state.class = nil
+                ns.Options.Refresh()
+                assert.are.equal(w.buffOrderHeader, anchor(), "no class read: under the header")
+                wow.state.class = "DRUID"
+                ns.Options.Refresh()
+                assert.are.equal(w.buffRows[druid].icon, anchor(), "and back")
+            end)
+
         it("shows the order with icons, Up, Down and Never offer, the buff options, the intro and four places", function()
             boot()
             assert.are.equal("buffs", ns.Options.CurrentType())
