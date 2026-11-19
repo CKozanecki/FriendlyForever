@@ -127,7 +127,7 @@ describe("the UI simulator's options tabs", function()
         local children = {}
         for _, stand in ipairs({ { 400 }, { 300 }, { 60 } }) do
             children[#children + 1] = { GetObjectType = function() return "EditBox" end,
-                GetWidth = function() return stand[1] end }
+                GetWidth = function() return stand[1] end, IsShown = function() return false end }
         end
         for _, edit in ipairs(edits) do
             edit.GetObjectType = function() return "EditBox" end
@@ -135,8 +135,19 @@ describe("the UI simulator's options tabs", function()
         end
         content.GetChildren = function() return unpack(children) end
         Pages.OpenTab = function() return content end
+        -- The line is scrolled into view before the pointer arrives (#491's testing
+        -- review): on the Favours tab the lines sit below the first view.
+        local shown = {}
+        local realShowFrameAt = Pages.ShowFrameAt
+        Pages.ShowFrameAt = function(c, frame, at)
+            shown[#shown + 1] = { c, frame, at }
+            return realShowFrameAt(c, frame, at)
+        end
         local box = Pages.ShowMessageHover("favours")
+        Pages.ShowFrameAt = realShowFrameAt
         assert.are.equal(ns.Options.widgets.edits[4], box)
+        assert.is_true(#shown >= 1, "the hovered line is scrolled into view")
+        assert.are.same({ content, box, "top" }, shown[1])
         assert.are.equal(Pages.HOVER_LINE, box:GetText())
         assert.is_truthy(table.concat(_G.GameTooltip.lines, "\n"):find("{greeting} can be:", 1, true))
         Pages.OpenTab = function() return nil end
