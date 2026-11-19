@@ -1359,6 +1359,16 @@ describe("The simulated client's form spells (#495)", function()
         assert.are.equal(1, #landed)
     end)
 
+    it("formCastSeconds delays a form's cast alone, before castLatency", function()
+        druid()
+        wow.state.castLatency, wow.state.formCastSeconds = 9, 2.5
+        wow.runMacro("/cast !Cat Form")
+        assert.are.equal(0, wow.state.form)
+        wow.advance(2.5)
+        assert.are.equal(CAT, wow.state.formSpell)
+        assert.are.equal(1, #landed)
+    end)
+
     it("formSentTarget is the target UNIT_SPELLCAST_SENT names", function()
         druid()
         wow.state.formSentTarget = "Ann"

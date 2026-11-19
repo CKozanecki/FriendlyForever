@@ -758,6 +758,7 @@ describe("Back into your form after fast-cast buffing (#495)", function()
             local lastBuff = -math.huge -- when a buff was last cast by a press
             local pendingDrop          -- a drop of a standing return, counted at the next press
             local reach, backs, refused, nextDrop = {}, 0, 0, 0
+            local midCast = 0 -- shift backs looked at while still being cast
             local pressed -- whether this step pressed the button
             local refusedAt, refusedIn -- when, and in which form, a press last cast nothing (autoUnshift off)
             local shiftOut, followUp
@@ -813,6 +814,8 @@ describe("Back into your form after fast-cast buffing (#495)", function()
                         assert.is_nil(c.inCombat)
                         backs = backs + 1
                         left = nil
+                        -- Still being cast: the button is looked at now, mid-cast.
+                        if (wow.state.formCastSeconds or 0) > 0 then midCast = midCast + 1 end
                     else
                         buffCast = true
                     end
@@ -892,7 +895,8 @@ describe("Back into your form after fast-cast buffing (#495)", function()
                 local before = #wow.casts
                 pressed = false
                 local r = random.random(1, 26)
-                wow.state.castLatency = shaman and random.random(1, 2) == 1 and 2.5 or 0
+                -- Ghost Wolf takes a moment to cast (2.5 seconds here); druid forms are instant.
+                wow.state.formCastSeconds = shaman and 2.5 or nil
                 if r <= 7 then
                     press("key")
                 elseif r <= 9 then
@@ -958,6 +962,7 @@ describe("Back into your form after fast-cast buffing (#495)", function()
                 assert.is_true(reach[reason] >= 1, "the storm reached: " .. reason)
             end
             assert.is_true(backs >= 1, "the storm shifted back at least once")
+            if shaman then assert.is_true(midCast >= 1, "the storm looked at a shift back mid-cast") end
             assert.is_true(refused >= 1, "the storm refused a shift back at least once")
             assert.are.equal(errors, ns.Diag.Counters().luaErrors or 0)
         end
@@ -966,7 +971,7 @@ describe("Back into your form after fast-cast buffing (#495)", function()
             it("druid, seed " .. seed .. ": never casts without a press, and never offers a form you weren't in",
                 function() storm(seed, false) end)
         end
-        for _, seed in ipairs({ 462, 467, 472, 481, 485 }) do
+        for _, seed in ipairs({ 465, 470, 472, 481, 495 }) do
             it("shaman, Ghost Wolf with a cast time, seed " .. seed .. ": the same", function() storm(seed, true) end)
         end
     end)

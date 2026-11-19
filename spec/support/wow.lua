@@ -1540,8 +1540,8 @@ M.FORM_STANCE = { [5487] = 1, [9634] = 1, [1066] = 2, [768] = 3, [783] = 4, [248
 -- error (Travel Form indoors, Aquatic Form on land), nothing sent. Otherwise
 -- it is sent (UNIT_SPELLCAST_SENT names no target, or state.formSentTarget,
 -- as what the game names for a spell on yourself is unconfirmed), and answered
--- at once, or after state.castLatency, which stands for a cast time (Ghost
--- Wolf's, #495, unconfirmed on Forever): you shift
+-- at once, or after state.formCastSeconds (a form's own cast time: Ghost
+-- Wolf's, #495, unconfirmed on Forever) or else state.castLatency: you shift
 -- (UPDATE_SHAPESHIFT_FORM), then UNIT_SPELLCAST_SUCCEEDED; with
 -- state.formAfterSucceeded the other way round, as which comes first on
 -- Forever is unconfirmed. From one form straight into another is not
@@ -1577,7 +1577,7 @@ shift = function(id, bang)
         M.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, id)
         if M.state.formAfterSucceeded then into() end
     end
-    local latency = M.state.castLatency or 0
+    local latency = M.state.formCastSeconds or M.state.castLatency or 0
     if latency > 0 then M.gameAfter(latency, answer) else answer() end
 end
 
