@@ -758,7 +758,7 @@ describe("Back into your form after fast-cast buffing (#495)", function()
             local lastBuff = -math.huge -- when a buff was last cast by a press
             local pendingDrop          -- a drop of a standing return, counted at the next press
             local reach, backs, refused, nextDrop = {}, 0, 0, 0
-            local midCast = 0 -- shift backs looked at while still being cast
+            local midCast = 0 -- looks at the button while a shift back is still being cast
             local pressed -- whether this step pressed the button
             local refusedAt, refusedIn -- when, and in which form, a press last cast nothing (autoUnshift off)
             local shiftOut, followUp
@@ -785,6 +785,11 @@ describe("Back into your form after fast-cast buffing (#495)", function()
             -- lets go at its next re-check (a press checks first). Looked at
             -- once each step is over and its frame has passed.
             local function checkArmed()
+                -- A form cast the client sent and hasn't landed: we look mid-cast.
+                local sentForms, landedForms = 0, 0
+                for _, c in ipairs(wow.casts) do if c.form then sentForms = sentForms + 1 end end
+                for _, l in ipairs(wow.landed) do if NAMES[l.id] then landedForms = landedForms + 1 end end
+                if sentForms > landedForms then midCast = midCast + 1 end
                 local macro = clickMacro()
                 if macro and macro:find("^/cast !") then
                     assert.is_truthy(left, "a form offered with none left by a press")
@@ -814,8 +819,6 @@ describe("Back into your form after fast-cast buffing (#495)", function()
                         assert.is_nil(c.inCombat)
                         backs = backs + 1
                         left = nil
-                        -- Still being cast: the button is looked at now, mid-cast.
-                        if (wow.state.formCastSeconds or 0) > 0 then midCast = midCast + 1 end
                     else
                         buffCast = true
                     end
