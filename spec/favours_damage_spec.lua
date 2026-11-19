@@ -70,6 +70,31 @@ describe("Favours with settings damaged mid-session (#491, black)", function()
         end
     end)
 
+    -- #502's testing review: each place that reads how to thank, not only
+    -- the first: a whisper that fails after the section was lost.
+    it("a thank-you whisper that fails while the thanks section is lost raises nothing, and the section heals",
+        function()
+            for _, junk in ipairs({ 7, "x", true }) do
+                -- No buffs of your own to return, so the thank-you doesn't wait
+                -- for an exchange (Exchange.lua): it goes out after its delay.
+                ns = wow.boot()
+                ns.db.buff.thankStyle, ns.db.buff.fallback = "whisper", "say"
+                ns.db.buff.messages = { "Thanks for the {buff}, {name}!" }
+                wow.addUnit("target", { name = "Bob", surname = "Stone" })
+                wow.gainBuff({ sourceUnit = "target", name = "Fort" })
+                wow.advance(ns.db.buff.delay + 0.01)
+                local whispered = 0
+                for _, m in ipairs(wow.sent) do if m.channel == "WHISPER" then whispered = whispered + 1 end end
+                assert.are.equal(1, whispered, tostring(junk) .. ": the thank-you was whispered")
+                wow.advance(2)
+                ns.db.buff = junk
+                local ok, err = pcall(wow.systemMessage, "No player named 'Bob-Stone' is currently playing.")
+                assert.is_true(ok, tostring(junk) .. ": " .. tostring(err))
+                assert.are.same({}, wow.errors, tostring(junk))
+                assert.is_table(ns.db.buff, tostring(junk) .. ": the thanks section healed")
+            end
+        end)
+
     it("a stranger's buff while the thanks section is lost is owed, and the section heals", function()
         for _, junk in ipairs({ 7, "x", true }) do
             boot()

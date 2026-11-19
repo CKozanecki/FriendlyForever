@@ -284,7 +284,9 @@ describe("Favours (#491)", function()
         end)
 
         it("an edit in progress is saved to the lines it was typed in, whichever sub-tab is pressed", function()
-            boot()
+            -- The box then shows the other sub-tab's line, so the next letter
+            -- typed is saved there, not over it (#502's testing review).
+            boot({ db = { buff = { messages = { "t1", "t2", "t3" } }, buffBack = { messages = { "b1", "b2", "b3" } } } })
             favours()
             local edit = w.edits[3]
             edit:SetFocus()
@@ -292,7 +294,12 @@ describe("Favours (#491)", function()
             wow.run(edit, "OnTextChanged", true)
             lines("buffBack")
             assert.are.equal("typed into the thanks", ns.db.buff.messages[3])
-            assert.are_not.equal("typed into the thanks", ns.db.buffBack.messages[3])
+            assert.are.equal("b3", ns.db.buffBack.messages[3])
+            assert.are.equal("b3", edit:GetText(), "the box shows the sub-tab pressed")
+            edit:SetText(edit:GetText() .. "!")
+            wow.run(edit, "OnTextChanged", true)
+            assert.are.equal("b3!", ns.db.buffBack.messages[3])
+            assert.are.equal("typed into the thanks", ns.db.buff.messages[3], "the thanks line is untouched")
         end)
 
         it("loading a set of lines loads only the sub-tab shown", function()

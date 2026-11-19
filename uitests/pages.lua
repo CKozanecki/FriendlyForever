@@ -549,8 +549,11 @@ function Pages.ShowMessageHover(name)
     end
     -- The panel fills its boxes from the saved settings and lays itself out on
     -- the next frame, so the line goes in and the pointer arrives then (as
-    -- ShowFrameAt does); the first time is for a client with no timer.
+    -- ShowFrameAt does); the first time is for a client with no timer. The
+    -- box is scrolled into view first, as a player scrolls to the line they
+    -- point at: on the Favours tab the lines sit below the first view (#491).
     local function Hover()
+        Pages.ShowFrameAt(content, box, "top")
         box:SetText(Pages.HOVER_LINE)
         local enter = box:GetScript("OnEnter")
         if enter then enter(box) end

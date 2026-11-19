@@ -256,6 +256,11 @@ describe("Favours and saved settings (#491)", function()
 
     describe("a storm on the Favours tab, and buff mode's rows on the Buffs tab (red)", function()
         it("random clicks, numbers, lines and sub-tabs, with sections damaged mid-session, never raise an error", function()
+            -- Each damage is followed at once by a press on a control of the damaged
+            -- section, before anything heals it (a fill, a tab, a typed line), in turn,
+            -- so every control meets a damaged section (#502's testing review).
+            local reached, turn = {}, 0
+            local controlCount
             for _, seed in ipairs(SEEDS) do
                 local rng = rngFor(seed)
                 ns = wow.boot({ db = file144(rng) })
@@ -278,6 +283,34 @@ describe("Favours and saved settings (#491)", function()
                     act()
                     if onBuffs[control] then wow.run(w.tabs.favours, "OnClick") end
                 end
+                -- Each section's controls: a name, its tab, and its press.
+                local function toggle(b) return function() b:SetChecked(not b:GetChecked()) wow.run(b, "OnClick") end end
+                local function plus(name) return function() wow.run(w.steppers[name].plus, "OnClick") end end
+                local CONTROLS = {
+                    buff = {
+                        { "thankEnabled", "favours", toggle(w.thankEnabled) }, { "listNames", "favours", toggle(w.listNames) },
+                        { "receipts", "favours", toggle(w.receipts) }, { "quiet", "favours", toggle(w.quiet) },
+                        { "thankDelay", "favours", plus("thankDelay") }, { "thankRepeat", "favours", plus("thankRepeat") },
+                        { "thankStyle", "favours", function() wow.run(w.thankStyle.rows[2], "OnClick") end },
+                        { "fallback", "favours", function() wow.run(w.fallback.rows[1], "OnClick") end },
+                    },
+                    buffBack = {
+                        { "offerEnabled", "favours", toggle(w.offerEnabled) }, { "sayLine", "favours", toggle(w.sayLine) },
+                        { "buffRequests", "favours", toggle(w.buffRequests) }, { "passersBy", "favours", toggle(w.passersBy) },
+                        { "showInCities", "favours", toggle(w.showInCities) },
+                        { "owedMinutes", "favours", plus("owedMinutes") }, { "renewPercent", "favours", plus("renewPercent") },
+                        { "autoOffMinutes", "buffs", plus("autoOffMinutes") }, { "topUpMinutes", "buffs", plus("topUpMinutes") },
+                        { "groupEnough", "buffs", plus("groupEnough") },
+                    },
+                }
+                for _, field in ipairs(ns.Options.AUTO_SWITCHES) do
+                    table.insert(CONTROLS.buffBack, { field, "buffs", toggle(w.auto[field]) })
+                end
+                local all = {}
+                for _, section in ipairs({ "buff", "buffBack" }) do
+                    for _, c in ipairs(CONTROLS[section]) do all[#all + 1] = { section = section, control = c } end
+                end
+                controlCount = #all
                 for step = 1, 60 do
                     local where = ("seed %d, step %d"):format(seed, step)
                     local roll = rng:int(1, 9)
@@ -304,8 +337,12 @@ describe("Favours and saved settings (#491)", function()
                         elseif roll == 4 then
                             wow.run(w.linesTabs[rng:int(1, 2) == 1 and "buff" or "buffBack"], "OnClick")
                         elseif roll == 5 then
-                            -- Another addon or a bad /run damages a section or a field.
-                            local section = rng:int(1, 2) == 1 and "buff" or "buffBack"
+                            -- Another addon or a bad /run damages a section or a field,
+                            -- and a control of that section is pressed at once, on its tab.
+                            turn = turn % #all + 1
+                            local pick = all[turn]
+                            local section, control = pick.section, pick.control
+                            wow.run(w.tabs[control[2]], "OnClick")
                             if rng:int(1, 2) == 1 then
                                 ns.db[section] = JUNK[rng:int(1, #JUNK)]
                             elseif type(ns.db[section]) == "table" then
@@ -313,6 +350,9 @@ describe("Favours and saved settings (#491)", function()
                                 ns.db[section][names[rng:int(1, #names)]] = JUNK[rng:int(1, #JUNK)]
                             end
                             wow.advance(2) -- past the repair's once-a-second limit
+                            control[3]()
+                            reached[section .. "." .. control[1]] = true
+                            wow.run(w.tabs.favours, "OnClick")
                         elseif roll == 6 then
                             local rows = rng:int(1, 2) == 1 and w.thankStyle.rows or w.fallback.rows
                             wow.run(rows[rng:int(1, #rows)], "OnClick")
@@ -326,6 +366,7 @@ describe("Favours and saved settings (#491)", function()
                         end
                     end)
                     assert.is_true(ok, where .. ": " .. tostring(err))
+                    assert.are.same({}, wow.errors, where .. ": an error the client caught")
                 end
                 -- Whatever was damaged heals as the tab fills: every field valid by its kind.
                 ns.Options.Refresh()
@@ -340,6 +381,10 @@ describe("Favours and saved settings (#491)", function()
                     assert.are.equal(30, #ns.db[section].messages)
                 end
             end
+            -- Every control met a damaged section at least once.
+            local count = 0
+            for _ in pairs(reached) do count = count + 1 end
+            assert.are.equal(controlCount, count, "controls reached right after damage")
         end)
     end)
 end)

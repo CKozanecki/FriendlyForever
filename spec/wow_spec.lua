@@ -1,4 +1,4 @@
--- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471, #485, #482, #486
+-- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471, #485, #482, #486, #491, #504
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -50,6 +50,25 @@ describe("The simulated client", function()
         it("an unknown strata is an error (black)", function()
             local _, a = pair()
             assert.has_error(function() a:SetFrameStrata("TOP") end)
+        end)
+    end)
+
+    -- #491's architecture review, #504: past the last anchor the game may
+    -- raise or answer nothing (unconfirmed); the client raises, the
+    -- pessimistic side, so code that asks first is the only code that passes.
+    describe("GetPoint past the last anchor (#491, #504, black)", function()
+        it("raises for a region with no anchor, and for an index past the last; answers the ones it has", function()
+            wow.boot()
+            local f = wow.newFrame("Frame", nil, UIParent)
+            assert.are.equal(0, f:GetNumPoints())
+            assert.has_error(function() f:GetPoint(1) end)
+            assert.has_error(function() f:GetPoint() end)
+            f:SetPoint("CENTER", UIParent, "CENTER", 3, 4)
+            local point, relativeTo, relativePoint, x, y = f:GetPoint(1)
+            assert.are.same({ "CENTER", UIParent, "CENTER", 3, 4 }, { point, relativeTo, relativePoint, x, y })
+            assert.has_error(function() f:GetPoint(2) end)
+            f:ClearAllPoints()
+            assert.has_error(function() f:GetPoint(1) end)
         end)
     end)
 
