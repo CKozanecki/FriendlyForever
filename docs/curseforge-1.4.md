@@ -5,6 +5,7 @@
      the passers-by switch and minimap shift-click. The last two were checked against the merged #464 code and its notes on 18 Nov.
      Updated for 1.4.3 on 18 Nov from its changelog notes: Ghost Wolf, the raid Blessings answer, the raid split and chat sending.
      Updated for 1.4.4 on 19 Nov from its changelog notes: refusals about you, passers-by in resting areas and Moonkin Form.
+     Updated for 1.4.5 on 19 Nov from its changelog notes: the options pages' scrolling, the guildmate's zone and the return to form.
      On 18 Nov the owner edited the posted 1.4.3 text for readability (shorter lines, a bold label on each feature, a
      "Safe by design" list). This file carries those edits, with the section headings and bullet lists the posted copy lost.
      It is the first thing a player reads: keep every section a heading, every feature a bullet with a bold label,
@@ -13,6 +14,12 @@
 ## Description
 
 Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets, welcomes and thanks for you, and returns every kindness with a buff. It's built to stay friendly when a whole guild runs it, without flooding chat.
+
+**New in 1.4.5:**
+
+- the zone in guild greetings is now your guildmate's, from the guild roster, not yours;
+- after fast-cast buffing, the button offers your druid form or Ghost Wolf back, and your next press shifts you into it;
+- each options page and Buffs tab place scrolls only as far as its last control.
 
 **New in 1.4.4:**
 
@@ -49,7 +56,7 @@ Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets,
 
 ## Greetings and thanks
 
-- **Guild greetings:** says hello when guildmates log in, and welcomes new members to the guild.
+- **Guild greetings:** says hello when guildmates log in, and welcomes new members to the guild. When a line names a zone, it's your guildmate's, from the guild roster.
 - **Group welcomes:** says hello when you join a party or raid, with a different line when you rejoin the same group.
 - **Level-up cheers:** congratulates a party member who levels up.
 - **Buff thanks:** thanks whoever buffs you, by name and buff, with a line in /say, a whisper, a /thank emote, or a line and an emote. You choose what happens when it can't reach them.
@@ -81,7 +88,7 @@ Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets,
 - **Buffs you, too:** solo, it keeps your own Fortitude, Intellect, Mark or Blessing up, and turns itself on when one is missing or running low.
 - **Your self-buffs:** Inner Fire, mage and warlock armors, Lightning Shield, Battle Shout, Aspects, Trueshot Aura, paladin auras and Righteous Fury, after everyone else is done. Each is marked "(you only)" in your buff order.
 - **Weapon buffs (new, experimental, off by default):** pick a stone, oil, poison or shaman imbue for each hand on the new Weapon buffs page. Once everyone else is done, the button offers it for a hand with nothing on it, and one press puts it on. A weapon with its own Use is left for you. While you're resting (in a city, an inn or a town with one) weapon buffs wait until you leave. It's offered in a druid's form or Ghost Wolf too, and a press may drop you out of the form, as doing it by hand would.
-- **Druid forms and Ghost Wolf:** in cat, bear, travel or any other druid form except Moonkin (which casts as usual), or a shaman's Ghost Wolf, the key leaves your buffs alone so scrolling never knocks you out of the form. The button still shows the buff, and a click casts it. Turn on **Fast-cast buffs in form** on the Buffs tab (off by default) to let the key cast them in a form or Ghost Wolf too; weapon buffs work with the key as before.
+- **Druid forms and Ghost Wolf:** in cat, bear, travel or any other druid form except Moonkin (which casts as usual), or a shaman's Ghost Wolf, the key leaves your buffs alone so scrolling never knocks you out of the form. The button still shows the buff, and a click casts it. Turn on **Fast-cast buffs in form** on the Buffs tab (off by default) to let the key cast them in a form or Ghost Wolf too; once nothing is left to buff, the button offers your form back, and your next press shifts you into it; weapon buffs work with the key as before.
 - **Tops up before it runs out:** a buff of yours with under 5 minutes left (you choose) counts as missing, so you renew it in time.
 - **Shares the work in raids:** copies of Friendly Forever split the buffs between them, so three priests give Fortitude, Spirit and Shadow Protection between them, and paladins split their Blessings instead of all giving Kings.
 - **Paladin-aware:** gives one Blessing each, never overwriting yours.
