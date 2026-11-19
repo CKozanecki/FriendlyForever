@@ -3,6 +3,7 @@
      The passers-by and campfire lines were checked against the merged code and README on 17 Nov.
      Updated for 1.4.2 on 18 Nov: the hover preview, weapon buffs while resting, druid forms, level-appropriate ranks,
      the passers-by switch and minimap shift-click. The last two were checked against the merged #464 code and its notes on 18 Nov.
+     Updated for 1.4.4 on 19 Nov from its changelog notes: refusals about you, passers-by in resting areas and Moonkin Form.
      Updated for 1.4.3 on 18 Nov from its changelog notes: Ghost Wolf, the raid Blessings answer, the raid split and chat sending.
      On 18 Nov the owner edited the posted 1.4.3 text for readability (shorter lines, a bold label on each feature, a
      "Safe by design" list). This file carries those edits, with the section headings and bullet lists the posted copy lost.
@@ -12,6 +13,12 @@
 ## Description
 
 Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets, welcomes and thanks for you, and returns every kindness with a buff. It's built to stay friendly when a whole guild runs it, without flooding chat.
+
+**New in 1.4.4:**
+
+- a refusal about you (not enough mana, a cooldown) no longer holds strangers back: the button stays on the same player and shows why;
+- in a resting area, passers-by no longer keep buff mode on;
+- buff mode's key keeps working in Moonkin Form, and its chat line says to click the button when the key waits.
 
 **New in 1.4.3:**
 
@@ -56,7 +63,7 @@ Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets,
 - **The Buffs tab:** your buff order, with each buff's icon, and Never offer live on one tab. For every buff you choose who gets it in each place: strangers who buff you (Buff Back), Party, Raid and PvP. Choose by role (Tanks, Healers, Damage), by class or Everyone, add names that always or never get it, or turn it Off.
 - **Knows who buffed you:** when the game can't name a stranger who buffed you, their copy of Friendly Forever quietly tells yours, so you can thank them by name.
 - **Buff requests in chat (off by default):** when someone whispers you, or says in /say or party chat, "mark pls", "int please" or "can I get fort?", they go on the button with the buff they asked for. It only counts your own class's buffs, by name or common nickname, and nothing is said back. A request is always granted while this is on, even for a buff you marked Never offer, but never a buff their class can't use. Switch it on with **Offer my buffs to players who ask in chat** on the Buff Back tab.
-- **Passers-by (off by default):** in buff mode, in the open world, the button can also offer your buffs to players nearby who aren't in your group and haven't buffed you. One buff per press, after everything else you owe, and never a word in chat. They're offered a buff only if they lack it (or it's under half its time), your Buff Back rule allows it and their class can use it. Never in a dungeon, raid, battleground, arena, capital city or fight, and never someone flagged for PvP while you aren't. Right-click skips someone for 10 minutes. Switch it on with **Also offer my buffs to passers-by in buff mode** at the top of the Buffs tab. It needs friendly nameplates.
+- **Passers-by (off by default):** in buff mode, in the open world, the button can also offer your buffs to players nearby who aren't in your group and haven't buffed you. One buff per press, after everything else you owe, and never a word in chat. They're offered a buff only if they lack it (or it's under half its time), your Buff Back rule allows it and their class can use it. Never in a dungeon, raid, battleground, arena, capital city or fight, and in a resting area they never keep buff mode on or turn it on, and never someone flagged for PvP while you aren't. Right-click skips someone for 10 minutes. Switch it on with **Also offer my buffs to passers-by in buff mode** at the top of the Buffs tab. It needs friendly nameplates.
 - **A line once it lands:** optionally say a thank-you line once the game confirms your buff reached them.
 - **Favour ledger:** who buffed you, whether you thanked them and buffed them back, with titles from Courteous to Friend to All Azeroth.
 
@@ -74,7 +81,7 @@ Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets,
 - **Buffs you, too:** solo, it keeps your own Fortitude, Intellect, Mark or Blessing up, and turns itself on when one is missing or running low.
 - **Your self-buffs:** Inner Fire, mage and warlock armors, Lightning Shield, Battle Shout, Aspects, Trueshot Aura, paladin auras and Righteous Fury, after everyone else is done. Each is marked "(you only)" in your buff order.
 - **Weapon buffs (new, experimental, off by default):** pick a stone, oil, poison or shaman imbue for each hand on the new Weapon buffs page. Once everyone else is done, the button offers it for a hand with nothing on it, and one press puts it on. A weapon with its own Use is left for you. While you're resting (in a city, an inn or a town with one) weapon buffs wait until you leave. It's offered in a druid's form or Ghost Wolf too, and a press may drop you out of the form, as doing it by hand would.
-- **Druid forms and Ghost Wolf:** in cat, bear, travel or any other druid form, or a shaman's Ghost Wolf, the key leaves your buffs alone so scrolling never knocks you out of the form. The button still shows the buff, and a click casts it. Turn on **Fast-cast buffs in form** on the Buffs tab (off by default) to let the key cast them in a form or Ghost Wolf too; weapon buffs work with the key as before.
+- **Druid forms and Ghost Wolf:** in cat, bear, travel or any other druid form except Moonkin (which casts as usual), or a shaman's Ghost Wolf, the key leaves your buffs alone so scrolling never knocks you out of the form. The button still shows the buff, and a click casts it. Turn on **Fast-cast buffs in form** on the Buffs tab (off by default) to let the key cast them in a form or Ghost Wolf too; weapon buffs work with the key as before.
 - **Tops up before it runs out:** a buff of yours with under 5 minutes left (you choose) counts as missing, so you renew it in time.
 - **Shares the work in raids:** copies of Friendly Forever split the buffs between them, so three priests give Fortitude, Spirit and Shadow Protection between them, and paladins split their Blessings instead of all giving Kings.
 - **Paladin-aware:** gives one Blessing each, never overwriting yours.

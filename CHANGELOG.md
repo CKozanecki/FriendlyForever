@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.4
+
+- **A refusal about you no longer holds players back.** When the game refuses a buff for a reason about you ("Not enough mana", in combat, a form), the button stays on the same player and shows why, instead of putting them aside for 15 seconds and moving down the list; chat says it at most once every few seconds while you keep pressing. A press in the global cooldown ("Spell is not ready yet") isn't counted as a refusal at all. Only a refusal about the player (out of range, out of sight, too low level, not a valid target) puts them aside, as before. The same goes for your group, passers-by, favours and your self-buffs. (#483)
+- **Buff mode settles down in towns.** In a resting area (a town with an inn, or a capital), passers-by no longer keep buff mode on, or turn it on at a campfire: it turns off once nothing else needs it, though the button still offers them while it's on. And if you turn buff mode off yourself, passers-by don't turn it back on until you change zone. (#484)
+- **Moonkin Form keeps buff mode's key.** A druid casts every buff without leaving Moonkin Form, so the key now casts your buffs there too, as in caster form. When buff mode turns on in a form where the key waits, its chat line says to click the button rather than naming the key. (#485)
+
 ## 1.4.3
 
 - **`/friendly blessings` agrees with the Buffs tab when the game's raid answer can't be trusted.** Choosing your Blessings for a raid now reads the raid the way everything else does: when the game says "raid" in a party, or can't say, the command answers "can't tell if you're in a raid" and keeps the choice you had, instead of taking a choice that would never apply. `/friendly blessings all` still stops a choice anywhere. (#442)
