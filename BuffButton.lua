@@ -1361,6 +1361,13 @@ function BuffButton.OnSpellcastFailed(unit, castGUID, spellId)
     end
 end
 
+-- A shift back whose cast stopped (#495): the button offers it again.
+local function ShiftBackStopped(press)
+    if not ReturnStands(press) then return end
+    formReturn.casting = nil
+    BuffButton.Refresh()
+end
+
 -- The cast failed with nothing to say (cancelled, say): no error text
 -- follows, so the press is simply answered.
 function BuffButton.OnSpellcastFailedQuiet(unit, castGUID, spellId)
@@ -1368,12 +1375,15 @@ function BuffButton.OnSpellcastFailedQuiet(unit, castGUID, spellId)
     if not press then return end
     ForgetPress(press)
     lastResultText = "the cast of " .. press.spell .. " stopped"
-    -- A shift back stopped (you moved during Ghost Wolf's cast): the button
-    -- offers it again (#495).
-    if press.formReturn and ReturnStands(press) then
-        formReturn.casting = nil
-        BuffButton.Refresh()
-    end
+    ShiftBackStopped(press)
+end
+
+-- A cast cut off (you moved during Ghost Wolf's cast). Which of this and
+-- the quiet failure Forever sends is unconfirmed (#498). Only a shift back
+-- is touched; the press is kept, for an error text that may follow.
+function BuffButton.OnSpellcastInterrupted(unit, castGUID, spellId)
+    local press = PressForCast(unit, castGUID, spellId)
+    if press then ShiftBackStopped(press) end
 end
 
 -- The press the game's red error text answers: the newest whose cast just
@@ -1494,6 +1504,7 @@ local function CreateEventFrame()
         UNIT_SPELLCAST_SUCCEEDED = BuffButton.OnSpellcastSucceeded,
         UNIT_SPELLCAST_FAILED = BuffButton.OnSpellcastFailed,
         UNIT_SPELLCAST_FAILED_QUIET = BuffButton.OnSpellcastFailedQuiet,
+        UNIT_SPELLCAST_INTERRUPTED = BuffButton.OnSpellcastInterrupted,
         UI_ERROR_MESSAGE = BuffButton.OnUIError,
         PLAYER_TARGET_CHANGED = BuffButton.Refresh,
         -- Someone owed may come into view (or go): their PvP flag can be read only then.

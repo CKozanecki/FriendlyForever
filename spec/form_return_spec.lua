@@ -609,6 +609,33 @@ describe("Back into your form after fast-cast buffing (#495)", function()
             assert.are.equal(clickMacro(), keyMacro())
         end)
 
+        it("a Ghost Wolf shift back cut off with only an interrupt is offered again at once; a buff's isn't touched",
+            function()
+            boot({ shaman = true, wolfForm = 1, wolfAura = true })
+            scrollBuffs()
+            wow.state.castLatency = 100
+            scroll()
+            assert.is_nil(clickMacro())
+            wow.fire("UNIT_SPELLCAST_INTERRUPTED", "player", wow.lastCastGuid, WOLF)
+            assert.are.equal("/cast !Ghost Wolf", clickMacro())
+            assert.are.equal(clickMacro(), keyMacro())
+            -- A buff's cast cut off changes nothing here.
+            boot({ form = CAT })
+            wow.state.castLatency = 100
+            scroll()
+            local before = clickMacro()
+            wow.fire("UNIT_SPELLCAST_INTERRUPTED", "player", wow.lastCastGuid, MOTW)
+            assert.are.equal(before, clickMacro())
+            -- Nor with no return at all.
+            boot()
+            local errors = ns.Diag.Counters().luaErrors or 0
+            wow.state.castLatency = 100
+            scroll()
+            wow.fire("UNIT_SPELLCAST_INTERRUPTED", "player", wow.lastCastGuid, MOTW)
+            wow.fire("UNIT_SPELLCAST_FAILED_QUIET", "player", wow.lastCastGuid, MOTW)
+            assert.are.equal(errors, ns.Diag.Counters().luaErrors or 0)
+        end)
+
         it("an answer that comes once the return is gone says nothing", function()
             -- No answer at all, and you shift by hand meanwhile.
             ready()
