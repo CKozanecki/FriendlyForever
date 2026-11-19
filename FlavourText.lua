@@ -16,7 +16,9 @@
 --   {thanks}    "{thanks}, {name}!" and "{thanks} for the {buff}": a way of
 --               saying thank you, no end punctuation, nothing after it that
 --               "for the" can't follow.
---   {blessing}  A whole sentence with its end punctuation, said last.
+--   {blessing}  A whole sentence with its end punctuation, said last. Its
+--               place pools are chosen by where you are (city, instance,
+--               wilds), except guild messages', which use the guild pool.
 --   {cheer}     A rallying cry, a whole sentence ending in "!".
 -- Fragments may use {zone}, {timeofday} and {myclass}, never another slot.
 -- spec/flavour_spec.lua renders every fragment in every line it fits and
@@ -120,6 +122,15 @@ FlavourText.blessing = {
         wilds = {
             "Safe travels through {zone}.", "Keep your eyes open out in {zone}.",
             "May {zone} treat you kindly.",
+        },
+        -- Guild messages (#486): the guildmate is somewhere else, and the
+        -- roster names their zone without saying whether it's a city, so
+        -- these suit anywhere. {zone} is theirs; a phrase that needs it isn't
+        -- used when the roster can't say.
+        guild = {
+            "Good fortune to you in {zone}.", "May {zone} treat you kindly.",
+            "All the best out there in {zone}.", "Wherever the road takes you, good fortune.",
+            "Good to have you with us.",
         },
     },
     time = {

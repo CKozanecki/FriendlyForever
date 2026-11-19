@@ -63,6 +63,7 @@ Config.TYPE_INFO = {
         help    = "Greets guild members when they come online. "
             .. "Placeholders: {name} and {fullname}, both the whole name",
         wholeName = true,
+        guild = true, -- {zone} is the guildmate's (#486)
     },
     buff = {
         label   = "Buff Thanks",
@@ -74,6 +75,7 @@ Config.TYPE_INFO = {
         channel = "Guild chat",
         help    = "Welcomes new members who join the guild. Placeholders: {name} and {fullname}, both the whole name",
         wholeName = true,
+        guild = true, -- {zone} is the guildmate's (#486)
     },
     partyJoin = {
         label   = "Party Join",

@@ -218,7 +218,8 @@ end
 
 local function CreateList()
     local ui = UI()
-    local list = CreateFrame("Frame", nil, area)
+    -- It floats over the rows, so it isn't part of the tab's height (#482).
+    local list = ns.Options.Floating(CreateFrame("Frame", nil, area))
     list:SetFrameStrata("DIALOG")
     list:SetSize(BuffsTab.LIST_WIDTH, BuffsTab.LIST_HEIGHT)
     list:Hide()

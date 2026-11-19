@@ -102,6 +102,14 @@ function GuildHellos.Heard(name)
     return login and login.count
 end
 
+-- The lines other copies announced for a login being tracked, as a set
+-- ({ [line] = true }), or nil: a line given way to as it goes out (a zone
+-- that can't be read, #486) avoids them too.
+function GuildHellos.Announced(name)
+    local login = Live(name)
+    return login and login.lines
+end
+
 function GuildHellos.Tracked()
     for name in pairs(logins) do Live(name) end
     return loginCount
