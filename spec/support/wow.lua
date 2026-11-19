@@ -1845,9 +1845,6 @@ local function pressHalf(button, mouseButton, isDown, mods)
     if button.scripts.PostClick then button.scripts.PostClick(button, mouseButton, isDown) end
 end
 
--- A press of a button by a key binding or the mouse: the down half, then the
--- up half. mouseButton defaults to "LeftButton"; mods = { shift = true, ... }.
--- The modifiers are held for the press (IsShiftKeyDown and friends say so).
 -- One half of a press on its own (#495): a key held down (isDown true)
 -- and released later, with the game changing in between.
 function M.pressHalf(button, mouseButton, isDown)
@@ -1856,6 +1853,9 @@ function M.pressHalf(button, mouseButton, isDown)
     M.hardware = false
 end
 
+-- A press of a button by a key binding or the mouse: the down half, then the
+-- up half. mouseButton defaults to "LeftButton"; mods = { shift = true, ... }.
+-- The modifiers are held for the press (IsShiftKeyDown and friends say so).
 function M.press(button, mouseButton, mods)
     mouseButton = mouseButton or "LeftButton"
     local held = M.state.mods
