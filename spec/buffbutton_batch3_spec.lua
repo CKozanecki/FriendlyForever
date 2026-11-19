@@ -1,4 +1,4 @@
--- Spec: #483, #484, #485
+-- Spec: #483, #484, #485, #491
 -- The 1.4.4 buff button batch (the owner's 1.4.3 play-test, 18 Nov):
 -- #483: a refusal about you (no mana, combat, a form, silence, a text that
 -- can't be read or isn't known) holds nobody; a press in the global cooldown
@@ -672,33 +672,33 @@ describe("The buff button batch (1.4.4)", function()
                 bootDruid({ noMode = true, form = CAT, spell = wow.CAT_FORM })
                 local from = #wow.printed
                 slash("buffmode on")
-                assert.are.equal(1, saidSince(from, "buff mode on: click the buff-back button to buff (you're in a form)."))
-                assert.are.equal(0, saidSince(from, "presses the buff-back button"))
+                assert.are.equal(1, saidSince(from, "buff mode on: click the buff button to buff (you're in a form)."))
+                assert.are.equal(0, saidSince(from, "presses the buff button"))
                 assert.matches("click the button to buff (you're in a form)", ns.BuffMode.StatusLine(), 1, true)
                 -- Fast-cast on: the key.
                 bootDruid({ noMode = true, form = CAT, spell = wow.CAT_FORM,
                     db = { buffBack = { fastCastInForm = true } } })
                 from = #wow.printed
                 slash("buffmode on")
-                assert.are.equal(1, saidSince(from, "buff mode on: MOUSEWHEELUP presses the buff-back button."))
+                assert.are.equal(1, saidSince(from, "buff mode on: MOUSEWHEELUP presses the buff button."))
                 assert.matches("MOUSEWHEELUP presses the button", ns.BuffMode.StatusLine(), 1, true)
                 -- Moonkin: the key.
                 bootDruid({ noMode = true, form = MOONKIN, spell = wow.MOONKIN_FORM })
                 from = #wow.printed
                 slash("buffmode on")
-                assert.are.equal(1, saidSince(from, "buff mode on: MOUSEWHEELUP presses the buff-back button."))
+                assert.are.equal(1, saidSince(from, "buff mode on: MOUSEWHEELUP presses the buff button."))
                 -- Cat form with nothing to offer (solo, no passers-by): still click.
                 boot({ noMode = true, passersBy = false })
                 wow.setForm(CAT, wow.CAT_FORM)
                 from = #wow.printed
                 slash("buffmode on")
                 assert.is_nil(ns.BuffButton.ArmedOffer())
-                assert.are.equal(1, saidSince(from, "buff mode on: click the buff-back button to buff (you're in a form)."))
+                assert.are.equal(1, saidSince(from, "buff mode on: click the buff button to buff (you're in a form)."))
                 -- Caster form, with nothing to offer: the key.
                 boot({ noMode = true })
                 from = #wow.printed
                 slash("buffmode on")
-                assert.are.equal(1, saidSince(from, "buff mode on: MOUSEWHEELUP presses the buff-back button."))
+                assert.are.equal(1, saidSince(from, "buff mode on: MOUSEWHEELUP presses the buff button."))
             end)
 
         it("a trigger turning buff mode on in a waiting form says to click too, with its reason (white)", function()
@@ -708,7 +708,7 @@ describe("The buff button batch (1.4.4)", function()
             local from = #wow.printed
             wow.gainBuff({ spellId = 1232234, name = "Cozy Fire" })
             assert.is_true(ns.BuffMode.IsAuto())
-            assert.are.equal(1, saidSince(from, ": click the buff-back button to buff (you're in a form)."))
+            assert.are.equal(1, saidSince(from, ": click the buff button to buff (you're in a form)."))
             assert.are.equal(1, saidSince(from, "buff mode on (you're by a campfire)"))
         end)
     end)

@@ -612,7 +612,7 @@ function Offers.Current(list)
     -- A section lost mid-session reads as off (#384): the button's refresh
     -- comes here, and must not raise an error.
     local buffBack = ns.db.buffBack
-    if type(buffBack) ~= "table" or not buffBack.enabled then return nil, "buff back is off" end
+    if type(buffBack) ~= "table" or not buffBack.enabled then return nil, "offering your buff back is off" end
     -- No Changed() here: the button is the caller, and would re-enter.
     Expire(GetTime())
     DropIgnored()

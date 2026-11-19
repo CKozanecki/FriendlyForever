@@ -1,4 +1,4 @@
--- Spec: #41, #256, #302, #165, #408, #461, #459
+-- Spec: #41, #256, #302, #165, #408, #461, #459, #491
 -- Group versions in buff mode: Arcane Brilliance, the Prayers and Gift of the
 -- Wild are offered before the single buff when you know them, carry the
 -- reagent, and enough of the party (in a raid, the subgroup) is missing the
@@ -851,7 +851,7 @@ describe("Group versions in buff mode (#41)", function()
             w.steppers.groupEnough.box:SetText("2")
             wow.run(w.steppers.groupEnough.box, "OnEditFocusLost")
             assert.are.equal(2, ns.db.buffBack.groupEnough)
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             assert.is_false(w.groupVersions:IsVisible())
             assert.is_false(w.steppers.groupEnough.label:IsVisible())
         end)
@@ -863,7 +863,7 @@ describe("Group versions in buff mode (#41)", function()
             wow.run(w.tabs.buffs, "OnClick")
             w.steppers.groupEnough.box:SetFocus()
             w.steppers.groupEnough.box:SetText("7")
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             assert.are.equal(7, ns.db.buffBack.groupEnough)
         end)
     end)

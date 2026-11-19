@@ -1,5 +1,5 @@
 -- Buff mode: while it's on, a key of your choice (the mouse wheel, say, to
--- buff a raid quickly) also presses the buff-back button. The key is lent
+-- buff a raid quickly) also presses the buff button. The key is lent
 -- with an override binding, so when buff mode ends it does what it did
 -- before. Buff mode never casts by itself: it only changes which key
 -- presses the button, and the button still casts only on your press.
@@ -109,7 +109,7 @@ function BuffMode.Apply()
         -- Switching the addon or Buff Back off ends buff mode: it doesn't
         -- quietly take the key again when they come back on.
         wanted = false
-        ns.Print("buff mode off: the addon or Buff Back is switched off.")
+        ns.Print("buff mode off: the addon or \"Offer my buff back\" (Favours tab) is switched off.")
     elseif wanted and ns.Battleground.Quiet() then
         wanted, auto = false, false
         ns.Diag.Log("buffMode", "turned off: %s", ns.Battleground.QuietReason())
@@ -130,7 +130,7 @@ function BuffMode.Apply()
         if not ok then
             ns.Diag.Log("buffMode", "couldn't lend the default key: %s", err)
             wanted = false
-            ns.Print("buff mode is off: the game wouldn't lend a key to the buff-back button.")
+            ns.Print("buff mode is off: the game wouldn't lend a key to the buff button.")
         end
     end
 end
@@ -147,7 +147,9 @@ function BuffMode.Set(on, how)
     -- Off for now: a trigger says nothing; you're told why.
     if on and (not Allowed() or ns.Battleground.Quiet()) then
         if how.auto then return end
-        if not Allowed() then return ns.Print("buff mode needs the addon and Buff Back switched on.") end
+        if not Allowed() then
+            return ns.Print("buff mode needs the addon and \"Offer my buff back\" (Favours tab) switched on.")
+        end
         return ns.Print("buff mode stays off: " .. ns.Battleground.QuietReason() .. ".")
     end
     local changed = wanted ~= on
@@ -168,14 +170,14 @@ function BuffMode.Set(on, how)
         -- In a form the key waits for (#452), the line says to click (#485).
         local waits = ns.BuffButton.KeyWaitsNow()
         if waits then
-            ns.Print("buff mode on" .. because .. ": click the buff-back button to buff (" .. waits .. ").")
+            ns.Print("buff mode on" .. because .. ": click the buff button to buff (" .. waits .. ").")
         else
-            ns.Print("buff mode on" .. because .. ": " .. BuffMode.KeyText(lentKey) .. " presses the buff-back button.")
+            ns.Print("buff mode on" .. because .. ": " .. BuffMode.KeyText(lentKey) .. " presses the buff button.")
         end
         -- The triggers are on by default, so say once a session where they live.
         if auto and not autoHintShown then
             autoHintShown = true
-            ns.Print("buff mode turns itself on and off: choose when on the Buff Back tab (/friendly).")
+            ns.Print("buff mode turns itself on and off: choose when on the Buffs tab (/friendly).")
         end
     elseif not wanted then
         ns.Print("buff mode off" .. because .. ".")

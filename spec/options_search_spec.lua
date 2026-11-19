@@ -1,4 +1,4 @@
--- Spec: #48, #47, #208, #274, #179, #408, #45
+-- Spec: #48, #47, #208, #274, #179, #408, #45, #491
 -- Finding a setting: /friendly find <word>, the game's Settings search where
 -- the client has one, and the one table both read (OptionsIndex.lua).
 local wow = require("spec.support.wow")
@@ -118,7 +118,7 @@ describe("Finding a setting (#48)", function()
                 ["Buff order"] = true, ["Never offer a buff"] = true, ["Who gets each buff, by place"] = true,
                 ["Always and Never names"] = true, ["Keep my settings or use the new defaults"] = true,
                 ["Blessings I give in this raid"] = true, ["Buff mode key"] = true,
-                ["Buff mode turns off again"] = true, ["Offer to buff back players who buff me"] = true,
+                ["Buff mode turns off again"] = true, ["Thank-you lines or When my buff lands"] = true,
                 ["Share your settings"] = true, ["Snooze"] = true, ["Profiles"] = true,
                 ["Never greet or thank"] = true }
             for _, entry in ipairs(ns.OptionsIndex.SETTINGS) do
@@ -149,10 +149,10 @@ describe("Finding a setting (#48)", function()
             assert.is_true(Has(Names(ns.OptionsIndex.Find("every message tab")), "Delay after event"))
         end)
 
-        it("finds the nameplate setting on the Buff Thanks tab", function()
+        it("finds the nameplate setting on the Favours tab", function()
             local names = Names(ns.OptionsIndex.Find("nameplate"))
             assert.are.same({ "Show friendly player names" }, names)
-            assert.truthy(Find("nameplate"):find("Show friendly player names: on the Buff Thanks tab", 1, true))
+            assert.truthy(Find("nameplate"):find("Show friendly player names: on the Favours tab", 1, true))
         end)
 
         it("finds snooze on the General page", function()
@@ -163,7 +163,7 @@ describe("Finding a setting (#48)", function()
         it("finds the buff settings, printing a few and counting the rest", function()
             local found = ns.OptionsIndex.Find("buff")
             local names = Names(found)
-            for _, name in ipairs({ "Name the buffs in the message", "Offer to buff back players who buff me",
+            for _, name in ipairs({ "Name the buffs in the message", "Offer my buff back",
                 "Buff mode key", "Never offer a buff" }) do
                 assert.is_true(Has(names, name), name .. " not found")
             end
@@ -303,11 +303,11 @@ describe("Finding a setting (#48)", function()
             assert.are.equal(ns.OptionsIndex.SEARCH_PAGE, search.name)
             assert.are.equal(4242, search.parent:GetID())
             assert.are.equal(#ns.OptionsIndex.SETTINGS, #search.layout.initializers)
-            assert.are.same({ "Show friendly player names (on the Buff Thanks tab)" }, wow.searchSettings("nameplate"))
+            assert.are.same({ "Show friendly player names (on the Favours tab)" }, wow.searchSettings("nameplate"))
             assert.are.same({ "Snooze (on the General page)" }, wow.searchSettings("snooze"))
             local buff = wow.searchSettings("buff")
-            assert.is_true(Has(buff, "Buff mode key (on the Buff Back tab)"))
-            assert.is_true(Has(buff, "Name the buffs in the message (on the Buff Thanks tab)"))
+            assert.is_true(Has(buff, "Buff mode key (on the Buffs tab)"))
+            assert.is_true(Has(buff, "Name the buffs in the message (on the Favours tab)"))
             -- the same table as /friendly find
             assert.are.equal(#ns.OptionsIndex.Find("buff"), #buff)
             -- each setting is found by its own name, as its page shows it
@@ -418,8 +418,8 @@ describe("Each setting's page is where its control is (#179)", function()
         wow.state.cvars.nameplateShowFriendlyPlayers = "0"
     end)
 
-    -- One checkbox is "Enabled" on most tabs and another setting's name on
-    -- one (Buff Back's offer switch): on a tab where its label is the name of a
+    -- A control whose label a tab fills in (1.4's "Enabled", once Buff Back's
+    -- offer switch on that tab): on a tab where its label is the name of a
     -- different setting, it isn't this entry's.
     local function LabelFits(label)
         if not label or label == "" then return true end
@@ -430,18 +430,28 @@ describe("Each setting's page is where its control is (#179)", function()
         return not own or own == CurrentEntry
     end
 
-    -- The message tabs on which the panel shows frame, by selecting each tab
-    -- with its own button and reading IsVisible (the panel's state, not the index).
+    -- The tabs other than Buffs (the message tabs and Favours, #491): Buffs'
+    -- frames are found by place, below.
+    local function OtherTabs()
+        local out = {}
+        for _, tab in ipairs(ns.Options.TABS) do
+            if tab ~= ns.Options.BUFFS_TAB then out[#out + 1] = tab end
+        end
+        return out
+    end
+
+    -- The tabs (not Buffs) on which the panel shows frame, by selecting each
+    -- tab with its own button and reading IsVisible (the panel's state, not the index).
     local function TabsShowing(frame)
         local tabs, shown, labels, varies = {}, {}, {}, false
-        for i, msgType in ipairs(Config.TYPES) do
-            ns.Options.widgets.tabs[msgType]:Click()
+        for i, tab in ipairs(OtherTabs()) do
+            ns.Options.widgets.tabs[tab]:Click()
             shown[i] = frame:IsVisible()
             labels[i] = frame.label and frame.label:GetText()
             varies = varies or labels[i] ~= labels[1]
         end
-        for i, msgType in ipairs(Config.TYPES) do
-            if shown[i] and (not varies or LabelFits(labels[i])) then tabs[#tabs + 1] = msgType end
+        for i, tab in ipairs(OtherTabs()) do
+            if shown[i] and (not varies or LabelFits(labels[i])) then tabs[#tabs + 1] = tab end
         end
         return tabs
     end
@@ -449,7 +459,7 @@ describe("Each setting's page is where its control is (#179)", function()
     -- The Buffs tab's places (#408) on which the panel shows frame: each
     -- place's sub-tab selected with its own button, before the choice and
     -- after it with the first buff's names open (the rows that hide until then).
-    local PLACE_TEXT = { strangers = "Buff Back", party = "Party", raid = "Raid", pvp = "PvP" }
+    local PLACE_TEXT = { strangers = "Strangers", party = "Party", raid = "Raid", pvp = "PvP" }
     local function PlacesShowing(frame)
         local w, places, count = ns.Options.widgets, {}, 0
         w.tabs.buffs:Click()
@@ -498,22 +508,37 @@ describe("Each setting's page is where its control is (#179)", function()
                 elseif Under(frame, ledger) then pages["the Favour Ledger page"] = true
                 elseif Under(frame, ns.Options.StartPage()) then pages["the Start here page"] = true
                 else
-                    local tabs = TabsShowing(frame)
-                    if #tabs == #Config.TYPES then
-                        pages[TOP[path] and "the top of the options, every tab" or "every message tab"] = true
-                    elseif #tabs == #Config.TYPES - 1 then
+                    -- The message tabs it shows on, and whether Favours (#491) too.
+                    local messageTabs, onFavours, all = {}, false, 0
+                    for _, tab in ipairs(OtherTabs()) do
+                        if tab ~= ns.Options.FAVOURS_TAB then all = all + 1 end
+                    end
+                    for _, tab in ipairs(TabsShowing(frame)) do
+                        if tab == ns.Options.FAVOURS_TAB then
+                            onFavours = true
+                        else
+                            messageTabs[#messageTabs + 1] = tab
+                        end
+                    end
+                    if #messageTabs == all and TOP[path] then
+                        pages["the top of the options, every tab"] = true
+                    elseif #messageTabs == all then
+                        pages[onFavours and "every message tab and the Favours tab" or "every message tab"] = true
+                    elseif #messageTabs == all - 1 then
                         -- Everywhere but one tab (a row a tab has no use for).
                         local shown = {}
-                        for _, msgType in ipairs(tabs) do shown[msgType] = true end
-                        for _, msgType in ipairs(Config.TYPES) do
-                            if not shown[msgType] then
-                                pages["every message tab except the " .. Config.TYPE_INFO[msgType].label .. " tab"] = true
+                        for _, msgType in ipairs(messageTabs) do shown[msgType] = true end
+                        for _, msgType in ipairs(OtherTabs()) do
+                            if not shown[msgType] and msgType ~= ns.Options.FAVOURS_TAB then
+                                pages["every message tab except the " .. Config.TYPE_INFO[msgType].label .. " tab"
+                                    .. (onFavours and ", and the Favours tab" or "")] = true
                             end
                         end
                     else
-                        for _, msgType in ipairs(tabs) do
+                        for _, msgType in ipairs(messageTabs) do
                             pages["the " .. Config.TYPE_INFO[msgType].label .. " tab"] = true
                         end
+                        if onFavours then pages["the Favours tab"] = true end
                     end
                 end
             end
@@ -546,23 +571,24 @@ describe("Each setting's page is where its control is (#179)", function()
 
     it("fails an entry with the wrong page, naming it (white)", function()
         local entry = { name = "Buff mode key", page = "the General page", controls = { "buffModeKey" } }
-        assert.are.equal("Buff mode key says the General page but its controls are on the Buff Back tab", Problem(entry))
-        entry = { name = "Snooze", page = "the Buff Back tab", controls = { "general.snooze15" } }
-        assert.truthy(Problem(entry):find("Snooze says the Buff Back tab", 1, true))
+        assert.are.equal("Buff mode key says the General page but its controls are on the Buffs tab", Problem(entry))
+        entry = { name = "Snooze", page = "the Favours tab", controls = { "general.snooze15" } }
+        assert.truthy(Problem(entry):find("Snooze says the Favours tab", 1, true))
     end)
 
     it("fails an entry whose controls are on different pages or tabs, naming it (black)", function()
-        local mixed = { name = "Mixed up", page = "the Buff Back tab", controls = { "buffModeKey", "general.snooze15" } }
+        local mixed = { name = "Mixed up", page = "the Favours tab", controls = { "buffModeKey", "general.snooze15" } }
         local msg = Problem(mixed)
         assert.truthy(msg:find("Mixed up has controls on different pages", 1, true))
-        local tabs = { name = "Two tabs", page = "the Buff Back tab", controls = { "buffModeKey", "listNames" } }
+        -- Favours and the Guild Login tab (the two tabs Buff Back and Buff Thanks were are one now, #491).
+        local tabs = { name = "Two tabs", page = "the Favours tab", controls = { "offerEnabled", "steppers.maxGreeters" } }
         assert.truthy(Problem(tabs):find("Two tabs has controls on different pages", 1, true))
     end)
 
     it("fails a control that is shown on no tab (black)", function()
-        local entry = { name = "Hidden", page = "the Buff Back tab", controls = { "who.raidBlessings" } }
+        local entry = { name = "Hidden", page = "the Favours tab", controls = { "who.raidBlessings" } }
         ns.BuffData.Mine = function() return {} end -- no Blessings known: its rows hide
-        assert.truthy(Problem(entry):find("Hidden says the Buff Back tab but its controls are on no page", 1, true))
+        assert.truthy(Problem(entry):find("Hidden says the Favours tab but its controls are on no page", 1, true))
         -- The Buffs tab (#408): a place's own option is on that place only.
         entry = { name = "Solo", page = "the Buffs tab", controls = { "soloOwnBuffs" } }
         assert.are.equal("Solo says the Buffs tab but its controls are on the Buffs tab's Party place", Problem(entry))

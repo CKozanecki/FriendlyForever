@@ -27,8 +27,9 @@ function ns.SetEnabled(on)
 end
 
 -- Back to defaults, keeping settings about this screen (the button's place)
--- and, for Buff Back, the Buffs tab's and the Weapon buffs page's: each
--- page's Reset is for its own settings only (#408, #425).
+-- and, for buffBack, the Buffs tab's and the Weapon buffs page's: each
+-- page's Reset is for its own settings only (#408, #425). The Favours tab's
+-- Reset resets buff and buffBack this way (#491).
 function ns.ResetType(msgType)
     local fresh = ns.Config.DefaultsFor(msgType)
     -- The Reset button heals the section first (Options.lua), so it's a table.
@@ -271,7 +272,7 @@ local function StatusLines()
     local faction = UnitFactionGroup("player")
     add(string.format("your race: %s (id %s, %s), speaking as %s", ns.Diag.Safe(race), ns.Diag.Safe(raceId),
         ns.Diag.Safe(faction), ns.Diag.Safe(ns.Flavour.Context().race or "general lines")))
-    add(string.format("buff thanks: %s; if that can't reach them: %s; profile %s; %d ignored",
+    add(string.format("thank them with: %s; if that can't reach them: %s; profile %s; %d ignored",
         db.buff.thankStyle, db.buff.fallback, ns.Diag.Safe(ns.Profiles.Active()), #ns.Ignore.List()))
     add(ns.Cities.StatusLine())
     add(ns.Water.StatusLine())
@@ -584,9 +585,9 @@ end
 local function MoveCommand()
     local unlock = not ns.Config.Section("buffBack").unlocked -- healed first if lost (#387)
     local ok, why = ns.BuffButton.SetUnlocked(unlock)
-    if not ok then return ns.Print("can't move the buff-back button: " .. why) end
-    ns.Print(unlock and "buff-back button unlocked: drag it, then /friendly move again to lock it."
-        or "buff-back button locked where it is.")
+    if not ok then return ns.Print("can't move the buff button: " .. why) end
+    ns.Print(unlock and "buff button unlocked: drag it, then /friendly move again to lock it."
+        or "buff button locked where it is.")
 end
 
 local function ImportCommand(args)
@@ -616,7 +617,8 @@ local commands = {
             vars.name = ns.Config.NameVars(msgType, "Nikki-Shifts").name
             local ctx = ns.Options.PreviewContext(msgType)
             local text = template and ns.Util.Render(template, ns.Flavour.Vars(vars, ctx)) or "(no messages)"
-            ns.Print(ns.Config.TYPE_INFO[msgType].label .. ": " .. text)
+            local info = ns.Config.TYPE_INFO[msgType]
+            ns.Print((info.linesLabel or info.label) .. ": " .. text)
         end
     end,
     status = PrintStatus,
@@ -647,9 +649,9 @@ local commands = {
         ns.Print("/friendly profile [new | use | delete] <name> - switch between sets of settings")
         ns.Print("/friendly export | import [undo] - your settings as one line of text, to keep or share")
         ns.Print("/friendly report - status and debug log as text to copy into a bug report")
-        ns.Print("/friendly buffback - what the buff-back button holds and why")
-        ns.Print("/friendly move - unlock or lock the buff-back button to drag it")
-        ns.Print("/friendly buffmode [on | off | key <key>] - lend a key (the mouse wheel) to the buff-back button")
+        ns.Print("/friendly buffback - what the buff button holds and why")
+        ns.Print("/friendly move - unlock or lock the buff button to drag it")
+        ns.Print("/friendly buffmode [on | off | key <key>] - lend a key (the mouse wheel) to the buff button")
         ns.Print("/friendly blessings [all | might wisdom ...] - paladins: the Blessings you give in this raid")
     end,
     profile = ProfileCommand,

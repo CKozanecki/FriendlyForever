@@ -1,4 +1,4 @@
--- Spec: #68, #76, #208, #219, #209, #44, #368
+-- Spec: #68, #76, #208, #219, #209, #44, #368, #491
 -- Who gets each buff in buff mode: everyone, tanks only, everyone but tanks,
 -- or chosen classes, plus players named Always or Never. Buffs go to everyone
 -- until you choose (#208), except the owner's defaults (#219): Wisdom and
@@ -470,10 +470,10 @@ describe("Who gets each buff", function()
             assert.are.equal(3, #given("kings", { "ROGUE", "WARLOCK", "PRIEST" }))
         end)
 
-        it("shows the defaults on the Buff Back tab and starts a click from them", function()
+        it("shows the defaults on the Buffs tab and starts a click from them", function()
             blessings()
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
             local wisdom = ns.BuffData.ByKey("wisdom")
             assert.are.equal("classes", ns.BuffRules.Rule(wisdom))
             assert.is_false(ns.BuffRules.HasClass(wisdom, "ROGUE"))

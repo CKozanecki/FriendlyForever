@@ -1,4 +1,4 @@
--- Spec: #52, #64, #112, #197, #208, #41, #209, #270, #44, #346, #408
+-- Spec: #52, #64, #112, #197, #208, #41, #209, #270, #44, #346, #408, #491
 -- Layout: the buff-back button's text stays inside the button, and on each
 -- options tab the message list follows the last row that tab shows. The
 -- checks work from the simulated client's own anchors and text widths
@@ -214,18 +214,32 @@ describe("Layout", function()
             local w = ns.Options.widgets
             local width = w.content:GetWidth()
             local wrapped = 0
+            -- A favour's help is its lines' sub-tab's on the Favours tab (#491),
+            -- with where they're sent beside it (drawn without its colour).
             for _, msgType in ipairs(ns.Config.TYPES) do
-                wow.run(w.tabs[msgType], "OnClick")
-                local drawn = wow.drawnText(w.help, w.content)
+                local info = ns.Config.TYPE_INFO[msgType]
+                local help, expected = w.help, info.help
+                if info.favours then
+                    wow.run(w.tabs[ns.Options.FAVOURS_TAB], "OnClick")
+                    wow.run(w.linesTabs[msgType], "OnClick")
+                    help = w.linesHelp
+                    expected = info.help .. "  (sent to " .. info.channel .. ")"
+                else
+                    wow.run(w.tabs[msgType], "OnClick")
+                end
+                assert.is_true(help:IsVisible(), msgType .. ": help is shown")
+                local drawn = wow.drawnText(help, w.content)
                 assert.is_true(drawn.left >= 0 and drawn.right <= width, ("%s: help draws from %d to %d, outside 0 to %d")
                     :format(msgType, drawn.left, drawn.right, width))
-                assert.are.equal(ns.Config.TYPE_INFO[msgType].help, drawn.text, msgType .. ": help is cut")
+                assert.are.equal(expected, drawn.text, msgType .. ": help is cut")
                 if drawn.lines > 1 then wrapped = wrapped + 1 end
             end
             assert.is_true(wrapped > 0, "no tab's help is long enough to wrap: the test checks nothing")
             -- The rows below hang from it, so a wrapped help pushes them down.
             local _, below = w.enabled:GetPoint(1)
             assert.are.equal(w.help, below)
+            wow.run(w.tabs[ns.Options.FAVOURS_TAB], "OnClick")
+            assert.are.equal(w.linesHelp, select(2, w.msgHeader:GetPoint(1)), "and on Favours, from its lines' help")
         end)
     end)
 
@@ -486,9 +500,16 @@ describe("Layout", function()
             end
         end
 
+        -- Each message type's lines: its tab, or for a favour the Favours
+        -- tab at its lines' sub-tab (#491).
         local function eachTab(label)
             for _, msgType in ipairs(ns.Config.TYPES) do
-                wow.run(w.tabs[msgType], "OnClick")
+                if ns.Config.TYPE_INFO[msgType].favours then
+                    wow.run(w.tabs[ns.Options.FAVOURS_TAB], "OnClick")
+                    wow.run(w.linesTabs[msgType], "OnClick")
+                else
+                    wow.run(w.tabs[msgType], "OnClick")
+                end
                 checkTab(label .. ", " .. msgType)
             end
         end
@@ -499,9 +520,10 @@ describe("Layout", function()
             eachTab("nameplates on")
             wow.state.cvars.nameplateShowFriendlyPlayers = "0"
             eachTab("nameplates off")
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             assert.is_true(w.nameplateWarning:IsShown(), "the warning row is shown")
-            assert.are.equal(w.nameplateWarning, select(2, w.msgHeader:GetPoint()))
+            assert.are.equal(w.nameplateButton, select(2, w.buttonHeader:GetPoint()), "the rows below follow it")
+            assert.are.equal(w.linesHelp, select(2, w.msgHeader:GetPoint()))
         end)
 
         it("follows the last row each tab shows for a paladin", function()

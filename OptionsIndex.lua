@@ -13,11 +13,9 @@ OptionsIndex.MAX_QUERY = 40 -- letters (bytes) a search may have
 OptionsIndex.SEARCH_PAGE = "Find a setting" -- the page listing them all, for the game's search
 
 local MAIN = "the top of the options, every tab"
-local EVERY_TAB = "every message tab"
--- Buff Back says its own switch and has no delay or repeat cooldown.
-local NOT_BUFF_BACK = "every message tab except the Buff Back tab"
-local BUFF = "the Buff Thanks tab"
-local BUFF_BACK = "the Buff Back tab"
+local EVERY_TAB = "every message tab" -- the greetings' tabs: Favours has its own switches (#491)
+local LINES = "every message tab and the Favours tab" -- the lines' rows
+local FAVOURS = "the Favours tab" -- #491: thanks and buffing back, which were two tabs
 local BUFFS = "the Buffs tab" -- #408
 local BUFFS_PARTY = "the Buffs tab's Party place"
 local BUFFS_RAID = "the Buffs tab's Raid place"
@@ -28,62 +26,75 @@ local START = "the Start here page"
 local WEAPON = "the Weapon buffs page"
 
 -- name: as the page shows it. page: where it is. keywords: more words to find
--- it by. controls: the Options.widgets paths of its controls ("*" for any
+-- it by, the Favours tab's settings including the old tabs' names, "buff
+-- thanks" and "buff back", so a player who knows them still finds them
+-- (#491). controls: the Options.widgets paths of its controls ("*" for any
 -- row of a list), which the spec checks against the pages.
 OptionsIndex.SETTINGS = {
     { name = "Addon enabled", page = MAIN, keywords = "on off master switch enable disable",
         controls = { "master" } },
     { name = "Don't send messages while I'm AFK", page = MAIN, keywords = "afk away skip",
         controls = { "skipAFK" } },
-    { name = "Enabled", page = NOT_BUFF_BACK, searchPage = EVERY_TAB,
+    { name = "Enabled", page = EVERY_TAB,
         keywords = "on off message type switch",
         controls = { "enabled" } },
-    { name = "Delay after event", page = NOT_BUFF_BACK, searchPage = EVERY_TAB,
+    { name = "Delay after event", page = EVERY_TAB,
         keywords = "wait seconds timing",
         controls = { "steppers.delay" } },
-    { name = "Don't repeat to the same player for", page = NOT_BUFF_BACK, searchPage = EVERY_TAB,
+    { name = "Don't repeat to the same player for", page = EVERY_TAB,
         keywords = "repeat cooldown seconds again",
         controls = { "steppers.repeatCooldown" } },
     { name = "Most players with Friendly Forever who greet one login", page = "the Guild Login tab",
         keywords = "guild login hello greet greeting copies limit others",
         controls = { "steppers.maxGreeters" } },
-    { name = "Messages", page = EVERY_TAB, keywords = "lines text edit greeting thanks random",
+    { name = "Messages", page = LINES, keywords = "lines text edit greeting thanks random",
         controls = { "edits" } },
-    { name = "Preview random", page = EVERY_TAB, keywords = "test try message lines",
+    { name = "Preview random", page = LINES, keywords = "test try message lines",
         controls = { "preview" } },
-    { name = "Reset this tab to defaults", page = EVERY_TAB, keywords = "default restore messages lines",
+    { name = "Reset this tab to defaults", page = LINES, keywords = "default restore messages lines",
         controls = { "reset" } },
-    { name = "Load fantasy lines or casual lines", page = EVERY_TAB, keywords = "messages set default style",
+    { name = "Load fantasy lines or casual lines", page = LINES, keywords = "messages set default style",
         controls = { "loadFantasy", "loadCasual" } },
 
-    { name = "Name the buffs in the message", page = BUFF, keywords = "buff spell names thanks",
+    { name = "Thank them", page = FAVOURS, keywords = "buff thanks thank on off switch enable favour",
+        controls = { "thankEnabled" } },
+    { name = "Delay before thanking", page = FAVOURS, keywords = "buff thanks delay wait seconds timing",
+        controls = { "steppers.thankDelay" } },
+    { name = "Don't thank the same player again for", page = FAVOURS,
+        keywords = "buff thanks repeat cooldown seconds again",
+        controls = { "steppers.thankRepeat" } },
+    { name = "Name the buffs in the message", page = FAVOURS, keywords = "buff thanks spell names",
         controls = { "listNames" } },
-    { name = "Tell players I buff that it was me", page = BUFF, keywords = "buff receipts receipt caster",
+    { name = "Tell players I buff that it was me", page = FAVOURS, keywords = "buff receipts receipt caster",
         controls = { "receipts" } },
-    { name = "Thank them with", page = BUFF, keywords = "buff thanks say whisper emote /thank style",
+    { name = "Thank them with", page = FAVOURS, keywords = "buff thanks say whisper emote /thank style",
         controls = { "thankStyle" } },
-    { name = "If that can't reach them", page = BUFF, keywords = "buff thanks fallback unknown name friend",
+    { name = "If that can't reach them", page = FAVOURS, keywords = "buff thanks fallback unknown name friend",
         controls = { "fallback", "unknownName" } },
-    { name = "Stay quiet in capital cities", page = BUFF, keywords = "buff thanks quiet city cities capital",
+    { name = "Stay quiet in capital cities", page = FAVOURS, keywords = "buff thanks quiet city cities capital",
         controls = { "quiet" } },
-    { name = "Show friendly player names", page = BUFF, keywords = "nameplate nameplates names caster",
+    { name = "Show friendly player names", page = FAVOURS,
+        keywords = "nameplate nameplates names caster passers-by",
         controls = { "nameplateButton" } },
 
-    { name = "Offer to buff back players who buff me", page = BUFF_BACK, keywords = "buff back favour offer",
-        controls = { "enabled" } },
-    { name = "Say a line once my buff lands", page = BUFF_BACK, keywords = "buff back message thanks",
+    { name = "Offer my buff back", page = FAVOURS, keywords = "buff back return the favour offer switch on off",
+        controls = { "offerEnabled" } },
+    { name = "Say a line when my buff lands", page = FAVOURS, keywords = "buff back message thanks line lands",
         controls = { "sayLine" } },
-    { name = "Buff mode key", page = BUFF_BACK, keywords = "buff mode key bind binding mouse wheel",
+    { name = "Thank-you lines or When my buff lands", page = FAVOURS,
+        keywords = "buff thanks buff back lines messages sub-tab",
+        controls = { "linesTabs.buff", "linesTabs.buffBack" } },
+    { name = "Buff mode key", page = BUFFS, keywords = "buff back buff mode key bind binding mouse wheel",
         controls = { "buffModeKey" } },
-    { name = "Offer for (minutes)", page = BUFF_BACK, keywords = "buff back favour owed time minutes",
+    { name = "Offer for (minutes)", page = FAVOURS, keywords = "buff back favour owed time minutes",
         controls = { "steppers.owedMinutes" } },
-    { name = "Renew my buff when theirs has under", page = BUFF_BACK,
+    { name = "Renew my buff when theirs has under", page = FAVOURS,
         keywords = "buff back renew refresh worn off time left percent already have",
         controls = { "steppers.renewPercent" } },
-    { name = "Show the button in capital cities", page = BUFF_BACK, keywords = "buff back button city cities",
+    { name = "Show the button in capital cities", page = FAVOURS, keywords = "buff back button city cities",
         controls = { "showInCities" } },
-    { name = "Who gets which buff, the buff order and Never offer are on the Buffs tab", page = BUFF_BACK,
-        keywords = "buff buffs tab who order never offer link", controls = { "openBuffs" } },
+    { name = "Who gets which buff, the buff order, Never offer and buff mode are on the Buffs tab", page = FAVOURS,
+        keywords = "buff back buffs tab who order never offer link", controls = { "openBuffs" } },
     { name = "Buff order", page = BUFFS, keywords = "buff up down order first",
         controls = { "buffRows.*.up", "buffRows.*.down" } },
     { name = "Never offer a buff", page = BUFFS, keywords = "buff never offer skip",
@@ -104,7 +115,7 @@ OptionsIndex.SETTINGS = {
         controls = { "groupVersions", "steppers.groupEnough" } },
     { name = "Who gets each buff, by place", page = BUFFS,
         keywords = "buff who gets everyone tank tanks healer healers damage dps role roles class classes off "
-            .. "strangers buff back party raid pvp battleground arena place",
+            .. "strangers buff back passers-by party raid pvp battleground arena place",
         controls = { "placeTabs", "whoRows.*.who" } },
     { name = "Always and Never names", page = "the Buffs tab's Party, Raid and PvP places",
         keywords = "buff who always never names players",
@@ -112,8 +123,8 @@ OptionsIndex.SETTINGS = {
     { name = "Keep my settings or use the new defaults", page = BUFFS,
         keywords = "buff who choice keep settings new defaults reset",
         controls = { "choice.keep", "choice.new" } },
-    { name = "Open the Buff Back tab", page = "the Buffs tab's Buff Back place",
-        keywords = "buff back line timing messages", controls = { "openBuffBack" } },
+    { name = "Open the Favours tab", page = "the Buffs tab's Strangers place",
+        keywords = "buff back favours line timing messages", controls = { "openFavours" } },
     { name = "Offer my own buffs when I'm not in a group", page = BUFFS_PARTY,
         keywords = "buff mode solo alone own buffs myself not in a group",
         controls = { "soloOwnBuffs" } },
@@ -125,20 +136,20 @@ OptionsIndex.SETTINGS = {
     { name = "Buff in a battleground's preparation phase", page = BUFFS_PVP,
         keywords = "buff battleground battlegrounds bg pvp preparation gates",
         controls = { "bgPrepBuff" } },
-    { name = "Buff mode turns on by itself", page = BUFF_BACK,
+    { name = "Buff mode turns on by itself", page = BUFFS,
         keywords = "buff mode automatic auto group join dungeon raid instance nearby death stranger "
             .. "missing faded fade combat solo alone campfire camp fire cozy",
         controls = { "auto.autoOnJoin", "auto.autoOnDeath", "auto.autoOnBuffed", "auto.autoOnMissing",
             "auto.autoOnCampfire" } },
-    { name = "Also offer my buffs to passers-by", page = BUFFS,
+    { name = "Also offer my buffs to passers-by", page = FAVOURS,
         keywords = "passers-by passersby passer nearby strangers stranger players around buff mode",
-        controls = { "passersBy", "passersByShow" } },
-    { name = "Buff mode turns off again", page = BUFF_BACK, keywords = "buff mode automatic auto pull minutes",
+        controls = { "passersBy" } },
+    { name = "Buff mode turns off again", page = BUFFS, keywords = "buff mode automatic auto pull minutes",
         controls = { "auto.autoOffPull", "auto.autoOffDone", "steppers.autoOffMinutes" } },
-    { name = "Top up my buffs with under", page = BUFF_BACK,
+    { name = "Top up my buffs with under", page = BUFFS,
         keywords = "buff mode top up renew refresh expire running low minutes left",
         controls = { "steppers.topUpMinutes" } },
-    { name = "Offer my buffs to players who ask in chat", page = BUFF_BACK,
+    { name = "Offer my buffs to players who ask in chat", page = FAVOURS,
         keywords = "buff request requests ask asked whisper say chat mark int fort",
         controls = { "buffRequests" } },
 
@@ -170,17 +181,18 @@ OptionsIndex.SETTINGS = {
     { name = "Take the walkthrough", page = START,
         keywords = "walkthrough tour guide help start new first setup replay settings keys overview",
         controls = { "start.tour" } },
-    { name = "Every other page", page = START, keywords = "start pages links messages buff back general ledger",
+    { name = "Every other page", page = START,
+        keywords = "start pages links messages favours buff back general ledger",
         controls = { "start.openMessages", "start.openGeneral", "start.openLedger" } },
     -- Start here also says how to turn buff mode on by hand (shift-click the minimap button, #458): a note
     -- isn't a control, so its words are on its link's entry.
-    { name = "Passers-by switch (Buffs tab)", page = START,
+    { name = "Passers-by switch (Favours tab)", page = START,
         keywords = "start passers-by passersby nearby strangers link shift click minimap buff mode on off by hand",
         controls = { "start.openPassersBy" } },
 }
 
--- The page words a setting is found by: its page, less an exception the page
--- text names, so "buff back" doesn't find settings the Buff Back tab lacks.
+-- The page words a setting is found by: its page, or searchPage where the
+-- page text names an exception the search shouldn't find it by.
 local function SearchPage(entry)
     return entry.searchPage or entry.page
 end

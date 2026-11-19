@@ -1,6 +1,18 @@
--- Spec: #52, #65, #101
+-- Spec: #52, #65, #101, #491
 -- End-to-end: the addon as the game loads it, plus its UI and commands.
 local wow = require("spec.support.wow")
+
+-- Opens a message type's lines as a player does: its tab, or for a favour
+-- (buff thanks, buff back) the Favours tab at its lines' sub-tab (#491).
+local function openLines(ns, msgType)
+    local w = ns.Options.widgets
+    if ns.Config.TYPE_INFO[msgType].favours then
+        wow.run(w.tabs[ns.Options.FAVOURS_TAB], "OnClick")
+        wow.run(w.linesTabs[msgType], "OnClick")
+    else
+        wow.run(w.tabs[msgType], "OnClick")
+    end
+end
 
 describe("Addon", function()
     describe("TOC", function()
@@ -131,8 +143,8 @@ describe("Addon", function()
                 end
             end
             for _, msgType in ipairs(ns.Config.TYPES) do
-                wow.run(w.tabs[msgType], "OnClick")
-                allEditBoxesAtStart(msgType .. " tab")
+                openLines(ns, msgType)
+                allEditBoxesAtStart(msgType .. " lines")
             end
             wow.run(_G.FriendlyForeverOptionsPanel, "OnShow")
             wow.advance(0)
@@ -160,26 +172,48 @@ describe("Addon", function()
             assert.are.equal("Friendly Forever", wow.settings.categories[1].name)
         end)
 
-        it("has a tab per message type showing that type's settings", function()
+        it("has a tab per greeting message type, and Favours for the two favours, showing that type's settings",
+            function()
             for _, msgType in ipairs(ns.Config.TYPES) do
-                wow.run(w.tabs[msgType], "OnClick")
-                assert.are.equal(msgType, ns.Options.CurrentType())
-                assert.is_false(w.tabs[msgType]:IsEnabled(), "current tab is highlighted")
-                -- Buff Back has no delay or repeat (its line is said by your press): empty boxes.
+                openLines(ns, msgType)
+                assert.are.equal(msgType, ns.Options.LinesType())
                 local delay, repeatCooldown = ns.db[msgType].delay, ns.db[msgType].repeatCooldown
-                assert.are.equal(delay and tostring(delay) or "", w.steppers.delay.box:GetText())
-                assert.are.equal(repeatCooldown and tostring(repeatCooldown) or "", w.steppers.repeatCooldown.box:GetText())
+                if ns.Config.TYPE_INFO[msgType].favours then
+                    -- On Favours (#491): its lines' sub-tab is highlighted, and the
+                    -- message tabs' timing boxes are hidden.
+                    assert.are.equal(ns.Options.FAVOURS_TAB, ns.Options.CurrentType())
+                    assert.is_false(w.tabs.favours:IsEnabled(), "current tab is highlighted")
+                    assert.is_false(w.linesTabs[msgType]:IsEnabled(), "current lines are highlighted")
+                    assert.is_false(w.steppers.delay.box:IsShown())
+                    assert.is_false(w.steppers.repeatCooldown.box:IsShown())
+                    -- Buff thanks' timing is Favours' own; buff back has none (its line
+                    -- is said by your press).
+                    assert.are.equal(tostring(ns.db.buff.delay), w.steppers.thankDelay.box:GetText())
+                    assert.are.equal(tostring(ns.db.buff.repeatCooldown), w.steppers.thankRepeat.box:GetText())
+                    if msgType == "buffBack" then
+                        assert.is_nil(delay)
+                        assert.is_nil(repeatCooldown)
+                    end
+                else
+                    assert.are.equal(msgType, ns.Options.CurrentType())
+                    assert.is_false(w.tabs[msgType]:IsEnabled(), "current tab is highlighted")
+                    assert.are.equal(tostring(delay), w.steppers.delay.box:GetText())
+                    assert.are.equal(tostring(repeatCooldown), w.steppers.repeatCooldown.box:GetText())
+                end
                 for i = 1, ns.Config.NUM_MESSAGES do
                     assert.are.equal(ns.db[msgType].messages[i], w.edits[i]:GetText())
                 end
             end
         end)
 
-        it("shows buff-only options only on the buff tab", function()
+        it("shows buff-only options only on the Favours tab", function()
             wow.run(w.tabs.guildLogin, "OnClick")
             assert.is_false(w.fallback:IsShown())
             assert.is_false(w.unknownName:IsShown())
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
+            assert.is_false(w.fallback:IsShown())
+            assert.is_false(w.listNames:IsShown())
+            wow.run(w.tabs.favours, "OnClick")
             assert.is_true(w.fallback:IsShown())
             assert.is_true(w.listNames:IsShown())
             assert.are.equal("friend", w.unknownName:GetText())
@@ -231,14 +265,14 @@ describe("Addon", function()
         end)
 
         it("toggles buff name listing", function()
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             w.listNames:SetChecked(false)
             wow.run(w.listNames, "OnClick")
             assert.is_false(ns.db.buff.listBuffNames)
         end)
 
         it("cleans the unknown-caster name", function()
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             w.unknownName:SetText("|cffpal")
             wow.run(w.unknownName, "OnTextChanged", true)
             assert.are.equal("cffpal", ns.db.buff.unknownName)
@@ -354,7 +388,7 @@ describe("Addon", function()
             local w = ns.Options.widgets
             local before = copy(ns.db.messageBags)
             for _, msgType in ipairs(ns.Config.TYPES) do
-                wow.run(w.tabs[msgType], "OnClick")
+                openLines(ns, msgType)
                 for _ = 1, 5 do wow.run(w.preview, "OnClick") end
             end
             assert.are.equal(5 * #ns.Config.TYPES, #wow.printed)

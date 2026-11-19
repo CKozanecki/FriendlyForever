@@ -2360,6 +2360,7 @@ describe("UI simulator workflow", function()
                 loopTurns = list:find("OPTIONS_TABS", 1, true) and words("OPTIONS_TABS")
                     or list:find("WALKTHROUGH_STEPS", 1, true) and words("WALKTHROUGH_STEPS")
                     or list:find("BUFFS_SHOTS", 1, true) and words("BUFFS_SHOTS")
+                    or list:find("FAVOURS_LINES", 1, true) and words("FAVOURS_LINES")
                 assert.is_truthy(loopTurns, "a loop over " .. list .. " isn't counted")
             elseif line:match("^%s*done%s*$") then
                 loopTurns = nil

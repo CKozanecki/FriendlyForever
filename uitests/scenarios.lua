@@ -112,7 +112,7 @@ test("reports what the simulator does by itself (docs/ui-simulator.md)", functio
     end)
     fact("the map the player is on", function() return C_Map.GetBestMapForUnit("player") end)
 
-    -- Forever's buffs by name: every rank the Buff Back tab can show.
+    -- Forever's buffs by name: every rank the Buffs tab can show.
     fact("names our buffs' ranks", function()
         local named, total, wrong = 0, 0, {}
         for _, buff in ipairs(Pages.BUFF_NAMES) do
@@ -532,8 +532,8 @@ test("the General page's chat limit row stays inside it (#35)", function()
     TextInside(page.content, w.capHelp, "chat limit help")
 end)
 
--- The Buff Thanks tab (#101): "Thank them with" and "If that can't reach
--- them", each a label and a button that cycles through its choices.
+-- The Favours tab's thanks (#101, #491): "Thank them with" and "If that
+-- can't reach them", each a label and a dropdown.
 
 -- The options' scrolling content, opened at the tab with this label.
 local function OpenTab(label)
@@ -590,12 +590,12 @@ end
 -- Each dropdown is opened, and every choice in its list is checked and picked
 -- in turn, then the first is picked again and the list closed: nothing is left
 -- changed, even when a check fails part way (#274).
-test("the Buff Thanks tab's two dropdowns list every choice inside the options (#101, #274)", function()
-    local panel, content = OpenTab("Buff Thanks")
+test("the Favours tab's two dropdowns list every choice inside the options (#101, #274, #491)", function()
+    local panel, content = OpenTab("Favours")
     local styleLabel = WithText(content, "Thank them with:")
     local fallbackLabel = WithText(content, "If that can't reach them:")
     local style, fallback = ShowingOneOf(content, THANK_WITH), ShowingOneOf(content, CANT_REACH)
-    check(styleLabel and fallbackLabel and style and fallback, "the two choices aren't on the Buff Thanks tab")
+    check(styleLabel and fallbackLabel and style and fallback, "the two choices aren't on the Favours tab")
     TextInside(panel, styleLabel, "Thank them with label", 1)
     TextInside(panel, fallbackLabel, "If that can't reach them label", 1)
     local failures = {}
@@ -1538,7 +1538,7 @@ local function RowsInOrder(content, label, follows)
 end
 
 -- Runs fn(content, tab) with the options open at each tab in turn, then
--- goes back to the first tab, even when a check fails. The Buff Back tab's
+-- goes back to the first tab, even when a check fails. The Buffs tab's
 -- buffs must carry their Forever names, as the simulator's own spell data
 -- gives them (pages.lua's UnnamedBuff, #158, #160): rows of buff keys
 -- would pass every layout check on text far shorter than a player reads.
@@ -1546,7 +1546,7 @@ local function OnEachTab(fn)
     local Pages = FriendlyForeverUIPages
     local ok, err = pcall(function()
         local unnamed = Pages.UnnamedBuff()
-        check(unnamed == nil, "the Buff Back tab's buffs aren't named as on Forever: " .. tostring(unnamed))
+        check(unnamed == nil, "the Buffs tab's buffs aren't named as on Forever: " .. tostring(unnamed))
         for _, tab in ipairs(Pages.TABS) do
             local content = Pages.OpenTab(tab.name)
             check(content ~= nil, "couldn't open the " .. tab.label .. " tab")
@@ -1562,7 +1562,7 @@ local function SelectedTabs(content)
     local selected = {}
     for _, tab in ipairs(FriendlyForeverUIPages.TABS) do
         for _, child in ipairs({ content:GetChildren() }) do
-            -- Shown only: the Buffs tab's "Buff Back" place (#408) shares the text.
+            -- Shown only, should a hidden button share the text.
             if child:GetObjectType() == "Button" and child:GetText() == tab.label and not child:IsEnabled()
                 and child:IsShown() then
                 selected[#selected + 1] = tab.label
@@ -1579,7 +1579,7 @@ test("each options tab opens by its button, and keeps its checkboxes and labels 
             local name = tab.label .. " tab"
             check(table.concat(SelectedTabs(content), ", ") == tab.label,
                 name .. ": the selected tabs are " .. table.concat(SelectedTabs(content), ", "))
-            check(ShowsText(content, tab.label .. "  "), name .. ": the header doesn't name the tab")
+            check(tab.noHeader or ShowsText(content, tab.label .. "  "), name .. ": the header doesn't name the tab")
             OnScreen(_G[FriendlyForeverUIPages.PANEL], "options panel (" .. name .. ")")
             -- Every place below is read from a settled layout, or the
             -- checks fail: none passes on the last tab's places. How many
@@ -1669,9 +1669,8 @@ local function OpenList(content)
     end
 end
 
--- The first who-gets button (200 wide) shown on content, or nil. Not the
--- passers-by switch's "Show friendly player names" button (also 200 wide,
--- above the places' tabs when nameplates are off, #455).
+-- The first who-gets button (200 wide) shown on content, or nil. Not a
+-- "Show friendly player names" button (also 200 wide), should one show.
 local function FirstWho(content)
     local found
     for _, child in ipairs({ content:GetChildren() }) do
@@ -1865,89 +1864,81 @@ test("the Raid Blessings header and boxes read right and stay inside the page, i
     if not ok then error(err, 0) end
 end)
 
--- The passers-by switch at the top of the Buffs tab (#455): above the places'
--- tabs, at every place, its help line inside the page, and with the
--- nameplate warning and its button when friendly nameplates are off, the
--- tabs still below all of it and nothing across anything else.
+-- The passers-by switch on the Favours tab (#491), in the tab's first view,
+-- unscrolled, at every size the layout passes run (#493): the tab's rows
+-- don't depend on the class, so this holds for every class. With friendly
+-- nameplates on and off: the warning shows below the switch, never above it.
+-- Then each of the tab's lines' sub-tabs ends at its last row (#482).
 local PASSERS_LABEL = "Also offer my buffs to passers-by in buff mode"
 
-test("the Buffs tab's passers-by switch sits above the places' tabs, inside the page, at every place (#455)", function()
+-- The Favours tab's check box whose label is text, or nil.
+local function FavoursBox(content, text)
+    for _, child in ipairs({ content:GetChildren() }) do
+        if child.label and child.label.GetText and child.label:GetText() == text then return child end
+    end
+end
+
+test("the Favours tab's passers-by switch is in its first view, unscrolled, nameplates on, off (#491, #493)",
+function()
     local Pages = FriendlyForeverUIPages
     local had = GetCVar and GetCVar("nameplateShowFriendlyPlayers")
     local ok, err = pcall(function()
         for _, nameplates in ipairs({ "1", "0" }) do
             if SetCVar then pcall(SetCVar, "nameplateShowFriendlyPlayers", nameplates) end
-            for _, place in ipairs(Pages.BUFFS_PLACES) do
-                local content = Pages.OpenBuffs(place.name)
-                check(content ~= nil, "couldn't open the Buffs tab at " .. place.label)
-                Settle(content)
-                local name = ("passers-by switch, %s place, nameplates %s"):format(place.label, nameplates)
-                local box
-                for _, child in ipairs({ content:GetChildren() }) do
-                    if child.label and child.label.GetText and child.label:GetText() == PASSERS_LABEL then
-                        box = child
-                    end
-                end
-                check(box ~= nil and box:IsVisible(), name .. ": the switch isn't shown")
-                local tab
-                for _, child in ipairs({ content:GetChildren() }) do
-                    if child:IsVisible() and child.GetText and child:GetText() == place.label then tab = child end
-                end
-                check(tab ~= nil, name .. ": the place's tab isn't shown")
-                local _, boxBottom = Edges(box, "GetTop", "GetBottom")
-                local tabTop = Edges(tab, "GetTop", "GetBottom")
-                if boxBottom and tabTop then
-                    local line = ("LAYOUT %s: switch bottom %.0f, place tabs top %.0f"):format(name, boxBottom, tabTop)
-                    report(line)
-                    check(tabTop <= boxBottom + 1, line .. ": the tabs aren't below the switch")
-                    -- Where a player finds it (#474): unscrolled the switch can sit below the
-                    -- first view (11 buff rows for a paladin, about 690 px down at 1920 x 1080
-                    -- in a 593 px view, run on #479). So the shot scrolls from "Use group
-                    -- versions" (#472), and that row and the switch must both land inside the view.
-                    local scroll = content:GetParent()
-                    local contentTop = Edges(content, "GetTop", "GetBottom")
-                    local viewTop, viewBottom = Edges(scroll, "GetTop", "GetBottom")
-                    local groupRow
-                    for _, child in ipairs({ content:GetChildren() }) do
-                        local text = child.label and child.label.GetText and child.label:GetText() or ""
-                        if text:find("Use group versions", 1, true) == 1 then groupRow = child end
-                    end
-                    check(groupRow ~= nil, name .. ": no group versions row")
-                    if contentTop and viewTop and groupRow then
-                        report(("LAYOUT %s: switch bottom %.0f below the top, view %.0f high")
-                            :format(name, contentTop - boxBottom, viewTop - viewBottom))
-                        local offset, putBack = FriendlyForeverUIPages.ShowFrameAt(content, groupRow, "top")
-                        if offset then
-                            local seen = {}
-                            for _, row in ipairs({ { "group versions", groupRow }, { "switch", box } }) do
-                                local top, bottom = Edges(row[2], "GetTop", "GetBottom")
-                                local rowLine = ("LAYOUT %s: scrolled by %.0f, %s %.0f..%.0f, view %.0f..%.0f")
-                                    :format(name, offset, row[1], bottom or 0, top or 0, viewBottom, viewTop)
-                                seen[#seen + 1] = { rowLine, top, bottom }
-                            end
-                            putBack()
-                            for _, one in ipairs(seen) do
-                                report(one[1])
-                                check(one[2] and one[3] and one[2] <= viewTop + 1 and one[3] >= viewBottom - 1,
-                                    one[1] .. ": not in view once scrolled to")
-                            end
-                        end
-                    end
-                else
-                    report("LAYOUT " .. name .. ": edges can't be read here")
-                end
-                check(ShowsText(content, "Players nearby who aren't in your group"),
-                    name .. ": its help line isn't shown")
-                CheckAll({
-                    function() TabTextInside(content, name) end,
-                    function() PushedDownInside(content, name) end,
-                })
+            local content = Pages.OpenTab("favours")
+            check(content ~= nil, "couldn't open the Favours tab")
+            local scroll = content:GetParent()
+            scroll:SetVerticalScroll(0)
+            Settle(content)
+            local name = "Favours tab, passers-by switch, nameplates " .. nameplates
+            local box = FavoursBox(content, PASSERS_LABEL)
+            check(box ~= nil and box:IsVisible(), name .. ": the switch isn't shown")
+            local offset = Measure(scroll, "GetVerticalScroll") or 0
+            local top, bottom = Edges(box, "GetTop", "GetBottom")
+            local viewTop, viewBottom = Edges(scroll, "GetTop", "GetBottom")
+            local contentTop = Edges(content, "GetTop", "GetBottom")
+            if not (top and viewTop and contentTop) then
+                report("LAYOUT " .. name .. ": edges can't be read here")
+                check(false, name .. ": edges can't be read here")
             end
+            local line = ("LAYOUT %s: unscrolled (offset %.0f), switch %.0f..%.0f below the top, view %.0f high")
+                :format(name, offset, contentTop - top, contentTop - bottom, viewTop - viewBottom)
+            report(line)
+            check(offset <= 1, line .. ": the tab didn't open unscrolled")
+            check(top <= viewTop + 1 and bottom >= viewBottom - 1, line .. ": the switch is below the first view")
+            check(ShowsText(content, "Players nearby who aren't in your group"), name .. ": its help line isn't shown")
+            CheckAll({
+                function() TabTextInside(content, name) end,
+                function() PushedDownInside(content, name) end,
+            })
         end
     end)
     if SetCVar and had then pcall(SetCVar, "nameplateShowFriendlyPlayers", had) end
     OpenTab(FriendlyForeverUIPages.TABS[1].label)
     if not ok then error(err, 0) end
+end)
+
+test("each of the Favours tab's lines ends at its last row, with its 30 lines in order (#482, #491)", function()
+    local Pages = FriendlyForeverUIPages
+    local failures = {}
+    for _, lines in ipairs(Pages.FAVOURS_LINES) do
+        local ok, e = pcall(function()
+            local content, button = Pages.OpenFavoursLines(lines.name)
+            check(content ~= nil, "couldn't open the Favours tab's " .. lines.label)
+            check(not button:IsEnabled(), lines.label .. ": its button isn't the selected one")
+            local name = "Favours tab, " .. lines.label
+            Settle(content)
+            RowsInOrder(content, name, "Preview random")
+            CheckAll({
+                function() TabTextInside(content, name) end,
+                function() PushedDownInside(content, name) end,
+            })
+        end)
+        if not ok then failures[#failures + 1] = tostring(e) end
+    end
+    Pages.OpenFavoursLines(Pages.FAVOURS_LINES[1].name)
+    OpenTab(FriendlyForeverUIPages.TABS[1].label)
+    check(#failures == 0, table.concat(failures, "\n"))
 end)
 
 -- Start here's buff mode lines and its link to the switch (#455, #458).
@@ -1957,7 +1948,7 @@ test("the Start here page shows how to turn buff mode on and links to the passer
     check(ShowsText(page.content, "shift-click the minimap button"), "Start here doesn't mention shift-click")
     local link
     for _, child in ipairs({ page.content:GetChildren() }) do
-        if child.GetText and child:GetText() == "Passers-by switch (Buffs tab)" then link = child end
+        if child.GetText and child:GetText() == "Passers-by switch (Favours tab)" then link = child end
     end
     check(link ~= nil and link:IsVisible(), "Start here has no passers-by link")
     OnScreen(link, "Start here passers-by link")
@@ -1974,7 +1965,7 @@ test("the Start here page shows how to turn buff mode on and links to the passer
             end
         end
     end
-    check(shown, "the link didn't open the Buffs tab at the passers-by switch")
+    check(shown, "the link didn't open the Favours tab at the passers-by switch")
     OpenTab(FriendlyForeverUIPages.TABS[1].label)
 end)
 
@@ -1999,26 +1990,21 @@ test("the minimap button's tooltip has the shift-click buff mode line, apart fro
     report("LAYOUT minimap tooltip: " .. tostring(shift))
 end)
 
--- The Buff Back tab's top-up row (#42): its label and stepper on one line
--- inside the options, between buff mode's minutes and buff requests in
--- chat (the battleground rows moved to the Buffs tab, #408), overlapping neither.
+-- The Buffs tab's top-up row (#42, #491): its label and stepper on one
+-- line inside the options, between buff mode's minutes and the places'
+-- tabs, overlapping neither.
 local TOP_UP_LABEL = "Top up my buffs with under (minutes left, 0 = never):"
 
-test("the Buff Back tab's top-up row stays inside the options, between its neighbours (#42)", function()
-    local panel, content = OpenTab("Buff Back")
+test("the Buffs tab's top-up row stays inside the options, between its neighbours (#42, #491)", function()
+    local panel = _G.FriendlyForeverOptionsPanel
+    local content = FriendlyForeverUIPages.OpenBuffs()
     local ok, err = pcall(function()
+        check(content ~= nil, "couldn't open the Buffs tab")
         Settle(content)
         local above = WithText(content, "or after (minutes, 0 = never):")
         local label = WithText(content, TOP_UP_LABEL)
-        -- A checkbox's label is the checkbox's own region, not the content's.
-        local below
-        for _, child in ipairs({ content:GetChildren() }) do
-            if child.label and child.label.GetText and child:IsShown()
-                and child.label:GetText() == "Offer my buffs to players who ask in chat" then
-                below = child.label
-            end
-        end
-        check(above and label and below, "the top-up row or its neighbours aren't on the Buff Back tab")
+        local below = WithText(content, "Strangers")
+        check(above and label and below, "the top-up row or its neighbours aren't on the Buffs tab")
         -- Inside the scrolling content, which runs below the panel's view
         -- (the per-tab check measures the same way).
         TextInside(content, label, "top-up label", 1)
@@ -2039,8 +2025,8 @@ test("the Buff Back tab's top-up row stays inside the options, between its neigh
         local aboveBottom = select(2, Edges(above, "GetTop", "GetBottom"))
         local belowTop = Edges(below, "GetTop", "GetBottom")
         check(aboveBottom and labelTop and labelBottom and belowTop, "the rows' edges can't be read here")
-        local line = ("LAYOUT top-up row: %.0f..%.0f, below buff mode's minutes (bottom %.0f), above buff"
-            .. " requests (top %.0f)"):format(labelBottom, labelTop, aboveBottom, belowTop)
+        local line = ("LAYOUT top-up row: %.0f..%.0f, below buff mode's minutes (bottom %.0f), above the"
+            .. " places' tabs (top %.0f)"):format(labelBottom, labelTop, aboveBottom, belowTop)
         report(line)
         check(labelTop <= aboveBottom + 1 and belowTop <= labelBottom + 1, line .. ": out of order or overlapping")
     end)
@@ -2048,13 +2034,13 @@ test("the Buff Back tab's top-up row stays inside the options, between its neigh
     if not ok then error(err, 0) end
 end)
 
--- The Buff Back tab's renew row (#269): its label and stepper on one line
--- inside the options, between the capital-city option and the line linking
--- to the Buffs tab (#408), overlapping neither.
+-- The Favours tab's renew row (#269, #491): its label and stepper on one
+-- line inside the options, between the capital-city option and the line
+-- linking to the Buffs tab, overlapping neither.
 local RENEW_LABEL = "Renew my buff when theirs has under (% left, 0 = never):"
 
-test("the Buff Back tab's renew row stays inside the options, between its neighbours (#269)", function()
-    local panel, content = OpenTab("Buff Back")
+test("the Favours tab's renew row stays inside the options, between its neighbours (#269, #491)", function()
+    local panel, content = OpenTab("Favours")
     local ok, err = pcall(function()
         Settle(content)
         -- A checkbox's label is the checkbox's own region, not the content's.
@@ -2066,8 +2052,9 @@ test("the Buff Back tab's renew row stays inside the options, between its neighb
             end
         end
         local label = WithText(content, RENEW_LABEL)
-        local below = WithText(content, "Who gets which buff, the buff order and Never offer are on the Buffs tab.")
-        check(above and label and below, "the renew row or its neighbours aren't on the Buff Back tab")
+        local below = WithText(content, "Who gets which buff, the buff order, Never offer and buff mode are on "
+            .. "the Buffs tab.")
+        check(above and label and below, "the renew row or its neighbours aren't on the Favours tab")
         TextInside(content, label, "renew label", 1)
         -- Its "+": the one on the label's line, right of it.
         local labelTop, labelBottom = Edges(label, "GetTop", "GetBottom")
@@ -2097,12 +2084,13 @@ end)
 
 -- Names the panel doesn't have, of every type the screenshot job or a
 -- typo could give: each is answered with a message, and the tab stays put.
-local BAD_TABS = { "", "Buff Back", "buffBack", "buff", "general", "nope", 42, true, { "buff-back" } }
+local BAD_TABS = { "", "Favours", "Buff Back", "buffBack", "buff", "buff-back", "general", "nope", 42, true,
+    { "favours" } }
 
 test("a tab name the panel doesn't know is answered with a message, not a Lua error", function()
     local Pages = FriendlyForeverUIPages
-    local content = Pages.OpenTab("buff-back")
-    check(content ~= nil, "couldn't open the Buff Back tab")
+    local content = Pages.OpenTab("favours")
+    check(content ~= nil, "couldn't open the Favours tab")
     local ok, err = pcall(function()
         for i = 0, #BAD_TABS do
             local name = BAD_TABS[i] -- BAD_TABS[0] is nil: no name at all
@@ -2111,7 +2099,7 @@ test("a tab name the panel doesn't know is answered with a message, not a Lua er
             check(opened == nil, "OpenTab(" .. tostring(name) .. ") opened something")
             check(type(why) == "string" and why:find("no options tab called", 1, true) ~= nil,
                 "OpenTab(" .. tostring(name) .. ") gave no message")
-            check(table.concat(SelectedTabs(content), ", ") == "Buff Back",
+            check(table.concat(SelectedTabs(content), ", ") == "Favours",
                 "OpenTab(" .. tostring(name) .. ") changed the tab")
         end
     end)

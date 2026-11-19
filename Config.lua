@@ -65,10 +65,14 @@ Config.TYPE_INFO = {
         wholeName = true,
         guild = true, -- {zone} is the guildmate's (#486)
     },
+    -- Favours (#491): thanking and buffing back share one tab. label names
+    -- the part of it in /friendly status; linesLabel is its lines' sub-tab.
     buff = {
-        label   = "Buff Thanks",
+        label   = "Thanks",
+        linesLabel = "Thank-you lines",
+        favours = true,
         channel = "/say, a whisper or /thank",
-        help    = "Thanks players outside your group who buff you. Placeholders: {name}, {fullname}, {buff}",
+        help    = "Said to players outside your group who buff you. Placeholders: {name}, {fullname}, {buff}",
     },
     guildJoin = {
         label   = "Guild Join",
@@ -102,13 +106,14 @@ Config.TYPE_INFO = {
     -- Queued only once a buff-back is confirmed (each favour is returned once),
     -- so it has no delay or repeat cooldown of its own.
     buffBack = {
-        label   = "Buff Back",
+        label   = "Return the favour",
+        linesLabel = "When my buff lands",
+        favours = true,
         channel = "/say, a whisper or /thank, once your buff lands",
-        help    = "Said once your buff from the buff-back button reaches them (if switched on), "
-            .. "the way Buff Thanks thanks them: in /say, as a whisper, or a /thank for the emote. "
+        help    = "Said once your buff from the buff button reaches them, if \"Say a line when my buff lands\" "
+            .. "is ticked, the way you thank them: in /say, as a whisper, or a /thank for the emote. "
             .. "Placeholders: {name}, {fullname}, {buff} (the spell you cast)",
         noTiming = true,
-        enabledLabel = "Offer to buff back players who buff me",
     },
 }
 
@@ -183,7 +188,11 @@ Config.DEFAULTS = {
         messages = DefaultMessages.levelUp,
     },
     -- enabled: offer to buff back (show the button). sayLine: say a line once
-    -- the buff lands. No delay or repeat cooldown: one line per favour returned.
+    -- the buff lands, off unless the player turns it on (#491: the thank-you
+    -- lines are the exchange's one voice). No delay or repeat cooldown: one
+    -- line per favour returned. The Favours tab shows this section and buff
+    -- (#491); the names stay, so saved settings, profiles and settings lines
+    -- from before it load unchanged.
     buffBack = {
         enabled = true,
         sayLine = false,
@@ -642,7 +651,7 @@ end
 -- version as its `since` and raise the version to match: players who finished
 -- an older one then see only the new steps (#169). A spec checks that
 -- they agree (spec/walkthrough_spec.lua).
-Config.WALKTHROUGH_VERSION = 3
+Config.WALKTHROUGH_VERSION = 4
 
 -- A checked copy of the saved walkthrough state. None at all (settings from
 -- before it): seen 0, so every step shows once, and not a first run, so the

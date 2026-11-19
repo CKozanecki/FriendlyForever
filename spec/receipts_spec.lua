@@ -1,4 +1,4 @@
--- Spec: #138, #208, #271
+-- Spec: #138, #208, #271, #491
 -- Buff receipts: when your buff lands on a player outside your group, your
 -- copy whispers theirs a hidden RECEIPT, used only to name the caster of a
 -- buff whose caster the game wouldn't name.
@@ -425,7 +425,7 @@ describe("Buff receipts (#138)", function()
     describe("the setting (white)", function()
         it("shows unticked when it was saved off", function()
             local ns = wow.boot({ db = { buff = { receipts = false } } })
-            wow.run(ns.Options.widgets.tabs.buff, "OnClick")
+            wow.run(ns.Options.widgets.tabs.favours, "OnClick")
             assert.is_false(ns.Options.widgets.receipts:GetChecked())
         end)
         it("without the hidden channel, a buff waits for no receipt", function()
@@ -433,13 +433,15 @@ describe("Buff receipts (#138)", function()
             wow.gainBuff({ name = "Power Word: Fortitude", spellId = FORT })
             assert.is_false(ns.Receipts.Waiting())
         end)
-        it("shows on the Buff Thanks tab only, and switches receipts off and on", function()
+        it("shows on the Favours tab only, and switches receipts off and on", function()
             local ns = wow.boot()
             local w = ns.Options.widgets
             assert.is_true(ns.db.buff.receipts, "on by default")
             wow.run(w.tabs.guildLogin, "OnClick")
             assert.is_false(w.receipts:IsShown())
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
+            assert.is_false(w.receipts:IsShown())
+            wow.run(w.tabs.favours, "OnClick")
             assert.is_true(w.receipts:IsShown())
             assert.is_true(w.receipts:GetChecked())
             w.receipts:SetChecked(false)

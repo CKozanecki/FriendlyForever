@@ -1,6 +1,6 @@
--- Spec: #408, #39, #452
+-- Spec: #408, #39, #452, #491
 -- The Buffs tab (#408): the buff order and options for every place, then a
--- sub-tab for each place (Buff Back, Party, Raid, PvP) with a "who gets it"
+-- sub-tab for each place (Strangers, Party, Raid, PvP) with a "who gets it"
 -- row per buff, its list of ticks, its Always and Never names, and the
 -- place's own options. Before the choice, the rules in force show greyed
 -- behind "Keep my settings" and "Use the new defaults".
@@ -64,7 +64,8 @@ describe("The Buffs tab (#408)", function()
             assert.is_false(w.msgHeader:IsVisible(), "no message rows")
             assert.is_false(w.enabled:IsVisible())
             assert.is_true(w.buffsHelp:IsVisible())
-            assert.is_truthy(w.buffsHelp:GetText():find("buff back (strangers who buff you) and for buff mode", 1, true))
+            assert.is_truthy(w.buffsHelp:GetText():find("strangers (who buff you, or pass by) and for buff mode", 1,
+                true))
             local rows = {}
             for _, row in ipairs(w.buffRows) do
                 if row.name:IsVisible() then
@@ -79,8 +80,12 @@ describe("The Buffs tab (#408)", function()
                 assert.is_true(cb:IsVisible())
                 assert.is_truthy(cb.tooltip)
             end
+            -- Buff mode's rows above the places (#491).
+            for _, row in ipairs({ w.buffModeHeader, w.buffModeKey, w.autoHeader, w.steppers.topUpMinutes.label }) do
+                assert.is_true(row:IsVisible())
+            end
             for _, p in ipairs({ "strangers", "party", "raid", "pvp" }) do assert.is_true(w.placeTabs[p]:IsVisible()) end
-            assert.are.equal("Buff Back", w.placeTabs.strangers:GetText())
+            assert.are.equal("Strangers", w.placeTabs.strangers:GetText())
             assert.is_false(w.placeTabs.party:IsEnabled(), "Party is shown first")
         end)
 
@@ -135,7 +140,7 @@ describe("The Buffs tab (#408)", function()
             assert.is_false(w.whoList:IsShown())
         end)
 
-        it("Buff Back's list has Everyone, classes and Off only, and no names", function()
+        it("Strangers' list has Everyone, classes and Off only, and no names", function()
             boot({ choice = "new" })
             place("strangers")
             local row = rowFor("motw")
@@ -147,9 +152,10 @@ describe("The Buffs tab (#408)", function()
             assert.is_false(w.whoList.healers:IsVisible())
             tick(w.whoList.classes.MAGE, true)
             assert.are.same({ classes = { MAGE = true } }, ns.db.buffBack.whoStrangers.motw)
-            assert.is_true(w.openBuffBack:IsVisible(), "a link to buff back's own settings")
-            wow.run(w.openBuffBack, "OnClick")
-            assert.are.equal("buffBack", ns.Options.CurrentType())
+            assert.is_true(w.openFavours:IsVisible(), "a link to buff back's own settings")
+            assert.are.equal("Open the Favours tab", w.openFavours:GetText())
+            wow.run(w.openFavours, "OnClick")
+            assert.are.equal(ns.Options.FAVOURS_TAB, ns.Options.CurrentType())
         end)
 
         it("Names opens a buff's Always and Never boxes under its row, and they save to that buff and place", function()
@@ -205,10 +211,12 @@ describe("The Buffs tab (#408)", function()
             assert.is_false(w.bgPrepBuff:IsVisible())
         end)
 
-        it("the Buff Back tab keeps its own settings, with a link to the Buffs tab", function()
+        it("the Favours tab keeps buff back's own settings, with a link to the Buffs tab", function()
             boot()
-            wow.run(w.tabs.buffBack, "OnClick")
-            assert.is_true(w.buffModeKey:IsVisible())
+            wow.run(w.tabs.favours, "OnClick")
+            assert.is_true(w.offerEnabled:IsVisible())
+            assert.is_true(w.steppers.owedMinutes.box:IsVisible())
+            assert.is_false(w.buffModeKey:IsVisible(), "buff mode is the Buffs tab's (#491)")
             assert.is_true(w.buffRequests:IsVisible())
             assert.is_true(w.openBuffs:IsVisible())
             assert.is_false(w.buffRows[1].name:IsVisible())
@@ -218,14 +226,18 @@ describe("The Buffs tab (#408)", function()
         end)
 
         -- #408's architecture review: that tab's Reset wiped this one's.
-        it("the Buff Back tab's Reset leaves the Buffs tab's settings as they are", function()
+        it("the Favours tab's Reset leaves the Buffs tab's settings as they are", function()
             boot({ choice = "new" })
             -- What the Buffs tab shows, listed here on its own: the order,
             -- Never offer, the rules (1.3.3's, the choice, each place's) and
-            -- the options for every place and for each.
+            -- the options for every place and for each. Passers-by moved to
+            -- the Favours tab, and buff mode's key, triggers and top-up to this
+            -- tab (#491).
             local shown = { "buffOrder", "neverOffer", "whoGets", "whoChoice", "whoStrangers", "whoParty",
                 "whoRaid", "whoPvP", "selfBuffs", "breathNearWater", "groupVersions", "groupEnough",
-                "soloOwnBuffs", "raidSplit", "bgPrepBuff", "passersBy", "fastCastInForm" }
+                "soloOwnBuffs", "raidSplit", "bgPrepBuff", "fastCastInForm", "buffModeKey", "autoOnJoin",
+                "autoOnDeath", "autoOnBuffed", "autoOnMissing", "autoOnCampfire", "autoOffPull", "autoOffDone",
+                "autoOffMinutes", "topUpMinutes" }
             local listed = {}
             for _, field in ipairs(ns.BuffsTab.FIELDS) do
                 assert.is_not_nil(ns.Config.DEFAULTS.buffBack[field], field .. " is a Buff Back setting")
@@ -242,20 +254,28 @@ describe("The Buffs tab (#408)", function()
             ns.db.buffBack.whoRaid = { thorns = { never = { ["ann-vale"] = "Ann-Vale" } } }
             ns.db.buffBack.sayLine = true
             ns.db.buffBack.owedMinutes = 20
+            ns.db.buffBack.passersBy = true
+            -- Buff mode's, changed from their defaults so keeping them shows.
+            ns.db.buffBack.buffModeKey = "F"
+            ns.db.buffBack.autoOnJoin = not ns.Config.DEFAULTS.buffBack.autoOnJoin
+            ns.db.buffBack.autoOffDone = not ns.Config.DEFAULTS.buffBack.autoOffDone
+            ns.db.buffBack.autoOffMinutes = ns.Config.DEFAULTS.buffBack.autoOffMinutes + 1
+            ns.db.buffBack.topUpMinutes = ns.Config.DEFAULTS.buffBack.topUpMinutes + 1
             local before = {}
             for _, field in ipairs(ns.BuffsTab.FIELDS) do
                 before[field] = ns.Serialize.Encode({ v = ns.db.buffBack[field] })
             end
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             wow.run(w.reset, "OnClick")
             for _, field in ipairs(ns.BuffsTab.FIELDS) do
                 assert.are.equal(before[field], ns.Serialize.Encode({ v = ns.db.buffBack[field] }), field)
             end
             assert.are.equal("new", ns.db.buffBack.whoChoice)
             assert.is_true(ns.db.buffBack.whoParty.motw.tanks)
-            -- The Buff Back tab's own lines are reset.
+            -- The Favours tab's own settings are reset, passers-by now among them.
             assert.is_false(ns.db.buffBack.sayLine)
             assert.are.equal(ns.Config.DEFAULTS.buffBack.owedMinutes, ns.db.buffBack.owedMinutes)
+            assert.is_false(ns.db.buffBack.passersBy)
             assert.are.same({}, wow.errors)
         end)
     end)

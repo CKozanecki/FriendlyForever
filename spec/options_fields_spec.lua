@@ -1,7 +1,8 @@
--- Spec: #330, #44, #408
+-- Spec: #330, #44, #408, #491
 -- The options panel with a field inside a settings section damaged
--- mid-session, and the Buff Thanks and Buff Back tabs' controls clicked with
--- their whole section damaged after the panel filled (#330). A whole section
+-- mid-session, and the Favours tab's controls (the Buff Thanks and Buff Back
+-- tabs', #491) clicked with their whole section damaged after the panel
+-- filled (#330). A whole section
 -- damaged before the panel fills is spec/options_repair_spec.lua's (#166).
 local wow = require("spec.support.wow")
 
@@ -44,6 +45,21 @@ describe("Options panel", function()
         { "buffBack", "buffOrder", { "intellect", 7 } },
         { "guildLogin", "messages", { "Hi", 7 } },
     }
+
+    -- The section and field a number box shows on the tab shown: a message
+    -- tab's own, the Favours tab's (the buff section's delay and repeat under
+    -- their own names, #491, else buffBack's) or the Buffs tab's (buffBack's).
+    local FAVOURS_THANKS = { thankDelay = "delay", thankRepeat = "repeatCooldown" }
+    local function stepperField(name)
+        local tab = ns.Options.CurrentType()
+        if tab == ns.Options.FAVOURS_TAB then
+            if FAVOURS_THANKS[name] then return "buff", FAVOURS_THANKS[name] end
+            return "buffBack", name
+        elseif tab == ns.Options.BUFFS_TAB then
+            return "buffBack", name
+        end
+        return tab, name
+    end
 
     -- Every way every field is damaged: { msgType, field, value }.
     local function damages()
@@ -89,23 +105,41 @@ describe("Options panel", function()
                         end
                         ns.db.skipWhileAFK = ns.Config.DEFAULTS.skipWhileAFK
                         -- The Buffs tab too (#408's testing review): it fills from
-                        -- Buff Back's section, and returns before the message tabs do.
+                        -- buffBack's section, and returns before the message tabs do.
+                        -- Then every other tab (Favours, #491), and Favours' lines.
                         local tabs = { ns.Options.BUFFS_TAB }
-                        for _, tab in ipairs(ns.Config.TYPES) do tabs[#tabs + 1] = tab end
+                        for _, tab in ipairs(ns.Options.TABS) do
+                            if tab ~= ns.Options.BUFFS_TAB then tabs[#tabs + 1] = tab end
+                        end
                         for _, tab in ipairs(tabs) do
                             ns.db[msgType][field] = value
                             wow.run(w.tabs[tab], "OnClick")
                             assert.are.same(expected, ns.db[msgType][field], what .. " healed on the " .. tab
                                 .. " tab")
                         end
+                        wow.run(w.tabs[ns.Options.FAVOURS_TAB], "OnClick")
+                        for _, lines in ipairs(ns.Options.FAVOUR_LINES) do
+                            ns.db[msgType][field] = value
+                            wow.run(w.linesTabs[lines], "OnClick")
+                            assert.are.same(expected, ns.db[msgType][field], what .. " healed on Favours' "
+                                .. lines .. " lines")
+                        end
                         -- Its own tab shows it as it now is: the Buffs tab for
-                        -- the Buff Back fields it shows (BuffsTab.FIELDS).
+                        -- the buffBack fields it shows (BuffsTab.FIELDS), the
+                        -- Favours tab at its lines for a favour's (#491).
                         local onBuffs = false
                         for _, name in ipairs(msgType == "buffBack" and ns.BuffsTab.FIELDS or {}) do
                             onBuffs = onBuffs or name == field
                         end
                         ns.db[msgType][field] = value
-                        wow.run(w.tabs[onBuffs and ns.Options.BUFFS_TAB or msgType], "OnClick")
+                        if onBuffs then
+                            wow.run(w.tabs[ns.Options.BUFFS_TAB], "OnClick")
+                        elseif ns.Config.TYPE_INFO[msgType].favours then
+                            wow.run(w.tabs[ns.Options.FAVOURS_TAB], "OnClick")
+                            wow.run(w.linesTabs[msgType], "OnClick")
+                        else
+                            wow.run(w.tabs[msgType], "OnClick")
+                        end
                         local live = ns.db[msgType]
                         assert.are.same(expected, live[field], what .. " healed on its own tab")
                         if onBuffs then
@@ -117,8 +151,10 @@ describe("Options panel", function()
                             assert.are.equal(live.messages[i], edit:GetText(), what .. ": line " .. i)
                         end
                         for name, stepper in pairs(w.steppers) do
-                            if stepper.box:IsVisible() and live[name] ~= nil then
-                                assert.are.equal(tostring(live[name]), stepper.box:GetText(), what .. ": " .. name)
+                            local section, shown = stepperField(name)
+                            local saved = ns.db[section][shown]
+                            if stepper.box:IsVisible() and saved ~= nil then
+                                assert.are.equal(tostring(saved), stepper.box:GetText(), what .. ": " .. name)
                             end
                         end
                         if msgType == "buff" then
@@ -139,7 +175,7 @@ describe("Options panel", function()
             ns = wow.boot()
             w = ns.Options.widgets
             open()
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             -- A second on: the repair runs, and puts a new section in place.
             wow.advance(2)
             local box = w.steppers.owedMinutes.box
@@ -149,7 +185,7 @@ describe("Options panel", function()
             wow.run(w.tabs.guildLogin, "OnClick")
             assert.is_false(box:HasFocus())
             assert.are.equal(20, ns.db.buffBack.owedMinutes)
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             assert.are.equal("20", box:GetText())
             assert.are.same({}, wow.errors)
         end)
@@ -194,15 +230,21 @@ describe("Options panel", function()
             ns = wow.boot()
             w = ns.Options.widgets
             open()
-            wow.run(w.tabs.buffBack, "OnClick")
-            for _, button in ipairs({ "plus", "minus" }) do
-                wow.run(w.steppers.delay[button], "OnClick")
-                wow.run(w.steppers.maxGreeters[button], "OnClick")
+            -- The Favours tab shows the buff and buffBack sections (#491), the
+            -- Buffs tab buffBack's: neither has the message tabs' boxes.
+            for _, tab in ipairs({ ns.Options.FAVOURS_TAB, ns.Options.BUFFS_TAB }) do
+                wow.run(w.tabs[tab], "OnClick")
+                for _, button in ipairs({ "plus", "minus" }) do
+                    wow.run(w.steppers.delay[button], "OnClick")
+                    wow.run(w.steppers.maxGreeters[button], "OnClick")
+                end
+                wow.run(w.steppers.delay.box, "OnEditFocusLost")
+                assert.is_nil(ns.db.buffBack.delay, tab)
+                assert.is_nil(ns.db.buffBack.maxGreeters, tab)
+                assert.are.equal(ns.Config.DEFAULTS.buff.delay, ns.db.buff.delay, tab)
+                assert.is_nil(ns.db.buff.maxGreeters, tab)
+                assert.are.equal("", w.steppers.delay.box:GetText(), tab)
             end
-            wow.run(w.steppers.delay.box, "OnEditFocusLost")
-            assert.is_nil(ns.db.buffBack.delay)
-            assert.is_nil(ns.db.buffBack.maxGreeters)
-            assert.are.equal("", w.steppers.delay.box:GetText())
             assert.are.same({}, wow.errors)
         end)
     end)
@@ -228,7 +270,9 @@ describe("Options panel", function()
                 return repair(...)
             end
             open()
-            for _, tab in ipairs(ns.Config.TYPES) do wow.run(w.tabs[tab], "OnClick") end
+            for _, tab in ipairs(ns.Options.TABS) do wow.run(w.tabs[tab], "OnClick") end
+            wow.run(w.tabs[ns.Options.FAVOURS_TAB], "OnClick")
+            for _, lines in ipairs(ns.Options.FAVOUR_LINES) do wow.run(w.linesTabs[lines], "OnClick") end
             ns.Config.Repair = repair
             assert.are.equal(0, repairs)
             for _, msgType in ipairs(ns.Config.TYPES) do
@@ -238,12 +282,12 @@ describe("Options panel", function()
         end)
     end)
 
-    describe("the Buff Thanks and Buff Back tabs' controls with their section damaged after the panel filled "
-        .. "(black, #330)", function()
+    describe("the Favours tab's controls with their section damaged after the panel filled "
+        .. "(black, #330, #491)", function()
         -- What a whole section can be damaged into.
         local SECTION_DAMAGE = { 7, "broken", true, false, function() end }
 
-        -- A paladin in a raid, so every Buff Back row shows: the buff list
+        -- A paladin in a raid, so every buffBack row shows: the buff list
         -- with a self-buff (#44), who gets each (chosen classes), and the
         -- raid's Blessings.
         local function boot()
@@ -270,15 +314,18 @@ describe("Options panel", function()
                 check = function(want) return ns.db[msgType][field] == want end,
             }
         end
-        local function stepper(name, msgType)
+        -- field: the setting it shows, when its name isn't that (the Favours
+        -- tab's thanks delay and repeat, #491).
+        local function stepper(name, msgType, field)
             local s = w.steppers[name]
+            field = field or name
             return {
                 click = function() wow.run(s.plus, "OnClick") end,
                 check = function()
-                    local limits = ns.Config.LIMITS[name]
-                    local want = math.min(ns.Config.DEFAULTS[msgType][name] + (name == "renewPercent" and 5 or 1),
+                    local limits = ns.Config.LIMITS[field]
+                    local want = math.min(ns.Config.DEFAULTS[msgType][field] + (field == "renewPercent" and 5 or 1),
                         limits.max)
-                    return ns.db[msgType][name] == want and s.box:GetText() == tostring(want)
+                    return ns.db[msgType][field] == want and s.box:GetText() == tostring(want)
                 end,
             }
         end
@@ -295,7 +342,8 @@ describe("Options panel", function()
         local function controls(msgType)
             local list = {}
             local function add(name, control) list[#list + 1] = { name = name, control = control } end
-            add("enabled", toggle(w.enabled, msgType, "enabled"))
+            -- Each section's own switch on the Favours tab (#491).
+            add("enabled", toggle(msgType == "buff" and w.thankEnabled or w.offerEnabled, msgType, "enabled"))
             -- On every tab: the master switch, the AFK box and the tabs.
             add("addon enabled", {
                 click = function()
@@ -315,8 +363,11 @@ describe("Options panel", function()
                 end,
                 check = function(want) return ns.db.skipWhileAFK == want end,
             })
-            for _, tab in ipairs(ns.Config.TYPES) do
+            for _, tab in ipairs(ns.Options.TABS) do
                 add("the " .. tab .. " tab", { click = function() wow.run(w.tabs[tab], "OnClick") end })
+            end
+            for _, lines in ipairs(ns.Options.FAVOUR_LINES) do
+                add("the " .. lines .. " lines", { click = function() wow.run(w.linesTabs[lines], "OnClick") end })
             end
             add("a message line", {
                 click = function()
@@ -337,8 +388,8 @@ describe("Options panel", function()
                 end,
             })
             if msgType == "buff" then
-                add("delay", stepper("delay", "buff"))
-                add("repeat cooldown", stepper("repeatCooldown", "buff"))
+                add("delay", stepper("thankDelay", "buff", "delay"))
+                add("repeat cooldown", stepper("thankRepeat", "buff", "repeatCooldown"))
                 add("name the buffs", toggle(w.listNames, "buff", "listBuffNames"))
                 add("receipts", toggle(w.receipts, "buff", "receipts"))
                 add("quiet in cities", toggle(w.quiet, "buff", "quietInCities"))
@@ -373,13 +424,19 @@ describe("Options panel", function()
             add("water breathing", on(toggle(w.breathNearWater, "buffBack", "breathNearWater")))
             add("self-buffs", on(toggle(w.selfBuffs, "buffBack", "selfBuffs")))
             add("own buffs solo", on(toggle(w.soloOwnBuffs, "buffBack", "soloOwnBuffs"), "party"))
-            for _, field in ipairs(ns.Options.AUTO_SWITCHES) do add(field, toggle(w.auto[field], "buffBack", field)) end
-            for _, name in ipairs({ "owedMinutes", "renewPercent", "autoOffMinutes", "topUpMinutes" }) do
+            -- Buff mode's key, triggers and top-up: on the Buffs tab, at every place (#491).
+            for _, field in ipairs(ns.Options.AUTO_SWITCHES) do
+                add(field, on(toggle(w.auto[field], "buffBack", field)))
+            end
+            for _, name in ipairs({ "owedMinutes", "renewPercent" }) do
                 add(name, stepper(name, "buffBack"))
+            end
+            for _, name in ipairs({ "autoOffMinutes", "topUpMinutes" }) do
+                add(name, on(stepper(name, "buffBack")))
             end
             add("groupEnough", on(stepper("groupEnough", "buffBack")))
             add("the Buffs tab link", { click = function() wow.run(w.openBuffs, "OnClick") end })
-            add("buff mode's key", {
+            add("buff mode's key", { tab = "buffs",
                 click = function()
                     wow.run(w.buffModeKey, "OnClick")
                     wow.run(w.keyCapture, "OnKeyDown", "F")
@@ -490,8 +547,8 @@ describe("Options panel", function()
                 add("the " .. place .. " place", { tab = "buffs",
                     click = function() wow.run(w.placeTabs[place], "OnClick") end })
             end
-            add("open the Buff Back tab", { tab = "buffs", place = "strangers",
-                click = function() wow.run(w.openBuffBack, "OnClick") end })
+            add("open the Favours tab", { tab = "buffs", place = "strangers",
+                click = function() wow.run(w.openFavours, "OnClick") end })
             add("a raid Blessing box", { tab = "buffs", place = "raid",
                 click = function()
                     assert.is_true(w.who.raidBlessings[1]:IsEnabled(), "in a raid")
@@ -513,7 +570,13 @@ describe("Options panel", function()
                         -- panel has to put the section back itself.
                         wow.advance(2)
                         if (i + count) % 2 == 0 then ns.Config.Repair() end
-                        wow.run(w.tabs[entry.control.tab or msgType], "OnClick")
+                        -- Its tab: the Favours tab at msgType's lines, unless it's another's.
+                        if entry.control.tab then
+                            wow.run(w.tabs[entry.control.tab], "OnClick")
+                        else
+                            wow.run(w.tabs[ns.Options.FAVOURS_TAB], "OnClick")
+                            wow.run(w.linesTabs[msgType], "OnClick")
+                        end
                         if entry.control.place then wow.run(w.placeTabs[entry.control.place], "OnClick") end
                         if entry.control.prepare then entry.control.prepare() end
                         ns.db[msgType] = value
@@ -535,10 +598,10 @@ describe("Options panel", function()
         it("a damaged field heals alone: the fields beside it keep their settings, the button's place included",
             function()
                 boot()
-                wow.run(w.tabs.buffBack, "OnClick")
+                wow.run(w.tabs.favours, "OnClick")
                 ns.db.buffBack.position = { point = "TOP", x = 10, y = -20 }
                 ns.db.buffBack.unlocked = "broken"
-                wow.run(w.tabs.buffBack, "OnClick")
+                wow.run(w.tabs.favours, "OnClick")
                 assert.is_false(ns.db.buffBack.unlocked)
                 assert.are.same({ point = "TOP", x = 10, y = -20 }, ns.db.buffBack.position)
                 assert.are.same({}, wow.errors)

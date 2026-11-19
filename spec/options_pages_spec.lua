@@ -1,4 +1,4 @@
--- Spec: #52, #58, #80, #101, #112, #47, #274, #45
+-- Spec: #52, #58, #80, #101, #112, #47, #274, #45, #491
 -- The options added with 0.8.0: thank style, loading a line set, and the
 -- General and Favour Ledger pages.
 local wow = require("spec.support.wow")
@@ -28,10 +28,12 @@ describe("Options", function()
     end)
 
     describe("message tabs", function()
-        it("lets the player pick how buff thanks are given, on the buff tab only", function()
+        it("lets the player pick how buff thanks are given, on the Favours tab only", function()
             wow.run(w.tabs.guildLogin, "OnClick")
             assert.is_false(w.thankStyle:IsShown())
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
+            assert.is_false(w.thankStyle:IsShown())
+            wow.run(w.tabs.favours, "OnClick")
             assert.is_true(w.thankStyle:IsShown())
             assert.are.equal(ns.Options.THANK_STYLE_TEXT.message, w.thankStyle:GetText())
             for i, value in ipairs(ns.Options.THANK_STYLES) do
@@ -226,8 +228,9 @@ describe("Options", function()
 
         -- The note says when buffs are recorded; it must match the rule
         -- BuffTracker.Watching applies.
-        it("says buffs are recorded while Buff Thanks or Buff Back is on, as they are", function()
-            assert.is_truthy(w.ledger.note:GetText():find("while Buff Thanks or Buff Back is on", 1, true))
+        it("says buffs are recorded while thanking or offering your buff back is on, as they are", function()
+            assert.is_truthy(w.ledger.note:GetText():find(
+                "while thanking or offering your buff back is on (Favours tab)", 1, true))
             for _, case in ipairs({
                 { thanks = true, back = false, watching = true },
                 { thanks = false, back = true, watching = true },

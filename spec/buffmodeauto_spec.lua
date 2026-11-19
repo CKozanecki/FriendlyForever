@@ -1,4 +1,4 @@
--- Spec: #29, #71, #76, #99, #245, #259, #268, #272
+-- Spec: #29, #71, #76, #99, #245, #259, #268, #272, #491
 -- When buff mode turns on and off by itself.
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
@@ -69,7 +69,7 @@ describe("Buff mode turning on and off by itself", function()
     before_each(function() boot() end)
 
     describe("turning on", function()
-        it("says nothing when a trigger can't turn it on (Buff Back off)", function()
+        it("says nothing when a trigger can't turn it on (Offer my buff back off)", function()
             ns.db.buffBack.enabled = false
             join()
             assert.is_false(ns.BuffMode.IsOn())
@@ -102,7 +102,7 @@ describe("Buff mode turning on and off by itself", function()
         end)
 
         it("says once a session where the triggers are switched, and not when you turn it on yourself", function()
-            local HINT = "choose when on the Buff Back tab"
+            local HINT = "choose when on the Buffs tab"
             local function hints()
                 local n = 0
                 for _, line in ipairs(wow.printed) do
@@ -158,7 +158,7 @@ describe("Buff mode turning on and off by itself", function()
             join()
             assert.is_true(ns.BuffMode.IsAuto())
             assert.are.equal("MOUSEWHEELUP", lent())
-            assert.is_true(printedHas("buff mode on (you joined a group): MOUSEWHEELUP presses the buff-back button."))
+            assert.is_true(printedHas("buff mode on (you joined a group): MOUSEWHEELUP presses the buff button."))
             wow.printed = {}
             join({ "Ann-Vale", "Cid-Rock", "Dot-Fern" }) -- the roster changing isn't joining again
             assert.is_false(printedHas("buff mode on"))
@@ -279,9 +279,16 @@ describe("Buff mode turning on and off by itself", function()
             assert.is_false(ns.BuffMode.IsOn())
         end)
 
-        it("is switched in the Buff Back tab", function()
+        it("is switched in the Buffs tab, at every place", function()
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
+            for _, place in ipairs(ns.BuffRules.PLACES) do
+                wow.run(w.placeTabs[place], "OnClick")
+                for _, field in ipairs(ns.Options.AUTO_SWITCHES) do
+                    assert.is_true(w.auto[field]:IsVisible(), field .. " at " .. place)
+                end
+                assert.is_true(w.steppers.autoOffMinutes.box:IsVisible(), place)
+            end
             for _, field in ipairs(ns.Options.AUTO_SWITCHES) do
                 local box = w.auto[field]
                 assert.is_true(box:IsShown(), field)
@@ -292,9 +299,13 @@ describe("Buff mode turning on and off by itself", function()
             assert.is_true(w.steppers.autoOffMinutes.box:IsShown())
             wow.run(w.steppers.autoOffMinutes.plus, "OnClick")
             assert.are.equal(6, ns.db.buffBack.autoOffMinutes)
-            wow.run(w.tabs.buff, "OnClick")
-            assert.is_false(w.auto.autoOnJoin:IsShown())
-            assert.is_false(w.steppers.autoOffMinutes.box:IsShown())
+            for _, tab in ipairs(ns.Options.TABS) do
+                if tab ~= ns.Options.BUFFS_TAB then
+                    wow.run(w.tabs[tab], "OnClick")
+                    assert.is_false(w.auto.autoOnJoin:IsShown(), tab)
+                    assert.is_false(w.steppers.autoOffMinutes.box:IsShown(), tab)
+                end
+            end
         end)
     end)
 
@@ -1155,7 +1166,7 @@ describe("Buff mode turning on and off by itself", function()
                 -- The hint is said at most once a session (a reload starts a new one).
                 local hints = 0
                 for _, line in ipairs(wow.printed) do
-                    if line:find("choose when on the Buff Back tab", 1, true) then hints = hints + 1 end
+                    if line:find("choose when on the Buffs tab", 1, true) then hints = hints + 1 end
                 end
                 assert.is_true(hints <= 1, where .. ": the hint said " .. hints .. " times")
                 if hints == 1 then hinted = hinted + 1 end

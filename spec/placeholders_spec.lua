@@ -1,4 +1,4 @@
--- Spec: #319
+-- Spec: #319, #491
 -- Placeholders in a line fill whatever their case, and a thank-you never
 -- reaches chat with a known placeholder unfilled ("{Buff}"), whichever way
 -- it goes out: whisper, /say, held /say, emote, the fallback, the buff-back
@@ -244,14 +244,16 @@ describe("Placeholders fill whatever their case (#319)", function()
             boot("message")
             ns.db.buff.messages = { "Thanks for the {Buff}, {NAME}!" }
             local w = ns.Options.widgets
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
+            wow.run(w.linesTabs.buff, "OnClick")
+            assert.are.equal("buff", ns.Options.LinesType(), "the thank-you lines show")
             wow.printed = {}
             wow.run(w.preview, "OnClick")
             _G.SlashCmdList.FRIENDLYFOREVER("test")
             local preview, test
             for _, line in ipairs(wow.printed) do
                 if line:find("Thanks for the Power Word: Fortitude and Arcane Intellect, ", 1, true) then
-                    if line:find("Buff Thanks: ", 1, true) then test = line else preview = line end
+                    if line:find("Thank-you lines: ", 1, true) then test = line else preview = line end
                 end
                 assert.are.same({}, unfilled(line), line)
             end

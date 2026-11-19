@@ -1,4 +1,4 @@
--- Spec: #68, #76, #208, #70, #368, #376, #394, #408, #372, #442
+-- Spec: #68, #76, #208, #70, #368, #376, #394, #408, #372, #442, #491
 -- My Blessings in this raid (paladins): choose which of your Blessings you
 -- give in the raid you're in, so two paladins don't both give Kings. The
 -- choice is never saved and is forgotten once you're out of the raid, as the
@@ -340,7 +340,7 @@ describe("My Blessings in this raid", function()
             assert.is_false(w.who.raidHeader:IsVisible())
             for _, cb in ipairs(w.who.raidBlessings) do assert.is_false(cb:IsVisible()) end
             wow.run(w.placeTabs.raid, "OnClick")
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             assert.is_false(w.who.raidHeader:IsVisible())
             for _, cb in ipairs(w.who.raidBlessings) do assert.is_false(cb:IsVisible()) end
         end)

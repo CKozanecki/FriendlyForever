@@ -1,5 +1,7 @@
 -- Options panel: Esc > Options > AddOns > Friendly Forever.
--- One tab per message type: on/off, delay, repeat cooldown, the 30 messages.
+-- One tab per greeting message type: on/off, delay, repeat cooldown, the 30
+-- messages. Then Favours (#491), thanking people who buff you and buffing
+-- them back, with both sets of lines, and Buffs (#408).
 -- Two pages under it: General (snooze, chat limit, ignore list, profiles,
 -- export/import, bug report) and Favour Ledger.
 local _, ns = ...
@@ -8,7 +10,8 @@ local Config = ns.Config
 local Options = {}
 ns.Options = Options
 
--- Room for the tallest tab. That was the Buff Back tab with its buff list and
+-- Room for the tallest tab, before the content is sized to its rows (#482).
+-- That was the Buff Back tab with its buff list and
 -- who gets each (#363), about 2133 px with the UI simulator's pessimistic line
 -- wrapping. Those rows are on the Buffs tab now (#408), which is shorter: a
 -- paladin's 11 buff rows, its own options and one place's rows with a buff's
@@ -18,21 +21,54 @@ Options.CONTENT_HEIGHT = 2200
 Options.TABS_PER_ROW = 4
 -- The Buffs tab's name among the tabs (#408): not a message type.
 Options.BUFFS_TAB = "buffs"
+-- The Favours tab's (#491): the buff and buffBack sections, which were the
+-- Buff Thanks and Buff Back tabs, on one tab. Its lines are a sub-tab each.
+Options.FAVOURS_TAB = "favours"
+-- The tabs, in the panel's order: every message type that isn't a favour's,
+-- then Favours and Buffs. Worked out from Config.TYPES, so a new message
+-- type can't go without its tab.
+Options.TABS = {}
+Options.FAVOUR_LINES = {} -- the Favours tab's lines' sub-tabs, in order
+for _, msgType in ipairs(Config.TYPES) do
+    local list = Config.TYPE_INFO[msgType].favours and Options.FAVOUR_LINES or Options.TABS
+    list[#list + 1] = msgType
+end
+Options.TABS[#Options.TABS + 1] = Options.FAVOURS_TAB
+Options.TABS[#Options.TABS + 1] = Options.BUFFS_TAB
+Options.TAB_TEXT = { [Options.FAVOURS_TAB] = "Favours", [Options.BUFFS_TAB] = "Buffs" }
+local TAB_NAMES = {}
+for _, tab in ipairs(Options.TABS) do TAB_NAMES[tab] = true end
 
 local panel, category, startPage, generalPage, ledgerPage
 local weaponPage -- Weapon buffs (#45)
-local currentType = Config.TYPES[1]
+local currentType = Config.TYPES[1] -- the tab shown: a message type, Favours or Buffs
+local favourLines = Options.FAVOUR_LINES[1] -- the Favours tab's lines shown (#491)
 local widgets = { tabs = {}, edits = {}, steppers = {}, general = {}, ledger = {}, start = {}, weapon = {} }
 -- Every number box a Stepper makes, so ClearEditFocus can't miss one (#171).
 local numberBoxes = {}
 
--- The tab's settings section: never a damaged one (Config.Section, #166).
-local function Current()
-    return Config.Section(currentType)
+-- The message type whose rows show: the tab's, or nil on Favours and Buffs.
+local function MessageTab()
+    local info = Config.TYPE_INFO[currentType]
+    if info and not info.favours then return currentType end
 end
 
--- The Buff Thanks and Buff Back sections, which their own controls write
--- whichever tab shows: never damaged ones either (#330).
+-- The message type whose lines show: the tab's, or on Favours its lines'
+-- sub-tab (#491); nil on Buffs.
+local function LinesType()
+    if currentType == Options.FAVOURS_TAB then return favourLines end
+    return MessageTab()
+end
+Options.LinesType = LinesType
+
+-- The tab's settings section: never a damaged one (Config.Section, #166).
+-- Only a message tab's rows call it.
+local function Current()
+    return Config.Section(MessageTab())
+end
+
+-- The two sections the Favours tab's controls write (#491), whichever tab
+-- shows: never damaged ones either (#330).
 local function Buff()
     return Config.Section("buff")
 end
@@ -74,11 +110,13 @@ Options.FALLBACK_TEXT = {
 }
 
 -- While the panel is made, the rows made on its scrolling content are noted
--- in a list (Options.Collect): a message tab's in one, the Buffs tab's
--- (#408) in another, so each tab shows its own and hides the other's. They
--- stay the content's own children, where the UI simulator reads them.
+-- in a list (Options.Collect): a message tab's own in one, the lines (a
+-- message tab's and the Favours tab's) in another, the Favours tab's own
+-- (#491) and the Buffs tab's (#408) in theirs, so each tab shows its own and
+-- hides the others'. They stay the content's own children, where the UI
+-- simulator reads them.
 local collector, collectParent
-local typeRows, buffsRows = {}, {} -- a message tab's rows, and the Buffs tab's
+local typeRows, linesRows, favoursRows, buffsRows = {}, {}, {}, {}
 function Options.Collect(list, parent)
     collector, collectParent = list, parent
 end
@@ -315,7 +353,11 @@ local function Stepper(parent, text, field, settings, font, step)
     step = step or 1
     local s = {}
     local read = settings and function() return settings()[field] end
-        or function() return Config.Field(currentType, field) end
+        or function()
+            -- A message tab's own stepper: nothing to read on Favours or Buffs.
+            local msgType = MessageTab()
+            return msgType and Config.Field(msgType, field)
+        end
     settings = settings or Current
 
     local function Set(value)
@@ -524,7 +566,7 @@ local function ShowStepper(stepper, shown)
     for _, part in ipairs({ stepper.label, stepper.minus, stepper.box, stepper.plus }) do part:SetShown(shown) end
 end
 
--- The Buff Back tab's rows for when buff mode turns on and off by itself.
+-- The Buffs tab's rows for when buff mode turns on and off by itself (#491).
 Options.AUTO_SWITCHES = { "autoOnJoin", "autoOnDeath", "autoOnBuffed", "autoOnMissing", "autoOnCampfire",
     "autoOffPull", "autoOffDone" }
 -- Their labels, which the walkthrough (Walkthrough.lua) repeats.
@@ -551,65 +593,41 @@ Options.AUTO_MISSING_TIP = "In any group, out of combat: when someone close by (
 
 -- The campfire trigger (#39).
 Options.AUTO_CAMPFIRE_TIP = "When a campfire's warmth (Cozy Fire) or a camp benefit is added to you, out "
-    .. "of combat. Then passers-by count too (Buffs tab), and buff mode stays on while one is "
+    .. "of combat. Then passers-by count too (Favours tab), and buff mode stays on while one is "
     .. "missing a buff. Not in a capital city where quiet mode holds."
 
--- Passers-by (#39), at the top of the Buffs tab (#455).
+-- Passers-by (#39), on the Favours tab, in its first view (#491, #493).
 Options.PASSERS_BY_TIP = "In buff mode, after everyone else, offer your buffs to players nearby who aren't "
-    .. "in your group: a buff they're missing, or one with less than half its time left, as the Buff Back rules "
-    .. "below allow. Only in the open world, never in a capital city or a fight; never anyone flagged for PvP "
-    .. "while you aren't. Nothing is said to them. Right-click skips one for 10 minutes."
+    .. "in your group: a buff they're missing, or one with less than half its time left, as your rules for "
+    .. "strangers allow (the Buffs tab's Strangers place). Only in the open world, never in a capital city or a "
+    .. "fight; never anyone flagged for PvP while you aren't. Nothing is said to them. Right-click skips one "
+    .. "for 10 minutes."
 Options.PASSERS_BY_HELP = "Players nearby who aren't in your group and are missing a buff, or whose buff "
-    .. "is half gone. Uses the Buff Back rules below. Needs friendly nameplates."
+    .. "is half gone. Uses your rules for strangers (Buffs tab). Needs friendly nameplates."
+-- Without friendly nameplates the game can rarely name who buffed you, and
+-- nobody nearby can be seen (Nameplates.lua).
+Options.NAMEPLATES_OFF = "Friendly player nameplates are off, so the game can rarely tell you who buffed you, "
+    .. "and passers-by can't be seen."
 
 -- Top-up timing (#42, #397): the stepper's mouse-over.
 Options.TOP_UP_TIP = "A buff you give with less than this many minutes left is offered again in buff mode, "
     .. "so you can renew it before it runs out. A buff of 10 minutes or less (Thorns) waits until it has "
     .. "under a minute left. 0: never; a buff is offered only once it's gone."
 
-local function FillAuto(shown)
-    widgets.autoHeader:SetShown(shown)
-    widgets.autoOffHeader:SetShown(shown)
-    for _, field in ipairs(Options.AUTO_SWITCHES) do
-        widgets.auto[field]:SetShown(shown)
-        if shown then widgets.auto[field]:SetChecked(ns.db.buffBack[field] == true) end
-    end
-    ShowStepper(widgets.steppers.autoOffMinutes, shown)
-    if shown then FillBox(widgets.steppers.autoOffMinutes.box, tostring(ns.db.buffBack.autoOffMinutes)) end
-    ShowStepper(widgets.steppers.topUpMinutes, shown)
-    if shown then FillBox(widgets.steppers.topUpMinutes.box, tostring(ns.db.buffBack.topUpMinutes)) end
-    widgets.buffsLink:SetShown(shown)
-    widgets.openBuffs:SetShown(shown)
-    widgets.buffRequests:SetShown(shown)
-    if shown then widgets.buffRequests:SetChecked(ns.db.buffBack.requests == true) end
+local function FillAuto()
+    local b = ns.db.buffBack
+    for _, field in ipairs(Options.AUTO_SWITCHES) do widgets.auto[field]:SetChecked(b[field] == true) end
+    FillBox(widgets.steppers.autoOffMinutes.box, tostring(b.autoOffMinutes))
+    FillBox(widgets.steppers.topUpMinutes.box, tostring(b.topUpMinutes))
 end
 
-local function Fill()
-    -- A section, or a field in one, damaged mid-session heals as the panel
-    -- fills, whichever tab shows, and reads as its defaults (#166, #330).
-    for _, msgType in ipairs(Config.TYPES) do Config.CheckedSection(msgType) end
-    for tab, button in pairs(widgets.tabs) do button:SetEnabled(tab ~= currentType) end
-    widgets.master:SetChecked(ns.db.enabled)
-    widgets.skipAFK:SetChecked(ns.db.skipWhileAFK)
-    -- The Buffs tab (#408) is no message type: its rows show instead. Each
-    -- tab's fill then hides the rows it doesn't show.
-    local onBuffs = currentType == Options.BUFFS_TAB
-    for _, row in ipairs(typeRows) do row:SetShown(not onBuffs) end
-    for _, row in ipairs(buffsRows) do row:SetShown(onBuffs) end
-    if onBuffs then
-        ns.BuffsTab.Fill()
-        return Refit(widgets.scroll, widgets.content)
-    end
-    ns.BuffsTab.Close()
+-- A greeting message tab's own rows; returns what its lines hang from.
+local function FillMessageTab()
     local cfg = ns.db[currentType]
     local info = Config.TYPE_INFO[currentType]
-    local isBuff = currentType == "buff"
-
     widgets.header:SetText(info.label .. "  " .. ns.Colours.Text("muted", "(sent to " .. info.channel .. ")"))
     widgets.help:SetText(info.help)
     widgets.enabled:SetChecked(cfg.enabled)
-    widgets.enabled.label:SetText(info.enabledLabel or "Enabled")
-    -- Buff Back's line is said by your own press: no delay or repeat cooldown.
     ShowStepper(widgets.steppers.delay, not info.noTiming)
     ShowStepper(widgets.steppers.repeatCooldown, not info.noTiming)
     FillBox(widgets.steppers.delay.box, cfg.delay and tostring(cfg.delay) or "")
@@ -619,66 +637,91 @@ local function Fill()
     ShowStepper(widgets.steppers.maxGreeters, isGuildLogin)
     widgets.greetersHelp:SetShown(isGuildLogin)
     if isGuildLogin then FillBox(widgets.steppers.maxGreeters.box, tostring(cfg.maxGreeters)) end
-
-    local isBuffBack = currentType == "buffBack"
-    widgets.sayLine:SetShown(isBuffBack)
-    widgets.showInCities:SetShown(isBuffBack)
-    widgets.buffModeKey:SetShown(isBuffBack)
-    if not widgets.keyCapture.active then widgets.buffModeKey:SetText(KeyButtonText()) end
-    ShowStepper(widgets.steppers.owedMinutes, isBuffBack)
-    ShowStepper(widgets.steppers.renewPercent, isBuffBack)
-    if isBuffBack then
-        FillBox(widgets.steppers.renewPercent.box, tostring(cfg.renewPercent))
-        widgets.sayLine:SetChecked(cfg.sayLine)
-        widgets.showInCities:SetChecked(cfg.showInCities)
-        FillBox(widgets.steppers.owedMinutes.box, tostring(cfg.owedMinutes))
-    end
-    FillAuto(isBuffBack)
-
-    widgets.listNames:SetShown(isBuff)
-    widgets.receipts:SetShown(isBuff)
-    widgets.thankStyleLabel:SetShown(isBuff)
-    widgets.thankStyle:SetShown(isBuff)
-    widgets.fallbackLabel:SetShown(isBuff)
-    widgets.fallback:SetShown(isBuff)
-    widgets.quiet:SetShown(isBuff)
-    -- The name box only means something for the /say fallback.
-    widgets.unknownName:SetShown(isBuff and cfg.fallback == "say")
-    if isBuff then
-        widgets.listNames:SetChecked(cfg.listBuffNames)
-        widgets.receipts:SetChecked(cfg.receipts)
-        widgets.thankStyle.Fill()
-        widgets.fallback.Fill()
-        widgets.quiet:SetChecked(cfg.quietInCities)
-        FillBox(widgets.unknownName, cfg.unknownName)
-    end
-
-    -- Without friendly nameplates the game can rarely name a buffer.
-    local warn = isBuff and ns.Nameplates.FriendlyShown() == false
-    widgets.nameplateWarning:SetShown(warn)
-    widgets.nameplateButton:SetShown(warn)
-
-    -- The messages follow the last row this tab shows: a hidden row still
-    -- takes its space, so following one would leave an empty gap.
-    local above, x, y = widgets.steppers.repeatCooldown.label, 0, -18
-    if isBuffBack then
-        above, x, y = widgets.buffRequests, 4, -14
-    elseif isGuildLogin then
-        above = widgets.greetersHelp
-    elseif warn then
-        above = widgets.nameplateWarning
-    elseif isBuff then
-        above, x, y = widgets.quiet, 4, -14
-    end
-    widgets.msgHeader:SetPoint("TOPLEFT", above, "BOTTOMLEFT", x, y)
-
-    for i, edit in ipairs(widgets.edits) do
-        FillBox(edit, cfg.messages[i] or "")
-    end
-
     ns.Diag.Log("options", "filled %s tab: delay %s (box shows '%s'), repeat %s (box shows '%s')",
         currentType, cfg.delay, widgets.steppers.delay.box:GetText(),
         cfg.repeatCooldown, widgets.steppers.repeatCooldown.box:GetText())
+    -- The messages follow the last row this tab shows: a hidden row still
+    -- takes its space, so following one would leave an empty gap.
+    if isGuildLogin then return widgets.greetersHelp, 0, -18 end
+    return widgets.steppers.repeatCooldown.label, 0, -18
+end
+
+-- The Favours tab's own rows (#491), from the buff and buffBack sections;
+-- returns what its lines hang from.
+local function FillFavours()
+    local buff, back = ns.db.buff, ns.db.buffBack
+    widgets.thankEnabled:SetChecked(buff.enabled)
+    FillBox(widgets.steppers.thankDelay.box, tostring(buff.delay))
+    FillBox(widgets.steppers.thankRepeat.box, tostring(buff.repeatCooldown))
+    widgets.listNames:SetChecked(buff.listBuffNames)
+    widgets.receipts:SetChecked(buff.receipts)
+    widgets.thankStyle.Fill()
+    widgets.fallback.Fill()
+    -- The name box only means something for the /say fallback.
+    widgets.unknownName:SetShown(buff.fallback == "say")
+    FillBox(widgets.unknownName, buff.unknownName)
+    widgets.quiet:SetChecked(buff.quietInCities)
+
+    widgets.offerEnabled:SetChecked(back.enabled)
+    widgets.sayLine:SetChecked(back.sayLine)
+    FillBox(widgets.steppers.owedMinutes.box, tostring(back.owedMinutes))
+
+    widgets.buffRequests:SetChecked(back.requests == true)
+    widgets.passersBy:SetChecked(back.passersBy == true)
+    -- Without friendly nameplates the game can rarely name a buffer, and
+    -- nobody nearby shows: say so under passers-by, and what follows moves
+    -- down under it.
+    local warn = ns.Nameplates.FriendlyShown() == false
+    widgets.nameplateWarning:SetShown(warn)
+    widgets.nameplateButton:SetShown(warn)
+    widgets.buttonHeader:ClearAllPoints()
+    widgets.buttonHeader:SetPoint("TOPLEFT", warn and widgets.nameplateButton or widgets.passersByHelp,
+        "BOTTOMLEFT", 0, -16)
+
+    widgets.showInCities:SetChecked(back.showInCities)
+    FillBox(widgets.steppers.renewPercent.box, tostring(back.renewPercent))
+
+    for msgType, button in pairs(widgets.linesTabs) do button:SetEnabled(msgType ~= favourLines) end
+    local info = Config.TYPE_INFO[favourLines]
+    widgets.linesHelp:SetText(info.help .. "  " .. ns.Colours.Text("muted", "(sent to " .. info.channel .. ")"))
+    return widgets.linesHelp, 0, -14
+end
+
+local function Fill()
+    -- A section, or a field in one, damaged mid-session heals as the panel
+    -- fills, whichever tab shows, and reads as its defaults (#166, #330).
+    for _, msgType in ipairs(Config.TYPES) do Config.CheckedSection(msgType) end
+    for tab, button in pairs(widgets.tabs) do button:SetEnabled(tab ~= currentType) end
+    widgets.master:SetChecked(ns.db.enabled)
+    widgets.skipAFK:SetChecked(ns.db.skipWhileAFK)
+    -- The Buffs tab (#408) and the Favours tab (#491) are no message type:
+    -- their rows show instead. Each tab's fill then hides the rows it
+    -- doesn't show.
+    local onBuffs, onFavours = currentType == Options.BUFFS_TAB, currentType == Options.FAVOURS_TAB
+    for _, row in ipairs(typeRows) do row:SetShown(not onBuffs and not onFavours) end
+    for _, row in ipairs(linesRows) do row:SetShown(not onBuffs) end
+    for _, row in ipairs(favoursRows) do row:SetShown(onFavours) end
+    for _, row in ipairs(buffsRows) do row:SetShown(onBuffs) end
+    if onBuffs then
+        ns.BuffsTab.Fill()
+        return Refit(widgets.scroll, widgets.content)
+    end
+    ns.BuffsTab.Close()
+    local above, x, y
+    if onFavours then
+        above, x, y = FillFavours()
+    else
+        above, x, y = FillMessageTab()
+    end
+    widgets.msgHeader:ClearAllPoints()
+    widgets.msgHeader:SetPoint("TOPLEFT", above, "BOTTOMLEFT", x, y)
+    -- The note on /say waiting for a key press is about thanks.
+    widgets.sayNote:SetShown(onFavours)
+
+    local cfg = ns.db[LinesType()]
+    for i, edit in ipairs(widgets.edits) do
+        FillBox(edit, cfg.messages[i] or "")
+    end
     Refit(widgets.scroll, widgets.content)
 end
 
@@ -708,9 +751,28 @@ local function OnPanelShow()
     C_Timer.After(0, ns.Diag.Wrap(function() Options.Refresh() end))
 end
 
-function Options.SelectType(msgType)
+-- Show a tab: an Options.TABS name, or a favour's message type ("buff" or
+-- "buffBack"), which opens the Favours tab at its lines (#491). Anything
+-- else changes nothing.
+function Options.SelectType(tab)
+    local info, lines = Config.TYPE_INFO[tab], favourLines
+    if info and info.favours then
+        lines, tab = tab, Options.FAVOURS_TAB
+    elseif not TAB_NAMES[tab] then
+        return
+    end
+    -- An edit in progress saves to the lines it was typed in, before they change.
     ClearEditFocus()
-    currentType = msgType
+    currentType, favourLines = tab, lines
+    Options.Refresh()
+end
+
+-- Show one of the Favours tab's lines (#491): "buff" or "buffBack".
+function Options.SelectLines(msgType)
+    local info = Config.TYPE_INFO[msgType]
+    if not (info and info.favours) then return end
+    ClearEditFocus()
+    favourLines = msgType
     Options.Refresh()
 end
 
@@ -740,6 +802,237 @@ local function FollowWidth(scroll, content)
         Fit()
         C_Timer.After(0, ns.Diag.Wrap(Fit))
     end)
+end
+
+-- Buff mode's rows (#491: on the Buffs tab, since buff mode serves your
+-- party, raid and solo buffing, not only favours): the key it lends the buff
+-- button, when it turns on and off by itself, and top-up. BuffsTab.Create
+-- makes them while its rows are collected, under anchor; returns the last
+-- row, for what follows to hang from. Each writes the buffBack section.
+function Options.CreateBuffMode(content, anchor)
+    widgets.buffModeHeader = Label(content, "Buff mode", "GameFontNormal")
+    widgets.buffModeHeader:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -16)
+    widgets.buffModeKey = Button(content, "", 290, function() Options.StartKeyCapture() end)
+    widgets.buffModeKey:SetPoint("TOPLEFT", widgets.buffModeHeader, "BOTTOMLEFT", 0, -6)
+    widgets.keyCapture = CreateKeyCapture(content)
+
+    -- When buff mode turns on and off by itself (BuffModeAuto.lua).
+    widgets.auto = {}
+    local function AutoBox(field)
+        local cb = Checkbox(content, Options.AUTO_TEXT[field], function(on)
+            BuffBack()[field] = on
+            ns.BuffButton.Refresh()
+        end)
+        widgets.auto[field] = cb
+        return cb
+    end
+    widgets.autoHeader = Label(content, "Buff mode turns on by itself:", "GameFontNormalSmall")
+    widgets.autoHeader:SetPoint("TOPLEFT", widgets.buffModeKey, "BOTTOMLEFT", 0, -10)
+    local onJoin = AutoBox("autoOnJoin")
+    -- The short label leaves room on its row; the detail is on the mouse-over (#256).
+    Tooltip(onJoin, Options.AUTO_JOIN_TIP)
+    onJoin:SetPoint("TOPLEFT", widgets.autoHeader, "BOTTOMLEFT", -4, -2)
+    local onDeath = AutoBox("autoOnDeath")
+    onDeath:SetPoint("LEFT", onJoin.label, "RIGHT", 16, 0)
+    local onBuffed = AutoBox("autoOnBuffed")
+    onBuffed:SetPoint("LEFT", onDeath.label, "RIGHT", 16, 0)
+    -- A row of its own: the three above fill theirs at 1024 x 768 (#272).
+    local onMissing = AutoBox("autoOnMissing")
+    Tooltip(onMissing, Options.AUTO_MISSING_TIP)
+    onMissing:SetPoint("TOPLEFT", onJoin, "BOTTOMLEFT", 0, -2)
+    local onCampfire = AutoBox("autoOnCampfire")
+    Tooltip(onCampfire, Options.AUTO_CAMPFIRE_TIP)
+    onCampfire:SetPoint("LEFT", onMissing.label, "RIGHT", 16, 0)
+    widgets.autoOffHeader = Label(content, "...and off again (only when it turned itself on):", "GameFontNormalSmall")
+    widgets.autoOffHeader:SetPoint("TOPLEFT", onMissing, "BOTTOMLEFT", 4, -6)
+    local offPull = AutoBox("autoOffPull")
+    offPull:SetPoint("TOPLEFT", widgets.autoOffHeader, "BOTTOMLEFT", -4, -2)
+    local offDone = AutoBox("autoOffDone")
+    offDone:SetPoint("LEFT", offPull.label, "RIGHT", 16, 0)
+    local offMinutes = Stepper(content, "or after (minutes, 0 = never):", "autoOffMinutes", BuffBack)
+    offMinutes.label:SetPoint("TOPLEFT", offPull, "BOTTOMLEFT", 4, -8)
+    widgets.steppers.autoOffMinutes = offMinutes
+    -- Top-up timing (GroupBuffs.lua, #42): renew a buff before it runs out.
+    local topUp = Stepper(content, "Top up my buffs with under (minutes left, 0 = never):", "topUpMinutes", BuffBack)
+    topUp.label:SetPoint("TOPLEFT", offMinutes.label, "BOTTOMLEFT", 0, -14)
+    widgets.steppers.topUpMinutes = topUp
+    Tooltip(topUp.box, Options.TOP_UP_TIP)
+
+    return topUp.label
+end
+
+-- Fills buff mode's rows (BuffsTab.Fill), from the buffBack section.
+function Options.FillBuffMode()
+    if not widgets.keyCapture.active then widgets.buffModeKey:SetText(KeyButtonText()) end
+    FillAuto()
+end
+
+-- The Favours tab's own rows (#491), below the tabs (tabsBottom): when
+-- someone buffs you, returning the favour, buffs asked for and passers-by,
+-- then the buff button, then its lines' sub-tabs. Passers-by
+-- sits in the tab's first view at 1024 x 768 (#493). Each control writes its
+-- own section (Buff or BuffBack), never the tab's.
+function Options.CreateFavours(content, tabsBottom)
+    -- When someone buffs you: the buff section.
+    widgets.thanksHeader = Label(content, "When someone buffs you", "GameFontNormal")
+    widgets.thanksHeader:SetPoint("TOPLEFT", tabsBottom, "BOTTOMLEFT", 0, -16)
+    widgets.thankEnabled = Checkbox(content, "Thank them", function(on)
+        Buff().enabled = on
+        ns.RefreshEvents()
+        ns.BuffButton.Refresh()
+    end)
+    widgets.thankEnabled:SetPoint("TOPLEFT", widgets.thanksHeader, "BOTTOMLEFT", -4, -2)
+    local thankDelay = Stepper(content, "Delay before thanking (seconds):", "delay", Buff)
+    thankDelay.label:SetPoint("LEFT", widgets.thankEnabled.label, "RIGHT", 40, 0)
+    widgets.steppers.thankDelay = thankDelay
+    local thankRepeat = Stepper(content, "Don't thank the same player again for (seconds):", "repeatCooldown", Buff)
+    thankRepeat.label:SetPoint("TOPLEFT", widgets.thankEnabled, "BOTTOMLEFT", 4, -8)
+    widgets.steppers.thankRepeat = thankRepeat
+
+    widgets.listNames = Checkbox(content, "Name the buffs in the message", function(on)
+        Buff().listBuffNames = on
+    end)
+    widgets.listNames:SetPoint("TOPLEFT", thankRepeat.label, "BOTTOMLEFT", -4, -6)
+    -- Beside it: tell players I buff that it was me (Receipts.lua).
+    widgets.receipts = Checkbox(content, "Tell players I buff that it was me", function(on)
+        Buff().receipts = on
+    end)
+    widgets.receipts:SetPoint("LEFT", widgets.listNames.label, "RIGHT", 40, 0)
+
+    -- Thank them with a line in /say, a whisper, a /thank emote, or a line
+    -- and an emote (a dropdown, #274).
+    widgets.thankStyleLabel = Label(content, "Thank them with:")
+    widgets.thankStyleLabel:SetPoint("TOPLEFT", widgets.listNames, "BOTTOMLEFT", 4, -8)
+    widgets.thankStyle = Dropdown(content, Options.THANK_STYLES, Options.THANK_STYLE_TEXT, 220,
+        function() return ns.db.buff.thankStyle end,
+        function(value)
+            Buff().thankStyle = value
+            Options.Refresh()
+        end)
+    widgets.thankStyle:SetPoint("LEFT", widgets.thankStyleLabel, "RIGHT", 10, 0)
+
+    -- If that can't reach them (no name, or the whisper fails): a line in
+    -- /say calling them the name in the box, a /thank, or nothing.
+    widgets.fallbackLabel = Label(content, "If that can't reach them:")
+    widgets.fallbackLabel:SetPoint("TOPLEFT", widgets.thankStyleLabel, "BOTTOMLEFT", 0, -14)
+    widgets.fallback = Dropdown(content, Options.FALLBACKS, Options.FALLBACK_TEXT, 160,
+        function() return ns.db.buff.fallback end,
+        function(value)
+            Buff().fallback = value
+            Options.Refresh()
+        end)
+    widgets.fallback:SetPoint("LEFT", widgets.fallbackLabel, "RIGHT", 10, 0)
+    widgets.unknownName = TextBox(content, 100, Config.LIMITS.unknownName.maxBytes)
+    widgets.unknownName:SetPoint("LEFT", widgets.fallback, "RIGHT", 10, 0)
+    widgets.unknownName:SetScript("OnTextChanged", function(self, userInput)
+        if userInput then Buff().unknownName = Config.CleanUnknownName(self:GetText()) end
+    end)
+
+    -- Quiet in capital cities (Cities.lua).
+    widgets.quiet = Checkbox(content, "Stay quiet in capital cities (no thank-yous; the ledger still counts)",
+        function(on) Buff().quietInCities = on end)
+    widgets.quiet:SetPoint("TOPLEFT", widgets.fallbackLabel, "BOTTOMLEFT", -4, -6)
+
+    -- Return the favour: the buffBack section's switch, how long a favour
+    -- is offered, and the line when your buff lands (off unless the player
+    -- turns it on, #491).
+    widgets.returnHeader = Label(content, "Return the favour", "GameFontNormal")
+    widgets.returnHeader:SetPoint("TOPLEFT", widgets.quiet, "BOTTOMLEFT", 4, -10)
+    widgets.offerEnabled = Checkbox(content, "Offer my buff back", function(on)
+        BuffBack().enabled = on
+        ns.RefreshEvents()
+        ns.BuffButton.Refresh()
+    end)
+    widgets.offerEnabled:SetPoint("TOPLEFT", widgets.returnHeader, "BOTTOMLEFT", -4, -2)
+    Tooltip(widgets.offerEnabled, "When someone outside your group buffs you, the buff button offers to buff "
+        .. "them back. It casts only when you press it.")
+    local owedMinutes = Stepper(content, "Offer for (minutes):", "owedMinutes", BuffBack)
+    owedMinutes.label:SetPoint("LEFT", widgets.offerEnabled.label, "RIGHT", 40, 0)
+    widgets.steppers.owedMinutes = owedMinutes
+    widgets.sayLine = Checkbox(content, "Say a line when my buff lands", function(on)
+        BuffBack().sayLine = on
+        ns.BuffButton.Refresh()
+    end)
+    widgets.sayLine:SetPoint("TOPLEFT", widgets.offerEnabled, "BOTTOMLEFT", 0, -2)
+    Tooltip(widgets.sayLine, "Off: your thank-you is the one line said for the favour. On: a line from \"When my "
+        .. "buff lands\" (below) is said too, once your buff reaches them.")
+
+    -- Asked and passing by: buff requests in chat (Requests.lua, #40) and
+    -- passers-by (#39), off the Buff Back and Buffs tabs (#491).
+    widgets.askedHeader = Label(content, "Asked and passing by", "GameFontNormal")
+    widgets.askedHeader:SetPoint("TOPLEFT", widgets.sayLine, "BOTTOMLEFT", 4, -10)
+    widgets.buffRequests = Checkbox(content, ns.Requests.LABEL, function(on) ns.Requests.SetEnabled(on) end)
+    widgets.buffRequests:SetPoint("TOPLEFT", widgets.askedHeader, "BOTTOMLEFT", -4, -2)
+    Tooltip(widgets.buffRequests, ns.Requests.TOOLTIP)
+    widgets.passersBy = Checkbox(content, "Also offer my buffs to passers-by in buff mode", function(on)
+        BuffBack().passersBy = on
+        ns.BuffButton.Refresh()
+    end)
+    widgets.passersBy:SetPoint("TOPLEFT", widgets.buffRequests, "BOTTOMLEFT", 0, -2)
+    Tooltip(widgets.passersBy, Options.PASSERS_BY_TIP)
+    -- Pinned on both sides, so it wraps inside the page at any width.
+    widgets.passersByHelp = Label(content, Options.PASSERS_BY_HELP, "GameFontHighlightSmall")
+    widgets.passersByHelp:SetPoint("TOPLEFT", widgets.passersBy, "BOTTOMLEFT", 4, -2)
+    widgets.passersByHelp:SetPoint("RIGHT", content, "RIGHT", -24, 0)
+    widgets.passersByHelp:SetWordWrap(true)
+    -- A warning and a one-click fix when friendly nameplates are off (Fill).
+    widgets.nameplateWarning = Label(content, ns.Colours.Text("warn", Options.NAMEPLATES_OFF), "GameFontHighlightSmall")
+    widgets.nameplateWarning:SetPoint("TOPLEFT", widgets.passersByHelp, "BOTTOMLEFT", 0, -6)
+    widgets.nameplateWarning:SetPoint("RIGHT", content, "RIGHT", -24, 0)
+    widgets.nameplateWarning:SetWordWrap(true)
+    widgets.nameplateButton = Button(content, "Show friendly player names", 200, function()
+        local ok, reason = ns.Nameplates.EnableFriendlyNames()
+        ns.Print(ok and "friendly player names are now shown (names only)." or ("couldn't turn them on: " .. reason))
+        Options.Refresh()
+    end)
+    widgets.nameplateButton:SetPoint("TOPLEFT", widgets.nameplateWarning, "BOTTOMLEFT", 0, -6)
+
+    -- The buff button: the buffBack section's other rows for returning
+    -- favours, below the first view (anchored in Fill, under the nameplate
+    -- warning when it shows).
+    widgets.buttonHeader = Label(content, "The buff button", "GameFontNormal")
+    widgets.showInCities = Checkbox(content, "Show the button in capital cities (buff mode always shows it)",
+        function(on)
+            BuffBack().showInCities = on
+            ns.BuffButton.Refresh()
+        end)
+    widgets.showInCities:SetPoint("TOPLEFT", widgets.buttonHeader, "BOTTOMLEFT", -4, -2)
+    -- Renewing your buff they already wear, partly worn off (Offers.lua, #269).
+    local renew = Stepper(content, "Renew my buff when theirs has under (% left, 0 = never):", "renewPercent",
+        BuffBack, nil, 5)
+    renew.label:SetPoint("TOPLEFT", widgets.showInCities, "BOTTOMLEFT", 4, -8)
+    widgets.steppers.renewPercent = renew
+
+    -- Who gets each buff, the order, Never offer and buff mode are on the
+    -- Buffs tab (#408, #491).
+    widgets.buffsLink = Label(content, "Who gets which buff, the buff order, Never offer and buff mode are on "
+        .. "the Buffs tab.", "GameFontNormalSmall")
+    widgets.buffsLink:SetPoint("TOPLEFT", renew.label, "BOTTOMLEFT", 0, -14)
+    widgets.openBuffs = Button(content, "Open the Buffs tab", 150, function() Options.SelectType(Options.BUFFS_TAB) end)
+    widgets.openBuffs:SetPoint("TOPLEFT", widgets.buffsLink, "BOTTOMLEFT", 0, -6)
+
+    -- The lines: a sub-tab for the thank-you lines and one for the line
+    -- when your buff lands. The lines' own rows follow (Fill).
+    widgets.linesHeader = Label(content, "Lines", "GameFontNormal")
+    widgets.linesHeader:SetPoint("TOPLEFT", widgets.openBuffs, "BOTTOMLEFT", 0, -16)
+    widgets.linesTabs = {}
+    local prev
+    for _, msgType in ipairs(Options.FAVOUR_LINES) do
+        local tab = Button(content, Config.TYPE_INFO[msgType].linesLabel, 150, function()
+            Options.SelectLines(msgType)
+        end)
+        if prev then
+            tab:SetPoint("LEFT", prev, "RIGHT", 6, 0)
+        else
+            tab:SetPoint("TOPLEFT", widgets.linesHeader, "BOTTOMLEFT", 0, -6)
+        end
+        widgets.linesTabs[msgType] = tab
+        prev = tab
+    end
+    widgets.linesHelp = Label(content, "", "GameFontHighlightSmall")
+    widgets.linesHelp:SetPoint("TOPLEFT", widgets.linesTabs[Options.FAVOUR_LINES[1]], "BOTTOMLEFT", 0, -8)
+    widgets.linesHelp:SetPoint("RIGHT", content, "RIGHT", -24, 0)
+    widgets.linesHelp:SetWordWrap(true)
 end
 
 function Options.Create()
@@ -778,10 +1071,12 @@ function Options.Create()
     widgets.skipAFK:SetPoint("RIGHT", widgets.master, "LEFT", -(labelWidth + 16), 0)
 
     -- Tabs wrap after Options.TABS_PER_ROW, so eight of them still fit the
-    -- panel's width (#273). The header hangs from the last row.
+    -- panel's width (#273): two rows since Favours took the place of two
+    -- (#491). The header hangs from the last row.
     local prev, rowStart
-    for i, msgType in ipairs(Config.TYPES) do
-        local tab = Button(content, Config.TYPE_INFO[msgType].label, 84, function() Options.SelectType(msgType) end)
+    for i, tabName in ipairs(Options.TABS) do
+        local text = Options.TAB_TEXT[tabName] or Config.TYPE_INFO[tabName].label
+        local tab = Button(content, text, 84, function() Options.SelectType(tabName) end)
         if i == 1 then
             tab:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -14)
             rowStart = tab
@@ -791,31 +1086,21 @@ function Options.Create()
         else
             tab:SetPoint("LEFT", prev, "RIGHT", 6, 0)
         end
-        widgets.tabs[msgType] = tab
+        widgets.tabs[tabName] = tab
         prev = tab
     end
-    -- The Buffs tab (#408), after the message tabs: who gets each buff, by
-    -- place (BuffsTab.lua). It wraps like the others.
-    do
-        local i = #Config.TYPES + 1
-        local tab = Button(content, "Buffs", 84, function() Options.SelectType(Options.BUFFS_TAB) end)
-        if (i - 1) % Options.TABS_PER_ROW == 0 then
-            tab:SetPoint("TOPLEFT", rowStart, "BOTTOMLEFT", 0, -4)
-            rowStart = tab
-        else
-            tab:SetPoint("LEFT", prev, "RIGHT", 6, 0)
-        end
-        widgets.tabs[Options.BUFFS_TAB] = tab
-    end
-    -- Everything below the tabs: a message type's rows, or the Buffs tab's
-    -- (BuffsTab.lua), each noted in its list, one list shown at a time.
+    -- Everything below the tabs: a message type's rows, the Favours tab's
+    -- or the Buffs tab's (BuffsTab.lua), each noted in its list, and the
+    -- lines, which a message tab and Favours show.
     Options.Collect(buffsRows, content)
     ns.BuffsTab.Create(content, rowStart)
+    Options.Collect(favoursRows, content)
+    Options.CreateFavours(content, rowStart)
     Options.Collect(typeRows, content)
 
     widgets.header = Label(content, "", "GameFontNormal")
     widgets.header:SetPoint("TOPLEFT", rowStart, "BOTTOMLEFT", 0, -16)
-    -- Wraps at the panel's right edge: the Buff Back tab's runs wider than
+    -- Wraps at the panel's right edge, should a tab's help run wider than
     -- the panel (#112). The rows below hang from it, so they move down.
     widgets.help = Label(content, "", "GameFontHighlightSmall")
     widgets.help:SetPoint("TOPLEFT", widgets.header, "BOTTOMLEFT", 0, -4)
@@ -850,149 +1135,12 @@ function Options.Create()
     widgets.greetersHelp:SetPoint("RIGHT", content, "RIGHT", -24, 0)
     widgets.greetersHelp:SetWordWrap(true)
 
-    -- Buff tab only, row 3: list buff names
-    widgets.listNames = Checkbox(content, "Name the buffs in the message", function(on)
-        Buff().listBuffNames = on
-    end)
-    widgets.listNames:SetPoint("TOPLEFT", repeatCooldown.label, "BOTTOMLEFT", -4, -8)
-    -- Beside it: tell players I buff that it was me (Receipts.lua).
-    widgets.receipts = Checkbox(content, "Tell players I buff that it was me", function(on)
-        Buff().receipts = on
-    end)
-    widgets.receipts:SetPoint("LEFT", widgets.listNames.label, "RIGHT", 40, 0)
-
-    -- Buff Back tab only, right under Enabled (the tab has no timing rows):
-    -- the line, and how long favours last.
-    widgets.sayLine = Checkbox(content, "Say a line once my buff lands", function(on)
-        BuffBack().sayLine = on
-        ns.BuffButton.Refresh()
-    end)
-    widgets.sayLine:SetPoint("TOPLEFT", widgets.enabled, "BOTTOMLEFT", 0, -4)
-    -- On the delay's place in row 1 (Buff Back has no delay).
-    widgets.buffModeKey = Button(content, "", 290, function() Options.StartKeyCapture() end)
-    widgets.buffModeKey:SetPoint("LEFT", widgets.enabled.label, "RIGHT", 40, 0)
-    widgets.keyCapture = CreateKeyCapture(content)
-    local owedMinutes = Stepper(content, "Offer for (minutes):", "owedMinutes")
-    owedMinutes.label:SetPoint("LEFT", widgets.sayLine.label, "RIGHT", 40, 0)
-    widgets.steppers.owedMinutes = owedMinutes
-    widgets.showInCities = Checkbox(content, "Show the button in capital cities (buff mode always shows it)",
-        function(on)
-            BuffBack().showInCities = on
-            ns.BuffButton.Refresh()
-        end)
-    widgets.showInCities:SetPoint("TOPLEFT", widgets.sayLine, "BOTTOMLEFT", 0, -4)
-    -- Renewing your buff they already wear, partly worn off (Offers.lua, #269).
-    local renew = Stepper(content, "Renew my buff when theirs has under (% left, 0 = never):", "renewPercent",
-        nil, nil, 5)
-    renew.label:SetPoint("TOPLEFT", widgets.showInCities, "BOTTOMLEFT", 4, -8)
-    widgets.steppers.renewPercent = renew
-
-    -- Row 4: thank them with a line in /say, a whisper, a /thank emote, or a
-    -- line and an emote (a dropdown, #274).
-    widgets.thankStyleLabel = Label(content, "Thank them with:")
-    widgets.thankStyleLabel:SetPoint("TOPLEFT", widgets.listNames, "BOTTOMLEFT", 4, -10)
-    widgets.thankStyle = Dropdown(content, Options.THANK_STYLES, Options.THANK_STYLE_TEXT, 220,
-        function() return ns.db.buff.thankStyle end,
-        function(value)
-            Buff().thankStyle = value
-            Options.Refresh()
-        end)
-    widgets.thankStyle:SetPoint("LEFT", widgets.thankStyleLabel, "RIGHT", 10, 0)
-
-    -- Row 5: if that can't reach them (no name, or the whisper fails): a
-    -- line in /say calling them the name in the box, a /thank, or nothing.
-    widgets.fallbackLabel = Label(content, "If that can't reach them:")
-    widgets.fallbackLabel:SetPoint("TOPLEFT", widgets.thankStyleLabel, "BOTTOMLEFT", 0, -16)
-    widgets.fallback = Dropdown(content, Options.FALLBACKS, Options.FALLBACK_TEXT, 160,
-        function() return ns.db.buff.fallback end,
-        function(value)
-            Buff().fallback = value
-            Options.Refresh()
-        end)
-    widgets.fallback:SetPoint("LEFT", widgets.fallbackLabel, "RIGHT", 10, 0)
-    widgets.unknownName = TextBox(content, 100, Config.LIMITS.unknownName.maxBytes)
-    widgets.unknownName:SetPoint("LEFT", widgets.fallback, "RIGHT", 10, 0)
-    widgets.unknownName:SetScript("OnTextChanged", function(self, userInput)
-        if userInput then Buff().unknownName = Config.CleanUnknownName(self:GetText()) end
-    end)
-
-    -- Row 6: quiet in capital cities (Cities.lua)
-    widgets.quiet = Checkbox(content, "Stay quiet in capital cities (no thank-yous; the ledger still counts)",
-        function(on) Buff().quietInCities = on end)
-    widgets.quiet:SetPoint("TOPLEFT", widgets.fallbackLabel, "BOTTOMLEFT", -4, -8)
-
-    -- Row 7: warning + one-click fix when friendly nameplates are off
-    widgets.nameplateWarning = Label(content, ns.Colours.Text("warn", "Friendly player nameplates are off, so the game "
-        .. "can't tell you who buffed you."), "GameFontHighlightSmall")
-    widgets.nameplateWarning:SetPoint("TOPLEFT", widgets.quiet, "BOTTOMLEFT", 4, -8)
-    widgets.nameplateButton = Button(content, "Show friendly player names", 200, function()
-        local ok, reason = ns.Nameplates.EnableFriendlyNames()
-        ns.Print(ok and "friendly player names are now shown (names only)." or ("couldn't turn them on: " .. reason))
-        Options.Refresh()
-    end)
-    widgets.nameplateButton:SetPoint("LEFT", widgets.nameplateWarning, "RIGHT", 10, 0)
-
-    -- Messages
+    -- The lines: a message tab's, or the Favours tab's sub-tab's. Anchored in Fill.
+    Options.Collect(linesRows, content)
     local msgHeader = Label(content,
         "Messages (all are used in random order before any repeats; leave a line blank to skip it):",
         "GameFontNormalSmall")
-    msgHeader:SetPoint("TOPLEFT", widgets.quiet, "BOTTOMLEFT", 4, -32)
     widgets.msgHeader = msgHeader
-
-    -- Buff Back tab only, below its own rows: who gets each buff, the order
-    -- and Never offer are on the Buffs tab now (#408).
-    widgets.buffsLink = Label(content, "Who gets which buff, the buff order and Never offer are on the Buffs tab.",
-        "GameFontNormalSmall")
-    widgets.buffsLink:SetPoint("TOPLEFT", renew.label, "BOTTOMLEFT", 0, -14)
-    widgets.openBuffs = Button(content, "Open the Buffs tab", 150, function() Options.SelectType(Options.BUFFS_TAB) end)
-    widgets.openBuffs:SetPoint("TOPLEFT", widgets.buffsLink, "BOTTOMLEFT", 0, -6)
-
-    -- Buff Back tab only, below the link: when buff mode turns on and off by
-    -- itself (BuffModeAuto.lua).
-    widgets.auto = {}
-    local function AutoBox(field)
-        local cb = Checkbox(content, Options.AUTO_TEXT[field], function(on)
-            BuffBack()[field] = on
-            ns.BuffButton.Refresh()
-        end)
-        widgets.auto[field] = cb
-        return cb
-    end
-    widgets.autoHeader = Label(content, "Buff mode turns on by itself:", "GameFontNormalSmall")
-    widgets.autoHeader:SetPoint("TOPLEFT", widgets.openBuffs, "BOTTOMLEFT", 0, -14)
-    local onJoin = AutoBox("autoOnJoin")
-    -- The short label leaves room on its row; the detail is on the mouse-over (#256).
-    Tooltip(onJoin, Options.AUTO_JOIN_TIP)
-    onJoin:SetPoint("TOPLEFT", widgets.autoHeader, "BOTTOMLEFT", -4, -2)
-    local onDeath = AutoBox("autoOnDeath")
-    onDeath:SetPoint("LEFT", onJoin.label, "RIGHT", 16, 0)
-    local onBuffed = AutoBox("autoOnBuffed")
-    onBuffed:SetPoint("LEFT", onDeath.label, "RIGHT", 16, 0)
-    -- A row of its own: the three above fill theirs at 1024 x 768 (#272).
-    local onMissing = AutoBox("autoOnMissing")
-    Tooltip(onMissing, Options.AUTO_MISSING_TIP)
-    onMissing:SetPoint("TOPLEFT", onJoin, "BOTTOMLEFT", 0, -2)
-    local onCampfire = AutoBox("autoOnCampfire")
-    Tooltip(onCampfire, Options.AUTO_CAMPFIRE_TIP)
-    onCampfire:SetPoint("LEFT", onMissing.label, "RIGHT", 16, 0)
-    widgets.autoOffHeader = Label(content, "...and off again (only when it turned itself on):", "GameFontNormalSmall")
-    widgets.autoOffHeader:SetPoint("TOPLEFT", onMissing, "BOTTOMLEFT", 4, -6)
-    local offPull = AutoBox("autoOffPull")
-    offPull:SetPoint("TOPLEFT", widgets.autoOffHeader, "BOTTOMLEFT", -4, -2)
-    local offDone = AutoBox("autoOffDone")
-    offDone:SetPoint("LEFT", offPull.label, "RIGHT", 16, 0)
-    local offMinutes = Stepper(content, "or after (minutes, 0 = never):", "autoOffMinutes")
-    offMinutes.label:SetPoint("TOPLEFT", offPull, "BOTTOMLEFT", 4, -8)
-    widgets.steppers.autoOffMinutes = offMinutes
-    -- Top-up timing (GroupBuffs.lua, #42): renew a buff before it runs out.
-    local topUp = Stepper(content, "Top up my buffs with under (minutes left, 0 = never):", "topUpMinutes")
-    topUp.label:SetPoint("TOPLEFT", offMinutes.label, "BOTTOMLEFT", 0, -14)
-    widgets.steppers.topUpMinutes = topUp
-    Tooltip(topUp.box, Options.TOP_UP_TIP)
-    -- Buff requests in chat (Requests.lua, #40).
-    widgets.buffRequests = Checkbox(content, ns.Requests.LABEL, function(on) ns.Requests.SetEnabled(on) end)
-    widgets.buffRequests:SetPoint("TOPLEFT", topUp.label, "BOTTOMLEFT", -4, -10)
-    Tooltip(widgets.buffRequests, ns.Requests.TOOLTIP)
 
     -- Hovering a line shows what it can say for your character (#441): up to
     -- 3 examples from the real renderer, each flavour placeholder's phrases and
@@ -1002,9 +1150,10 @@ function Options.Create()
     local function MessageTip(box)
         GameTooltip:SetOwner(box, "ANCHOR_RIGHT")
         local ok, preview = pcall(function()
-            local vars = Config.NameVars(currentType, Options.SAMPLE_NAME)
+            local msgType = LinesType()
+            local vars = Config.NameVars(msgType, Options.SAMPLE_NAME)
             vars.buff = Options.SAMPLE_BUFF
-            return ns.Flavour.Preview(box:GetText(), vars, Options.PreviewContext(currentType),
+            return ns.Flavour.Preview(box:GetText(), vars, Options.PreviewContext(msgType),
                 Options.PREVIEW_EXAMPLES)
         end)
         local function Line(colour, text)
@@ -1060,7 +1209,9 @@ function Options.Create()
         edit:SetPoint("LEFT", num, "RIGHT", 10, 0)
         edit:SetPoint("RIGHT", content, "RIGHT", -24, 0)
         edit:SetScript("OnTextChanged", function(self, userInput)
-            if userInput then Config.Field(currentType, "messages")[i] = Config.CleanMessage(self:GetText()) end
+            -- Saved to the lines shown: a message tab's, or the Favours sub-tab's (#491).
+            local msgType = LinesType()
+            if userInput and msgType then Config.Field(msgType, "messages")[i] = Config.CleanMessage(self:GetText()) end
         end)
         edit:SetScript("OnEnter", MessageTip)
         edit:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1069,28 +1220,38 @@ function Options.Create()
     end
 
     widgets.preview = Button(content, "Preview random", 130, function()
-        local template = ns.Messages.Preview(Config.Field(currentType, "messages"))
-        local vars = ns.Config.NameVars(currentType, ns.Util.UnitFullName("player") or "Nikki-Shifts")
+        local msgType = LinesType()
+        if not msgType then return end
+        local template = ns.Messages.Preview(Config.Field(msgType, "messages"))
+        local vars = ns.Config.NameVars(msgType, ns.Util.UnitFullName("player") or "Nikki-Shifts")
         vars.buff = "Power Word: Fortitude and Arcane Intellect"
-        local text = template and ns.Util.Render(template, ns.Flavour.Vars(vars, Options.PreviewContext(currentType)))
+        local text = template and ns.Util.Render(template, ns.Flavour.Vars(vars, Options.PreviewContext(msgType)))
         ns.Print(text or "(no messages)")
     end)
     widgets.preview:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -16)
 
+    -- On Favours it resets both its sections (#491), as Reset on the Buff
+    -- Thanks and Buff Back tabs did, each keeping what Core.lua's ns.ResetType keeps.
     widgets.reset = Button(content, "Reset this tab to defaults", 190, function()
         ClearEditFocus()
-        Current() -- a damaged section is healed first: the reset keeps its local-only fields
-        ns.ResetType(currentType)
+        local types = currentType == Options.FAVOURS_TAB and Options.FAVOUR_LINES or { MessageTab() }
+        for _, msgType in ipairs(types) do
+            Config.Section(msgType) -- a damaged section is healed first: the reset keeps its local-only fields
+            ns.ResetType(msgType)
+        end
         Options.Refresh()
     end)
     widgets.reset:SetPoint("LEFT", widgets.preview, "RIGHT", 10, 0)
 
-    -- Swap only this tab's 30 lines for a shipped set.
+    -- Swap only the 30 lines shown (a message tab's, or the Favours
+    -- sub-tab's) for a shipped set.
     local function LoadLines(set)
         ClearEditFocus()
+        local msgType = LinesType()
+        if not msgType then return end
         local lines = {}
-        for i, line in ipairs(set[currentType]) do lines[i] = line end
-        Current().messages = lines
+        for i, line in ipairs(set[msgType]) do lines[i] = line end
+        Config.Section(msgType).messages = lines
         Options.Refresh()
     end
     widgets.loadFantasy = Button(content, "Load fantasy lines", 150, function() LoadLines(ns.DefaultMessages) end)
@@ -1105,14 +1266,16 @@ function Options.Create()
     flavour:SetPoint("RIGHT", content, "RIGHT", -24, 0)
     flavour:SetWordWrap(true)
 
-    local note = Label(content, "Buff thanks in /say: the game only allows /say after a key press, so they wait "
-        .. "and go out on your next key press or buff-back button press (or type /friendly say). "
+    -- Favours only (Fill): thanks and the line when your buff lands.
+    local note = Label(content, "Lines in /say: the game only allows /say after a key press, so they wait "
+        .. "and go out on your next key press or buff button press (or type /friendly say). "
         .. "Whispers need no key press. "
         .. "A /thank emote needs no key press and goes out at once.",
         "GameFontDisableSmall")
     note:SetPoint("TOPLEFT", flavour, "BOTTOMLEFT", 0, -10)
     note:SetPoint("RIGHT", content, "RIGHT", -24, 0)
     note:SetWordWrap(true)
+    widgets.sayNote = note
     Options.Collect(nil)
 
     panel:SetScript("OnShow", OnPanelShow)
@@ -1187,7 +1350,7 @@ local function Say(ok, why, success)
     Options.Refresh()
 end
 
--- The binding in Key Bindings > AddOns that presses the buff-back button.
+-- The binding in Key Bindings > AddOns that presses the buff button.
 Options.BUTTON_BINDING = "CLICK FriendlyForeverBuffButton:LeftButton"
 
 -- Start here (#47): an introduction. What the addon does, the settings that
@@ -1215,19 +1378,19 @@ function Options.CreateStartPage()
     w.buttonKey = Note(area, w.nameplates, "")
     w.buffModeKey = Note(area, w.buttonKey, "")
     -- How to turn buff mode on by hand (#458), and where the passers-by
-    -- switch is (#455); the link opens it at the top of the Buffs tab.
+    -- switch is (#455); the link opens it on the Favours tab (#491).
     w.buffModeSwitch = Note(area, w.buffModeKey, "Turn buff mode on or off by hand: shift-click the minimap button "
         .. "(its tooltip shows whether it's on), or type /friendly buffmode. Right-click on the minimap button "
         .. "turns the whole addon on or off.")
     w.passersByNote = Note(area, w.buffModeSwitch, "")
-    w.openPassersBy = Button(area, "Passers-by switch (Buffs tab)", 220, function()
-        Options.OpenTab(Options.BUFFS_TAB, "passersBy")
+    w.openPassersBy = Button(area, "Passers-by switch (Favours tab)", 230, function()
+        Options.OpenTab(Options.FAVOURS_TAB, "passersBy")
     end)
     w.openPassersBy:SetPoint("TOPLEFT", w.passersByNote, "BOTTOMLEFT", 0, -6)
     w.change = Note(area, w.openPassersBy, ns.Colours.Text("muted", "Each is changed on its own page, below."))
 
     local more = Section(area, w.change, "Every other page")
-    w.openMessages = Button(area, "Messages and Buff Back", 180, function() Options.Open() end)
+    w.openMessages = Button(area, "Messages and Favours", 180, function() Options.Open() end)
     w.openMessages:SetPoint("TOPLEFT", more, "BOTTOMLEFT", 0, -8)
     w.openGeneral = Button(area, "General", 100, function() Options.OpenPage(generalPage) end)
     w.openGeneral:SetPoint("LEFT", w.openMessages, "RIGHT", 8, 0)
@@ -1237,7 +1400,7 @@ function Options.CreateStartPage()
     local tour = Section(area, w.openMessages, "The walkthrough")
     w.tour = Button(area, "Take the walkthrough", 180, function() ns.Walkthrough.Start() end)
     w.tour:SetPoint("TOPLEFT", tour, "BOTTOMLEFT", 0, -8)
-    w.tourHelp = Note(area, w.tour, "A step at a time through buff back, buff mode, and the thanks and welcome "
+    w.tourHelp = Note(area, w.tour, "A step at a time through your buffs, buff mode, favours and the welcome "
         .. "lines, opening each page. It only shows and explains; it never changes a setting.")
 
     page:SetScript("OnShow", function() FillStart() end)
@@ -1245,7 +1408,7 @@ function Options.CreateStartPage()
     panel.startPage = page
 end
 
--- The buff-back button's key in Key Bindings > AddOns, as the game names
+-- The buff button's key in Key Bindings > AddOns, as the game names
 -- it, or nil when it has none.
 local function ButtonKeyText()
     local key = ns.Util.ReadGameValues(GetBindingKey, Options.BUTTON_BINDING)
@@ -1260,23 +1423,23 @@ FillStart = function()
     local buff = type(ns.db.buff) == "table" and ns.db.buff or {}
     w.enabled:SetText(ns.db.enabled == true and "Friendly Forever is on."
         or ns.Colours.Text("warn", "Friendly Forever is off.")
-            .. " Its switch is at the top of Messages and Buff Back.")
+            .. " Its switch is at the top of Messages and Favours.")
     w.thanks:SetText(buff.enabled == true
-        and ("Buff Thanks is on: you thank people who buff you with "
+        and ("Thanks are on (Favours tab): you thank people who buff you with "
             .. (Options.THANK_STYLE_TEXT[buff.thankStyle] or Options.THANK_STYLE_TEXT.message) .. ".")
-        or "Buff Thanks is off: people who buff you aren't thanked.")
+        or "Thanks are off (Favours tab): people who buff you aren't thanked.")
     w.nameplates:SetText(ns.Nameplates.FriendlyShown() == false
         and ns.Colours.Text("warn", "Friendly player nameplates are off,")
-            .. " so the game can rarely tell you who buffed you. The Buff Thanks tab can show them."
+            .. " so the game can rarely tell you who buffed you. The Favours tab can show them."
         or "Friendly player nameplates are on, so the game can tell you who buffed you.")
     local buttonKey = ButtonKeyText()
-    w.buttonKey:SetText(buttonKey and ("Buff-back button key: " .. buttonKey .. " (Key Bindings > AddOns).")
-        or "Buff-back button key: none yet. Set one in Key Bindings > AddOns, or click the button.")
+    w.buttonKey:SetText(buttonKey and ("Buff button key: " .. buttonKey .. " (Key Bindings > AddOns).")
+        or "Buff button key: none yet. Set one in Key Bindings > AddOns, or click the button.")
     local buffBack = type(ns.db.buffBack) == "table" and ns.db.buffBack or {}
     w.passersByNote:SetText("Buff mode also offers your buffs to players nearby who aren't in your group: "
         .. (buffBack.passersBy == true and "passers-by is on." or "passers-by is off until you turn it on."))
     w.buffModeKey:SetText("Buff mode key: " .. ns.BuffMode.KeyText((ns.BuffMode.Key()))
-        .. ". Buff mode lends it to the buff-back button to buff a group quickly (the Buff Back tab).")
+        .. ". Buff mode lends it to the buff button to buff a group quickly (the Buffs tab).")
     Refit(startPage.scroll, startPage.content)
 end
 
@@ -1432,8 +1595,9 @@ function Options.CreateLedgerPage()
         Options.Refresh()
     end)
     w.clear:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -14)
-    w.note = Note(page, w.clear, "Buffs from players outside your group, while Buff Thanks or Buff Back is on. "
-        .. "The newest " .. ns.Ledger.MAX_ENTRIES .. " are kept; /friendly ledger shows them in chat.")
+    w.note = Note(page, w.clear, "Buffs from players outside your group, while thanking or offering your buff "
+        .. "back is on (Favours tab). The newest " .. ns.Ledger.MAX_ENTRIES
+        .. " are kept; /friendly ledger shows them in chat.")
     page:SetScript("OnShow", function() FillLedger() end)
 end
 
@@ -1485,12 +1649,13 @@ local function ScrollTo(region)
     scroll:SetVerticalScroll(offset)
 end
 
--- Opens the main panel at msgType's tab, scrolled to its row called row (a
--- key of Options.widgets), for the walkthrough (Walkthrough.lua). Scrolled
--- again on the next frame, once the panel has laid the tab's rows out.
-function Options.OpenTab(msgType, row)
+-- Opens the main panel at a tab (as Options.SelectType takes it), scrolled
+-- to its row called row (a key of Options.widgets), for the walkthrough
+-- (Walkthrough.lua) and Start here. Scrolled again on the next frame, once
+-- the panel has laid the tab's rows out.
+function Options.OpenTab(tab, row)
     Options.Open()
-    Options.SelectType(msgType)
+    Options.SelectType(tab)
     ScrollTo(widgets[row])
     C_Timer.After(0, ns.Diag.Wrap(function() ScrollTo(widgets[row]) end))
 end

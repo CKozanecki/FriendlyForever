@@ -1,4 +1,4 @@
--- Spec: #71, #32, #290, #330, #370, #392, #408
+-- Spec: #71, #32, #290, #330, #370, #392, #408, #491
 -- Battlegrounds: buffing in the preparation phase, then quiet until you
 -- leave or the battleground ends.
 local wow = require("spec.support.wow")
@@ -481,7 +481,7 @@ describe("Battlegrounds", function()
             assert.is_false(ns.db.buffBack.bgPrepBuff)
             assert.is_false(ns.BuffMode.IsOn())
             assert.is_false(lent())
-            wow.run(ns.Options.widgets.tabs.buff, "OnClick")
+            wow.run(ns.Options.widgets.tabs.favours, "OnClick")
             assert.is_false(box:IsVisible(), "only on the Buffs tab, in PvP")
         end)
 
@@ -690,9 +690,10 @@ describe("Battlegrounds", function()
                     function() wow.advance(random.random() * 20) end,
                     function() slash(({ "buffmode", "buffmode on", "buffmode off" })[random.random(3)]) end,
                     function()
-                        -- The setting's box on the Buff Back tab, as a player clicks it.
+                        -- The setting's box on the Buffs tab's PvP place, as a player clicks it.
                         slash("")
-                        wow.run(ns.Options.widgets.tabs.buffBack, "OnClick")
+                        wow.run(ns.Options.widgets.tabs.buffs, "OnClick")
+                        wow.run(ns.Options.widgets.placeTabs.pvp, "OnClick")
                         local box = ns.Options.widgets.bgPrepBuff
                         prepBuff = random.random() < 0.7
                         box:SetChecked(prepBuff)

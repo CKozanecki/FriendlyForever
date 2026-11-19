@@ -1,6 +1,6 @@
 -- Buff requests in chat (#40): a player who whispers you, or says in /say
 -- or party chat (the owner, on #40), a short request for one of your buffs ("mark pls", "can i get int?") is
--- queued on the buff-back button for that buff. Nothing here casts or sends
+-- queued on the buff button for that buff. Nothing here casts or sends
 -- anything: the button casts only on your press (BuffButton.lua), and no
 -- reply goes to chat. Off by default (the owner's decision on #40).
 --
@@ -183,10 +183,10 @@ local function OnChat(where, text, sender)
     end
 end
 
--- The Buff Back tab's switch, and its tooltip.
+-- The Favours tab's switch (#491), and its tooltip.
 Requests.LABEL = "Offer my buffs to players who ask in chat"
 Requests.TOOLTIP = "When someone whispers you, or says in /say or party chat, a short request for one of your buffs "
-    .. "(\"mark pls\", \"can I get int?\"), the buff-back button offers them that buff. It never casts by "
+    .. "(\"mark pls\", \"can I get int?\"), the buff button offers them that buff. It never casts by "
     .. "itself, and nothing is said in chat. Your ignore list, snooze and the quiet in capital cities and "
     .. "battlegrounds apply."
 -- Turn requests on or off from the switch. Off lets every waiting request

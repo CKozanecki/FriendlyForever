@@ -1,4 +1,4 @@
--- Spec: #34, #101, #36, #140, #269, #408
+-- Spec: #34, #101, #36, #140, #269, #408, #491
 -- Quiet mode in capital cities: no thank-yous and no buff-back button there,
 -- unless buff mode is on; the ledger and the favours still count.
 local wow = require("spec.support.wow")
@@ -263,7 +263,7 @@ describe("Quiet mode in capital cities", function()
             buffedBy()
             assert.is_false(button:IsShown())
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             w.showInCities:SetChecked(true)
             wow.run(w.showInCities, "OnClick")
             assert.is_true(button:IsShown(), "shown at once")
@@ -357,13 +357,13 @@ describe("Quiet mode in capital cities", function()
                 if line:find("capital city: Stormwind City (map 1453)", 1, true) then found = line end
             end
             assert.truthy(found)
-            assert.truthy(found:find("thanks quiet, buff-back button hidden", 1, true))
+            assert.truthy(found:find("thanks quiet, buff button hidden", 1, true))
         end)
 
         it("says in /friendly status when quiet mode doesn't hold, and where you are outside capitals", function()
             wow.setMap(wow.CAPITAL.stormwind)
             slash("buffmode on")
-            assert.are.equal("capital city: Stormwind City (map 1453); thanks not quiet, buff-back button not hidden",
+            assert.are.equal("capital city: Stormwind City (map 1453); thanks not quiet, buff button not hidden",
                 ns.Cities.StatusLine())
             wow.setMap(wow.ELWYNN)
             assert.are.equal("capital city: no (map 1429)", ns.Cities.StatusLine())
@@ -376,30 +376,35 @@ describe("Quiet mode in capital cities", function()
                 return point == "TOPLEFT" and relativeTo == above and relativePoint == "BOTTOMLEFT" and y < 0
             end
             assert.is_true(below(w.quiet, w.fallbackLabel), "quiet mode under the fallback choice")
-            assert.is_true(below(w.nameplateWarning, w.quiet), "then the nameplate warning")
-            assert.is_true(below(w.showInCities, w.sayLine), "the capital-city button option under the line")
+            assert.is_true(below(w.returnHeader, w.quiet), "then returning the favour (#491)")
+            assert.is_true(below(w.nameplateWarning, w.passersByHelp), "the nameplate warning under passers-by (#491)")
+            assert.is_true(below(w.showInCities, w.buttonHeader), "the capital-city button option under its header")
             assert.is_true(below(w.steppers.renewPercent.label, w.showInCities), "then the renew setting (#269)")
             assert.is_true(below(w.buffsLink, w.steppers.renewPercent.label), "then the link to the Buffs tab (#408)")
             assert.is_true(below(w.openBuffs, w.buffsLink), "its button under it")
-            assert.is_true(below(w.autoHeader, w.openBuffs), "then the turn-on triggers")
         end)
 
-        it("has the two options on their tabs, and they change the settings", function()
+        it("has the two options on the Favours tab only, and they change the settings", function()
             local w = ns.Options.widgets
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             assert.is_true(w.quiet:IsShown())
             assert.is_true(w.quiet:GetChecked())
-            assert.is_false(w.showInCities:IsShown())
             w.quiet:SetChecked(false)
             wow.run(w.quiet, "OnClick")
             assert.is_false(ns.db.buff.quietInCities)
-            wow.run(w.tabs.buffBack, "OnClick")
-            assert.is_false(w.quiet:IsShown())
             assert.is_true(w.showInCities:IsShown())
             assert.is_false(w.showInCities:GetChecked())
             w.showInCities:SetChecked(true)
             wow.run(w.showInCities, "OnClick")
             assert.is_true(ns.db.buffBack.showInCities)
+            assert.is_false(ns.db.buff.quietInCities, "each option writes its own section")
+            for _, tab in ipairs(ns.Options.TABS) do
+                if tab ~= ns.Options.FAVOURS_TAB then
+                    wow.run(w.tabs[tab], "OnClick")
+                    assert.is_false(w.quiet:IsShown(), tab)
+                    assert.is_false(w.showInCities:IsShown(), tab)
+                end
+            end
         end)
     end)
 

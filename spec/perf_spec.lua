@@ -1,3 +1,4 @@
+-- Spec: #491
 local wow = require("spec.support.wow")
 
 -- The hot paths: events that fire many times a second in cities, raids and
@@ -22,7 +23,7 @@ describe("Hot paths", function()
         ns = wow.boot()
     end)
 
-    describe("spellcasts are only listened for while Buff Thanks or Buff Back is on", function()
+    describe("spellcasts are only listened for while thanking or offering buffs back is on", function()
         it("on by default", function()
             assert.is_true(listensForCasts())
         end)
@@ -32,25 +33,25 @@ describe("Hot paths", function()
             assert.is_false(listensForCasts())
         end)
 
-        it("while Buff Back offers, even with Buff Thanks off", function()
+        it("while Offer my buff back is on, even with Thank them off", function()
             ns = wow.boot({ db = { buff = { enabled = false } } })
             assert.is_true(listensForCasts())
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            w.enabled:SetChecked(false)
-            wow.run(w.enabled, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
+            w.offerEnabled:SetChecked(false)
+            wow.run(w.offerEnabled, "OnClick")
             assert.is_false(listensForCasts())
         end)
 
-        it("follows the Buff Thanks checkbox", function()
+        it("follows the Thank them checkbox", function()
             ns.db.buffBack.enabled = false
             local w = ns.Options.widgets
-            wow.run(w.tabs.buff, "OnClick")
-            w.enabled:SetChecked(false)
-            wow.run(w.enabled, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
+            w.thankEnabled:SetChecked(false)
+            wow.run(w.thankEnabled, "OnClick")
             assert.is_false(listensForCasts())
-            w.enabled:SetChecked(true)
-            wow.run(w.enabled, "OnClick")
+            w.thankEnabled:SetChecked(true)
+            wow.run(w.thankEnabled, "OnClick")
             assert.is_true(listensForCasts())
         end)
 

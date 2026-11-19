@@ -1,4 +1,4 @@
--- Spec: #269
+-- Spec: #269, #491
 -- Renewing a worn buff on buff back: when the person you owe already wears
 -- your buff with under the set share of its full time left (default 70%),
 -- and yours can replace theirs, buff back offers it again. Over the share,
@@ -63,10 +63,10 @@ describe("Renewing a worn buff on buff back (#269)", function()
             assert.are.equal(70, ns.db.buffBack.renewPercent)
         end)
 
-        it("is a stepper on the Buff Back tab only, stepping by 5 between 0 and 90", function()
+        it("is a stepper on the Favours tab only, stepping by 5 between 0 and 90", function()
             local w = ns.Options.widgets
             local renew = w.steppers.renewPercent
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             assert.is_true(renew.box:IsShown())
             assert.are.equal("Renew my buff when theirs has under (% left, 0 = never):", renew.label:GetText())
             assert.are.equal("70", renew.box:GetText())
@@ -84,8 +84,12 @@ describe("Renewing a worn buff on buff back (#269)", function()
             wow.run(renew.box, "OnEditFocusLost")
             wow.run(renew.minus, "OnClick")
             assert.are.equal(0, ns.db.buffBack.renewPercent, "never below 0")
-            wow.run(w.tabs.buff, "OnClick")
-            assert.is_false(renew.box:IsShown(), "not on another tab")
+            for _, tab in ipairs(ns.Options.TABS) do
+                if tab ~= ns.Options.FAVOURS_TAB then
+                    wow.run(w.tabs[tab], "OnClick")
+                    assert.is_false(renew.box:IsShown(), "not on the " .. tab .. " tab")
+                end
+            end
         end)
 
         it("is found by the options search", function()
