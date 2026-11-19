@@ -1299,6 +1299,120 @@ describe("The simulated client's druid forms and button names (#452)", function(
     end)
 end)
 
+describe("The simulated client's form spells (#495)", function()
+    local CAT, WOLF = 768, 2645
+    local events, errors, sent, landed
+    local function listen()
+        events, errors, sent, landed = {}, {}, {}, {}
+        local f = _G.CreateFrame("Frame")
+        f:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+        f:RegisterEvent("UI_ERROR_MESSAGE")
+        f:RegisterEvent("UNIT_SPELLCAST_SENT")
+        f:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+        f:SetScript("OnEvent", function(_, event, a, b, _, d)
+            events[#events + 1] = event
+            if event == "UI_ERROR_MESSAGE" then errors[#errors + 1] = b end
+            if event == "UNIT_SPELLCAST_SENT" then sent[#sent + 1] = { target = b, id = d } end
+            if event == "UNIT_SPELLCAST_SUCCEEDED" then landed[#landed + 1] = a end
+        end)
+    end
+    local function druid()
+        wow.boot({ before = function(state)
+            state.class = "DRUID"
+            state.knownSpells = { [CAT] = true, [MOTW] = true }
+        end })
+        listen()
+    end
+    local function shaman()
+        wow.boot({ before = function(state)
+            state.class = "SHAMAN"
+            state.knownSpells = { [WOLF] = true }
+        end })
+        listen()
+    end
+
+    it("/cast !Cat Form shifts a druid in no form into it: sent, the form changes, then it lands", function()
+        druid()
+        wow.runMacro("/cast !Cat Form")
+        assert.are.equal(CAT, wow.state.formSpell)
+        assert.are.equal(wow.FORM_STANCE[CAT], _G.GetShapeshiftForm())
+        assert.are.same({ "UNIT_SPELLCAST_SENT", "UPDATE_SHAPESHIFT_FORM", "UNIT_SPELLCAST_SUCCEEDED" }, events)
+        assert.are.same({ { target = "", id = CAT } }, sent)
+        assert.is_true(wow.casts[1].form)
+    end)
+
+    it("with formAfterSucceeded, it lands first and the form changes after", function()
+        druid()
+        wow.state.formAfterSucceeded = true
+        wow.runMacro("/cast !Cat Form")
+        assert.are.same({ "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UPDATE_SHAPESHIFT_FORM" }, events)
+    end)
+
+    it("with castLatency, the form changes and it lands only that much later", function()
+        druid()
+        wow.state.castLatency = 2.5
+        wow.runMacro("/cast !Cat Form")
+        assert.are.same({ "UNIT_SPELLCAST_SENT" }, events)
+        assert.are.equal(0, wow.state.form)
+        wow.advance(2.5)
+        assert.are.equal(CAT, wow.state.formSpell)
+        assert.are.equal(1, #landed)
+    end)
+
+    it("formSentTarget is the target UNIT_SPELLCAST_SENT names", function()
+        druid()
+        wow.state.formSentTarget = "Ann"
+        wow.runMacro("/cast !Cat Form")
+        assert.are.equal("Ann", sent[1].target)
+    end)
+
+    it("formRefusals refuses at once with the game's text: no cast sent, no form", function()
+        druid()
+        wow.state.formRefusals = { [CAT] = "Can only use outside." }
+        wow.runMacro("/cast !Cat Form")
+        assert.are.same({ "Can only use outside." }, errors)
+        assert.are.same({ "UI_ERROR_MESSAGE" }, events)
+        assert.are.equal(0, #wow.casts)
+        assert.are.equal(0, wow.state.form)
+    end)
+
+    it("in that form, /cast !Cat Form does nothing; /cast Cat Form takes you out", function()
+        druid()
+        wow.setForm(wow.FORM_STANCE[CAT], CAT)
+        events = {}
+        wow.runMacro("/cast !Cat Form")
+        assert.are.same({}, events)
+        assert.are.equal(CAT, wow.state.formSpell)
+        wow.runMacro("/cast Cat Form")
+        assert.are.equal(0, wow.state.form)
+        assert.are.equal(0, #wow.casts, "leaving a form sends no cast")
+    end)
+
+    it("Ghost Wolf: /cast !Ghost Wolf shifts a shaman into it, does nothing in it, and without ! takes them out", function()
+        shaman()
+        wow.runMacro("/cast !Ghost Wolf")
+        assert.is_true(wow.state.ghostWolf)
+        assert.are.equal(1, #wow.casts)
+        wow.runMacro("/cast !Ghost Wolf")
+        assert.is_true(wow.state.ghostWolf)
+        assert.are.equal(1, #wow.casts)
+        wow.runMacro("/cast Ghost Wolf")
+        assert.is_false(wow.state.ghostWolf)
+    end)
+
+    it("pressHalf delivers one half of a press, as a hardware event", function()
+        druid()
+        local b = _G.CreateFrame("Button", "PressHalfTest", _G.UIParent, "SecureActionButtonTemplate")
+        b:RegisterForClicks("AnyUp", "AnyDown")
+        local halves = {}
+        b:SetScript("PreClick", function(_, _, isDown) halves[#halves + 1] = { isDown, wow.hardware } end)
+        wow.pressHalf(b, "LeftButton", true)
+        wow.pressHalf(b, "LeftButton", false)
+        assert.are.same({ { true, true }, { false, true } }, halves)
+        assert.is_false(wow.hardware)
+    end)
+end)
+
 describe("The simulated client's form spells and Moonkin Form (#485)", function()
     before_each(function()
         wow.boot({ before = function(state)

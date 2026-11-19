@@ -471,6 +471,14 @@ describe("Back into your form after fast-cast buffing (#495)", function()
             assert.is_false(offersForm())
         end)
 
+        it("when the setting is damaged mid-session to something other than on", function()
+            ready()
+            ns.db.buffBack.fastCastInForm = "yes"
+            ns.BuffButton.Refresh()
+            assert.is_false(offersForm())
+            assert.is_false(ns.BuffButton.ReturnWaiting())
+        end)
+
         it("when you right-click it", function()
             ready()
             wow.press(button, "RightButton")
@@ -650,6 +658,24 @@ describe("Back into your form after fast-cast buffing (#495)", function()
             assert.are.equal(errors, ns.Diag.Counters().luaErrors or 0)
         end)
 
+        it("a key held down while the shift back is cast, released once it's offered again, is no refusal",
+            function()
+            -- The down half finds the button empty (it's being cast) and the
+            -- game acts on it; the up half finds it offered again (the cast
+            -- was cut off). That press did nothing, and isn't taken as refused.
+            boot({ shaman = true, wolfForm = 1, wolfAura = true })
+            scrollBuffs()
+            wow.state.castLatency = 100
+            scroll()
+            local key = wow.state.overrides.MOUSEWHEELUP
+            wow.pressHalf(_G[key.button], key.mouseButton, true)
+            wow.fire("UNIT_SPELLCAST_INTERRUPTED", "player", wow.lastCastGuid, WOLF)
+            wow.pressHalf(_G[key.button], key.mouseButton, false)
+            wow.advance(ns.BuffButton.SENT_ANSWER_SECONDS + 1)
+            assert.is_nil(tostring(wow.lastResult(ns)):find("Couldn't shift back", 1, true))
+            assert.are.equal("/cast !Ghost Wolf", keyMacro(), "the key still shifts you back")
+        end)
+
         it("an answer that comes once the return is gone says nothing", function()
             -- No answer at all, and you shift by hand meanwhile.
             ready()
@@ -706,108 +732,242 @@ describe("Back into your form after fast-cast buffing (#495)", function()
     end)
 
     describe("storms (red)", function()
-        -- Forms, buffs fading, fights, presses, the setting, buff mode and
-        -- refusals at random. Checked from the simulated client's own state:
-        -- nothing is cast but in a press; a form is cast only after a press
-        -- took you out of that very form, with no fight, no shift by hand, no
-        -- setting or buff mode off since, and within 30 seconds of the last
-        -- buff press; and nothing errors. Every seed must shift back at least
+        -- Forms, buffs fading, fights, presses, shifts by hand, the setting,
+        -- buff mode, refusals and time at random, for a druid and for a
+        -- shaman whose Ghost Wolf takes a moment to cast. Checked from the
+        -- simulated client's own state, and at every step:
+        --   nothing is cast but in a press;
+        --   a form is cast, or offered on the button, only after a press took
+        --   you out of that very form, while you're in no form, with no
+        --   fight, shift by hand, setting off or buff mode off since, out of
+        --   a fight, and within 30 seconds of the last buff cast.
+        -- Each way the return is dropped is counted only when it dropped a
+        -- standing return and a press followed (where a wrong offer would
+        -- show), and every seed must reach each one, shift back at least
         -- once, and see a refused shift back.
-        local FORMS = { CAT, BEAR, TRAVEL, DIRE }
-        for _, seed in ipairs({ 495, 498, 501, 510, 519 }) do
-            it("seed " .. seed .. ": never casts without a press, and never offers a form you weren't in", function()
-                random.seed(seed)
-                boot({ form = CAT })
-                local errors = ns.Diag.Counters().luaErrors or 0
-                local left            -- the form a press took you out of, while the return may stand
-                local lastBuffPress = -math.huge
-                local backs, refusedSeen = 0, 0
-                local function drop() left = nil end
-                local function strip()
-                    for _, token in ipairs({ "party1", "party2" }) do wow.state.units[token].auras = {} end
-                    for i = #wow.state.playerAuras, 1, -1 do
-                        if wow.state.playerAuras[i].spellId == MOTW then table.remove(wow.state.playerAuras, i) end
-                    end
+        local DRUID_FORMS = { CAT, BEAR, TRAVEL, DIRE }
+        local STAGED = { 5, 1, 5, 2, 5, 3, 5, 4 } -- dropOne's ways, in turn
+        local REASONS = { "fight", "shift by hand", "setting off", "buff mode off", "30 seconds",
+            "shift by hand just after leaving", "shift out long after a refused press" }
+
+        local function storm(seed, shaman)
+            random.seed(seed)
+            if shaman then boot({ shaman = true, wolfForm = 1, wolfAura = true }) else boot({ form = CAT }) end
+            local errors = ns.Diag.Counters().luaErrors or 0
+            local left                 -- the form a press took you out of, while the return may stand
+            local lastBuff = -math.huge -- when a buff was last cast by a press
+            local pendingDrop          -- a drop of a standing return, counted at the next press
+            local reach, backs, refused, nextDrop = {}, 0, 0, 0
+            local pressed -- whether this step pressed the button
+            local refusedAt, refusedIn -- when, and in which form, a press last cast nothing (autoUnshift off)
+            local shiftOut, followUp
+            for _, reason in ipairs(REASONS) do reach[reason] = 0 end
+
+            local function formNow()
+                if shaman then return wow.state.ghostWolf and WOLF or 0 end
+                return form()
+            end
+            local function drop(reason)
+                if left then pendingDrop = reason end
+                left = nil
+            end
+            local function shiftInto(spell)
+                if shaman then wow.setGhostWolf(true) else wow.setForm(wow.FORM_STANCE[spell], spell) end
+            end
+            local function otherForm()
+                if shaman then return WOLF end
+                local spell
+                repeat spell = DRUID_FORMS[random.random(1, #DRUID_FORMS)] until spell ~= formNow()
+                return spell
+            end
+            -- The button never offers a form it shouldn't. After 30 seconds it
+            -- lets go at its next re-check (a press checks first). Looked at
+            -- once each step is over and its frame has passed.
+            local function checkArmed()
+                local macro = clickMacro()
+                if macro and macro:find("^/cast !") then
+                    assert.is_truthy(left, "a form offered with none left by a press")
+                    assert.is_true(wow.now - lastBuff < ns.BuffButton.RETURN_SECONDS + ns.BuffButton.RECHECK_SECONDS + 0.5,
+                        "offered long after the last buff")
+                    assert.are.equal("/cast !" .. NAMES[left], macro, "the form offered is the one you left")
+                    assert.are.equal(0, formNow(), "offered only while you're in no form")
+                    assert.is_falsy(wow.state.inCombat)
                 end
-                local function press(how)
-                    local before, cancelled, was = #wow.casts, wow.formsCancelled, form()
-                    local formCast = false
-                    if how == "click" then click() else scroll() end
-                    if (wow.lastResult(ns) or ""):find("Couldn't shift back", 1, true) then
-                        refusedSeen = refusedSeen + 1
-                    end
-                    for i = before + 1, #wow.casts do
-                        local c = wow.casts[i]
-                        if c.form then
-                            assert.is_truthy(left, "a form cast with no form left by a press")
-                            assert.are.equal(left, c.id, "the form cast is the one you left")
-                            assert.is_true(wow.now - lastBuffPress < ns.BuffButton.RETURN_SECONDS)
-                            assert.is_nil(c.inCombat)
-                            backs = backs + 1
-                            left = nil
-                            formCast = true
-                        end
-                    end
-                    -- Any other press may have been a buff's (the button
-                    -- re-arms as it's pressed): the 30 seconds count from it,
-                    -- and a form the game took you out of in it may come back.
-                    if not formCast then
-                        lastBuffPress = wow.now
-                        if wow.formsCancelled > cancelled then left = was end
-                    end
+            end
+            local function press(how)
+                if left and wow.now - lastBuff >= ns.BuffButton.RETURN_SECONDS then drop("30 seconds") end
+                if pendingDrop then
+                    reach[pendingDrop] = reach[pendingDrop] + 1
+                    pendingDrop = nil
                 end
-                for _ = 1, 400 do
-                    local before = #wow.casts
-                    local r = random.random(1, 20)
-                    if r <= 7 then
-                        press("key")
-                    elseif r <= 9 then
-                        press("click")
-                    elseif r == 10 then
-                        strip()
-                        ns.BuffButton.Refresh()
-                    elseif r == 11 then
-                        local spell = FORMS[random.random(1, #FORMS)]
-                        if form() ~= spell then
-                            wow.setForm(wow.FORM_STANCE[spell], spell)
-                            drop()
-                        end
-                    elseif r == 12 then
-                        if form() ~= 0 then wow.setForm(0) drop() end
-                    elseif r == 13 then
-                        wow.enterCombat()
-                        drop()
-                        wow.advance(random.random(0, 3))
-                        wow.leaveCombat()
-                    elseif r == 14 then
-                        wow.advance(random.random(1, 20))
-                    elseif r == 15 then
-                        if random.random(1, 4) == 1 then
-                            ns.db.buffBack.fastCastInForm = not ns.db.buffBack.fastCastInForm
-                            if not ns.db.buffBack.fastCastInForm then drop() end
-                            ns.BuffButton.Refresh()
-                        end
-                    elseif r == 16 then
-                        if random.random(1, 4) == 1 then
-                            slash("buffmode off")
-                            drop()
-                            wow.advance(0)
-                            slash("buffmode on")
-                        end
-                    elseif r == 17 then
-                        local refusals = {}
-                        for _, spell in ipairs(FORMS) do refusals[spell] = "Can only use outside." end
-                        wow.state.formRefusals = random.random(1, 3) > 1 and refusals or nil
+                local before, cancelled, was = #wow.casts, wow.formsCancelled, formNow()
+                pressed = true
+                if how == "click" then click() else scroll() end
+                local buffCast = false
+                for i = before + 1, #wow.casts do
+                    local c = wow.casts[i]
+                    if c.form then
+                        assert.is_truthy(left, "a form cast with no form left by a press")
+                        assert.are.equal(left, c.id, "the form cast is the one you left")
+                        assert.is_true(wow.now - lastBuff < ns.BuffButton.RETURN_SECONDS)
+                        assert.is_nil(c.inCombat)
+                        backs = backs + 1
+                        left = nil
                     else
-                        wow.advance(random.random(0, 2))
+                        buffCast = true
                     end
-                    -- Nothing is cast but in a press.
-                    if r > 9 then assert.are.equal(before, #wow.casts, "a cast without a press") end
                 end
-                assert.is_true(backs >= 1, "the storm shifted back at least once")
-                assert.is_true(refusedSeen >= 1, "the storm refused a shift back at least once")
-                assert.are.equal(errors, ns.Diag.Counters().luaErrors or 0)
-            end)
+                if (wow.lastResult(ns) or ""):find("Couldn't shift back", 1, true) then refused = refused + 1 end
+                if #wow.casts == before and was ~= 0 then refusedAt, refusedIn = wow.now, was end
+                if buffCast then
+                    lastBuff = wow.now
+                    if wow.formsCancelled > cancelled and ns.db.buffBack.fastCastInForm == true then
+                        left = was
+                        -- Now and then, a shift by hand at once, within the 3 seconds.
+                        if random.random(1, 4) == 1 then
+                            shiftInto(otherForm())
+                            drop("shift by hand just after leaving")
+                        end
+                    end
+                end
+            end
+            -- A shift out of your form by hand. Long after a press in the
+            -- form the game refused, it isn't left for the press.
+            function shiftOut()
+                if formNow() ~= 0 then
+                    local soon = refusedAt and wow.now - refusedAt <= ns.BuffButton.LEAVE_SECONDS
+                    if refusedAt and not soon then pendingDrop = "shift out long after a refused press" end
+                    local from, at, inIt = refusedIn, refusedAt, formNow()
+                    refusedAt, refusedIn = nil, nil
+                    if shaman then wow.setGhostWolf(false) else wow.setForm(0) end
+                    drop("shift by hand")
+                    -- Within LEAVE_SECONDS of a press in this same form, the
+                    -- addon can't tell this from the game taking you out for
+                    -- the press, and remembers it (docs/forever-facts.md):
+                    -- still a form you were in.
+                    if soon and from == inIt and ns.db.buffBack.fastCastInForm == true then
+                        left, lastBuff = from, math.max(lastBuff, at)
+                    end
+                end
+            end
+            -- A few presses, the button looked at after each (a staged drop
+            -- shows only once nothing is left to buff).
+            function followUp(n)
+                for _ = 1, n do
+                    press(random.random(1, 3) == 1 and "click" or "key")
+                    wearLanded()
+                    wow.advance(0)
+                    checkArmed()
+                end
+            end
+            -- One of the ways the return is dropped.
+            local function dropOne(which)
+                if which == 1 then
+                    wow.enterCombat()
+                    drop("fight")
+                    wow.advance(random.random(0, 3))
+                    wow.leaveCombat()
+                elseif which == 2 then
+                    shiftInto(otherForm())
+                    drop("shift by hand")
+                elseif which == 3 then
+                    ns.db.buffBack.fastCastInForm = false
+                    drop("setting off")
+                    ns.BuffButton.Refresh()
+                    ns.db.buffBack.fastCastInForm = true
+                elseif which == 4 then
+                    slash("buffmode off")
+                    drop("buff mode off")
+                    wow.advance(0)
+                    slash("buffmode on")
+                else
+                    -- The button lets go at its next re-check; a press checks
+                    -- first, so press at once (press() counts the drop).
+                    wow.advance(ns.BuffButton.RETURN_SECONDS + random.random(0, 5))
+                    press(random.random(1, 2) == 1 and "key" or "click")
+                end
+            end
+
+            for _ = 1, 700 do
+                local before = #wow.casts
+                pressed = false
+                local r = random.random(1, 26)
+                wow.state.castLatency = shaman and random.random(1, 2) == 1 and 2.5 or 0
+                if r <= 7 then
+                    press("key")
+                elseif r <= 9 then
+                    press("click")
+                elseif r <= 11 then
+                    for _, token in ipairs({ "party1", "party2" }) do wow.state.units[token].auras = {} end
+                    worn = #wow.landed
+                    ns.BuffButton.Refresh()
+                elseif r == 12 then
+                    shiftInto(otherForm())
+                    drop("shift by hand")
+                elseif r == 13 then
+                    shiftOut()
+                elseif r == 23 then
+                    -- A buff press in a form the game refuses (autoUnshift off),
+                    -- then a shift out by hand well after it, then the buffs.
+                    if formNow() ~= 0 then
+                        local unshift = wow.state.cvars.autoUnshift
+                        wow.state.cvars.autoUnshift = "0"
+                        press("key")
+                        wow.state.cvars.autoUnshift = unshift
+                        wow.advance(ns.BuffButton.LEAVE_SECONDS + 1)
+                        shiftOut()
+                        followUp(6)
+                    end
+                elseif r == 14 then
+                    dropOne(1)
+                elseif r == 15 then
+                    wow.advance(random.random(1, 20))
+                elseif r == 16 then
+                    if random.random(1, 3) == 1 then dropOne(3) end
+                elseif r == 17 then
+                    if random.random(1, 3) == 1 then dropOne(4) end
+                elseif r == 18 then
+                    local refusals = {}
+                    for _, spell in ipairs(DRUID_FORMS) do refusals[spell] = "Can only use outside." end
+                    refusals[WOLF] = "Can only use outside."
+                    wow.state.formRefusals = random.random(1, 3) == 1 and refusals or nil
+                elseif r <= 21 then
+                    -- A standing return, dropped on purpose: each way in turn.
+                    if left then
+                        -- 30 seconds every other time: it bites only with nothing left to buff.
+                        nextDrop = nextDrop % #STAGED + 1
+                        dropOne(STAGED[nextDrop])
+                        followUp(3)
+                    end
+                elseif r == 22 then
+                    -- Off, the game refuses a buff in a form instead of
+                    -- taking you out of it.
+                    wow.state.cvars.autoUnshift = random.random(1, 3) == 1 and "0" or "1"
+                else
+                    wow.advance(random.random(0, 2))
+                    wearLanded()
+                end
+                -- Nothing is cast but in a press.
+                if not pressed then assert.are.equal(before, #wow.casts, "a cast without a press") end
+                -- The button re-arms on the next frame after a change (a press
+                -- re-arms it first anyway): look at it then.
+                wow.advance(0)
+                checkArmed()
+            end
+            for _, reason in ipairs(REASONS) do
+                assert.is_true(reach[reason] >= 1, "the storm reached: " .. reason)
+            end
+            assert.is_true(backs >= 1, "the storm shifted back at least once")
+            assert.is_true(refused >= 1, "the storm refused a shift back at least once")
+            assert.are.equal(errors, ns.Diag.Counters().luaErrors or 0)
+        end
+
+        for _, seed in ipairs({ 494, 495, 502, 515, 520 }) do
+            it("druid, seed " .. seed .. ": never casts without a press, and never offers a form you weren't in",
+                function() storm(seed, false) end)
+        end
+        for _, seed in ipairs({ 462, 467, 472, 481, 485 }) do
+            it("shaman, Ghost Wolf with a cast time, seed " .. seed .. ": the same", function() storm(seed, true) end)
         end
     end)
 end)
