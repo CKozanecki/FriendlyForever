@@ -1101,16 +1101,22 @@ describe("UI simulator layout check (ScrollFits, #482)", function()
         assert.truthy(err:find("a page that scrolls hides its scroll bar", 1, true), err)
     end)
 
-    it("leaves out hidden rows, a list drawn above the rows and a frame covering the content", function()
+    it("leaves out hidden rows and a list drawn above the rows", function()
         local rows = {
             row(416),
             row(100, { hidden = true }),
             row(100, { floating = true, strata = "DIALOG" }), -- the who-gets list, open
         }
+        local line = checks.ScrollFits(page(400, rows, 500, true), "page")
+        assert.truthy(line:find("16 px below its last row", 1, true), line)
+    end)
+
+    it("leaves out a frame covering the content, so an empty tail behind it still fails", function()
         local capture = row(400, { floating = true }) -- the key capture: the content's own edges
         capture.GetTop = function() return 1000 end
-        rows[#rows + 1] = capture
-        checks.ScrollFits(page(400, rows, 500, true), "page")
+        local err = fails(function() checks.ScrollFits(page(400, { row(440), capture }, 500, true), "page") end)
+        assert.truthy(err:find("40 px below its last row", 1, true), err)
+        assert.truthy(err:find("it scrolls into an empty pane", 1, true), err)
     end)
 
     it("still counts a row marked floating by mistake: same strata, inside the content", function()
