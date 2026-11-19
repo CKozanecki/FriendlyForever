@@ -3,8 +3,8 @@
      The passers-by and campfire lines were checked against the merged code and README on 17 Nov.
      Updated for 1.4.2 on 18 Nov: the hover preview, weapon buffs while resting, druid forms, level-appropriate ranks,
      the passers-by switch and minimap shift-click. The last two were checked against the merged #464 code and its notes on 18 Nov.
-     Updated for 1.4.4 on 19 Nov from its changelog notes: refusals about you, passers-by in resting areas and Moonkin Form.
      Updated for 1.4.3 on 18 Nov from its changelog notes: Ghost Wolf, the raid Blessings answer, the raid split and chat sending.
+     Updated for 1.4.4 on 19 Nov from its changelog notes: refusals about you, passers-by in resting areas and Moonkin Form.
      On 18 Nov the owner edited the posted 1.4.3 text for readability (shorter lines, a bold label on each feature, a
      "Safe by design" list). This file carries those edits, with the section headings and bullet lists the posted copy lost.
      It is the first thing a player reads: keep every section a heading, every feature a bullet with a bold label,
@@ -16,7 +16,7 @@ Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets,
 
 **New in 1.4.4:**
 
-- a refusal about you (not enough mana, a cooldown) no longer holds strangers back: the button stays on the same player and shows why;
+- a refusal about you (not enough mana, in combat, a form) no longer puts the player aside: the button stays on them and shows why;
 - in a resting area, passers-by no longer keep buff mode on;
 - buff mode's key keeps working in Moonkin Form, and its chat line says to click the button when the key waits.
 
