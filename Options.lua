@@ -443,6 +443,10 @@ local function ModifierPrefix()
     return out
 end
 
+-- Under buff mode's key on the Buffs tab (#509, the owner).
+Options.BUFF_MODE_KEY_NOTE = "Lent to the buff button only while buff mode is on; it isn't a Key Bindings key, "
+    .. "so Key Bindings shows Not Bound."
+
 local function KeyButtonText()
     return "Buff mode key: " .. ns.BuffMode.KeyText((ns.BuffMode.Key()))
 end
@@ -826,6 +830,13 @@ function Options.CreateBuffMode(content, anchor)
     widgets.buffModeHeader:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -16)
     widgets.buffModeKey = Button(content, "", 290, function() Options.StartKeyCapture() end)
     widgets.buffModeKey:SetPoint("TOPLEFT", widgets.buffModeHeader, "BOTTOMLEFT", 0, -6)
+    -- How the key relates to Key Bindings (#509, the owner): it is lent,
+    -- not bound, so Key Bindings' "Not Bound" doesn't contradict it.
+    -- Pinned on both sides, so it wraps inside the page at any width.
+    widgets.buffModeKeyNote = Label(content, Options.BUFF_MODE_KEY_NOTE, "GameFontHighlightSmall")
+    widgets.buffModeKeyNote:SetPoint("TOPLEFT", widgets.buffModeKey, "BOTTOMLEFT", 4, -2)
+    widgets.buffModeKeyNote:SetPoint("RIGHT", content, "RIGHT", -24, 0)
+    widgets.buffModeKeyNote:SetWordWrap(true)
     widgets.keyCapture = CreateKeyCapture(content)
 
     -- When buff mode turns on and off by itself (BuffModeAuto.lua).
@@ -839,7 +850,7 @@ function Options.CreateBuffMode(content, anchor)
         return cb
     end
     widgets.autoHeader = Label(content, "Buff mode turns on by itself:", "GameFontNormalSmall")
-    widgets.autoHeader:SetPoint("TOPLEFT", widgets.buffModeKey, "BOTTOMLEFT", 0, -10)
+    widgets.autoHeader:SetPoint("TOPLEFT", widgets.buffModeKeyNote, "BOTTOMLEFT", -4, -10)
     local onJoin = AutoBox("autoOnJoin")
     -- The short label leaves room on its row; the detail is on the mouse-over (#256).
     Tooltip(onJoin, Options.AUTO_JOIN_TIP)
@@ -1362,7 +1373,7 @@ local function Say(ok, why, success)
     Options.Refresh()
 end
 
--- The binding in Key Bindings > AddOns that presses the buff button.
+-- The binding in Key Bindings > Friendly Forever that presses the buff button.
 Options.BUTTON_BINDING = "CLICK FriendlyForeverBuffButton:LeftButton"
 
 -- Start here (#47): an introduction. What the addon does, the settings that
@@ -1420,7 +1431,7 @@ function Options.CreateStartPage()
     panel.startPage = page
 end
 
--- The buff button's key in Key Bindings > AddOns, as the game names
+-- The buff button's key in Key Bindings > Friendly Forever, as the game names
 -- it, or nil when it has none.
 local function ButtonKeyText()
     local key = ns.Util.ReadGameValues(GetBindingKey, Options.BUTTON_BINDING)
@@ -1445,13 +1456,14 @@ FillStart = function()
             .. " so the game can rarely tell you who buffed you. The Favours tab can show them."
         or "Friendly player nameplates are on, so the game can tell you who buffed you.")
     local buttonKey = ButtonKeyText()
-    w.buttonKey:SetText(buttonKey and ("Buff button key: " .. buttonKey .. " (Key Bindings > AddOns).")
-        or "Buff button key: none yet. Set one in Key Bindings > AddOns, or click the button.")
+    w.buttonKey:SetText(buttonKey and ("Buff button key: " .. buttonKey .. " (Key Bindings > Friendly Forever).")
+        or "Buff button key: none yet. Set one in Key Bindings > Friendly Forever, or click the button.")
     local buffBack = type(ns.db.buffBack) == "table" and ns.db.buffBack or {}
     w.passersByNote:SetText("Buff mode also offers your buffs to players nearby who aren't in your group: "
         .. (buffBack.passersBy == true and "passers-by is on." or "passers-by is off until you turn it on."))
     w.buffModeKey:SetText("Buff mode key: " .. ns.BuffMode.KeyText((ns.BuffMode.Key()))
-        .. ". Buff mode lends it to the buff button to buff a group quickly (the Buffs tab).")
+        .. ". Buff mode lends it to the buff button only while buff mode is on, to buff a group quickly "
+        .. "(the Buffs tab), so Key Bindings shows it as Not Bound.")
     Refit(startPage.scroll, startPage.content)
 end
 

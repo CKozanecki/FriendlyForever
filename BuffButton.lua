@@ -1,5 +1,5 @@
 -- The buff-back button: shows a favour you owe (Offers.lua) and, when you
--- press it (click, or its key in Key Bindings > AddOns), casts your buff on
+-- press it (click, or its key in Key Bindings > Friendly Forever), casts your buff on
 -- them. The game only lets an addon cast through a secure button the player
 -- presses, so this module decides who and what, writes it onto the button as
 -- a macro, and the game does the casting.
@@ -37,7 +37,11 @@ BuffButton.FADE_STEP_SECONDS = 0.1
 -- Macros are kept within 255 characters, the game's macro editor limit (the
 -- secure attribute's own limit isn't documented, so we stay inside this one).
 BuffButton.MACRO_MAX_LENGTH = 255
-BuffButton.PLACEHOLDER_ICON = "Interface\\Icons\\Spell_Nature_Regeneration"
+-- The icon the button shows with no offer of its own (empty, unlocked for
+-- moving, or an offer whose icon can't be read): Friendly Forever's own, the
+-- TOC's IconTexture, the same for every class, never another class's spell
+-- (#507, the owner).
+BuffButton.PLACEHOLDER_ICON = "Interface\\AddOns\\FriendlyForever\\Media\\Icon"
 -- The button's size. Its second line (why it's empty, or what it offers)
 -- wraps, never cut short (#270): the button grows to hold every line, from its saved anchor point (centred by default).
 BuffButton.WIDTH = 220
@@ -68,7 +72,14 @@ local SECURE_ATTRIBUTE = {
 BuffButton.KEY_BUTTON = "BuffModeKey"
 local MACRO_ACTION_TYPE = "macro"
 
--- The text shown for the binding in Key Bindings > AddOns (Bindings.xml).
+-- Friendly Forever's own section in Key Bindings (#509, the owner): its
+-- bindings name it as their category (Bindings.xml), and Blizzard's code for
+-- Forever titles a section by the global of that name (Keybindings.lua's
+-- GetBindingCategoryName). The bindings' names, by which the game keeps
+-- their keys, are unchanged.
+BuffButton.BINDING_CATEGORY = "BINDING_HEADER_FRIENDLYFOREVER"
+_G[BuffButton.BINDING_CATEGORY] = "Friendly Forever"
+-- The text shown for the binding in Key Bindings > Friendly Forever.
 _G["BINDING_NAME_CLICK " .. BuffButton.FRAME_NAME .. ":LeftButton"] = "Friendly Forever: buff button"
 
 local button, eventFrame
@@ -301,7 +312,8 @@ BuffButton.RETURN_SECONDS = 30 -- after your last buff press, the return is drop
 -- A form left this soon after a buff press in it was left for that press.
 BuffButton.LEAVE_SECONDS = BuffButton.ANSWER_WINDOW_SECONDS
 
-local formReturn   -- the form to go back to: { spell, name, icon, lastBuffAt, refused, casting (the press being cast) }
+local formReturn   -- the form to go back to: { spell, name, icon, lastBuffAt, refused, refusedAt (where), casting
+                   -- (the press being cast) }
 local leavingForm  -- the form a buff press was made in, until the game takes you out: { spell, name, icon, at }
 local formSeen     -- the form last read: 0 (none), a form's spell, "other", or nil (unread)
 
@@ -390,6 +402,29 @@ local function NoteBuffPress()
     end
 end
 
+-- Where you are, for a refused shift back (#510): { indoors = true or
+-- false, zone = the zone's name }, each nil when the game won't say (an
+-- error, a secret, no answer; an empty zone name).
+local function ReadPlace()
+    local place = {}
+    if type(IsIndoors) == "function" then
+        local ok, indoors = pcall(IsIndoors)
+        if ok and not Util.IsSecret(indoors) then place.indoors = indoors and true or false end
+    end
+    local zone = Util.ReadGameValues(GetRealZoneText)
+    if type(zone) == "string" and zone ~= "" then place.zone = zone end
+    return place
+end
+
+-- Whether you've moved indoors or outdoors, or changed zone, between two
+-- places (ReadPlace): only what both read can say so; nothing read, or a
+-- place missing, is no change.
+function BuffButton.PlaceChanged(was, now)
+    if type(was) ~= "table" or type(now) ~= "table" then return false end
+    if was.indoors ~= nil and now.indoors ~= nil and was.indoors ~= now.indoors then return true end
+    return was.zone ~= nil and now.zone ~= nil and was.zone ~= now.zone
+end
+
 -- Before the button is armed: the return is dropped once buff mode or the
 -- setting is off, RETURN_SECONDS after your last buff, or on a form change.
 -- Buff mode re-arms the button every few seconds (Refresh), so the button
@@ -399,6 +434,14 @@ local function CheckReturn()
     ObserveForm()
     if formReturn and GetTime() - formReturn.lastBuffAt >= BuffButton.RETURN_SECONDS then
         ForgetForm(BuffButton.RETURN_SECONDS .. " seconds passed")
+    end
+    -- A refusal's reason ("Can only use outside") clears once you move
+    -- indoors or outdoors, or change zone (#510, the owner): the shift back
+    -- is offered fresh, for the key too. It still waits for a press.
+    if formReturn and formReturn.refused and BuffButton.PlaceChanged(formReturn.refusedAt, ReadPlace()) then
+        ns.Diag.Log("buffMode", "%s offered again: you moved indoors or outdoors, or changed zone (was: %s)",
+            formReturn.name, formReturn.refused)
+        formReturn.refused, formReturn.refusedAt = nil, nil
     end
 end
 
@@ -423,7 +466,7 @@ end
 -- The game refused a press of the shift back (why: its words): the key
 -- waits for it from now on, and a click tries again (the owner, #495).
 local function RefuseReturn(press, why)
-    formReturn.refused = why
+    formReturn.refused, formReturn.refusedAt = why, ReadPlace()
     if formReturn.casting == press then formReturn.casting = nil end
 end
 
@@ -555,33 +598,50 @@ end
 -- rules, for the list; an offer that can't be put in a macro safely is left
 -- out of it, as the button could not cast it.
 local function NextOffer()
-    local list = {}
+    -- Collected apart, then put in order: favours, your own and your
+    -- group's (own), passers-by.
+    local favours, own, passers = {}, {}, {}
     local reason, groupReason, everyoneLeft
     -- Nothing owed: skip the spellbook and aura reads entirely.
     if ns.Offers.Count() > 0 then
         local _
-        _, reason, everyoneLeft = ns.Offers.Current(list)
+        _, reason, everyoneLeft = ns.Offers.Current(favours)
     else
         reason = "nobody is owed a buff"
     end
     if ns.BuffMode.LentKey() then
         local _, selfReason
-        _, groupReason = ns.GroupBuffs.Next(list)
+        _, groupReason = ns.GroupBuffs.Next(own)
         -- In a raid split (#70), say what's yours ("Your share: Divine Spirit").
         local share = groupReason and ns.RaidSplit.ShareText(false)
         if share then groupReason = groupReason .. ". " .. share end
         -- Your self-buffs (#44) come after everyone else, so after the group's
         -- offers in the list: the button takes the first.
-        _, selfReason = ns.SelfBuffs.Next(list)
+        _, selfReason = ns.SelfBuffs.Next(own)
         if selfReason then groupReason = (groupReason and (groupReason .. "; ") or "") .. "You: " .. selfReason end
-        -- Your weapon buffs (#45) come last of all.
-        local _, weaponReason = ns.WeaponBuffs.Next(list)
+        -- Your weapon buffs (#45) come last of your own.
+        local _, weaponReason = ns.WeaponBuffs.Next(own)
         if weaponReason then
             groupReason = (groupReason and (groupReason .. "; ") or "") .. "Weapons: " .. weaponReason
         end
         -- Passers-by (#39) come after all of your own: only when nothing
         -- above is offered does the button reach them.
-        ns.PassersBy.Next(list)
+        ns.PassersBy.Next(passers)
+    end
+    -- While the shift back into your form waits (#510, the owner): it comes
+    -- straight after your own buffs and your group's, and before favours and
+    -- passers-by, so a scroll meant to shift you back never buffs a stranger.
+    -- Your own come first in the list then, and the button takes the first
+    -- of them, or else the shift back. While a press of it is being cast,
+    -- nothing at all is offered.
+    local returning = formReturn ~= nil
+    local list, isOwn = {}, {}
+    local order = returning and { own, favours, passers } or { favours, own, passers }
+    for _, part in ipairs(order) do
+        for _, offer in ipairs(part) do
+            list[#list + 1] = offer
+            if part == own then isOwn[offer] = true end
+        end
     end
     -- One offer per player: the first, which is the one the button would
     -- make (a player owed a favour who is also in your group appears in both,
@@ -603,6 +663,7 @@ local function NextOffer()
     end
     offerList = castable
     local pick = castable[1]
+    if returning and pick and not isOwn[pick] then pick = nil end
     if chosenName then
         local chosen
         -- Your group copy and your self-buffs share your name: a clicked row
@@ -615,9 +676,13 @@ local function NextOffer()
         if chosen then pick = chosen else chosenName = nil end
     end
     if pick then return pick end
-    -- Nothing left to buff: the shift back into your form, if one waits (#495).
-    local back = ReturnOffer()
-    if back then return back end
+    -- Nothing of your own left to buff: the shift back into your form, if
+    -- one waits (#495, #510).
+    if returning then
+        local back = ReturnOffer()
+        if back then return back end
+        return nil, "shifting you back into " .. formReturn.name
+    end
     if #list > 0 then return nil, "the name or spell can't be put in a macro safely" end
     if not ns.BuffMode.LentKey() then return nil, reason end
     -- Favours whose players have left don't hold the button (#270).

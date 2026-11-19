@@ -87,6 +87,7 @@ describe("Addon", function()
                 FriendlyForeverGeneralPage = true, FriendlyForeverLedgerPage = true,
                 FriendlyForeverBuffButton = true, ["BINDING_NAME_CLICK FriendlyForeverBuffButton:LeftButton"] = true,
                 BINDING_NAME_FRIENDLYFOREVER_BUFFMODE = true, FriendlyForever_ToggleBuffMode = true,
+                BINDING_HEADER_FRIENDLYFOREVER = true,
             }
             for k in pairs(_G) do
                 if not before[k] then assert.is_true(allowed[k], "unexpected global: " .. tostring(k)) end
