@@ -636,7 +636,8 @@ local function NextOffer()
     -- buffs a stranger. Your own and your group's come first in the list
     -- then, and the button takes the first of them, or else the shift back.
     -- A group member's favour or chat request is your group's: it stays just
-    -- ahead of their other entries, as before, so it is the copy kept and
+    -- ahead of the first entry that names them, aimed at them or covering
+    -- them (a group version, #227), as before, so it is the copy kept and
     -- counted as returned. While a press of the shift back is being cast,
     -- nothing else is offered.
     local returning = formReturn ~= nil
@@ -646,8 +647,16 @@ local function NextOffer()
         if mine then isOwn[offer] = true end
     end
     if returning then
+        -- Everyone an entry names: whom it's aimed at, and whom it covers.
+        local function Named(offer)
+            local names = { offer.name }
+            for _, covered in ipairs(offer.cast and offer.cast.covers or {}) do names[#names + 1] = covered end
+            return names
+        end
         local inGroup, theirFavours = {}, {}
-        for _, offer in ipairs(own) do inGroup[offer.name] = true end
+        for _, offer in ipairs(own) do
+            for _, name in ipairs(Named(offer)) do inGroup[name] = true end
+        end
         for _, offer in ipairs(favours) do
             if inGroup[offer.name] then
                 theirFavours[offer.name] = theirFavours[offer.name] or {}
@@ -655,9 +664,11 @@ local function NextOffer()
             end
         end
         for _, offer in ipairs(own) do
-            -- Before each of their entries: the per-player pass below keeps
-            -- only the first copy.
-            for _, favour in ipairs(theirFavours[offer.name] or {}) do Add(favour, true) end
+            -- Before each entry that names them: the per-player pass below
+            -- keeps only the first copy.
+            for _, name in ipairs(Named(offer)) do
+                for _, favour in ipairs(theirFavours[name] or {}) do Add(favour, true) end
+            end
             Add(offer, true)
         end
         for _, offer in ipairs(favours) do

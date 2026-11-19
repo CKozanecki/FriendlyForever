@@ -183,6 +183,40 @@ describe("The shift back into your form before strangers (#510)", function()
             assert.is_false(ns.Offers.Has("Dan-Reed"), "the favour counts as returned")
         end)
 
+        it("a request from a member a group version covers, aimed at someone else: cast before it, and "
+            .. "counted as returned", function()
+            local GIFT, THORNROOT = 21850, 17026
+            ns = wow.boot({ db = { buffBack = { fastCastInForm = true, requests = true, breathNearWater = false } },
+                before = function(state)
+                    state.class = "DRUID"
+                    state.knownSpells = { [MOTW] = true, [GIFT] = true, [CAT] = true }
+                    state.items = { [THORNROOT] = 5 }
+                    state.form, state.formSpell = wow.FORM_STANCE[CAT], CAT
+                end })
+            button = ns.BuffButton.Frame()
+            slash("buffmode on")
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(0)
+            ns.BuffButton.Refresh()
+            scroll()
+            wearLanded()
+            assert.is_true(ns.BuffButton.ReturnWaiting(), "the buff took you out of Cat Form")
+            wow.setGroup("party", { "Ann-Vale", "Cid-Rock", "Dan-Reed", "Eve-Moss" })
+            wow.state.units.party1.auras = {}
+            wow.wearBuff("party1", MOTW, { source = "player" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(0)
+            wow.whisper("mark pls", "Eve-Moss")
+            assert.is_true(ns.Offers.Has("Eve-Moss"))
+            ns.BuffButton.Refresh()
+            assert.are.equal("Eve-Moss", ns.BuffButton.ArmedOffer().name, "her request first, as before #510")
+            untilForm()
+            assert.is_true(offersForm())
+            assert.is_false(ns.Offers.Has("Eve-Moss"), "the request counts as returned")
+            assert.are.equal(0, ns.Offers.Count())
+        end)
+
         it("while the shift back is being cast (Ghost Wolf takes a moment), nothing is offered, "
             .. "not even a passer-by", function()
             boot({ shaman = true })
