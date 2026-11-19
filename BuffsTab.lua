@@ -609,7 +609,9 @@ local function FillOrder(buffs)
     -- UI simulator does that only 16 links deep, so buff mode's rows and the
     -- places' read stale places there (#491, docs/ui-simulator.md).
     local last = buffs[1] and w.buffRows[#buffs].icon or w.buffOrderHeader
-    local _, above = w.selfBuffs:GetPoint(1)
+    -- No anchor yet on the first fill: the game may refuse GetPoint past the
+    -- last anchor, so it's asked only when there is one (#491's review).
+    local above = w.selfBuffs:GetNumPoints() > 0 and select(2, w.selfBuffs:GetPoint(1)) or nil
     if above ~= last then
         w.selfBuffs:ClearAllPoints()
         w.selfBuffs:SetPoint("TOPLEFT", last, "BOTTOMLEFT", -4, -10)
