@@ -198,6 +198,7 @@ The button's macro is `/cleartarget`, `/targetexact First Surname`, `/cast [help
 - Forever's Moonkin Form spell ID and form number, and three of Classic's cast-refusal texts ([#488](https://github.com/CKozanecki/FriendlyForever/issues/488));
 - when the guild roster's zone fills in for a guildmate, and whether it can be secret ([#487](https://github.com/CKozanecki/FriendlyForever/issues/487));
 - the form facts the return to form relies on ([#498](https://github.com/CKozanecki/FriendlyForever/issues/498));
+- `GetPoint` on the buff button's saved position ([#504](https://github.com/CKozanecki/FriendlyForever/issues/504));
 - how Forever reports a shaman's Ghost Wolf, as a form, a buff or both ([#467](https://github.com/CKozanecki/FriendlyForever/issues/467));
 - the weapon buffs' press, poisons, imbues and forms ([#409](https://github.com/CKozanecki/FriendlyForever/issues/409));
 - the self-buffs' tests 2 to 6, and Battle Shout's reach ([#326](https://github.com/CKozanecki/FriendlyForever/issues/326));
