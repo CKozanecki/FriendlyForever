@@ -169,10 +169,11 @@ describe("Guild messages use the guildmate's zone (#486)", function()
             boot()
             wow.state.guildZoneSecret = true
             wow.fire("GUILD_ROSTER_UPDATE")
-            lines("guildLogin", { "Hi {name}, how is {zone}?", "Two, {name}." })
-            ns.Messages.random = function() return 1 end
+            lines("guildLogin", { "Hi {name}, how is {zone}?", "Hey {name}, {zone} again?", "Two, {name}." })
+            -- The bag gives line 1 now and holds only line 2, a zone line too, after it.
+            ns.db.messageBags.guildLogin = { left = { 2, 1 } }
             online("Thrall")
-            ns.GuildHellos.OnGreet("Varian", "Thrall", 2)
+            ns.GuildHellos.OnGreet("Varian", "Thrall", 3)
             wow.advance(helloWait())
             assert.are.same({ "Two, Thrall." }, wow.sentTo("GUILD"))
         end)
