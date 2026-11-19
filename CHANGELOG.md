@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.5
+
+- **Options pages stop at their last control:** each options page and Buffs tab place scrolls only as far as its last control, plus a little room, instead of on into an empty pane, and a page that fits shows no scroll bar (#482)
+- **Guild greetings name the guildmate's zone:** the guild login greeting and the guild welcome now say where your guildmate is, from the guild roster, not where you are, and their blessings no longer depend on whether you're in a city or out in the wilds. When the roster can't say, the message names no zone at all. Party, raid and thank-you lines still name your zone, and hovering a line on the guild tabs explains it (#486)
+- **Back into your form after fast-cast buffing:** with "Fast-cast buffs in form" on, buff mode remembers the form a buff took you out of: a druid's Cat, Bear or Travel Form, or a shaman's Ghost Wolf. Once nothing is left to buff, the button offers it back, and your next scroll or click shifts you into it. Nothing casts by itself. A fight, a shift by hand, 30 seconds after your last buff, or turning buff mode off drops it. If the game refuses (Travel Form indoors), the button says "click to shift back" with the game's reason. (#495)
+
 ## 1.4.4
 
 - **A refusal about you no longer holds players back.** When the game refuses a buff for a reason about you ("Not enough mana", in combat, a form), the button stays on the same player and shows why, instead of putting them aside for 15 seconds and moving down the list; chat says it at most once every few seconds while you keep pressing. A press in the global cooldown ("Spell is not ready yet") isn't counted as a refusal at all. Only a refusal about the player (out of range, out of sight, too low level, not a valid target) puts them aside, as before. The same goes for your group, passers-by, favours and your self-buffs. (#483)
