@@ -301,7 +301,7 @@ BuffButton.RETURN_SECONDS = 30 -- after your last buff press, the return is drop
 -- A form left this soon after a buff press in it was left for that press.
 BuffButton.LEAVE_SECONDS = BuffButton.ANSWER_WINDOW_SECONDS
 
-local formReturn   -- the form to go back to: { spell, name, icon, lastBuffAt, refused }
+local formReturn   -- the form to go back to: { spell, name, icon, lastBuffAt, refused, casting }
 local leavingForm  -- the form a buff press was made in, until the game takes you out: { spell, name, icon, at }
 local formSeen     -- the form last read: 0 (none), a form's spell, "other", or nil (unread)
 
@@ -404,18 +404,26 @@ end
 
 -- The shift back, once nothing is left to buff. A return stands only while
 -- the last form read was none: any other read has dropped it (ObserveForm,
--- just called by CheckReturn).
+-- just called by CheckReturn). Not while a press of it is being cast (Ghost
+-- Wolf takes a moment): another press then would be refused, or come after
+-- you're back.
 local function ReturnOffer()
-    if not formReturn then return nil end
+    if not formReturn or formReturn.casting then return nil end
     return { name = Util.UnitFullName("player") or "you", self = true,
         formReturn = true, formSpell = formReturn.spell, spell = formReturn.name, icon = formReturn.icon,
         refused = formReturn.refused }
 end
 
+-- Whether the return a press of the shift back was for still stands: once
+-- it's gone (you're back, or it was dropped), its answer says nothing.
+local function ReturnStands(press)
+    return formReturn ~= nil and formReturn.spell == press.formSpell
+end
+
 -- The game refused the shift back (why: its words): the key waits for it
 -- from now on, and a click tries again (the owner, #495).
-local function RefuseReturn(press, why)
-    if formReturn and formReturn.spell == press.formSpell then formReturn.refused = why end
+local function RefuseReturn(why)
+    formReturn.refused, formReturn.casting = why, nil
 end
 
 -- Whether the button is waiting to shift you back (#495): buff mode's
@@ -838,15 +846,20 @@ local function Unanswered(press)
     if not ForgetPress(press) then return end
     press.expired = true
     local who = press.self and "you" or Util.DisplayName(press.name)
-    if press.formReturn and (press.failed or (press.complete and not press.unsure and not press.sent)) then
-        -- The shift back (#495) that got no answer counts as refused.
+    if press.formReturn and not ReturnStands(press) then
+        -- The shift back (#495) whose return is gone: nothing to say.
+        return
+    elseif press.formReturn and (press.failed or (press.complete and not press.unsure and not press.sent)) then
+        -- The shift back that got no answer counts as refused.
         local why = press.failed and "the game gave no reason" or "the game didn't answer"
-        RefuseReturn(press, why)
+        RefuseReturn(why)
         ShowResult("Couldn't shift back into " .. press.spell .. ": " .. why .. ".", true, press.name)
     elseif press.failed then
         ShowResult("Couldn't buff " .. who
             .. " (the game gave no reason).", true, press.name)
     elseif press.sent then
+        -- A shift back with no word: the button offers it again (#495).
+        if press.formReturn then formReturn.casting = nil end
         ShowResult("No word back on " .. press.spell .. " for " .. who .. ". If it didn't land, press again.", nil,
             press.name)
     elseif press.complete and not press.unsure then
@@ -1126,6 +1139,9 @@ function BuffButton.OnSpellcastSent(unit, castTargetName, castGUID, spellId)
     -- Not the button's: a buff cast by hand is remembered too (#37).
     if not press then return ns.Offers.OnCastSent(unit, castTargetName, castGUID, spellId) end
     press.sent = true
+    -- The shift back (#495) is being cast: the button offers it again only
+    -- if this cast doesn't land.
+    if press.formReturn and ReturnStands(press) then formReturn.casting = true end
     press.castGUID = ReadableText(castGUID)
     press.castTargetName = ReadableText(castTargetName)
     WatchForAnswer(press, BuffButton.SENT_ANSWER_SECONDS)
@@ -1301,9 +1317,11 @@ local function ReportRefusal(press, text)
         .. ": " .. Util.StripChat(text)
     if press.formReturn then
         -- The shift back (#495): the key waits from now on, with the game's
-        -- reason; a click tries again. Nobody is held.
+        -- reason; a click tries again. Nobody is held. Once the return is
+        -- gone, its answer says nothing.
+        if not ReturnStands(press) then return BuffButton.Refresh() end
         local why = Util.StripChat(text):gsub("[%s%.!]+$", "")
-        RefuseReturn(press, why)
+        RefuseReturn(why)
         line = "Couldn't shift back into " .. press.spell .. ": " .. Util.StripChat(text)
     elseif press.weapon then
         ns.WeaponBuffs.NoteRefused(press.slot, press.weaponItem, press.weaponKind)
@@ -1350,6 +1368,12 @@ function BuffButton.OnSpellcastFailedQuiet(unit, castGUID, spellId)
     if not press then return end
     ForgetPress(press)
     lastResultText = "the cast of " .. press.spell .. " stopped"
+    -- A shift back stopped (you moved during Ghost Wolf's cast): the button
+    -- offers it again (#495).
+    if press.formReturn and ReturnStands(press) then
+        formReturn.casting = nil
+        BuffButton.Refresh()
+    end
 end
 
 -- The press the game's red error text answers: the newest whose cast just

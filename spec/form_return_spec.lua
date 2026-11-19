@@ -172,6 +172,31 @@ describe("Back into your form after fast-cast buffing (#495)", function()
             end
         end)
 
+        it("Ghost Wolf takes a moment to cast: meanwhile the button offers nothing, so more scrolls cast nothing "
+            .. "and say nothing", function()
+            boot({ shaman = true, wolfForm = 1, wolfAura = true })
+            scrollBuffs()
+            assert.are.equal("/cast !Ghost Wolf", clickMacro())
+            wow.state.castLatency = 2.5            -- standing in for its cast time
+            local printed = #wow.printed
+            scroll()
+            assert.are.equal(1, #formCasts())
+            assert.is_nil(clickMacro(), "nothing offered while it's cast")
+            for _ = 1, 5 do
+                wow.advance(0.4)
+                scroll()
+            end
+            wow.advance(1)
+            assert.is_true(wow.state.ghostWolf, "back in Ghost Wolf")
+            assert.are.equal(1, #formCasts())
+            assert.matches("Back in Ghost Wolf.", wow.lastResult(ns), 1, true)
+            wow.advance(ns.BuffButton.SENT_ANSWER_SECONDS + 1)
+            for i = printed + 1, #wow.printed do
+                assert.is_nil(tostring(wow.printed[i]):find("shift back", 1, true), tostring(wow.printed[i]))
+            end
+            assert.matches("Back in Ghost Wolf.", wow.lastResult(ns), 1, true)
+        end)
+
         it("a trigger's buff mode stays on while the shift back waits, and turns off once you're back", function()
             boot({ form = CAT, noMode = true })
             ns.BuffMode.Set(true, { auto = true, why = "test" })
@@ -230,7 +255,7 @@ describe("Back into your form after fast-cast buffing (#495)", function()
             { "a form spell that is secret but keeps its number type (as the game's secrets do)", function() end,
                 function() _G.issecretvalue = function(v) return v == CAT end end },
             { "a form that isn't a number, though the stance bar names Cat Form", function() end, function()
-                _G.GetShapeshiftForm = function() return "3" end
+                _G.GetShapeshiftForm = function() return wow.state.form ~= 0 and "3" or 0 end
                 _G.GetShapeshiftFormInfo = function() return "icon", true, true, CAT end
             end },
             { "a form info read that fails", function(state) state.formInfoError = true end },
@@ -279,7 +304,8 @@ describe("Back into your form after fast-cast buffing (#495)", function()
         end)
 
         it("Ghost Wolf whose stance bar names another spell than Ghost Wolf: no form is offered", function()
-            boot({ shaman = true, wolfForm = 1, wolfAura = true })
+            -- No form number, so the spell alone must say no.
+            boot({ shaman = true, wolfForm = 1, wolfAura = true, before = function(state) state.formId = false end })
             wow.state.formSpell = CAT
             ns.BuffButton.Refresh()
             scroll()
@@ -535,6 +561,7 @@ describe("Back into your form after fast-cast buffing (#495)", function()
             assert.matches("Couldn't shift back into Travel Form: the game gave no reason.", wow.lastResult(ns), 1,
                 true)
             assert.is_nil(keyMacro())
+            assert.are.equal("/cast !Travel Form", clickMacro(), "offered again, for a click")
         end)
 
         it("a refused shift back doesn't start the 30 seconds again", function()
@@ -554,6 +581,76 @@ describe("Back into your form after fast-cast buffing (#495)", function()
             scroll()
             assert.are.equal(TRAVEL, form())
             assert.matches("Back in Travel Form.", wow.lastResult(ns), 1, true)
+        end)
+
+        it("/friendly status says to click to shift back, with the game's reason", function()
+            ready()
+            wow.state.formRefusals = { [TRAVEL] = "Can only use outside." }
+            scroll()
+            assert.matches("buff mode: on, click to shift back (Can only use outside)", ns.BuffMode.StatusLine(), 1, true)
+        end)
+
+        it("a shift back with no word from the game is offered again", function()
+            ready()
+            wow.state.castLatency = 100
+            scroll()
+            assert.is_nil(clickMacro(), "not while it's being cast")
+            wow.advance(ns.BuffButton.SENT_ANSWER_SECONDS + 1)
+            assert.matches("No word back on Travel Form", wow.lastResult(ns), 1, true)
+            assert.are.equal("/cast !Travel Form", clickMacro())
+        end)
+
+        it("a shift back whose cast stopped (you moved) is offered again at once", function()
+            ready()
+            wow.state.castLatency = 100
+            scroll()
+            wow.fire("UNIT_SPELLCAST_FAILED_QUIET", "player", wow.lastCastGuid, TRAVEL)
+            assert.are.equal("/cast !Travel Form", clickMacro())
+            assert.are.equal(clickMacro(), keyMacro())
+        end)
+
+        it("an answer that comes once the return is gone says nothing", function()
+            -- No answer at all, and you shift by hand meanwhile.
+            ready()
+            local errors = ns.Diag.Counters().luaErrors or 0
+            wow.state.formRefusals = { [TRAVEL] = "" }
+            scroll()
+            wow.setForm(3, CAT)
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+            assert.is_nil(tostring(wow.lastResult(ns)):find("shift back", 1, true))
+            assert.are.equal(errors, ns.Diag.Counters().luaErrors or 0)
+            -- A failure with its reason, after a fight started.
+            ready()
+            wow.state.castLatency = 100
+            scroll()
+            wow.enterCombat()
+            wow.fire("UNIT_SPELLCAST_FAILED", "player", wow.lastCastGuid, TRAVEL)
+            wow.uiError("Interrupted")
+            assert.is_nil(tostring(wow.lastResult(ns)):find("shift back", 1, true))
+            assert.are.equal(errors, ns.Diag.Counters().luaErrors or 0)
+            errors = ns.Diag.Counters().luaErrors or 0
+            wow.advance(ns.BuffButton.SENT_ANSWER_SECONDS + 1)
+            assert.is_nil(tostring(wow.lastResult(ns)):find("shift back", 1, true))
+            assert.are.equal(errors, ns.Diag.Counters().luaErrors or 0)
+        end)
+
+        it("an answer for the shift back into one form doesn't touch a newer return to another", function()
+            ready()                                -- Travel Form waits
+            wow.state.castLatency = 100
+            scroll()                               -- its cast goes out
+            local travelCast = wow.lastCastGuid
+            wow.state.castLatency = 0
+            wow.setForm(3, CAT)                    -- by hand: Travel Form's return is gone
+            wow.advance(0)
+            for _, token in ipairs({ "party1", "party2" }) do wow.state.units[token].auras = {} end
+            ns.BuffButton.Refresh()
+            scroll()                               -- a buff takes you out of Cat Form
+            assert.are.equal(0, form())
+            wow.fire("UNIT_SPELLCAST_FAILED", "player", travelCast, TRAVEL)
+            wow.uiError("Interrupted")
+            scrollBuffs()
+            assert.are.equal("/cast !Cat Form", clickMacro())
+            assert.are.equal(clickMacro(), keyMacro(), "the new return isn't refused")
         end)
 
         it("a press in the global cooldown is no refusal: the next scroll shifts you back", function()

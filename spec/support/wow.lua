@@ -1517,7 +1517,9 @@ M.FORM_STANCE = { [5487] = 1, [9634] = 1, [1066] = 2, [768] = 3, [783] = 4, [248
 -- state.formRefusals[spell ID] = text: the game refuses it at once with that
 -- error (Travel Form indoors, Aquatic Form on land), nothing sent. Otherwise
 -- it is sent (UNIT_SPELLCAST_SENT names no target, or state.formSentTarget,
--- as what the game names for a spell on yourself is unconfirmed), and answered at once (or after state.castLatency): you shift
+-- as what the game names for a spell on yourself is unconfirmed), and answered
+-- at once, or after state.castLatency, which stands for a cast time (Ghost
+-- Wolf's, #495, unconfirmed on Forever): you shift
 -- (UPDATE_SHAPESHIFT_FORM), then UNIT_SPELLCAST_SUCCEEDED; with
 -- state.formAfterSucceeded the other way round, as which comes first on
 -- Forever is unconfirmed. From one form straight into another is not
