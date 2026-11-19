@@ -48,9 +48,9 @@ local widgets = { tabs = {}, edits = {}, steppers = {}, general = {}, ledger = {
 local numberBoxes = {}
 
 -- The message type whose rows show: the tab's, or nil on Favours and Buffs.
+-- (The tab is never a favour's type: SelectType opens Favours for those.)
 local function MessageTab()
-    local info = Config.TYPE_INFO[currentType]
-    if info and not info.favours then return currentType end
+    if Config.TYPE_INFO[currentType] then return currentType end
 end
 
 -- The message type whose lines show: the tab's, or on Favours its lines'
@@ -1641,6 +1641,10 @@ function Options.OpenStart() Options.OpenPage(startPage) end
 -- the top without one. Edges the game can't give yet leave it at the top.
 local function ScrollTo(region)
     local scroll = widgets.scroll
+    -- Read from the top: the offset then can't depend on a scroll already
+    -- set, such as the step before's on the same tab (#491: buff mode's key
+    -- and triggers sit far down the Buffs tab).
+    scroll:SetVerticalScroll(0)
     local top, at = widgets.content:GetTop(), region and region:GetTop()
     local offset = 0
     if type(top) == "number" and type(at) == "number" then offset = math.max(0, top - at - 12) end
