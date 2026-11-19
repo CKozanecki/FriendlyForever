@@ -294,9 +294,10 @@ end
 ------------------------------------------------------------------------
 
 -- With "Fast-cast buffs in form" on, in buff mode, a buff press that takes
--- you out of a form is remembered; once buff mode has nothing left for you
--- to buff, the button offers that form, and one more press (the key or a
--- click) shifts you back. Nothing casts by itself (the owner, #495).
+-- you out of a form is remembered; once your own buffs and your group's
+-- are done, the button offers that form, before strangers' favours and
+-- passers-by (#510), and one more press (the key or a click) shifts you
+-- back. Nothing casts by itself (the owner, #495).
 --
 -- Only these forms (the owner's choice), each by its spell, the fourth
 -- answer of GetShapeshiftFormInfo (Blizzard's stance bar for Forever reads
@@ -445,7 +446,8 @@ local function CheckReturn()
     end
 end
 
--- The shift back, once nothing is left to buff. A return stands only while
+-- The shift back, once your own buffs and your group's are done (#510).
+-- A return stands only while
 -- the last form read was none: any other read has dropped it (ObserveForm,
 -- just called by CheckReturn). Not while a press of it is being cast (Ghost
 -- Wolf takes a moment): another press then would be refused, or come after
@@ -629,20 +631,43 @@ local function NextOffer()
         ns.PassersBy.Next(passers)
     end
     -- While the shift back into your form waits (#510, the owner): it comes
-    -- straight after your own buffs and your group's, and before favours and
-    -- passers-by, so a scroll meant to shift you back never buffs a stranger.
-    -- Your own come first in the list then, and the button takes the first
-    -- of them, or else the shift back. While a press of it is being cast,
-    -- nothing at all is offered.
+    -- straight after your own buffs and your group's, and before strangers'
+    -- favours and passers-by, so a scroll meant to shift you back never
+    -- buffs a stranger. Your own and your group's come first in the list
+    -- then, and the button takes the first of them, or else the shift back.
+    -- A group member's favour or chat request is your group's: it stays just
+    -- ahead of their other entries, as before, so it is the copy kept and
+    -- counted as returned. While a press of the shift back is being cast,
+    -- nothing else is offered.
     local returning = formReturn ~= nil
     local list, isOwn = {}, {}
-    local order = returning and { own, favours, passers } or { favours, own, passers }
-    for _, part in ipairs(order) do
-        for _, offer in ipairs(part) do
-            list[#list + 1] = offer
-            if part == own then isOwn[offer] = true end
-        end
+    local function Add(offer, mine)
+        list[#list + 1] = offer
+        if mine then isOwn[offer] = true end
     end
+    if returning then
+        local inGroup, theirFavours = {}, {}
+        for _, offer in ipairs(own) do inGroup[offer.name] = true end
+        for _, offer in ipairs(favours) do
+            if inGroup[offer.name] then
+                theirFavours[offer.name] = theirFavours[offer.name] or {}
+                table.insert(theirFavours[offer.name], offer)
+            end
+        end
+        for _, offer in ipairs(own) do
+            -- Before each of their entries: the per-player pass below keeps
+            -- only the first copy.
+            for _, favour in ipairs(theirFavours[offer.name] or {}) do Add(favour, true) end
+            Add(offer, true)
+        end
+        for _, offer in ipairs(favours) do
+            if not inGroup[offer.name] then Add(offer) end
+        end
+    else
+        for _, offer in ipairs(favours) do Add(offer) end
+        for _, offer in ipairs(own) do Add(offer) end
+    end
+    for _, offer in ipairs(passers) do Add(offer) end
     -- One offer per player: the first, which is the one the button would
     -- make (a player owed a favour who is also in your group appears in both,
     -- one group cast aimed at a player is listed beside another, #305, and

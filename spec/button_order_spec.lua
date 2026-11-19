@@ -31,7 +31,8 @@ describe("The shift back into your form before strangers (#510)", function()
     -- Water Walking instead.
     local function boot(opts)
         opts = opts or {}
-        local db = { buffBack = { fastCastInForm = true, passersBy = true, breathNearWater = false } }
+        local db = { buffBack = { fastCastInForm = true, passersBy = true, breathNearWater = false,
+            requests = true } }
         ns = wow.boot({ db = db, before = function(state)
             if opts.shaman then
                 state.class = "SHAMAN"
@@ -122,12 +123,64 @@ describe("The shift back into your form before strangers (#510)", function()
             assert.is_true(buffed["Ann-Vale"] and buffed["Cid-Rock"] or false, "your group was buffed before it")
             assert.are.equal("/cast !Cat Form", keyMacro(), "the key presses it")
             assert.matches("shift back into Cat Form", button.subtitle:GetText(), 1, true)
+            -- The list beside it shows who comes after: the stranger's favour,
+            -- then the passer-by.
+            local listed = {}
+            for _, o in ipairs(ns.BuffList.ShownOffers()) do listed[#listed + 1] = o.name end
+            assert.are.same({ "Dan-Reed", "Bob-Stone" }, listed)
             scroll()
             assert.are.equal(CAT, form(), "the scroll shifted you back")
             assert.are.same({}, strangerCasts(from), "no stranger was buffed")
             -- Back in the form, the strangers are offered again.
             ns.BuffButton.Refresh()
             assert.is_truthy(STRANGERS[ns.BuffButton.ArmedOffer().name or ""], "the strangers come after")
+        end)
+
+        -- A group member's favour or request is your group's (the architecture
+        -- review): it is the copy cast, so it counts as returned.
+        local function untilForm()
+            for _ = 1, 8 do
+                if offersForm() then return end
+                scroll()
+                wearLanded()
+                ns.BuffButton.Refresh()
+            end
+        end
+        local function wears(id)
+            for _, l in ipairs(wow.landed) do if l.target == id then return true end end
+            return false
+        end
+
+        it("a group member's chat request while it waits is cast before it, and counted as returned", function()
+            boot({ form = CAT })
+            scroll()
+            wearLanded()
+            assert.are.equal(0, form())
+            local asker = wears("Cid-Rock") and "Ann-Vale" or "Cid-Rock"
+            assert.is_false(wears(asker))
+            wow.whisper("mark pls", asker)
+            assert.is_true(ns.Offers.Has(asker), "the request is owed")
+            ns.BuffButton.Refresh()
+            untilForm()
+            assert.is_true(offersForm())
+            assert.is_true(wears(asker), "they were buffed before the shift back")
+            assert.is_false(ns.Offers.Has(asker), "the request counts as returned")
+            assert.are.equal(0, ns.Offers.Count())
+        end)
+
+        it("a stranger who buffed you and then joined your group: their favour comes before it, and is "
+            .. "returned", function()
+            boot({ form = CAT })
+            scroll()
+            wearLanded()
+            favour("nameplate2", "Dan", "Reed")
+            wow.setGroup("party", { "Ann-Vale", "Cid-Rock", "Dan-Reed" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            ns.BuffButton.Refresh()
+            untilForm()
+            assert.is_true(offersForm())
+            assert.is_true(wears("Dan-Reed"))
+            assert.is_false(ns.Offers.Has("Dan-Reed"), "the favour counts as returned")
         end)
 
         it("while the shift back is being cast (Ghost Wolf takes a moment), nothing is offered, "

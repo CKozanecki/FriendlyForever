@@ -183,7 +183,7 @@ From #466 (18 Nov 2026). Buff mode's key waits for a shaman's spell buffs in Gho
 
 ## Back into your form (#495)
 
-From #495 (19 Nov 2026). With "Fast-cast buffs in form" on, buff mode offers your form back once nothing is left to buff (the owner's decisions on #495).
+From #495 (19 Nov 2026). With "Fast-cast buffs in form" on, buff mode offers your form back once your own buffs and your group's are done, before strangers' favours and passers-by (the owner's decisions on #495 and #510).
 
 - **Which forms:** Cat Form, Bear Form, Dire Bear Form, Travel Form and Ghost Wolf (the owner: cat, bear, travel and Ghost Wolf; Moonkin never leaves its form, #485). Aquatic Form isn't one of them.
 - **Their spells:** Bear 5487 and Dire Bear 9634 are Forever's own: `BEAR_FORM_SPELL_ID` and `DIRE_BEAR_FORM_SPELL_ID` in `Blizzard_ActionBar/Shared/SpellFlyout.lua`, lines 6 and 7 (Gethe/wow-ui-source, `forever` branch, 1.60.1.70959). Cat 768, Travel 783 and Ghost Wolf 2645 are Vanilla's (cmangos/mangos-classic, `sql/base/dbc/original_data/Spell.sql`). No Forever source names those three: **unconfirmed** ([#498](https://github.com/CKozanecki/FriendlyForever/issues/498)).
