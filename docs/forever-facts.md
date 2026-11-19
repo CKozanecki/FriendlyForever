@@ -179,6 +179,19 @@ From #466 (18 Nov 2026). Buff mode's key waits for a shaman's spell buffs in Gho
 - **What the addon does:** for a shaman, Ghost Wolf counts when `GetShapeshiftForm()` gives anything but 0, or when you wear an aura of spell 2645 (`BuffButton.GHOST_WOLF_SPELL`). Either one that can't be read means the key waits, and so does a buff list longer than the 40 buffs the addon reads. So the key waits however the client reports Ghost Wolf, as long as it reports it one of those two ways (#466).
 - **To check in game:** #467 lists the `/dump` lines. If `GetShapeshiftForm()` gives 0 in Ghost Wolf, `SelfBuffs.lua`, which reads only the form, needs the aura check too.
 
+## Back into your form (#495)
+
+From #495 (19 Nov 2026). With "Fast-cast buffs in form" on, buff mode offers your form back once nothing is left to buff (the owner's decisions on #495).
+
+- **Which forms:** Cat Form, Bear Form, Dire Bear Form, Travel Form and Ghost Wolf (the owner: cat, bear, travel and Ghost Wolf; Moonkin never leaves its form, #485). Aquatic Form isn't one of them.
+- **Their spells:** Bear 5487 and Dire Bear 9634 are Forever's own: `BEAR_FORM_SPELL_ID` and `DIRE_BEAR_FORM_SPELL_ID` in `Blizzard_ActionBar/Shared/SpellFlyout.lua`, lines 6 and 7 (Gethe/wow-ui-source, `forever` branch, 1.60.1.70959). Cat 768, Travel 783 and Ghost Wolf 2645 are Vanilla's (cmangos/mangos-classic, `sql/base/dbc/original_data/Spell.sql`). No Forever source names those three: **unconfirmed** ([#498](https://github.com/CKozanecki/FriendlyForever/issues/498)).
+- **Reading the form:** the form's spell is the fourth answer of `GetShapeshiftFormInfo(index)`, as Blizzard's stance bar for Forever reads it (`StanceBar.lua` lines 70 and 155, same branch). `GetShapeshiftFormID` isn't called anywhere on that branch. The addon uses it only to say no: a number it gives that isn't the form's (Cat 1, Travel 3, Bear 5, Dire Bear 8, Ghost Wolf 16, cmangos-classic's 1.12.1 `ShapeshiftForm`) means no return. A shaman's Ghost Wolf also counts by its aura (#466). Anything unreadable means no return.
+- **The macro:** `/cast !<form>`. In Classic, `!` keeps a form, stance or aura on when it is already on. The only sources are Blizzard forum posts: **unconfirmed** (#498). The addon offers the form only while you're in none, so the `!` is a second guard.
+- **Leaving for a buff, or by hand:** the addon can't see why a form ended. A form left within 3 seconds of a buff press made in it counts as left for the press (`BuffButton.LEAVE_SECONDS`). Any other change of form drops the return (#495).
+- **A cast that takes time:** in Classic, Ghost Wolf takes 3 seconds to cast (2 with Improved Ghost Wolf); druid forms are instant. While a shift back is being cast, the button offers nothing, so a scroll meanwhile can't be refused or land once you're back. A cast cut off (you moved) offers it again at once, on `UNIT_SPELLCAST_INTERRUPTED` or `UNIT_SPELLCAST_FAILED_QUIET`. Forever's cast time, and which of the two events a cut-off cast sends, are **unconfirmed** (#498).
+- **The order of the game's events:** when a buff takes you out of a form, the addon expects the form change (`UPDATE_SHAPESHIFT_FORM`) before the buff's `UNIT_SPELLCAST_SUCCEEDED`. In the other order, a trigger's buff mode could turn itself off at that success, before the return is remembered, and no form would be offered. Nothing would cast wrongly. **Unconfirmed** (#498).
+- **A refusal:** the addon shows the game's own words, so their exact text (Travel Form indoors, say) isn't needed (#495).
+
 ## In-game pass of 18 Nov 2026 (1.4.3)
 
 What the owner and the game watcher saw in game on 18 Nov, playing 1.4.3. Each is a fact, with them as the source.
