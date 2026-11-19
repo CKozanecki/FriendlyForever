@@ -2237,8 +2237,6 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
                 -- again, as a player clicking Back and Next would: its
                 -- scroll then runs against a panel already laid out.
                 if type(A_Admin) == "table" and A_Admin.AdvanceTime then pcall(A_Admin.AdvanceTime, 0.1) end
-                walkthrough.back:Click()
-                walkthrough.next:Click()
                 local scroll, content, found
                 for _, child in ipairs({ _G[Pages.PANEL]:GetChildren() }) do
                     if not content and child.GetScrollChild and child:GetScrollChild() then
@@ -2246,6 +2244,13 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
                     end
                 end
                 check(content ~= nil, label .. ": the options panel has no scrolling content")
+                -- Buff mode's rows sit about 22 links down the Buffs tab's
+                -- chain (#491), past the 16 the simulator lays out again: lay
+                -- it out first, so the step's scroll reads the row where it is,
+                -- as the game would (docs/ui-simulator.md).
+                Settle(content)
+                walkthrough.back:Click()
+                walkthrough.next:Click()
                 -- The row hangs deep below the buff rows: lay the chain out
                 -- again, or its place is the one from before the scroll
                 -- (docs/ui-simulator.md).

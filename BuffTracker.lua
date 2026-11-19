@@ -111,6 +111,12 @@ local function SwitchOn(section)
     return type(cfg) == "table" and cfg.enabled == true
 end
 
+-- The thanks section, for reading how to thank: one lost mid-session is
+-- healed first (Config.Section, #166), never indexed as it is (#491's review).
+local function Thanks()
+    return ns.Config.Section("buff")
+end
+
 -- This fires for every cast the client sees (nameplates in a city or a
 -- raid), so the cheap checks come first. Core only registers it while buff
 -- thanks are on; the enabled checks here cover the moment in between.
@@ -166,7 +172,7 @@ function BuffTracker.NoteFor(reason)
 end
 
 local function DescribeBuffs(batch)
-    if ns.db.buff.listBuffNames and #batch.names > 0 then
+    if Thanks().listBuffNames and #batch.names > 0 then
         return Util.JoinList(batch.names)
     end
     return batch.count > 1 and "buffs" or "buff"
@@ -182,7 +188,7 @@ local function AddToBatch(batch, buffKey, spellName)
 end
 
 local function FallbackName()
-    local name = ns.db.buff.unknownName
+    local name = Thanks().unknownName
     if name == nil or name == "" then name = ns.Config.DEFAULTS.buff.unknownName end
     return name
 end
@@ -247,7 +253,7 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId, seenAt)
     end
     -- A favour to return, whether or not a thank-you goes out.
     if not unknown and SwitchOn("buffBack") then ns.Offers.Owe(caster, unit, entry) end
-    local cfg = ns.db.buff
+    local cfg = Thanks()
     if unknown and cfg.fallback == "none" then
         ns.Diag.Log("buff", "not thanking: caster can't be named, and no fallback is chosen")
         ns.Ledger.Settle(entry, false, "couldn't tell who it was; no fallback chosen")
@@ -373,7 +379,7 @@ function BuffTracker.OnWhisperFailed(name)
     local w = recentWhispers[name]
     if not w or GetTime() - w.time > BuffTracker.WHISPER_FAIL_WINDOW then return end
     recentWhispers[name] = nil
-    local entry, fallback = w.batch.entry, ns.db.buff.fallback
+    local entry, fallback = w.batch.entry, Thanks().fallback
     if fallback ~= "say" and fallback ~= "emote" then -- "none", or damaged
         ns.Diag.Log("buff", "whisper to %s failed; no fallback is chosen", name)
         ns.Ledger.Unthank(entry, "the whisper didn't reach them; no fallback chosen")

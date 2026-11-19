@@ -35,9 +35,9 @@ The default lines are written in a Warcraft fantasy voice, and some words in the
 |---|---|
 | `{greeting}` | A greeting in your race's voice: "Well met", "Throm-ka", "Ishnu-alah", "Good to see ye"… |
 | `{thanks}` | A thank-you in your race's voice: "Thank ye kindly", "My thanks"… |
-| `{blessing}` | A parting wish chosen by your race, faction, where you are and the hour: "Elune light your path.", "Safe travels through Westfall.", "Rest well tonight." |
+| `{blessing}` | A parting wish chosen by your race, faction, where you are and the hour: "Elune light your path.", "Safe travels through Westfall.", "Rest well tonight." In guild login and guild welcome lines it's chosen without your place, since the guildmate is usually somewhere else |
 | `{cheer}` | A rallying cry: "For the Horde!", "For Khaz Modan!" |
-| `{zone}` | Where you are ("Elwynn Forest"; "these lands" if the game doesn't say) |
+| `{zone}` | Where you are ("Elwynn Forest"; "these lands" if the game doesn't say). In guild login and guild welcome lines it's where the guildmate is, from the guild roster; when the roster can't say, a line or phrase that needs it isn't used |
 | `{timeofday}` | "morning", "afternoon" or "evening", by the game's clock |
 | `{myclass}` | Your class ("mage") |
 | `{class}` | Their class, when the game says (a guildmate from the roster, or whoever buffed you); otherwise "friend" |
@@ -63,7 +63,7 @@ To find the game folder, open the Battle.net app, choose WoW Forever, then the g
 ## Use
 
 - **Start here:** Esc → Options → AddOns → Friendly Forever → **Start here** shows your main settings and keys as they are, with a link to every other page and the walkthrough. A new install starts switched off with the walkthrough open: it shows and explains the main settings a step at a time, and finishing or skipping it turns Friendly Forever on (so does `/friendly on`). If you already used the addon, it shows once and changes nothing.
-- **Options:** Esc → Options → AddOns → Friendly Forever, or type `/friendly`. The tabs are Guild Login, Guild Join, Party Join, Party Hello / Hello Again, Level Up, **Favours** (thanking players who buff you, offering your buff back, buff requests and passers-by, the buff button and buff mode, and the lines for the thanks and for when your buff lands) and **Buffs** (who gets each buff, the buff order and the buff options), plus the **Start here** page, the **General** page (snooze, chat limit, ignore list, profiles, export and import, bug report), the **Favour Ledger** page and the **Weapon buffs** page (experimental).
+- **Options:** Esc → Options → AddOns → Friendly Forever, or type `/friendly`. The tabs are Guild Login, Guild Join, Party Join, Party Hello / Hello Again, Level Up, **Favours** (thanking players who buff you, offering your buff back, buff requests and passers-by, the buff button, and the lines for the thanks and for when your buff lands) and **Buffs** (who gets each buff, the buff order, the buff options, and buff mode's key, triggers and top-up), plus the **Start here** page, the **General** page (snooze, chat limit, ignore list, profiles, export and import, bug report), the **Favour Ledger** page and the **Weapon buffs** page (experimental).
 - `/friendly find <word>`: which settings match the word, and the page each one is on (`/friendly find snooze`). Where the game's own Settings search can look into addons, it finds them too, through the **Find a setting** page.
 - **Minimap button:** left-click opens options, right-click turns the addon on or off, shift-click (either button) turns buff mode on or off (the tooltip shows whether it's on), drag to move it. Friendly Forever is also in the addon compartment (the addon drop-down by the minimap) where the game has one, and its clicks do the same.
 - **Key binding:** the buff button's key binding in Key Bindings → AddOns presses the buff button.

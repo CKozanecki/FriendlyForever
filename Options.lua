@@ -344,21 +344,33 @@ local function TextBox(parent, width, maxLetters)
     return Noted(box, parent)
 end
 
--- Label, [-] [number] [+], bound to settings()[field] within limits;
--- settings defaults to the tab's section (Current), whose field is read
--- checked (Config.Field, #330). Does nothing on a type without that field
--- (its stepper is hidden there). font: the label's, if not the usual one.
+-- Label, [-] [number] [+], bound to a field within limits. settings is a
+-- section's name ("buff", "buffBack": the Favours and Buffs tabs' own, #491),
+-- a function returning the table that holds the field (the General page's
+-- chat limit, on the file itself), or nil for the tab's section (Current). A
+-- section's field is read checked (Config.Field, #330), so a value damaged
+-- mid-session is never stepped from. Does nothing on a type without that
+-- field (its stepper is hidden there). font: the label's, if not the usual one.
 local function Stepper(parent, text, field, settings, font, step)
     local limits = Config.LIMITS[field]
     step = step or 1
     local s = {}
-    local read = settings and function() return settings()[field] end
-        or function()
+    local read
+    if type(settings) == "string" then
+        local section = settings
+        read = function() return Config.Field(section, field) end
+        settings = function() return Config.Section(section) end
+    elseif settings then
+        local holder = settings
+        read = function() return holder()[field] end
+    else
+        read = function()
             -- A message tab's own stepper: nothing to read on Favours or Buffs.
             local msgType = MessageTab()
             return msgType and Config.Field(msgType, field)
         end
-    settings = settings or Current
+        settings = Current
+    end
 
     local function Set(value)
         if read() == nil then
@@ -849,11 +861,11 @@ function Options.CreateBuffMode(content, anchor)
     offPull:SetPoint("TOPLEFT", widgets.autoOffHeader, "BOTTOMLEFT", -4, -2)
     local offDone = AutoBox("autoOffDone")
     offDone:SetPoint("LEFT", offPull.label, "RIGHT", 16, 0)
-    local offMinutes = Stepper(content, "or after (minutes, 0 = never):", "autoOffMinutes", BuffBack)
+    local offMinutes = Stepper(content, "or after (minutes, 0 = never):", "autoOffMinutes", "buffBack")
     offMinutes.label:SetPoint("TOPLEFT", offPull, "BOTTOMLEFT", 4, -8)
     widgets.steppers.autoOffMinutes = offMinutes
     -- Top-up timing (GroupBuffs.lua, #42): renew a buff before it runs out.
-    local topUp = Stepper(content, "Top up my buffs with under (minutes left, 0 = never):", "topUpMinutes", BuffBack)
+    local topUp = Stepper(content, "Top up my buffs with under (minutes left, 0 = never):", "topUpMinutes", "buffBack")
     topUp.label:SetPoint("TOPLEFT", offMinutes.label, "BOTTOMLEFT", 0, -14)
     widgets.steppers.topUpMinutes = topUp
     Tooltip(topUp.box, Options.TOP_UP_TIP)
@@ -882,10 +894,10 @@ function Options.CreateFavours(content, tabsBottom)
         ns.BuffButton.Refresh()
     end)
     widgets.thankEnabled:SetPoint("TOPLEFT", widgets.thanksHeader, "BOTTOMLEFT", -4, -2)
-    local thankDelay = Stepper(content, "Delay before thanking (seconds):", "delay", Buff)
+    local thankDelay = Stepper(content, "Delay before thanking (seconds):", "delay", "buff")
     thankDelay.label:SetPoint("LEFT", widgets.thankEnabled.label, "RIGHT", 40, 0)
     widgets.steppers.thankDelay = thankDelay
-    local thankRepeat = Stepper(content, "Don't thank the same player again for (seconds):", "repeatCooldown", Buff)
+    local thankRepeat = Stepper(content, "Don't thank the same player again for (seconds):", "repeatCooldown", "buff")
     thankRepeat.label:SetPoint("TOPLEFT", widgets.thankEnabled, "BOTTOMLEFT", 4, -8)
     widgets.steppers.thankRepeat = thankRepeat
 
@@ -946,7 +958,7 @@ function Options.CreateFavours(content, tabsBottom)
     widgets.offerEnabled:SetPoint("TOPLEFT", widgets.returnHeader, "BOTTOMLEFT", -4, -2)
     Tooltip(widgets.offerEnabled, "When someone outside your group buffs you, the buff button offers to buff "
         .. "them back. It casts only when you press it.")
-    local owedMinutes = Stepper(content, "Offer for (minutes):", "owedMinutes", BuffBack)
+    local owedMinutes = Stepper(content, "Offer for (minutes):", "owedMinutes", "buffBack")
     owedMinutes.label:SetPoint("LEFT", widgets.offerEnabled.label, "RIGHT", 40, 0)
     widgets.steppers.owedMinutes = owedMinutes
     widgets.sayLine = Checkbox(content, "Say a line when my buff lands", function(on)
@@ -999,7 +1011,7 @@ function Options.CreateFavours(content, tabsBottom)
     widgets.showInCities:SetPoint("TOPLEFT", widgets.buttonHeader, "BOTTOMLEFT", -4, -2)
     -- Renewing your buff they already wear, partly worn off (Offers.lua, #269).
     local renew = Stepper(content, "Renew my buff when theirs has under (% left, 0 = never):", "renewPercent",
-        BuffBack, nil, 5)
+        "buffBack", nil, 5)
     renew.label:SetPoint("TOPLEFT", widgets.showInCities, "BOTTOMLEFT", 4, -8)
     widgets.steppers.renewPercent = renew
 
@@ -1641,10 +1653,6 @@ function Options.OpenStart() Options.OpenPage(startPage) end
 -- the top without one. Edges the game can't give yet leave it at the top.
 local function ScrollTo(region)
     local scroll = widgets.scroll
-    -- Read from the top: the offset then can't depend on a scroll already
-    -- set, such as the step before's on the same tab (#491: buff mode's key
-    -- and triggers sit far down the Buffs tab).
-    scroll:SetVerticalScroll(0)
     local top, at = widgets.content:GetTop(), region and region:GetTop()
     local offset = 0
     if type(top) == "number" and type(at) == "number" then offset = math.max(0, top - at - 12) end

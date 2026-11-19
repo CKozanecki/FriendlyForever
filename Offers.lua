@@ -357,7 +357,7 @@ function Offers.Owe(name, unit, ledgerEntry)
     ns.Diag.Log("buffBack", "you owe %s a buff", name)
     Changed()
     if not Givable(favour) then
-        ns.Diag.Log("buffBack", "your Buff Back rules leave %s nothing: not offered", name)
+        ns.Diag.Log("buffBack", "your rules for strangers leave %s nothing: not offered", name)
         return
     end
     -- Too low for every buff of yours (#459): owed, but not counted, so

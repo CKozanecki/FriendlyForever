@@ -444,7 +444,7 @@ function BuffsTab.Create(content, tabsBottom)
     w.fastCastInForm = Check("fastCastInForm", "Fast-cast buffs in form", BuffsTab.FAST_CAST_TOOLTIP)
     w.fastCastInForm:SetPoint("TOPLEFT", w.breathNearWater, "BOTTOMLEFT", 0, -2)
     w.groupVersions:SetPoint("TOPLEFT", w.fastCastInForm, "BOTTOMLEFT", 0, -2)
-    local enough = ui.Stepper(area, "...when at least this many are missing the buff:", "groupEnough", BuffBack)
+    local enough = ui.Stepper(area, "...when at least this many are missing the buff:", "groupEnough", "buffBack")
     enough.label:SetPoint("TOPLEFT", w.groupVersions, "BOTTOMLEFT", 4, -8)
     w.steppers.groupEnough = enough
     -- Buff mode's rows, for every place (#491).
