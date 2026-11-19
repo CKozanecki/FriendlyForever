@@ -17,7 +17,7 @@ Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets,
 
 **New in 1.4.5:**
 
-- guild greetings now name your guildmate's zone, from the guild roster, not yours;
+- the zone in guild greetings is now your guildmate's, from the guild roster, not yours;
 - after fast-cast buffing, the button offers your druid form or Ghost Wolf back, and your next press shifts you into it;
 - each options page and Buffs tab place scrolls only as far as its last control.
 
@@ -56,7 +56,7 @@ Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets,
 
 ## Greetings and thanks
 
-- **Guild greetings:** says hello when guildmates log in, and welcomes new members to the guild. Both name the guildmate's zone, from the guild roster.
+- **Guild greetings:** says hello when guildmates log in, and welcomes new members to the guild. When a line names a zone, it's your guildmate's, from the guild roster.
 - **Group welcomes:** says hello when you join a party or raid, with a different line when you rejoin the same group.
 - **Level-up cheers:** congratulates a party member who levels up.
 - **Buff thanks:** thanks whoever buffs you, by name and buff, with a line in /say, a whisper, a /thank emote, or a line and an emote. You choose what happens when it can't reach them.
