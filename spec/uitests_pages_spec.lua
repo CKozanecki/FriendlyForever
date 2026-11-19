@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383, #408, #45
+-- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383, #408, #45, #491
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -64,12 +64,19 @@ describe("the UI simulator's options tabs", function()
         _G.A_Print = nil
     end)
 
+    -- The Buffs tab apart: its shots are its own (BUFFS_SHOTS). Favours (#491)
+    -- has no header naming it, and is the only tab without one.
     it("names every tab the panel has, by its button's text, in the panel's order (white)", function()
-        assert.are.equal(#ns.Config.TYPES, #Pages.TABS)
+        local panelTabs = {}
+        for _, name in ipairs(ns.Options.TABS) do
+            if name ~= ns.Options.BUFFS_TAB then panelTabs[#panelTabs + 1] = name end
+        end
+        assert.are.equal(#panelTabs, #Pages.TABS)
         local names = {}
-        for i, msgType in ipairs(ns.Config.TYPES) do
+        for i, name in ipairs(panelTabs) do
             local tab = Pages.TABS[i]
-            assert.are.equal(ns.Config.TYPE_INFO[msgType].label, tab.label)
+            assert.are.equal(ns.Options.widgets.tabs[name]:GetText(), tab.label)
+            assert.are.equal(name == ns.Options.FAVOURS_TAB, tab.noHeader == true, tab.name .. ": noHeader")
             -- Plain names: they become file names the publish job accepts.
             assert.is_truthy(tab.name:find("^[a-z][a-z-]*$"), tab.name)
             assert.is_nil(names[tab.name], "two tabs called " .. tab.name)
@@ -87,9 +94,11 @@ describe("the UI simulator's options tabs", function()
         local places = {}
         for _, p in ipairs(Pages.BUFFS_PLACES) do places[p.name] = true end
         for _, shot in ipairs(Pages.BUFFS_SHOTS) do
-            local place = shot == "buff-back" and shot or shot:match("^[a-z]+")
-            -- "top" and "passers-by" are the tab at no place of its own (#472, #474).
-            assert.is_true(shot == "top" or shot == "passers-by" or places[place] == true, shot .. " names no place")
+            local place = shot:match("^[a-z]+")
+            -- "top" and "buff-mode" are the tab at no place of its own (#472, #474;
+            -- buff mode's rows show at every place, #491); passers-by moved to the
+            -- Favours tab (#491).
+            assert.is_true(shot == "top" or shot == "buff-mode" or places[place] == true, shot .. " names no place")
         end
     end)
 
@@ -118,7 +127,7 @@ describe("the UI simulator's options tabs", function()
         local children = {}
         for _, stand in ipairs({ { 400 }, { 300 }, { 60 } }) do
             children[#children + 1] = { GetObjectType = function() return "EditBox" end,
-                GetWidth = function() return stand[1] end }
+                GetWidth = function() return stand[1] end, IsShown = function() return false end }
         end
         for _, edit in ipairs(edits) do
             edit.GetObjectType = function() return "EditBox" end
@@ -126,8 +135,19 @@ describe("the UI simulator's options tabs", function()
         end
         content.GetChildren = function() return unpack(children) end
         Pages.OpenTab = function() return content end
-        local box = Pages.ShowMessageHover("buff-thanks")
+        -- The line is scrolled into view before the pointer arrives (#491's testing
+        -- review): on the Favours tab the lines sit below the first view.
+        local shown = {}
+        local realShowFrameAt = Pages.ShowFrameAt
+        Pages.ShowFrameAt = function(c, frame, at)
+            shown[#shown + 1] = { c, frame, at }
+            return realShowFrameAt(c, frame, at)
+        end
+        local box = Pages.ShowMessageHover("favours")
+        Pages.ShowFrameAt = realShowFrameAt
         assert.are.equal(ns.Options.widgets.edits[4], box)
+        assert.is_true(#shown >= 1, "the hovered line is scrolled into view")
+        assert.are.same({ content, box, "top" }, shown[1])
         assert.are.equal(Pages.HOVER_LINE, box:GetText())
         assert.is_truthy(table.concat(_G.GameTooltip.lines, "\n"):find("{greeting} can be:", 1, true))
         Pages.OpenTab = function() return nil end
@@ -185,12 +205,14 @@ describe("the UI simulator's options tabs", function()
     end)
 
     it("answers a tab name it doesn't know with a message, not a Lua error (black)", function()
-        for _, name in ipairs({ "", "Buff Back", "buffBack", "general", 42, true, { "buff-back" } }) do
+        -- The Buff Thanks and Buff Back tabs' names too: one Favours tab now (#491).
+        for _, name in ipairs({ "", "Buff Back", "buffBack", "buff-back", "buff-thanks", "general", 42, true,
+            { "buff-back" } }) do
             local ok, opened, why = pcall(Pages.OpenTab, name)
             assert.is_true(ok, tostring(opened))
             assert.is_nil(opened)
             assert.is_truthy(why:find("no options tab called " .. tostring(name), 1, true), why)
-            assert.is_truthy(why:find("guild-login, buff-thanks", 1, true), why)
+            assert.is_truthy(why:find("guild-login, guild-join", 1, true), why)
             assert.are.equal(why, printed[#printed])
         end
         local ok, opened, why = pcall(Pages.OpenTab, nil)
@@ -203,11 +225,11 @@ describe("the UI simulator's options tabs", function()
     end)
 end)
 
--- The Buff Back tab's buffs by their Forever names (#158), so the tab's
+-- The Buffs tab's buffs by their Forever names (#158), so the tab's
 -- LAYOUT lines measure what a player reads. The simulator has Forever's
 -- spell data since #160 and names them itself; pages.lua lists the names
 -- the tab must show and checks the client gives them.
-describe("the UI simulator's Buff Back names", function()
+describe("the UI simulator's buff names", function()
     local ns, Pages, original
 
     before_each(function()
@@ -325,28 +347,35 @@ describe("the UI simulator's Buff Back names", function()
     it("no longer answers for the client: showing a tab leaves its GetSpellName alone (white)", function()
         assert.is_nil(Pages.NameBuffs)
         assert.is_nil(Pages.WithBuffNames)
-        Pages.ShowTab("buff-back")
+        Pages.ShowTab("favours")
         assert.are.equal(original, _G.C_Spell.GetSpellName)
     end)
 
     -- The workflow's staging commands, run as it runs them (comments dropped)
-    -- in a scratch folder, and its shoot line read without comments: the
-    -- lower script is written next to the tab scripts, each of which is
-    -- left as it was, and the lower shot is taken in shoot_all, so at
-    -- both sizes.
-    it("stages the lower and middle scripts beside the tab scripts, leaving each of theirs as it was, and shoots them at both sizes (white and black, #254, #383)", function()
+    -- in a scratch folder, and its shoot lines read without comments: the
+    -- Favours tab's middle script and its lines' scripts (#491, in place of
+    -- the Buff Back tab's lower and middle ones) are written next to the tab
+    -- scripts, each of which is left as it was, and their shots are taken in
+    -- shoot_all, so at both sizes.
+    it("stages the middle and lines scripts beside the tab scripts, leaving each of theirs as it was, and shoots them at both sizes (white and black, #254, #383, #491)", function()
         local workflow = wow.readFile(".github/workflows/ui-sim.yml"):gsub("\n%s*#[^\n]*", "")
         local tabs = workflow:match("\n%s*OPTIONS_TABS: ([^\n]-)%s*\n")
         local loop = workflow:match("\n(%s*for tab in %$OPTIONS_TABS; do\n.-\n%s*done)\n")
-        local lower = workflow:match("\n(%s*{ cat uitests/pages%.lua; printf '\\nFriendlyForeverUIPages%.ShowTabLower%(\"buff%-back\"%)\\n'; } \\\n%s*> \"%$states/tab%-buff%-back%-lower%.lua\")\n")
-        local middle = workflow:match("\n(%s*{ cat uitests/pages%.lua; printf '\\nFriendlyForeverUIPages%.ShowTabMiddle%(\"buff%-back\"%)\\n'; } \\\n%s*> \"%$states/tab%-buff%-back%-middle%.lua\")\n")
-        assert.is_truthy(tabs and loop and lower and middle, "the tab list, the tab loop or the lower or middle script's command is missing")
+        local middle = workflow:match("\n(%s*{ cat uitests/pages%.lua; printf '\\nFriendlyForeverUIPages%.ShowTabMiddle%(\"favours\"%)\\n'; } \\\n%s*> \"%$states/tab%-favours%-middle%.lua\")\n")
+        local lineNames = workflow:match("\n%s*FAVOURS_LINES: ([^\n]-)%s*\n")
+        local linesLoop = workflow:match("\n(%s*for lines in %$FAVOURS_LINES; do\n.-\n%s*done)\n")
+        assert.is_truthy(tabs and loop and middle and lineNames and linesLoop,
+            "the tab list, the tab loop, the middle script's command or the lines' list or loop is missing")
+        assert.is_falsy(linesLoop:find("shoot", 1, true), "found the shoot loop, not the one writing the scripts")
+        local names = {}
+        for i, lines in ipairs(Pages.FAVOURS_LINES) do names[i] = lines.name end
+        assert.are.equal(table.concat(names, " "), lineNames)
         local dir = os.tmpname()
         os.remove(dir)
         assert.is_true(os.execute("mkdir -p '" .. dir .. "'") == 0)
         local f = assert(io.open(dir .. "/run.sh", "w"))
         f:write("set -eu\nstates='" .. dir .. "/out'\nmkdir -p \"$states\"\nOPTIONS_TABS='" .. tabs .. "'\n"
-            .. loop .. "\n" .. lower .. "\n" .. middle .. "\n")
+            .. "FAVOURS_LINES='" .. lineNames .. "'\n" .. loop .. "\n" .. middle .. "\n" .. linesLoop .. "\n")
         f:close()
         local ok = os.execute("bash '" .. dir .. "/run.sh'")
         local pages = wow.readFile("uitests/pages.lua")
@@ -357,34 +386,43 @@ describe("the UI simulator's Buff Back names", function()
             if file then file:close() end
             return text
         end
-        local lowerText = written("tab-buff-back-lower.lua")
-        local middleText = written("tab-buff-back-middle.lua")
-        local backText = written("tab-buff-back.lua")
+        local middleText = written("tab-favours-middle.lua")
+        local favoursText = written("tab-favours.lua")
+        local linesText = {}
+        for _, name in ipairs(names) do linesText[name] = written("favours-lines-" .. name .. ".lua") end
         os.execute("rm -rf '" .. dir .. "'")
         assert.are.equal(0, ok)
-        assert.are.equal(#Pages.TABS + 2, select(2, listed:gsub("[^\n]+", "")), "files written: " .. listed)
-        assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowTabLower("buff-back")\n', lowerText)
-        assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowTabMiddle("buff-back")\n', middleText)
-        assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowTab("buff-back")\n', backText)
-        -- Inside shoot_all, so both passes (and their suffixes) take it.
+        assert.are.equal(#Pages.TABS + 1 + #names, select(2, listed:gsub("[^\n]+", "")), "files written: " .. listed)
+        assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowTabMiddle("favours")\n', middleText)
+        assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowTab("favours")\n', favoursText)
+        for _, name in ipairs(names) do
+            assert.are.equal(pages .. '\nFriendlyForeverUIPages.ShowFavoursLines("' .. name .. '")\n', linesText[name],
+                name)
+        end
+        -- Inside shoot_all, so both passes (and their suffixes) take them.
         local all = workflow:match("shoot_all%(%) {\n(.-)\n%s*}\n%s*for size in")
-        assert.is_truthy(all and all:find('\n%s*shoot options%-buff%-back%-lower %-%-exec%-lua "@/shot%-lua/tab%-buff%-back%-lower%.lua"\n'))
-        assert.is_truthy(all:find('\n%s*shoot options%-buff%-back%-middle %-%-exec%-lua "@/shot%-lua/tab%-buff%-back%-middle%.lua"\n'),
+        assert.is_truthy(all and all:find('\n%s*shoot options%-favours%-middle %-%-exec%-lua "@/shot%-lua/tab%-favours%-middle%.lua"\n'),
             "the middle shot isn't taken in shoot_all (#383)")
+        assert.is_truthy(all:find('\n%s*for lines in $FAVOURS_LINES; do\n%s*shoot "options%-favours%-lines%-$lines" '
+            .. '%-%-exec%-lua "@/shot%-lua/favours%-lines%-$lines%.lua"\n', 1), "the lines' shots aren't taken in shoot_all")
     end)
 
     it("answers no panel to scroll with a message, not a Lua error (black, #254, #383)", function()
         _G.FriendlyForeverOptionsPanel = nil
-        for _, row in ipairs({ Pages.LOWER_ROW, Pages.MIDDLE_ROW }) do
-            local ok, undo, why = pcall(Pages.ScrollToRow, row)
-            assert.is_true(ok)
-            assert.is_nil(undo)
-            assert.is_truthy(why)
-        end
+        assert.is_string(Pages.MIDDLE_ROW)
+        local ok, undo, why = pcall(Pages.ScrollToRow, Pages.MIDDLE_ROW)
+        assert.is_true(ok)
+        assert.is_nil(undo)
+        assert.is_truthy(why)
+        -- The lines' shots (#491) too.
+        local shown
+        ok, shown = pcall(Pages.ShowFavoursLines, Pages.FAVOURS_LINES[1].name)
+        assert.is_true(ok, tostring(shown))
+        assert.is_nil(shown)
     end)
 
     it("leaves the names in place for the screenshot taken after ShowTab (white)", function()
-        Pages.ShowTab("buff-back")
+        Pages.ShowTab("favours")
         assert.are.equal("Blessing of Wisdom", _G.C_Spell.GetSpellName(19742))
     end)
 end)
@@ -424,8 +462,8 @@ describe("the UI simulator's walkthrough steps", function()
                 assert.are.equal("What's new: " .. step.title, walkthrough.title:GetText())
             end
         end
-        assert.are.equal(2, whatsNew, "the What's new steps shot: buff requests and the Buffs tab")
-        assert.are.equal(ns.Options.BUFFS_TAB, ns.Options.CurrentType(), "the last step shot is on the Buffs tab")
+        assert.are.equal(3, whatsNew, "the What's new steps shot: buff requests, the Buffs tab and Favours")
+        assert.are.equal(ns.Options.FAVOURS_TAB, ns.Options.CurrentType(), "the last step shot is on the Favours tab")
     end)
 
     -- #362: the buff requests step, as a returning player who finished the
@@ -471,12 +509,13 @@ describe("the UI simulator's walkthrough steps", function()
     end)
 
     -- The simulated client has no child lists, layout or ranges: this gives
-    -- the options panel a scroll frame holding the real buff requests check
-    -- box, 700 px down a 2000 px child, in a 600 px view.
+    -- the options panel a scroll frame holding the real "Show the button in
+    -- capital cities" check box (the middle shot's row on the Favours tab,
+    -- #491), 700 px down a 2000 px child, in a 600 px view.
     local function Layout()
         local scroll = ns.Options.widgets.scroll
         local content = ns.Options.widgets.content
-        local row = ns.Options.widgets.buffRequests
+        local row = ns.Options.widgets.showInCities
         scroll.scrollRange = 1500
         scroll.GetHeight = function() return 600 end
         scroll.GetScrollChild = function() return content end
@@ -489,23 +528,23 @@ describe("the UI simulator's walkthrough steps", function()
         return scroll, row
     end
 
-    it("scrolls the Buff Back tab to its buff requests row for the lower shot, and the undo puts the scroll back (white, #254)", function()
-        ns.Options.OpenTab("buffBack")
+    it("scrolls the Favours tab to its middle row, and the undo puts the scroll back (white, #254, #491)", function()
+        ns.Options.OpenTab(ns.Options.FAVOURS_TAB)
         local scroll = Layout()
         scroll:SetVerticalScroll(40)
-        local undo = Pages.ScrollToRow(Pages.LOWER_ROW)
+        local undo = Pages.ScrollToRow(Pages.MIDDLE_ROW)
         assert.are.equal(700 - 12, scroll:GetVerticalScroll())
         undo()
         assert.are.equal(40, scroll:GetVerticalScroll())
     end)
 
     it("doesn't scroll again on the next frame once the scroll was put back (white, #254)", function()
-        ns.Options.OpenTab("buffBack")
+        ns.Options.OpenTab(ns.Options.FAVOURS_TAB)
         local scroll = Layout()
         local later = {}
         _G.C_Timer = { After = function(_, fn) later[#later + 1] = fn end }
         scroll:SetVerticalScroll(40)
-        local undo = Pages.ScrollToRow(Pages.LOWER_ROW)
+        local undo = Pages.ScrollToRow(Pages.MIDDLE_ROW)
         undo()
         for _, fn in ipairs(later) do fn() end
         assert.are.equal(#later > 0, true, "the frame-later scroll was queued")
@@ -513,18 +552,18 @@ describe("the UI simulator's walkthrough steps", function()
     end)
 
     it("keeps the offset inside the child less the view, and inside the range (black, #254)", function()
-        ns.Options.OpenTab("buffBack")
+        ns.Options.OpenTab(ns.Options.FAVOURS_TAB)
         local scroll, row = Layout()
         row.GetTop = function() return 1000 - 1900 end
-        Pages.ScrollToRow(Pages.LOWER_ROW)
+        Pages.ScrollToRow(Pages.MIDDLE_ROW)
         assert.are.equal(1400, scroll:GetVerticalScroll(), "the child's 2000 less the view's 600")
         scroll.scrollRange = 900
-        Pages.ScrollToRow(Pages.LOWER_ROW)
+        Pages.ScrollToRow(Pages.MIDDLE_ROW)
         assert.are.equal(900, scroll:GetVerticalScroll(), "the range, where it is smaller")
     end)
 
     it("names no row it can't find, with a message and no Lua error (black, #254)", function()
-        ns.Options.OpenTab("buffBack")
+        ns.Options.OpenTab(ns.Options.FAVOURS_TAB)
         Layout()
         local ok, undo, why = pcall(Pages.ScrollToRow, "No such row")
         assert.is_true(ok)
@@ -533,38 +572,41 @@ describe("the UI simulator's walkthrough steps", function()
         assert.are.equal(why, printed[#printed])
     end)
 
-    -- #383: the middle shot starts at buff mode's first turn-on switch, above
-    -- the lower shot's row (#408: the buff rows moved to the Buffs tab).
-    it("scrolls the Buff Back tab to its turn-on switches for the middle shot, above the lower shot's row (white, #383)", function()
-        ns.Options.OpenTab("buffBack")
+    -- #383, #491: the middle shot starts at the buff button's first row on the
+    -- Favours tab, below the first view's rows (passers-by, #493), not at any
+    -- row above it.
+    it("scrolls the Favours tab to the buff button's rows for the middle shot, past the first view's rows (white, #383, #491)", function()
+        ns.Options.OpenTab(ns.Options.FAVOURS_TAB)
         local scroll = Layout()
         local content = ns.Options.widgets.content
-        local selfRow, lowerRow = ns.Options.widgets.auto.autoOnJoin, ns.Options.widgets.buffRequests
-        assert.is_truthy(selfRow.label:GetText():find(Pages.MIDDLE_ROW, 1, true) == 1, selfRow.label:GetText())
-        selfRow.GetTop = function() return 1000 - 400 end
-        content.GetChildren = function() return selfRow, lowerRow end
-        local undo = Pages.ShowTabMiddle("buff-back")
+        local middleRow, firstViewRow = ns.Options.widgets.showInCities, ns.Options.widgets.passersBy
+        assert.is_truthy(middleRow.label:GetText():find(Pages.MIDDLE_ROW, 1, true) == 1, middleRow.label:GetText())
+        firstViewRow.GetTop = function() return 1000 - 400 end
+        content.GetChildren = function() return firstViewRow, middleRow end
+        local undo = Pages.ShowTabMiddle("favours")
         assert.is_function(undo)
-        assert.are.equal(400 - 12, scroll:GetVerticalScroll())
-        undo()
-        Pages.ShowTabLower("buff-back")
         assert.are.equal(700 - 12, scroll:GetVerticalScroll())
+        undo()
+        assert.are.equal(0, scroll:GetVerticalScroll(), "put back")
     end)
 
-    it("answers a tab with no turn-on row with a message, not a Lua error, for the middle shot (black, #383)", function()
-        ns.Options.OpenTab("buffBack")
+    it("answers a tab with no middle row with a message, not a Lua error, for the middle shot (black, #383)", function()
+        ns.Options.OpenTab(ns.Options.FAVOURS_TAB)
         Layout()
-        local ok, undo, why = pcall(Pages.ShowTabMiddle, "buff-back")
+        local content = ns.Options.widgets.content
+        local other = ns.Options.widgets.buffRequests
+        content.GetChildren = function() return other end
+        local ok, undo, why = pcall(Pages.ShowTabMiddle, "favours")
         assert.is_true(ok)
         assert.is_nil(undo)
-        assert.are.equal("the options panel has no row \"with my group\" to scroll to", why)
+        assert.are.equal("the options panel has no row \"Show the button in capital cities\" to scroll to", why)
         assert.are.equal(why, printed[#printed])
     end)
 
-    it("shows the lower Buff Back tab from the tab's own script, with the buffs named (white, #254)", function()
-        ns.Options.OpenTab("buffBack")
+    it("shows the middle Favours tab from the tab's own script, with the buffs named (white, #254, #491)", function()
+        ns.Options.OpenTab(ns.Options.FAVOURS_TAB)
         local scroll = Layout()
-        local undo = Pages.ShowTabLower("buff-back")
+        local undo = Pages.ShowTabMiddle("favours")
         assert.is_function(undo)
         assert.are.equal(700 - 12, scroll:GetVerticalScroll())
         assert.are.equal("Blessing of Wisdom", _G.C_Spell.GetSpellName(19742))
@@ -577,7 +619,7 @@ describe("the UI simulator's walkthrough steps", function()
         assert.is_false(ns.Walkthrough.Frame():IsShown())
         assert.is_true(ns.db.enabled, "skipping a first run turns the addon on, as for a player")
         ns.Walkthrough.Start()
-        Pages.OpenTab("buff-back")
+        Pages.OpenTab("favours")
         assert.is_false(ns.Walkthrough.Frame():IsShown())
         assert.are.same({ seen = ns.Config.WALKTHROUGH_VERSION, firstRun = false }, ns.db.walkthrough)
         assert.are.equal(ns.Options.StartPage(), Pages.Open("start"))

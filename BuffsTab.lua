@@ -3,8 +3,11 @@
 --
 -- At the top, for every place: your buffs in the order they're offered,
 -- each with its icon, Up and Down, and Never offer; then the self-buff,
--- water-breathing, group-version and passers-by options (#455). Below, a sub-tab for each place
--- (BuffRules.PLACES): Buff Back (strangers who buff you), Party, Raid and
+-- water-breathing, form and group-version options (passers-by moved to the
+-- Favours tab, #491), and buff mode's key, when it turns on and off by
+-- itself and top-up (from the Buff Back tab, #491; made by Options.lua's
+-- CreateBuffMode). Below, a sub-tab for each place
+-- (BuffRules.PLACES): Strangers (who buff you), Party, Raid and
 -- PvP (battlegrounds and arenas), each with a row per buff for others: its
 -- icon, its name, and a labelled "who gets it" button whose list ticks
 -- Everyone, a role (not for strangers) or classes, or turns it Off; and, but
@@ -20,20 +23,21 @@ local _, ns = ...
 local BuffsTab = {}
 ns.BuffsTab = BuffsTab
 
-BuffsTab.PLACE_TEXT = { strangers = "Buff Back", party = "Party", raid = "Raid", pvp = "PvP" }
+BuffsTab.PLACE_TEXT = { strangers = "Strangers", party = "Party", raid = "Raid", pvp = "PvP" }
 BuffsTab.PLACE_HELP = {
-    strangers = "Buff Back: strangers who buff you. A stranger's role can't be seen, so it's by class. "
-        .. "Buff back's line, timing and messages are on the Buff Back tab.",
+    strangers = "Strangers: players outside your group who buff you. A stranger's role can't be seen, so it's "
+        .. "by class. Passers-by get these rules too. Returning the favour, its line and timing are on the "
+        .. "Favours tab.",
     party = "Party: buff mode in a party, and on yourself when you're not in a group.",
     raid = "Raid: buff mode in a raid group.",
     pvp = "PvP: battlegrounds (before the gates open) and arenas. Every buff is off here unless you turn it on.",
 }
 BuffsTab.ROLE_TEXT = { tanks = "Tanks", healers = "Healers", damage = "Damage" }
-BuffsTab.INTRO = "Who gets your buffs, and where. These rules are for buff back (strangers who buff you) "
-    .. "and for buff mode (your party, raid, battleground or arena). Buff mode's key and when it turns on "
-    .. "are on the Buff Back tab."
+BuffsTab.INTRO = "Who gets your buffs, and where. These rules are for strangers (who buff you, or pass by) "
+    .. "and for buff mode (your party, raid, battleground or arena), whose key and switches are below. "
+    .. "Thanks, returning favours and passers-by are on the Favours tab."
 BuffsTab.CHOICE_TEXT = "Your buff rules haven't moved to the new places yet. Until you choose, buff mode "
-    .. "and buff back work exactly as before."
+    .. "and returning favours work exactly as before."
 BuffsTab.KEEP_NOTE = "copies your rules to Party and Raid; PvP starts off"
 BuffsTab.NEW_NOTE = "recommended if you never changed them, or aren't sure"
 -- A Names button's tooltip while pending.
@@ -41,11 +45,14 @@ BuffsTab.PENDING_NAMES = "Your Always and Never names for this buff, in force ev
     .. "\"Keep my settings\" carries them to Party and Raid; \"Use the new defaults\" starts without them."
 -- The longest summary the who-gets button shows; a longer one is counted.
 BuffsTab.SUMMARY_LETTERS = 24
--- The Buff Back settings this tab shows. The Buff Back tab's Reset leaves
--- them as they are (Core.lua's ns.ResetType): it's for that tab's lines.
+-- The buffBack settings this tab shows. The Favours tab's Reset leaves
+-- them as they are (Core.lua's ns.ResetType): it's for that tab's settings.
+-- Passers-by is the Favours tab's (#491), so its Reset resets it; buff
+-- mode's key, triggers and top-up are this tab's (#491), so it doesn't.
 BuffsTab.FIELDS = { "buffOrder", "neverOffer", "whoGets", "whoChoice", "whoStrangers", "whoParty", "whoRaid",
     "whoPvP", "selfBuffs", "soloOwnBuffs", "groupVersions", "groupEnough", "raidSplit", "bgPrepBuff",
-    "breathNearWater", "passersBy", "fastCastInForm" }
+    "breathNearWater", "fastCastInForm", "buffModeKey", "autoOnJoin", "autoOnDeath", "autoOnBuffed",
+    "autoOnMissing", "autoOnCampfire", "autoOffPull", "autoOffDone", "autoOffMinutes", "topUpMinutes" }
 -- "Fast-cast buffs in form" (#452, the owner's words; Ghost Wolf too, #466).
 BuffsTab.FAST_CAST_TOOLTIP = "For druid forms and Ghost Wolf. In a form, buff mode's key doesn't cast your buffs, "
     .. "so scrolling never takes you out of the form; a click on the button still does. On: the key casts them "
@@ -437,30 +444,11 @@ function BuffsTab.Create(content, tabsBottom)
     w.fastCastInForm = Check("fastCastInForm", "Fast-cast buffs in form", BuffsTab.FAST_CAST_TOOLTIP)
     w.fastCastInForm:SetPoint("TOPLEFT", w.breathNearWater, "BOTTOMLEFT", 0, -2)
     w.groupVersions:SetPoint("TOPLEFT", w.fastCastInForm, "BOTTOMLEFT", 0, -2)
-    local enough = ui.Stepper(area, "...when at least this many are missing the buff:", "groupEnough", BuffBack)
+    local enough = ui.Stepper(area, "...when at least this many are missing the buff:", "groupEnough", "buffBack")
     enough.label:SetPoint("TOPLEFT", w.groupVersions, "BOTTOMLEFT", 4, -8)
     w.steppers.groupEnough = enough
-
-    -- Passers-by (#39, #455): the switch, what it does, and the nameplates it
-    -- needs. It decides whether buff mode ever looks at strangers, whichever
-    -- place you're on, so it sits with the other switches above the places.
-    w.passersBy = Check("passersBy", "Also offer my buffs to passers-by in buff mode", ns.Options.PASSERS_BY_TIP)
-    w.passersBy:SetPoint("TOPLEFT", enough.label, "BOTTOMLEFT", -4, -10)
-    -- Pinned on both sides, so it wraps inside the page at any width, as the
-    -- place's help below does.
-    w.passersByHelp = ui.Label(area, ns.Options.PASSERS_BY_HELP, "GameFontHighlightSmall")
-    w.passersByHelp:SetPoint("TOPLEFT", w.passersBy, "BOTTOMLEFT", 4, -4)
-    w.passersByHelp:SetPoint("RIGHT", area, "RIGHT", -24, 0)
-    w.passersByHelp:SetWordWrap(true)
-    w.passersByNameplates = ui.Label(area, ns.Colours.Text("warn", "Friendly player nameplates are off, "
-        .. "so nobody nearby can be seen."), "GameFontHighlightSmall")
-    w.passersByNameplates:SetPoint("TOPLEFT", w.passersByHelp, "BOTTOMLEFT", 0, -6)
-    w.passersByShow = ui.Button(area, "Show friendly player names", 200, function()
-        local ok, reason = ns.Nameplates.EnableFriendlyNames()
-        ns.Print(ok and "friendly player names are now shown (names only)." or ("couldn't turn them on: " .. reason))
-        ns.Options.Refresh()
-    end)
-    w.passersByShow:SetPoint("LEFT", w.passersByNameplates, "RIGHT", 10, 0)
+    -- Buff mode's rows, for every place (#491).
+    local buffModeLast = ns.Options.CreateBuffMode(area, enough.label)
 
     -- The places' sub-tabs.
     w.placeTabs = {}
@@ -468,7 +456,7 @@ function BuffsTab.Create(content, tabsBottom)
     for i, p in ipairs(ns.BuffRules.PLACES) do
         local tab = ui.Button(area, BuffsTab.PLACE_TEXT[p], 90, function() BuffsTab.SelectPlace(p) end)
         if i == 1 then
-            tab:SetPoint("TOPLEFT", w.passersByHelp, "BOTTOMLEFT", 0, -18)
+            tab:SetPoint("TOPLEFT", buffModeLast, "BOTTOMLEFT", 0, -18)
         else
             tab:SetPoint("LEFT", prev, "RIGHT", 6, 0)
         end
@@ -539,7 +527,9 @@ function BuffsTab.Create(content, tabsBottom)
     who.below:Hide()
 
     -- Each place's own options.
-    w.openBuffBack = ui.Button(area, "Open the Buff Back tab", 170, function() ns.Options.SelectType("buffBack") end)
+    w.openFavours = ui.Button(area, "Open the Favours tab", 170, function()
+        ns.Options.SelectType(ns.Options.FAVOURS_TAB)
+    end)
     w.soloOwnBuffs = Check("soloOwnBuffs", "Offer my own buffs when I'm not in a group",
         ns.Options.SOLO_OWN_BUFFS_TOOLTIP)
     w.raidSplit = Check("raidSplit", "Share buffs with other copies in raids", ns.Options.RAID_SPLIT_TOOLTIP)
@@ -614,24 +604,23 @@ local function FillOrder(buffs)
             row.never:SetChecked(ns.BuffData.NeverOffered(buff))
         end
     end
+    -- Moved only when the row above it changes (the class read differently):
+    -- a needless move would lay every row below it out again on each fill.
     local last = buffs[1] and w.buffRows[#buffs].icon or w.buffOrderHeader
-    w.selfBuffs:ClearAllPoints()
-    w.selfBuffs:SetPoint("TOPLEFT", last, "BOTTOMLEFT", -4, -10)
+    -- No anchor yet on the first fill: the game may refuse GetPoint past the
+    -- last anchor, so it's asked only when there is one (#491's review).
+    local above = w.selfBuffs:GetNumPoints() > 0 and select(2, w.selfBuffs:GetPoint(1)) or nil
+    if above ~= last then
+        w.selfBuffs:ClearAllPoints()
+        w.selfBuffs:SetPoint("TOPLEFT", last, "BOTTOMLEFT", -4, -10)
+    end
     local b = ns.db.buffBack
     w.selfBuffs:SetChecked(b.selfBuffs == true)
     w.breathNearWater:SetChecked(b.breathNearWater == true)
     w.fastCastInForm:SetChecked(b.fastCastInForm == true)
     w.groupVersions:SetChecked(b.groupVersions == true)
     UI().FillBox(w.steppers.groupEnough.box, tostring(b.groupEnough))
-    w.passersBy:SetChecked(b.passersBy == true)
-    -- Without friendly nameplates nobody nearby shows (Nameplates.lua): say
-    -- so, and the places' tabs move down under the line.
-    local blind = ns.Nameplates.FriendlyShown() == false
-    w.passersByNameplates:SetShown(blind)
-    w.passersByShow:SetShown(blind)
-    local first = w.placeTabs[ns.BuffRules.PLACES[1]]
-    first:ClearAllPoints()
-    first:SetPoint("TOPLEFT", blind and w.passersByNameplates or w.passersByHelp, "BOTTOMLEFT", 0, blind and -12 or -18)
+    ns.Options.FillBuffMode()
 end
 
 -- The names boxes' labels sit this far in from their row's icon.
@@ -715,7 +704,7 @@ local function FillOptions(last)
         frame:SetPoint("TOPLEFT", last, "BOTTOMLEFT", x or 0, y or -10)
         last = frame
     end
-    Below(w.openBuffBack, place == "strangers", 0, -12)
+    Below(w.openFavours, place == "strangers", 0, -12)
     Below(w.soloOwnBuffs, place == "party", -4)
     if place == "party" then w.soloOwnBuffs:SetChecked(b.soloOwnBuffs == true) end
     Below(w.raidSplit, place == "raid", -4)

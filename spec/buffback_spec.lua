@@ -1,4 +1,4 @@
--- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353, #387, #369, #419, #459, #453
+-- Spec: #27, #57, #64, #76, #84, #35, #133, #154, #208, #209, #270, #281, #44, #40, #353, #387, #369, #419, #459, #453, #491
 -- Buff back: favours owed, the buff chosen for each, and the secure button
 -- that casts it when pressed.
 local wow = require("spec.support.wow")
@@ -106,14 +106,15 @@ describe("Buff back", function()
             assert.is_false(button:IsShown())
         end)
 
-        it("empties as soon as Buff Back is switched off with a favour owed", function()
+        it("empties as soon as Offer my buff back is switched off with a favour owed", function()
             stranger()
             buffedBy()
             assert.is_truthy(macro())
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
-            w.enabled:SetChecked(false)
-            wow.run(w.enabled, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
+            w.offerEnabled:SetChecked(false)
+            wow.run(w.offerEnabled, "OnClick")
+            assert.is_false(ns.db.buffBack.enabled)
             assert.is_nil(macro())
             assert.is_false(button:IsShown())
             wow.press(button)
@@ -702,7 +703,7 @@ describe("Buff back", function()
         it("has the key binding for its left button", function()
             local xml = wow.readFile("Bindings.xml")
             assert.is_truthy(xml:find('name="CLICK ' .. ns.BuffButton.FRAME_NAME .. ':LeftButton"', 1, true))
-            assert.are.equal("Friendly Forever: buff back",
+            assert.are.equal("Friendly Forever: buff button",
                 _G["BINDING_NAME_CLICK " .. ns.BuffButton.FRAME_NAME .. ":LeftButton"])
         end)
 
@@ -2112,14 +2113,17 @@ describe("Buff back", function()
     end)
 
     describe("options", function()
-        it("the Buff Back tab hides delay and repeat, and shows its own settings", function()
+        it("the Favours tab hides the message tabs' delay and repeat, and shows buff back's own settings", function()
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             assert.is_false(w.steppers.delay.box:IsShown())
             assert.is_false(w.steppers.repeatCooldown.box:IsShown())
             assert.is_true(w.sayLine:IsShown())
+            assert.are.equal("Say a line when my buff lands", w.sayLine.label:GetText())
             assert.is_true(w.steppers.owedMinutes.box:IsShown())
-            assert.are.equal("Offer to buff back players who buff me", w.enabled.label:GetText())
+            assert.is_false(w.enabled:IsShown())
+            assert.is_true(w.offerEnabled:IsShown())
+            assert.are.equal("Offer my buff back", w.offerEnabled.label:GetText())
             w.sayLine:SetChecked(true)
             wow.run(w.sayLine, "OnClick")
             assert.is_true(ns.db.buffBack.sayLine)

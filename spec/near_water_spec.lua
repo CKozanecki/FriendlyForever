@@ -1,4 +1,4 @@
--- Spec: #136, #208, #209, #44, #350, #408, #459
+-- Spec: #136, #208, #209, #44, #350, #408, #459, #491
 -- Water breathing only near water: a warlock's Unending Breath and a
 -- shaman's Water Breathing are offered (buff back and buff mode) only while
 -- you're swimming, underwater, with your breath bar showing, in an
@@ -520,7 +520,7 @@ describe("Water breathing near water", function()
             w.breathNearWater:SetChecked(true)
             wow.run(w.breathNearWater, "OnClick")
             assert.is_nil(armed())
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             assert.is_false(w.breathNearWater:IsVisible())
         end)
 

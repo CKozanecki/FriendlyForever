@@ -1,4 +1,4 @@
--- Spec: #329, #408, #426
+-- Spec: #329, #408, #426, #491
 -- Buff mode when solo: in no group, buff mode still offers you your own copy
 -- of the buffs you give, as #198 does in a group, under the same rules (your
 -- buff order, Never offer, who gets each buff, top-up time), single versions
@@ -257,7 +257,7 @@ describe("Buff mode when solo: your own buffs (#329)", function()
             wow.run(w.soloOwnBuffs, "OnClick", "LeftButton")
             assert.is_true(ns.db.buffBack.soloOwnBuffs)
             assert.are.equal("/cast [@player,nodead] Power Word: Fortitude", macro())
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             assert.is_false(w.soloOwnBuffs:IsVisible())
             wow.run(w.tabs.buffs, "OnClick")
             wow.run(w.placeTabs.raid, "OnClick")

@@ -103,18 +103,26 @@ local function PruneCasts(now)
     end
 end
 
--- Buff Back's switch; a section lost mid-session reads as off (#387).
-local function BuffBackOn()
-    local cfg = ns.db.buffBack
+-- A section's switch (thanks: buff; buffing back: buffBack); a section
+-- lost mid-session reads as off (#387), the Favours tab's switches calling
+-- this with the other section damaged too (#491).
+local function SwitchOn(section)
+    local cfg = ns.db[section]
     return type(cfg) == "table" and cfg.enabled == true
+end
+
+-- The thanks section, for reading how to thank: one lost mid-session is
+-- healed first (Config.Section, #166), never indexed as it is (#491's review).
+local function Thanks()
+    return ns.Config.Section("buff")
 end
 
 -- This fires for every cast the client sees (nameplates in a city or a
 -- raid), so the cheap checks come first. Core only registers it while buff
 -- thanks are on; the enabled checks here cover the moment in between.
--- Buffs are watched while either Buff Thanks or Buff Back is on.
+-- Buffs are watched while thanking or buffing back is on.
 function BuffTracker.Watching()
-    return ns.db ~= nil and ns.db.enabled and (ns.db.buff.enabled or BuffBackOn())
+    return ns.db ~= nil and ns.db.enabled == true and (SwitchOn("buff") or SwitchOn("buffBack"))
 end
 
 function BuffTracker.OnSpellcastSucceeded(unit, _, spellId)
@@ -145,7 +153,7 @@ end
 local NOTES = {
     { "repeat cooldown", "thanked them a moment ago" },
     { "snoozed", "snoozed" },
-    { "switched off", "Buff Thanks is off" },
+    { "switched off", "thanks are off" },
     { "login grace", "just logged in" },
     { "AFK", "you were AFK" },
     { "waited too long", "no key press in time" },
@@ -164,7 +172,7 @@ function BuffTracker.NoteFor(reason)
 end
 
 local function DescribeBuffs(batch)
-    if ns.db.buff.listBuffNames and #batch.names > 0 then
+    if Thanks().listBuffNames and #batch.names > 0 then
         return Util.JoinList(batch.names)
     end
     return batch.count > 1 and "buffs" or "buff"
@@ -180,7 +188,7 @@ local function AddToBatch(batch, buffKey, spellName)
 end
 
 local function FallbackName()
-    local name = ns.db.buff.unknownName
+    local name = Thanks().unknownName
     if name == nil or name == "" then name = ns.Config.DEFAULTS.buff.unknownName end
     return name
 end
@@ -244,8 +252,8 @@ function BuffTracker.AddBuff(caster, buffKey, spellName, unit, spellId, seenAt)
         return
     end
     -- A favour to return, whether or not a thank-you goes out.
-    if not unknown and BuffBackOn() then ns.Offers.Owe(caster, unit, entry) end
-    local cfg = ns.db.buff
+    if not unknown and SwitchOn("buffBack") then ns.Offers.Owe(caster, unit, entry) end
+    local cfg = Thanks()
     if unknown and cfg.fallback == "none" then
         ns.Diag.Log("buff", "not thanking: caster can't be named, and no fallback is chosen")
         ns.Ledger.Settle(entry, false, "couldn't tell who it was; no fallback chosen")
@@ -371,7 +379,7 @@ function BuffTracker.OnWhisperFailed(name)
     local w = recentWhispers[name]
     if not w or GetTime() - w.time > BuffTracker.WHISPER_FAIL_WINDOW then return end
     recentWhispers[name] = nil
-    local entry, fallback = w.batch.entry, ns.db.buff.fallback
+    local entry, fallback = w.batch.entry, Thanks().fallback
     if fallback ~= "say" and fallback ~= "emote" then -- "none", or damaged
         ns.Diag.Log("buff", "whisper to %s failed; no fallback is chosen", name)
         ns.Ledger.Unthank(entry, "the whisper didn't reach them; no fallback chosen")

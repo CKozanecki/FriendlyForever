@@ -1,5 +1,5 @@
 -- When buff mode turns on and off by itself. Each trigger is an option on
--- the Buff Back tab. Triggers only switch buff mode: they never cast.
+-- the Buffs tab (#491). Triggers only switch buff mode: they never cast.
 --
 -- Turns on (on by default; the first time a session, BuffMode.Set says where
 -- to switch these; the walkthrough, Walkthrough.lua (#47), shows them):

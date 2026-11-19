@@ -190,19 +190,19 @@ function Pages.Show(which)
     Pages.Open(which)
 end
 
--- The main panel's tabs (#112), in the panel's order (Config.TYPES): the
--- name each screenshot and LAYOUT line goes by, and the text on its button.
--- spec/uitests_pages_spec.lua checks this list against Config.TYPE_INFO, so
--- a new tab can't go without its shot.
+-- The main panel's tabs (#112), in the panel's order (Options.TABS, the
+-- Buffs tab apart): the name each screenshot and LAYOUT line goes by, and the
+-- text on its button. spec/uitests_pages_spec.lua checks this list against
+-- Options.TABS, so a new tab can't go without its shot. Favours (#491) has
+-- no header naming it: its sections have their own (noHeader).
 Pages.TABS = {
     { name = "guild-login", label = "Guild Login" },
-    { name = "buff-thanks", label = "Buff Thanks" },
     { name = "guild-join", label = "Guild Join" },
     { name = "party-join", label = "Party Join" },
     { name = "party-hello", label = "Party Hello" },
     { name = "hello-again", label = "Hello Again" },
     { name = "level-up", label = "Level Up" },
-    { name = "buff-back", label = "Buff Back" },
+    { name = "favours", label = "Favours", noHeader = true },
 }
 Pages.PANEL = "FriendlyForeverOptionsPanel"
 
@@ -260,17 +260,15 @@ end
 -- who-gets list open, its names open, and the choice before it's made.
 Pages.BUFFS_LABEL = "Buffs"
 Pages.BUFFS_PLACES = {
-    { name = "buff-back", label = "Buff Back" },
+    { name = "strangers", label = "Strangers" },
     { name = "party", label = "Party" },
     { name = "raid", label = "Raid" },
     { name = "pvp", label = "PvP" },
 }
--- "top" is the tab unscrolled (#472): the buff order and the first rows. "passers-by" is
--- it scrolled from "Use group versions" (the row the unscrolled shot cuts off) down to the
--- passers-by switch (#472, #474): for a paladin
--- (the simulator's class, with 11 buff rows) the switch sits about 690 px under the top
--- at 1920 x 1080, below the 593 px the panel shows, so it can't be in the unscrolled shot.
-Pages.BUFFS_SHOTS = { "top", "passers-by", "buff-back", "party", "raid", "pvp", "party-list", "raid-names",
+-- "top" is the tab unscrolled (#472): the buff order and the first rows. "buff-mode" is it
+-- scrolled to buff mode's rows, which moved here from the Buff Back tab (#491). The passers-by
+-- switch and its shot moved to the Favours tab (#491, #493).
+Pages.BUFFS_SHOTS = { "top", "buff-mode", "strangers", "party", "raid", "pvp", "party-list", "raid-names",
     "party-choice",
     "raid-blessings", "raid-blessings-in", "raid-blessings-unreadable" }
 
@@ -288,9 +286,9 @@ end
 
 -- Opens the options panel at the Buffs tab, at the place called place (a
 -- BUFFS_PLACES name; Party when left out), by clicking their buttons as a
--- player would. The place "Buff Back" shares its text with the Buff Back
--- message tab, which is made first: a place's button is the last one with
--- its text. Returns the panel's scrolling content, or nothing and why.
+-- player would. Should a place share its text with another button, the
+-- place's is made last: a place's button is the last one with its text.
+-- Returns the panel's scrolling content, or nothing and why.
 function Pages.OpenBuffs(place)
     Pages.SkipWalkthrough()
     SlashCmdList.FRIENDLYFOREVER("")
@@ -394,8 +392,8 @@ end
 -- and "party-choice" shows the choice as a player updating from 1.3.3 sees it.
 function Pages.ShowBuffs(shot)
     local db = FriendlyForeverDB
-    local place, extra = shot:match("^([%a-]-)%-(%a+)$")
-    if not extra or extra == "back" then place, extra = shot, nil end
+    local place, extra = shot:match("^(%a+)%-(%a+)$")
+    if not extra then place = shot end
     if extra == "choice" and type(db) == "table" and type(db.buffBack) == "table" then
         db.buffBack.whoChoice = "pending"
     elseif type(db) == "table" and type(db.buffBack) == "table" and db.buffBack.whoChoice == "pending" then
@@ -415,28 +413,26 @@ function Pages.ShowBuffs(shot)
         end
         return content
     end
-    if shot == "passers-by" then
-        -- Scrolled so "Use group versions", the top row #472 names that the unscrolled shot
-        -- cuts off, is near the top of the view, with the rows below it down to the
-        -- passers-by switch (#474): about 66 px apart, both inside the 593 px view.
+    if shot == "buff-mode" then
+        -- Scrolled to buff mode's rows (#491): its key, its turn-on and turn-off
+        -- switches and top-up, which moved here from the Buff Back tab.
         local content = Pages.OpenBuffs()
         if not content then return content end
-        local row
-        for _, child in ipairs({ content:GetChildren() }) do
-            local text = child.label and child.label.GetText and child.label:GetText() or ""
-            if text:find("Use group versions", 1, true) == 1 then row = child end
+        local header
+        for _, region in ipairs({ content:GetRegions() }) do
+            if region.GetText and region:GetText() == "Buff mode" and region:IsShown() then header = region end
         end
-        if not row then
-            report("the Buffs tab has no group versions row to show")
+        if not header then
+            report("the Buffs tab has no Buff mode rows to show")
             return content
         end
-        Pages.ShowFrameAt(content, row, "top")
-        if C_Timer and C_Timer.After then C_Timer.After(0, function() Pages.ShowFrameAt(content, row, "top") end) end
+        Pages.ShowFrameAt(content, header, "top")
+        if C_Timer and C_Timer.After then C_Timer.After(0, function() Pages.ShowFrameAt(content, header, "top") end) end
         return content
     end
     if shot == "top" then
         -- Opened as a player opens it, and left unscrolled (#472, #474): the buff
-        -- order, the self-buff, water and form rows and the passers-by switch.
+        -- order, and the self-buff, water and form rows.
         return (Pages.OpenBuffs())
     end
     local content = Pages.OpenBuffs(place)
@@ -484,7 +480,7 @@ function Pages.ShowBuffs(shot)
     return content
 end
 
--- The Buff Back tab's buffs by their Forever names (#158). The simulator
+-- The Buffs tab's buffs by their Forever names (#158). The simulator
 -- plays Forever with Forever's spell data (#160), so it names them itself;
 -- until then a fixture here answered for it, and without one the tab showed
 -- the buff keys ("wisdom"), much shorter than what a player reads. This list
@@ -553,8 +549,11 @@ function Pages.ShowMessageHover(name)
     end
     -- The panel fills its boxes from the saved settings and lays itself out on
     -- the next frame, so the line goes in and the pointer arrives then (as
-    -- ShowFrameAt does); the first time is for a client with no timer.
+    -- ShowFrameAt does); the first time is for a client with no timer. The
+    -- box is scrolled into view first, as a player scrolls to the line they
+    -- point at: on the Favours tab the lines sit below the first view (#491).
     local function Hover()
+        Pages.ShowFrameAt(content, box, "top")
         box:SetText(Pages.HOVER_LINE)
         local enter = box:GetScript("OnEnter")
         if enter then enter(box) end
@@ -575,7 +574,7 @@ end
 
 -- Lays each region and child of content out again, in order (the same trick
 -- as Settle in uitests/scenarios.lua): the simulator lays out only 16 links
--- of an anchor chain when something moves, so a row deep in the Buff Back
+-- of an anchor chain when something moves, so a row deep in the Favours
 -- tab reads a stale place until then (docs/ui-simulator.md).
 local function Settle(content)
     local function Again(region)
@@ -691,29 +690,58 @@ function Pages.ScrollToRow(rowText)
     end
 end
 
--- The row the lower shot starts at (#254): buff requests in chat, the last of
--- the Buff Back tab's own rows before its lines (the buff rows moved to the
--- Buffs tab, #408).
-Pages.LOWER_ROW = "Offer my buffs to players who ask in chat"
+-- The row the middle shot starts at (#383): on the Favours tab (#491), the
+-- first of the buff button's rows below its first view, with the renew
+-- stepper, the link to the Buffs tab and the lines' sub-tabs below it.
+Pages.MIDDLE_ROW = "Show the button in capital cities"
 
--- For the screenshot job: a tab with its lower rows in view (#254), from the
--- buff requests row down. Like ShowTab, it leaves the panel as it is for
--- the shot.
-function Pages.ShowTabLower(name)
-    Pages.ShowTab(name)
-    return Pages.ScrollToRow(Pages.LOWER_ROW)
-end
-
--- The row the middle shot starts at (#383): the first of buff mode's
--- turn-on switches, with the turn-off switches and the top-up stepper below
--- it (the buff rows moved to the Buffs tab, #408).
-Pages.MIDDLE_ROW = "with my group"
-
--- For the screenshot job: a tab with its middle rows in view (#383), from the
--- turn-on switches down, scrolled as the lower shot is.
+-- For the screenshot job: a tab with its middle rows in view (#383),
+-- scrolled as Options.lua's ScrollTo scrolls the walkthrough's rows.
 function Pages.ShowTabMiddle(name)
     Pages.ShowTab(name)
     return Pages.ScrollToRow(Pages.MIDDLE_ROW)
+end
+
+-- The Favours tab's lines' sub-tabs (#491), by their buttons' text, each
+-- shot scrolled to the sub-tab buttons with the first lines below them.
+Pages.FAVOURS_LINES = {
+    { name = "thanks", label = "Thank-you lines" },
+    { name = "lands", label = "When my buff lands" },
+}
+
+-- Opens the Favours tab at the lines' sub-tab called name (a FAVOURS_LINES
+-- name), by clicking its button as a player would. Returns the panel's
+-- content and the button, or nothing and why.
+function Pages.OpenFavoursLines(name)
+    local wanted
+    for _, lines in ipairs(Pages.FAVOURS_LINES) do
+        if lines.name == name then wanted = lines end
+    end
+    if not wanted then
+        local why = "no Favours lines called " .. tostring(name)
+        report(why)
+        return nil, why
+    end
+    local content = Pages.OpenTab("favours")
+    if not content then return nil, "no Favours tab" end
+    local button = FindButtons(content, wanted.label, 1)[1]
+    if not button then
+        report("the Favours tab has no " .. wanted.label .. " button")
+        return nil, "no lines button"
+    end
+    if button:IsEnabled() then button:Click() end
+    return content, button
+end
+
+-- For the screenshot job: the Favours tab at one of its lines' sub-tabs,
+-- scrolled so its button is near the top of the view, as a player scrolls
+-- down to the lines.
+function Pages.ShowFavoursLines(name)
+    local content, button = Pages.OpenFavoursLines(name)
+    if not content then return nil end
+    Pages.ShowFrameAt(content, button, "top")
+    if C_Timer and C_Timer.After then C_Timer.After(0, function() Pages.ShowFrameAt(content, button, "top") end) end
+    return content
 end
 
 -- The walkthrough's steps the screenshots show (#47), each named by a
@@ -721,14 +749,16 @@ end
 -- the walkthrough must reach, taken again from Start here. whatsNew: the
 -- step as a returning player sees it after an update, titled "What's new:"
 -- (#169): buff requests in chat, added in walkthrough version 2 (#40, #362),
--- and the Buffs tab, added in version 3, with its keep-or-reset choice
--- offered (choice: the player's buff rules are made to wait for it, #408).
+-- the Buffs tab, added in version 3, with its keep-or-reset choice
+-- offered (choice: the player's buff rules are made to wait for it, #408),
+-- and the Favours tab, added in version 4, saying where things moved (#491).
 Pages.WALKTHROUGH_STEPS = {
     { name = "welcome", title = "Welcome" },
     { name = "buff-mode-key", title = "its key" },
     { name = "buff-mode-triggers", title = "turns on and off" },
     { name = "whats-new-requests", title = "Buff requests in chat", whatsNew = true },
     { name = "whats-new-buffs", title = "Your buffs have a tab of their own", whatsNew = true, choice = true },
+    { name = "whats-new-favours", title = "Favours: thanking and buffing back", whatsNew = true },
 }
 -- The walkthrough version a returning player last finished, for a What's new
 -- run: the one before the buff requests step's (Walkthrough.lua's since = 2).

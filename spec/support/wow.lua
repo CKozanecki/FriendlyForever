@@ -275,9 +275,12 @@ end
 function methods:ClearAllPoints() self.points = nil end
 function methods:GetNumPoints() return self.points and #self.points or 0 end
 -- point, relativeTo, relativePoint, x, y of the index-th anchor (default 1).
+-- An index past the last anchor raises an error, the pessimistic choice:
+-- whether the game raises or answers nothing is unconfirmed (#504; see
+-- ASSUMPTIONS).
 function methods:GetPoint(index)
     local a = self.points and self.points[index or 1]
-    if not a then return nil end
+    if not a then error("invalid anchor index " .. tostring(index or 1), 2) end
     return a[1], a[2], a[3], a[4], a[5]
 end
 function methods:EnableKeyboard(on) self.keyboard = on and true or false end
@@ -673,6 +676,10 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 -- right before launch (#208), and the [@player] cast added since (#198),
 -- which is unconfirmed: #213. The simulation stays as it is, as a record of
 -- what it models.
+--   GetPoint past the last anchor (#491, unconfirmed: #504): a region's
+--                         GetPoint(n) for an n past GetNumPoints() (none
+--                         yet, say) raises an error, the pessimistic side:
+--                         the addon asks GetNumPoints() first.
 --   Chat from players (#40, unconfirmed: #352): CHAT_MSG_WHISPER,
 --                         CHAT_MSG_SAY and CHAT_MSG_PARTY (and _LEADER)
 --                         name the sender by their whole name,

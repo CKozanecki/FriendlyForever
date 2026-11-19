@@ -1,4 +1,4 @@
--- Spec: #387
+-- Spec: #387, #491
 -- Buff Back's whole settings section lost mid-session (nil, a string, a
 -- number: another addon or a bad /run). Every reader takes it as Buff Back
 -- switched off, or heals it first through Config.Section, and none raises
@@ -82,7 +82,7 @@ describe("Buff Back's settings lost mid-session (#387, black)", function()
                 slash("buffback")
                 assert.are.same({}, wow.errors)
                 assert.is_table(ns.db.buffBack)
-                assert.is_truthy(table.concat(wow.printed, "\n"):find("buff back: on", 1, true))
+                assert.is_truthy(table.concat(wow.printed, "\n"):find("offer my buff back: on", 1, true))
             end)
 
             it("/friendly move raises no error, and unlocks into a healed section", function()

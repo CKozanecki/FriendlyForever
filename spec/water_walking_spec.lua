@@ -1,4 +1,4 @@
--- Spec: #350, #408, #419
+-- Spec: #350, #408, #419, #491
 -- The shaman's Water Walking is offered only when someone asks for it in
 -- chat (#40; the owner's decision on #350): "water walking", "ww" or "walk
 -- on water". Buff back and buff mode never offer it unasked, and the water
@@ -327,7 +327,7 @@ describe("Water Walking, offered only on request", function()
             assert.is_nil(asked("ww pls"))
             assert.is_nil(asked("walk on water"))
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
             for _, r in ipairs(w.buffRows) do
                 if r.key == "waterwalking" then
                     assert.is_truthy(r.name:GetText():find("(not known yet)", 1, true))

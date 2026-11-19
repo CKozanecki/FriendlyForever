@@ -1,4 +1,4 @@
--- Spec: #31, #71, #76, #136, #42, #46, #208, #41, #209, #70, #44, #40, #408, #419, #452
+-- Spec: #31, #71, #76, #136, #42, #46, #208, #41, #209, #70, #44, #40, #408, #419, #452, #491
 -- Buff order and the never-offer list: which of your buffs the button offers
 -- first, and which it never offers.
 local wow = require("spec.support.wow")
@@ -92,7 +92,7 @@ describe("Buff order and never offer", function()
         end)
     end)
 
-    describe("the Buff Back tab", function()
+    describe("the Favours and Buffs tabs", function()
         local function rows()
             local out = {}
             for _, row in ipairs(ns.Options.widgets.buffRows) do
@@ -181,10 +181,12 @@ describe("Buff order and never offer", function()
             assert.are.equal("Your class has no buffs to offer.", w.buffOrderHeader:GetText())
         end)
 
-        it("other tabs open even when Buff Back's settings are lost mid-session", function()
-            ns.db.buffBack = nil
-            wow.run(ns.Options.widgets.tabs.buff, "OnClick")
-            assert.are.same({}, wow.errors)
+        it("other tabs open even when the buffBack settings are lost mid-session", function()
+            for _, tab in ipairs(ns.Options.TABS) do
+                ns.db.buffBack = nil
+                wow.run(ns.Options.widgets.tabs[tab], "OnClick")
+                assert.are.same({}, wow.errors, tab)
+            end
         end)
 
         it("shows the list on the Buffs tab (#408), with the buff options below it, and not on the others", function()
@@ -196,21 +198,30 @@ describe("Buff order and never offer", function()
             assert.are.equal(w.breathNearWater, select(2, w.fastCastInForm:GetPoint()), "then fast-cast in form (#452)")
             assert.are.equal(w.fastCastInForm, select(2, w.groupVersions:GetPoint()), "then group versions (#41)")
             assert.are.equal(w.groupVersions, select(2, w.steppers.groupEnough.label:GetPoint()), "and their threshold")
-            assert.is_false(w.msgHeader:IsVisible(), "no lines on the Buffs tab")
-            wow.run(w.tabs.buffBack, "OnClick")
-            assert.is_false(w.buffRows[1].name:IsVisible())
-            assert.is_true(w.openBuffs:IsVisible(), "Buff Back links to the Buffs tab")
-            assert.are.equal(w.openBuffs, select(2, w.autoHeader:GetPoint()), "then buff mode's rows")
+            -- Then buff mode's rows (#491): its key, its triggers and top-up, then the places.
+            assert.are.equal(w.steppers.groupEnough.label, select(2, w.buffModeHeader:GetPoint()), "buff mode's rows")
+            assert.are.equal(w.buffModeHeader, select(2, w.buffModeKey:GetPoint()), "its key")
+            assert.are.equal(w.buffModeKey, select(2, w.autoHeader:GetPoint()), "its triggers")
             assert.are.equal(w.steppers.autoOffMinutes.label, select(2, w.steppers.topUpMinutes.label:GetPoint()),
                 "then top-up timing (#42)")
-            assert.are.equal(w.steppers.topUpMinutes.label, select(2, w.buffRequests:GetPoint()), "then buff requests (#40)")
-            assert.are.equal(w.buffRequests, select(2, w.msgHeader:GetPoint()), "then the lines")
+            assert.are.equal(w.steppers.topUpMinutes.label, select(2, w.placeTabs.strangers:GetPoint()),
+                "then the places")
+            assert.is_false(w.msgHeader:IsVisible(), "no lines on the Buffs tab")
+            wow.run(w.tabs.favours, "OnClick")
+            assert.is_false(w.buffRows[1].name:IsVisible())
+            assert.is_false(w.autoHeader:IsVisible(), "buff mode isn't on Favours")
+            assert.is_true(w.openBuffs:IsVisible(), "Favours links to the Buffs tab")
+            assert.are.equal(w.askedHeader, select(2, w.buffRequests:GetPoint()), "buff requests (#40) in their part")
+            assert.are.equal(w.steppers.renewPercent.label, select(2, w.buffsLink:GetPoint()),
+                "the link to the Buffs tab")
+            assert.are.equal(w.buffsLink, select(2, w.openBuffs:GetPoint()))
+            assert.are.equal(w.linesHelp, select(2, w.msgHeader:GetPoint()), "then the lines")
             wow.run(w.openBuffs, "OnClick")
             assert.are.equal("buffs", ns.Options.CurrentType(), "the link opens the Buffs tab")
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.guildJoin, "OnClick")
             assert.is_false(w.buffRows[1].name:IsVisible())
             assert.is_false(w.who.always:IsVisible())
-            assert.are.equal(w.quiet, select(2, w.msgHeader:GetPoint()))
+            assert.are.equal(w.steppers.repeatCooldown.label, select(2, w.msgHeader:GetPoint()))
         end)
     end)
 
@@ -242,7 +253,7 @@ describe("Buff order and never offer", function()
             ns.db.buffBack.neverOffer = "all"
             assert.are.equal("Mark of the Wild", offered())
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
             wow.run(w.buffRows[1].down, "OnClick")
             w.buffRows[1].never:SetChecked(true)
             wow.run(w.buffRows[1].never, "OnClick")
@@ -296,7 +307,10 @@ describe("Buff order and never offer", function()
                         assert.is_true(type(ns.db.buffBack.buffOrder) == "table", "seed " .. seed)
                         assert.is_true(type(ns.db.buffBack.neverOffer) == "table", "seed " .. seed)
                     end,
-                    function() wow.run(ns.Options.widgets.tabs.buffBack, "OnClick") end,
+                    function()
+                        wow.run(ns.Options.widgets.tabs.favours, "OnClick")
+                        wow.run(ns.Options.widgets.tabs.buffs, "OnClick")
+                    end,
                 }
                 for step = 1, 300 do
                     actions[random.random(#actions)]()

@@ -110,17 +110,16 @@ Walkthrough.STEPS = {
                 .. "when you press it.\n\n"
                 .. "On the Buffs tab, the buff order says which of your buffs it offers first: the first that "
                 .. "suits them. Move a buff with Up and Down, and tick \"Never offer\" for any you never want "
-                .. "offered. At the top is the passers-by switch: off until you turn it on, it lets buff mode "
-                .. "offer your buffs to players nearby. Below, who gets each buff: strangers (Buff Back), Party, "
-                .. "Raid and PvP each have their own."
+                .. "offered. Below, who gets each buff: Strangers (who buff you, or pass by), Party, Raid and PvP "
+                .. "each have their own."
         end,
     },
     {
         since = 1,
         title = "Buff mode: its key",
-        open = function() ns.Options.OpenTab("buffBack", "buffModeKey") end,
+        open = function() ns.Options.OpenTab(ns.Options.BUFFS_TAB, "buffModeKey") end,
         text = function()
-            return "Buff mode lends a key to the buff-back button, so you can buff a whole group quickly. "
+            return "Buff mode lends a key to the buff button, so you can buff a whole group quickly. "
                 .. "Your buff mode key is " .. KeyText() .. " (the mouse wheel unless you've changed it).\n\n"
                 .. "Change it with the \"Buff mode key\" button. When buff mode ends, the key does its usual job "
                 .. "again."
@@ -129,7 +128,7 @@ Walkthrough.STEPS = {
     {
         since = 1,
         title = "Buff mode: when it turns on and off",
-        open = function() ns.Options.OpenTab("buffBack", "autoHeader") end,
+        open = function() ns.Options.OpenTab(ns.Options.BUFFS_TAB, "autoHeader") end,
         text = function()
             local cfg = Section("buffBack")
             local text = ns.Options.AUTO_TEXT
@@ -157,14 +156,14 @@ Walkthrough.STEPS = {
     {
         since = 1,
         title = "Thanks",
-        open = function() ns.Options.OpenTab("buff", "header") end,
+        open = function() ns.Options.OpenTab("buff", "thanksHeader") end,
         text = function()
             local style = ns.Options.THANK_STYLE_TEXT[Section("buff").thankStyle]
                 or ns.Options.THANK_STYLE_TEXT.message
-            return "Buff Thanks thanks people who buff you. You thank them with " .. style .. "; the \"Thank "
+            return "The Favours tab thanks people who buff you. You thank them with " .. style .. "; the \"Thank "
                 .. "them with\" button changes it.\n\n"
-                .. "The lines it says are below. They're used in random order before any repeats; leave a line "
-                .. "blank to skip it."
+                .. "The lines it says are under \"Thank-you lines\" at the bottom. They're used in random order "
+                .. "before any repeats; leave a line blank to skip it."
         end,
     },
     {
@@ -183,13 +182,13 @@ Walkthrough.STEPS = {
         -- player hears it exists and how to turn it on (the owner's decision).
         since = 2,
         title = "Buff requests in chat",
-        open = function() ns.Options.OpenTab("buffBack", "buffRequests") end,
+        open = function() ns.Options.OpenTab(ns.Options.FAVOURS_TAB, "buffRequests") end,
         text = function()
             return "Players can ask for your buffs in chat. When someone whispers you, or says in /say or "
-                .. "party chat, a short request such as \"mark pls\" or \"can I get int?\", the buff-back button "
+                .. "party chat, a short request such as \"mark pls\" or \"can I get int?\", the buff button "
                 .. "offers them that buff. "
                 .. "It never casts by itself: you still press the button. Nothing is said in chat.\n\n"
-                .. "It's off unless you turn it on: tick \"" .. ns.Requests.LABEL .. "\" on the Buff Back tab. "
+                .. "It's off unless you turn it on: tick \"" .. ns.Requests.LABEL .. "\" on the Favours tab. "
                 .. "It's " .. OnOff(Section("buffBack").requests) .. " now. Your ignore list, snooze and the "
                 .. "quiet in capital cities and battlegrounds apply."
         end,
@@ -202,7 +201,7 @@ Walkthrough.STEPS = {
         choice = true,
         open = function() ns.Options.OpenTab(ns.Options.BUFFS_TAB, "buffsHeader") end,
         text = function()
-            local lines = { "Who gets each buff now has its own rules for strangers (Buff Back), Party, Raid and "
+            local lines = { "Who gets each buff now has its own rules for Strangers, Party, Raid and "
                 .. "PvP (battlegrounds and arenas): by role (Tanks, Healers, Damage), class or name. In PvP every "
                 .. "buff is off unless you turn it on. They're on the new Buffs tab.", "" }
             local choice = ns.BuffRules.Choice()
@@ -235,6 +234,34 @@ Walkthrough.STEPS = {
                 lines[#lines + 1] = "Your buffs use the new defaults. Change them on the Buffs tab."
             end
             return table.concat(lines, "\n")
+        end,
+    },
+    {
+        -- Favours (#491): Buff Thanks and Buff Back became one tab, and
+        -- passers-by and buff requests moved to it. A returning player is
+        -- told where each thing went; a new player sees the tab described.
+        since = 4,
+        title = "Favours: thanking and buffing back",
+        open = function() ns.Options.OpenTab(ns.Options.FAVOURS_TAB, "thanksHeader") end,
+        text = function()
+            local back = Section("buffBack")
+            local said = back.sayLine == true and "on, as you had it" or "off unless you turn it on"
+            if Walkthrough.WhatsNew() then
+                return "The Buff Thanks and Buff Back tabs are now one tab, Favours. Your settings and lines "
+                    .. "are as you left them.\n\n"
+                    .. "  Thanking people who buff you: \"When someone buffs you\".\n"
+                    .. "  Buffing them back: \"Return the favour\" and \"The buff button\".\n"
+                    .. "  Buff requests in chat, and the passers-by switch (from the Buffs tab): \"Asked and "
+                    .. "passing by\".\n"
+                    .. "  Both sets of lines: \"Thank-you lines\" and \"When my buff lands\".\n\n"
+                    .. "Buff mode's key, when it turns on and off, and top-up moved to the Buffs tab, under "
+                    .. "\"Buff mode\", where its place \"Buff Back\" is now \"Strangers\". The line said "
+                    .. "when your buff lands is " .. said .. "."
+            end
+            return "Everything about strangers who buff you is on the Favours tab: thanking them, buffing them "
+                .. "back, buff requests in chat and passers-by, with the lines for each.\n\n"
+                .. "Your thank-you is the one line said for a favour. A line when your buff lands is "
+                .. said .. "."
         end,
     },
     {

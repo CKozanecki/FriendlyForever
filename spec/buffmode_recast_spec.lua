@@ -1,4 +1,4 @@
--- Spec: #256
+-- Spec: #256, #491
 -- What buff mode recasts (#256, part 2): your buff goes over one someone
 -- outside the group put up, never over a group member's; your own earlier
 -- buff goes out once more in the round that starts as you enter a dungeon or
@@ -426,7 +426,7 @@ describe("What buff mode recasts (#256)", function()
         it("unlocking the button to move it during the note leaves its labels at full strength", function()
             _G.SlashCmdList.FRIENDLYFOREVER("move")
             wow.advance(ns.BuffButton.ALREADY_DONE_SECONDS + 1)
-            assert.are.equal("Buff back", button.title:GetText())
+            assert.are.equal("Buff button", button.title:GetText())
             assert.are.equal(1, button.title:GetAlpha())
             assert.are.equal(1, button.subtitle:GetAlpha())
         end)

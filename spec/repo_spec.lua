@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #360, #345, #308, #343, #367, #371, #375, #408, #415, #478
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #360, #345, #308, #343, #367, #371, #375, #408, #415, #478, #491
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -2360,6 +2360,7 @@ describe("UI simulator workflow", function()
                 loopTurns = list:find("OPTIONS_TABS", 1, true) and words("OPTIONS_TABS")
                     or list:find("WALKTHROUGH_STEPS", 1, true) and words("WALKTHROUGH_STEPS")
                     or list:find("BUFFS_SHOTS", 1, true) and words("BUFFS_SHOTS")
+                    or list:find("FAVOURS_LINES", 1, true) and words("FAVOURS_LINES")
                 assert.is_truthy(loopTurns, "a loop over " .. list .. " isn't counted")
             elseif line:match("^%s*done%s*$") then
                 loopTurns = nil

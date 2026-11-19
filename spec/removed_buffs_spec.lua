@@ -1,4 +1,4 @@
--- Spec: #208
+-- Spec: #208, #491
 -- Blizzard removed Blessing of Salvation, Mass Salvation and Revoke right
 -- before launch. The addon never offers, tracks or mentions them, old saved
 -- settings (rules, order, never-lists, profiles, imported lines) still load
@@ -159,7 +159,7 @@ describe("Salvation, Mass Salvation and Revoke are gone", function()
         it("shows no Salvation or Revoke setting on the options pages, and the search finds none", function()
             boot()
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             assert.is_nil(w.who.revoke)
             assert.is_nil(w.who.revokeNames)
             assert.is_nil(ns.Options.CycleRevoke)

@@ -1,4 +1,4 @@
--- Spec: #28, #76, #46, #384
+-- Spec: #28, #76, #46, #384, #491
 -- Buff mode: a key of your choice lent to the buff-back button while it's
 -- on, handed back when it ends and during fights.
 local wow = require("spec.support.wow")
@@ -83,7 +83,7 @@ describe("Buff mode", function()
 
         it("says what it did", function()
             slash("buffmode on")
-            assert.is_true(printedHas("buff mode on: MOUSEWHEELUP presses the buff-back button."))
+            assert.is_true(printedHas("buff mode on: MOUSEWHEELUP presses the buff button."))
             slash("buffmode off")
             assert.is_true(printedHas("buff mode off."))
             wow.printed = {}
@@ -94,7 +94,7 @@ describe("Buff mode", function()
         it("uses the game's name for the key in messages", function()
             wow.state.bindingText = { MOUSEWHEELUP = "Mouse Wheel Up" }
             slash("buffmode on")
-            assert.is_true(printedHas("buff mode on: Mouse Wheel Up presses the buff-back button."))
+            assert.is_true(printedHas("buff mode on: Mouse Wheel Up presses the buff button."))
             assert.are.equal(ns.Colours.Text("title", "Buff mode:") .. " Mouse Wheel Up", button.mode:GetText())
         end)
 
@@ -151,7 +151,7 @@ describe("Buff mode", function()
         local function chooser() return ns.Options.widgets.buffModeKey end
 
         it("takes the next key you press, with modifiers, and lends that one", function()
-            wow.run(ns.Options.widgets.tabs.buffBack, "OnClick")
+            wow.run(ns.Options.widgets.tabs.buffs, "OnClick")
             assert.is_true(chooser():IsShown())
             assert.are.equal("Buff mode key: MOUSEWHEELUP", chooser():GetText())
             slash("buffmode on")
@@ -188,6 +188,7 @@ describe("Buff mode", function()
         end)
 
         it("doesn't start in a fight", function()
+            wow.run(ns.Options.widgets.tabs.buffs, "OnClick") -- where the button is (#491)
             wow.enterCombat()
             wow.run(chooser(), "OnClick")
             assert.are.equal("Buff mode key: MOUSEWHEELUP", chooser():GetText())
@@ -311,16 +312,16 @@ describe("Buff mode", function()
             slash("buffmode on")
             assert.are.same({}, lent())
             assert.is_false(ns.BuffMode.IsOn())
-            assert.is_true(printedHas("buff mode is off: the game wouldn't lend a key to the buff-back button."))
+            assert.is_true(printedHas("buff mode is off: the game wouldn't lend a key to the buff button."))
             assert.are.same({}, wow.errors)
         end)
 
-        it("ends when the addon or Buff Back is switched off, saying so, and won't turn on then", function()
+        it("ends when the addon or Offer my buff back is switched off, saying so, and won't turn on then", function()
             slash("buffmode on")
             slash("off")
             assert.are.same({}, lent())
             assert.is_false(ns.BuffMode.IsOn())
-            assert.is_true(printedHas("buff mode off: the addon or Buff Back is switched off."))
+            assert.is_true(printedHas("buff mode off: the addon or \"Offer my buff back\" (Favours tab) is switched off."))
             slash("on")
             assert.are.same({}, lent(), "it doesn't quietly take the key again")
             slash("buffmode on")
@@ -332,7 +333,7 @@ describe("Buff mode", function()
             assert.is_true(printedHas("buff mode: off (key: MOUSEWHEELUP)"))
             slash("buffmode on")
             assert.is_false(ns.BuffMode.IsOn())
-            assert.is_true(printedHas("buff mode needs the addon and Buff Back switched on."))
+            assert.is_true(printedHas("buff mode needs the addon and \"Offer my buff back\" (Favours tab) switched on."))
         end)
 
         it("keeps working when Buff Back's settings are damaged mid-session", function()
@@ -367,13 +368,13 @@ describe("Buff mode", function()
                     assert.are_not.equal("Drag, then /friendly move", button.subtitle:GetText(),
                         label(value) .. ": a lost section reads as locked, not unlocked for moving")
                     assert.is_false(ns.BuffMode.IsOn(), label(value))
-                    assert.is_true(printedHas("buff mode off: the addon or Buff Back is switched off."), label(value))
+                    assert.is_true(printedHas("buff mode off: the addon or \"Offer my buff back\" (Favours tab) is switched off."), label(value))
                     -- It stays off while the damage lasts, and says why.
                     slash("buffmode on")
                     _G.FriendlyForever_ToggleBuffMode()
                     assert.are.same({}, lent(), label(value))
                     assert.is_false(ns.BuffMode.IsOn(), label(value))
-                    assert.is_true(printedHas("buff mode needs the addon and Buff Back switched on."), label(value))
+                    assert.is_true(printedHas("buff mode needs the addon and \"Offer my buff back\" (Favours tab) switched on."), label(value))
                     assert.are.same({}, wow.errors, label(value))
                 end
             end)

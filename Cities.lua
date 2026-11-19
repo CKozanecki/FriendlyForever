@@ -65,6 +65,6 @@ function Cities.StatusLine()
     if not id then return "capital city: can't read the map, so not quiet" end
     local capital = Cities.CAPITALS[id]
     if not capital then return "capital city: no (map " .. id .. ")" end
-    return string.format("capital city: %s (map %d); thanks %s, buff-back button %s", capital, id,
+    return string.format("capital city: %s (map %d); thanks %s, buff button %s", capital, id,
         Cities.ThanksQuiet() and "quiet" or "not quiet", Cities.ButtonHidden() and "hidden" or "not hidden")
 end

@@ -1,4 +1,4 @@
--- Spec: #44, #329, #402, #408, #45, #379, #419, #483
+-- Spec: #44, #329, #402, #408, #45, #379, #419, #483, #491
 -- Self-buffs: in buff mode, once the favours you owe and your group are
 -- done, the button offers your own missing self-buffs (Inner Fire, armors,
 -- Aspects, auras, Battle Shout...), one per press, on you, through the same
@@ -453,9 +453,9 @@ describe("Self-buffs in buff mode", function()
             assert.are.equal("you're not in a group", subtitle())
         end)
 
-        it("the Buff Back tab's switch saves and takes effect at once, both ways", function()
+        it("the Buffs tab's switch saves and takes effect at once, both ways", function()
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
             assert.are.equal("/cast [@player,nodead] Inner Fire", macro())
             w.selfBuffs:SetChecked(false)
             wow.run(w.selfBuffs, "OnClick", "LeftButton")

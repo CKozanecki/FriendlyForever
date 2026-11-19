@@ -69,7 +69,7 @@ BuffButton.KEY_BUTTON = "BuffModeKey"
 local MACRO_ACTION_TYPE = "macro"
 
 -- The text shown for the binding in Key Bindings > AddOns (Bindings.xml).
-_G["BINDING_NAME_CLICK " .. BuffButton.FRAME_NAME .. ":LeftButton"] = "Friendly Forever: buff back"
+_G["BINDING_NAME_CLICK " .. BuffButton.FRAME_NAME .. ":LeftButton"] = "Friendly Forever: buff button"
 
 local button, eventFrame
 local armedOffer          -- what the button holds: { name, spell, buff, group, cast, self, macroText }
@@ -697,7 +697,7 @@ local function ArmButton()
     if type(buffBack) == "table" and buffBack.unlocked then
         alreadyDone = nil -- its fade mustn't dim the move labels
         Empty("the button is unlocked for moving", true)
-        SetLabels("Buff back", "Drag, then /friendly move")
+        SetLabels("Buff button", "Drag, then /friendly move")
         button.icon:SetTexture(BuffButton.PLACEHOLDER_ICON)
         return
     end
@@ -1445,7 +1445,7 @@ end
 
 local function ShowTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:AddLine(ns.TITLE .. ": buff back")
+    GameTooltip:AddLine(ns.TITLE .. ": buff button")
     -- The button's second line, in full (it wraps on the button too, #270).
     local subtitle = button.subtitle:GetText()
     local r, g, b = ns.Colours.RGB("title")
@@ -1652,7 +1652,7 @@ BuffButton.SECURE_ATTRIBUTE = SECURE_ATTRIBUTE
 
 function BuffButton.StatusLines()
     local out = {}
-    out[#out + 1] = string.format("buff back: %s, %d favour(s) owed",
+    out[#out + 1] = string.format("offer my buff back: %s, %d favour(s) owed",
         ns.Config.Section("buffBack").enabled and "on" or "off",
         ns.Offers.Count())
     local names = {}

@@ -1,4 +1,4 @@
--- Spec: #101, #36, #236, #274, #165
+-- Spec: #101, #36, #236, #274, #165, #491
 -- "Thank them with" and "If that can't reach them": every combination for a
 -- named caster, an unnamed one and a failed whisper; the buff-back line;
 -- old settings, profiles and settings lines; and a chaos storm.
@@ -155,7 +155,7 @@ describe("Thank them with, and if that can't reach them (#101)", function()
             _G.SlashCmdList.FRIENDLYFOREVER("status")
             local found = false
             for _, line in ipairs(wow.printed) do
-                if line:find("buff thanks: emote; if that can't reach them: none;", 1, true) then found = true end
+                if line:find("thank them with: emote; if that can't reach them: none;", 1, true) then found = true end
             end
             assert.is_true(found)
         end)
@@ -248,12 +248,14 @@ describe("Thank them with, and if that can't reach them (#101)", function()
             w = ns.Options.widgets
         end)
 
-        it("shows both choices on the buff tab only, with today's defaults", function()
-            wow.run(w.tabs.guildLogin, "OnClick")
-            for _, key in ipairs({ "thankStyleLabel", "thankStyle", "fallbackLabel", "fallback", "unknownName" }) do
-                assert.is_false(w[key]:IsShown(), key)
+        it("shows both choices on the Favours tab only, with today's defaults", function()
+            for _, tab in ipairs({ "guildLogin", ns.Options.BUFFS_TAB }) do
+                wow.run(w.tabs[tab], "OnClick")
+                for _, key in ipairs({ "thankStyleLabel", "thankStyle", "fallbackLabel", "fallback", "unknownName" }) do
+                    assert.is_false(w[key]:IsShown(), key .. " on " .. tab)
+                end
             end
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             for _, key in ipairs({ "thankStyleLabel", "thankStyle", "fallbackLabel", "fallback", "unknownName" }) do
                 assert.is_true(w[key]:IsShown(), key)
             end
@@ -275,7 +277,7 @@ describe("Thank them with, and if that can't reach them (#101)", function()
         end
 
         it("Thank them with is a dropdown listing its four choices, closed until clicked (#274)", function()
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             assert.is_false(w.thankStyle.list:IsShown())
             wow.run(w.thankStyle, "OnClick")
             assert.is_true(w.thankStyle.list:IsVisible())
@@ -288,7 +290,7 @@ describe("Thank them with, and if that can't reach them (#101)", function()
         end)
 
         it("choosing one of Thank them with's choices saves it, shows it and closes the list (#274)", function()
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             for _, row in ipairs({ 3, 2, 4, 1 }) do
                 wow.run(w.thankStyle, "OnClick")
                 local picked = w.thankStyle.rows[row]
@@ -304,7 +306,7 @@ describe("Thank them with, and if that can't reach them (#101)", function()
         end)
 
         it("the fallback is a dropdown too: three choices, the name box only for /say (#274)", function()
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             wow.run(w.fallback, "OnClick")
             assert.are.same({ "say=say it in /say as", "emote=/thank instead", "none=do nothing" }, (rows(w.fallback)))
             wow.run(w.fallback.rows[2], "OnClick")
@@ -323,11 +325,11 @@ describe("Thank them with, and if that can't reach them (#101)", function()
         end)
 
         it("a list left open closes when the tab changes, and when the click lands elsewhere (#274, black)", function()
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             wow.run(w.thankStyle, "OnClick")
             wow.run(w.tabs.guildLogin, "OnClick")
             assert.is_false(w.thankStyle.list:IsShown())
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             assert.is_false(w.thankStyle.list:IsVisible())
             wow.run(w.fallback, "OnClick")
             assert.is_true(w.fallback.list:IsVisible())
@@ -350,7 +352,7 @@ describe("Thank them with, and if that can't reach them (#101)", function()
         end)
 
         it("a damaged saved choice reads as the default, on the button and in the list (#274, red)", function()
-            wow.run(w.tabs.buff, "OnClick")
+            wow.run(w.tabs.favours, "OnClick")
             for _, bad in ipairs({ "dance", 3, true, {}, false }) do
                 ns.db.buff.thankStyle, ns.db.buff.fallback = bad, bad
                 ns.Options.Refresh()
@@ -511,14 +513,14 @@ describe("Thank them with, and if that can't reach them (#101)", function()
             assert.are.same({}, wow.errors)
         end)
 
-        it("notes why when the fallback can't be sent (Buff Thanks switched off meanwhile)", function()
+        it("notes why when the fallback can't be sent (thanks switched off meanwhile)", function()
             whispered()
             ns.db.buff.enabled = false
             wow.systemMessage(FAIL)
             drain()
             assert.are.same({}, sent().say)
             assert.are.equal("not thanked", ns.db.ledger.entries[1].result)
-            assert.are.equal("the whisper didn't reach them; Buff Thanks is off", ns.db.ledger.entries[1].note)
+            assert.are.equal("the whisper didn't reach them; thanks are off", ns.db.ledger.entries[1].note)
         end)
 
         local function annWhispered()

@@ -1,4 +1,4 @@
--- Spec: #42, #209, #206, #256, #269, #397
+-- Spec: #42, #209, #206, #256, #269, #397, #491
 -- Top-up timing: in buff mode, a group member's buff with less than the set
 -- time left (default 5 minutes; a minute for a buff of 10 minutes or less,
 -- #397) counts as missing, so the button offers to
@@ -290,12 +290,16 @@ describe("Top-up timing in buff mode (#42)", function()
         end)
     end)
 
-    describe("the setting on the Buff Back tab", function()
-        it("shows only on that tab, below buff mode's minutes, and steps within its limits", function()
+    describe("the setting on the Buffs tab (#491)", function()
+        it("shows only on that tab, at every place, below buff mode's minutes, and steps within its limits", function()
             ns.Options.Create()
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
             local s = w.steppers.topUpMinutes
+            for _, place in ipairs(ns.BuffRules.PLACES) do
+                wow.run(w.placeTabs[place], "OnClick")
+                assert.is_true(s.box:IsVisible(), place)
+            end
             assert.is_true(s.box:IsShown())
             assert.are.equal("5", s.box:GetText())
             assert.are.equal(w.steppers.autoOffMinutes.label, select(2, s.label:GetPoint()))
@@ -306,21 +310,31 @@ describe("Top-up timing in buff mode (#42)", function()
             s.box:SetText("99")
             wow.run(s.box, "OnEditFocusLost")
             assert.are.equal(15, ns.db.buffBack.topUpMinutes)
-            wow.run(w.tabs.buff, "OnClick")
-            assert.is_false(s.box:IsShown())
-            assert.is_false(s.label:IsShown())
+            for _, tab in ipairs(ns.Options.TABS) do
+                if tab ~= ns.Options.BUFFS_TAB then
+                    wow.run(w.tabs[tab], "OnClick")
+                    assert.is_false(s.box:IsShown(), tab)
+                    assert.is_false(s.label:IsShown(), tab)
+                end
+            end
         end)
 
-        it("saves a number being typed before a reset puts the default back", function()
+        -- The Buffs tab has no Reset: a number being typed is saved as the tab
+        -- changes, and the Favours tab's Reset leaves it (BuffsTab.FIELDS).
+        it("saves a number being typed when the tab changes, and the Favours tab's Reset leaves it", function()
             ns.Options.Create()
             local w = ns.Options.widgets
-            wow.run(w.tabs.buffBack, "OnClick")
+            wow.run(w.tabs.buffs, "OnClick")
             local box = w.steppers.topUpMinutes.box
             box:SetFocus()
             box:SetText("9")
+            wow.run(w.tabs.favours, "OnClick")
+            assert.is_false(box:HasFocus())
+            assert.are.equal(9, ns.db.buffBack.topUpMinutes, "saved as the tab changed")
             wow.run(w.reset, "OnClick")
-            assert.are.equal(5, ns.db.buffBack.topUpMinutes, "the reset wins")
-            assert.are.equal("5", box:GetText())
+            assert.are.equal(9, ns.db.buffBack.topUpMinutes, "the Favours tab's Reset leaves it")
+            wow.run(w.tabs.buffs, "OnClick")
+            assert.are.equal("9", box:GetText())
         end)
     end)
 

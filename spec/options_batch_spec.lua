@@ -1,4 +1,4 @@
--- Spec: #425, #429
+-- Spec: #425, #429, #491
 -- Each page's Reset touches only its own settings (#425), and the buff mode
 -- key capture takes a click over every widget beneath it (#429).
 local wow = require("spec.support.wow")
@@ -7,15 +7,16 @@ local wow = require("spec.support.wow")
 -- page and left off the kept list fails below (#425).
 local KIND -- a kind the rogue can use, found below
 local WEAPON_PAGE = { weaponBuffs = true, weaponMain = true, weaponOff = true }
--- The Buff Back tab's own settings, which its Reset does put back (the other
--- Buff Back settings belong to the Buffs tab, the Weapon buffs page, or are
--- the button's place). Every Buff Back setting must be in exactly one of
+-- The buffBack settings on the Favours tab, which its Reset does put back
+-- (the other buffBack settings belong to the Buffs tab, the Weapon buffs
+-- page, or are the button's place). Passers-by moved there from the Buffs
+-- tab, and buff mode's key, triggers and top-up from the Buff Back tab to
+-- the Buffs tab (#491). Every buffBack setting must be in exactly one of
 -- these lists, so a new one has to be placed (#425).
-local BUFF_BACK_TAB = { "autoOffDone", "autoOffMinutes", "autoOffPull", "autoOnBuffed", "autoOnCampfire",
-    "autoOnDeath", "autoOnJoin", "autoOnMissing", "buffModeKey", "enabled", "messages", "owedMinutes",
-    "renewPercent", "requests", "sayLine", "showInCities", "topUpMinutes" }
+local FAVOURS_TAB = { "enabled", "messages", "owedMinutes", "passersBy", "renewPercent", "requests", "sayLine",
+    "showInCities" }
 
-describe("Reset on the Buff Back tab (#425)", function()
+describe("Reset on the Favours tab (#425, #491)", function()
     local ns
 
     before_each(function()
@@ -38,7 +39,7 @@ describe("Reset on the Buff Back tab (#425)", function()
         ns.db.buffBack.weaponBuffs = true
         ns.db.buffBack.weaponMain = KIND
         ns.Options.Open()
-        wow.run(w.tabs.buffBack, "OnClick")
+        wow.run(w.tabs.favours, "OnClick")
         wow.run(w.reset, "OnClick")
         assert.is_true(ns.db.buffBack.weaponBuffs)
         assert.are.equal(KIND, ns.db.buffBack.weaponMain)
@@ -48,7 +49,7 @@ describe("Reset on the Buff Back tab (#425)", function()
         assert.are.equal(ns.WeaponBuffs.KINDS[KIND].label, w.weapon.main:GetText(), "and the kind it kept")
     end)
 
-    it("every Buff Back setting belongs to exactly one page, so a new one must be placed (white)", function()
+    it("every buffBack setting belongs to exactly one page, so a new one must be placed (white)", function()
         local owner = {}
         local function claim(list, who)
             for _, key in ipairs(list) do
@@ -56,27 +57,27 @@ describe("Reset on the Buff Back tab (#425)", function()
                 owner[key] = who
             end
         end
-        claim(BUFF_BACK_TAB, "the Buff Back tab")
+        claim(FAVOURS_TAB, "the Favours tab")
         claim(ns.BuffsTab.FIELDS, "the Buffs tab")
         claim(ns.Profiles.LOCAL_ONLY.buffBack, "the button's place")
         local weapon = {}
         for key in pairs(WEAPON_PAGE) do weapon[#weapon + 1] = key end
         claim(weapon, "the Weapon buffs page")
         for key in pairs(ns.Config.DefaultsFor("buffBack")) do
-            assert.is_not_nil(owner[key], key .. " is a Buff Back setting no page owns: place it in this list")
+            assert.is_not_nil(owner[key], key .. " is a buffBack setting no page owns: place it in this list")
         end
         for key in pairs(owner) do
             assert.is_not_nil(ns.Config.DefaultsFor("buffBack")[key], key .. " is listed but isn't a setting")
         end
     end)
 
-    it("the Buff Back tab's own settings go back to their defaults (white)", function()
+    it("the Favours tab's buffBack settings go back to their defaults (white)", function()
         local defaults = ns.Config.DefaultsFor("buffBack")
-        for _, key in ipairs(BUFF_BACK_TAB) do
+        for _, key in ipairs(FAVOURS_TAB) do
             if type(defaults[key]) == "boolean" then ns.db.buffBack[key] = not defaults[key] end
         end
         ns.ResetType("buffBack")
-        for _, key in ipairs(BUFF_BACK_TAB) do
+        for _, key in ipairs(FAVOURS_TAB) do
             if type(defaults[key]) == "boolean" then
                 assert.are.equal(defaults[key], ns.db.buffBack[key], key)
             end
@@ -106,7 +107,8 @@ describe("the key capture's frame level (#429)", function()
         ns = wow.boot({ db = {}, class = "ROGUE" })
         w = ns.Options.widgets
         ns.Options.Open()
-        wow.run(w.tabs.buffBack, "OnClick")
+        -- Buff mode's key is on the Buffs tab (#491).
+        wow.run(w.tabs.buffs, "OnClick")
     end)
 
     it("takes a click over every widget on the tab beneath it (white)", function()
