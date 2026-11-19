@@ -2173,7 +2173,13 @@ local function RowInView(row, scroll, walkthrough, label)
     if left > 1 then line = line .. (" (%.0f of it added back: the client read the row unscrolled)"):format(left) end
     report(line)
     check(rt <= st + 1 and rb >= sb - 1, line .. ": the row is scrolled out of view")
-    check(rt >= st - NEAR_TOP, line .. ": the row isn't scrolled to the top of the view")
+    -- A page ends at its last row (#482), so a row in its last view can't
+    -- reach the top: the panel scrolled as far as it goes (the content's
+    -- height less the view's, as the game takes it) is as near as it gets.
+    local height, view = okChild and child and Measure(child, "GetHeight"), Measure(scroll, "GetHeight")
+    local atEnd = offset and height and view and offset >= height - view - 1
+    if atEnd then report(("LAYOUT %s: scrolled to the end (content %.0f, view %.0f)"):format(label, height, view)) end
+    check(rt >= st - NEAR_TOP or atEnd, line .. ": the row isn't scrolled to the top of the view")
     check(rb >= wt - 1, line .. ": the row is under the walkthrough")
     return line
 end
@@ -2244,10 +2250,8 @@ test("each walkthrough step shown keeps its text inside it, on the screen, its r
                     end
                 end
                 check(content ~= nil, label .. ": the options panel has no scrolling content")
-                -- Buff mode's rows sit about 22 links down the Buffs tab's
-                -- chain (#491), past the 16 the simulator lays out again: lay
-                -- it out first, so the step's scroll reads the row where it is,
-                -- as the game would (docs/ui-simulator.md).
+                -- Buff mode's rows sit deep in the Buffs tab's chain (#491):
+                -- lay it out first, so the step's scroll reads settled places.
                 Settle(content)
                 walkthrough.back:Click()
                 walkthrough.next:Click()

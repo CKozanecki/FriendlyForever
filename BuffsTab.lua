@@ -604,10 +604,8 @@ local function FillOrder(buffs)
             row.never:SetChecked(ns.BuffData.NeverOffered(buff))
         end
     end
-    -- Moved only when the row above it changes (another class's count of
-    -- buffs): a needless move lays every row below it out again, and the
-    -- UI simulator does that only 16 links deep, so buff mode's rows and the
-    -- places' read stale places there (#491, docs/ui-simulator.md).
+    -- Moved only when the row above it changes (the class read differently):
+    -- a needless move would lay every row below it out again on each fill.
     local last = buffs[1] and w.buffRows[#buffs].icon or w.buffOrderHeader
     -- No anchor yet on the first fill: the game may refuse GetPoint past the
     -- last anchor, so it's asked only when there is one (#491's review).
