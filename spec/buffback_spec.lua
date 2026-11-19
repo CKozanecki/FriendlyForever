@@ -703,7 +703,7 @@ describe("Buff back", function()
         it("has the key binding for its left button", function()
             local xml = wow.readFile("Bindings.xml")
             assert.is_truthy(xml:find('name="CLICK ' .. ns.BuffButton.FRAME_NAME .. ':LeftButton"', 1, true))
-            assert.are.equal("Friendly Forever: buff back",
+            assert.are.equal("Friendly Forever: buff button",
                 _G["BINDING_NAME_CLICK " .. ns.BuffButton.FRAME_NAME .. ":LeftButton"])
         end)
 
