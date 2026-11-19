@@ -1152,6 +1152,50 @@ local function FrameTextInside(frame, label, maxLines)
     CheckAll(checks)
 end
 
+-- Whether frame is a scrolling page's content: the child of a scroll frame.
+local function IsScrolled(frame)
+    local scroll = frame.GetParent and frame:GetParent()
+    return scroll ~= nil and scroll.GetObjectType ~= nil and scroll:GetObjectType() == "ScrollFrame"
+end
+
+-- The addon sizes a scrolling page's content to its rows each time its
+-- scroll frame shows (#482: FitHeight in Options.lua). Showing it again
+-- here sizes it from the rows where they are now.
+local function Refit(content)
+    if not IsScrolled(content) then return end
+    local scroll = content:GetParent()
+    local onShow = scroll:GetScript("OnShow")
+    if onShow then onShow(scroll) end
+end
+
+-- The simulator re-lays out only 16 links down an anchor chain when a
+-- region moves (docs/ui-simulator.md). Switching tabs moves the message
+-- list's header, so message rows past the 17th, the buttons and the notes
+-- below them keep the last tab's places. Setting each region's own anchors
+-- again, in the order they were made, and reading its place, carries the
+-- move down the chain: each one re-lays itself and 16 more. Twice, since
+-- regions and child frames hang from each other. The anchors are the same
+-- afterwards.
+local function Settle(content)
+    local function Again(region)
+        local points = {}
+        for i = 1, (Measure(region, "GetNumPoints") or 0) do points[i] = { region:GetPoint(i) } end
+        if #points == 0 then return end
+        region:ClearAllPoints()
+        for _, p in ipairs(points) do region:SetPoint(unpack(p, 1, 5)) end
+        -- Asking where it is lays it out now, from the regions above it,
+        -- which were laid out the same way just before.
+        Edges(region, "GetTop", "GetBottom")
+    end
+    for _ = 1, 2 do
+        for _, region in ipairs({ content:GetRegions() }) do Again(region) end
+        for _, child in ipairs({ content:GetChildren() }) do Again(child) end
+    end
+    -- The addon sized a scrolling page's content to its rows as it showed
+    -- (#482), from places read before this; it sizes it again from these.
+    Refit(content)
+end
+
 -- In the game a text line with no height set grows with its wrapped text,
 -- and pushes down whatever is anchored below it. The simulator doesn't wrap
 -- a line pinned to two frames (WrappedLines), so nothing moves there. This
@@ -1162,7 +1206,56 @@ end
 -- returns the line. Pages here are one column, so everything above a region
 -- pushes it.
 local PUSH_LINE = 17
+
+-- A scrolling page's content ends at its last shown row plus the addon's
+-- margin (#482: 16 px, Options.SCROLL_MARGIN, given here as a number), so
+-- it never scrolls into an empty pane; its scroll range is no more than its
+-- height less the view's, and a page that fits has no scroll bar. Frames
+-- that float over the rows (an open list) don't count, as for the addon.
+-- Prints a LAYOUT line, fails if it doesn't hold, and returns the line.
+local SCROLL_MARGIN = 16
+local function ScrollFits(content, label)
+    local scroll = content:GetParent()
+    local top, bottom = Edges(content, "GetTop", "GetBottom")
+    local lowest
+    local function Look(region)
+        if region.floating or not region:IsShown() then return end
+        local _, b = Edges(region, "GetTop", "GetBottom")
+        if b and (not lowest or b < lowest) then lowest = b end
+    end
+    for _, child in ipairs({ content:GetChildren() }) do Look(child) end
+    for _, region in ipairs({ content:GetRegions() }) do Look(region) end
+    local view, range = Measure(scroll, "GetHeight"), Measure(scroll, "GetVerticalScrollRange")
+    if not (top and lowest and view and range) then
+        local line = "LAYOUT " .. label .. " scroll: edges can't be read here"
+        report(line)
+        check(false, line)
+        return line
+    end
+    local height, tail = top - bottom, lowest - bottom
+    local bar = scroll.ScrollBar
+    local barShown = bar ~= nil and bar:IsShown() == true
+    local line = ("LAYOUT %s scroll: %.0f px below its last row (most %d), content %.0f, view %.0f, "
+        .. "range %.0f, scroll bar %s"):format(label, tail, SCROLL_MARGIN, height, view, range,
+        bar == nil and "none" or (barShown and "shown" or "hidden"))
+    report(line)
+    check(tail >= -1, line .. ": its last row is cut off")
+    check(tail <= SCROLL_MARGIN + 1, line .. ": it scrolls into an empty pane")
+    check(range <= math.max(0, height - view) + 1, line .. ": it scrolls further than its rows")
+    if bar then
+        check(barShown == (height > view + 1), line .. (barShown and ": a page that fits shows a scroll bar"
+            or ": a page that scrolls hides its scroll bar"))
+    end
+    return line
+end
+
 local function PushedDownInside(frame, label)
+    -- A scrolling page's content grows with its rows (#482), the game's
+    -- wrapped text included, so wrapping can't push a row out of it: what
+    -- matters is that it ends at its last row. The layout is settled first,
+    -- which also sizes it again from where its rows are now.
+    local scrolled = IsScrolled(frame)
+    if scrolled then Settle(frame) end
     local _, fb = Edges(frame, "GetTop", "GetBottom")
     if not fb then
         local line = "LAYOUT " .. label .. " pushed down: edges can't be read here"
@@ -1198,10 +1291,11 @@ local function PushedDownInside(frame, label)
             end
         end
     end
-    if not lowest then return end
+    if not lowest then return scrolled and ScrollFits(frame, label) or nil end
     local line = ("LAYOUT %s pushed down by wrapped text: lowest \"%s\" ends at %.0f, frame bottom %.0f"):format(
         label, Short(lowestName), lowest, fb)
     report(line)
+    if scrolled then return ScrollFits(frame, label) end
     check(lowest >= fb - 1, line .. ": would leave its frame in the game")
     return line
 end
@@ -1355,31 +1449,6 @@ local function TabTextInside(content, label)
     end
     check(#checks > 0, label .. ": no text to check")
     CheckAll(checks)
-end
-
--- The simulator re-lays out only 16 links down an anchor chain when a
--- region moves (docs/ui-simulator.md). Switching tabs moves the message
--- list's header, so message rows past the 17th, the buttons and the notes
--- below them keep the last tab's places. Setting each region's own anchors
--- again, in the order they were made, and reading its place, carries the
--- move down the chain: each one re-lays itself and 16 more. Twice, since
--- regions and child frames hang from each other. The anchors are the same
--- afterwards.
-local function Settle(content)
-    local function Again(region)
-        local points = {}
-        for i = 1, (Measure(region, "GetNumPoints") or 0) do points[i] = { region:GetPoint(i) } end
-        if #points == 0 then return end
-        region:ClearAllPoints()
-        for _, p in ipairs(points) do region:SetPoint(unpack(p, 1, 5)) end
-        -- Asking where it is lays it out now, from the regions above it,
-        -- which were laid out the same way just before.
-        Edges(region, "GetTop", "GetBottom")
-    end
-    for _ = 1, 2 do
-        for _, region in ipairs({ content:GetRegions() }) do Again(region) end
-        for _, child in ipairs({ content:GetChildren() }) do Again(child) end
-    end
 end
 
 -- How many of the message rows ("1." to "30.") read at or above the row
