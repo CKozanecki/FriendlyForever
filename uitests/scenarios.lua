@@ -1216,12 +1216,30 @@ local PUSH_LINE = 17
 -- the rows (an open list) don't count, as for the addon. Prints a LAYOUT
 -- line, fails if it doesn't hold, and returns the line.
 local SCROLL_MARGIN = 16
+
+-- Whether a frame floats over a scrolling page's rows (Options.Floating):
+-- marked so, and also floating by its look, so a row marked by mistake
+-- still counts. The who-gets list is drawn above the rows (a higher
+-- strata); the key capture covers the whole content (its edges are the
+-- content's).
+local STRATA = { BACKGROUND = 1, LOW = 2, MEDIUM = 3, HIGH = 4, DIALOG = 5,
+    FULLSCREEN = 6, FULLSCREEN_DIALOG = 7, TOOLTIP = 8 }
+local function Floats(content, region)
+    if not region.floating then return false end
+    local mine = STRATA[region.GetFrameStrata and region:GetFrameStrata() or ""]
+    local theirs = STRATA[content.GetFrameStrata and content:GetFrameStrata() or ""]
+    if mine and theirs and mine > theirs then return true end
+    local top, bottom = Edges(region, "GetTop", "GetBottom")
+    local cTop, cBottom = Edges(content, "GetTop", "GetBottom")
+    return top ~= nil and cTop ~= nil and math.abs(top - cTop) <= 1 and math.abs(bottom - cBottom) <= 1
+end
+
 local function ScrollFits(content, label)
     local scroll = content:GetParent()
     local top, bottom = Edges(content, "GetTop", "GetBottom")
     local lowest
     local function Look(region)
-        if region.floating or not region:IsShown() then return end
+        if not region:IsShown() or Floats(content, region) then return end
         local _, b = Edges(region, "GetTop", "GetBottom")
         if b and (not lowest or b < lowest) then lowest = b end
     end
@@ -2284,5 +2302,6 @@ test("reports the actions the client blocked while the scenarios ran", function(
 end)
 
 return { TextInside = TextInside, PushedDownInside = PushedDownInside, TabTextInside = TabTextInside,
-    OnScreen = OnScreen, Settle = Settle, RowsInOrder = RowsInOrder, AcrossInside = AcrossInside,
+    ScrollFits = ScrollFits, IsScrolled = IsScrolled, OnScreen = OnScreen, Settle = Settle,
+    RowsInOrder = RowsInOrder, AcrossInside = AcrossInside,
     RowInView = RowInView, THANK_WITH = THANK_WITH, CANT_REACH = CANT_REACH }

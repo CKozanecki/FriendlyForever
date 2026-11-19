@@ -590,6 +590,11 @@ local function Settle(content)
         for _, region in ipairs({ content:GetRegions() }) do Again(region) end
         for _, child in ipairs({ content:GetChildren() }) do Again(child) end
     end
+    -- The addon sizes a scrolling page's content to its rows each time its
+    -- scroll frame shows (#482): showing it again sizes it from these places.
+    local scroll = content.GetParent and content:GetParent()
+    local onShow = scroll and scroll.GetScript and scroll:GetScript("OnShow")
+    if onShow then onShow(scroll) end
 end
 
 -- The row of content (a check box, by the start of its label's text), or nil.
@@ -607,7 +612,9 @@ local function EdgePair(region, first, second)
 end
 
 -- Shows frame near the top ("top") or the bottom ("bottom") of the options
--- panel's view, as a player scrolls a row into view to use it (#408). The
+-- panel's view, as a player scrolls a row into view to use it (#408), as
+-- far as the panel scrolls: never past the content's height less the
+-- view's (#482). The
 -- client reads a scrolled child's regions unscrolled (docs/ui-simulator.md),
 -- so code that places a frame from a row's edges (the Buffs tab's who-gets
 -- list) would place it where the row sits unscrolled. The scroll child is
@@ -625,6 +632,10 @@ function Pages.ShowFrameAt(content, frame, at)
     if not (viewTop and rowTop and contentTop) then return end
     local offset = contentTop - rowTop - 12
     if at == "bottom" then offset = (contentTop - viewTop) + viewBottom + 12 - rowBottom end
+    -- No further than the game scrolls: the content's height less the
+    -- view's, now that the content ends at its last row (#482).
+    local ch, vh = content:GetHeight(), scroll:GetHeight()
+    if type(ch) == "number" and type(vh) == "number" then offset = math.min(offset, math.max(0, ch - vh)) end
     offset = math.max(0, offset)
     local points = {}
     for i = 1, (content.GetNumPoints and content:GetNumPoints() or 0) do points[i] = { content:GetPoint(i) } end
