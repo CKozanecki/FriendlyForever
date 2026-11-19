@@ -90,6 +90,55 @@ local function Noted(object, parent)
 end
 Options.Noted = Noted
 
+-- A frame on a scrolling content that floats over it (a list that opens, a
+-- key capture covering the tab) and so isn't part of how tall it is (#482).
+local function Floating(frame)
+    frame.floating = true
+    return frame
+end
+Options.Floating = Floating
+
+-- Below a page's last shown control, the room its scrolling ends with (#482).
+Options.SCROLL_MARGIN = 16
+
+-- The lowest bottom edge of content's shown rows, or nil when none can be
+-- read yet (not laid out). Only the content's own frames and text count:
+-- a control's parts sit inside it.
+local function LowestBottom(content)
+    local lowest
+    local function Look(region)
+        if region.floating or not region:IsShown() then return end
+        local bottom = region:GetBottom()
+        if type(bottom) == "number" and bottom == bottom and (not lowest or bottom < lowest) then lowest = bottom end
+    end
+    for _, child in ipairs({ content:GetChildren() }) do Look(child) end
+    for _, region in ipairs({ content:GetRegions() }) do Look(region) end
+    return lowest
+end
+
+-- Sizes a scrolling area's content to its rows (#482): it scrolls only to
+-- its last shown control plus SCROLL_MARGIN, never into an empty pane, and a
+-- page that fits has no scroll range and no scroll bar. The offset is kept
+-- inside the new range, so a tab or sub-tab with less on it never shows
+-- empty space. Edges the game can't give yet change nothing.
+local function FitHeight(scroll, content)
+    local top, lowest = content:GetTop(), LowestBottom(content)
+    if type(top) ~= "number" or top ~= top or not lowest then return end
+    local height = math.max(1, top - lowest + Options.SCROLL_MARGIN)
+    content:SetHeight(height)
+    local view = scroll:GetHeight()
+    local range = math.max(0, height - (type(view) == "number" and view or 0))
+    if scroll:GetVerticalScroll() > range then scroll:SetVerticalScroll(range) end
+    if scroll.ScrollBar then scroll.ScrollBar:SetShown(range > 0) end
+    return height, range
+end
+Options.FitHeight = FitHeight
+
+-- After a page fills: the game lays out the rows it asks the edges of. The
+-- settings window's own late layout is caught by the next-frame fit each
+-- show runs (FollowWidth), and by the panel's next-frame refill.
+local Refit = FitHeight
+
 local function Label(parent, text, font)
     local fs = parent:CreateFontString(nil, "ARTWORK", font or "GameFontHighlight")
     fs:SetText(text)
@@ -193,6 +242,18 @@ end
 Options.SAMPLE_NAME = "Nikki-Shifts"
 Options.SAMPLE_BUFF = "Power Word: Fortitude"
 Options.PREVIEW_EXAMPLES = 3
+-- A guild message's {zone} is the guildmate's (#486): previews of a guild
+-- tab's lines say this one, and the hover says whose it is.
+Options.SAMPLE_ZONE = "Stranglethorn Vale"
+Options.GUILD_ZONE_NOTE = "{zone} here is the guildmate's zone, from the guild roster (such as %s). "
+    .. "When the roster can't say, a line or phrase that needs it isn't used."
+
+-- The moment a preview of msgType's lines renders in: a guild tab's has the
+-- sample guildmate's zone and the guild's phrases (#486); nil reads yours.
+function Options.PreviewContext(msgType)
+    local info = Config.TYPE_INFO[msgType]
+    if info and info.guild then return ns.Flavour.Context({ zone = Options.SAMPLE_ZONE }) end
+end
 Options.PREVIEW_POOL_MAX = 24
 Options.PREVIEW_WIDTH = 70
 
@@ -371,7 +432,7 @@ function Options.StartKeyCapture()
 end
 
 local function CreateKeyCapture(parent)
-    local capture = CreateFrame("Frame", nil, parent)
+    local capture = Floating(CreateFrame("Frame", nil, parent))
     capture:SetAllPoints(parent)
     capture:Hide()
     -- It covers the tab, so it must take a click wherever one lands. Frames
@@ -535,7 +596,10 @@ local function Fill()
     local onBuffs = currentType == Options.BUFFS_TAB
     for _, row in ipairs(typeRows) do row:SetShown(not onBuffs) end
     for _, row in ipairs(buffsRows) do row:SetShown(onBuffs) end
-    if onBuffs then return ns.BuffsTab.Fill() end
+    if onBuffs then
+        ns.BuffsTab.Fill()
+        return Refit(widgets.scroll, widgets.content)
+    end
     ns.BuffsTab.Close()
     local cfg = ns.db[currentType]
     local info = Config.TYPE_INFO[currentType]
@@ -615,6 +679,7 @@ local function Fill()
     ns.Diag.Log("options", "filled %s tab: delay %s (box shows '%s'), repeat %s (box shows '%s')",
         currentType, cfg.delay, widgets.steppers.delay.box:GetText(),
         cfg.repeatCooldown, widgets.steppers.repeatCooldown.box:GetText())
+    Refit(widgets.scroll, widgets.content)
 end
 
 local FillStart, FillGeneral, FillLedger, FillWeapon
@@ -657,12 +722,19 @@ end
 -- change, and on each show, now and on the next frame. The settings window
 -- may lay a panel out without a size change reaching its scroll frame, and
 -- a stale width would wrap or cut every line pinned to the content's right
--- (#52, #112).
+-- (#52, #112). Its height follows its rows each time (#482).
 local function FollowWidth(scroll, content)
-    scroll:SetScript("OnSizeChanged", function(_, width) content:SetWidth(width) end)
+    -- Blizzard's scroll frame code hides the bar of a frame with no range
+    -- itself (ScrollFrame_OnScrollRangeChanged, SecureScrollTemplates.lua).
+    scroll.scrollBarHideable = true
+    scroll:SetScript("OnSizeChanged", function(_, width)
+        content:SetWidth(width)
+        FitHeight(scroll, content)
+    end)
     local function Fit()
         local width = scroll:GetWidth()
         if width and width > 0 then content:SetWidth(width) end
+        FitHeight(scroll, content)
     end
     scroll:SetScript("OnShow", function()
         Fit()
@@ -932,7 +1004,8 @@ function Options.Create()
         local ok, preview = pcall(function()
             local vars = Config.NameVars(currentType, Options.SAMPLE_NAME)
             vars.buff = Options.SAMPLE_BUFF
-            return ns.Flavour.Preview(box:GetText(), vars, nil, Options.PREVIEW_EXAMPLES)
+            return ns.Flavour.Preview(box:GetText(), vars, Options.PreviewContext(currentType),
+                Options.PREVIEW_EXAMPLES)
         end)
         local function Line(colour, text)
             local r, g, b = ns.Colours.RGB(colour)
@@ -965,7 +1038,13 @@ function Options.Create()
                 end
                 if row ~= "" then Line("text", row) end
             end
-            for _, now in ipairs(preview.now) do Line("muted", "{" .. now.key .. "} now reads: " .. now.value) end
+            for _, now in ipairs(preview.now) do
+                if now.theirs then
+                    Line("muted", Options.GUILD_ZONE_NOTE:format(now.value))
+                else
+                    Line("muted", "{" .. now.key .. "} now reads: " .. now.value)
+                end
+            end
         end
         GameTooltip:Show()
     end
@@ -993,7 +1072,7 @@ function Options.Create()
         local template = ns.Messages.Preview(Config.Field(currentType, "messages"))
         local vars = ns.Config.NameVars(currentType, ns.Util.UnitFullName("player") or "Nikki-Shifts")
         vars.buff = "Power Word: Fortitude and Arcane Intellect"
-        local text = template and ns.Util.Render(template, ns.Flavour.Vars(vars))
+        local text = template and ns.Util.Render(template, ns.Flavour.Vars(vars, Options.PreviewContext(currentType)))
         ns.Print(text or "(no messages)")
     end)
     widgets.preview:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -16)
@@ -1198,6 +1277,7 @@ FillStart = function()
         .. (buffBack.passersBy == true and "passers-by is on." or "passers-by is off until you turn it on."))
     w.buffModeKey:SetText("Buff mode key: " .. ns.BuffMode.KeyText((ns.BuffMode.Key()))
         .. ". Buff mode lends it to the buff-back button to buff a group quickly (the Buff Back tab).")
+    Refit(startPage.scroll, startPage.content)
 end
 
 function Options.CreateGeneralPage()
@@ -1327,6 +1407,7 @@ FillGeneral = function()
     w.profileState:SetText("Using " .. ns.Profiles.Active() .. ". All profiles: "
         .. Shown(ns.Profiles.List(), Options.PROFILES_SHOWN, "/friendly profile"))
     w.undoImport:SetEnabled(ns.Profiles.CanUndoImport())
+    Refit(generalPage.scroll, generalPage.content)
 end
 
 function Options.CreateLedgerPage()

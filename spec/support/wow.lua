@@ -235,6 +235,19 @@ function methods:GetWidth() return self.width or 0 end
 function methods:GetHeight() return self.height or 0 end
 function methods:GetCenter() return self.centerX or 0, self.centerY or 0 end
 function methods:GetTop() return self.top end
+function methods:GetBottom() return self.bottom end
+-- A frame's child frames, and its regions (text lines and textures), in the
+-- order they were made, as GetChildren and GetRegions give them (#482).
+local function kids(self, regions)
+    local out = {}
+    for _, f in ipairs(M.frames) do
+        local isRegion = f.kind == "FontString" or f.kind == "Texture"
+        if f.parent == self and isRegion == regions then out[#out + 1] = f end
+    end
+    return unpack(out)
+end
+function methods:GetChildren() return kids(self, false) end
+function methods:GetRegions() return kids(self, true) end
 function methods:GetRight() return self.right end
 function methods:SetScrollChild(child) self.scrollChild = child end
 function methods:SetVerticalScroll(offset) self.verticalScroll = offset end
@@ -828,8 +841,17 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --   CreateFrame with "BasicFrameTemplateWithInset" gives the frame a
 --                         CloseButton whose own click only hides the frame
 --                         (the game's template does the same; confirmed in game at launch).
---   Region edges: GetTop answers region.top, set by a spec, or nil (not laid
---                         out yet, the pessimistic case). A scroll frame keeps
+--   A guild roster row's zone (#486), GetGuildRosterInfo's sixth answer
+--                         (warcraft.wiki.gg's API page; an offline member's is
+--                         where they last were): state.guildZones[name], else ""
+--                         (not filled in yet). Whether the game fills it in on
+--                         the first roster update after a login, and whether it
+--                         is ever a secret, is unconfirmed (quality issue #487):
+--                         the default is the pessimistic "", and
+--                         state.guildZoneSecret makes it a secret.
+--   Region edges: GetTop and GetBottom answer region.top and region.bottom,
+--                         set by a spec, or nil (not laid out yet, the
+--                         pessimistic case). A scroll frame keeps
 --                         SetVerticalScroll's offset, and its range is
 --                         frame.scrollRange (0 when unset). SetHeight keeps the height given.
 --   Override bindings (SetOverrideBindingClick, ClearOverrideBindings) are
@@ -2087,6 +2109,8 @@ function M.reset()
         if type(template) == "string" and template:find("Secure") then f.protected = true end
         -- The window templates' close button, whose own click only hides
         -- the window (the pessimistic case: nothing else is told).
+        -- The scroll frame template's scroll bar (parentKey ScrollBar, #482).
+        if template == "UIPanelScrollFrameTemplate" then f.ScrollBar = M.newFrame("Slider", nil, f) end
         if template == "BasicFrameTemplateWithInset" then
             f.CloseButton = M.newFrame("Button", nil, f)
             f.CloseButton.scripts.OnClick = function() f:Hide() end
@@ -2233,11 +2257,18 @@ function M.reset()
     _G.IsInGuild = function() return M.state.inGuild end
     M.state.guildOffline = {}
     _G.GetNumGuildMembers = function() return #M.visibleRoster() end
-    -- name, rank, rankIndex, level, class, zone, note, officerNote, online
+    -- name, rank, rankIndex, level, class, zone, note, officerNote, online.
+    -- The zone (#486): state.guildZones[name], else "" (not filled in yet,
+    -- the pessimistic case: see ASSUMPTIONS); a secret when
+    -- state.guildZoneSecret is true or names them.
+    M.state.guildZones = M.state.guildZones or {}
     _G.GetGuildRosterInfo = function(i)
         local name = M.visibleRoster()[i]
         if name == nil then return nil end
-        return name, "Member", 1, 60, "Warrior", "Elwynn Forest", "", "", not M.state.guildOffline[name]
+        local zone = M.state.guildZones[name] or ""
+        local secret = M.state.guildZoneSecret
+        if secret == true or (type(secret) == "table" and secret[name]) then zone = M.secret(zone) end
+        return name, "Member", 1, 60, "Warrior", zone, "", "", not M.state.guildOffline[name]
     end
     -- state.rosterReplyDelay: answer a roster request with a roster update
     -- after that many seconds, as the server does.

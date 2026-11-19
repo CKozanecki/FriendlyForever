@@ -1,4 +1,4 @@
--- Spec: #35, #52, #90, #112, #148, #158, #47, #173, #208, #160, #177, #343, #362
+-- Spec: #35, #52, #90, #112, #148, #158, #47, #173, #208, #160, #177, #343, #362, #482
 -- The UI simulator's layout check (uitests/scenarios.lua), run here against
 -- stand-in regions whose edges, anchors and text sizes each test sets
 -- itself, so the expected answer comes from those numbers and not from the
@@ -1031,5 +1031,110 @@ describe("UI simulator layout checks for the walkthrough (AcrossInside, RowInVie
         checks.RowInView(region({ top = 660, bottom = 646 }), scroll, walkthrough, "row")
         local err = fails(function() checks.RowInView(region({ top = 659, bottom = 645 }), scroll, walkthrough, "row") end)
         assert.is_truthy(err:find("isn't scrolled to the top of the view", 1, true), err)
+    end)
+end)
+
+-- #482: a scrolling page's content ends at its last shown row plus 16 px,
+-- and has a scroll bar only when it is taller than its view (ScrollFits).
+-- The stand-ins give every edge, so the expected answer comes from these
+-- numbers, not from the check.
+describe("UI simulator layout check (ScrollFits, #482)", function()
+    local checks, printed
+
+    before_each(function() checks, printed = loadChecks() end)
+
+    local function row(bottom, fields, methods)
+        fields = fields or {}
+        local r = region({ left = 0, right = 100, top = bottom + 20, bottom = bottom }, methods)
+        r.IsShown = function() return fields.hidden ~= true end
+        r.GetFrameStrata = function() return fields.strata or "MEDIUM" end
+        r.floating = fields.floating
+        return r
+    end
+
+    -- content: top 1000; rows, a view height and whether the bar shows.
+    local function page(contentBottom, rows, view, barShown)
+        local onShows = 0
+        local scroll = {
+            GetObjectType = function() return "ScrollFrame" end,
+            GetHeight = function() return view end,
+            GetVerticalScrollRange = function() return 1000 - contentBottom end, -- as the simulator misreads it
+            ScrollBar = { IsShown = function() return barShown end },
+            GetScript = function(_, name) return name == "OnShow" and function() onShows = onShows + 1 end or nil end,
+        }
+        local content = region({ left = 0, right = 600, top = 1000, bottom = contentBottom })
+        content.GetParent = function() return scroll end
+        content.GetFrameStrata = function() return "MEDIUM" end
+        content.GetChildren = function() return unpack(rows) end
+        content.GetRegions = function() return end
+        return content, function() return onShows end
+    end
+
+    it("passes a page ending 16 px below its last row, its bar shown as it is taller than its view", function()
+        local content = page(400, { row(600), row(416) }, 500, true)
+        local line = checks.ScrollFits(content, "page")
+        assert.are.equal("LAYOUT page scroll: 16 px below its last row (most 16), content 600, view 500, "
+            .. "so a range of 100 (the simulator reads 600), scroll bar shown", line)
+        assert.are.same({ line }, printed)
+    end)
+
+    it("passes a page that fits its view, with no scroll bar", function()
+        local line = checks.ScrollFits(page(700, { row(716) }, 500, false), "short page")
+        assert.truthy(line:find("content 300, view 500, so a range of 0", 1, true), line)
+    end)
+
+    it("fails an empty tail: 40 px below the last row", function()
+        local err = fails(function() checks.ScrollFits(page(400, { row(440) }, 500, true), "page") end)
+        assert.truthy(err:find("40 px below its last row (most 16)", 1, true), err)
+        assert.truthy(err:find("it scrolls into an empty pane", 1, true), err)
+    end)
+
+    it("fails a last row below the content's bottom", function()
+        local err = fails(function() checks.ScrollFits(page(400, { row(390) }, 500, true), "page") end)
+        assert.truthy(err:find("its last row is cut off", 1, true), err)
+    end)
+
+    it("fails a scroll bar on a page that fits, and none on a page that scrolls", function()
+        local err = fails(function() checks.ScrollFits(page(700, { row(716) }, 500, true), "page") end)
+        assert.truthy(err:find("a page that fits shows a scroll bar", 1, true), err)
+        err = fails(function() checks.ScrollFits(page(400, { row(416) }, 300, false), "page") end)
+        assert.truthy(err:find("a page that scrolls hides its scroll bar", 1, true), err)
+    end)
+
+    it("leaves out hidden rows and a list drawn above the rows", function()
+        local rows = {
+            row(416),
+            row(100, { hidden = true }),
+            row(100, { floating = true, strata = "DIALOG" }), -- the who-gets list, open
+        }
+        local line = checks.ScrollFits(page(400, rows, 500, true), "page")
+        assert.truthy(line:find("16 px below its last row", 1, true), line)
+    end)
+
+    it("leaves out a frame covering the content, so an empty tail behind it still fails", function()
+        local capture = row(400, { floating = true }) -- the key capture: the content's own edges
+        capture.GetTop = function() return 1000 end
+        local err = fails(function() checks.ScrollFits(page(400, { row(440), capture }, 500, true), "page") end)
+        assert.truthy(err:find("40 px below its last row", 1, true), err)
+        assert.truthy(err:find("it scrolls into an empty pane", 1, true), err)
+    end)
+
+    it("still counts a row marked floating by mistake: same strata, inside the content", function()
+        local err = fails(function()
+            checks.ScrollFits(page(400, { row(416), row(200, { floating = true }) }, 500, true), "page")
+        end)
+        assert.truthy(err:find("its last row is cut off", 1, true), err)
+    end)
+
+    it("knows a scrolling page's content from any other frame", function()
+        assert.is_true(checks.IsScrolled((page(400, {}, 500, true))))
+        assert.is_false(checks.IsScrolled(region({})))
+    end)
+
+    it("PushedDownInside checks a scrolling page's content with ScrollFits, sized again first", function()
+        local content, onShows = page(400, { row(440) }, 500, true)
+        local err = fails(function() checks.PushedDownInside(content, "page") end)
+        assert.truthy(err:find("LAYOUT page scroll: 40 px below its last row", 1, true), err)
+        assert.are.equal(1, onShows(), "the scroll frame wasn't shown again to size the content")
     end)
 end)
