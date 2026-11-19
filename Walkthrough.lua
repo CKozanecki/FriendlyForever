@@ -265,6 +265,26 @@ Walkthrough.STEPS = {
         end,
     },
     {
+        -- Each character's own buff settings (#508): the pages that hold
+        -- them are named, and a returning player is told each character
+        -- started from a copy of the settings they had.
+        since = 5,
+        title = "Each character's own buffs",
+        open = function() ns.Options.OpenTab(ns.Options.BUFFS_TAB, "buffOrderHeader") end,
+        text = function()
+            local start = Walkthrough.WhatsNew()
+                and "These settings are now each character's own. Each character you had starts with a copy of "
+                    .. "the settings you had, and a character you make from now on starts with them unset.\n\n"
+                or "These settings are each character's own, so a priest and a druid can each have theirs:\n\n"
+            return start
+                .. "  The Buffs tab: the buff order and \"Never offer\", who gets each buff in each place, "
+                .. "buff mode's key, and \"Offer my self-buffs\".\n"
+                .. "  The Weapon buffs page: weapon buffs and each hand's kind.\n\n"
+                .. "Everything else is shared by all your characters. A character on a shared profile (the "
+                .. "General page's Profiles) uses that profile's settings for these too."
+        end,
+    },
+    {
         since = 1,
         title = "That's it",
         open = function() ns.Options.OpenStart() end,

@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383, #408, #45, #491
+-- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383, #408, #45, #491, #508
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -462,8 +462,9 @@ describe("the UI simulator's walkthrough steps", function()
                 assert.are.equal("What's new: " .. step.title, walkthrough.title:GetText())
             end
         end
-        assert.are.equal(3, whatsNew, "the What's new steps shot: buff requests, the Buffs tab and Favours")
-        assert.are.equal(ns.Options.FAVOURS_TAB, ns.Options.CurrentType(), "the last step shot is on the Favours tab")
+        assert.are.equal(4, whatsNew,
+            "the What's new steps shot: buff requests, the Buffs tab, Favours and each character's own buffs (#508)")
+        assert.are.equal(ns.Options.BUFFS_TAB, ns.Options.CurrentType(), "the last step shot is on the Buffs tab")
     end)
 
     -- #362: the buff requests step, as a returning player who finished the

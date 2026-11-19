@@ -1,4 +1,4 @@
--- Spec: #47, #169, #330, #40, #408, #45, #491
+-- Spec: #47, #169, #330, #40, #408, #45, #491, #508
 -- The Start here page and the walkthrough: the page's controls change the
 -- same settings as their full pages, the walkthrough reaches buff mode's key
 -- and triggers, skipping or finishing it is remembered, it can be replayed,
@@ -226,10 +226,10 @@ describe("The walkthrough", function()
         end)
 
         -- #491: buff mode's key and triggers are on the Buffs tab; Favours holds
-        -- thanks (at the thank-you lines), buff requests, and its own step
-        -- before the last.
-        it("opens each step's page: Buffs three times, Favours, Guild Join, Favours, Buffs, Favours, then Start here",
-            function()
+        -- thanks (at the thank-you lines), buff requests, and its own step.
+        -- #508: each character's own buffs, on the Buffs tab, before the last.
+        it("opens each step's page: Buffs three times, Favours, Guild Join, Favours, Buffs, Favours, Buffs, then "
+            .. "Start here", function()
             local seen, lines = {}, {}
             while ns.Walkthrough.Step() < #ns.Walkthrough.STEPS do
                 wow.run(tour.next, "OnClick")
@@ -237,13 +237,13 @@ describe("The walkthrough", function()
                 if ns.Walkthrough.STEPS[ns.Walkthrough.Step()].title == "Thanks" then lines.thanks = ns.Options.LinesType() end
             end
             assert.are.same({ "buffs", "buffs", "buffs", "favours", "guildJoin", "favours", "buffs", "favours",
-                "Start here" }, seen)
+                "buffs", "Start here" }, seen)
             assert.are.equal("buff", lines.thanks, "the Thanks step opens the thank-you lines")
             assert.are.equal("Finish", tour.next:GetText())
             assert.is_false(tour.skip:IsShown())
             wow.run(tour.back, "OnClick")
             assert.are.equal(#ns.Walkthrough.STEPS - 1, ns.Walkthrough.Step())
-            assert.are.equal(ns.Options.FAVOURS_TAB, ns.Options.CurrentType())
+            assert.are.equal(ns.Options.BUFFS_TAB, ns.Options.CurrentType())
         end)
 
         it("scrolls the panel to the step's rows, within its range, now and once laid out", function()
@@ -1002,6 +1002,7 @@ describe("What's new: the Buffs tab and the keep-or-reset choice (#408)", functi
     local ns, tour
     local STEP = "Your buffs have a tab of their own"
     local FAVOURS_STEP = "Favours: thanking and buffing back" -- the step after it (#491)
+    local CHARACTERS_STEP = "Each character's own buffs" -- and the one after that (#508)
     local KEPT_LINE, NEW_LINE = "kept your buff rules", "using the new buff defaults"
     -- A druid's 1.3.3 settings with two of its buffs' rules changed, and a
     -- rule for another class's buff (not one of "your buffs").
@@ -1041,12 +1042,13 @@ describe("What's new: the Buffs tab and the keep-or-reset choice (#408)", functi
     end
 
     describe("after the update (white)", function()
-        -- Then the Favours tab's step (#491), added after it.
+        -- Then the Favours tab's step (#491) and each character's own buffs
+        -- (#508), added after it.
         it("a player who finished version 2 sees the step first, with both choices, and how many rules they changed", function()
             boot(legacy())
             assert.is_true(tour:IsShown())
             assert.is_true(ns.Walkthrough.WhatsNew())
-            assert.are.equal(2, ns.Walkthrough.Count())
+            assert.are.equal(3, ns.Walkthrough.Count())
             assert.are.equal(1, ns.Walkthrough.Step())
             assert.are.equal("What's new: " .. STEP, tour.title:GetText())
             assert.is_true(choiceShown())
@@ -1067,7 +1069,7 @@ describe("What's new: the Buffs tab and the keep-or-reset choice (#408)", functi
             local db = legacy()
             db.walkthrough.seen = 1
             boot(db)
-            assert.are.equal(3, ns.Walkthrough.Count())
+            assert.are.equal(4, ns.Walkthrough.Count())
             assert.is_false(choiceShown(), "not on the requests step")
             wow.run(tour.next, "OnClick")
             assert.are.equal("What's new: " .. STEP, tour.title:GetText())
@@ -1152,6 +1154,8 @@ describe("What's new: the Buffs tab and the keep-or-reset choice (#408)", functi
             assert.are.equal("What's new: " .. STEP, tour.title:GetText(), "still on the step")
             wow.run(tour.next, "OnClick")
             assert.are.equal("What's new: " .. FAVOURS_STEP, tour.title:GetText(), "on to the Favours step (#491)")
+            wow.run(tour.next, "OnClick")
+            assert.are.equal("What's new: " .. CHARACTERS_STEP, tour.title:GetText(), "then #508's step")
             assert.are.equal("kept", ns.db.buffBack.whoChoice)
             wow.run(tour.next, "OnClick")
             assert.is_false(tour:IsShown())
@@ -1172,6 +1176,8 @@ describe("What's new: the Buffs tab and the keep-or-reset choice (#408)", functi
             assert.is_truthy(text():find("Your buffs use the new defaults", 1, true))
             wow.run(tour.next, "OnClick")
             assert.are.equal("What's new: " .. FAVOURS_STEP, tour.title:GetText(), "on to the Favours step (#491)")
+            wow.run(tour.next, "OnClick")
+            assert.are.equal("What's new: " .. CHARACTERS_STEP, tour.title:GetText(), "then #508's step")
             wow.run(tour.next, "OnClick")
             assert.is_false(tour:IsShown())
             assert.are.equal("new", ns.db.buffBack.whoChoice)
@@ -1223,9 +1229,11 @@ describe("What's new: the Buffs tab and the keep-or-reset choice (#408)", functi
                 local before = ns.Util.DeepCopy(settingsBut(ns.db))
                 wow.run(tour[how], "OnClick")
                 if how == "next" then
-                    -- Next goes on to the Favours step (#491), and Next there finishes.
+                    -- Next goes on to the Favours step (#491), then #508's, and Next there finishes.
                     assert.are.equal("What's new: " .. FAVOURS_STEP, tour.title:GetText())
                     assert.are.equal("pending", ns.BuffRules.Choice(), "passing the step chose nothing")
+                    wow.run(tour.next, "OnClick")
+                    assert.are.equal("What's new: " .. CHARACTERS_STEP, tour.title:GetText())
                     wow.run(tour.next, "OnClick")
                 end
                 assert.is_false(tour:IsShown(), how)

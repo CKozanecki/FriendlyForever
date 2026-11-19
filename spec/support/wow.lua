@@ -891,6 +891,13 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         likewise for its group role and Main Tank assignment;
 --                         auraTimes for its buffs' duration and expirationTime
 --                         alone (the buffs themselves readable).
+--   Experience (#508): UnitXP("player") answers unit.xp, 0 when unset; with
+--                         UnitLevel 1 that is a character just made, whose
+--                         first login starts its own buff settings unset.
+--                         UnitXP is the Classic Era API (warcraft.wiki.gg);
+--                         its value at login on Forever is not confirmed
+--                         (quality issue #512):
+--                         #508 reads it only at PLAYER_ENTERING_WORLD.
 --   Level-ups (#273): UNIT_LEVEL is assumed to fire for party1..4 with that
 --                         unit token when a member levels up (unit.level is
 --                         what UnitLevel answers). Not yet confirmed in game:
@@ -2240,6 +2247,9 @@ function M.reset()
     -- unit.level (#273): what UnitLevel answers for that unit; one with none
     -- answers state.defaultLevel (60 from wow.boot, #459), or nil when that
     -- isn't set. unit.secrets.level makes it a secret.
+    -- unit.xp (#508): what UnitXP answers for that unit; one with none
+    -- answers 0, a new character's. unit.secrets.xp makes it a secret.
+    _G.UnitXP = function(unit) return unitField(unit, "xp") or 0 end
     _G.UnitLevel = function(unit)
         local u = M.state.units[unit]
         if u and u.level == nil and M.state.defaultLevel ~= nil then

@@ -751,7 +751,8 @@ end
 -- (#169): buff requests in chat, added in walkthrough version 2 (#40, #362),
 -- the Buffs tab, added in version 3, with its keep-or-reset choice
 -- offered (choice: the player's buff rules are made to wait for it, #408),
--- and the Favours tab, added in version 4, saying where things moved (#491).
+-- the Favours tab, added in version 4, saying where things moved (#491),
+-- and each character's own buff settings, added in version 5 (#508).
 Pages.WALKTHROUGH_STEPS = {
     { name = "welcome", title = "Welcome" },
     { name = "buff-mode-key", title = "its key" },
@@ -759,6 +760,7 @@ Pages.WALKTHROUGH_STEPS = {
     { name = "whats-new-requests", title = "Buff requests in chat", whatsNew = true },
     { name = "whats-new-buffs", title = "Your buffs have a tab of their own", whatsNew = true, choice = true },
     { name = "whats-new-favours", title = "Favours: thanking and buffing back", whatsNew = true },
+    { name = "whats-new-characters", title = "Each character's own buffs", whatsNew = true },
 }
 -- The walkthrough version a returning player last finished, for a What's new
 -- run: the one before the buff requests step's (Walkthrough.lua's since = 2).

@@ -1,4 +1,4 @@
--- Spec: #52, #281, #384, #387
+-- Spec: #52, #281, #384, #387, #508
 -- Phase 1 under damage and chaos: the ignore list, snooze, profiles,
 -- export/import with undo and the favour ledger, damaged mid-session (black)
 -- and in seeded random storms (red). Mid-session damage stands for another
@@ -368,10 +368,16 @@ describe("Phase 1 chaos (red tests)", function()
             local clock = _G.time()
             ns = boot(_G.FriendlyForeverDB, clock)
             sentBefore = 0
-            -- The login switch: this character's last profile, if it's still there.
-            if m.charLast and m.charLast ~= m.active and m.profiles[m.charLast] then
+            -- The login switch (#508): this character's shared profile, if it's
+            -- still there; any other character goes back to Default, its own.
+            if m.charLast and m.charLast ~= "Default" and m.profiles[m.charLast] then
+                if m.charLast ~= m.active then
+                    storeActive()
+                    m.active, m.undo = m.charLast, nil
+                end
+            elseif m.active ~= "Default" then
                 storeActive()
-                m.active, m.undo = m.charLast, nil
+                m.active, m.undo, m.charLast = "Default", nil, "Default"
             end
             seen.reloads = seen.reloads + 1
         end
@@ -444,7 +450,7 @@ describe("Phase 1 chaos (red tests)", function()
                 slash("profile use " .. name)
                 if name == m.active then
                     rememberChar(name)
-                elseif m.profiles[name] then
+                elseif m.profiles[name] or name == "Default" then -- Default is always there to go back to (#508)
                     storeActive()
                     m.active, m.undo = name, nil
                     rememberChar(name)
