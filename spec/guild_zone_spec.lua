@@ -152,6 +152,31 @@ describe("Guild messages use the guildmate's zone (#486)", function()
             end)
         end
 
+        it("a line given way to avoids the lines other copies announced, while one is left (#38)", function()
+            boot()
+            wow.state.guildZoneSecret = true
+            wow.fire("GUILD_ROSTER_UPDATE")
+            lines("guildLogin", { "Hi {name}, how is {zone}?", "Two, {name}.", "Three, {name}." })
+            -- The bag opens on line 1, the zone line; the line it would give way to next is 3.
+            ns.Messages.random = function() return 1 end
+            online("Thrall")
+            ns.GuildHellos.OnGreet("Varian", "Thrall", 3) -- another copy will say line 3
+            wow.advance(helloWait())
+            assert.are.same({ "Two, Thrall." }, wow.sentTo("GUILD"))
+        end)
+
+        it("says another copy's line rather than nothing when it is the only one left (#38)", function()
+            boot()
+            wow.state.guildZoneSecret = true
+            wow.fire("GUILD_ROSTER_UPDATE")
+            lines("guildLogin", { "Hi {name}, how is {zone}?", "Two, {name}." })
+            ns.Messages.random = function() return 1 end
+            online("Thrall")
+            ns.GuildHellos.OnGreet("Varian", "Thrall", 2)
+            wow.advance(helloWait())
+            assert.are.same({ "Two, Thrall." }, wow.sentTo("GUILD"))
+        end)
+
         it("says nothing when every line needs their zone", function()
             boot()
             wow.state.guildZoneSecret = true

@@ -270,6 +270,7 @@ local function Greet(name)
     ns.Announcer.Schedule("guildLogin", name, {
         channel = GuildChannel, vars = function() return MemberVars(name) end,
         context = function() return GuildContext(name) end,
+        taken = function() return ns.GuildHellos.Announced(name) end,
         isValid = function()
             local ok, why = NotIgnored(name)()
             if not ok then return false, why end

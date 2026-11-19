@@ -114,6 +114,8 @@ end
 --              (#486), read as it goes out. {zone} is that zone, and a line
 --              that needs it when it's nil gives way to one that doesn't, or
 --              nothing is said (Flavour.Context),
+--   taken    = optional function() -> set of line numbers other copies said
+--              they'll use: such a line gives way to one not in it, if any,
 --   hold     = optional function(go, line, drop): after the delay, call go()
 --              once when the message may be queued (a thank-you waits for
 --              its exchange: #36), or drop(reason) once to send nothing.
@@ -122,12 +124,26 @@ end
 -- }
 -- Returns true if a message was scheduled, or false and the reason not.
 -- The line to say when the zone it may need is unknown (#486): template if
--- it doesn't need {zone}, else the next line in the bag that doesn't, or nil.
-local function WithoutZone(msgType, saved, template)
+-- it doesn't need {zone}, else the next line in the bag that doesn't, and,
+-- when it can, that isn't in taken (lines other copies said they'll use: a
+-- guild hello's, #38), or nil.
+local function WithoutZone(msgType, saved, template, taken)
     if not ns.Flavour.NeedsZone(template) then return template end
     local avoid = {}
     for i = 1, #saved do
         if ns.Flavour.NeedsZone(saved[i]) then avoid[i] = true end
+    end
+    if type(taken) == "table" then
+        local free = false
+        for i = 1, #saved do
+            if not avoid[i] and not taken[i] and type(saved[i]) == "string" and saved[i]:find("%S") then
+                free = true
+            end
+        end
+        -- Only when one is left: another copy's words beat saying nothing.
+        if free then
+            for line in pairs(taken) do avoid[line] = true end
+        end
     end
     local other = ns.Messages.Pick(msgType, saved, avoid)
     if other and not ns.Flavour.NeedsZone(other) then return other end
@@ -188,7 +204,9 @@ function Announcer.Schedule(msgType, key, opts)
                 if opts.context then
                     ctx = ns.Flavour.Context(opts.context())
                     -- No line that can go without their zone: nil, and nothing is said.
-                    if ctx.zone == nil then template = WithoutZone(msgType, saved, template) end
+                    if ctx.zone == nil then
+                        template = WithoutZone(msgType, saved, template, opts.taken and opts.taken())
+                    end
                 end
                 return Util.Render(template, ns.Flavour.Vars(vars, ctx))
             end,
