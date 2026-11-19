@@ -1209,10 +1209,12 @@ local PUSH_LINE = 17
 
 -- A scrolling page's content ends at its last shown row plus the addon's
 -- margin (#482: 16 px, Options.SCROLL_MARGIN, given here as a number), so
--- it never scrolls into an empty pane; its scroll range is no more than its
--- height less the view's, and a page that fits has no scroll bar. Frames
--- that float over the rows (an open list) don't count, as for the addon.
--- Prints a LAYOUT line, fails if it doesn't hold, and returns the line.
+-- it never scrolls into an empty pane, and a page that fits has no scroll
+-- bar. The game's scroll range is the content's height less the view's;
+-- the simulator's own GetVerticalScrollRange can't be trusted for it
+-- (docs/ui-simulator.md), so it is only printed. Frames that float over
+-- the rows (an open list) don't count, as for the addon. Prints a LAYOUT
+-- line, fails if it doesn't hold, and returns the line.
 local SCROLL_MARGIN = 16
 local function ScrollFits(content, label)
     local scroll = content:GetParent()
@@ -1236,12 +1238,11 @@ local function ScrollFits(content, label)
     local bar = scroll.ScrollBar
     local barShown = bar ~= nil and bar:IsShown() == true
     local line = ("LAYOUT %s scroll: %.0f px below its last row (most %d), content %.0f, view %.0f, "
-        .. "range %.0f, scroll bar %s"):format(label, tail, SCROLL_MARGIN, height, view, range,
-        bar == nil and "none" or (barShown and "shown" or "hidden"))
+        .. "so a range of %.0f (the simulator reads %.0f), scroll bar %s"):format(label, tail, SCROLL_MARGIN,
+        height, view, math.max(0, height - view), range, bar == nil and "none" or (barShown and "shown" or "hidden"))
     report(line)
     check(tail >= -1, line .. ": its last row is cut off")
     check(tail <= SCROLL_MARGIN + 1, line .. ": it scrolls into an empty pane")
-    check(range <= math.max(0, height - view) + 1, line .. ": it scrolls further than its rows")
     if bar then
         check(barShown == (height > view + 1), line .. (barShown and ": a page that fits shows a scroll bar"
             or ": a page that scrolls hides its scroll bar"))
@@ -1405,9 +1406,14 @@ end)
 -- wraps. Every line is checked and printed before any failure is raised.
 local function TabTextInside(content, label)
     local checks = {}
+    -- A scrolling page's content grows with its rows, the game's wrapped
+    -- text included (#482), so up and down a line is compared with it as the
+    -- client lays both out (TextInside's grows).
+    local grows = IsScrolled(content)
     local function Add(frame, region, what, maxLines, oneLine)
         checks[#checks + 1] = function()
-            TextInside(frame, region, ("%s %s\"%s\""):format(label, what, Short(region:GetText())), maxLines, oneLine)
+            TextInside(frame, region, ("%s %s\"%s\""):format(label, what, Short(region:GetText())), maxLines, oneLine,
+                grows and frame == content)
         end
     end
     local function Texts(frame)
