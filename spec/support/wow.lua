@@ -498,6 +498,16 @@ nameSpell("Arcane Brilliance", { 23028 })
 nameSpell("Prayer of Fortitude", { 21564, 21562 })
 nameSpell("Prayer of Spirit", { 27681 })
 nameSpell("Prayer of Shadow Protection", { 27683 })
+-- The forms buff mode can shift you back into (#495), and the rest of a
+-- druid's: Classic Era's IDs, which Forever's SpellFlyout.lua shares for
+-- the bears; the rest unconfirmed on Forever (docs/forever-facts.md).
+nameSpell("Cat Form", { 768 })
+nameSpell("Bear Form", { 5487 })
+nameSpell("Dire Bear Form", { 9634 })
+nameSpell("Travel Form", { 783 })
+nameSpell("Aquatic Form", { 1066 })
+nameSpell("Moonkin Form", { 24858 })
+nameSpell("Ghost Wolf", { 2645 })
 -- The group versions (#41): each covers the target's party (in a raid, their
 -- subgroup) and uses one reagent, by item ID, as in Classic Era, and as
 -- Forever's own data has them (docs/forever-facts.md, #202). Kept apart from the addon's table (BuffData.lua).
@@ -751,7 +761,17 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         Forever (#467): a spec can give form 0
 --                         (state.ghostWolfForm) or no such aura
 --                         (state.ghostWolfAura false), and the game still
---                         stops a cast in it. Your own
+--                         stops a cast in it. A form's spell (#495; Cat,
+--                         Bear, Dire Bear, Travel, Aquatic and Moonkin Form,
+--                         Ghost Wolf, by Classic Era's IDs; Forever's
+--                         SpellFlyout.lua has the bears') shifts you:
+--                         "/cast !Form" does nothing in that form (Classic's
+--                         macro rule, from forum posts only), state.formRefusals
+--                         refuses it at once with the game's text, and whether
+--                         the form changes before or after
+--                         UNIT_SPELLCAST_SUCCEEDED (state.formAfterSucceeded)
+--                         is a spec's choice: all UNCONFIRMED on Forever
+--                         (#498). Your own
 --                         buffs stay listed past their time unless
 --                         state.expirePlayerAuras is set (then, as a group
 --                         member's, one whose time has come is gone).
@@ -1195,6 +1215,7 @@ M.LINE_OF_SIGHT_ERROR = "Target not in line of sight"
 local castCount = 0
 local imbue -- a shaman's imbue (#45), below
 local formStops -- whether your form stops an action (#45, #452), below
+local shift -- a form's spell (#495), below
 local function cast(args)
     local conds, name = args:match("^%[(.-)%]%s*(.+)$")
     local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
@@ -1237,6 +1258,8 @@ local function cast(args)
     end
     -- A shaman's imbue (#45) goes on your main hand.
     if M.IMBUES[id] then return imbue(id) end
+    -- A form's spell (#495) shifts you.
+    if M.FORM_STANCE[id] then return shift(id, bang) end
     -- Every buff here is "not while shapeshifted" in Forever's data (#452):
     -- the game pulls a druid out of a form to cast it, or refuses; but not
     -- out of Moonkin Form, for a buff (#485, the owner).
@@ -1481,6 +1504,58 @@ M.FORM_IDS = { [24858] = 31, [768] = 1, [5487] = 5, [9634] = 8, [783] = 3, [1066
 
 -- Ghost Wolf's aura (#466): Classic Era's spell ID, unconfirmed on Forever (#467).
 M.GHOST_WOLF = 2645
+M.DIRE_BEAR_FORM = 9634
+
+-- Each form spell's place on a druid's stance bar (#495), which is what
+-- GetShapeshiftForm gives in it: in the order a druid learns them (Bear,
+-- whose place Dire Bear takes, Aquatic, Cat, Travel, Moonkin). The game's
+-- order is the stance bar's; a spec that cares sets its own with setForm.
+M.FORM_STANCE = { [5487] = 1, [9634] = 1, [1066] = 2, [768] = 3, [783] = 4, [24858] = 5, [2645] = 1 }
+
+-- A form's spell cast (#495), as Classic's: "/cast !Form" while you're in
+-- that form does nothing; without "!" it takes you out (forms toggle).
+-- state.formRefusals[spell ID] = text: the game refuses it at once with that
+-- error (Travel Form indoors, Aquatic Form on land), nothing sent. Otherwise
+-- it is sent (UNIT_SPELLCAST_SENT names no target, or state.formSentTarget,
+-- as what the game names for a spell on yourself is unconfirmed), and answered at once (or after state.castLatency): you shift
+-- (UPDATE_SHAPESHIFT_FORM), then UNIT_SPELLCAST_SUCCEEDED; with
+-- state.formAfterSucceeded the other way round, as which comes first on
+-- Forever is unconfirmed. From one form straight into another is not
+-- modelled beyond the shift itself.
+shift = function(id, bang)
+    local name = M.SPELL_NAMES[id]
+    local ghost = id == M.GHOST_WOLF
+    local inIt
+    if ghost then inIt = M.state.ghostWolf == true else inIt = (M.state.form or 0) ~= 0 and M.state.formSpell == id end
+    if inIt then
+        if not bang then
+            if ghost then M.setGhostWolf(false) else M.setForm(0) end
+        end
+        return
+    end
+    local refusal = M.state.formRefusals and M.state.formRefusals[id]
+    if refusal then
+        M.uiError(refusal)
+        return
+    end
+    castCount = castCount + 1
+    local guid = "Cast-" .. castCount
+    M.fire("UNIT_SPELLCAST_SENT", "player", M.state.formSentTarget or "", guid, id)
+    M.casts[#M.casts + 1] = { spell = name, id = id, target = M.state.units.player.id, form = true,
+        bang = bang or nil, inCombat = M.state.inCombat or nil }
+    M.lastCastGuid = guid
+    local function into()
+        if ghost then M.setGhostWolf(true) else M.setForm(M.FORM_STANCE[id], id) end
+    end
+    local function answer()
+        if not M.state.formAfterSucceeded then into() end
+        M.landed[#M.landed + 1] = { spell = name, id = id, target = M.state.units.player.id, at = M.now }
+        M.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, id)
+        if M.state.formAfterSucceeded then into() end
+    end
+    local latency = M.state.castLatency or 0
+    if latency > 0 then M.gameAfter(latency, answer) else answer() end
+end
 
 -- A shaman into Ghost Wolf (on) or out of it, as the game does (#466): your
 -- form and Ghost Wolf's aura change, then UNIT_AURA and

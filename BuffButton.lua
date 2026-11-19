@@ -136,6 +136,16 @@ function BuffButton.BuildCastMacro(playerFullName, spellName, hadTarget, onSelf,
     return macroText
 end
 
+-- The macro that shifts you back into a form (#495): "!" so a press made
+-- once you're already in it can't take you out again. nil when the form's
+-- name isn't safe in a macro.
+function BuffButton.BuildFormMacro(formName)
+    if not BuffButton.IsSafeMacroArgument(formName) then return nil end
+    local text = "/cast !" .. formName
+    if #text > BuffButton.MACRO_MAX_LENGTH then return nil end
+    return text
+end
+
 -- The macro for an offer: a weapon buff's own (WeaponBuffs.Macro, #45), or
 -- a cast as above. nil when it can't be put in a macro safely.
 -- A buff for a player, you included in buff mode, is cast as
@@ -147,6 +157,7 @@ end
 -- self-buffs (SelfBuffs.lua) go on by name: no player's level limits them.
 function BuffButton.MacroFor(offer, hadTarget)
     if offer.weapon then return ns.WeaponBuffs.Macro(offer) end
+    if offer.formReturn then return BuffButton.BuildFormMacro(offer.spell) end
     local spell = offer.spell
     if not offer.cast and not offer.selfBuff then
         spell = offer.castSpell
@@ -243,6 +254,9 @@ end
 -- Moonkin counts (InMoonkin); any doubt, the key waits.
 function BuffButton.KeyWaits(offer)
     if not offer or offer.weapon then return nil end
+    -- The shift back into your form (#495) waits only once the game has
+    -- refused it: then a click tries again, never the key.
+    if offer.formReturn then return offer.refused end
     local buffBack = ns.db and ns.db.buffBack
     if type(buffBack) == "table" and buffBack.fastCastInForm == true then return nil end
     local _, class = Util.ReadGameValues(UnitClass, "player")
@@ -263,6 +277,150 @@ function BuffButton.KeyWaits(offer)
     end
     return nil
 end
+
+------------------------------------------------------------------------
+-- Back into your form (#495)
+------------------------------------------------------------------------
+
+-- With "Fast-cast buffs in form" on, in buff mode, a buff press that takes
+-- you out of a form is remembered; once buff mode has nothing left for you
+-- to buff, the button offers that form, and one more press (the key or a
+-- click) shifts you back. Nothing casts by itself (the owner, #495).
+--
+-- Only these forms (the owner's choice), each by its spell, the fourth
+-- answer of GetShapeshiftFormInfo (Blizzard's stance bar for Forever reads
+-- it so), and the form's number, GetShapeshiftFormID, which Blizzard's code
+-- for Forever never calls: a number the game gives that isn't the form's
+-- means no return. Bear and Dire Bear are Forever's own (its SpellFlyout.lua);
+-- the rest are Classic's, unconfirmed on Forever (docs/forever-facts.md).
+BuffButton.RETURN_FORMS = {
+    DRUID = { [768] = 1, [5487] = 5, [9634] = 8, [783] = 3 }, -- Cat, Bear, Dire Bear, Travel
+    SHAMAN = { [2645] = 16 },                                  -- Ghost Wolf
+}
+BuffButton.RETURN_SECONDS = 30 -- after your last buff press, the return is dropped
+-- A form left this soon after a buff press in it was left for that press.
+BuffButton.LEAVE_SECONDS = BuffButton.ANSWER_WINDOW_SECONDS
+
+local formReturn   -- the form to go back to: { spell, name, icon, lastBuffAt, refused }
+local leavingForm  -- the form a buff press was made in, until the game takes you out: { spell, name, icon, at }
+local formSeen     -- the form last read: 0 (none), a form's spell, "other", or nil (unread)
+
+-- The setting, in buff mode; a section lost mid-session reads as off.
+local function ReturnWanted()
+    local buffBack = ns.db and ns.db.buffBack
+    return (ns.BuffMode.LentKey() and type(buffBack) == "table" and buffBack.fastCastInForm == true) and true or false
+end
+
+-- The form you're in, as the return reads it: 0 for none, a form to go
+-- back to ({ spell, name, icon }), "other" for any other form, or nil when
+-- the game won't say (an error, a secret, not a number). A shaman's Ghost
+-- Wolf counts by the form's spell or by its aura on you (#466, #467).
+local function ReadForm()
+    local _, class = Util.ReadGameValues(UnitClass, "player")
+    local forms = BuffButton.RETURN_FORMS[class] -- none for a class the game won't say
+    if not forms then return "other" end
+    local form = Util.ReadGameValues(GetShapeshiftForm)
+    if type(form) ~= "number" or form ~= form then return nil end
+    local wolf = false
+    if class == "SHAMAN" then
+        wolf = WearsGhostWolf()
+        if wolf == nil then return nil end
+    end
+    if form == 0 and not wolf then return 0 end
+    local spell
+    if form ~= 0 then
+        local ok, _, _, _, spellId = pcall(GetShapeshiftFormInfo, form)
+        if ok and not Util.IsSecret(spellId) and type(spellId) == "number" then spell = spellId end
+    end
+    if wolf then
+        if spell ~= nil and spell ~= BuffButton.GHOST_WOLF_SPELL then return "other" end
+        spell = BuffButton.GHOST_WOLF_SPELL
+    end
+    local number = spell and forms[spell]
+    if not number then return "other" end
+    local id = Util.ReadGameValues(GetShapeshiftFormID)
+    if id ~= nil and id ~= number then return "other" end
+    local name = Util.ReadGameValues(C_Spell and C_Spell.GetSpellName, spell)
+    if not BuffButton.BuildFormMacro(name) then return "other" end
+    local icon = Util.ReadGameValues(C_Spell and C_Spell.GetSpellTexture, spell)
+    return { spell = spell, name = name, icon = icon }
+end
+
+-- Let the return go, and any form a press was leaving (why: for the log).
+local function ForgetForm(why)
+    if formReturn then ns.Diag.Log("buffMode", "not going back into %s: %s", formReturn.name, why) end
+    formReturn, leavingForm = nil, nil
+end
+
+-- Read your form and follow its changes: a form left for none, just after a
+-- buff press in it, is the one to go back to; any other change (a shift by
+-- hand into a form or out of one, or back into the remembered form) drops
+-- the return, and so does a form the game won't say. The form read.
+local function ObserveForm()
+    local now = ReadForm()
+    local key = type(now) == "table" and now.spell or now
+    if key == nil then
+        formSeen = nil
+        ForgetForm("your form can't be read")
+        return nil
+    end
+    if key == formSeen then return now end
+    formSeen = key
+    local left = leavingForm
+    if key == 0 and left and GetTime() - left.at <= BuffButton.LEAVE_SECONDS then
+        formReturn = { spell = left.spell, name = left.name, icon = left.icon, lastBuffAt = left.at }
+        ns.Diag.Log("buffMode", "left %s for a buff: back into it once the buffs are done", left.name)
+    else
+        ForgetForm("you changed form")
+    end
+    return now
+end
+
+-- A buff press (not the shift back): in a form you can go back to, the
+-- form is noted, for the moment the game takes you out of it; out of one,
+-- it is your latest buff, and the return's RETURN_SECONDS start again.
+-- With the setting or buff mode off, the next arming lets it go
+-- (CheckReturn), as every press and change of form re-arms the button.
+local function NoteBuffPress()
+    local now = ObserveForm()
+    if type(now) == "table" then
+        leavingForm = { spell = now.spell, name = now.name, icon = now.icon, at = GetTime() }
+    elseif formReturn then
+        formReturn.lastBuffAt = GetTime()
+    end
+end
+
+-- Before the button is armed: the return is dropped once buff mode or the
+-- setting is off, RETURN_SECONDS after your last buff, or on a form change.
+-- Buff mode re-arms the button every few seconds (Refresh), so the button
+-- lets it go by itself soon after; a press checks first anyway.
+local function CheckReturn()
+    if not ReturnWanted() then return ForgetForm("buff mode or Fast-cast buffs in form is off") end
+    ObserveForm()
+    if formReturn and GetTime() - formReturn.lastBuffAt >= BuffButton.RETURN_SECONDS then
+        ForgetForm(BuffButton.RETURN_SECONDS .. " seconds passed")
+    end
+end
+
+-- The shift back, once nothing is left to buff. A return stands only while
+-- the last form read was none: any other read has dropped it (ObserveForm,
+-- just called by CheckReturn).
+local function ReturnOffer()
+    if not formReturn then return nil end
+    return { name = Util.UnitFullName("player") or "you", self = true,
+        formReturn = true, formSpell = formReturn.spell, spell = formReturn.name, icon = formReturn.icon,
+        refused = formReturn.refused }
+end
+
+-- The game refused the shift back (why: its words): the key waits for it
+-- from now on, and a click tries again (the owner, #495).
+local function RefuseReturn(press, why)
+    if formReturn and formReturn.spell == press.formSpell then formReturn.refused = why end
+end
+
+-- Whether the button is waiting to shift you back (#495): buff mode's
+-- triggers keep it on meanwhile (BuffModeAuto.lua).
+function BuffButton.ReturnWaiting() return formReturn ~= nil end
 
 -- One of a text line's measures (GetStringWidth, GetStringHeight), if the
 -- client gives it as a readable number.
@@ -349,11 +507,13 @@ end
 
 -- "Buff mode: <key>" above the button while a key is lent to it; while the
 -- key waits for the offer shown (#452), that it does, and why.
-local function ShowMode(keyWaits)
+-- shiftBack: the offer is the shift back into your form (#495).
+local function ShowMode(keyWaits, shiftBack)
     local lent = ns.BuffMode.LentKey()
     local text = ""
     if lent and keyWaits then
-        text = ns.Colours.Text("title", "Buff mode:") .. " " .. BuffButton.KeyWaitText(keyWaits)
+        text = ns.Colours.Text("title", "Buff mode:") .. " "
+            .. (shiftBack and BuffButton.ShiftBackText(keyWaits) or BuffButton.KeyWaitText(keyWaits))
     elseif lent then
         text = ns.Colours.Text("title", "Buff mode:") .. " " .. ns.BuffMode.KeyText(lent)
     end
@@ -363,6 +523,12 @@ end
 -- What the button says while buff mode's key waits (#452).
 function BuffButton.KeyWaitText(why)
     return "click to buff (" .. why .. ")"
+end
+
+-- And while it waits for the shift back into your form, which the game
+-- refused (#495): why is the game's reason.
+function BuffButton.ShiftBackText(why)
+    return "click to shift back (" .. why .. ")"
 end
 
 -- Whether you have a target. When the game won't say, assume you do: then
@@ -440,6 +606,9 @@ local function NextOffer()
         if chosen then pick = chosen else chosenName = nil end
     end
     if pick then return pick end
+    -- Nothing left to buff: the shift back into your form, if one waits (#495).
+    local back = ReturnOffer()
+    if back then return back end
     if #list > 0 then return nil, "the name or spell can't be put in a macro safely" end
     if not ns.BuffMode.LentKey() then return nil, reason end
     -- Favours whose players have left don't hold the button (#270).
@@ -511,6 +680,7 @@ end
 -- Out of combat only: the game locks secure buttons in a fight.
 local function ArmButton()
     if not button or InCombatLockdown() then return end
+    CheckReturn()
     ShowMode()
     local showingResult = ShowRecentResult()
     -- Buff Back's section lost mid-session reads as locked (#384).
@@ -549,14 +719,18 @@ local function ArmButton()
     -- so the form at the moment of the press decides (#452).
     local keyWaits = BuffButton.KeyWaits(offer)
     SetSecureMacro(macroText, keyWaits ~= nil)
-    ShowMode(keyWaits)
+    ShowMode(keyWaits, offer.formReturn)
     armedOffer = { keyWaits = keyWaits, name = offer.name, spell = offer.spell, buff = offer.buff, group = offer.group,
         passerBy = offer.passerBy, cast = offer.cast, hint = offer.hint, self = offer.self, selfBuff = offer.selfBuff,
         macroText = macroText, weapon = offer.weapon, slot = offer.slot, hand = offer.hand, castIds = offer.castIds,
-        weaponItem = offer.weaponItem, weaponKind = offer.weaponKind }
+        weaponItem = offer.weaponItem, weaponKind = offer.weaponKind,
+        formReturn = offer.formReturn, formSpell = offer.formSpell }
     notArmedReason = nil
     button.icon:SetTexture(offer.icon or (offer.buff and ns.BuffData.Icon(offer.buff)) or BuffButton.PLACEHOLDER_ICON)
-    if offer.weapon then
+    if offer.formReturn then
+        -- The shift back into your form (#495).
+        SetLabels("You", "shift back into " .. offer.spell)
+    elseif offer.weapon then
         -- A weapon buff (#45): which, and on which hand.
         SetLabels("You", offer.spell .. " on your " .. offer.hand)
     elseif offer.cast then
@@ -610,6 +784,7 @@ end
 function BuffButton.OnCombatStart()
     ns.BuffMode.OnCombatStart()
     chosenName = nil
+    ForgetForm("a fight started") -- (#495)
     if not button then return end
     Empty("in combat: the button is empty until the fight ends", false)
 end
@@ -663,7 +838,12 @@ local function Unanswered(press)
     if not ForgetPress(press) then return end
     press.expired = true
     local who = press.self and "you" or Util.DisplayName(press.name)
-    if press.failed then
+    if press.formReturn and (press.failed or (press.complete and not press.unsure and not press.sent)) then
+        -- The shift back (#495) that got no answer counts as refused.
+        local why = press.failed and "the game gave no reason" or "the game didn't answer"
+        RefuseReturn(press, why)
+        ShowResult("Couldn't shift back into " .. press.spell .. ": " .. why .. ".", true, press.name)
+    elseif press.failed then
         ShowResult("Couldn't buff " .. who
             .. " (the game gave no reason).", true, press.name)
     elseif press.sent then
@@ -713,6 +893,7 @@ local function TakeArmedOffer(press)
     press.weapon, press.slot, press.hand, press.castIds =
         armedOffer.weapon, armedOffer.slot, armedOffer.hand, armedOffer.castIds
     press.weaponItem, press.weaponKind = armedOffer.weaponItem, armedOffer.weaponKind
+    press.formReturn, press.formSpell = armedOffer.formReturn, armedOffer.formSpell
     -- A held key or a wheel notch presses many times: repeats fold (#453).
     ns.Diag.LogFolded("press", "buffBack", "pressed: %s", armedOffer.macroText)
     return press
@@ -724,6 +905,8 @@ local function AddPress(complete, unsure)
     local newest = presses[#presses]
     if newest and not newest.sent then table.remove(presses) end
     local press = TakeArmedOffer({ complete = complete, unsure = unsure, lastHalfAt = GetTime() })
+    -- A buff press may be taking you out of a form to go back to (#495).
+    if not press.formReturn then NoteBuffPress() end
     presses[#presses + 1] = press
     while #presses > BuffButton.MAX_PRESSES_WATCHED do table.remove(presses, 1) end
     WatchForAnswer(press)
@@ -757,10 +940,13 @@ local function OnPreClick(_, mouseButton, isDown)
     local armed = armedOffer
     if key and armed and armed.keyWaits then
         armed = nil
-        -- Once a press: on its down half, or its up half when no down half came.
-        if isDown ~= false or not downHalfFoundNothing then
+        -- Once a press: on its down half, or its up half when no down half
+        -- came. Not on the up half of a press the down half made: the
+        -- shift back refused in between (#495) keeps the game's reason shown.
+        if isDown ~= false or not (downHalfFoundNothing or pressFromDownHalf) then
             -- About the offer showing, so it stays under it (#461).
-            ShowResult("Click the button to buff: " .. armedOffer.keyWaits .. ".", nil, armedOffer.name)
+            ShowResult((armedOffer.formReturn and "Click the button to shift back: " or "Click the button to buff: ")
+                .. armedOffer.keyWaits .. ".", nil, armedOffer.name)
             ShowRecentResult()
         end
     end
@@ -811,7 +997,11 @@ local function OnPostClick(_, mouseButton, isDown)
     -- Kept: changing a Never list re-arms the button.
     local offer = armedOffer
     local name = offer.name
-    if offer.weapon then
+    if offer.formReturn then
+        -- The shift back (#495): you stay as you are.
+        ForgetForm("you right-clicked it")
+        ShowResult("Staying out of " .. offer.spell .. ".", nil, name)
+    elseif offer.weapon then
         -- Your weapon buffs (#45): all of them, for a while.
         ns.WeaponBuffs.Skip()
         local minutes = ns.WeaponBuffs.SKIP_SECONDS / 60
@@ -884,7 +1074,10 @@ local function NewestPressFor(unit, spellId, wanted)
     local buff = groupBuff or ns.BuffData.ForCast(spellId)
     for i = #presses, 1, -1 do
         local press = presses[i]
-        if press.weapon then
+        if press.formReturn then
+            -- The shift back (#495) is answered by its form's spell.
+            if spellId == press.formSpell and wanted(press) then return press end
+        elseif press.weapon then
             -- A weapon buff (#45) is answered by its item's spell or its imbue's ranks.
             if press.castIds[spellId] and wanted(press) then return press end
         -- A group version answers only a press of a group version (#41).
@@ -923,8 +1116,9 @@ end
 -- cast of its own follows, the press says where that one went (Unanswered).
 function BuffButton.OnSpellcastSent(unit, castTargetName, castGUID, spellId)
     local press = NewestPressFor(unit, spellId, function(waiting) return not waiting.sent end)
-    -- A weapon buff (#45) goes on your own weapon: the game names no player for it.
-    if press and not press.weapon
+    -- A weapon buff (#45) goes on your own weapon, and a form (#495) on you:
+    -- the game names no player for either.
+    if press and not press.weapon and not press.formReturn
         and BuffButton.IsIntendedPlayer(ReadableText(castTargetName), press.name) == false then
         press.elsewhere = { guid = ReadableText(castGUID), name = ReadableText(castTargetName) }
         press = nil
@@ -992,7 +1186,11 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
     local who = press.self and "you" or Util.DisplayName(press.name)
     -- castTargetName is only ever the intended player's (OnSpellcastSent).
     local reachedThem = press.castTargetName and BuffButton.IsIntendedPlayer(press.castTargetName, press.name)
-    if press.weapon then
+    if press.formReturn then
+        -- Back in your form (#495): the return is done.
+        ForgetForm("back in it")
+        ShowResult("Back in " .. press.spell .. ".", nil, press.name)
+    elseif press.weapon then
         -- A weapon buff (#45): on your own weapon, no favour, no line.
         ns.WeaponBuffs.NoteGiven(press.slot)
         ShowResult("Applied " .. press.spell .. " to your " .. press.hand .. ".", nil, press.name)
@@ -1099,7 +1297,15 @@ local function ReportRefusal(press, text)
     -- waits too, when the refusal is about it on you (a stronger copy
     -- worn). A refusal about you holds nobody: the button stays on them
     -- and shows why.
-    if press.weapon then
+    local line = "Couldn't buff " .. (press.self and "you" or Util.DisplayName(press.name))
+        .. ": " .. Util.StripChat(text)
+    if press.formReturn then
+        -- The shift back (#495): the key waits from now on, with the game's
+        -- reason; a click tries again. Nobody is held.
+        local why = Util.StripChat(text):gsub("[%s%.!]+$", "")
+        RefuseReturn(press, why)
+        line = "Couldn't shift back into " .. press.spell .. ": " .. Util.StripChat(text)
+    elseif press.weapon then
         ns.WeaponBuffs.NoteRefused(press.slot, press.weaponItem, press.weaponKind)
     elseif kind == "target" then
         if press.selfBuff then
@@ -1112,8 +1318,6 @@ local function ReportRefusal(press, text)
             ns.Offers.NoteRefused(press.name)
         end
     end
-    local line = "Couldn't buff " .. (press.self and "you" or Util.DisplayName(press.name))
-        .. ": " .. Util.StripChat(text)
     local said = lastRefusalSaid
     local repeated = said ~= nil and said.text == line and GetTime() - said.at >= 0
         and GetTime() - said.at < BuffButton.RESULT_SHOWN_SECONDS
@@ -1218,7 +1422,9 @@ local function ShowTooltip(self)
         r, g, b = ns.Colours.RGB("bright")
         local reach = armedOffer.cast and string.format(" (reaches %s, %d missing)", armedOffer.cast.label,
             armedOffer.cast.count) or ""
-        if armedOffer.weapon then
+        if armedOffer.formReturn then
+            GameTooltip:AddLine("Shifts you back into " .. armedOffer.spell .. ".", r, g, b, true)
+        elseif armedOffer.weapon then
             GameTooltip:AddLine("Puts " .. armedOffer.spell .. " on your " .. armedOffer.hand .. ".", r, g, b, true)
         elseif armedOffer.self then
             GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on you; your target stays as it is.", r, g, b, true)
@@ -1231,6 +1437,8 @@ local function ShowTooltip(self)
     local rightClick = "let them go."
     if armedOffer and armedOffer.weapon then
         rightClick = string.format("skip your weapon buffs for %d minutes.", ns.WeaponBuffs.SKIP_SECONDS / 60)
+    elseif armedOffer and armedOffer.formReturn then
+        rightClick = "stay out of the form."
     elseif armedOffer and armedOffer.self then
         rightClick = "skip yourself for a while."
     end
@@ -1280,7 +1488,12 @@ local function CreateEventFrame()
         SPELLS_CHANGED = OnSpellsChanged,
         -- Into or out of a form: whether buff mode's key waits (#452). A
         -- press re-reads the form anyway; this keeps the button's words right.
-        UPDATE_SHAPESHIFT_FORM = RefreshSoon,
+        -- The form is read at once (#495): leaving one for a buff press is
+        -- told apart from a shift by hand by how soon it follows the press.
+        UPDATE_SHAPESHIFT_FORM = function()
+            ObserveForm()
+            RefreshSoon()
+        end,
     }
     for event in pairs(handlers) do
         if event:find("^UNIT_") then

@@ -49,7 +49,8 @@ BuffsTab.FIELDS = { "buffOrder", "neverOffer", "whoGets", "whoChoice", "whoStran
 -- "Fast-cast buffs in form" (#452, the owner's words; Ghost Wolf too, #466).
 BuffsTab.FAST_CAST_TOOLTIP = "For druid forms and Ghost Wolf. In a form, buff mode's key doesn't cast your buffs, "
     .. "so scrolling never takes you out of the form; a click on the button still does. On: the key casts them "
-    .. "in a form too, and the game takes you out of the form. Weapon buffs always work with the key."
+    .. "in a form too, and the game takes you out of the form; once nothing is left to buff, the button offers "
+    .. "your form back. Weapon buffs always work with the key."
 -- The who-gets list's height, from the top: Everyone (6 + 32), the roles
 -- (2 + 32), "Classes:" (4 + 12), three rows of classes (3 x (2 + 32)), Off
 -- (4 + 22) and a margin of 8. Its shade covers all it holds (#408's review).

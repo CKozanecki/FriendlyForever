@@ -1,0 +1,675 @@
+-- Spec: #495
+-- Fast-cast in form, back into the form (#495, the owner's decisions of 18
+-- Nov). With "Fast-cast buffs in form" on, in buff mode, a buff press that
+-- takes you out of a druid's Cat, Bear (or Dire Bear) or Travel Form, or a
+-- shaman's Ghost Wolf, is remembered; once buff mode has nothing left for
+-- you to buff, the button offers that form, and the next press (the key or
+-- a click) shifts you back. Nothing casts by itself. A fight, a shift by
+-- hand, 30 seconds after your last buff or buff mode off drops it. A
+-- refused shift back makes the key wait ("click to shift back") with the
+-- game's reason. A form that can't be read is no form to go back to.
+local wow = require("spec.support.wow")
+local random = require("spec.support.random")
+
+local MOTW, MOTW_1 = 9885, 1126
+local CAT, BEAR, DIRE, TRAVEL, AQUATIC, MOONKIN, WOLF = 768, 5487, 9634, 783, 1066, 24858, 2645
+local WATER_BREATHING, WATER_WALKING = 131, 546
+local NAMES = { [CAT] = "Cat Form", [BEAR] = "Bear Form", [DIRE] = "Dire Bear Form", [TRAVEL] = "Travel Form",
+    [WOLF] = "Ghost Wolf" }
+
+local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
+
+describe("Back into your form after fast-cast buffing (#495)", function()
+    local ns, button
+    local worn = 0 -- how many of wow.landed are worn (wearLanded)
+
+    -- A druid who knows Mark of the Wild and the forms, in buff mode
+    -- (opts.noMode: not) with "Fast-cast buffs in form" on (opts.fastCast
+    -- false: off), in a party with Ann and Cid (opts.solo: alone), who lack
+    -- it. opts.form: the form's spell at the start. opts.shaman: a shaman
+    -- who knows Water Breathing and Water Walking instead, in Ghost Wolf,
+    -- read as opts.wolfForm (GetShapeshiftForm's answer in it, 1 unless
+    -- given) and opts.wolfAura (false: no aura of 2645).
+    local function boot(opts)
+        opts = opts or {}
+        worn = 0
+        local db = { buffBack = { fastCastInForm = opts.fastCast ~= false, breathNearWater = false } }
+        if opts.db then opts.db(db) end
+        ns = wow.boot({ db = db, before = function(state)
+            if opts.shaman then
+                state.class = "SHAMAN"
+                state.knownSpells = { [WATER_BREATHING] = true, [WATER_WALKING] = true, [WOLF] = true }
+                state.ghostWolfForm, state.ghostWolfAura = opts.wolfForm or 1, opts.wolfAura
+            else
+                state.class = "DRUID"
+                state.knownSpells = { [MOTW_1] = true, [MOTW] = true, [CAT] = true, [BEAR] = true, [DIRE] = true,
+                    [TRAVEL] = true, [AQUATIC] = true, [MOONKIN] = true }
+                if opts.form then
+                    state.form, state.formSpell = wow.FORM_STANCE[opts.form], opts.form
+                end
+            end
+            if opts.before then opts.before(state) end
+        end })
+        button = ns.BuffButton.Frame()
+        if opts.shaman then wow.setGhostWolf(true) end
+        if not opts.noMode then slash("buffmode on") end
+        if not opts.solo then
+            wow.setGroup("party", { "Ann-Vale", "Cid-Rock" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+        end
+        wow.advance(0)
+        ns.BuffButton.Refresh()
+    end
+
+    local A = function() return ns.BuffButton.SECURE_ATTRIBUTE end
+    local function clickMacro() return button:GetAttribute(A().leftButtonMacroText) end
+    local function keyMacro() return button:GetAttribute(A().keyMacroText) end
+    local function scroll() wow.pressKey("MOUSEWHEELUP") end
+    local function click() wow.press(button) end
+    local function offersForm() return (clickMacro() or ""):find("^/cast !") ~= nil end
+    local function formCasts()
+        local out = {}
+        for _, c in ipairs(wow.casts) do if c.form then out[#out + 1] = c end end
+        return out
+    end
+    -- Each buff that landed on a party member, worn by them (the simulated
+    -- client leaves a member's auras to the spec).
+    local function wearLanded()
+        for i = worn + 1, #wow.landed do
+            local l = wow.landed[i]
+            for _, token in ipairs({ "party1", "party2" }) do
+                local u = wow.state.units[token]
+                if u and u.id == l.target then wow.wearBuff(token, l.id, { source = "player" }) end
+            end
+        end
+        worn = #wow.landed
+    end
+    -- Scroll until the button offers no buff any more (at most max times).
+    local function scrollBuffs(max)
+        for _ = 1, max or 12 do
+            if offersForm() or not clickMacro() then return end
+            scroll()
+            wearLanded()
+        end
+        ns.BuffButton.Refresh()
+    end
+    -- The form the druid is in now (its spell), or 0.
+    local function form() return (wow.state.form or 0) ~= 0 and wow.state.formSpell or 0 end
+
+    describe("going back (white)", function()
+        for _, spell in ipairs({ CAT, BEAR, DIRE, TRAVEL }) do
+            it(NAMES[spell] .. ": a scroll's buff takes you out of it; once the buffs are done, "
+                .. "the next scroll shifts you back", function()
+                boot({ form = spell })
+                scroll()
+                assert.are.equal(MOTW, wow.casts[1].id, "a buff landed")
+                assert.are.equal(1, wow.formsCancelled, "the game took you out of the form")
+                assert.are.equal(0, form())
+                -- Buffs are left: they come first.
+                assert.is_false(offersForm())
+                assert.matches("Mark of the Wild", button.subtitle:GetText(), 1, true)
+                scrollBuffs()
+                assert.is_true(offersForm(), "the buffs are done: the form is offered")
+                assert.are.equal("/cast !" .. NAMES[spell], clickMacro())
+                assert.are.equal(clickMacro(), keyMacro(), "the key presses it")
+                assert.matches("shift back into " .. NAMES[spell], button.subtitle:GetText(), 1, true)
+                local before = #wow.casts
+                scroll()
+                assert.are.equal(before + 1, #wow.casts)
+                local last = wow.casts[#wow.casts]
+                assert.is_true(last.form)
+                assert.are.equal(spell, last.id)
+                assert.are.equal(spell, form(), "back in the form")
+                assert.matches("Back in " .. NAMES[spell] .. ".", wow.lastResult(ns), 1, true)
+                -- Done: nothing more is offered, and more scrolls cast nothing.
+                assert.is_false(offersForm())
+                for _ = 1, 5 do scroll() end
+                assert.are.equal(before + 1, #wow.casts)
+            end)
+        end
+
+        it("a click shifts you back too, and the tooltip says what it does", function()
+            boot({ form = CAT })
+            scrollBuffs()
+            assert.is_true(offersForm())
+            wow.run(button, "OnEnter")
+            local tip = table.concat(_G.GameTooltip.lines or {}, "\n")
+            assert.matches("Shifts you back into Cat Form.", tip, 1, true)
+            assert.matches("Right-click to stay out of the form.", tip, 1, true)
+            click()
+            assert.are.equal(CAT, form())
+            assert.are.equal(1, #formCasts())
+        end)
+
+        it("the form waits while anyone is still to buff, and shows only once nobody is", function()
+            boot({ form = CAT })
+            scroll()
+            local seen = {}
+            for _ = 1, 12 do
+                if offersForm() then break end
+                seen[#seen + 1] = button.title:GetText()
+                scroll()
+            end
+            assert.is_true(#seen >= 1, "the other members were offered first")
+            -- Every member now wears it: the form is all that's left.
+            assert.is_true(offersForm())
+            assert.is_nil(ns.BuffButton.ArmedOffer().buff)
+        end)
+
+        it("Ghost Wolf: a scroll's buff takes a shaman out of it; the next scroll after the buffs shifts back",
+            function()
+            for _, reading in ipairs({ { form = 1, aura = true }, { form = 0, aura = true } }) do
+                boot({ shaman = true, wolfForm = reading.form, wolfAura = reading.aura })
+                assert.is_true(wow.state.ghostWolf)
+                scroll()
+                assert.are.equal(WATER_BREATHING, wow.casts[1].id)
+                assert.is_false(wow.state.ghostWolf, "the game took you out of Ghost Wolf")
+                scrollBuffs()
+                assert.are.equal("/cast !Ghost Wolf", clickMacro())
+                scroll()
+                assert.is_true(wow.state.ghostWolf, "back in Ghost Wolf")
+                assert.are.equal(WOLF, formCasts()[1].id)
+            end
+        end)
+
+        it("a trigger's buff mode stays on while the shift back waits, and turns off once you're back", function()
+            boot({ form = CAT, noMode = true })
+            ns.BuffMode.Set(true, { auto = true, why = "test" })
+            wow.advance(0)
+            ns.BuffButton.Refresh()
+            assert.is_true(ns.BuffMode.IsAuto())
+            scroll()
+            scrollBuffs()
+            ns.BuffButton.Refresh()
+            assert.is_true(ns.BuffMode.IsAuto(), "the shift back is work left")
+            assert.is_true(offersForm())
+            scroll()
+            assert.are.equal(CAT, form())
+            ns.BuffButton.Refresh()
+            assert.is_falsy(ns.BuffMode.LentKey(), "done: buff mode turns itself off")
+        end)
+
+        it("each buff press starts the 30 seconds again", function()
+            boot({ form = CAT })
+            scroll()                      -- leaves Cat Form at 0
+            wow.advance(25)
+            scroll()                      -- another buff at 25
+            scrollBuffs()
+            wow.advance(29.9 - 0)         -- 54.9: 29.9 after the last buff press
+            ns.BuffButton.Refresh()
+            assert.is_true(offersForm())
+            wow.advance(0.2)
+            assert.is_false(offersForm(), "30 seconds after the last buff, it's gone")
+        end)
+    end)
+
+    describe("no return to offer (black)", function()
+        it("with Fast-cast buffs in form off, a click's buff takes you out, and no form is offered", function()
+            boot({ form = CAT, fastCast = false })
+            click()
+            assert.are.equal(0, form())
+            for _ = 1, 12 do
+                if not clickMacro() then break end
+                click()
+            end
+            assert.is_nil(clickMacro(), "nothing left, and no form offered")
+            assert.are.equal(0, #formCasts())
+        end)
+
+        it("with no form before buffing, no form is offered", function()
+            boot()
+            scrollBuffs()
+            assert.is_nil(clickMacro())
+            assert.are.equal(0, #formCasts())
+        end)
+
+        local UNREADABLE = {
+            { "a secret form", function(state) state.selfSecrets.form = true end },
+            { "a form read that fails", function() end, function() _G.GetShapeshiftForm = function() error("x") end end },
+            { "a secret form spell", function(state) state.selfSecrets.formInfo = true end },
+            { "a form spell that is secret but keeps its number type (as the game's secrets do)", function() end,
+                function() _G.issecretvalue = function(v) return v == CAT end end },
+            { "a form that isn't a number, though the stance bar names Cat Form", function() end, function()
+                _G.GetShapeshiftForm = function() return "3" end
+                _G.GetShapeshiftFormInfo = function() return "icon", true, true, CAT end
+            end },
+            { "a form info read that fails", function(state) state.formInfoError = true end },
+            { "a form number that isn't the form's", function(state) state.formId = 31 end },
+            { "a form number that isn't a number", function(state) state.formId = "1" end },
+            { "a class that can't be read", function() end, function() _G.UnitClass = function() return nil end end,
+                anyBuff = true },
+            { "a form spell the game won't name", function() end, function()
+                local real = _G.C_Spell.GetSpellName
+                _G.C_Spell.GetSpellName = function(id) if id == CAT then return nil end return real(id) end
+            end },
+            { "a form spell whose name isn't safe in a macro", function() end, function()
+                local real = _G.C_Spell.GetSpellName
+                _G.C_Spell.GetSpellName = function(id) if id == CAT then return "Cat;Form" end return real(id) end
+            end },
+        }
+        for _, case in ipairs(UNREADABLE) do
+            it(case[1] .. " at the press: no form is offered", function()
+                boot({ form = CAT, before = case[2] })
+                if case[3] then case[3]() end
+                ns.BuffButton.Refresh()
+                scroll()
+                if not case.anyBuff then assert.are.equal(1, wow.formsCancelled, "the buff took you out") end
+                assert.is_false(ns.BuffButton.ReturnWaiting(), "nothing remembered")
+                scrollBuffs()
+                assert.is_false(offersForm())
+                assert.are.equal(0, #formCasts())
+                _G.issecretvalue = nil
+            end)
+        end
+
+        it("Aquatic Form (with or without its number), Moonkin Form and a form the game names no spell for "
+            .. "are no forms to go back to", function()
+            for _, case in ipairs({ { AQUATIC }, { AQUATIC, false }, { MOONKIN }, { false } }) do
+                local spell = case[1]
+                boot({ form = spell or nil, before = function(state)
+                    if not spell then state.form, state.formSpell = 2, nil end
+                    if case[2] == false then state.formId = false end
+                end })
+                scroll()
+                assert.is_false(ns.BuffButton.ReturnWaiting())
+                scrollBuffs()
+                assert.is_false(offersForm())
+                assert.are.equal(0, #formCasts())
+            end
+        end)
+
+        it("Ghost Wolf whose stance bar names another spell than Ghost Wolf: no form is offered", function()
+            boot({ shaman = true, wolfForm = 1, wolfAura = true })
+            wow.state.formSpell = CAT
+            ns.BuffButton.Refresh()
+            scroll()
+            assert.is_false(wow.state.ghostWolf)
+            assert.is_false(ns.BuffButton.ReturnWaiting())
+        end)
+
+        it("Ghost Wolf read only by the form, with no spell or aura to name it: no form is offered", function()
+            boot({ shaman = true, wolfForm = 1, wolfAura = false })
+            scroll()
+            assert.is_false(wow.state.ghostWolf)
+            scrollBuffs()
+            assert.is_false(offersForm())
+        end)
+
+        it("a Ghost Wolf read the game won't finish (more buffs than are read) means no form is offered", function()
+            boot({ shaman = true, wolfForm = 1, wolfAura = true, before = function(state)
+                for i = 1, 41 do
+                    state.playerAuras[i] = { isHelpful = true, spellId = 900000 + i, name = "Other " .. i,
+                        sourceUnit = "party1", duration = 0, expirationTime = 0, auraInstanceID = 800000 + i }
+                end
+            end })
+            -- Even when the stance bar names Ghost Wolf: the buffs can't be read.
+            wow.state.formSpell = WOLF
+            ns.BuffButton.Refresh()
+            scroll()
+            assert.is_false(wow.state.ghostWolf, "the buff took you out")
+            assert.is_false(ns.BuffButton.ReturnWaiting())
+            scrollBuffs()
+            assert.is_false(offersForm())
+        end)
+
+        it("a form left long after the press, by hand, is not one to go back to", function()
+            boot({ form = CAT, before = function(state) state.cvars.autoUnshift = "0" end })
+            scroll()                               -- refused: still in Cat Form
+            assert.are.equal(0, #wow.casts, "the game refused the buff")
+            assert.are.equal(CAT, form())
+            wow.advance(ns.BuffButton.LEAVE_SECONDS + 0.5)
+            wow.setForm(0)
+            wow.advance(0)
+            assert.is_false(ns.BuffButton.ReturnWaiting())
+            scrollBuffs()
+            assert.is_false(offersForm())
+        end)
+
+        it("a press refused in a form, then a shift by hand into another form, remembers nothing", function()
+            boot({ form = CAT, before = function(state) state.cvars.autoUnshift = "0" end })
+            scroll()
+            wow.setForm(1, BEAR)
+            wow.advance(0)
+            assert.is_false(ns.BuffButton.ReturnWaiting())
+        end)
+
+        it("a form the game won't say between the press and leaving it remembers nothing", function()
+            boot({ form = CAT, before = function(state) state.cvars.autoUnshift = "0" end })
+            scroll()                               -- refused: still in Cat Form
+            wow.state.selfSecrets.form = true
+            ns.BuffButton.Refresh()
+            wow.state.selfSecrets.form = nil
+            wow.setForm(0)                         -- within the leave window
+            wow.advance(0)
+            assert.is_false(ns.BuffButton.ReturnWaiting())
+        end)
+    end)
+
+    describe("the return is dropped (black)", function()
+        -- The buffs done from Cat Form: the shift back is offered.
+        local function ready(opts)
+            boot(opts or { form = CAT })
+            scrollBuffs()
+            assert.is_true(offersForm())
+        end
+
+        it("when a fight starts", function()
+            ready()
+            wow.enterCombat()
+            wow.leaveCombat()
+            wow.advance(0)
+            assert.is_false(offersForm())
+        end)
+
+        it("when you shift by hand into a form, or out of one", function()
+            ready()
+            wow.setForm(1, BEAR)
+            wow.advance(0)
+            wow.setForm(0)
+            wow.advance(0)
+            ns.BuffButton.Refresh()
+            assert.is_false(offersForm())
+            -- And back into the remembered form by hand: done too.
+            ready()
+            wow.setForm(3, CAT)
+            wow.setForm(0)
+            wow.advance(0)
+            ns.BuffButton.Refresh()
+            assert.is_false(offersForm())
+        end)
+
+        it("when your form can no longer be read", function()
+            ready()
+            wow.state.selfSecrets.form = true
+            ns.BuffButton.Refresh()
+            assert.is_false(ns.BuffButton.ReturnWaiting())
+            wow.state.selfSecrets.form = nil
+            ns.BuffButton.Refresh()
+            assert.is_false(offersForm())
+        end)
+
+        it("when a shift by hand is noticed only at the next press", function()
+            ready()
+            -- The game changes the form without its event: the press reads it.
+            wow.state.form, wow.state.formSpell = 1, BEAR
+            local before = #wow.casts
+            scroll()
+            assert.are.equal(0, #formCasts())
+            assert.is_true(#wow.casts <= before)
+        end)
+
+        it("30 seconds after your last buff", function()
+            ready()
+            wow.advance(29.9)
+            ns.BuffButton.Refresh()
+            assert.is_true(offersForm())
+            wow.advance(0.2)
+            scroll()
+            assert.are.equal(0, #formCasts(), "a press checks first")
+            assert.is_false(offersForm())
+        end)
+
+        it("30 seconds after your last buff, the button lets it go by itself soon after", function()
+            ready()
+            wow.advance(30 + ns.BuffButton.RECHECK_SECONDS + 0.1)
+            assert.is_false(offersForm())
+        end)
+
+        it("when buff mode turns off, even if it turns on again", function()
+            ready()
+            slash("buffmode off")
+            wow.advance(0)
+            slash("buffmode on")
+            wow.advance(0)
+            ns.BuffButton.Refresh()
+            assert.is_false(offersForm())
+        end)
+
+        it("when Fast-cast buffs in form is turned off", function()
+            ready()
+            ns.db.buffBack.fastCastInForm = false
+            ns.BuffButton.Refresh()
+            ns.db.buffBack.fastCastInForm = true
+            ns.BuffButton.Refresh()
+            assert.is_false(offersForm())
+        end)
+
+        it("when buff mode turns off while buffs are still left", function()
+            boot({ form = CAT })
+            scroll()
+            slash("buffmode off")
+            wow.advance(0)
+            slash("buffmode on")
+            wow.advance(0)
+            scrollBuffs()
+            assert.is_false(offersForm())
+        end)
+
+        it("when you right-click it", function()
+            ready()
+            wow.press(button, "RightButton")
+            assert.matches("Staying out of Cat Form.", wow.lastResult(ns), 1, true)
+            assert.is_false(offersForm())
+        end)
+
+        it("once the game says you're back, even before your form changes", function()
+            ready({ form = CAT, before = function(state) state.formAfterSucceeded = true end })
+            local formsBefore = #formCasts()
+            -- The form changes only after the success: in between, the button
+            -- must not offer it again.
+            local offeredBetween
+            local realFire = wow.fire
+            wow.fire = function(event, ...)
+                if event == "UPDATE_SHAPESHIFT_FORM" and offeredBetween == nil then
+                    offeredBetween = offersForm()
+                end
+                return realFire(event, ...)
+            end
+            scroll()
+            wow.fire = realFire
+            assert.are.equal(formsBefore + 1, #formCasts())
+            assert.is_false(offeredBetween)
+        end)
+    end)
+
+    describe("a refused shift back (black)", function()
+        local function ready()
+            boot({ form = TRAVEL })
+            scrollBuffs()
+            assert.is_true(offersForm())
+        end
+
+        it("indoors: the key waits, the button says click to shift back with the game's reason, "
+            .. "and a click tries again", function()
+            ready()
+            wow.state.formRefusals = { [TRAVEL] = "Can only use outside." }
+            local printed = #wow.printed
+            scroll()
+            assert.are.equal(0, #formCasts())
+            assert.matches("Couldn't shift back into Travel Form: Can only use outside.", wow.lastResult(ns), 1, true)
+            assert.is_nil(keyMacro(), "the key waits")
+            assert.are.equal("/cast !Travel Form", clickMacro(), "a click still can")
+            assert.matches("click to shift back (Can only use outside)", button.mode:GetText(), 1, true)
+            -- Never again by itself, and the chat line is said once.
+            local chat = #wow.printed
+            assert.is_true(chat > printed)
+            for _ = 1, 10 do scroll() end
+            assert.matches("Click the button to shift back: Can only use outside.", button.result:GetText(), 1, true)
+            wow.advance(5)
+            assert.are.equal(0, #formCasts())
+            -- Outside again: a click shifts you back.
+            wow.state.formRefusals = nil
+            click()
+            assert.are.equal(TRAVEL, form())
+            assert.are.equal(1, #formCasts())
+        end)
+
+        it("not in water, or any refusal the game gives: the same", function()
+            ready()
+            wow.state.formRefusals = { [TRAVEL] = "You can't do that here" }
+            scroll()
+            assert.is_nil(keyMacro())
+            assert.matches("click to shift back (You can't do that here)", button.mode:GetText(), 1, true)
+        end)
+
+        it("no answer at all counts as refused", function()
+            ready()
+            wow.state.formRefusals = { [TRAVEL] = "" } -- the game says nothing readable
+            scroll()
+            -- A spell cast by hand meanwhile doesn't answer it.
+            wow.fire("UNIT_SPELLCAST_SENT", "player", "Ann", "Hand-1", MOTW)
+            wow.advance(ns.BuffButton.ANSWER_WINDOW_SECONDS + 1)
+            assert.matches("Couldn't shift back into Travel Form: the game didn't answer.", wow.lastResult(ns), 1,
+                true)
+            assert.is_nil(keyMacro())
+            assert.are.equal("/cast !Travel Form", clickMacro())
+        end)
+
+        it("a failure with no reason counts as refused", function()
+            ready()
+            wow.state.castLatency = 100
+            scroll()
+            assert.are.equal(1, #formCasts())
+            wow.fire("UNIT_SPELLCAST_FAILED", "player", wow.lastCastGuid, TRAVEL)
+            wow.advance(ns.BuffButton.SENT_ANSWER_SECONDS + 1)
+            assert.matches("Couldn't shift back into Travel Form: the game gave no reason.", wow.lastResult(ns), 1,
+                true)
+            assert.is_nil(keyMacro())
+        end)
+
+        it("a refused shift back doesn't start the 30 seconds again", function()
+            ready()
+            wow.advance(20)
+            wow.state.formRefusals = { [TRAVEL] = "Can only use outside." }
+            click()
+            assert.is_nil(keyMacro())
+            wow.advance(10.5)                      -- 30.5 after the last buff
+            ns.BuffButton.Refresh()
+            assert.is_false(offersForm())
+        end)
+
+        it("the game naming someone else for the shift back changes nothing: it's on you", function()
+            ready()
+            wow.state.formSentTarget = "Ann"
+            scroll()
+            assert.are.equal(TRAVEL, form())
+            assert.matches("Back in Travel Form.", wow.lastResult(ns), 1, true)
+        end)
+
+        it("a press in the global cooldown is no refusal: the next scroll shifts you back", function()
+            ready()
+            wow.state.formRefusals = { [TRAVEL] = "Spell is not ready yet." }
+            scroll()
+            assert.are.equal(clickMacro(), keyMacro())
+            wow.state.formRefusals = nil
+            scroll()
+            assert.are.equal(TRAVEL, form())
+        end)
+    end)
+
+    describe("storms (red)", function()
+        -- Forms, buffs fading, fights, presses, the setting, buff mode and
+        -- refusals at random. Checked from the simulated client's own state:
+        -- nothing is cast but in a press; a form is cast only after a press
+        -- took you out of that very form, with no fight, no shift by hand, no
+        -- setting or buff mode off since, and within 30 seconds of the last
+        -- buff press; and nothing errors. Every seed must shift back at least
+        -- once, and see a refused shift back.
+        local FORMS = { CAT, BEAR, TRAVEL, DIRE }
+        for _, seed in ipairs({ 495, 498, 501, 510, 519 }) do
+            it("seed " .. seed .. ": never casts without a press, and never offers a form you weren't in", function()
+                random.seed(seed)
+                boot({ form = CAT })
+                local errors = ns.Diag.Counters().luaErrors or 0
+                local left            -- the form a press took you out of, while the return may stand
+                local lastBuffPress = -math.huge
+                local backs, refusedSeen = 0, 0
+                local function drop() left = nil end
+                local function strip()
+                    for _, token in ipairs({ "party1", "party2" }) do wow.state.units[token].auras = {} end
+                    for i = #wow.state.playerAuras, 1, -1 do
+                        if wow.state.playerAuras[i].spellId == MOTW then table.remove(wow.state.playerAuras, i) end
+                    end
+                end
+                local function press(how)
+                    local before, cancelled, was = #wow.casts, wow.formsCancelled, form()
+                    local formCast = false
+                    if how == "click" then click() else scroll() end
+                    if (wow.lastResult(ns) or ""):find("Couldn't shift back", 1, true) then
+                        refusedSeen = refusedSeen + 1
+                    end
+                    for i = before + 1, #wow.casts do
+                        local c = wow.casts[i]
+                        if c.form then
+                            assert.is_truthy(left, "a form cast with no form left by a press")
+                            assert.are.equal(left, c.id, "the form cast is the one you left")
+                            assert.is_true(wow.now - lastBuffPress < ns.BuffButton.RETURN_SECONDS)
+                            assert.is_nil(c.inCombat)
+                            backs = backs + 1
+                            left = nil
+                            formCast = true
+                        end
+                    end
+                    -- Any other press may have been a buff's (the button
+                    -- re-arms as it's pressed): the 30 seconds count from it,
+                    -- and a form the game took you out of in it may come back.
+                    if not formCast then
+                        lastBuffPress = wow.now
+                        if wow.formsCancelled > cancelled then left = was end
+                    end
+                end
+                for _ = 1, 400 do
+                    local before = #wow.casts
+                    local r = random.random(1, 20)
+                    if r <= 7 then
+                        press("key")
+                    elseif r <= 9 then
+                        press("click")
+                    elseif r == 10 then
+                        strip()
+                        ns.BuffButton.Refresh()
+                    elseif r == 11 then
+                        local spell = FORMS[random.random(1, #FORMS)]
+                        if form() ~= spell then
+                            wow.setForm(wow.FORM_STANCE[spell], spell)
+                            drop()
+                        end
+                    elseif r == 12 then
+                        if form() ~= 0 then wow.setForm(0) drop() end
+                    elseif r == 13 then
+                        wow.enterCombat()
+                        drop()
+                        wow.advance(random.random(0, 3))
+                        wow.leaveCombat()
+                    elseif r == 14 then
+                        wow.advance(random.random(1, 20))
+                    elseif r == 15 then
+                        if random.random(1, 4) == 1 then
+                            ns.db.buffBack.fastCastInForm = not ns.db.buffBack.fastCastInForm
+                            if not ns.db.buffBack.fastCastInForm then drop() end
+                            ns.BuffButton.Refresh()
+                        end
+                    elseif r == 16 then
+                        if random.random(1, 4) == 1 then
+                            slash("buffmode off")
+                            drop()
+                            wow.advance(0)
+                            slash("buffmode on")
+                        end
+                    elseif r == 17 then
+                        local refusals = {}
+                        for _, spell in ipairs(FORMS) do refusals[spell] = "Can only use outside." end
+                        wow.state.formRefusals = random.random(1, 3) > 1 and refusals or nil
+                    else
+                        wow.advance(random.random(0, 2))
+                    end
+                    -- Nothing is cast but in a press.
+                    if r > 9 then assert.are.equal(before, #wow.casts, "a cast without a press") end
+                end
+                assert.is_true(backs >= 1, "the storm shifted back at least once")
+                assert.is_true(refusedSeen >= 1, "the storm refused a shift back at least once")
+                assert.are.equal(errors, ns.Diag.Counters().luaErrors or 0)
+            end)
+        end
+    end)
+end)
