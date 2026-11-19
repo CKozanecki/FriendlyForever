@@ -219,6 +219,9 @@ function Auto.Check(timedOutAfter)
     end
     if InCombatLockdown() then return end
     if cfg.autoOffDone ~= true then return end
+    -- The shift back into your form (#495) is on the button: buff mode
+    -- stays on until it's pressed or dropped (30 seconds at most).
+    if ns.BuffButton.ReturnWaiting() then return end
     -- A passer-by the button offers is work left for any trigger's buff
     -- mode (#462); PassersBy.Waiting says no while that switch is off.
     local done, why = Settled(insideWait, true, true)

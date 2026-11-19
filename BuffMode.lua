@@ -226,6 +226,9 @@ function BuffMode.StatusLine()
         local on = "buff mode: on" .. (auto and " (turned on by itself)" or "") .. ", "
         -- In a form the key waits for (#452), click the button (#485).
         local waits = ns.BuffButton.KeyWaitsNow()
+        -- A refused shift back into your form waits too (#495), in its own words.
+        local armed = ns.BuffButton.ArmedOffer()
+        if waits and armed and armed.formReturn then return on .. ns.BuffButton.ShiftBackText(waits) end
         if waits then return on .. "click the button to buff (" .. waits .. ")" end
         return on .. BuffMode.KeyText(lentKey) .. " presses the button"
     end
