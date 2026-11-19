@@ -301,7 +301,7 @@ BuffButton.RETURN_SECONDS = 30 -- after your last buff press, the return is drop
 -- A form left this soon after a buff press in it was left for that press.
 BuffButton.LEAVE_SECONDS = BuffButton.ANSWER_WINDOW_SECONDS
 
-local formReturn   -- the form to go back to: { spell, name, icon, lastBuffAt, refused, casting }
+local formReturn   -- the form to go back to: { spell, name, icon, lastBuffAt, refused, casting (the press being cast) }
 local leavingForm  -- the form a buff press was made in, until the game takes you out: { spell, name, icon, at }
 local formSeen     -- the form last read: 0 (none), a form's spell, "other", or nil (unread)
 
@@ -420,10 +420,11 @@ local function ReturnStands(press)
     return formReturn ~= nil and formReturn.spell == press.formSpell
 end
 
--- The game refused the shift back (why: its words): the key waits for it
--- from now on, and a click tries again (the owner, #495).
-local function RefuseReturn(why)
-    formReturn.refused, formReturn.casting = why, nil
+-- The game refused a press of the shift back (why: its words): the key
+-- waits for it from now on, and a click tries again (the owner, #495).
+local function RefuseReturn(press, why)
+    formReturn.refused = why
+    if formReturn.casting == press then formReturn.casting = nil end
 end
 
 -- Whether the button is waiting to shift you back (#495): buff mode's
@@ -852,14 +853,15 @@ local function Unanswered(press)
     elseif press.formReturn and (press.failed or (press.complete and not press.unsure and not press.sent)) then
         -- The shift back that got no answer counts as refused.
         local why = press.failed and "the game gave no reason" or "the game didn't answer"
-        RefuseReturn(why)
+        RefuseReturn(press, why)
         ShowResult("Couldn't shift back into " .. press.spell .. ": " .. why .. ".", true, press.name)
     elseif press.failed then
         ShowResult("Couldn't buff " .. who
             .. " (the game gave no reason).", true, press.name)
     elseif press.sent then
-        -- A shift back with no word: the button offers it again (#495).
-        if press.formReturn then formReturn.casting = nil end
+        -- A shift back with no word: the button offers it again (#495),
+        -- unless a newer press of it is being cast.
+        if press.formReturn and formReturn.casting == press then formReturn.casting = nil end
         ShowResult("No word back on " .. press.spell .. " for " .. who .. ". If it didn't land, press again.", nil,
             press.name)
     elseif press.complete and not press.unsure then
@@ -1141,7 +1143,7 @@ function BuffButton.OnSpellcastSent(unit, castTargetName, castGUID, spellId)
     press.sent = true
     -- The shift back (#495) is being cast: the button offers it again only
     -- if this cast doesn't land.
-    if press.formReturn and ReturnStands(press) then formReturn.casting = true end
+    if press.formReturn and ReturnStands(press) then formReturn.casting = press end
     press.castGUID = ReadableText(castGUID)
     press.castTargetName = ReadableText(castTargetName)
     WatchForAnswer(press, BuffButton.SENT_ANSWER_SECONDS)
@@ -1321,7 +1323,7 @@ local function ReportRefusal(press, text)
         -- gone, its answer says nothing.
         if not ReturnStands(press) then return BuffButton.Refresh() end
         local why = Util.StripChat(text):gsub("[%s%.!]+$", "")
-        RefuseReturn(why)
+        RefuseReturn(press, why)
         line = "Couldn't shift back into " .. press.spell .. ": " .. Util.StripChat(text)
     elseif press.weapon then
         ns.WeaponBuffs.NoteRefused(press.slot, press.weaponItem, press.weaponKind)
@@ -1361,9 +1363,10 @@ function BuffButton.OnSpellcastFailed(unit, castGUID, spellId)
     end
 end
 
--- A shift back whose cast stopped (#495): the button offers it again.
+-- A shift back whose cast stopped (#495): the button offers it again,
+-- unless a newer press of it is being cast.
 local function ShiftBackStopped(press)
-    if not ReturnStands(press) then return end
+    if not ReturnStands(press) or formReturn.casting ~= press then return end
     formReturn.casting = nil
     BuffButton.Refresh()
 end

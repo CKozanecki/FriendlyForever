@@ -616,9 +616,23 @@ describe("Back into your form after fast-cast buffing (#495)", function()
             wow.state.castLatency = 100
             scroll()
             assert.is_nil(clickMacro())
-            wow.fire("UNIT_SPELLCAST_INTERRUPTED", "player", wow.lastCastGuid, WOLF)
+            local first = wow.lastCastGuid
+            wow.fire("UNIT_SPELLCAST_INTERRUPTED", "player", first, WOLF)
             assert.are.equal("/cast !Ghost Wolf", clickMacro())
             assert.are.equal(clickMacro(), keyMacro())
+            -- Pressed again and cast: the first press's timeout doesn't
+            -- offer it mid-cast.
+            wow.advance(5)
+            scroll()                               -- 5 seconds after the first
+            assert.is_nil(clickMacro())
+            -- More word about the first press doesn't end the newer cast.
+            wow.fire("UNIT_SPELLCAST_INTERRUPTED", "player", first, WOLF)
+            assert.is_nil(clickMacro(), "another interrupt of the first")
+            wow.fire("UNIT_SPELLCAST_FAILED", "player", first, WOLF)
+            wow.uiError("Interrupted")
+            assert.is_nil(clickMacro(), "the first one's refusal")
+            wow.advance(ns.BuffButton.SENT_ANSWER_SECONDS - 5 + 1)
+            assert.is_nil(clickMacro(), "the first press's 'no word' doesn't end the newer cast")
             -- A buff's cast cut off changes nothing here.
             boot({ form = CAT })
             wow.state.castLatency = 100
