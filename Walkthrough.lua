@@ -48,9 +48,11 @@ end
 
 -- How many buffs have a rule of their own in 1.3.3's settings
 -- (buffBack.whoGets: a buff is saved there only once changed, #219), from
--- settings that may be damaged: your class's, and the rest. The settings
--- are shared by every character on the account (Config.lua), so the rest
--- are rules changed on your other characters, which the choice covers too.
+-- settings that may be damaged: your class's, and the rest. Before #508 the
+-- settings were shared by every character on the account, so the rest are
+-- rules changed on your other characters; each character now has its own
+-- copy of them, and makes the choice for its copy (on a shared profile, the
+-- choice is the profile's, for every character on it).
 -- A key kept known without a buff (BuffTable.absent, #209) isn't counted.
 local function RulesChanged()
     local saved = Section("buffBack").whoGets
@@ -223,7 +225,10 @@ Walkthrough.STEPS = {
                 end
                 lines[#lines + 1] = "  Keep my settings: your rules go to Party and Raid; PvP starts off."
                 lines[#lines + 1] = "  Use the new defaults: recommended if you never changed them, or aren't sure."
-                lines[#lines + 1] = "The choice is for all your characters."
+                local shared = ns.Profiles.SharedProfile()
+                lines[#lines + 1] = shared and ("The choice is for the shared profile " .. ns.Util.StripChat(shared)
+                        .. ", and every character on it.")
+                    or "The choice is for this character; each of your others makes its own on its Buffs tab."
                 lines[#lines + 1] = ""
                 lines[#lines + 1] = "Finishing, skipping or closing without choosing changes nothing: your buffs "
                     .. "work as before until you choose, and the choice waits on the Buffs tab."
@@ -262,6 +267,42 @@ Walkthrough.STEPS = {
                 .. "back, buff requests in chat and passers-by, with the lines for each.\n\n"
                 .. "Your thank-you is the one line said for a favour. A line when your buff lands is "
                 .. said .. "."
+        end,
+    },
+    {
+        -- Each character's own buff settings (#508): weapon buffs were
+        -- reset once for every character (the owner), so the step opens
+        -- the Weapon buffs page to set them, and names the settings each
+        -- character copied. Each character sees it once (character = true:
+        -- Walkthrough.OnLogin, Profiles.NeedsWelcome), in the walkthrough,
+        -- What's new, or on its own.
+        since = 5,
+        character = true,
+        title = "Each character's own buffs",
+        open = function() ns.Options.OpenPage((select(3, ns.Options.Pages()))) end,
+        text = function()
+            local shared = ns.Profiles.SharedProfile()
+            local start
+            if shared then
+                start = (Walkthrough.WhatsNew() and "Weapon buffs are now set for each character, and were "
+                    .. "reset for every character, this profile's included: set them again here.\n\n" or "")
+                    .. "This character uses the shared profile " .. ns.Util.StripChat(shared) .. ", so these "
+                    .. "settings are that profile's, the same for each character on it: its weapon buffs, "
+                    .. "here on the Weapon buffs page, and:\n\n"
+            elseif Walkthrough.WhatsNew() then
+                start = "Weapon buffs are now set for each character, and were reset for every character: set "
+                    .. "this character's again here, on the Weapon buffs page.\n\nThese are each character's own "
+                    .. "too, and started as a copy of the settings you had: check or change them.\n\n"
+            else
+                start = "This character's weapon buffs are its own, and start unset: set them here, on the Weapon "
+                    .. "buffs page.\n\nThese are its own too, a copy of your settings to start with: check or "
+                    .. "change them.\n\n"
+            end
+            return start
+                .. "  The Buffs tab: the buff order and \"Never offer\", who gets each buff in each place, "
+                .. "buff mode's key, and \"Offer my self-buffs\".\n\n"
+                .. "Everything else is shared by all your characters. A character on a shared profile (the "
+                .. "General page's Profiles) uses that profile's settings for these too."
         end,
     },
     {
@@ -319,11 +360,15 @@ local function Show(index)
 end
 
 -- Closes it. done: it was finished or skipped, so it's seen, and a first
--- run ends by turning the addon on.
+-- run ends by turning the addon on. A run with the step about each
+-- character's own settings counts as this character's welcome (#508).
 local function Close(done)
     step = nil
     frame:Hide()
     if not done then return end
+    for _, info in ipairs(steps) do
+        if info.character then ns.Profiles.Welcomed() end
+    end
     local first = State().firstRun
     ns.db.walkthrough = { seen = ns.Config.WALKTHROUGH_VERSION, firstRun = false }
     if first then ns.SetEnabled(true) end
@@ -416,10 +461,20 @@ function Walkthrough.Create()
 end
 
 -- Starts it at the first step, or once the fight is over when in one: every
--- step, or with new set, only those added since the player last finished it.
+-- step, or with new set, only those added since the player last finished
+-- it, or with new "character", only the step about each character's own
+-- settings (#508).
 function Walkthrough.Start(new)
-    new = new == true
-    steps = new and Walkthrough.StepsSince(State().seen) or Walkthrough.STEPS
+    if new == "character" then
+        steps = {}
+        for _, info in ipairs(Walkthrough.STEPS) do
+            if info.character then steps[#steps + 1] = info end
+        end
+        new = false
+    else
+        new = new == true
+        steps = new and Walkthrough.StepsSince(State().seen) or Walkthrough.STEPS
+    end
     whatsNew = new
     if InCombatLockdown() then
         if not pending then ns.Print("the walkthrough will start when this fight is over.") end
@@ -464,16 +519,25 @@ end
 
 -- At login, until the current version has been finished or skipped: say
 -- where Start here is, and start the walkthrough. Someone who finished an
--- older version gets only what's new.
+-- older version gets only what's new. Otherwise, a character that hasn't
+-- seen the step about its own settings gets that step alone, once (#508).
 function Walkthrough.OnLogin()
     local state = State()
     local latest = ns.Config.WALKTHROUGH_VERSION
-    if state.seen >= latest then return end
     local new = state.seen > 0
     local count = #Walkthrough.StepsSince(state.seen)
-    if new and count == 0 then
+    if state.seen < latest and new and count == 0 then
         -- A version raised with no step to show: nothing to tell them.
         ns.db.walkthrough = { seen = latest, firstRun = false }
+        state = State()
+    end
+    if state.seen >= latest then
+        if ns.Profiles.NeedsWelcome() then
+            ns.Print((ns.Profiles.SharedProfile() and "this character uses a shared profile's buff settings"
+                or "this character's weapon buffs aren't set yet, and some buff settings are its own")
+                .. ": the walkthrough shows where. Esc > Options > AddOns > " .. ns.TITLE .. " > Weapon buffs.")
+            Walkthrough.Start("character")
+        end
         return
     end
     local intro = state.firstRun and "welcome! Friendly Forever is off until you finish or skip its walkthrough. "

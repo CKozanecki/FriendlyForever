@@ -1,4 +1,4 @@
--- Spec: #491
+-- Spec: #491, #508
 -- Favours and saved settings: the tab moved nothing in the saved file, so
 -- settings saved by 1.4.4 load with every edited line, key, style, fallback
 -- and switch kept, once and for good (a second load changes nothing); partial
@@ -144,7 +144,9 @@ describe("Favours and saved settings (#491)", function()
             assert.is_table(db.buff)
             assert.is_table(db.buffBack)
             assert.are.equal(ns.Config.SCHEMA_VERSION, db.schemaVersion)
-            assert.are.equal(8, ns.Config.SCHEMA_VERSION, "no migration: the schema is 1.4.4's")
+            -- #508's migration 9 adds only the seed of each character's own settings.
+            assert.are.equal(9, ns.Config.SCHEMA_VERSION, "#491 added no migration: 1.4.4's schema was 8")
+            assert.is_table(db.characterSeed)
         end)
 
         it("show on the Favours tab as they were saved", function()

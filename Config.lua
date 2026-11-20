@@ -15,7 +15,7 @@ local Config = {}
 ns.Config = Config
 
 
-Config.SCHEMA_VERSION = 8
+Config.SCHEMA_VERSION = 9
 Config.NUM_MESSAGES = 30
 Config.MAX_LOG = 400 -- diagnostic log lines kept in saved variables
 Config.MAX_IGNORED = 500
@@ -269,7 +269,8 @@ Config.DEFAULTS = {
         -- class's own order). neverOffer: [buff key] = true, or false for a
         -- buff that's "Never offer" by default and you unticked (Righteous
         -- Fury, #44); unset follows the buff's default. They hold keys
-        -- of any class, so one profile serves all your characters.
+        -- of any class, so a shared profile serves characters of any class;
+        -- on Default each character has its own (#508).
         buffOrder = {},
         neverOffer = {},
         -- Who gets each buff in buff mode, 1.3.3's rules (BuffRules.lua):
@@ -292,6 +293,19 @@ Config.DEFAULTS = {
         messages = DefaultMessages.buffBack,
     },
 }
+
+-- The buffBack settings each character keeps for itself (#508, the owner's
+-- decision of 19 Nov 2026): weapon buffs, buff mode's key, self-buffs, the
+-- buff order with its "Never offer" marks, and who gets each buff. The live
+-- ones in ns.db.buffBack are the current character's (Profiles.lua keeps
+-- each character's in db.characters), unless it uses a shared profile,
+-- whose own they then are.
+Config.CHARACTER_FIELDS = { "weaponBuffs", "weaponMain", "weaponOff", "buffModeKey", "selfBuffs", "buffOrder",
+    "neverOffer", "whoGets", "whoChoice", "whoStrangers", "whoParty", "whoRaid", "whoPvP" }
+Config.MAX_CHARACTERS = 200 -- characters whose own settings are kept, and characters seen
+-- The weapon buff settings, reset once for every character by migration 9
+-- (the owner's decision on #508, 19 Nov 2026).
+Config.WEAPON_FIELDS = { "weaponBuffs", "weaponMain", "weaponOff" }
 
 -- Screen anchors a saved frame position may use.
 Config.ANCHORS = {
@@ -490,6 +504,30 @@ end
 
 -- Each entry upgrades a saved file from version (key - 1) to key.
 local MIGRATIONS = {
+    [9] = function(db)
+        -- Some buff settings became each character's own (#508). Weapon
+        -- buffs are reset once, for every character: here, and in a stored
+        -- profile or settings line from before as it is applied (it carries
+        -- its version, so this runs on it then). The Default profile's other
+        -- settings, as saved now, are kept as the seed: each character
+        -- copies them once, as its own, at its first login since. They are
+        -- the live ones, unless the account was on another profile: then
+        -- Default's stored copy, brought up to date the same way. Nothing
+        -- else changes.
+        if type(db.buffBack) == "table" then
+            for _, field in ipairs(Config.WEAPON_FIELDS) do
+                db.buffBack[field] = Util.DeepCopy(Config.DEFAULTS.buffBack[field])
+            end
+            local default = db.buffBack
+            local stored = type(db.profiles) == "table" and db.profiles.Default
+            if db.activeProfile ~= nil and db.activeProfile ~= "Default" and type(stored) == "table" then
+                local snapshot = Util.DeepCopy(stored)
+                Config.Migrate(snapshot)
+                default = type(snapshot.buffBack) == "table" and snapshot.buffBack or {}
+            end
+            db.characterSeed = { settings = Config.CharacterPart(default) }
+        end
+    end,
     [8] = function(db)
         -- Who gets each buff became a rule for each place (#408). Settings
         -- saved before it wait for the player's choice: until then the rules
@@ -651,7 +689,7 @@ end
 -- version as its `since` and raise the version to match: players who finished
 -- an older one then see only the new steps (#169). A spec checks that
 -- they agree (spec/walkthrough_spec.lua).
-Config.WALKTHROUGH_VERSION = 4
+Config.WALKTHROUGH_VERSION = 5
 
 -- A checked copy of the saved walkthrough state. None at all (settings from
 -- before it): seen 0, so every step shows once, and not a first run, so the
@@ -815,6 +853,29 @@ end
 -- the options panel to fill from (#330).
 function Config.CheckedSection(msgType)
     for field in pairs(Config.DEFAULTS[msgType]) do Config.Field(msgType, field) end
+end
+
+-- A copy of a buffBack section's character settings (#508): exactly
+-- Config.CHARACTER_FIELDS, as they are (not checked).
+function Config.CharacterPart(section)
+    local out = {}
+    for _, field in ipairs(Config.CHARACTER_FIELDS) do out[field] = Util.DeepCopy(section[field]) end
+    return out
+end
+
+-- A checked copy of one character's settings (#508): each field checked as
+-- the buffBack section's is, and who gets each buff checked across its
+-- fields (BuffRules.Repair). Anything damaged gets its default.
+function Config.ValidCharacter(saved)
+    local section = ValidateType(type(saved) == "table" and saved or nil, Config.DEFAULTS.buffBack)
+    ns.BuffRules.Repair(section)
+    return Config.CharacterPart(section)
+end
+
+-- A new character's settings (#508): unset, the defaults. Like a first
+-- install, it has no 1.3.3 rules to keep, so it starts on the new ones (#408).
+function Config.UnsetCharacter()
+    return Config.ValidCharacter({ whoChoice = "new" })
 end
 
 -- Fresh copy of one type's defaults.

@@ -1,4 +1,4 @@
--- Spec: #491
+-- Spec: #491, #508
 -- Favours: one tab for thanking people who buff you and buffing them back.
 -- It replaces the Buff Thanks and Buff Back tabs, holds every control they
 -- had (passers-by and buff requests too) but buff mode's, which is
@@ -17,6 +17,19 @@ local function settingsBut(db)
     local copy = {}
     for key, value in pairs(db) do
         if key ~= "walkthrough" and key ~= "ledger" then copy[key] = value end
+    end
+    -- Each character's record notes whether it has seen the walkthrough's
+    -- step about its own settings (#508): walkthrough state, not a setting.
+    if type(db.characters) == "table" then
+        local records = {}
+        for who, record in pairs(db.characters) do
+            local kept = {}
+            for field, value in pairs(type(record) == "table" and record or {}) do
+                if field ~= "welcomed" then kept[field] = value end
+            end
+            records[who] = kept
+        end
+        copy.characters = records
     end
     return copy
 end
@@ -473,7 +486,7 @@ describe("Favours (#491)", function()
             boot({ walkthrough = true, db = { enabled = true, buffBack = { sayLine = true },
                 walkthrough = { seen = 3, firstRun = false } } })
             tour = ns.Walkthrough.Frame()
-            assert.are.equal(1, ns.Walkthrough.Count())
+            assert.are.equal(2, ns.Walkthrough.Count(), "then #508's step")
             assert.is_true(tour:IsShown())
             assert.are.equal("What's new: Favours: thanking and buffing back", tour.title:GetText())
             assert.are.equal(ns.Options.FAVOURS_TAB, ns.Options.CurrentType(), "it opens the Favours tab")
@@ -485,8 +498,9 @@ describe("Favours (#491)", function()
                 "\"Strangers\"" }) do
                 assert.is_truthy(text:find(where, 1, true), where)
             end
-            assert.are.same({ "What's new: Favours: thanking and buffing back" }, whatsNewTitles())
-            assert.are.same({ seen = 4, firstRun = false }, ns.db.walkthrough)
+            assert.are.same({ "What's new: Favours: thanking and buffing back",
+                "What's new: Each character's own buffs" }, whatsNewTitles())
+            assert.are.same({ seen = ns.Config.WALKTHROUGH_VERSION, firstRun = false }, ns.db.walkthrough)
         end)
 
         it("skipping it changes no setting, and it doesn't show again", function()
@@ -496,7 +510,7 @@ describe("Favours (#491)", function()
             wow.run(tour.skip, "OnClick")
             assert.is_false(tour:IsShown())
             assert.are.same(before, settingsBut(ns.db))
-            assert.are.same({ seen = 4, firstRun = false }, ns.db.walkthrough)
+            assert.are.same({ seen = ns.Config.WALKTHROUGH_VERSION, firstRun = false }, ns.db.walkthrough)
             local db = ns.db
             boot({ walkthrough = true, db = db })
             assert.is_false(ns.Walkthrough.Frame():IsShown(), "not at the next login")

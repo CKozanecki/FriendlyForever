@@ -1,4 +1,4 @@
--- Spec: #52, #76
+-- Spec: #52, #76, #508
 -- Settings as text (export/import), profiles, the bug report and the addon
 -- compartment entry.
 local wow = require("spec.support.wow")
@@ -271,13 +271,14 @@ describe("Profiles", function()
         assert.are.equal(2, ns.db.guildLogin.delay)
     end)
 
-    it("leaves a character with no saved choice on the active profile", function()
+    -- #508: profiles switch with the character, unless it chose a shared one.
+    it("puts a character that chose no shared profile back on Default", function()
         slash("profile new Raiding")
         wow.fire("PLAYER_LOGOUT")
         local saved = _G.FriendlyForeverDB
-        saved.charProfiles = {}
+        for _, record in pairs(saved.characters) do record.profile = nil end
         boot(saved)
-        assert.are.equal("Raiding", ns.Profiles.Active())
+        assert.are.equal("Default", ns.Profiles.Active())
     end)
 
     it("refuses duplicates, unknown and blank names, and deleting the active profile", function()

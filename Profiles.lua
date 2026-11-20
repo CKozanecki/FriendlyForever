@@ -11,6 +11,31 @@
 -- profile it last used and switches to it at login. Changes are saved into
 -- the active profile when you switch and when you log out.
 --
+-- Each character's own settings (#508, the owner's decisions of 19 Nov 2026):
+-- the buff settings in Config.CHARACTER_FIELDS (weapon buffs, buff mode's
+-- key, self-buffs, the buff order and who gets each buff) are each
+-- character's. A character on the Default profile uses its own; one on any
+-- other profile, a shared profile, uses that profile's, as every setting did
+-- before. At login a character goes back to Default unless it uses a shared
+-- profile.
+--
+-- One record per character, db.characters["realm:First-Surname"] =
+-- { settings = its own settings, profile = the profile it chose (nil or
+-- Default: its own), welcomed = true once it has seen the walkthrough's step about
+-- them }. A character with no record is new: nothing recorded characters
+-- before 1.5.2, so at its first 1.5.2 login every character is (the
+-- coordinator's call on #508, within the owner's decision). Its own
+-- settings are then a copy of the Default profile's, from db.characterSeed
+-- (saved by Config's migration 9, with weapon buffs reset there once for
+-- everyone); with no seed (a new install), unset (Config.UnsetCharacter).
+-- Its profile is the one 1.5.x remembered for it (db.charProfiles, by full
+-- name, only read now); with none, it starts on Default, with its own.
+--
+-- db.characterLive is the key of the character whose own settings are the
+-- live ones (ns.db.buffBack), so they are kept as that character's when
+-- another takes over; false when the live ones are a shared profile's, or
+-- nobody's (or missing: the same).
+--
 -- Snapshots and exported lines carry the settings version they were made
 -- with, and are brought up to date (Config.Migrate) before they are used.
 local _, ns = ...
@@ -22,8 +47,20 @@ ns.Profiles = Profiles
 Profiles.DEFAULT = "Default"
 Profiles.MAX = 20
 Profiles.MAX_NAME = 32
+Profiles.MAX_KEY = 120 -- a character's key: a realm, ":" and a full name
 
 local Copy = Util.DeepCopy
+
+-- This character's key, "realm:First-Surname", or nil while either part
+-- can't be read (a secret reads as nil, never compared or indexed).
+local function MyKey()
+    local me = Util.UnitFullName("player")
+    local realm = Util.ReadGameValues(GetRealmName)
+    if not me or type(realm) ~= "string" or realm == "" then return nil end
+    local key = realm .. ":" .. me
+    if #key > Profiles.MAX_KEY then return nil end
+    return key
+end
 
 -- Settings about this screen, not about how you talk: an export leaves them
 -- out, and applying a profile or an import keeps yours.
@@ -100,14 +137,28 @@ local function Healthy(db)
     end
     local undo = db.importUndo
     if undo ~= nil and (type(undo) ~= "table" or type(undo.settings) ~= "table"
-        or type(undo.profile) ~= "string" or type(undo.ignoreAdded) ~= "table") then
+        or type(undo.profile) ~= "string" or type(undo.ignoreAdded) ~= "table"
+        or (undo.who ~= nil and type(undo.who) ~= "string")) then
         return false
     end
     return true
 end
 
+-- Whether the character data has the shape the code below relies on. A
+-- record's fields need no check here: its settings are checked as they are
+-- put in place, and its profile is only compared; nor does characterLive,
+-- which the code only compares, or reads as a key.
+local function CharactersHealthy(db)
+    if type(db.characters) ~= "table" then return false end
+    for _, record in pairs(db.characters) do
+        if type(record) ~= "table" then return false end
+    end
+    local seed = db.characterSeed
+    return seed == nil or (type(seed) == "table" and type(seed.settings) == "table")
+end
+
 local function Check()
-    if not Healthy(ns.db) then
+    if not Healthy(ns.db) or not CharactersHealthy(ns.db) then
         ns.Diag.Log("profiles", "the profile data was damaged; repaired")
         Profiles.Validate(ns.db)
     end
@@ -150,15 +201,19 @@ function Profiles.Import(text)
     -- must already know who the line ignores (#369).
     local ignoreAdded = MergeIgnore(data.settings.ignore)
     Apply(data.settings)
-    ns.db.importUndo = { profile = ns.db.activeProfile, settings = before, ignoreAdded = ignoreAdded }
+    -- who: the character it was made on (#508): its undo would hand another
+    -- character the settings this one had, its own ones included.
+    ns.db.importUndo = { profile = ns.db.activeProfile, settings = before, ignoreAdded = ignoreAdded, who = MyKey() }
     return true
 end
 
--- Undo is for the profile the import went into, until you switch profiles.
+-- Undo is for the profile the import went into, until you switch profiles,
+-- and for the character that made it (#508; one saved before 1.5.2 names
+-- none, from when every setting was shared).
 function Profiles.CanUndoImport()
     Check()
     local undo = ns.db.importUndo
-    return undo ~= nil and undo.profile == ns.db.activeProfile
+    return undo ~= nil and undo.profile == ns.db.activeProfile and (undo.who == nil or undo.who == MyKey())
 end
 
 function Profiles.UndoImport()
@@ -214,9 +269,11 @@ function Profiles.Validate(db)
             if Util.FullName(who) == who and Profiles.CleanName(name) == name then chars[who] = name end
         end
     end
-    db.charProfiles = chars
+    db.charProfiles = chars -- 1.5.x's, only read now (#508)
+    Profiles.ValidateCharacters(db)
     local undo = db.importUndo
-    if type(undo) ~= "table" or type(undo.settings) ~= "table" or type(undo.profile) ~= "string" then
+    if type(undo) ~= "table" or type(undo.settings) ~= "table" or type(undo.profile) ~= "string"
+        or (undo.who ~= nil and type(undo.who) ~= "string") then
         db.importUndo = nil
     else
         local added = {}
@@ -226,6 +283,45 @@ function Profiles.Validate(db)
             end
         end
         undo.ignoreAdded = added
+    end
+end
+
+-- Whether key could be a character's key: "realm:name", not too long.
+local function IsKey(key)
+    return type(key) == "string" and #key <= Profiles.MAX_KEY and key:find("^[^:]+:[^:]+$") ~= nil
+end
+
+-- The character data, checked on load (#508). Over the cap, the character
+-- whose settings are live is kept first, then keys in sorted order: one
+-- dropped is new again at its next login. A damaged characterLive is false:
+-- the live settings are kept as nobody's. A damaged seed is dropped: new
+-- characters then start unset.
+function Profiles.ValidateCharacters(db)
+    local live = IsKey(db.characterLive) and db.characterLive or false
+    db.characterLive = live
+    local kept, n = {}, 0
+    local function Keep(key, record)
+        if n < ns.Config.MAX_CHARACTERS and not kept[key] and type(record) == "table" then
+            kept[key] = { settings = ns.Config.ValidCharacter(record.settings),
+                profile = Profiles.CleanName(record.profile) or nil, welcomed = record.welcomed == true or nil }
+            n = n + 1
+        end
+    end
+    if type(db.characters) == "table" then
+        if live then Keep(live, db.characters[live]) end
+        local keys = {}
+        for key in pairs(db.characters) do
+            if IsKey(key) then keys[#keys + 1] = key end
+        end
+        table.sort(keys)
+        for _, key in ipairs(keys) do Keep(key, db.characters[key]) end
+    end
+    db.characters = kept
+    local seed = db.characterSeed
+    if type(seed) == "table" and type(seed.settings) == "table" then
+        db.characterSeed = { settings = ns.Config.ValidCharacter(seed.settings) }
+    else
+        db.characterSeed = nil
     end
 end
 
@@ -251,17 +347,87 @@ local function Count()
     return n
 end
 
--- Keep the active profile's stored copy current. Nothing is stored until
--- profiles are in use (some profile has been made).
+------------------------------------------------------------------------
+-- Each character's own settings (#508)
+------------------------------------------------------------------------
+
+-- A new character's own settings (see the top): never the live ones, which
+-- may be another character's.
+local function FirstSettings()
+    if ns.db.characterSeed then
+        return ns.db.characterSeed.settings, "copied Default's, weapon buffs unset"
+    end
+    return ns.Config.UnsetCharacter(), "unset"
+end
+
+-- This character's record, made the first time (it is then new).
+local function Record(key)
+    local db = ns.db
+    local record = db.characters[key]
+    if record then return record end
+    local settings, how = FirstSettings()
+    local me = Util.UnitFullName("player")
+    record = { settings = ns.Config.ValidCharacter(settings),
+        profile = me and db.charProfiles[me] or nil }
+    db.characters[key] = record
+    ns.Diag.Log("profiles", "%s is new here: its own buff settings %s", key, how)
+    return record
+end
+
+-- Keep the live settings as the character's own, when they are.
+local function StashOwn()
+    local key = ns.db.characterLive
+    if type(key) == "string" then
+        local record = ns.db.characters[key]
+        if type(record) ~= "table" then
+            record = {}
+            ns.db.characters[key] = record
+        end
+        record.settings = ns.Config.CharacterPart(ns.Config.Section("buffBack"))
+    end
+end
+
+-- Put this character's own settings in place of the live ones (it is on
+-- Default).
+local function LoadOwn(key)
+    StashOwn()
+    local record = Record(key)
+    local checked = ns.Config.ValidCharacter(record.settings)
+    local section = ns.Config.Section("buffBack")
+    for _, field in ipairs(ns.Config.CHARACTER_FIELDS) do section[field] = checked[field] end
+    record.settings = ns.Config.CharacterPart(section)
+    ns.db.characterLive = key
+    ns.BuffButton.Refresh() -- buff mode lends this character's key
+end
+
+-- While this character's key can't be read, its own settings can't be found:
+-- the live ones are kept as nobody's, and its weapon buffs are off, so no
+-- other character's are offered.
+local function Unreadable()
+    StashOwn()
+    ns.db.characterLive = false
+    local section = ns.Config.Section("buffBack")
+    for _, field in ipairs(ns.Config.WEAPON_FIELDS) do
+        section[field] = Util.DeepCopy(ns.Config.DEFAULTS.buffBack[field])
+    end
+    ns.Diag.Log("profiles", "your name or realm can't be read yet; weapon buffs are off until you log in or "
+        .. "/reload with it readable")
+    ns.BuffButton.Refresh()
+end
+
+-- Keep the active profile's stored copy current, and the character's own
+-- settings. No profile is stored until profiles are in use (some profile
+-- has been made).
 function Profiles.SaveActive()
     Check()
+    StashOwn()
     if next(ns.db.profiles) == nil then return end
     ns.db.profiles[ns.db.activeProfile] = Profiles.Snapshot(ns.db)
 end
 
 local function RememberForCharacter(name)
-    local me = Util.UnitFullName("player")
-    if me then ns.db.charProfiles[me] = name end
+    local key = MyKey()
+    if key then Record(key).profile = name end
 end
 
 -- A new profile with your current settings, which becomes the active one.
@@ -275,8 +441,10 @@ function Profiles.New(input)
     -- The active profile is stored too, the first time.
     local after = Count() + 1 + (ns.db.profiles[ns.db.activeProfile] and 0 or 1)
     if after > Profiles.MAX then return nil, "you have the most profiles allowed (" .. Profiles.MAX .. ")" end
+    StashOwn()
     ns.db.profiles[ns.db.activeProfile] = Profiles.Snapshot(ns.db)
     ns.db.profiles[name] = Profiles.Snapshot(ns.db)
+    ns.db.characterLive = false -- the live settings are now the new profile's
     ns.db.activeProfile = name
     ns.db.importUndo = nil
     RememberForCharacter(name)
@@ -284,7 +452,8 @@ function Profiles.New(input)
 end
 
 -- Switch to a saved profile: your current settings are saved into the
--- active one first.
+-- active one first. Default is always there to go back to: it holds each
+-- character's own settings, and if it isn't stored the others stay as they are.
 function Profiles.Use(input)
     local name, why = Profiles.CleanName(input)
     if not name then return nil, why end
@@ -294,12 +463,17 @@ function Profiles.Use(input)
         return name
     end
     local target = ns.db.profiles[name]
-    if not target then return nil, "there's no profile called " .. name end
+    if not target and name ~= Profiles.DEFAULT then return nil, "there's no profile called " .. name end
     Profiles.SaveActive()
-    Apply(target)
+    ns.db.characterLive = false -- the live settings are about to be the target's
+    if target then Apply(target) end
     ns.db.activeProfile = name
     ns.db.importUndo = nil
     RememberForCharacter(name)
+    if name == Profiles.DEFAULT then
+        local key = MyKey()
+        if key then LoadOwn(key) else Unreadable() end
+    end
     return name
 end
 
@@ -310,19 +484,68 @@ function Profiles.Delete(input)
     if name == ns.db.activeProfile then return nil, "you can't delete the profile you're using" end
     if not ns.db.profiles[name] then return nil, "there's no profile called " .. name end
     ns.db.profiles[name] = nil
+    for _, record in pairs(ns.db.characters) do
+        if record.profile == name then record.profile = nil end
+    end
     for who, p in pairs(ns.db.charProfiles) do
         if p == name then ns.db.charProfiles[who] = nil end
     end
     return name
 end
 
--- At login: switch to the profile this character used last, if it still exists.
+-- At login (and after a reload): a character on a shared profile switches to
+-- it, if it still exists; any other goes back to Default, with its own
+-- settings (#508). A new character gets its record first (see the top).
 function Profiles.OnLogin()
     Check()
-    local me = Util.UnitFullName("player")
-    local want = me and ns.db.charProfiles[me]
-    if want and want ~= ns.db.activeProfile and ns.db.profiles[want] then
-        Profiles.Use(want)
-        ns.Diag.Log("profiles", "switched to %s, the profile %s used last", want, me)
+    local db = ns.db
+    local key = MyKey()
+    if not key then
+        -- Default, where nothing is anyone's: a shared profile's settings
+        -- are saved first, never changed for the others on it.
+        if db.activeProfile ~= Profiles.DEFAULT then return Profiles.Use(Profiles.DEFAULT) end
+        return Unreadable()
     end
+    local want = Record(key).profile
+    if want and want ~= Profiles.DEFAULT and db.profiles[want] then
+        if want ~= db.activeProfile then
+            Profiles.Use(want)
+            ns.Diag.Log("profiles", "switched to %s, the profile %s chose", want, key)
+        end
+        -- The live settings are the active profile's, whatever a damaged
+        -- file says: never keep them as a character's own.
+        db.characterLive = false
+        return
+    end
+    if db.activeProfile ~= Profiles.DEFAULT then
+        Profiles.Use(Profiles.DEFAULT)
+        ns.Diag.Log("profiles", "switched to %s for %s, who uses no shared profile", Profiles.DEFAULT, key)
+    else
+        LoadOwn(key)
+    end
+end
+
+-- The shared profile in use, or nil on Default, where each character uses
+-- its own settings.
+function Profiles.SharedProfile()
+    Check()
+    if ns.db.activeProfile ~= Profiles.DEFAULT then return ns.db.activeProfile end
+    return nil
+end
+
+-- The walkthrough's step about each character's own settings (#508): whether
+-- this character hasn't seen it yet, and marking that it has. Shown once per
+-- character.
+function Profiles.NeedsWelcome()
+    Check()
+    local key = MyKey()
+    local record = key and ns.db.characters[key]
+    return record ~= nil and record.welcomed ~= true
+end
+
+function Profiles.Welcomed()
+    Check()
+    local key = MyKey()
+    local record = key and ns.db.characters[key]
+    if record then record.welcomed = true end
 end

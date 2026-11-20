@@ -1,4 +1,4 @@
--- Spec: #40, #353, #350, #408, #491
+-- Spec: #40, #353, #350, #408, #491, #508
 -- Buff requests in chat: a whisper or /say asking for one of your buffs
 -- queues that player on the buff-back button, for that buff. It never casts,
 -- says nothing in chat, and is off by default. Chat text is untrusted:
@@ -993,8 +993,9 @@ describe("Buff requests in chat", function()
             assert.is_true(tour:IsShown())
             assert.is_true(ns.Walkthrough.WhatsNew())
             assert.are.equal("What's new: Buff requests in chat", tour.title:GetText())
-            -- Then the Buffs tab's step, added after it (#408), and the Favours tab's (#491).
-            assert.are.equal("1 of 3", tour.count:GetText())
+            -- Then the Buffs tab's step, added after it (#408), the Favours tab's (#491)
+            -- and each character's own buffs (#508).
+            assert.are.equal("1 of 4", tour.count:GetText())
             assert.are.equal(ns.Options.FAVOURS_TAB, ns.Options.CurrentType())
             local text = tour.stepText:GetText()
             assert.is_truthy(text:find("never casts by itself", 1, true))
@@ -1002,6 +1003,7 @@ describe("Buff requests in chat", function()
                 "names the switch as its checkbox does")
             assert.is_truthy(text:find("It's " .. ns.Colours.Text("bad", "off") .. " now", 1, true))
             assert.is_false(ns.db.buffBack.requests, "it only shows: it changes no setting")
+            wow.run(tour.next, "OnClick")
             wow.run(tour.next, "OnClick")
             wow.run(tour.next, "OnClick")
             wow.run(tour.next, "OnClick")
