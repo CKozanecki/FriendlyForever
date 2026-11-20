@@ -364,11 +364,14 @@ describe("Each character's own buff settings (#508)", function()
         end)
 
         it("a damaged record of whose settings are live never hands them to another character", function()
-            for _, marker in ipairs({ "Not A Key", { "x" }, 12 }) do
+            -- false stands for the field removed from the file.
+            for _, marker in ipairs({ "Not A Key", { "x" }, 12, false }) do
                 login("Ann", v150())
+                ns.db.buffBack.weaponBuffs = true
                 ns.db.buffBack.weaponMain = "manaOil"
+                ns.db.buffBack.buffModeKey = "G"
                 local db = logout()
-                db.characterLive = marker
+                db.characterLive = marker or nil
                 login("Di", db)
                 assert.are.same(V150C, live(), "Di gets the copy, not Ann's live settings")
                 assert.is_nil(ns.db.characters["Not A Key"])
@@ -380,12 +383,59 @@ describe("Each character's own buff settings (#508)", function()
             ns.db.characters["Aaa:Aaa-Aaa"] = { settings = { weaponMain = "manaOil" } }
             ns.Config.MAX_CHARACTERS = 1
             ns.Config.Repair()
-            assert.are.same({ key("Bo") }, (function()
+            local function keys()
                 local out = {}
                 for who in pairs(ns.db.characters) do out[#out + 1] = who end
+                table.sort(out)
                 return out
-            end)())
+            end
+            assert.are.same({ key("Bo") }, keys())
+            -- The live one first, once, then the rest in sorted order.
+            ns.db.characters["Zzy:Y-Y"] = { settings = {} }
+            ns.db.characters["Zzz:Z-Z"] = { settings = {} }
+            ns.Config.MAX_CHARACTERS = 2
+            wow.advance(ns.Config.REPAIR_INTERVAL_SECONDS)
+            ns.Config.Repair()
+            assert.are.same({ key("Bo"), "Zzy:Y-Y" }, keys())
             ns.Config.MAX_CHARACTERS = 200
+        end)
+
+        it("an unreadable name on a shared profile never changes that profile for the others", function()
+            login("Ann", v150())
+            slash("profile new Party")
+            ns.db.buffBack.weaponBuffs = true
+            ns.db.buffBack.weaponMain = "manaOil"
+            login("Bo", logout(), { nameUnread = true })
+            assert.are.equal("Default", ns.Profiles.Active(), "Default for the session, where nothing is anyone's")
+            assert.are.same({ false, "none", "none" }, weapons())
+            login("Ann", logout())
+            assert.are.equal("Party", ns.Profiles.Active())
+            assert.are.same({ true, "manaOil", "none" }, weapons(), "Party's are as Ann left them")
+        end)
+
+        it("deleting one shared profile leaves the characters on another on it", function()
+            login("Ann", v150())
+            slash("profile new Party")
+            login("Bo", logout())
+            slash("profile new Old")
+            slash("profile use Default")
+            slash("profile delete Old")
+            login("Ann", logout())
+            assert.are.equal("Party", ns.Profiles.Active())
+        end)
+
+        it("each character makes the keep-or-reset choice of #408 for its own rules", function()
+            local db = v150({ whoGets = { motw = { rule = "tanks" } } }, { schemaVersion = 7 })
+            db.buffBack.whoChoice = nil
+            login("Ann", db)
+            assert.are.equal("pending", ns.BuffRules.Choice())
+            ns.BuffRules.Choose("new")
+            assert.are.equal("new", ns.BuffRules.Choice())
+            login("Bo", logout())
+            assert.are.equal("pending", ns.BuffRules.Choice(), "Bo's own rules wait for Bo's choice")
+            assert.are.same({ rule = "tanks" }, ns.db.buffBack.whoGets.motw)
+            login("Ann", logout())
+            assert.are.equal("new", ns.BuffRules.Choice())
         end)
 
         it("a character whose remembered profile is gone uses its own", function()
@@ -469,6 +519,12 @@ describe("Each character's own buff settings (#508)", function()
             assert.are.same(UNSET, live())
             assert.is_nil(ns.db.characterSeed)
             assert.are.equal("table", type(ns.db.characters))
+            db = logout()
+            db.characterSeed = { settings = { weaponMain = "laser", buffModeKey = "G", junk = string.rep("x", 100) } }
+            login("Cy", db)
+            assert.are.same({ "none", "G" }, { ns.db.characterSeed.settings.weaponMain,
+                ns.db.characterSeed.settings.buffModeKey }, "a damaged seed is checked on load")
+            assert.is_nil(ns.db.characterSeed.settings.junk, "nothing else can grow the saved file")
         end)
 
         it("damage to the character data mid-session is repaired before it is used", function()
@@ -645,9 +701,9 @@ describe("Each character's own buff settings (#508)", function()
             for k, v in pairs(t) do out[k] = copy(v) end
             return out
         end
-        local function seeded(seed)
-            random.seed(seed)
-            -- 1.5.0's buffBack: each field valid, damaged or missing; or none.
+        -- One 1.5.0 buffBack: each field valid, damaged or missing. Returns
+        -- it and what a character's copy of it is (weapon buffs reset).
+        local function draw()
             local saved, expected = {}, {}
             for _, field in ipairs(CHECKED) do
                 local roll = random.random(4)
@@ -661,31 +717,78 @@ describe("Each character's own buff settings (#508)", function()
                     expected[field] = copy(UNSET[field])
                 end
             end
-            if random.random(6) == 1 then return v150("junk"), copy(UNSET), true end
-            return v150(saved), expected
+            return saved, expected
         end
 
-        for _, seed in ipairs({ 1, 7, 52, 508, 2026, 31337 }) do
+        -- A 1.5.0 account: on Default; with its buff settings lost; or on the
+        -- shared profile Party, with Default's own settings stored and some
+        -- characters remembered on Party.
+        local function seeded(seed)
+            random.seed(seed)
+            local current, currentExpected = draw()
+            local kind = ({ "default", "default", "default", "lost", "shared", "shared" })[random.random(6)]
+            if kind == "lost" then return { db = v150("junk"), seedValues = copy(UNSET), legacy = {}, kind = kind } end
+            if kind == "default" then return { db = v150(current), seedValues = currentExpected, legacy = {}, kind = kind } end
+            local default, defaultExpected = draw()
+            local legacy, remembered = {}, {}
+            for _, who in ipairs({ "Ann", "Bo", "Cy", "Di" }) do
+                if random.random(2) == 1 then
+                    legacy[who] = true
+                    remembered[CHARS[who].name .. "-" .. CHARS[who].surname] = "Party"
+                end
+            end
+            return { db = v150(current, { activeProfile = "Party", charProfiles = remembered, profiles = {
+                    Party = { schemaVersion = 8, buffBack = copy(current) },
+                    Default = { schemaVersion = 8, buffBack = default } } }),
+                seedValues = defaultExpected, party = currentExpected, legacy = legacy, kind = kind }
+        end
+
+        -- How often each path ran, over every seed: each must run.
+        local reach = { newLogin = 0, partyLogin = 0, toParty = 0, backToDefault = 0, recordDamage = 0,
+            liveDamage = 0, seedDamage = 0, lost = 0, shared = 0 }
+
+        for _, seed in ipairs({ 1, 7, 9, 52, 508, 2026, 31337 }) do
             it("seed " .. seed .. ": each character keeps its own, the copy is made once, weapons reset, nothing errors",
                 function()
-                local db, seedValues, noSeed = seeded(seed)
+                local start = seeded(seed)
+                local seedValues = start.seedValues
+                if start.kind ~= "default" then reach[start.kind] = reach[start.kind] + 1 end
                 local names = { "Ann", "Bo", "Cy", "Di" }
-                local own = {}        -- each character's own settings, as the model has them
-                local onParty = {}    -- characters that chose the shared profile
-                local party           -- the shared profile's settings, once made
-                local current         -- who is logged in
-                local function firstValues() return copy(seedValues) end
+                local recorded = {}       -- characters with a record
+                local own = {}            -- each character's own settings, as the model has them
+                local onParty = {}        -- characters on the shared profile
+                local party = start.party -- the shared profile's settings, once there is one
+                local seedLost = false
+                local current             -- who is logged in
                 local function expect(why)
                     local want = onParty[current] and party or own[current]
                     assert.are.same(want, live(), why)
                 end
                 for step = 1, 40 do
-                    local roll = random.random(10)
+                    local roll = random.random(11)
                     local why = "seed " .. seed .. " step " .. step
                     if roll <= 4 or not current then
-                        local saved = current and logout() or db
+                        local saved = current and logout() or start.db
+                        -- Damage to the saved file between sessions.
+                        local damage = random.random(8)
+                        if current and damage == 1 then
+                            saved.characterLive = ({ false, "junk", 42, {} })[random.random(4)] or nil
+                            reach.liveDamage = reach.liveDamage + 1
+                        elseif current and damage == 2 then
+                            saved.characterSeed = ({ false, "junk", { settings = 5 } })[random.random(3)] or nil
+                            seedLost = true
+                            reach.seedDamage = reach.seedDamage + 1
+                        end
                         current = names[random.random(#names)]
-                        if not onParty[current] and own[current] == nil then own[current] = firstValues(current) end
+                        if not recorded[current] then
+                            -- New: a copy of Default's settings (or unset), and on
+                            -- Party only by a 1.5.x choice.
+                            recorded[current] = true
+                            own[current] = copy(seedLost and UNSET or seedValues)
+                            onParty[current] = start.legacy[current] and party ~= nil or nil
+                            reach.newLogin = reach.newLogin + 1
+                        end
+                        if onParty[current] then reach.partyLogin = reach.partyLogin + 1 end
                         login(current, saved)
                         expect(why .. ": login as " .. current)
                     elseif roll <= 7 then
@@ -694,44 +797,51 @@ describe("Each character's own buff settings (#508)", function()
                         ns.db.buffBack[field] = copy(value)
                         if onParty[current] then party[field] = copy(value) else own[current][field] = copy(value) end
                         expect(why .. ": edit " .. field)
-                    elseif roll == 8 then
+                    elseif roll <= 9 then
                         if party == nil then
                             slash("profile new Party")
                             party = copy(live())
                             onParty[current] = true
+                            reach.toParty = reach.toParty + 1
                         elseif not onParty[current] then
                             slash("profile use Party")
                             onParty[current] = true
+                            reach.toParty = reach.toParty + 1
                         end
                         expect(why .. ": to Party")
-                    elseif roll == 9 then
+                    elseif roll == 10 then
                         if onParty[current] then
                             slash("profile use Default")
                             onParty[current] = nil
-                            if own[current] == nil then own[current] = firstValues(current) end
+                            reach.backToDefault = reach.backToDefault + 1
                         end
                         expect(why .. ": to Default")
                     else
-                        -- Damage another character's own settings: it heals as a
-                        -- first login since (a copy, or unset if new).
+                        -- Damage another character's record: it is new again at
+                        -- its next login.
                         local other = names[random.random(#names)]
                         if other ~= current and type(ns.db.characters) == "table" then
                             ns.db.characters[key(other)] = JUNK[random.random(2)]
-                            own[other], onParty[other] = nil, nil -- new again: its own, on Default
+                            recorded[other], own[other], onParty[other] = nil, nil, nil
+                            reach.recordDamage = reach.recordDamage + 1
                         end
                     end
                 end
-                db = logout()
+                local db = logout()
                 assert.are.same({}, wow.errors)
                 assert.are.equal(9, db.schemaVersion)
-                if noSeed then
+                if start.kind == "lost" or seedLost then
                     assert.is_nil(db.characterSeed, "no 1.5.0 buff settings to copy")
                 else
                     local seedNow = {}
                     for _, f in ipairs(CHECKED) do seedNow[f] = db.characterSeed.settings[f] end
-                    assert.are.same(seedValues, seedNow, "the seed is the 1.5.0 values, checked, weapons reset, never changed")
+                    assert.are.same(seedValues, seedNow, "the seed is Default's 1.5.0 values, checked, weapons reset")
                 end
             end)
         end
+
+        it("the seeds reach every path", function()
+            for path, count in pairs(reach) do assert.is_true(count > 0, path .. " never ran") end
+        end)
     end)
 end)

@@ -2956,7 +2956,8 @@ function M.boot(opts)
     -- weapon fields are put back after loading. A spec that gives a
     -- schemaVersion gets the real migration (spec/percharacter_spec.lua).
     local weaponsGiven = {}
-    if givenBuffBack and opts.db.schemaVersion == nil then
+    local current = not (type(opts.db) == "table" and opts.db.schemaVersion ~= nil) -- read before loading sets it
+    if givenBuffBack and current then
         for _, field in ipairs({ "weaponBuffs", "weaponMain", "weaponOff" }) do
             weaponsGiven[field] = givenBuffBack[field]
         end
@@ -3038,6 +3039,10 @@ function M.boot(opts)
             ns.RefreshEvents() -- as switching it on does
         end
     end
+    -- Settings given without a schemaVersion (or none) are the spec's current
+    -- settings, with the defaults above: each new character copies them
+    -- (#508's seed), as it would the account's settings in game.
+    if current then ns.db.characterSeed = { settings = ns.Config.CharacterPart(ns.db.buffBack) } end
     M.fire("PLAYER_ENTERING_WORLD", true, false)
     if not opts.noGrace then M.advance(ns.Announcer.LOGIN_GRACE) end
     -- A page nobody has opened has no parent and, parentless, counts as

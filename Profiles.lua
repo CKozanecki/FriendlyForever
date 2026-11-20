@@ -34,7 +34,7 @@
 -- db.characterLive is the key of the character whose own settings are the
 -- live ones (ns.db.buffBack), so they are kept as that character's when
 -- another takes over; false when the live ones are a shared profile's, or
--- nobody's; nil only before the first login since #508.
+-- nobody's (or missing: the same).
 --
 -- Snapshots and exported lines carry the settings version they were made
 -- with, and are brought up to date (Config.Migrate) before they are used.
@@ -297,8 +297,7 @@ end
 -- the live settings are kept as nobody's. A damaged seed is dropped: new
 -- characters then start unset.
 function Profiles.ValidateCharacters(db)
-    local live = db.characterLive
-    if live ~= nil and live ~= false and not IsKey(live) then live = false end
+    local live = IsKey(db.characterLive) and db.characterLive or false
     db.characterLive = live
     local kept, n = {}, 0
     local function Keep(key, record)
@@ -352,16 +351,11 @@ end
 -- Each character's own settings (#508)
 ------------------------------------------------------------------------
 
--- A new character's own settings (see the top).
+-- A new character's own settings (see the top): never the live ones, which
+-- may be another character's.
 local function FirstSettings()
-    local db = ns.db
-    if db.characterLive == nil and db.activeProfile == Profiles.DEFAULT then
-        -- The first character since #508, on Default: the live settings
-        -- are Default's, weapon buffs reset by migration 9 (a new
-        -- install's are unset), so it keeps them.
-        return ns.Config.CharacterPart(ns.Config.Section("buffBack")), "kept the account's"
-    elseif db.characterSeed then
-        return db.characterSeed.settings, "copied Default's, weapon buffs unset"
+    if ns.db.characterSeed then
+        return ns.db.characterSeed.settings, "copied Default's, weapon buffs unset"
     end
     return ns.Config.UnsetCharacter(), "unset"
 end
@@ -416,7 +410,8 @@ local function Unreadable()
     for _, field in ipairs(ns.Config.WEAPON_FIELDS) do
         section[field] = Util.DeepCopy(ns.Config.DEFAULTS.buffBack[field])
     end
-    ns.Diag.Log("profiles", "your name or realm can't be read yet; weapon buffs are off until it can")
+    ns.Diag.Log("profiles", "your name or realm can't be read yet; weapon buffs are off until you log in or "
+        .. "/reload with it readable")
     ns.BuffButton.Refresh()
 end
 
@@ -505,7 +500,12 @@ function Profiles.OnLogin()
     Check()
     local db = ns.db
     local key = MyKey()
-    if not key then return Unreadable() end
+    if not key then
+        -- Default, where nothing is anyone's: a shared profile's settings
+        -- are saved first, never changed for the others on it.
+        if db.activeProfile ~= Profiles.DEFAULT then return Profiles.Use(Profiles.DEFAULT) end
+        return Unreadable()
+    end
     local want = Record(key).profile
     if want and want ~= Profiles.DEFAULT and db.profiles[want] then
         if want ~= db.activeProfile then

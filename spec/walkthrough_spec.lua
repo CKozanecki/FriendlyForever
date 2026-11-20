@@ -1073,7 +1073,8 @@ describe("What's new: the Buffs tab and the keep-or-reset choice (#408)", functi
             assert.is_truthy(text():find("recommended if you never changed them, or aren't sure", 1, true))
             assert.is_truthy(text():find("Finishing, skipping or closing without choosing changes nothing", 1, true),
                 "What's new shows Finish here, not Skip: the text names both")
-            assert.is_truthy(text():find("The choice is for all your characters.", 1, true))
+            assert.is_truthy(text():find("The choice is for this character; each of your others makes its own "
+                .. "on its Buffs tab.", 1, true), "each character has its own rules (#508)")
             assert.is_truthy(text():find("Buffs tab", 1, true))
             assert.are.equal(270, tour.height, "taller while the choice is offered")
             assert.are.equal("pending", ns.db.buffBack.whoChoice, "showing it chose nothing")
