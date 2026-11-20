@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1
+
+- **The idle buff button shows Friendly Forever's own icon:** with nothing to offer, the button shows the addon's icon on every class, never Mark of the Wild's paw. (#507)
+- **Key Bindings has a Friendly Forever section:** the buff button's and buff mode's key bindings now sit in a section of their own, and keep any key you set. The Buffs tab says buff mode's key is lent only while buff mode is on, so Key Bindings shows it as Not Bound. (#509)
+- **Back into your form before strangers:** when a fast-cast buff takes you out of a form, everyone who needed a buff from you then (you, your group, and the passers-by and strangers already on the list) can still be buffed first; then the button offers the shift back, and anyone who turns up after you left the form comes after it, so a scroll meant to shift you back never buffs a newcomer. A row you click yourself still goes first. A refusal's reason, such as "Can only use outside", clears once you move indoors or outdoors, or change zone: the shift back is offered again for your key, and still waits for your press. (#510)
+
 ## 1.5.0
 
 - **Favours: thanking and buffing back on one tab:** the Buff Thanks and Buff Back tabs are now one tab, Favours: thanking people who buff you, returning the favour, buff requests in chat and the passers-by switch (moved from the Buffs tab, and now in the tab's first view), the buff button's own settings, and both sets of lines, as two sub-tabs, "Thank-you lines" and "When my buff lands". Buff mode's key, when it turns on and off, and top-up moved to the Buffs tab, since buff mode serves your party, raid and solo buffing too. Your thank-you is the one line said for a favour: the line when your buff lands stays off unless you turn it on, and stays on if you had it on. Nothing in your settings moves or resets: your lines, keys, switches, profiles and settings lines are as you left them. The Buffs tab's "Buff Back" place is now "Strangers", the button is the buff button, `/friendly find` finds every setting that moved, and a What's new step shows where each one went (#491)
