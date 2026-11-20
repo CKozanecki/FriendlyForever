@@ -265,21 +265,27 @@ Walkthrough.STEPS = {
         end,
     },
     {
-        -- Each character's own buff settings (#508): the pages that hold
-        -- them are named, and a returning player is told each character
-        -- started from a copy of the settings they had.
+        -- Each character's own buff settings (#508): weapon buffs were
+        -- reset once for every character (the owner), so the step opens
+        -- the Weapon buffs page to set them, and names the settings each
+        -- character copied. Each character sees it once (character = true:
+        -- Walkthrough.OnLogin, Profiles.NeedsWelcome), in the walkthrough,
+        -- What's new, or on its own.
         since = 5,
+        character = true,
         title = "Each character's own buffs",
-        open = function() ns.Options.OpenTab(ns.Options.BUFFS_TAB, "buffOrderHeader") end,
+        open = function() ns.Options.OpenPage((select(3, ns.Options.Pages()))) end,
         text = function()
             local start = Walkthrough.WhatsNew()
-                and "These settings are now each character's own. Each character you had starts with a copy of "
-                    .. "the settings you had, and a character you make from now on starts with them unset.\n\n"
-                or "These settings are each character's own, so a priest and a druid can each have theirs:\n\n"
+                and "Weapon buffs are now set for each character, and were reset for every character: set "
+                    .. "this character's again here, on the Weapon buffs page.\n\nThese are each character's own "
+                    .. "too, and started as a copy of the settings you had: check or change them.\n\n"
+                or "This character's weapon buffs are its own, and start unset: set them here, on the Weapon "
+                    .. "buffs page.\n\nThese are its own too, a copy of your settings to start with: check or "
+                    .. "change them.\n\n"
             return start
                 .. "  The Buffs tab: the buff order and \"Never offer\", who gets each buff in each place, "
-                .. "buff mode's key, and \"Offer my self-buffs\".\n"
-                .. "  The Weapon buffs page: weapon buffs and each hand's kind.\n\n"
+                .. "buff mode's key, and \"Offer my self-buffs\".\n\n"
                 .. "Everything else is shared by all your characters. A character on a shared profile (the "
                 .. "General page's Profiles) uses that profile's settings for these too."
         end,
@@ -339,11 +345,15 @@ local function Show(index)
 end
 
 -- Closes it. done: it was finished or skipped, so it's seen, and a first
--- run ends by turning the addon on.
+-- run ends by turning the addon on. A run with the step about each
+-- character's own settings counts as this character's welcome (#508).
 local function Close(done)
     step = nil
     frame:Hide()
     if not done then return end
+    for _, info in ipairs(steps) do
+        if info.character then ns.Profiles.Welcomed() end
+    end
     local first = State().firstRun
     ns.db.walkthrough = { seen = ns.Config.WALKTHROUGH_VERSION, firstRun = false }
     if first then ns.SetEnabled(true) end
@@ -436,10 +446,20 @@ function Walkthrough.Create()
 end
 
 -- Starts it at the first step, or once the fight is over when in one: every
--- step, or with new set, only those added since the player last finished it.
+-- step, or with new set, only those added since the player last finished
+-- it, or with new "character", only the step about each character's own
+-- settings (#508).
 function Walkthrough.Start(new)
-    new = new == true
-    steps = new and Walkthrough.StepsSince(State().seen) or Walkthrough.STEPS
+    if new == "character" then
+        steps = {}
+        for _, info in ipairs(Walkthrough.STEPS) do
+            if info.character then steps[#steps + 1] = info end
+        end
+        new = false
+    else
+        new = new == true
+        steps = new and Walkthrough.StepsSince(State().seen) or Walkthrough.STEPS
+    end
     whatsNew = new
     if InCombatLockdown() then
         if not pending then ns.Print("the walkthrough will start when this fight is over.") end
@@ -484,16 +504,24 @@ end
 
 -- At login, until the current version has been finished or skipped: say
 -- where Start here is, and start the walkthrough. Someone who finished an
--- older version gets only what's new.
+-- older version gets only what's new. Otherwise, a character that hasn't
+-- seen the step about its own settings gets that step alone, once (#508).
 function Walkthrough.OnLogin()
     local state = State()
     local latest = ns.Config.WALKTHROUGH_VERSION
-    if state.seen >= latest then return end
     local new = state.seen > 0
     local count = #Walkthrough.StepsSince(state.seen)
-    if new and count == 0 then
+    if state.seen < latest and new and count == 0 then
         -- A version raised with no step to show: nothing to tell them.
         ns.db.walkthrough = { seen = latest, firstRun = false }
+        state = State()
+    end
+    if state.seen >= latest then
+        if ns.Profiles.NeedsWelcome() then
+            ns.Print("this character's weapon buffs aren't set yet, and some buff settings are its own: the "
+                .. "walkthrough shows where. Esc > Options > AddOns > " .. ns.TITLE .. " > Weapon buffs.")
+            Walkthrough.Start("character")
+        end
         return
     end
     local intro = state.firstRun and "welcome! Friendly Forever is off until you finish or skip its walkthrough. "

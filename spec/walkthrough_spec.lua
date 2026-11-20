@@ -25,6 +25,19 @@ local function settingsBut(db)
     for key, value in pairs(db) do
         if key ~= "walkthrough" and key ~= "ledger" then copy[key] = value end
     end
+    -- Each character's record notes whether it has seen the walkthrough's
+    -- step about its own settings (#508): walkthrough state, not a setting.
+    if type(db.characters) == "table" then
+        local records = {}
+        for who, record in pairs(db.characters) do
+            local kept = {}
+            for field, value in pairs(type(record) == "table" and record or {}) do
+                if field ~= "welcomed" then kept[field] = value end
+            end
+            records[who] = kept
+        end
+        copy.characters = records
+    end
     return copy
 end
 
@@ -227,23 +240,24 @@ describe("The walkthrough", function()
 
         -- #491: buff mode's key and triggers are on the Buffs tab; Favours holds
         -- thanks (at the thank-you lines), buff requests, and its own step.
-        -- #508: each character's own buffs, on the Buffs tab, before the last.
-        it("opens each step's page: Buffs three times, Favours, Guild Join, Favours, Buffs, Favours, Buffs, then "
-            .. "Start here", function()
+        -- #508: each character's own buffs, on the Weapon buffs page, before the last.
+        it("opens each step's page: Buffs three times, Favours, Guild Join, Favours, Buffs, Favours, Weapon buffs, "
+            .. "then Start here", function()
             local seen, lines = {}, {}
             while ns.Walkthrough.Step() < #ns.Walkthrough.STEPS do
                 wow.run(tour.next, "OnClick")
                 seen[#seen + 1] = wow.settings.opened == 4242 and ns.Options.CurrentType() or wow.settings.opened
                 if ns.Walkthrough.STEPS[ns.Walkthrough.Step()].title == "Thanks" then lines.thanks = ns.Options.LinesType() end
             end
+            local weapon = select(3, ns.Options.Pages()).category:GetID()
             assert.are.same({ "buffs", "buffs", "buffs", "favours", "guildJoin", "favours", "buffs", "favours",
-                "buffs", "Start here" }, seen)
+                weapon, "Start here" }, seen)
             assert.are.equal("buff", lines.thanks, "the Thanks step opens the thank-you lines")
             assert.are.equal("Finish", tour.next:GetText())
             assert.is_false(tour.skip:IsShown())
             wow.run(tour.back, "OnClick")
             assert.are.equal(#ns.Walkthrough.STEPS - 1, ns.Walkthrough.Step())
-            assert.are.equal(ns.Options.BUFFS_TAB, ns.Options.CurrentType())
+            assert.are.equal(weapon, wow.settings.opened, "back on the Weapon buffs page")
         end)
 
         it("scrolls the panel to the step's rows, within its range, now and once laid out", function()

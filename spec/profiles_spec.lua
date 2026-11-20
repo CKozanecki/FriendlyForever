@@ -276,7 +276,7 @@ describe("Profiles", function()
         slash("profile new Raiding")
         wow.fire("PLAYER_LOGOUT")
         local saved = _G.FriendlyForeverDB
-        saved.charProfiles = {}
+        for _, record in pairs(saved.characters) do record.profile = nil end
         boot(saved)
         assert.are.equal("Default", ns.Profiles.Active())
     end)

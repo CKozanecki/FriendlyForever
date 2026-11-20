@@ -301,7 +301,10 @@ Config.DEFAULTS = {
 -- whose own they then are.
 Config.CHARACTER_FIELDS = { "weaponBuffs", "weaponMain", "weaponOff", "buffModeKey", "selfBuffs", "buffOrder",
     "neverOffer", "whoGets", "whoChoice", "whoStrangers", "whoParty", "whoRaid", "whoPvP" }
-Config.MAX_CHARACTERS = 200 -- characters whose own settings are kept
+Config.MAX_CHARACTERS = 200 -- characters whose own settings are kept, and characters seen
+-- The weapon buff settings, reset once for every character by migration 9
+-- (the owner's decision on #508, 19 Nov 2026).
+Config.WEAPON_FIELDS = { "weaponBuffs", "weaponMain", "weaponOff" }
 
 -- Screen anchors a saved frame position may use.
 Config.ANCHORS = {
@@ -501,11 +504,17 @@ end
 -- Each entry upgrades a saved file from version (key - 1) to key.
 local MIGRATIONS = {
     [9] = function(db)
-        -- Some buff settings became each character's own (#508). The
-        -- account's, as saved now, are kept as the seed: each character that
-        -- played before copies them once, at its first login since, with the
-        -- profile the account was on. Nothing else changes.
+        -- Some buff settings became each character's own (#508). Weapon
+        -- buffs are reset once, for every character: here, and in a stored
+        -- profile or settings line from before as it is applied (it carries
+        -- its version, so this runs on it then). The account's other
+        -- settings, as saved now, are kept as the seed: each character copies
+        -- them once, at its first login since, with the profile the account
+        -- was on. Nothing else changes.
         if type(db.buffBack) == "table" then
+            for _, field in ipairs(Config.WEAPON_FIELDS) do
+                db.buffBack[field] = Util.DeepCopy(Config.DEFAULTS.buffBack[field])
+            end
             db.characterSeed = { settings = Config.CharacterPart(db.buffBack), profile = db.activeProfile }
         end
     end,

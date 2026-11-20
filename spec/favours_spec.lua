@@ -18,6 +18,19 @@ local function settingsBut(db)
     for key, value in pairs(db) do
         if key ~= "walkthrough" and key ~= "ledger" then copy[key] = value end
     end
+    -- Each character's record notes whether it has seen the walkthrough's
+    -- step about its own settings (#508): walkthrough state, not a setting.
+    if type(db.characters) == "table" then
+        local records = {}
+        for who, record in pairs(db.characters) do
+            local kept = {}
+            for field, value in pairs(type(record) == "table" and record or {}) do
+                if field ~= "welcomed" then kept[field] = value end
+            end
+            records[who] = kept
+        end
+        copy.characters = records
+    end
     return copy
 end
 

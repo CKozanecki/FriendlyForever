@@ -464,7 +464,8 @@ describe("the UI simulator's walkthrough steps", function()
         end
         assert.are.equal(4, whatsNew,
             "the What's new steps shot: buff requests, the Buffs tab, Favours and each character's own buffs (#508)")
-        assert.are.equal(ns.Options.BUFFS_TAB, ns.Options.CurrentType(), "the last step shot is on the Buffs tab")
+        assert.are.equal(select(3, ns.Options.Pages()).category:GetID(), wow.settings.opened,
+            "the last step shot is on the Weapon buffs page (#508)")
     end)
 
     -- #362: the buff requests step, as a returning player who finished the

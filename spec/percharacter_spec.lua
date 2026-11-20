@@ -2,21 +2,22 @@
 -- Each character's own buff settings (#508, the owner's decisions of 19 Nov
 -- 2026): weapon buffs, buff mode's key, self-buffs, the buff order and who
 -- gets each buff are each character's. A character on a shared profile uses
--- that profile's. Profiles switch with the character. An existing
--- character copies the account's 1.5.0 settings once, at its first login
--- since; a character made since starts unset.
+-- that profile's. Profiles switch with the character. Weapon buffs are reset
+-- once, for every character. A character with no record (keyed by realm and
+-- name) is new, whatever its level: it copies the account's other settings
+-- once, and sees the walkthrough's step about them once.
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
 local ns
 
--- The game's characters for these specs: a level and experience each. New
--- is level 1 with no experience, a character just made.
+-- The game's characters for these specs. Their levels don't matter: a
+-- character the addon hasn't seen is new, whatever its level.
 local CHARS = {
-    Ann = { name = "Ann", surname = "Vale", level = 60, xp = 1200 },
-    Bo = { name = "Bo", surname = "Reed", level = 42, xp = 0 },
-    Cy = { name = "Cy", surname = "Dunn", level = 1, xp = 0 }, -- made after the update
-    Di = { name = "Di", surname = "Moss", level = 1, xp = 40 }, -- level 1, but played
+    Ann = { name = "Ann", surname = "Vale", level = 60 },
+    Bo = { name = "Bo", surname = "Reed", level = 42 },
+    Cy = { name = "Cy", surname = "Dunn", level = 1 },
+    Di = { name = "Di", surname = "Moss", level = 1 },
 }
 
 -- The unset settings, written out here rather than read from the addon.
@@ -30,11 +31,13 @@ local function slash(text) _G.SlashCmdList.FRIENDLYFOREVER(text) end
 -- last session saved), as the game does after a logout.
 local function login(who, db, opts)
     local c = CHARS[who]
-    ns = wow.boot({ db = db, before = function(state)
-        state.units.player = { name = c.name, surname = c.surname, id = c.name .. "-" .. c.surname,
-            isPlayer = true, level = c.level, xp = c.xp }
-        if opts and opts.nameUnread then state.units.player.nameLoading = true end
-    end })
+    ns = wow.boot({ db = db, walkthrough = opts and opts.walkthrough, welcome = opts and opts.walkthrough,
+        before = function(state)
+            state.units.player = { name = c.name, surname = c.surname, id = c.name .. "-" .. c.surname,
+                isPlayer = true, level = c.level }
+            if opts and opts.nameUnread then state.units.player.nameLoading = true end
+            if opts and opts.secretRealm then state.secretRealm = true end
+        end })
     return ns
 end
 
@@ -58,8 +61,13 @@ local function v150(buffBack, extra)
     for k, v in pairs(extra or {}) do db[k] = v end
     return db
 end
-local V150 = { weaponBuffs = true, weaponMain = "wizardOil", weaponOff = "sharpening", selfBuffs = false,
+-- A character's copy of them: weapon buffs reset, the rest the account's.
+local V150C = { weaponBuffs = false, weaponMain = "none", weaponOff = "none", selfBuffs = false,
     buffModeKey = "F", buffOrder = { "intellect" }, neverOffer = { motw = true } }
+-- A character's key and record, written out here.
+local function key(who) return "Forever Realm:" .. CHARS[who].name .. "-" .. CHARS[who].surname end
+local function rec(who) return ns.db.characters[key(who)] end
+local function weapons() return { ns.db.buffBack.weaponBuffs, ns.db.buffBack.weaponMain, ns.db.buffBack.weaponOff } end
 
 describe("Each character's own buff settings (#508)", function()
     after_each(function() _G.FriendlyForeverDB = nil end)
@@ -67,19 +75,18 @@ describe("Each character's own buff settings (#508)", function()
     describe("white", function()
         it("weapon settings changed on one character don't change another's", function()
             login("Ann", v150())
+            assert.are.same({ false, "none", "none" }, weapons(), "reset once, for every character")
+            ns.db.buffBack.weaponBuffs = true
             ns.db.buffBack.weaponMain = "manaOil"
-            ns.db.buffBack.weaponOff = "none"
             login("Bo", logout())
-            assert.are.equal("wizardOil", ns.db.buffBack.weaponMain, "Bo copied the account's, not Ann's")
-            assert.are.equal("sharpening", ns.db.buffBack.weaponOff)
-            ns.db.buffBack.weaponBuffs = false
+            assert.are.same({ false, "none", "none" }, weapons(), "Bo's start unset, not Ann's")
+            ns.db.buffBack.weaponBuffs = true
             ns.db.buffBack.weaponMain = "windfury"
+            ns.db.buffBack.weaponOff = "sharpening"
             login("Ann", logout())
-            assert.are.same({ true, "manaOil", "none" },
-                { ns.db.buffBack.weaponBuffs, ns.db.buffBack.weaponMain, ns.db.buffBack.weaponOff })
+            assert.are.same({ true, "manaOil", "none" }, weapons())
             login("Bo", logout())
-            assert.are.same({ false, "windfury", "sharpening" },
-                { ns.db.buffBack.weaponBuffs, ns.db.buffBack.weaponMain, ns.db.buffBack.weaponOff })
+            assert.are.same({ true, "windfury", "sharpening" }, weapons())
             assert.are.same({}, wow.errors)
         end)
 
@@ -93,10 +100,10 @@ describe("Each character's own buff settings (#508)", function()
             ns.db.buffBack.neverOffer = {}
             ns.db.buffBack.whoParty = { intellect = { healers = true } }
             login("Bo", logout())
-            assert.are.same(V150, live(), "Bo has the account's")
+            assert.are.same(V150C, live(), "Bo has the account's, weapon buffs reset")
             assert.are.same({ tanks = true }, ns.db.buffBack.whoParty.intellect)
             login("Ann", logout())
-            assert.are.same({ weaponBuffs = true, weaponMain = "wizardOil", weaponOff = "sharpening",
+            assert.are.same({ weaponBuffs = false, weaponMain = "none", weaponOff = "none",
                 selfBuffs = true, buffModeKey = "G", buffOrder = { "motw" }, neverOffer = {} }, live())
             assert.are.same({ healers = true }, ns.db.buffBack.whoParty.intellect)
             assert.are.equal("G", ns.BuffMode.Key(), "buff mode lends Ann's key")
@@ -105,47 +112,47 @@ describe("Each character's own buff settings (#508)", function()
         it("the first login of an existing character copies the account's values once, and a second doesn't",
             function()
             login("Ann", v150())
-            ns.db.buffBack.weaponMain = "manaOil"
-            -- Di is level 1 but has played: an existing character.
+            ns.db.buffBack.buffModeKey = "G"
             login("Di", logout())
-            assert.are.same(V150, live(), "the account's 1.5.0 values, not Ann's since")
-            assert.are.equal("wizardOil", ns.db.characters["Di-Moss"].weaponMain, "the copy is recorded at once")
-            ns.db.buffBack.weaponMain = "none"
+            assert.are.same(V150C, live(), "the account's 1.5.0 values, not Ann's since")
+            assert.are.equal("F", rec("Di").settings.buffModeKey, "the copy is recorded at once")
+            ns.db.buffBack.weaponMain = "rockbiter"
             ns.db.buffBack.buffModeKey = "H"
             login("Di", logout())
-            assert.are.equal("none", ns.db.buffBack.weaponMain, "not copied again")
+            assert.are.equal("rockbiter", ns.db.buffBack.weaponMain, "not copied again")
             assert.are.equal("H", ns.db.buffBack.buffModeKey)
             -- Even with Ann's settings live and the seed still kept.
             login("Ann", logout())
             login("Di", logout())
-            assert.are.equal("none", ns.db.buffBack.weaponMain)
+            assert.are.equal("H", ns.db.buffBack.buffModeKey)
             local seedNow = {}
             for _, f in ipairs(CHECKED) do seedNow[f] = ns.db.characterSeed.settings[f] end
-            assert.are.same(V150, seedNow, "the migration ran once: the seed is the 1.5.0 values, unchanged")
+            assert.are.same(V150C, seedNow, "the migration ran once: the seed is the 1.5.0 values, weapons reset")
             assert.are.equal(ns.Config.SCHEMA_VERSION, ns.db.schemaVersion)
         end)
 
         it("a character on a shared profile reads and writes it; others switch back to their own", function()
             login("Ann", v150())
+            ns.db.buffBack.weaponMain = "wizardOil"
             slash("profile new Party")
             ns.db.buffBack.weaponMain = "manaOil"
             ns.db.guildLogin.delay = 9
             login("Bo", logout())
             assert.are.equal("Default", ns.Profiles.Active(), "Bo uses no shared profile")
-            assert.are.equal("wizardOil", ns.db.buffBack.weaponMain)
+            assert.are.equal("none", ns.db.buffBack.weaponMain)
             slash("profile use Party")
             assert.are.equal("manaOil", ns.db.buffBack.weaponMain, "Bo reads Party's")
             assert.are.equal(9, ns.db.guildLogin.delay)
             ns.db.buffBack.weaponOff = "weightstone"
             login("Cy", logout())
             assert.are.equal("Default", ns.Profiles.Active(), "a new character starts on its own")
-            assert.are.same(UNSET, live())
+            assert.are.same(V150C, live())
             login("Ann", logout())
             assert.are.equal("Party", ns.Profiles.Active())
             assert.are.equal("weightstone", ns.db.buffBack.weaponOff, "Ann sees what Bo wrote to Party")
             slash("profile use Default")
             assert.are.equal("wizardOil", ns.db.buffBack.weaponMain, "Ann's own are back")
-            assert.are.equal("sharpening", ns.db.buffBack.weaponOff)
+            assert.are.equal("none", ns.db.buffBack.weaponOff)
             login("Bo", logout())
             assert.are.equal("Party", ns.Profiles.Active(), "Bo still chose Party")
             assert.are.equal("weightstone", ns.db.buffBack.weaponOff)
@@ -160,10 +167,59 @@ describe("Each character's own buff settings (#508)", function()
             table.insert(ns.db.buffBack.buffOrder, "motw")
             ns.db.buffBack.whoParty.intellect.healers = true
             slash("profile use Default")
-            assert.are.same(V150, live(), "Ann's own are as she left them")
+            assert.are.same(V150C, live(), "Ann's own are as she left them")
             assert.are.same({ tanks = true }, ns.db.buffBack.whoParty.intellect)
             slash("profile use Party")
             assert.are.same({ motw = true, intellect = true }, ns.db.buffBack.neverOffer, "Party kept its edits")
+        end)
+
+        it("each new character sees the step about its own settings once; a seen one never does", function()
+            login("Ann", v150(), { walkthrough = true })
+            local tour = ns.Walkthrough.Frame()
+            assert.is_true(tour:IsShown())
+            assert.are.equal("What's new: Each character's own buffs", tour.title:GetText(), "the 1.5.2 What's new")
+            assert.are.equal(1, ns.Walkthrough.Count(), "one step, not two")
+            wow.run(tour.next, "OnClick")
+            assert.is_false(tour:IsShown())
+            login("Bo", logout(), { walkthrough = true })
+            tour = ns.Walkthrough.Frame()
+            assert.is_true(tour:IsShown(), "a second character sees it")
+            assert.are.equal("Each character's own buffs", tour.title:GetText())
+            assert.are.equal(1, ns.Walkthrough.Count())
+            assert.is_truthy(tour.stepText:GetText():find("This character's weapon buffs", 1, true))
+            local weaponPage = select(3, ns.Options.Pages())
+            assert.are.equal(weaponPage.category:GetID(), wow.settings.opened, "Weapon buffs first")
+            wow.run(tour.next, "OnClick")
+            for _, who in ipairs({ "Bo", "Ann", "Bo" }) do
+                login(who, logout(), { walkthrough = true })
+                assert.is_false(ns.Walkthrough.Frame():IsShown(), who .. " has seen it")
+            end
+        end)
+
+        it("skipping it changes nothing, and it isn't shown again", function()
+            login("Ann", v150(), { walkthrough = true })
+            wow.run(ns.Walkthrough.Frame().next, "OnClick")
+            login("Bo", logout(), { walkthrough = true })
+            local before, walkthrough = live(), ns.Util.DeepCopy(ns.db.walkthrough)
+            assert.is_true(ns.Walkthrough.Frame():IsShown())
+            wow.run(ns.Walkthrough.Frame().CloseButton, "OnClick")
+            assert.are.same(before, live())
+            assert.are.same(walkthrough, ns.db.walkthrough)
+            login("Bo", logout(), { walkthrough = true })
+            assert.is_false(ns.Walkthrough.Frame():IsShown())
+        end)
+
+        it("on a new install, the first character sees it in the walkthrough and the second on its own", function()
+            login("Ann", nil, { walkthrough = true })
+            local tour = ns.Walkthrough.Frame()
+            assert.are.equal(#ns.Walkthrough.STEPS, ns.Walkthrough.Count())
+            wow.run(tour.skip, "OnClick")
+            login("Ann", logout(), { walkthrough = true })
+            assert.is_false(ns.Walkthrough.Frame():IsShown())
+            login("Cy", logout(), { walkthrough = true })
+            assert.is_true(ns.Walkthrough.Frame():IsShown())
+            assert.are.equal(1, ns.Walkthrough.Count())
+            assert.are.same(UNSET, live(), "a new install's copy is the defaults: unset")
         end)
 
         it("the walkthrough names each page whose settings are each character's", function()
@@ -176,28 +232,44 @@ describe("Each character's own buff settings (#508)", function()
             assert.are.equal(ns.Config.WALKTHROUGH_VERSION, step.since)
             local text = step.text()
             for _, page in ipairs({ "The Buffs tab", "buff order", "\"Never offer\"", "who gets each buff",
-                "buff mode's key", "\"Offer my self-buffs\"", "The Weapon buffs page", "shared profile" }) do
+                "buff mode's key", "\"Offer my self-buffs\"", "Weapon buffs page", "Weapon buffs are",
+                "shared profile" }) do
                 assert.is_truthy(text:find(page, 1, true), page)
             end
+            step.open()
+            local weaponPage = select(3, ns.Options.Pages())
+            assert.are.equal(weaponPage.category:GetID(), wow.settings.opened, "it opens the Weapon buffs page")
         end)
     end)
 
     describe("black", function()
-        it("a character made after the update starts with weapon buffs off and both kinds none", function()
-            login("Ann", v150())
-            login("Cy", logout())
-            assert.are.same(UNSET, live())
-            assert.are.equal("new", ns.db.buffBack.whoChoice, "no 1.3.3 rules to keep")
+        it("an unseen character, whatever its level, starts with weapon buffs off and both kinds none", function()
+            login("Ann", v150()) -- level 60, weapon buffs on in 1.5.0
+            assert.are.same({ false, "none", "none" }, weapons())
+            assert.is_table(rec("Ann"), "it has a record from now on")
+            login("Cy", logout()) -- level 1
+            assert.are.same(V150C, live())
             ns.db.buffBack.weaponBuffs = true
             login("Cy", logout())
-            assert.is_true(ns.db.buffBack.weaponBuffs, "its own from then on")
+            assert.is_true(ns.db.buffBack.weaponBuffs, "a seen character keeps its choice")
         end)
 
-        it("a new character is unset even as the first to log in after the update", function()
-            login("Cy", v150())
-            assert.are.same(UNSET, live())
+        it("the reset runs once: later logins and profiles saved since keep weapon buffs", function()
+            local db = v150(nil, { profiles = { Old = { schemaVersion = 8,
+                buffBack = { weaponBuffs = true, weaponMain = "manaOil" } }, Default = { schemaVersion = 8 } } })
+            login("Ann", db)
+            ns.db.buffBack.weaponBuffs = true
+            ns.db.buffBack.weaponMain = "manaOil"
+            login("Bo", logout())
             login("Ann", logout())
-            assert.are.same(V150, live(), "an existing one still gets the copy")
+            assert.are.same({ true, "manaOil", "none" }, weapons(), "not reset again")
+            assert.are.equal(9, ns.db.schemaVersion)
+            slash("profile use Old")
+            assert.are.same({ false, "none", "none" }, weapons(), "a profile stored by 1.5.0 is reset as it is used")
+            ns.db.buffBack.weaponMain = "rockbiter"
+            slash("profile use Default")
+            slash("profile use Old")
+            assert.are.equal("rockbiter", ns.db.buffBack.weaponMain, "one saved since keeps its choice")
         end)
 
         it("an existing character with no remembered profile keeps the one the account was on", function()
@@ -206,31 +278,37 @@ describe("Each character's own buff settings (#508)", function()
                     Default = { schemaVersion = 8 } } })
             login("Ann", db)
             assert.are.equal("Raiding", ns.Profiles.Active())
-            assert.are.equal("Raiding", ns.db.charProfiles["Ann-Vale"])
+            assert.are.equal("Raiding", rec("Ann").profile)
             login("Cy", logout())
-            assert.are.equal("Default", ns.Profiles.Active(), "a new character starts on its own")
-            assert.are.same(UNSET, live())
+            assert.are.equal("Raiding", ns.Profiles.Active(), "every unseen character does, whatever its level")
+            slash("profile use Default")
+            login("Cy", logout())
+            assert.are.equal("Default", ns.Profiles.Active(), "a seen one keeps its choice")
         end)
 
         it("damaged character data falls back safely", function()
             login("Ann", v150())
             login("Bo", logout())
             local db = logout()
-            db.characters["Ann-Vale"] = { weaponBuffs = "yes", weaponMain = "laser", weaponOff = "windfury",
-                buffModeKey = "ESCAPE", buffOrder = { "nope", "motw", "motw" }, selfBuffs = 3,
-                whoChoice = "kept", whoGets = { motw = { rule = "all" } } }
-            db.characters["Ghost"] = "junk"
+            db.characters[key("Ann")] = { settings = { weaponBuffs = "yes", weaponMain = "laser",
+                weaponOff = "windfury", buffModeKey = "ESCAPE", buffOrder = { "nope", "motw", "motw" }, selfBuffs = 3,
+                whoChoice = "kept", whoGets = { motw = { rule = "all" } } }, profile = 42, welcomed = "yes" }
+            db.characters["R:Ghost-X"] = "junk"
             db.characters[7] = {}
-            db.characters["no such name!"] = {}
-            db.characterLive = { "not a name" }
+            db.characters["no realm"] = {}
+            db.characters[string.rep("a", 200) .. ":B-C"] = {}
+            db.characterLive = { "not a key" }
             login("Ann", db)
-            assert.is_nil(ns.db.characters["no such name!"], "a name no character can have is dropped")
+            assert.is_nil(ns.db.characters["no realm"], "a key no character can have is dropped")
+            assert.is_nil(ns.db.characters[string.rep("a", 200) .. ":B-C"])
+            assert.is_nil(rec("Ann").profile, "a damaged profile choice is Default")
+            assert.is_nil(rec("Ann").welcomed)
             assert.are.same({ weaponBuffs = false, weaponMain = "none", weaponOff = "windfury", selfBuffs = true,
                 buffModeKey = "MOUSEWHEELUP", buffOrder = { "motw" }, neverOffer = {} }, live())
             assert.are.same({}, ns.db.buffBack.whoGets, "checked across fields: kept rules leave 1.3.3's behind")
-            assert.is_nil(ns.db.characters.Ghost)
+            assert.is_nil(ns.db.characters["R:Ghost-X"])
             assert.is_nil(ns.db.characters[7])
-            assert.are.equal("Ann-Vale", ns.db.characterLive)
+            assert.are.equal(key("Ann"), ns.db.characterLive)
             assert.are.same({}, wow.errors)
         end)
 
@@ -238,31 +316,33 @@ describe("Each character's own buff settings (#508)", function()
             login("Ann", v150())
             login("Bo", logout())
             local db = logout()
-            db.characters["Ann-Vale"].weaponMain = "laser"
-            db.characters["Ann-Vale"].junk = string.rep("x", 100)
+            db.characters[key("Ann")].settings.weaponMain = "laser"
+            db.characters[key("Ann")].settings.junk = string.rep("x", 100)
+            db.characters[key("Ann")].junk = string.rep("x", 100)
             login("Bo", db)
-            assert.are.equal("none", ns.db.characters["Ann-Vale"].weaponMain)
-            assert.is_nil(ns.db.characters["Ann-Vale"].junk, "nothing else can grow the saved file")
+            assert.are.equal("none", rec("Ann").settings.weaponMain)
+            assert.is_nil(rec("Ann").settings.junk, "nothing else can grow the saved file")
+            assert.is_nil(rec("Ann").junk)
         end)
 
         it("a damaged record of whose settings are live never hands them to another character", function()
-            for _, marker in ipairs({ "Not A Name!", { "x" }, 12 }) do
+            for _, marker in ipairs({ "Not A Key", { "x" }, 12 }) do
                 login("Ann", v150())
                 ns.db.buffBack.weaponMain = "manaOil"
                 local db = logout()
                 db.characterLive = marker
                 login("Di", db)
-                assert.are.same(V150, live(), "Di gets the copy, not Ann's live settings")
-                assert.is_nil(ns.db.characters["Not A Name!"])
+                assert.are.same(V150C, live(), "Di gets the copy, not Ann's live settings")
+                assert.is_nil(ns.db.characters["Not A Key"])
             end
         end)
 
         it("keeps the character whose settings are live when over the cap", function()
             login("Bo", v150())
-            ns.db.characters["Aaa-Aaa"] = { weaponMain = "manaOil" }
+            ns.db.characters["Aaa:Aaa-Aaa"] = { settings = { weaponMain = "manaOil" } }
             ns.Config.MAX_CHARACTERS = 1
             ns.Config.Repair()
-            assert.are.same({ "Bo-Reed" }, (function()
+            assert.are.same({ key("Bo") }, (function()
                 local out = {}
                 for who in pairs(ns.db.characters) do out[#out + 1] = who end
                 return out
@@ -276,7 +356,7 @@ describe("Each character's own buff settings (#508)", function()
             db.characterSeed.profile = 42
             login("Bo", db)
             assert.are.equal("Default", ns.db.characterSeed.profile)
-            assert.are.equal("Default", ns.db.charProfiles["Bo-Reed"])
+            assert.are.equal("Default", rec("Bo").profile)
         end)
 
         it("a character whose remembered profile is gone uses its own", function()
@@ -284,10 +364,10 @@ describe("Each character's own buff settings (#508)", function()
             login("Bo", logout())
             ns.db.buffBack.weaponMain = "windfury"
             local db = logout()
-            db.charProfiles["Ann-Vale"] = "Gone"
+            db.characters[key("Ann")].profile = "Gone"
             login("Ann", db)
             assert.are.equal("Default", ns.Profiles.Active())
-            assert.are.same(V150, live())
+            assert.are.same(V150C, live())
         end)
 
         it("a character on its own isn't moved to the account's old profile when its choice is lost", function()
@@ -299,16 +379,17 @@ describe("Each character's own buff settings (#508)", function()
             db = logout()
             db.charProfiles = {}
             login("Ann", db)
-            assert.are.equal("Default", ns.Profiles.Active())
+            assert.are.equal("Default", ns.Profiles.Active(), "its record is the source, not 1.5.x's list")
         end)
 
         it("Default is there to go back to even after it was deleted", function()
             login("Ann", v150())
+            ns.db.buffBack.weaponMain = "rockbiter"
             slash("profile new Party")
             ns.db.buffBack.weaponMain = "manaOil"
             assert.are.equal("Default", ns.Profiles.Delete("Default"))
             assert.are.equal("Default", ns.Profiles.Use("Default"))
-            assert.are.equal("wizardOil", ns.db.buffBack.weaponMain, "Ann's own")
+            assert.are.equal("rockbiter", ns.db.buffBack.weaponMain, "Ann's own")
         end)
 
         it("going back to Default lends the character's own buff mode key", function()
@@ -334,7 +415,7 @@ describe("Each character's own buff settings (#508)", function()
             slash("profile new Party")
             ns.db.buffBack.weaponMain = "manaOil"
             local db = logout()
-            db.characterLive = "Bo-Reed"
+            db.characterLive = key("Bo")
             login("Ann", db)
             assert.are.equal("Party", ns.Profiles.Active())
             login("Bo", logout())
@@ -364,16 +445,16 @@ describe("Each character's own buff settings (#508)", function()
         it("damage to the character data mid-session is repaired before it is used", function()
             login("Ann", v150())
             slash("profile new Party")
-            ns.db.characters["Ann-Vale"] = "junk"
+            ns.db.characters[key("Ann")] = "junk"
             slash("profile use Default")
-            assert.are.same(V150, live(), "a lost entry is a first login again: the copy")
+            assert.are.same(V150C, live(), "a lost record is new again: the copy")
             slash("profile use Party")
-            ns.db.characters["Ann-Vale"].weaponMain = "laser"
+            rec("Ann").settings.weaponMain = "laser"
             assert.are.equal("Default", ns.Profiles.Use("Default"))
-            assert.are.equal("none", ns.db.characters["Ann-Vale"].weaponMain, "a damaged field gets its default")
+            assert.are.equal("none", rec("Ann").settings.weaponMain, "a damaged field gets its default")
             assert.are.equal("none", ns.db.buffBack.weaponMain)
             slash("profile use Party")
-            ns.db.characters["Ann-Vale"] = nil
+            ns.db.characters[key("Ann")] = nil
             ns.db.characterSeed = { settings = "x", profile = "Default" }
             slash("profile use Default")
             assert.are.same(UNSET, live(), "a damaged seed is dropped: unset")
@@ -395,23 +476,123 @@ describe("Each character's own buff settings (#508)", function()
             assert.are.same({}, wow.errors)
         end)
 
-        it("leaves the settings alone while the player's name can't be read", function()
-            local db = v150()
-            login("Ann", db, { nameUnread = true })
-            assert.are.same(V150, live())
-            assert.are.same({}, ns.db.characters)
-            assert.is_nil(ns.db.characterLive)
+        it("while the player's name can't be read, records nothing and offers no weapon buffs", function()
+            login("Ann", v150())
+            ns.db.buffBack.weaponBuffs = true
+            ns.db.buffBack.weaponMain = "manaOil"
+            login("Bo", _G.FriendlyForeverDB, { nameUnread = true, walkthrough = true }) -- even with no logout save
+            assert.are.same({ false, "none", "none" }, weapons(), "never Ann's")
+            assert.is_false(ns.Profiles.NeedsWelcome())
+            ns.Profiles.Welcomed() -- nothing to mark, and no error
+            assert.is_nil(rec("Bo"))
+            assert.is_false(ns.db.characterLive)
+            assert.are.same({ true, "manaOil", "none" }, { rec("Ann").settings.weaponBuffs,
+                rec("Ann").settings.weaponMain, rec("Ann").settings.weaponOff }, "Ann's are kept as hers")
             assert.are.same({}, wow.errors)
         end)
 
-        it("an unreadable level or experience counts as played before: it gets the copy", function()
+        it("records nothing while the realm can't be read: a secret, none, empty, too long or no API", function()
+            for _, how in ipairs({ "secret", "none", "empty", "long", "missing" }) do
+                ns = wow.boot({ db = v150(), before = function(state)
+                    state.units.player = { name = "Ann", surname = "Vale", id = "Ann-Vale", isPlayer = true }
+                    if how == "secret" then state.secretRealm = true end
+                    if how == "none" then state.realm = nil end
+                    if how == "empty" then state.realm = "" end
+                    if how == "long" then state.realm = string.rep("R", 120) end
+                end, afterLoad = function()
+                    if how == "missing" then _G.GetRealmName = nil end
+                end })
+                assert.are.same(V150C, live(), how)
+                assert.are.same({}, ns.db.characters, how)
+                assert.is_false(ns.db.characterLive, how)
+                assert.are.same({}, wow.errors, how)
+            end
+        end)
+
+        it("keeps a record current when the character logs out", function()
             login("Ann", v150())
+            ns.db.buffBack.weaponMain = "rockbiter"
+            assert.are.equal("rockbiter", logout().characters[key("Ann")].settings.weaponMain)
+        end)
+
+        it("a character 1.5.x remembered on a profile keeps it", function()
+            login("Ann", v150(nil, { charProfiles = { ["Ann-Vale"] = "Raiding" },
+                profiles = { Raiding = { schemaVersion = 8 }, Default = { schemaVersion = 8 } } }))
+            assert.are.equal("Raiding", ns.Profiles.Active())
+            assert.are.equal("Raiding", rec("Ann").profile)
+        end)
+
+        it("a new character on a shared profile gets its own copy, not the seed itself", function()
+            login("Ann", v150())
+            slash("profile new Party")
             local db = logout()
-            ns = wow.boot({ db = db, before = function(state)
-                state.units.player = { name = "Eve", surname = "Hart", id = "Eve-Hart", isPlayer = true,
-                    level = 1, xp = 0, secrets = { xp = true } }
-            end })
-            assert.are.same(V150, live())
+            db.characterSeed.profile = "Party"
+            login("Bo", db)
+            assert.are.equal("Party", ns.Profiles.Active())
+            assert.are.same(V150C, (function()
+                local out = {}
+                for _, f in ipairs(CHECKED) do out[f] = rec("Bo").settings[f] end
+                return out
+            end)())
+            assert.is_false(rawequal(rec("Bo").settings, ns.db.characterSeed.settings), "never the same table")
+        end)
+
+        it("going back to Default while the name can't be read offers no weapon buffs", function()
+            login("Ann", v150())
+            ns.db.buffBack.weaponBuffs = true
+            ns.db.buffBack.weaponMain = "manaOil"
+            slash("profile new Party") -- Default's stored copy holds Ann's weapon buffs
+            wow.state.units.player.nameLoading = true
+            slash("profile use Default")
+            assert.are.same({ false, "none", "none" }, weapons())
+            assert.is_false(ns.db.characterLive)
+        end)
+
+        it("a deleted profile's characters go back to their own, even if one is made again by that name",
+            function()
+            login("Ann", v150())
+            login("Bo", logout())
+            slash("profile new Party")
+            login("Ann", logout())
+            assert.are.equal("Default", ns.Profiles.Active())
+            slash("profile delete Party")
+            slash("profile new Party")
+            slash("profile use Default")
+            login("Bo", logout())
+            assert.are.equal("Default", ns.Profiles.Active(), "Bo chose the old Party, not this one")
+        end)
+
+        it("a record list damaged mid-session is repaired before it is used", function()
+            login("Ann", v150())
+            ns.db.characters = { [key("Ann")] = { settings = "x" } }
+            assert.are.equal("Party", ns.Profiles.New("Party"))
+            assert.are.equal("table", type(rec("Ann").settings))
+            ns.db.characters[key("Ann")].profile = 42
+            assert.are.equal("Default", ns.Profiles.Use("Default"))
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("an import's undo stays with the character it was made on", function()
+            login("Ann", v150())
+            assert.is_true(ns.Profiles.Import(assert(ns.Profiles.Export())))
+            assert.is_true(ns.Profiles.CanUndoImport())
+            login("Bo", logout())
+            assert.is_false(ns.Profiles.CanUndoImport(), "Bo's undo would hand him Ann's own settings")
+            login("Ann", logout())
+            assert.is_true(ns.Profiles.CanUndoImport(), "Ann's still")
+            local db = logout()
+            db.importUndo.who = 42
+            login("Ann", db)
+            assert.is_false(ns.Profiles.CanUndoImport(), "a damaged one is dropped")
+            assert.is_nil(ns.db.importUndo)
+            assert.is_true(ns.Profiles.Import(assert(ns.Profiles.Export())))
+            ns.db.importUndo.who = {} -- mid-session
+            assert.is_false(ns.Profiles.CanUndoImport())
+            assert.is_nil(ns.db.importUndo)
+            assert.is_true(ns.Profiles.Import(assert(ns.Profiles.Export())))
+            ns.db.importUndo.who = nil -- as 1.5.x saved it
+            login("Bo", logout())
+            assert.is_true(ns.Profiles.CanUndoImport(), "one saved before 1.5.2 names nobody: as before")
         end)
     end)
 
@@ -444,6 +625,8 @@ describe("Each character's own buff settings (#508)", function()
                 if roll <= 2 then
                     saved[field] = VALID[field]()
                     expected[field] = copy(saved[field])
+                    -- Weapon buffs are reset once, for every character.
+                    if field:find("^weapon") then expected[field] = copy(UNSET[field]) end
                 else
                     saved[field] = roll == 3 and JUNK[random.random(#JUNK)] or nil
                     expected[field] = copy(UNSET[field])
@@ -454,7 +637,7 @@ describe("Each character's own buff settings (#508)", function()
         end
 
         for _, seed in ipairs({ 1, 7, 52, 508, 2026, 31337 }) do
-            it("seed " .. seed .. ": each character keeps its own, the copy is made once, nothing errors",
+            it("seed " .. seed .. ": each character keeps its own, the copy is made once, weapons reset, nothing errors",
                 function()
                 local db, seedValues, noSeed = seeded(seed)
                 local names = { "Ann", "Bo", "Cy", "Di" }
@@ -462,10 +645,7 @@ describe("Each character's own buff settings (#508)", function()
                 local onParty = {}    -- characters that chose the shared profile
                 local party           -- the shared profile's settings, once made
                 local current         -- who is logged in
-                local function firstValues(who)
-                    local c = CHARS[who]
-                    return copy((c.level == 1 and c.xp == 0) and UNSET or seedValues)
-                end
+                local function firstValues() return copy(seedValues) end
                 local function expect(why)
                     local want = onParty[current] and party or own[current]
                     assert.are.same(want, live(), why)
@@ -507,8 +687,8 @@ describe("Each character's own buff settings (#508)", function()
                         -- first login since (a copy, or unset if new).
                         local other = names[random.random(#names)]
                         if other ~= current and type(ns.db.characters) == "table" then
-                            ns.db.characters[CHARS[other].name .. "-" .. CHARS[other].surname] = JUNK[random.random(2)]
-                            own[other] = nil
+                            ns.db.characters[key(other)] = JUNK[random.random(2)]
+                            own[other], onParty[other] = nil, nil -- new again: its own, on Default
                         end
                     end
                 end
@@ -520,7 +700,7 @@ describe("Each character's own buff settings (#508)", function()
                 else
                     local seedNow = {}
                     for _, f in ipairs(CHECKED) do seedNow[f] = db.characterSeed.settings[f] end
-                    assert.are.same(seedValues, seedNow, "the seed is the 1.5.0 values, checked, never changed")
+                    assert.are.same(seedValues, seedNow, "the seed is the 1.5.0 values, checked, weapons reset, never changed")
                 end
             end)
         end

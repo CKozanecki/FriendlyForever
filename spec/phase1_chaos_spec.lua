@@ -544,7 +544,9 @@ describe("Phase 1 chaos (red tests)", function()
                 m.active = "Default"
             end,
             function()
-                ns.db.charProfiles = pick({ 42, "x", true })
+                -- Each character's record holds its profile choice (#508):
+                -- lost, the character is new again, on Default.
+                ns.db.characters = pick({ 42, "x", true })
                 m.charLast = nil
             end,
             function()
