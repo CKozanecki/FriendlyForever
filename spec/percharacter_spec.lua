@@ -402,15 +402,22 @@ describe("Each character's own buff settings (#508)", function()
 
         it("an unreadable name on a shared profile never changes that profile for the others", function()
             login("Ann", v150())
+            ns.db.guildLogin.delay = 20
             slash("profile new Party")
             ns.db.buffBack.weaponBuffs = true
             ns.db.buffBack.weaponMain = "manaOil"
+            ns.db.guildLogin.delay = 9
             login("Bo", logout(), { nameUnread = true })
             assert.are.equal("Default", ns.Profiles.Active(), "Default for the session, where nothing is anyone's")
+            assert.are.equal(20, ns.db.guildLogin.delay, "Default's settings for the session, not Party's")
             assert.are.same({ false, "none", "none" }, weapons())
+            login("Cy", logout())
+            assert.are.equal("Default", ns.Profiles.Active())
+            assert.are.equal(20, ns.db.guildLogin.delay, "Default's stored copy unchanged for the others")
             login("Ann", logout())
             assert.are.equal("Party", ns.Profiles.Active())
             assert.are.same({ true, "manaOil", "none" }, weapons(), "Party's are as Ann left them")
+            assert.are.equal(9, ns.db.guildLogin.delay)
         end)
 
         it("deleting one shared profile leaves the characters on another on it", function()
