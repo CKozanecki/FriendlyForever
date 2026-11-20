@@ -11,6 +11,7 @@ Many sessions couldn't reach wowhead.com or warcraft.wiki.gg and used web search
 - Forever is client 1.60.1, interface `16001` (the TOC's `## Interface`), with the retail UI and the addon compartment. Source: #93 ([TOC format](https://warcraft.wiki.gg/wiki/TOC_format); Forever addons on CurseForge such as [Forever LazyChatButtons](https://www.curseforge.com/wow/addons/forever-lazychatbuttons)). Whether the compartment is there: **confirmed in game** (launch, Nov 4).
 - It uses the modern (12.x) API, with Midnight's addon restrictions. Source: [#32](https://github.com/CKozanecki/FriendlyForever/issues/32#issuecomment-6484071238) ([classicwowforever.com](https://classicwowforever.com/guides/wow-forever-addons-api-compatibility/), [Patch 12.0.0 planned API changes](https://warcraft.wiki.gg/wiki/Patch_12.0.0/Planned_API_changes)); community sources, no blue post.
 - Addons ship their own icons as TGA through `## IconTexture`; the game loads TGA and BLP reliably, not PNG. Source: #65, #93. How the icon looks: **confirmed in game** (launch, Nov 4).
+- A logged-in character's name and realm are always known in game; the game disconnects a character it can't identify. Source: the owner, 2026-11-20 (#516).
 
 ## Secret values
 
