@@ -76,7 +76,7 @@ describe("Buff mode", function()
             assert.is_false(ns.BuffMode.IsOn())
             assert.are.same({}, lent())
             local xml = wow.readFile("Bindings.xml")
-            assert.is_truthy(xml:find('<Binding name="FRIENDLYFOREVER_BUFFMODE" category="ADDONS">'
+            assert.is_truthy(xml:find('<Binding name="FRIENDLYFOREVER_BUFFMODE" category="BINDING_HEADER_FRIENDLYFOREVER">'
                 .. "FriendlyForever_ToggleBuffMode()</Binding>", 1, true))
             assert.are.equal("Friendly Forever: buff mode on/off", _G.BINDING_NAME_FRIENDLYFOREVER_BUFFMODE)
         end)

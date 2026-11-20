@@ -244,7 +244,7 @@ function BuffMode.Create()
     owner = CreateFrame("Frame")
 end
 
--- The key binding in Key Bindings > AddOns (Bindings.xml) calls this.
+-- The key binding in Key Bindings > Friendly Forever (Bindings.xml) calls this.
 function FriendlyForever_ToggleBuffMode()
     if not ns.db then return end
     ns.Diag.Call(BuffMode.Toggle)

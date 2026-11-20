@@ -33,7 +33,7 @@ read_globals = {
     "ERR_FRIEND_ONLINE_SS", "ERR_GUILD_JOIN_S", "ERR_JOINED_GROUP_S",
     "ERR_RAID_MEMBER_ADDED_S", "ERR_INSTANCE_GROUP_ADDED_S", "ERR_CHAT_PLAYER_NOT_FOUND_S",
     "C_CVar", "GetCVar", "SetCVar",
-    "time", "DoEmote", "UnitClass", "UnitRace", "UnitFactionGroup", "GetRealZoneText", "GetZoneText",
+    "time", "DoEmote", "UnitClass", "UnitRace", "UnitFactionGroup", "GetRealZoneText", "GetZoneText", "IsIndoors",
     "GetGameTime", "IsResting", "AddonCompartmentFrame", "UISpecialFrames",
     "IsSwimming", "IsSubmerged", "GetMirrorTimerInfo", "GetInstanceInfo",
     "C_Spell", "C_SpellBook", "Enum", "GetCVarBool", "GetSpellInfo", "GetSpellTexture", "GetSpellSubtext", "IsSpellKnown",

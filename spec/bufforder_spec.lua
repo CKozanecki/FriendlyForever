@@ -1,4 +1,4 @@
--- Spec: #31, #71, #76, #136, #42, #46, #208, #41, #209, #70, #44, #40, #408, #419, #452, #491
+-- Spec: #31, #71, #76, #136, #42, #46, #208, #41, #209, #70, #44, #40, #408, #419, #452, #491, #509
 -- Buff order and the never-offer list: which of your buffs the button offers
 -- first, and which it never offers.
 local wow = require("spec.support.wow")
@@ -201,7 +201,8 @@ describe("Buff order and never offer", function()
             -- Then buff mode's rows (#491): its key, its triggers and top-up, then the places.
             assert.are.equal(w.steppers.groupEnough.label, select(2, w.buffModeHeader:GetPoint()), "buff mode's rows")
             assert.are.equal(w.buffModeHeader, select(2, w.buffModeKey:GetPoint()), "its key")
-            assert.are.equal(w.buffModeKey, select(2, w.autoHeader:GetPoint()), "its triggers")
+            assert.are.equal(w.buffModeKey, select(2, w.buffModeKeyNote:GetPoint()), "the key's note (#509)")
+            assert.are.equal(w.buffModeKeyNote, select(2, w.autoHeader:GetPoint()), "its triggers")
             assert.are.equal(w.steppers.autoOffMinutes.label, select(2, w.steppers.topUpMinutes.label:GetPoint()),
                 "then top-up timing (#42)")
             assert.are.equal(w.steppers.topUpMinutes.label, select(2, w.placeTabs.strangers:GetPoint()),
