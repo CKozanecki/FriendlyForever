@@ -311,6 +311,17 @@ describe("Each character's own buff settings (#508)", function()
             assert.are.equal("M", ns.db.profiles.Default.buffBack.buffModeKey, "Default's stored copy is kept")
         end)
 
+        it("an account on Default copies its live settings, not Default's older stored copy", function()
+            for _, active in ipairs({ "Default", false }) do
+                local db = v150(nil, { activeProfile = active or nil, profiles = {
+                    Default = { schemaVersion = 8, buffBack = { buffModeKey = "M" } }, Other = { schemaVersion = 8 } } })
+                login("Ann", db)
+                login("Bo", logout())
+                assert.are.equal("F", ns.db.buffBack.buffModeKey, tostring(active))
+                assert.are.equal("F", ns.db.characterSeed.settings.buffModeKey, tostring(active))
+            end
+        end)
+
         it("damaged character data falls back safely", function()
             login("Ann", v150())
             login("Bo", logout())
