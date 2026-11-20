@@ -99,7 +99,7 @@ describe("Start here", function()
             wow.state.bindings[""] = nil
             wow.state.bindings.F7 = BUTTON_BINDING
             wow.state.bindings.F2 = "TOGGLEBACKPACK"
-            assert.is_true(shown("Buff button key: F7 (Key Bindings > AddOns)."))
+            assert.is_true(shown("Buff button key: F7 (Key Bindings > Friendly Forever)."))
             assert.is_true(shown("Buff mode key: MOUSEWHEELUP."))
             _G.SlashCmdList.FRIENDLYFOREVER("buffmode key mousewheeldown")
             assert.is_true(shown("Buff mode key: MOUSEWHEELDOWN."))

@@ -167,6 +167,8 @@ From #452 (17 Nov 2026). Researched from Forever's spell data, two open-source C
   - Neither falls back to the other. With no type attribute, a press does nothing (`PerformAction`, [SecureTemplates.lua](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_FrameXML/SecureTemplates.lua#L730-L731) lines 730 and 731 on the `forever` branch).
   - The addon writes the key's attributes only when the key may cast, and changes no binding when the form changes (#452).
   - Blizzard's code for Forever settles the button's side. That the game client passes the name a `CLICK` binding gives through to the button is **unconfirmed** (#454).
+- **Key Bindings sections** (#509): Blizzard's code for Forever (`Interface/AddOns/Blizzard_SettingsDefinitions_Frame/Keybindings.lua`, Gethe/wow-ui-source at `aff0d8cd`, 1.60.1, the UI simulator's pin) titles a binding's section by the global its `category` names (`GetBindingCategoryName`, lines 220 to 226), else the raw text, and opens a section for any category it hasn't seen, after Blizzard's own (`AddBindingCategory`, lines 235 to 240). Forever loads it with the `Mainline` overrides. So both bindings use `category="BINDING_HEADER_FRIENDLYFOREVER"`, and the addon sets that global to "Friendly Forever". A `header` attribute does nothing there. Keys are looked up by the binding's name, so a category change keeps them. That the section shows in game is **unconfirmed**: [#511](https://github.com/CKozanecki/FriendlyForever/issues/511).
+- **Indoors** (#510): `IsIndoors()` returns a non-nilable bool (`Blizzard_APIDocumentationGenerated/PlayerScriptDocumentation.lua`, same commit). The addon reads it, and the zone's name, at each arming of the buff button, and relies on no event. That a refused shift back clears once you walk outdoors is **unconfirmed** in game: [#511](https://github.com/CKozanecki/FriendlyForever/issues/511).
 
 ## Ghost Wolf (#466)
 
@@ -181,7 +183,7 @@ From #466 (18 Nov 2026). Buff mode's key waits for a shaman's spell buffs in Gho
 
 ## Back into your form (#495)
 
-From #495 (19 Nov 2026). With "Fast-cast buffs in form" on, buff mode offers your form back once nothing is left to buff (the owner's decisions on #495).
+From #495 (19 Nov 2026). With "Fast-cast buffs in form" on, buff mode offers your form back once everyone who needed a buff when you left the form is done (you, your group, and the strangers and passers-by then on the list), before anyone who turns up later (the owner's decisions on #495 and #510).
 
 - **Which forms:** Cat Form, Bear Form, Dire Bear Form, Travel Form and Ghost Wolf (the owner: cat, bear, travel and Ghost Wolf; Moonkin never leaves its form, #485). Aquatic Form isn't one of them.
 - **Their spells:** Bear 5487 and Dire Bear 9634 are Forever's own: `BEAR_FORM_SPELL_ID` and `DIRE_BEAR_FORM_SPELL_ID` in `Blizzard_ActionBar/Shared/SpellFlyout.lua`, lines 6 and 7 (Gethe/wow-ui-source, `forever` branch, 1.60.1.70959). Cat 768, Travel 783 and Ghost Wolf 2645 are Vanilla's (cmangos/mangos-classic, `sql/base/dbc/original_data/Spell.sql`). No Forever source names those three: **unconfirmed** ([#498](https://github.com/CKozanecki/FriendlyForever/issues/498)).

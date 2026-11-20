@@ -1065,6 +1065,14 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         Dalaran's aren't checked yet (#207). setMap fires ZONE_CHANGED_NEW_AREA, as
 --                         walking into a city does; specs also move without
 --                         any zone event, as the addon mustn't rely on one.
+--   IsIndoors (#510): state.indoors (false by default), true or false, as
+--                         Forever's API documentation gives it (a bool, never
+--                         nil: Blizzard_APIDocumentationGenerated's
+--                         PlayerScriptDocumentation.lua at the simulator's
+--                         pinned UI commit). Whether the game fires an event
+--                         when it changes is unconfirmed (#511); this client fires
+--                         none (pessimistic), so the addon reads it again at
+--                         its next arming.
 --   A secret value used as a table key reads as missing (byAuraId[secret]
 --                         is nil); the real client may raise an error instead,
 --                         which the addon's callers also survive.
@@ -2117,7 +2125,7 @@ local ADDON_GLOBALS = {
     "FriendlyForeverDB", "SLASH_FRIENDLYFOREVER1", "SLASH_FRIENDLYFOREVER2",
     "FriendlyForeverMinimapButton", "FriendlyForeverOptionsPanel", "FriendlyForeverTextWindow",
     "FriendlyForeverBuffButton", "BINDING_NAME_CLICK FriendlyForeverBuffButton:LeftButton",
-    "BINDING_NAME_FRIENDLYFOREVER_BUFFMODE", "FriendlyForever_ToggleBuffMode",
+    "BINDING_NAME_FRIENDLYFOREVER_BUFFMODE", "FriendlyForever_ToggleBuffMode", "BINDING_HEADER_FRIENDLYFOREVER",
 }
 
 function M.reset()
@@ -2421,6 +2429,12 @@ function M.reset()
         return M.state.faction, M.state.faction
     end
     _G.GetRealZoneText = function() return M.state.zone end
+    -- Indoors or outdoors (#510): state.indoors; a function there answers in
+    -- its place (a secret, or an error, for a spec that breaks it).
+    _G.IsIndoors = function()
+        if type(M.state.indoors) == "function" then return M.state.indoors() end
+        return M.state.indoors == true
+    end
     _G.GetZoneText = function() return M.state.zone end
     _G.GetGameTime = function() return M.state.hour, 0 end
     -- Resting (#449; see ASSUMPTIONS): true or false, a secret with

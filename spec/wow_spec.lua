@@ -1,4 +1,4 @@
--- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471, #485, #482, #486, #491, #504
+-- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471, #485, #482, #486, #491, #504, #510
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -2050,5 +2050,38 @@ describe("The simulated client's layout edges, children and scroll bars (#482)",
         -- rawget: a frame answers any unknown method name with a no-op.
         assert.is_nil(rawget(_G.CreateFrame("ScrollFrame"), "ScrollBar"))
         assert.is_nil(rawget(_G.CreateFrame("Frame", nil, nil, "BasicFrameTemplateWithInset"), "ScrollBar"))
+    end)
+end)
+
+describe("The simulated client's indoors (#510)", function()
+    before_each(function() wow.boot() end)
+
+    it("IsIndoors is false by default, and true once state.indoors is", function()
+        assert.is_false(_G.IsIndoors())
+        wow.state.indoors = true
+        assert.is_true(_G.IsIndoors())
+        wow.state.indoors = false
+        assert.is_false(_G.IsIndoors())
+    end)
+
+    it("a function in state.indoors answers in its place: an error, or a secret", function()
+        wow.state.indoors = function() error("unreadable") end
+        assert.is_false(pcall(_G.IsIndoors))
+        wow.state.indoors = function() return wow.secret(true) end
+        assert.are.equal("<secret>", tostring(_G.IsIndoors()))
+    end)
+
+    it("no event fires when it changes (pessimistic, #511): the addon must read it", function()
+        local heard = {}
+        local f = _G.CreateFrame("Frame")
+        for _, event in ipairs({ "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA" }) do
+            f:RegisterEvent(event)
+        end
+        f:SetScript("OnEvent", function(_, event) heard[#heard + 1] = event end)
+        wow.state.indoors = true
+        wow.advance(5)
+        wow.state.indoors = false
+        wow.advance(5)
+        assert.are.same({}, heard)
     end)
 end)

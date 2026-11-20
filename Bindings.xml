@@ -1,9 +1,13 @@
 <Bindings>
-    <!-- Key Bindings > AddOns: a key for the buff-back button. The game loads
-         this file by itself; its text is BINDING_NAME_CLICK
-         FriendlyForeverBuffButton:LeftButton, set in BuffButton.lua. -->
-    <Binding name="CLICK FriendlyForeverBuffButton:LeftButton" category="ADDONS"/>
+    <!-- Key Bindings > Friendly Forever (#509): the addon's own section,
+         titled by the global its category names, BINDING_HEADER_FRIENDLYFOREVER,
+         set in BuffButton.lua. The buff button comes first. The game keeps
+         each key by the binding's name, so these names never change. -->
+    <!-- A key for the buff-back button. The game loads this file by itself;
+         its text is BINDING_NAME_CLICK FriendlyForeverBuffButton:LeftButton,
+         set in BuffButton.lua. -->
+    <Binding name="CLICK FriendlyForeverBuffButton:LeftButton" category="BINDING_HEADER_FRIENDLYFOREVER"/>
     <!-- A key to turn buff mode on and off (BuffMode.lua); its text is
          BINDING_NAME_FRIENDLYFOREVER_BUFFMODE. -->
-    <Binding name="FRIENDLYFOREVER_BUFFMODE" category="ADDONS">FriendlyForever_ToggleBuffMode()</Binding>
+    <Binding name="FRIENDLYFOREVER_BUFFMODE" category="BINDING_HEADER_FRIENDLYFOREVER">FriendlyForever_ToggleBuffMode()</Binding>
 </Bindings>
