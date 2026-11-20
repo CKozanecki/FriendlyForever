@@ -202,6 +202,8 @@ describe("Each character's own buff settings (#508)", function()
                 { walkthrough = true })
             local text = ns.Walkthrough.Frame().stepText:GetText()
             assert.is_truthy(text:find("uses the shared profile Healer", 1, true))
+            assert.is_truthy(text:find("were reset for every character, this profile's included", 1, true),
+                "What's new still says weapon buffs were reset")
             assert.is_falsy(text:find("This character's weapon buffs are its own", 1, true))
         end)
 

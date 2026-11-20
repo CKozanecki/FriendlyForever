@@ -279,7 +279,9 @@ Walkthrough.STEPS = {
             local shared = ns.Profiles.SharedProfile()
             local start
             if shared then
-                start = "This character uses the shared profile " .. ns.Util.StripChat(shared) .. ", so these "
+                start = (Walkthrough.WhatsNew() and "Weapon buffs are now set for each character, and were "
+                    .. "reset for every character, this profile's included: set them again here.\n\n" or "")
+                    .. "This character uses the shared profile " .. ns.Util.StripChat(shared) .. ", so these "
                     .. "settings are that profile's, the same for each character on it: its weapon buffs, "
                     .. "here on the Weapon buffs page, and:\n\n"
             elseif Walkthrough.WhatsNew() then

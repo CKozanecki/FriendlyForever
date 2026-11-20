@@ -525,9 +525,6 @@ function Profiles.OnLogin()
     end
 end
 
--- The walkthrough's step about each character's own settings (#508): whether
--- this character hasn't seen it yet, and marking that it has. Shown once per
--- character.
 -- The shared profile in use, or nil on Default, where each character uses
 -- its own settings.
 function Profiles.SharedProfile()
@@ -536,6 +533,9 @@ function Profiles.SharedProfile()
     return nil
 end
 
+-- The walkthrough's step about each character's own settings (#508): whether
+-- this character hasn't seen it yet, and marking that it has. Shown once per
+-- character.
 function Profiles.NeedsWelcome()
     Check()
     local key = MyKey()
