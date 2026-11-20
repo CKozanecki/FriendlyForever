@@ -19,9 +19,9 @@ Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets,
 
 **New in 1.5.1:**
 
-- the buff button's own key bindings now have a Friendly Forever section in Key Bindings;
+- the buff button's key and buff mode's on/off key now have a Friendly Forever section in Key Bindings;
 - the idle button shows Friendly Forever's own icon, not Mark of the Wild's paw;
-- the shift back into your form waits only for who needed a buff when you left it, and a refusal's reason clears when you move.
+- the shift back into your form waits only for you, your group and who needed a buff when you left it, and a refusal's reason, such as "Can only use outside", clears once you move indoors or outdoors, or change zone.
 
 **New in 1.5.0:**
 
@@ -102,7 +102,7 @@ One tab holds all of it. Top to bottom: **When someone buffs you** (thank them, 
 
 ## Buff mode
 
-- **Lend it a key:** lend the button a key of your choice, the mouse wheel by default, and buff a whole raid by scrolling. Shift-click the minimap button to turn buff mode on or off (in a fight it waits until the fight ends); right-click still turns the whole addon on or off. The key is lent only while buff mode is on, so Key Bindings shows it as Not Bound; it goes back to normal when buff mode ends, and during fights. The buff button's and buff mode's keys sit in a Friendly Forever section of Key Bindings. Choose the key, and when buff mode turns itself on and off, in the Buff mode section of the Buffs tab.
+- **Lend it a key:** lend the button a key of your choice, the mouse wheel by default, and buff a whole raid by scrolling. Shift-click the minimap button to turn buff mode on or off (in a fight it waits until the fight ends); right-click still turns the whole addon on or off. The key is lent only while buff mode is on, so Key Bindings shows it as Not Bound; it goes back to normal when buff mode ends, and during fights. The buff button's key and the key that turns buff mode on and off sit in a Friendly Forever section of Key Bindings. Choose the key, and when buff mode turns itself on and off, in the Buff mode section of the Buffs tab.
 - **Buffs your group:** fills in party and raid members missing your buffs, one per press, skipping anyone dead, out of range, out of sight or flagged for PvP. Group versions (Arcane Brilliance, Prayers, Gift of the Wild, Greater Blessings) are used when they cover enough of the group.
 - **Buffs you, too:** solo, it keeps your own Fortitude, Intellect, Mark or Blessing up, and turns itself on when one is missing or running low.
 - **Your self-buffs:** Inner Fire, mage and warlock armors, Lightning Shield, Battle Shout, Aspects, Trueshot Aura, paladin auras and Righteous Fury, after everyone else is done. Each is marked "(you only)" in your buff order.
