@@ -276,13 +276,21 @@ Walkthrough.STEPS = {
         title = "Each character's own buffs",
         open = function() ns.Options.OpenPage((select(3, ns.Options.Pages()))) end,
         text = function()
-            local start = Walkthrough.WhatsNew()
-                and "Weapon buffs are now set for each character, and were reset for every character: set "
+            local shared = ns.Profiles.SharedProfile()
+            local start
+            if shared then
+                start = "This character uses the shared profile " .. ns.Util.StripChat(shared) .. ", so these "
+                    .. "settings are that profile's, the same for each character on it: its weapon buffs, "
+                    .. "here on the Weapon buffs page, and:\n\n"
+            elseif Walkthrough.WhatsNew() then
+                start = "Weapon buffs are now set for each character, and were reset for every character: set "
                     .. "this character's again here, on the Weapon buffs page.\n\nThese are each character's own "
                     .. "too, and started as a copy of the settings you had: check or change them.\n\n"
-                or "This character's weapon buffs are its own, and start unset: set them here, on the Weapon "
+            else
+                start = "This character's weapon buffs are its own, and start unset: set them here, on the Weapon "
                     .. "buffs page.\n\nThese are its own too, a copy of your settings to start with: check or "
                     .. "change them.\n\n"
+            end
             return start
                 .. "  The Buffs tab: the buff order and \"Never offer\", who gets each buff in each place, "
                 .. "buff mode's key, and \"Offer my self-buffs\".\n\n"
@@ -518,8 +526,9 @@ function Walkthrough.OnLogin()
     end
     if state.seen >= latest then
         if ns.Profiles.NeedsWelcome() then
-            ns.Print("this character's weapon buffs aren't set yet, and some buff settings are its own: the "
-                .. "walkthrough shows where. Esc > Options > AddOns > " .. ns.TITLE .. " > Weapon buffs.")
+            ns.Print((ns.Profiles.SharedProfile() and "this character uses a shared profile's buff settings"
+                or "this character's weapon buffs aren't set yet, and some buff settings are its own")
+                .. ": the walkthrough shows where. Esc > Options > AddOns > " .. ns.TITLE .. " > Weapon buffs.")
             Walkthrough.Start("character")
         end
         return

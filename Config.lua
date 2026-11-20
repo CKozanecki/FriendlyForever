@@ -269,7 +269,8 @@ Config.DEFAULTS = {
         -- class's own order). neverOffer: [buff key] = true, or false for a
         -- buff that's "Never offer" by default and you unticked (Righteous
         -- Fury, #44); unset follows the buff's default. They hold keys
-        -- of any class, so one profile serves all your characters.
+        -- of any class, so a shared profile serves characters of any class;
+        -- on Default each character has its own (#508).
         buffOrder = {},
         neverOffer = {},
         -- Who gets each buff in buff mode, 1.3.3's rules (BuffRules.lua):
@@ -507,15 +508,24 @@ local MIGRATIONS = {
         -- Some buff settings became each character's own (#508). Weapon
         -- buffs are reset once, for every character: here, and in a stored
         -- profile or settings line from before as it is applied (it carries
-        -- its version, so this runs on it then). The account's other
-        -- settings, as saved now, are kept as the seed: each character copies
-        -- them once, at its first login since, with the profile the account
-        -- was on. Nothing else changes.
+        -- its version, so this runs on it then). The Default profile's other
+        -- settings, as saved now, are kept as the seed: each character
+        -- copies them once, as its own, at its first login since. They are
+        -- the live ones, unless the account was on another profile: then
+        -- Default's stored copy, brought up to date the same way. Nothing
+        -- else changes.
         if type(db.buffBack) == "table" then
             for _, field in ipairs(Config.WEAPON_FIELDS) do
                 db.buffBack[field] = Util.DeepCopy(Config.DEFAULTS.buffBack[field])
             end
-            db.characterSeed = { settings = Config.CharacterPart(db.buffBack), profile = db.activeProfile }
+            local default = db.buffBack
+            local stored = type(db.profiles) == "table" and db.profiles.Default
+            if db.activeProfile ~= nil and db.activeProfile ~= "Default" and type(stored) == "table" then
+                local snapshot = Util.DeepCopy(stored)
+                Config.Migrate(snapshot)
+                default = type(snapshot.buffBack) == "table" and snapshot.buffBack or {}
+            end
+            db.characterSeed = { settings = Config.CharacterPart(default) }
         end
     end,
     [8] = function(db)

@@ -25,11 +25,11 @@
 -- them }. A character with no record is new: nothing recorded characters
 -- before 1.5.2, so at its first 1.5.2 login every character is (the
 -- coordinator's call on #508, within the owner's decision). Its own
--- settings are then a copy of the account's, from db.characterSeed (saved by
--- Config's migration 9, with weapon buffs reset there once for everyone);
--- with no seed (a new install), unset (Config.UnsetCharacter). Its profile
--- is the one 1.5.x remembered for it (db.charProfiles, by full name, only
--- read now), or else the seed's, the profile the account was on.
+-- settings are then a copy of the Default profile's, from db.characterSeed
+-- (saved by Config's migration 9, with weapon buffs reset there once for
+-- everyone); with no seed (a new install), unset (Config.UnsetCharacter).
+-- Its profile is the one 1.5.x remembered for it (db.charProfiles, by full
+-- name, only read now); with none, it starts on Default, with its own.
 --
 -- db.characterLive is the key of the character whose own settings are the
 -- live ones (ns.db.buffBack), so they are kept as that character's when
@@ -320,8 +320,7 @@ function Profiles.ValidateCharacters(db)
     db.characters = kept
     local seed = db.characterSeed
     if type(seed) == "table" and type(seed.settings) == "table" then
-        db.characterSeed = { settings = ns.Config.ValidCharacter(seed.settings),
-            profile = Profiles.CleanName(seed.profile) or Profiles.DEFAULT }
+        db.characterSeed = { settings = ns.Config.ValidCharacter(seed.settings) }
     else
         db.characterSeed = nil
     end
@@ -356,13 +355,13 @@ end
 -- A new character's own settings (see the top).
 local function FirstSettings()
     local db = ns.db
-    if db.characterLive == nil then
-        -- The first character since #508: the live settings are the
-        -- account's, weapon buffs reset by migration 9 (a new install's
-        -- are unset), so it keeps them.
+    if db.characterLive == nil and db.activeProfile == Profiles.DEFAULT then
+        -- The first character since #508, on Default: the live settings
+        -- are Default's, weapon buffs reset by migration 9 (a new
+        -- install's are unset), so it keeps them.
         return ns.Config.CharacterPart(ns.Config.Section("buffBack")), "kept the account's"
     elseif db.characterSeed then
-        return db.characterSeed.settings, "copied the account's, weapon buffs unset"
+        return db.characterSeed.settings, "copied Default's, weapon buffs unset"
     end
     return ns.Config.UnsetCharacter(), "unset"
 end
@@ -375,7 +374,7 @@ local function Record(key)
     local settings, how = FirstSettings()
     local me = Util.UnitFullName("player")
     record = { settings = ns.Config.ValidCharacter(settings),
-        profile = me and db.charProfiles[me] or db.characterSeed and db.characterSeed.profile or nil }
+        profile = me and db.charProfiles[me] or nil }
     db.characters[key] = record
     ns.Diag.Log("profiles", "%s is new here: its own buff settings %s", key, how)
     return record
@@ -529,6 +528,14 @@ end
 -- The walkthrough's step about each character's own settings (#508): whether
 -- this character hasn't seen it yet, and marking that it has. Shown once per
 -- character.
+-- The shared profile in use, or nil on Default, where each character uses
+-- its own settings.
+function Profiles.SharedProfile()
+    Check()
+    if ns.db.activeProfile ~= Profiles.DEFAULT then return ns.db.activeProfile end
+    return nil
+end
+
 function Profiles.NeedsWelcome()
     Check()
     local key = MyKey()

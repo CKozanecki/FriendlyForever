@@ -196,6 +196,15 @@ describe("Each character's own buff settings (#508)", function()
             end
         end)
 
+        it("tells a character on a shared profile that these settings are the profile's", function()
+            login("Ann", v150(nil, { charProfiles = { ["Ann-Vale"] = "Healer" }, activeProfile = "Healer",
+                profiles = { Healer = { schemaVersion = 8 }, Default = { schemaVersion = 8 } } }),
+                { walkthrough = true })
+            local text = ns.Walkthrough.Frame().stepText:GetText()
+            assert.is_truthy(text:find("uses the shared profile Healer", 1, true))
+            assert.is_falsy(text:find("This character's weapon buffs are its own", 1, true))
+        end)
+
         it("skipping it changes nothing, and it isn't shown again", function()
             login("Ann", v150(), { walkthrough = true })
             wow.run(ns.Walkthrough.Frame().next, "OnClick")
@@ -272,18 +281,34 @@ describe("Each character's own buff settings (#508)", function()
             assert.are.equal("rockbiter", ns.db.buffBack.weaponMain, "one saved since keeps its choice")
         end)
 
-        it("an existing character with no remembered profile keeps the one the account was on", function()
-            local db = v150(nil, { activeProfile = "Raiding",
-                profiles = { Raiding = { schemaVersion = 8, buffBack = { weaponMain = "manaOil" } },
-                    Default = { schemaVersion = 8 } } })
-            login("Ann", db)
-            assert.are.equal("Raiding", ns.Profiles.Active())
-            assert.are.equal("Raiding", rec("Ann").profile)
-            login("Cy", logout())
-            assert.are.equal("Raiding", ns.Profiles.Active(), "every unseen character does, whatever its level")
-            slash("profile use Default")
-            login("Cy", logout())
-            assert.are.equal("Default", ns.Profiles.Active(), "a seen one keeps its choice")
+        -- The architecture review of #514: a 1.5.x account whose last
+        -- character was on a shared profile.
+        it("a character with no 1.5.x choice starts on Default, with a copy of Default's settings", function()
+            local healer = { weaponBuffs = true, weaponMain = "manaOil", buffModeKey = "H", buffOrder = { "fortitude" } }
+            local db = v150({ weaponBuffs = true, weaponMain = "manaOil", buffModeKey = "H",
+                buffOrder = { "fortitude" } }, { activeProfile = "Healer", charProfiles = { ["Bo-Reed"] = "Healer" },
+                profiles = { Healer = { schemaVersion = 8, buffBack = healer },
+                    Default = { schemaVersion = 8, buffBack = { buffModeKey = "M", buffOrder = { "intellect" },
+                        weaponBuffs = true, weaponMain = "wizardOil" } } } })
+            login("Ann", db) -- played on Default in 1.5.0, last to log in was Bo on Healer
+            assert.are.equal("Default", ns.Profiles.Active())
+            assert.are.same({ "M", { "intellect" }, false, "none" }, { ns.db.buffBack.buffModeKey,
+                ns.db.buffBack.buffOrder, ns.db.buffBack.weaponBuffs, ns.db.buffBack.weaponMain },
+                "Default's own, weapon buffs reset; never Healer's")
+            login("Bo", logout())
+            assert.are.equal("Healer", ns.Profiles.Active(), "Bo chose Healer in 1.5.x")
+            assert.are.same({ "H", false }, { ns.db.buffBack.buffModeKey, ns.db.buffBack.weaponBuffs })
+            ns.db.buffBack.weaponBuffs = true
+            login("Cy", logout()) -- made after the update
+            assert.are.equal("Default", ns.Profiles.Active(), "a new character never joins a shared profile")
+            assert.are.same({ "M", false }, { ns.db.buffBack.buffModeKey, ns.db.buffBack.weaponBuffs })
+            ns.db.buffBack.weaponMain = "rockbiter"
+            login("Ann", logout())
+            assert.are.same({ "M", "none" }, { ns.db.buffBack.buffModeKey, ns.db.buffBack.weaponMain })
+            login("Bo", logout())
+            assert.are.same({ true, "none" }, { ns.db.buffBack.weaponBuffs, ns.db.buffBack.weaponMain },
+                "Healer's, not Cy's")
+            assert.are.equal("M", ns.db.profiles.Default.buffBack.buffModeKey, "Default's stored copy is kept")
         end)
 
         it("damaged character data falls back safely", function()
@@ -350,15 +375,6 @@ describe("Each character's own buff settings (#508)", function()
             ns.Config.MAX_CHARACTERS = 200
         end)
 
-        it("a damaged seed profile at load is Default", function()
-            login("Ann", v150())
-            local db = logout()
-            db.characterSeed.profile = 42
-            login("Bo", db)
-            assert.are.equal("Default", ns.db.characterSeed.profile)
-            assert.are.equal("Default", rec("Bo").profile)
-        end)
-
         it("a character whose remembered profile is gone uses its own", function()
             login("Ann", v150())
             login("Bo", logout())
@@ -371,7 +387,7 @@ describe("Each character's own buff settings (#508)", function()
         end)
 
         it("a character on its own isn't moved to the account's old profile when its choice is lost", function()
-            local db = v150(nil, { activeProfile = "Raiding",
+            local db = v150(nil, { activeProfile = "Raiding", charProfiles = { ["Ann-Vale"] = "Raiding" },
                 profiles = { Raiding = { schemaVersion = 8 }, Default = { schemaVersion = 8 } } })
             login("Ann", db)
             assert.are.equal("Raiding", ns.Profiles.Active())
@@ -526,7 +542,7 @@ describe("Each character's own buff settings (#508)", function()
             login("Ann", v150())
             slash("profile new Party")
             local db = logout()
-            db.characterSeed.profile = "Party"
+            db.charProfiles = { ["Bo-Reed"] = "Party" }
             login("Bo", db)
             assert.are.equal("Party", ns.Profiles.Active())
             assert.are.same(V150C, (function()
