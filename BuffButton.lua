@@ -294,10 +294,10 @@ end
 ------------------------------------------------------------------------
 
 -- With "Fast-cast buffs in form" on, in buff mode, a buff press that takes
--- you out of a form is remembered; once your own buffs and your group's
--- are done, the button offers that form, before strangers' favours and
--- passers-by (#510), and one more press (the key or a click) shifts you
--- back. Nothing casts by itself (the owner, #495).
+-- you out of a form is remembered; once everyone who needed a buff then is
+-- done (#510: the list at that press, you and your group), the button offers
+-- that form, before anyone who turns up later, and one more press (the key
+-- or a click) shifts you back. Nothing casts by itself (the owner, #495).
 --
 -- Only these forms (the owner's choice), each by its spell, the fourth
 -- answer of GetShapeshiftFormInfo (Blizzard's stance bar for Forever reads
@@ -313,9 +313,10 @@ BuffButton.RETURN_SECONDS = 30 -- after your last buff press, the return is drop
 -- A form left this soon after a buff press in it was left for that press.
 BuffButton.LEAVE_SECONDS = BuffButton.ANSWER_WINDOW_SECONDS
 
-local formReturn   -- the form to go back to: { spell, name, icon, lastBuffAt, refused, refusedAt (where), casting
-                   -- (the press being cast) }
-local leavingForm  -- the form a buff press was made in, until the game takes you out: { spell, name, icon, at }
+local formReturn   -- the form to go back to: { spell, name, icon, lastBuffAt, listed, refused, refusedAt (where),
+                   -- casting (the press being cast) }
+local leavingForm  -- the form a buff press was made in, until the game takes you out: { spell, name, icon, at,
+                   -- listed (the names on the list at that press, #510) }
 local formSeen     -- the form last read: 0 (none), a form's spell, "other", or nil (unread)
 
 -- The setting, in buff mode; a section lost mid-session reads as off.
@@ -381,7 +382,8 @@ local function ObserveForm()
     formSeen = key
     local left = leavingForm
     if key == 0 and left and GetTime() - left.at <= BuffButton.LEAVE_SECONDS then
-        formReturn = { spell = left.spell, name = left.name, icon = left.icon, lastBuffAt = left.at }
+        formReturn = { spell = left.spell, name = left.name, icon = left.icon, lastBuffAt = left.at,
+            listed = left.listed or {} }
         ns.Diag.Log("buffMode", "left %s for a buff: back into it once the buffs are done", left.name)
     else
         ForgetForm("you changed form")
@@ -394,10 +396,30 @@ end
 -- it is your latest buff, and the return's RETURN_SECONDS start again.
 -- With the setting or buff mode off, the next arming lets it go
 -- (CheckReturn), as every press and change of form re-arms the button.
+-- Everyone an offer names: whom it's aimed at, and whom a group version
+-- covers (#227).
+local function Named(offer)
+    local names = { offer.name }
+    for _, covered in ipairs(offer.cast and offer.cast.covers or {}) do names[#names + 1] = covered end
+    return names
+end
+
+-- Everyone the button's list names now, as a set: the snapshot a press
+-- that takes you out of a form keeps (#510).
+local function ListedNames()
+    local names = {}
+    for _, offer in ipairs(offerList) do
+        for _, name in ipairs(Named(offer)) do names[name] = true end
+    end
+    return names
+end
+
 local function NoteBuffPress()
     local now = ObserveForm()
     if type(now) == "table" then
-        leavingForm = { spell = now.spell, name = now.name, icon = now.icon, at = GetTime() }
+        -- The list as this press found it (OnPreClick has just re-armed):
+        -- everyone on it may still be buffed before the shift back (#510).
+        leavingForm = { spell = now.spell, name = now.name, icon = now.icon, at = GetTime(), listed = ListedNames() }
     elseif formReturn then
         formReturn.lastBuffAt = GetTime()
     end
@@ -446,7 +468,7 @@ local function CheckReturn()
     end
 end
 
--- The shift back, once your own buffs and your group's are done (#510).
+-- The shift back, once everyone who needed a buff when you left is done (#510).
 -- A return stands only while
 -- the last form read was none: any other read has dropped it (ObserveForm,
 -- just called by CheckReturn). Not while a press of it is being cast (Ghost
@@ -630,55 +652,38 @@ local function NextOffer()
         -- above is offered does the button reach them.
         ns.PassersBy.Next(passers)
     end
-    -- While the shift back into your form waits (#510, the owner): it comes
-    -- straight after your own buffs and your group's, and before strangers'
-    -- favours and passers-by, so a scroll meant to shift you back never
-    -- buffs a stranger. Your own and your group's come first in the list
-    -- then, and the button takes the first of them, or else the shift back.
-    -- A group member's favour or chat request is your group's: it stays just
-    -- ahead of the first entry that names them, aimed at them or covering
-    -- them (a group version, #227), as before, so it is the copy kept and
-    -- counted as returned. While a press of the shift back is being cast,
-    -- nothing else is offered.
+    -- While the shift back into your form waits (#510, the owner's
+    -- decisions of 19 Nov): what was on the list at the press that took you
+    -- out of the form (formReturn.listed), your own buffs and your group's,
+    -- and a group member's favour or chat request, come first, in the usual
+    -- order; then the shift back; then anyone who turned up since (new
+    -- strangers and passers-by), so a scroll meant to shift you back never
+    -- buffs them. While a press of the shift back is being cast, nothing
+    -- else is offered.
     local returning = formReturn ~= nil
-    local list, isOwn = {}, {}
-    local function Add(offer, mine)
-        list[#list + 1] = offer
-        if mine then isOwn[offer] = true end
+    local list, first, usual = {}, {}, {}
+    for _, part in ipairs({ favours, own, passers }) do
+        for _, offer in ipairs(part) do usual[#usual + 1] = offer end
     end
     if returning then
-        -- Everyone an entry names: whom it's aimed at, and whom it covers.
-        local function Named(offer)
-            local names = { offer.name }
-            for _, covered in ipairs(offer.cast and offer.cast.covers or {}) do names[#names + 1] = covered end
-            return names
-        end
-        local inGroup, theirFavours = {}, {}
+        -- Yours and your group's: everyone your own entries name (each names
+        -- its own player), so a group member's favour or request comes too.
+        local listed, ours = formReturn.listed or {}, {}
         for _, offer in ipairs(own) do
-            for _, name in ipairs(Named(offer)) do inGroup[name] = true end
+            for _, name in ipairs(Named(offer)) do ours[name] = true end
         end
-        for _, offer in ipairs(favours) do
-            if inGroup[offer.name] then
-                theirFavours[offer.name] = theirFavours[offer.name] or {}
-                table.insert(theirFavours[offer.name], offer)
-            end
+        for _, offer in ipairs(usual) do
+            if listed[offer.name] or ours[offer.name] then first[offer] = true end
         end
-        for _, offer in ipairs(own) do
-            -- Before each entry that names them: the per-player pass below
-            -- keeps only the first copy.
-            for _, name in ipairs(Named(offer)) do
-                for _, favour in ipairs(theirFavours[name] or {}) do Add(favour, true) end
-            end
-            Add(offer, true)
+        for _, offer in ipairs(usual) do
+            if first[offer] then list[#list + 1] = offer end
         end
-        for _, offer in ipairs(favours) do
-            if not inGroup[offer.name] then Add(offer) end
+        for _, offer in ipairs(usual) do
+            if not first[offer] then list[#list + 1] = offer end
         end
     else
-        for _, offer in ipairs(favours) do Add(offer) end
-        for _, offer in ipairs(own) do Add(offer) end
+        list = usual
     end
-    for _, offer in ipairs(passers) do Add(offer) end
     -- One offer per player: the first, which is the one the button would
     -- make (a player owed a favour who is also in your group appears in both,
     -- one group cast aimed at a player is listed beside another, #305, and
@@ -699,7 +704,7 @@ local function NextOffer()
     end
     offerList = castable
     local pick = castable[1]
-    if returning and pick and not isOwn[pick] then pick = nil end
+    if returning and pick and not first[pick] then pick = nil end
     if chosenName then
         local chosen
         -- Your group copy and your self-buffs share your name: a clicked row

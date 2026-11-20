@@ -78,7 +78,8 @@ describe("The shift back into your form before strangers (#510)", function()
         stranger(token, name, surname)
         wow.gainBuff({ sourceUnit = token, name = "Arcane Intellect", spellId = INTELLECT })
     end
-    local STRANGERS = { ["Bob-Stone"] = true, ["Dan-Reed"] = true, ["Eve-Moss"] = true, ["Fay-Lark"] = true }
+    local STRANGERS = { ["Bob-Stone"] = true, ["Dan-Reed"] = true, ["Eve-Moss"] = true, ["Fay-Lark"] = true,
+        ["Gus-Hale"] = true, ["Ivy-Fenn"] = true, ["Jon-Pike"] = true, ["Kay-Rowe"] = true }
     local function strangerCasts(from)
         local out = {}
         for i = from + 1, #wow.casts do
@@ -100,8 +101,8 @@ describe("The shift back into your form before strangers (#510)", function()
     end
 
     describe("its place (white)", function()
-        it("passers-by and a stranger's favour arriving while it waits: your group's buffs and your own come "
-            .. "first, then the shift back; no stranger is buffed before it", function()
+        it("passers-by and a stranger's favour arriving after you leave the form: your group's buffs and your "
+            .. "own come first, then the shift back; no newcomer is buffed before it", function()
             boot({ form = CAT })
             scroll()
             wearLanded()
@@ -264,6 +265,48 @@ describe("The shift back into your form before strangers (#510)", function()
             assert.are.same({}, strangerCasts(from))
             wow.advance(1)
             assert.is_true(wow.state.ghostWolf, "back in Ghost Wolf")
+        end)
+    end)
+
+    describe("the snapshot when you leave the form (white)", function()
+        it("passers-by and a stranger owed a favour, about when a buff takes you out, are buffed before the "
+            .. "shift back; a passer-by who arrives after waits until after it", function()
+            boot({ form = CAT })
+            stranger("nameplate1", "Bob", "Stone")
+            favour("nameplate2", "Dan", "Reed")
+            ns.BuffButton.Refresh()
+            scroll()
+            wearLanded()
+            assert.are.equal(0, form(), "the buff took you out of Cat Form")
+            stranger("nameplate3", "Eve", "Moss")
+            ns.BuffButton.Refresh()
+            local from = #wow.casts
+            for _ = 1, 10 do
+                if offersForm() then break end
+                assert.are_not.equal("Eve-Moss", ns.BuffButton.ArmedOffer().name, "the newcomer before it")
+                scroll()
+                wearLanded()
+                ns.BuffButton.Refresh()
+            end
+            assert.is_true(offersForm())
+            local buffed = {}
+            for _, c in ipairs(wow.casts) do buffed[c.target or "?"] = true end
+            assert.is_true(buffed["Bob-Stone"] and buffed["Dan-Reed"] or false, "the snapshot was buffed first")
+            assert.is_nil(buffed["Eve-Moss"])
+            local listed = {}
+            for _, o in ipairs(ns.BuffList.ShownOffers()) do listed[#listed + 1] = o.name end
+            assert.are.same({ "Eve-Moss" }, listed, "the newcomer is listed after it")
+            scroll()
+            assert.are.equal(CAT, form(), "the scroll shifted you back")
+            assert.are.same({}, (function()
+                local out = {}
+                for i = from + 1, #wow.casts do
+                    if wow.casts[i].target == "Eve-Moss" then out[#out + 1] = i end
+                end
+                return out
+            end)())
+            ns.BuffButton.Refresh()
+            assert.are.equal("Eve-Moss", ns.BuffButton.ArmedOffer().name, "then the newcomer, as in buff mode")
         end)
     end)
 
@@ -435,17 +478,20 @@ describe("The shift back into your form before strangers (#510)", function()
         -- starts in Cat Form. Checked from the simulated client's own state:
         -- once a press has taken you out of a form, until you're back in one
         -- or 30 seconds pass after your last buff, no press casts anything on
-        -- a stranger. Every seed must hold a stranger back at least once and
-        -- shift back at least once.
-        local NAMES = { { "Bob", "Stone" }, { "Dan", "Reed" }, { "Eve", "Moss" }, { "Fay", "Lark" } }
+        -- a stranger who wasn't about at that press (the owner's snapshot,
+        -- #510): arrivals never push the shift back further. Every seed must
+        -- hold a newcomer back at least once and shift back at least once.
+        local NAMES = { { "Bob", "Stone" }, { "Dan", "Reed" }, { "Eve", "Moss" }, { "Fay", "Lark" },
+            { "Gus", "Hale" }, { "Ivy", "Fenn" }, { "Jon", "Pike" }, { "Kay", "Rowe" } }
 
         local function storm(seed)
             random.seed(seed)
             boot({ form = CAT })
             local errors = ns.Diag.Counters().luaErrors or 0
             local left, lastBuff = false, -math.huge
+            local snapshot = {} -- the strangers about at the press that took you out
             local heldBack, backs = 0, 0
-            for _ = 1, 260 do
+            for _ = 1, 500 do
                 local roll = random.random(1, 10)
                 if roll == 1 then
                     local i = random.random(1, #NAMES)
@@ -465,18 +511,28 @@ describe("The shift back into your form before strangers (#510)", function()
                 else
                     local before, casts = form(), #wow.casts
                     local waiting = left and wow.now - lastBuff < ns.BuffButton.RETURN_SECONDS
-                    local strangersNear = false
-                    for i = 1, #NAMES do if wow.state.units["nameplate" .. i] then strangersNear = true end end
+                    local about, newcomerNear = {}, false
+                    for i = 1, #NAMES do
+                        if wow.state.units["nameplate" .. i] then
+                            local id = NAMES[i][1] .. "-" .. NAMES[i][2]
+                            about[id] = true
+                            if not snapshot[id] then newcomerNear = true end
+                        end
+                    end
                     if roll == 4 then wow.press(button) else scroll() end
                     wearLanded()
                     if waiting then
-                        assert.are.same({}, strangerCasts(casts), "a stranger buffed while the shift back waited")
-                        if strangersNear then heldBack = heldBack + 1 end
+                        for i = casts + 1, #wow.casts do
+                            local target = wow.casts[i].target
+                            assert.is_false(STRANGERS[target or ""] == true and not snapshot[target],
+                                "a newcomer buffed while the shift back waited: " .. tostring(target))
+                        end
+                        if newcomerNear then heldBack = heldBack + 1 end
                     end
                     for i = casts + 1, #wow.casts do
                         if not wow.casts[i].form then lastBuff = wow.now end
                     end
-                    if before ~= 0 and form() == 0 and #wow.casts > casts then left = true end
+                    if before ~= 0 and form() == 0 and #wow.casts > casts then left, snapshot = true, about end
                     if before == 0 and form() ~= 0 then
                         if left then backs = backs + 1 end
                         left = false
@@ -486,12 +542,13 @@ describe("The shift back into your form before strangers (#510)", function()
                 if form() ~= 0 then left = false end
             end
             assert.are.equal(errors, ns.Diag.Counters().luaErrors or 0)
-            assert.is_true(heldBack >= 1, "a stranger was near while the shift back waited")
+            assert.is_true(heldBack >= 1, "a newcomer was near while the shift back waited")
             assert.is_true(backs >= 1, "shifted back at least once")
         end
 
         for _, seed in ipairs({ 1, 2, 3, 4, 5, 6, 7, 8 }) do
-            it("seed " .. seed .. ": no press buffs a stranger while the shift back waits", function()
+            it("seed " .. seed .. ": no press buffs a stranger who came after you left the form, while the "
+                .. "shift back waits", function()
                 storm(seed)
             end)
         end
