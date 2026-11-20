@@ -51,7 +51,8 @@ end
 -- settings that may be damaged: your class's, and the rest. Before #508 the
 -- settings were shared by every character on the account, so the rest are
 -- rules changed on your other characters; each character now has its own
--- copy of them, and makes the choice for its copy.
+-- copy of them, and makes the choice for its copy (on a shared profile, the
+-- choice is the profile's, for every character on it).
 -- A key kept known without a buff (BuffTable.absent, #209) isn't counted.
 local function RulesChanged()
     local saved = Section("buffBack").whoGets
@@ -224,8 +225,10 @@ Walkthrough.STEPS = {
                 end
                 lines[#lines + 1] = "  Keep my settings: your rules go to Party and Raid; PvP starts off."
                 lines[#lines + 1] = "  Use the new defaults: recommended if you never changed them, or aren't sure."
-                lines[#lines + 1] = "The choice is for this character; each of your others makes its own "
-                    .. "on its Buffs tab."
+                local shared = ns.Profiles.SharedProfile()
+                lines[#lines + 1] = shared and ("The choice is for the shared profile " .. ns.Util.StripChat(shared)
+                        .. ", and every character on it.")
+                    or "The choice is for this character; each of your others makes its own on its Buffs tab."
                 lines[#lines + 1] = ""
                 lines[#lines + 1] = "Finishing, skipping or closing without choosing changes nothing: your buffs "
                     .. "work as before until you choose, and the choice waits on the Buffs tab."

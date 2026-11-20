@@ -424,6 +424,19 @@ describe("Each character's own buff settings (#508)", function()
             assert.are.equal("Party", ns.Profiles.Active())
         end)
 
+        it("on a shared profile, the #408 step says the choice is the profile's", function()
+            local db = v150({ whoGets = { motw = { rule = "tanks" } } }, { schemaVersion = 7,
+                walkthrough = { seen = 2, firstRun = false }, activeProfile = "Party",
+                charProfiles = { ["Ann-Vale"] = "Party" },
+                profiles = { Party = { schemaVersion = 7 }, Default = { schemaVersion = 7 } } })
+            db.buffBack.whoChoice = nil
+            login("Ann", db, { walkthrough = true })
+            local text = ns.Walkthrough.Frame().stepText:GetText()
+            assert.is_truthy(text:find("The choice is for the shared profile Party, and every character on it.", 1,
+                true))
+            assert.is_falsy(text:find("The choice is for this character", 1, true))
+        end)
+
         it("each character makes the keep-or-reset choice of #408 for its own rules", function()
             local db = v150({ whoGets = { motw = { rule = "tanks" } } }, { schemaVersion = 7 })
             db.buffBack.whoChoice = nil
