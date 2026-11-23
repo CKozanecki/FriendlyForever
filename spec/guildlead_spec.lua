@@ -533,6 +533,30 @@ describe("Guild leader controls: the shared memory (#496)", function()
             end)
         end
 
+        it("the officer list changes only from the guild master: never an officer, a guildmate or a forged guild master", function()
+            local ns = Solo()
+            receive(part("ranks", GM, 10, "1"), GM)
+            assert.are.equal("10/1", table.concat({ saved("ranks") }, "/"))
+            for _, attempt in ipairs({
+                { from = OFFICER, text = part("ranks", OFFICER, 20, "1,4") },  -- an officer, though rank 1 leads
+                { from = MEMBER, text = part("ranks", MEMBER, 20, "4") },      -- a guildmate
+                { from = STRANGER, text = part("ranks", STRANGER, 20, "4") },  -- someone not in the guild
+                { from = MEMBER, text = part("ranks", GM, 20, "4") },          -- a guildmate posing as the guild master
+                { from = OFFICER, text = part("ranks", GM, 20, "") },           -- an officer posing as the guild master
+            }) do
+                wow.advance(1.1)
+                receive(attempt.text, attempt.from)
+                assert.are.equal("10/1", table.concat({ saved("ranks") }, "/"), attempt.text)
+            end
+            assert.is_true(ns.GuildLead.IsLeader(OFFICER))
+            assert.is_false(ns.GuildLead.IsLeader(MEMBER))
+            -- And an officer's own copy refuses to set it.
+            local officer = Solo({ before = function(s) s.guildRanks[ME] = 1 end })
+            receive(part("ranks", GM, 10, "1"), GM)
+            assert.is_false((officer.GuildLead.Set("ranks", { "1", "4" })))
+            assert.is_true(officer.GuildLead.Set("caps", { "g2" }), "but sets the caps")
+        end)
+
         it("a replayed old version, or the same one again, changes nothing", function()
             local ns = Solo()
             receive(part("caps", GM, 100, "g2"), GM)
@@ -961,4 +985,32 @@ describe("Guild leader controls: the shared memory (#496)", function()
             assert.is_false(ns.Versioned.ValidList(spec, "a"))
         end)
     end)
+end)
+
+describe("After an update that adds Versioned.lua or GuildLead.lua and a /reload (no restart) (black)", function()
+    for _, missing in ipairs({ { "Versioned.lua" }, { "GuildLead.lua" }, { "Versioned.lua", "GuildLead.lua" } }) do
+        it("without " .. table.concat(missing, " and ") .. ": asks for a restart, takes and sends nothing", function()
+            wow.reset()
+            local skip = {}
+            for _, file in ipairs(missing) do skip[file] = true end
+            local loaded = {}
+            local _, files = wow.parseToc()
+            for _, file in ipairs(files) do
+                if not skip[file] then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+            end
+            wow.state.guildRoster = ROSTER
+            ranksOf(wow.state)
+            wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+            wow.fire("PLAYER_ENTERING_WORLD", true, false)
+            wow.fire("GUILD_ROSTER_UPDATE")
+            receive("1;GCHECK;" .. MEMBER .. ";1.6.0;0;0;0", MEMBER)
+            receive(part("caps", GM, 5, "g1"), GM)
+            wow.advance(60)
+            _G.SlashCmdList.FRIENDLYFOREVER("status")
+            assert.are.same({}, wow.errors)
+            assert.are.same({}, wow.addonSent)
+            assert.is_nil(_G.FriendlyForeverDB)
+            assert.is_truthy(table.concat(wow.printed, "\n"):find("Restart the game", 1, true))
+        end)
+    end
 end)
