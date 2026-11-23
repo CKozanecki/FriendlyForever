@@ -1,4 +1,4 @@
--- Spec: #52, #281, #384, #387, #508
+-- Spec: #52, #281, #384, #387, #508, #519
 -- Phase 1 under damage and chaos: the ignore list, snooze, profiles,
 -- export/import with undo and the favour ledger, damaged mid-session (black)
 -- and in seeded random storms (red). Mid-session damage stands for another
@@ -349,6 +349,7 @@ describe("Phase 1 chaos (red tests)", function()
             profiles = {},     -- [name] = true: the profiles stored
             active = "Default",
             charLast = nil,    -- the profile this character used last
+            hasRecord = true,  -- whether this character has a record (#508): made at the first boot
             undo = nil,        -- { profile, added = { [full name] = true } }
             saved = nil,       -- { line, ignored } from the last export
         }
@@ -358,7 +359,7 @@ describe("Phase 1 chaos (red tests)", function()
         local sentBefore = 0
 
         local function snoozed() return m.snoozeUntil ~= nil and m.snoozeUntil > _G.time() end
-        local function rememberChar(name) m.charLast = name end
+        local function rememberChar(name) m.charLast, m.hasRecord = name, true end
         local function storeActive() if next(m.profiles) then m.profiles[m.active] = true end end
 
         local function reload()
@@ -368,13 +369,20 @@ describe("Phase 1 chaos (red tests)", function()
             local clock = _G.time()
             ns = boot(_G.FriendlyForeverDB, clock)
             sentBefore = 0
-            -- The login switch (#508): this character's shared profile, if it's
-            -- still there; any other character goes back to Default, its own.
-            if m.charLast and m.charLast ~= "Default" and m.profiles[m.charLast] then
-                if m.charLast ~= m.active then
-                    storeActive()
-                    m.active, m.undo = m.charLast, nil
-                end
+            -- The login switch (#508, #519): a character with no record keeps
+            -- the active profile as its own; then its shared profile, if it's
+            -- still there; a shared profile that is gone keeps the active one;
+            -- a character whose own choice is Default goes back to it.
+            if not m.hasRecord then
+                m.charLast = m.active ~= "Default" and m.active or nil
+                m.hasRecord = true
+            end
+            local shared = m.charLast and m.charLast ~= "Default"
+            if shared and m.charLast ~= m.active and m.profiles[m.charLast] then
+                storeActive()
+                m.active, m.undo = m.charLast, nil
+            elseif shared and m.active ~= "Default" then
+                m.charLast = m.active
             elseif m.active ~= "Default" then
                 storeActive()
                 m.active, m.undo, m.charLast = "Default", nil, "Default"
@@ -545,9 +553,10 @@ describe("Phase 1 chaos (red tests)", function()
             end,
             function()
                 -- Each character's record holds its profile choice (#508):
-                -- lost, the character is new again, on Default.
+                -- lost, the character is new again, and keeps the profile
+                -- active at its next login (#519).
                 ns.db.characters = pick({ 42, "x", true })
-                m.charLast = nil
+                m.charLast, m.hasRecord = nil, false
             end,
             function()
                 ns.db.importUndo = pick({ 42, "x", true, { profile = m.active } })

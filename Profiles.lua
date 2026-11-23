@@ -29,7 +29,14 @@
 -- (saved by Config's migration 9, with weapon buffs reset there once for
 -- everyone); with no seed (a new install), unset (Config.UnsetCharacter).
 -- Its profile is the one 1.5.x remembered for it (db.charProfiles, by full
--- name, only read now); with none, it starts on Default, with its own.
+-- name, only read now); with none, the profile that was active, as 1.5.1
+-- kept it (#519): only with Default active does it start on Default, with
+-- its own.
+--
+-- At login the live settings are the active profile's, and a stored copy is
+-- put over them only when the character's record names another profile, or
+-- names Default (its own) while a shared profile is active (#519). A record
+-- naming a profile that is gone keeps the active one.
 --
 -- db.characterLive is the key of the character whose own settings are the
 -- live ones (ns.db.buffBack), so they are kept as that character's when
@@ -367,10 +374,14 @@ local function Record(key)
     if record then return record end
     local settings, how = FirstSettings()
     local me = Util.UnitFullName("player")
-    record = { settings = ns.Config.ValidCharacter(settings),
-        profile = me and db.charProfiles[me] or nil }
+    -- The profile 1.5.x remembered for it, or else the active one (#519):
+    -- never Default's stored copy put over a shared profile's live settings.
+    local profile = me and db.charProfiles[me] or nil
+    if not profile and db.activeProfile ~= Profiles.DEFAULT then profile = db.activeProfile end
+    record = { settings = ns.Config.ValidCharacter(settings), profile = profile }
     db.characters[key] = record
-    ns.Diag.Log("profiles", "%s is new here: its own buff settings %s", key, how)
+    ns.Diag.Log("profiles", "%s is new here: its own buff settings %s; its profile %s", key, how,
+        profile or Profiles.DEFAULT)
     return record
 end
 
@@ -494,8 +505,11 @@ function Profiles.Delete(input)
 end
 
 -- At login (and after a reload): a character on a shared profile switches to
--- it, if it still exists; any other goes back to Default, with its own
--- settings (#508). A new character gets its record first (see the top).
+-- it, if it still exists; one whose record names Default goes back to it,
+-- with its own settings (#508). A new character gets its record first, which
+-- keeps the active profile (see the top, #519). A record naming a profile
+-- that is gone keeps the active one: nothing stored is put over the live
+-- settings unless a record says to.
 function Profiles.OnLogin()
     Check()
     local db = ns.db
@@ -506,14 +520,24 @@ function Profiles.OnLogin()
         if db.activeProfile ~= Profiles.DEFAULT then return Profiles.Use(Profiles.DEFAULT) end
         return Unreadable()
     end
-    local want = Record(key).profile
-    if want and want ~= Profiles.DEFAULT and db.profiles[want] then
-        if want ~= db.activeProfile then
-            Profiles.Use(want)
-            ns.Diag.Log("profiles", "switched to %s, the profile %s chose", want, key)
-        end
+    local record = Record(key)
+    local want = record.profile
+    local shared = want ~= nil and want ~= Profiles.DEFAULT
+    if shared and want ~= db.activeProfile and db.profiles[want] then
+        Profiles.Use(want)
+        ns.Diag.Log("profiles", "switched to %s, the profile %s chose", want, key)
         -- The live settings are the active profile's, whatever a damaged
         -- file says: never keep them as a character's own.
+        db.characterLive = false
+        return
+    end
+    if shared and db.activeProfile ~= Profiles.DEFAULT then
+        -- Its own choice, or one that is gone (#519): the active profile's
+        -- live settings stay as they are, stored copy or not.
+        if want ~= db.activeProfile then
+            ns.Diag.Log("profiles", "%s chose %s, which is gone; it stays on %s", key, want, db.activeProfile)
+            record.profile = db.activeProfile
+        end
         db.characterLive = false
         return
     end

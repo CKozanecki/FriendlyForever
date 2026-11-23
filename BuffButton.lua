@@ -649,8 +649,11 @@ local function NextOffer()
             groupReason = (groupReason and (groupReason .. "; ") or "") .. "Weapons: " .. weaponReason
         end
         -- Passers-by (#39) come after all of your own: only when nothing
-        -- above is offered does the button reach them.
+        -- above is offered does the button reach them. Switched on but
+        -- stopped, the line says why (#521).
         ns.PassersBy.Next(passers)
+        local passersOff = ns.PassersBy.OffText()
+        if passersOff then groupReason = (groupReason and (groupReason .. "; ") or "") .. passersOff end
     end
     -- While the shift back into your form waits (#510, the owner's
     -- decisions of 19 Nov): what was on the list at the press that took you
@@ -890,6 +893,8 @@ function BuffButton.Refresh()
     -- Your buffs or settings may have changed what you give in a raid.
     ns.RaidSplit.Check()
     ArmButton()
+    -- Why passers-by are stopped, for debug and chat (#521): in a fight too.
+    ns.PassersBy.Watch()
     ns.BuffModeAuto.Check()
     if ns.Offers.Count() > 0 or shownResult or ns.BuffMode.LentKey() then ScheduleRecheck() end
 end
@@ -898,6 +903,7 @@ end
 -- nothing armed for the world outside the fight is cast in it.
 function BuffButton.OnCombatStart()
     ns.BuffMode.OnCombatStart()
+    ns.PassersBy.Watch(true) -- (#521)
     chosenName = nil
     ForgetForm("a fight started") -- (#495)
     if not button then return end
