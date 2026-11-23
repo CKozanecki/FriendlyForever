@@ -91,7 +91,8 @@ function handlers.ADDON_LOADED(name)
     -- say so, rather than erroring on every event.
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
         "BuffTable", "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
-        "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "OptionsIndex", "Colours", "Walkthrough",
+        "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "Versioned", "GuildLead", "OptionsIndex",
+        "Colours", "Walkthrough",
         "BuffList", "GroupCasts", "RaidSplit", "LevelUps", "SelfBuffs", "Requests", "BuffsTab", "WeaponBuffs",
         "PassersBy" }) do
         if ns[module] == nil then
@@ -150,7 +151,11 @@ function handlers.ADDON_LOADED(name)
         ns.BuffTracker.FlushRestricted() -- the log line for the fight's skipped aura updates (#268)
         ns.BuffTracker.CatchUp() -- and the buffs that came in them (#245)
     end)
-    Register("GUILD_ROSTER_UPDATE", ns.Greeter.OnRosterUpdate)
+    Register("GUILD_ROSTER_UPDATE", function()
+        ns.Greeter.OnRosterUpdate()
+        -- After the roster is read, so the guild leaders are known (#496).
+        ns.GuildLead.OnRosterUpdate()
+    end)
     Register("PLAYER_GUILD_UPDATE", ns.Greeter.RequestRoster)
     -- The battleground phase first: buffs that arrive as the battle starts
     -- aren't tracked (Battleground.lua).
