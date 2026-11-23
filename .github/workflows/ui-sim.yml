@@ -992,7 +992,7 @@ jobs:
         # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
         # so the last one ends by about 4400 s with the probe: inside this
         # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a
-        # normal run takes about 8 minutes and never nears the cut-off.)
+        # normal run takes about 14 minutes and never nears the cut-off.)
         # spec/repo_spec.lua counts the shots and checks these numbers (#309).
         timeout-minutes: 75
         run: |
