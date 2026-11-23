@@ -764,6 +764,7 @@ local function PressButton()
     pre(button, "LeftButton", false)
 end
 
+-- opts.hover: the pointer over the button, for its tooltip.
 -- opts.key: the key's "click to buff" only (the setting off, in the form).
 -- opts.refuse: the game's words, for a refused shift back.
 local function DruidInForm(opts)
@@ -789,7 +790,7 @@ local function DruidInForm(opts)
             -- A buff press in the form: the game takes you out of it, the buff lands.
             PressButton()
             local guid, id = "Cast-form-" .. tostring(GetTime()), States.MOTW.id
-            States.Fire("UNIT_SPELLCAST_SENT", "player", "", guid, id)
+            States.Fire("UNIT_SPELLCAST_SENT", "player", UnitName("player"), guid, id)
             Shapeshift(false)
             Admin("AddBuff", id, States.MOTW.name, "136078", 3600, 1)
             States.Fire("UNIT_AURA", "player", { isFullUpdate = true })
@@ -801,10 +802,11 @@ local function DruidInForm(opts)
                 States.Advance(1)
             end
         end,
-        Hover = function()
+        -- Only the shift back's shot has the tooltip: it is drawn over the mode line (#500).
+        Hover = opts.hover and function()
             local button = States.Button()
             if button then button:GetScript("OnEnter")(button) end
-        end,
+        end or nil,
         Undo = function()
             if InCombatLockdown() then States.Combat(false) end
             if GameTooltip then GameTooltip:Hide() end
@@ -826,7 +828,7 @@ local function DruidInForm(opts)
         end,
     }
 end
-States.FormBack = DruidInForm({})
+States.FormBack = DruidInForm({ hover = true })
 States.FormRefused = DruidInForm({ refuse = States.LONG_REFUSAL })
 States.FormKey = DruidInForm({ key = true })
 

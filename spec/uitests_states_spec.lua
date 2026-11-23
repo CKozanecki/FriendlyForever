@@ -477,6 +477,10 @@ describe("UI scenarios: a druid in a form (#500, #452, #495)", function()
         assert.are.equal(States.FormBack, States.SHOWN.formback)
         assert.are.equal(States.FormRefused, States.SHOWN.formrefused)
         assert.are.equal(States.FormKey, States.SHOWN.formkey)
+        -- The tooltip is drawn over the mode line, so only the shift back's shot hovers (#500).
+        assert.is_function(States.FormBack.Hover)
+        assert.is_nil(States.FormRefused.Hover)
+        assert.is_nil(States.FormKey.Hover)
     end)
 
     it("leaves the form on a buff press, then buffs you, then presses again for the refusal (white)", function()

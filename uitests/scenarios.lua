@@ -843,6 +843,8 @@ test("with the shift back into Dire Bear Form offered, the button, its mode line
         TextInside(button, button.subtitle, "shift back hint")
         OnScreen(button, "buff-back button (shift back)")
         report("LAYOUT shift back hint: " .. button.subtitle:GetText())
+        local mode = ModeLine(button, "shift back")
+        Expect(mode:find("Buff mode:", 1, true) ~= nil, ("the mode line reads %q, not buff mode's key"):format(mode))
         button:GetScript("OnEnter")(button)
         local said = TooltipText()
         report("LAYOUT shift back tooltip: " .. said)

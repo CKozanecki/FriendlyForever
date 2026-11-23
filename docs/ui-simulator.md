@@ -88,7 +88,7 @@ This section replaces the trackers #100 (the gaps collected for upstream) and #3
 
 **How we hear of upstream changes.** A scheduled, read-only watcher judges upstream's new commits by what they change (the rules below, #501), and files a **new** issue labelled `sim-update-now`, or comments on the open one, only for an UPDATE NOW verdict; quiet runs post nothing (the owner, 2026-11-18, #308; 2026-11-20, #501). That issue is a pin move: the session reads the source from our pin to the new commit first and posts the review on the issue (CONTRIBUTING.md's [UI simulator](../CONTRIBUTING.md#ui-simulator) safety rules, #154), then moves `SIM_COMMIT` and its spec, and reads the first run's `FACT sim` lines. #478 is the latest (`dbcfbd7`).
 
-**The watcher's rules** (agreed with the owner on 20 Nov, #501's comment 7026596102; the owner's updated rules replace the subject-line reading above):
+**The watcher's rules** (agreed with the owner on 20 Nov, #501's comment 7026596102; they replace the subject-line reading of 18 Nov, #308):
 
 - **The watcher is read-only.** Each run it judges the upstream commits since our pin by reading what they change, not their subject lines. Each commit is classed, with file and function as evidence, as: fixes an open workaround, enables a test, enables a feature, a bug or robustness fix, neutral, or unrelated. (#501)
 - **It posts only an UPDATE NOW verdict:** a new `sim-update-now` issue, or a comment on the open one. A quiet run posts nothing. (#501)
