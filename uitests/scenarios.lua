@@ -809,6 +809,74 @@ test("with a weapon buff picked in the list, the button, its tooltip and its row
     end)
 end)
 
+-- A druid in a form (#500, #452, #495): the words the button and its mode line
+-- show for the shift back, a refused one and the key's "click to buff", with
+-- the longest form name, Dire Bear Form, and a long reason. The mode line is
+-- one line anchored by its bottom only, so it grows with the reason: it must
+-- stay on screen at every size. Each reports a LAYOUT line.
+local function ModeLine(button, what)
+    local text = button.mode:GetText() or ""
+    report("LAYOUT " .. what .. " mode line: " .. text)
+    OnScreen(button.mode, what .. " mode line")
+    return text
+end
+
+local function TooltipText()
+    local lines = {}
+    for i = 1, (GameTooltip.NumLines and GameTooltip:NumLines() or 0) do
+        local region = _G["GameTooltipTextLeft" .. i]
+        lines[#lines + 1] = region and region:GetText() or ""
+    end
+    return table.concat(lines, " / ")
+end
+
+test("with the shift back into Dire Bear Form offered, the button, its mode line and its tooltip fit", function()
+    InState("shift back", FriendlyForeverUIStates.FormBack, function(button, States)
+        local F = States.FORM
+        Expect(button:IsShown(), "the button isn't up")
+        Expect(button.title:GetText() == "You", "the title doesn't say You")
+        Expect(button.subtitle:GetText() == "shift back into " .. F.name,
+            ("the hint reads %q, not the shift back"):format(button.subtitle:GetText() or ""))
+        Expect(States.Macro() == "/cast !" .. F.name,
+            ("the macro reads %q, not the shift back"):format(States.Macro() or ""))
+        TextInside(button, button.title, "shift back title", 1)
+        TextInside(button, button.subtitle, "shift back hint")
+        OnScreen(button, "buff-back button (shift back)")
+        report("LAYOUT shift back hint: " .. button.subtitle:GetText())
+        button:GetScript("OnEnter")(button)
+        local said = TooltipText()
+        report("LAYOUT shift back tooltip: " .. said)
+        Expect(said:find("Shifts you back into " .. F.name .. ".", 1, true) ~= nil,
+            "the tooltip doesn't say it shifts you back: " .. said)
+        Expect(said:find("Right-click to stay out of the form.", 1, true) ~= nil,
+            "the tooltip doesn't say what a right-click does: " .. said)
+        OnScreen(GameTooltip, "buff-back button tooltip (shift back)")
+        GameTooltip:Hide()
+    end)
+end)
+
+test("with the shift back refused for a long reason, the mode line gives it whole and stays on screen", function()
+    InState("refused shift back", FriendlyForeverUIStates.FormRefused, function(button, States)
+        Expect(button:IsShown(), "the button isn't up")
+        Expect(States.Macro() == "/cast !" .. States.FORM.name, "a click doesn't try the shift back again")
+        local text = ModeLine(button, "refused shift back")
+        Expect(text:find("click to shift back (" .. States.LONG_REFUSAL .. ")", 1, true) ~= nil,
+            ("the mode line reads %q, not the click to shift back with the game's reason"):format(text))
+        TextInside(button, button.subtitle, "refused shift back hint")
+        OnScreen(button, "buff-back button (refused shift back)")
+    end)
+end)
+
+test("with the key waiting in a form, the mode line says click to buff and stays on screen", function()
+    InState("key in a form", FriendlyForeverUIStates.FormKey, function(button)
+        Expect(button:IsShown(), "the button isn't up")
+        local text = ModeLine(button, "key in a form")
+        Expect(text:find("click to buff (you're in a form)", 1, true) ~= nil,
+            ("the mode line reads %q, not click to buff (you're in a form)"):format(text))
+        OnScreen(button, "buff-back button (key in a form)")
+    end)
+end)
+
 -- In buff mode the button offers you first (#198), then the party member
 -- missing your buff. The list beside the button (#43) makes the member the
 -- next offer, so both states are measured.

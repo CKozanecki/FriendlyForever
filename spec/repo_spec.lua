@@ -2185,6 +2185,33 @@ describe("UI simulator workflow", function()
             assert.is_falsy(r.log:find("nothing", 1, true), "the log's text reached the annotation")
         end)
 
+        -- #492: the digest's own sections (errors, scenarios, results, facts, layout) print simulator text too.
+        it("keeps a line of three backticks in any report from closing a code block of the summary (black)", function()
+            local fence = "```\n"
+            local r = summarize(ALL_FINISHED, {
+                ["lua-errors.json"] = "FriendlyForever ```\n" .. fence,
+                ["run-tests.log"] = fence .. "FACT sim ``` x\nLAYOUT ok ``` main\n" .. fence,
+                ["layout-1024x768.log"] = fence .. "LAYOUT ok ``` sized\n✗ ```\n5 tests, 0 failures ```\n" .. fence,
+            })
+            assert.are.equal(0, r.status)
+            local inside, opened = false, 0
+            for _, line in ipairs(runnerLines(r.summary)) do
+                if line == "```" and not inside then
+                    inside, opened = true, opened + 1
+                elseif line == "```" then
+                    inside = false
+                elseif inside then
+                    assert.is_truthy(line:find("^| "), "a report line isn't marked in the summary: " .. line)
+                end
+            end
+            assert.is_false(inside, "a code block is left open")
+            -- A report's own fence would add one: every section has exactly one block of its own.
+            local headings = select(2, r.summary:gsub("\n### ", "\n"))
+            assert.are.equal(headings, opened, "a report's fence made or closed a block of its own")
+            assert.is_truthy(r.summary:find("| LAYOUT ok ``` sized", 1, true))
+            assert.is_truthy(r.summary:find("| FACT sim ``` x", 1, true))
+        end)
+
         it("keeps every line of a stopped run's log inside the summary's code blocks, and out of the job log (black)", function()
             local r = summarize("lua-errors 1 0 3\nrun-tests 1 124 130\nrun-tests 2 124 130\ndump-tree 1 0 3\n"
                 .. "layout-1024x768 1 0 25\n", { ["run-tests.log.timed-out"] = HOSTILE, ["run-tests.log"] = HOSTILE })
@@ -6123,5 +6150,92 @@ describe("Claude sessions' agents, knowledge and skills", function()
         }) do
             assert.is_truthy(coordinator:find(rule, 1, true), rule)
         end
+    end)
+end)
+
+-- Spec: #522
+-- The CurseForge description drafts (docs/curseforge-<major.minor>.md) are pasted by hand, and CurseForge has no
+-- API to set them. On 18 Nov a draft lost its formatting there because its lists had no blank line before them.
+describe("the CurseForge description drafts (#522)", function()
+    local function isList(line) return line:match("^%s*[-*+]%s") or line:match("^%s*%d+[.)]%s") end
+
+    -- Every broken rule in a draft's text, as "line N: rule". Text inside an HTML comment is not checked.
+    local function lint(text)
+        local problems, inComment, openedAt, previous, descriptions = {}, false, nil, "", 0
+        local n = 0
+        for line in (text:gsub("\n$", "") .. "\n"):gmatch("([^\n]*)\n") do
+            n = n + 1
+            local startsInComment = inComment
+            local rest, hadComment = line, startsInComment
+            while true do
+                if inComment then
+                    local close = rest:find("-->", 1, true)
+                    if not close then break end
+                    inComment, openedAt, rest = false, nil, rest:sub(close + 3)
+                else
+                    local open = rest:find("<!--", 1, true)
+                    if not open then break end
+                    hadComment, inComment, openedAt, rest = true, true, n, rest:sub(open + 4)
+                end
+            end
+            if hadComment then
+                previous = "" -- a comment is no text
+            else
+                if line:match("^## Description%s*$") then descriptions = descriptions + 1 end
+                if isList(line) and previous:find("%S") and not isList(previous) then
+                    problems[#problems + 1] = "line " .. n .. ": a list item follows text with no blank line"
+                end
+                if line:match("^#+%s") and previous:find("%S") then
+                    problems[#problems + 1] = "line " .. n .. ": a heading follows text with no blank line"
+                end
+                previous = line
+            end
+        end
+        if inComment then problems[#problems + 1] = "line " .. openedAt .. ": an HTML comment isn't closed" end
+        if descriptions ~= 1 then
+            problems[#problems + 1] = "line 1: " .. descriptions .. " '## Description' headings, not one"
+        end
+        return problems
+    end
+
+    it("passes every docs/curseforge-*.md draft (white)", function()
+        local drafts = {}
+        local p = io.popen('ls "' .. wow.ROOT .. 'docs"')
+        for name in p:lines() do
+            if name:match("^curseforge%-.*%.md$") then drafts[#drafts + 1] = name end
+        end
+        p:close()
+        assert.is_true(#drafts > 0, "no CurseForge draft found")
+        for _, name in ipairs(drafts) do
+            local problems = lint(wow.readFile("docs/" .. name))
+            assert.are.same({}, problems, "docs/" .. name .. ": " .. table.concat(problems, "; "))
+        end
+    end)
+
+    it("accepts a draft that follows the rules (white)", function()
+        assert.are.same({}, lint("<!-- note\n- in a comment\n-->\n## Description\n\nText.\n\n- one\n- two\n\n**Bold**\n"))
+    end)
+
+    it("fails a list straight after a paragraph, naming the line (red)", function()
+        assert.are.same({ "line 5: a list item follows text with no blank line" },
+            lint("<!-- n -->\n## Description\n\nText.\n- one\n"))
+        assert.are.same({ "line 5: a list item follows text with no blank line" },
+            lint("<!-- n -->\n## Description\n\nText.\n1. one\n"))
+    end)
+
+    it("fails an unclosed comment, naming the line it opened on (red)", function()
+        assert.are.same({ "line 3: an HTML comment isn't closed" },
+            lint("## Description\n\n<!-- open\n\nText.\n"))
+    end)
+
+    it("fails a missing or a duplicate ## Description (red)", function()
+        assert.are.same({ "line 1: 0 '## Description' headings, not one" }, lint("Text.\n"))
+        assert.are.same({ "line 1: 2 '## Description' headings, not one" },
+            lint("## Description\n\nText.\n\n## Description\n"))
+    end)
+
+    it("fails a heading straight after text, naming the line (red)", function()
+        assert.are.same({ "line 4: a heading follows text with no blank line" },
+            lint("## Description\n\nText.\n## More\n\nText.\n"))
     end)
 end)
