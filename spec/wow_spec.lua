@@ -1,4 +1,4 @@
--- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471, #485, #482, #486, #491, #504, #510
+-- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471, #485, #482, #486, #491, #496, #504, #510
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -2016,6 +2016,60 @@ describe("The simulated client's guild roster zones (#486)", function()
         local zone, online = zoneOf(1)
         assert.are.equal("Durotar", zone)
         assert.is_false(online)
+    end)
+end)
+
+describe("The simulated client's guild ranks, guild name and server clock (#496)", function()
+    before_each(function()
+        wow.boot({ before = function(state)
+            state.guildRoster = { "Gina-Moss", "Otto-Bell", "Mia-Tern" }
+            state.guildRanks = { ["Gina-Moss"] = 0, ["Otto-Bell"] = 1, Me = 2 }
+            state.guildRankNames = { [0] = "Guild Master", [1] = "Officer" }
+        end })
+    end)
+
+    local function rankOf(i)
+        local _, name, index = _G.GetGuildRosterInfo(i)
+        return index, name
+    end
+
+    it("answers each member's rank index as its third value, and its name as the second", function()
+        assert.are.same({ 0, "Guild Master" }, { rankOf(1) })
+        assert.are.same({ 1, "Officer" }, { rankOf(2) })
+        assert.are.same({ wow.DEFAULT_GUILD_RANK, "Rank " .. wow.DEFAULT_GUILD_RANK }, { rankOf(3) })
+        assert.are.equal(4, wow.DEFAULT_GUILD_RANK)
+    end)
+
+    it("answers a secret rank index for everyone (true) or for the members named (a set)", function()
+        wow.state.guildRankSecret = true
+        for i = 1, 3 do assert.is_true(_G.issecretvalue((rankOf(i)))) end
+        wow.state.guildRankSecret = { ["Otto-Bell"] = true }
+        assert.are.equal(0, (rankOf(1)))
+        assert.is_true(_G.issecretvalue((rankOf(2))))
+        assert.are.equal(wow.DEFAULT_GUILD_RANK, (rankOf(3)))
+    end)
+
+    it("GetGuildInfo answers your guild, rank name and index for the player only, and no realm", function()
+        assert.are.same({ "Friends Forever", "Rank 2", 2 }, { _G.GetGuildInfo("player") })
+        assert.is_nil(select(4, _G.GetGuildInfo("player")))
+        assert.is_nil(_G.GetGuildInfo("target"))
+        wow.state.guildName = nil
+        assert.is_nil((_G.GetGuildInfo("player")))
+        wow.state.guildName = "Night Watch"
+        wow.state.guildNameSecret = true
+        assert.is_true(_G.issecretvalue((_G.GetGuildInfo("player"))))
+        wow.state.inGuild = false
+        assert.is_nil(_G.GetGuildInfo("player"))
+    end)
+
+    it("GetServerTime is time() plus the server's skew, and can be a secret", function()
+        assert.are.equal(_G.time(), _G.GetServerTime())
+        wow.advance(30)
+        assert.are.equal(_G.time(), _G.GetServerTime())
+        wow.state.serverSkew = -7
+        assert.are.equal(_G.time() - 7, _G.GetServerTime())
+        wow.state.serverTimeSecret = true
+        assert.is_true(_G.issecretvalue(_G.GetServerTime()))
     end)
 end)
 

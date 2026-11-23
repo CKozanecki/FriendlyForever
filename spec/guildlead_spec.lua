@@ -250,11 +250,14 @@ describe("Guild leader controls: the shared memory (#496)", function()
 
         it("each check-in records who has the addon, their version and when they were seen", function()
             local gm, member = Client(GM), Client(MEMBER)
+            -- Mia runs another version than the guild master, so a copy that
+            -- wrote its own version down would be caught.
+            member.ns.VERSION = "99.0.0"
             local net = Net({ gm, member })
             wow.advanceAll(net, 30, 0.5)
             wow.use(gm)
             local mate = _G.FriendlyForeverDB.guilds[KEY].mates[MEMBER]
-            assert.are.equal(wow.parseToc().Version, mate.version)
+            assert.are.equal("99.0.0", mate.version)
             assert.are.equal(_G.GetServerTime() - 25, mate.seen)
             assert.are.same(gm.ns.GuildLead.Mates()[MEMBER], mate)
             -- And again every CHECKIN_EVERY seconds.
@@ -471,25 +474,40 @@ describe("Guild leader controls: the shared memory (#496)", function()
             local m = Model()
             local versions = { 0, 1, 2, 5, 1800000000, 1800000001, 999999999999 }
             local stats = { taken = 0, refused = 0 }
+            local cases = { broken = 0, forged = 0, whisper = 0, secretLeader = 0, notLeader = 0, replay = 0 }
+            stats.cases = cases
             for step = 1, steps do
                 local roll = random.random(100)
                 if roll <= 4 then
                     -- The officer is promoted or demoted.
                     wow.state.guildRanks[OFFICER] = random.random(2) == 1 and 1 or random.random(2, 5)
                     wow.fire("GUILD_ROSTER_UPDATE")
-                elseif roll <= 7 then
-                    -- A leader's rank becomes unreadable, or readable again.
+                elseif roll <= 7 and not m.secretUntil then
+                    -- A leader's rank becomes unreadable, for 5 to 20 steps.
                     local who = random.random(2) == 1 and GM or OFFICER
-                    m.secret[who] = not m.secret[who] or nil
-                    local set = {}
-                    for name in pairs(m.secret) do set[name] = true end
-                    wow.state.guildRankSecret = set
+                    m.secret[who] = true
+                    m.secretUntil = step + random.random(5, 20)
+                    wow.state.guildRankSecret = { [who] = true }
+                    wow.fire("GUILD_ROSTER_UPDATE")
+                elseif m.secretUntil and step >= m.secretUntil then
+                    m.secret, m.secretUntil = {}, nil
+                    wow.state.guildRankSecret = nil
                     wow.fire("GUILD_ROSTER_UPDATE")
                 else
                     local kind = SECTIONS[random.random(3)]
                     local sender = SENDERS[random.random(#SENDERS)]
                     local kept = m.kept[kind].v
-                    local v = random.random(3) == 1 and kept + random.random(0, 3) or versions[random.random(#versions)]
+                    local draw = random.random(6)
+                    local v
+                    if draw <= 2 then
+                        v = kept + random.random(0, 3)
+                    elseif draw == 3 then
+                        -- A leader's replay of the version kept, or of one before it.
+                        v = kept - random.random(0, 2)
+                        sender = random.random(2) == 1 and GM or OFFICER
+                    else
+                        v = versions[random.random(#versions)]
+                    end
                     if v < 1 then v = 1 end
                     local e = GOOD[kind][random.random(#GOOD[kind])]
                     local text = part(kind, sender, string.format("%.0f", v), e)
@@ -506,6 +524,20 @@ describe("Guild leader controls: the shared memory (#496)", function()
                     -- Sections go only to the guild: a whisper is refused.
                     local route = random.random(20) == 1 and "WHISPER" or "GUILD"
                     local before = m.kept[kind].v .. "/" .. m.kept[kind].e
+                    -- Which case this message is, by the test's own model, so each is known to be reached.
+                    if broken then
+                        cases.broken = cases.broken + 1
+                    elseif from ~= sender then
+                        cases.forged = cases.forged + 1
+                    elseif route == "WHISPER" then
+                        cases.whisper = cases.whisper + 1
+                    elseif m.secret[sender] then
+                        cases.secretLeader = cases.secretLeader + 1
+                    elseif not m.leads(sender, kind) then
+                        cases.notLeader = cases.notLeader + 1
+                    elseif v < m.kept[kind].v or (v == m.kept[kind].v and e <= m.kept[kind].e) then
+                        cases.replay = cases.replay + 1
+                    end
                     receive(text, from, route)
                     if not broken and from == sender and route == "GUILD" then m.offer(kind, sender, v, e) end
                     local after = m.kept[kind].v .. "/" .. m.kept[kind].e
@@ -528,6 +560,11 @@ describe("Guild leader controls: the shared memory (#496)", function()
         for _, seed in ipairs({ 1, 2, 3, 4, 5, 6, 7, 8 }) do
             it("seed " .. seed .. ": only a newer, well-formed list from a current leader is ever kept", function()
                 local stats = Storm(seed, 300)
+                -- Each case the criterion names is reached, by the test's own count.
+                local floors = { broken = 40, forged = 5, whisper = 3, secretLeader = 3, notLeader = 40, replay = 4 }
+                for case, floor in pairs(floors) do
+                    assert.is_true(stats.cases[case] >= floor, string.format("seed %d: %d %s", seed, stats.cases[case], case))
+                end
                 assert.is_true(stats.taken > 3, "some genuine changes were taken")
                 assert.is_true(stats.refused > 100, "and many refused")
             end)
@@ -630,7 +667,8 @@ describe("Guild leader controls: the shared memory (#496)", function()
             end
             local sent = sends() - start
             assert.is_true(sent >= 1, "it still catches them up")
-            assert.is_true(sent <= seconds / ns.GuildLead.SEND_GAP + 1, sent .. " sends")
+            -- Once a minute (SEND_GAP, 60 s) at most: 11 over 600 seconds.
+            assert.is_true(sent <= 11, sent .. " sends")
         end)
 
         it("with a third of the messages lost, every copy still ends up with the leaders' settings", function()
@@ -863,7 +901,74 @@ describe("Guild leader controls: the shared memory (#496)", function()
         end)
     end)
 
+    describe("the memory damaged mid-session heals where it is read (black)", function()
+        for name, damage in pairs({
+            ["guildmates not a table"] = function(g) g[KEY].mates = "x" end,
+            ["guildmates gone"] = function(g) g[KEY].mates = nil end,
+            ["the guild's entry not a table"] = function(g) g[KEY] = "x" end,
+            ["a section not a table"] = function(g) g[KEY].caps = "x" end,
+            ["a section's list gone"] = function(g) g[KEY].vetoes.items = nil end,
+            ["a version not a number"] = function(g) g[KEY].ranks.version = "x" end,
+        }) do
+            it(name .. ": a check-in and a leader's list still arrive, with no error", function()
+                local ns = Solo()
+                receive(part("ranks", GM, 10, "1"), GM)
+                damage(_G.FriendlyForeverDB.guilds)
+                wow.advance(1.1)
+                receive("1;GCHECK;" .. MEMBER .. ";99.0.0;0;0;0", MEMBER)
+                receive(part("caps", GM, 20, "g2"), GM)
+                assert.are.same({}, wow.errors)
+                assert.are.equal(0, count(ns, "luaErrors"))
+                assert.are.equal("g2", select(2, saved("caps")))
+                assert.are.equal("99.0.0", ns.GuildLead.Mates()[MEMBER].version)
+                assert.are.same({ greeters = 2, hellos = true }, ns.GuildLead.Caps())
+            end)
+        end
+
+        it("the guilds table not a table: made afresh, and the next list arrives", function()
+            local ns = Solo()
+            _G.FriendlyForeverDB.guilds = "x"
+            receive("1;GCHECK;" .. MEMBER .. ";99.0.0;0;0;0", MEMBER)
+            receive(part("caps", GM, 20, "g2"), GM)
+            assert.are.same({}, wow.errors)
+            assert.are.equal("g2", select(2, saved("caps")))
+            assert.are.equal("99.0.0", ns.GuildLead.Mates()[MEMBER].version)
+        end)
+    end)
+
     describe("check-ins and sends (white)", function()
+        it("keeps to the limits written on #496", function()
+            local ns = Solo()
+            local G, V = ns.GuildLead, ns.Versioned
+            assert.are.same({ 10, 120, 500, 40, 20, 5, 20, 900, 60, 2, 10, 60, 2 }, {
+                G.MAX_GUILDS, G.MAX_KEY, G.MAX_MATES, G.MAX_VETOES, G.CAP_MAX, G.CHECKIN_WAIT_MIN,
+                G.CHECKIN_WAIT_MAX, G.CHECKIN_EVERY, G.CHECKIN_GAP, G.SEND_WAIT_MIN, G.SEND_WAIT_MAX, G.SEND_GAP,
+                G.EDIT_WAIT })
+            assert.are.same({ 999999999999, 6, 4, 30, 24 },
+                { V.MAX_VERSION, V.MAX_PARTS, V.MAX_ASSEMBLIES, V.ASSEMBLY_TTL, V.MAX_ITEM_BYTES })
+        end)
+
+        it("checks in 5 seconds after the first roster update, then every 15 minutes", function()
+            Solo()
+            local function checkIns()
+                local n = 0
+                for _, msg in ipairs(wow.addonSent) do
+                    if msg.text:find(";GCHECK;", 1, true) then n = n + 1 end
+                end
+                return n
+            end
+            wow.advance(4.9)
+            assert.are.equal(0, checkIns())
+            wow.advance(0.2)
+            assert.are.equal(1, checkIns())
+            wow.advance(894.8) -- 899.9 seconds after the roster update
+            assert.are.equal(1, checkIns())
+            wow.advance(0.2)
+            assert.are.equal(2, checkIns())
+            wow.advance(900)
+            assert.are.equal(3, checkIns())
+        end)
+
         local function sent(pattern)
             local n = 0
             for _, msg in ipairs(wow.addonSent) do
