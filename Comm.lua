@@ -9,7 +9,10 @@
 -- flood limits, our protocol version, a known type on a route that type
 -- accepts, sent by the player it is about, and fields that each pass their
 -- type's check. A message can only tell this copy a fact; handlers never
--- cast, send chat or change settings.
+-- cast, send chat or change the player's settings. The one thing kept in
+-- the saved settings is the guild's shared memory (#496, GuildLead.lua):
+-- lists only a sender the roster shows leading can change, which can only
+-- make the addon quieter, and who in the guild has the addon.
 --
 -- Sending goes through our own limiter, kept well below the game's
 -- per-prefix throttle, and a short, bounded queue: messages are dropped
@@ -198,7 +201,8 @@ end
 --          limiter already holds them.
 -- }
 -- Handlers only record what they're told. They must never cast, send chat
--- or change saved settings.
+-- or change the player's settings (the guild's shared memory is the one
+-- exception: GuildLead.lua, Versioned.lua).
 function Comm.RegisterType(name, spec)
     assert(type(name) == "string" and name:find("^%u+$") and #name <= 12, "Comm: bad message type name")
     assert(#spec.fields <= Comm.MAX_FIELDS, "Comm: too many fields")

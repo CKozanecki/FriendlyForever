@@ -767,6 +767,9 @@ local function ValidateSettings(db)
 
     ns.Profiles.Validate(db)
 
+    -- Each guild's shared settings and who has the addon (#496).
+    ns.GuildLead.Validate(db)
+
     -- Snooze: wall-clock time (time()) it ends, or nil.
     -- Never further off than the longest snooze (a damaged file, or a clock
     -- that was wrong when you snoozed, mustn't mute the addon for good).

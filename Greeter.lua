@@ -14,6 +14,10 @@ local members = {} -- [full name] = their class as players read it ("warrior"), 
 -- [full name] = the zone an online member is in, from the last readable
 -- roster update (#486): plain text, never a secret, at most MAX_ZONE_BYTES.
 local zones = {}
+-- [full name] = the rank index the last readable roster update gave them
+-- (#496): a whole number, 0 for the guild master. Nobody's while the
+-- roster can't be read, so no one counts as a guild leader then.
+local ranks = {}
 local pendingOnline = {}
 local pendingCount = 0
 
@@ -131,6 +135,12 @@ end
 
 function Greeter.MemberZone(name)
     return zones[name]
+end
+
+-- A guildmate's rank index from the last readable roster update (#496):
+-- 0 for the guild master, or nil when it isn't known.
+function Greeter.MemberRank(name)
+    return ranks[name]
 end
 
 -- {name}, {fullname} and, when the roster says, {class}.
@@ -355,15 +365,24 @@ local function Plain(value)
     return value
 end
 
--- One roster row's name, class, zone and whether they're online (its first,
--- fifth, sixth and ninth answers; the zone and online for #486), each nil
--- when it's a secret, and all nil when the game's call fails (#412). One
--- call a row; each value is read on its own, so a secret zone can't lose
--- the member.
+-- One roster row's name, class, zone, whether they're online and rank
+-- index (its first, fifth, sixth, ninth and third answers; the zone and
+-- online for #486, the rank for #496), each nil when it's a secret, and all
+-- nil when the game's call fails (#412). One call a row; each value is read
+-- on its own, so a secret zone or rank can't lose the member.
 local function RosterRow(i)
-    local ok, name, _, _, _, class, zone, _, _, online = pcall(GetGuildRosterInfo, i)
+    local ok, name, _, rank, _, class, zone, _, _, online = pcall(GetGuildRosterInfo, i)
     if not ok then return nil end
-    return Plain(name), Plain(class), Plain(zone), Plain(online)
+    return Plain(name), Plain(class), Plain(zone), Plain(online), Plain(rank)
+end
+
+-- The most guild ranks a guild has (Guild Master's 0 to 9).
+Greeter.MAX_RANK = 9
+
+-- A roster row's rank index as a whole number from 0 to MAX_RANK, or nil.
+local function RosterRank(rank)
+    if type(rank) ~= "number" or rank ~= math.floor(rank) or rank < 0 or rank > Greeter.MAX_RANK then return nil end
+    return rank
 end
 
 -- The longest zone name taken from the roster (#486), in bytes: past every
@@ -381,36 +400,39 @@ local function RosterZone(zone, online)
 end
 
 -- The guild roster as the game gives it now: [full name] = class or true,
--- and [full name] = zone for the online members whose zone can be read.
+-- [full name] = zone for the online members whose zone can be read, and
+-- [full name] = rank index for the members whose rank can be read.
 -- Out of a guild, or when the game won't say whether you're in one, nobody
 -- (#400). Nil when the roster can't be read: the count isn't a readable
 -- number, or no row could be read from a guild, which always lists you (#412).
 local function ReadRoster()
-    if Flag(IsInGuild) ~= true then return {}, {} end
+    if Flag(IsInGuild) ~= true then return {}, {}, {} end
     -- A negative count reads no row, so it's caught below with an empty one.
     local count = Util.ReadGameValues(GetNumGuildMembers)
     if type(count) ~= "number" or count ~= count or count == math.huge then return nil end
-    local roster, places, found = {}, {}, false
+    local roster, places, levels, found = {}, {}, {}, false
     for i = 1, math.min(Greeter.MAX_ROSTER_ROWS, count) do
-        local rawName, class, zone, online = RosterRow(i)
+        local rawName, class, zone, online, rank = RosterRow(i)
         local name = Util.FullName(rawName)
         if name then
             roster[name] = type(class) == "string" and class ~= "" and class:lower() or true
             places[name] = RosterZone(zone, online)
+            levels[name] = RosterRank(rank)
             found = true
         end
     end
     if not found then return nil end
-    return roster, places
+    return roster, places, levels
 end
 
 function Greeter.OnRosterUpdate()
     ns.Diag.Count("rosterUpdates")
-    local roster, places = ReadRoster()
+    local roster, places, levels = ReadRoster()
     if not roster then
         -- Keep the guildmates already known until a readable update (#412),
-        -- but not where they are: that can't be told now (#486).
-        zones = {}
+        -- but not where they are or their ranks: those can't be told now
+        -- (#486, #496).
+        zones, ranks = {}, {}
         ns.Diag.Count("rosterUnreadable")
         unreadableRun = unreadableRun + 1
         if unreadableRun == 1 then
@@ -422,7 +444,7 @@ function Greeter.OnRosterUpdate()
         ns.Diag.Log("guild", "%d more unreadable roster updates in that run", unreadableRun - 1)
     end
     unreadableRun = 0
-    members, zones = roster, places
+    members, zones, ranks = roster, places, levels
 
     -- Logged only when the count changes: updates come in bursts (#268).
     local count = Greeter.MemberCount()

@@ -891,6 +891,17 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         likewise for its group role and Main Tank assignment;
 --                         auraTimes for its buffs' duration and expirationTime
 --                         alone (the buffs themselves readable).
+--   Guild ranks (#496): GetGuildRosterInfo's third answer is the member's
+--                         rank index, 0 for the guild master, and GetGuildInfo
+--                         ("player") gives the guild's name, your rank's name
+--                         and index (warcraft.wiki.gg's API pages, read through
+--                         search results only: the wiki couldn't be reached).
+--                         state.guildRanks[name] sets it (M.DEFAULT_GUILD_RANK
+--                         otherwise), and state.guildRankSecret (true, or a set
+--                         of names) makes it a secret. GetServerTime() is the
+--                         server's clock in epoch seconds, here time() plus
+--                         state.serverSkew. All unconfirmed on Forever: the
+--                         quality issue #523.
 --   The realm (#508): GetRealmName() answers state.realm, "Forever Realm"
 --                         by default, a plain string. The Classic Era API
 --                         (warcraft.wiki.gg); Forever's names carry no realm,
@@ -2101,6 +2112,12 @@ function M.visibleRoster()
     return out
 end
 
+-- A member's rank index (#496): 0 is the guild master, as in the game.
+M.DEFAULT_GUILD_RANK = 4
+function M.guildRank(name)
+    return M.state.guildRanks[name] or M.DEFAULT_GUILD_RANK
+end
+
 -- A roster update carrying this snapshot. Updates can be stale or arrive out
 -- of order (other addons and the guild frame request them too), so the
 -- snapshot may be older than what the client last showed.
@@ -2144,6 +2161,9 @@ function M.reset()
     M.state = {
         realm = "Forever Realm", -- GetRealmName (#508)
         inGuild = true, guildRoster = {},
+        -- #496: the guild's name, and each member's rank index (0: the guild
+        -- master); a member not in guildRanks has M.DEFAULT_GUILD_RANK.
+        guildName = "Friends Forever", guildRanks = {}, guildRankNames = { [0] = "Guild Master", [1] = "Officer" },
         groupType = nil, groupMembers = {},
         inInstance = false, lockdown = false, inCombat = false,
         units = {}, cursorX = 0, cursorY = 0,
@@ -2380,7 +2400,24 @@ function M.reset()
         local zone = M.state.guildZones[name] or ""
         local secret = M.state.guildZoneSecret
         if secret == true or (type(secret) == "table" and secret[name]) then zone = M.secret(zone) end
-        return name, "Member", 1, 60, "Warrior", zone, "", "", not M.state.guildOffline[name]
+        local rank = M.guildRank(name)
+        local rankName = M.state.guildRankNames[rank] or ("Rank " .. rank)
+        local rankSecret = M.state.guildRankSecret
+        if rankSecret == true or (type(rankSecret) == "table" and rankSecret[name]) then rank = M.secret(rank) end
+        return name, rankName, rank, 60, "Warrior", zone, "", "", not M.state.guildOffline[name]
+    end
+    -- GetGuildInfo(unit) (#496): the guild's name, your rank's name and
+    -- index, and no realm (Forever's names carry none), for "player" while
+    -- in a guild; nil otherwise. state.guildName (nil: not loaded yet) and
+    -- state.guildNameSecret make the name missing or a secret.
+    _G.GetGuildInfo = function(unit)
+        if unit ~= "player" or M.state.inGuild ~= true then return nil end
+        local guild = M.state.guildName
+        if guild ~= nil and M.state.guildNameSecret then guild = M.secret(guild) end
+        local me = M.state.units.player
+        local full = me and me.surname and (me.name .. "-" .. me.surname) or (me and me.name)
+        local rank = M.guildRank(full)
+        return guild, M.state.guildRankNames[rank] or ("Rank " .. rank), rank, nil
     end
     -- state.rosterReplyDelay: answer a roster request with a roster update
     -- after that many seconds, as the server does.
@@ -2402,6 +2439,14 @@ function M.reset()
     end
     -- Wall-clock seconds (time()), which moves with advance() like GetTime().
     _G.time = function() return M.state.clock + (M.now - 1000) end
+    -- The server's clock (#496): time() plus state.serverSkew seconds (a
+    -- server clock that differs from yours); state.serverTimeSecret makes it
+    -- a secret, and a spec removes it for a client without it.
+    _G.GetServerTime = function()
+        local now = _G.time() + (M.state.serverSkew or 0)
+        if M.state.serverTimeSecret then return M.secret(now) end
+        return now
+    end
 
     -- Who I am and where: state.race / state.class are the untranslated file
     -- names (UnitRace's and UnitClass's second returns); state.zone, state.hour,
@@ -2974,6 +3019,9 @@ function M.boot(opts)
     -- A guild hello waits the shortest random extra (GuildHellos.STAGGER_MIN,
     -- #38), so specs know when it goes; opts.randomStagger keeps it random.
     if not opts.randomStagger then ns.GuildHellos.random = function() return 0 end end
+    -- Guild check-ins (#496) are addon messages on the guild route, which
+    -- specs written before them count: they stay unsent unless opts.guildSync.
+    if not opts.guildSync then ns.GuildLead.CheckIn = function() return false end end
     -- Each new character sees the walkthrough's step about its own settings
     -- once (#508), which specs don't want at every boot, the walkthrough's
     -- own included: unless opts.welcome, it counts as seen.
