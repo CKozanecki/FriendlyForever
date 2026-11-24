@@ -131,6 +131,9 @@ function handlers.ADDON_LOADED(name)
         end
     end)
     Register("CHAT_MSG_SYSTEM", ns.Greeter.OnSystemMessage)
+    -- Guild chat, only to show leaders the words of the lines copies report
+    -- saying there (#496); it reads nothing unless you lead.
+    Register("CHAT_MSG_GUILD", ns.GuildLead.OnGuildChat)
     Register("CHAT_MSG_ADDON", ns.Comm.OnAddonMessage)
     Register("GROUP_ROSTER_UPDATE", function(...)
         -- Forget this raid's Blessings as you leave it, so they can't carry
