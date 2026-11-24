@@ -21,7 +21,7 @@ Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets,
 
 **New in 1.5.3:**
 
-- a character that never chose a profile now gets a profile of its own, named after it, and is never dropped to Default;
+- a character that never chose a profile, logging in while a shared profile is active, now gets a profile of its own, named after it, instead of being dropped to Default;
 - passers-by say why they can't run: friendly nameplates off, a capital city, a dungeon, raid or battleground, and so on;
 - groundwork for guild leaders to quiet the guild's greetings: the messaging and the guild's shared memory are in, and the caps and vetoes take effect, but the panel where a leader sets them comes in 1.6, so nothing changes until a leader sets limits;
 - this version adds files, so restart the game after updating.
