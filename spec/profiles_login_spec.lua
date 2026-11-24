@@ -1,9 +1,11 @@
 -- Spec: #519
--- A character with no profile record (#519): at its first login after 1.5.2
--- it keeps the profile that was active, as 1.5.1 did, and records it as its
--- own. Nothing stored is put over the live settings unless a record says to,
--- so a stale stored Default never turns buff back, passers-by or requests
--- off.
+-- A character with no profile record (#519): at its first login after 1.5.2,
+-- while a shared profile is active, it gets a profile of its own, named after
+-- it and copied from the live settings, and recorded as its choice (the
+-- owner's decision of 24 Nov 2026, "B1"). It never joins the shared profile,
+-- Default and every other profile are left as they were, and nothing stored
+-- is put over the live settings unless a record says to, so a stale stored
+-- Default never turns buff back, passers-by or requests off.
 local wow = require("spec.support.wow")
 local random = require("spec.support.random")
 
@@ -18,9 +20,10 @@ local INTELLECT = 10157
 local SWITCHES = { { "buffBack", "enabled" }, { "buffBack", "passersBy" }, { "buffBack", "requests" },
     { "buff", "enabled" } }
 
-local function login(db, class)
+local function login(db, class, who)
+    who = who or ME
     ns = wow.boot({ db = db, before = function(state)
-        state.units.player = { name = ME.name, surname = ME.surname, id = ME.id, isPlayer = true, level = ME.level }
+        state.units.player = { name = who.name, surname = who.surname, id = who.id, isPlayer = true, level = ME.level }
         state.class = class or "MAGE"
         state.knownSpells = { [INTELLECT] = true }
     end })
@@ -33,6 +36,13 @@ local function switches(db)
         local section = db[s[1]]
         if type(section) == "table" then out[s[1] .. "." .. s[2]] = section[s[2]] end
     end
+    return out
+end
+
+local function copy(t)
+    if type(t) ~= "table" then return t end
+    local out = {}
+    for k, v in pairs(t) do out[k] = copy(v) end
     return out
 end
 
@@ -56,6 +66,11 @@ end
 local ALL_ON = { ["buffBack.enabled"] = true, ["buffBack.passersBy"] = true, ["buffBack.requests"] = true,
     ["buff.enabled"] = true }
 
+local function logout()
+    wow.fire("PLAYER_LOGOUT")
+    return _G.FriendlyForeverDB
+end
+
 describe("A character with no profile record (#519)", function()
     describe("white", function()
         for _, case in ipairs({
@@ -63,12 +78,17 @@ describe("A character with no profile record (#519)", function()
             { "1.5.2's file, another character recorded (schema 9)", 9,
                 { characters = { ["Forever Realm:Bo-Reed"] = { profile = "Main" } }, characterLive = false } },
         }) do
-            it("stays on the active profile, keeps buff back on and records it: " .. case[1], function()
-                login(mainActive(case[2], case[3]))
-                assert.are.equal("Main", ns.Profiles.Active(), "kept, as 1.5.1 did")
-                assert.are.same(ALL_ON, switches(ns.db), "never the stale Default's switches")
-                assert.are.equal("Main", ns.db.characters[MY_KEY].profile, "recorded as its own")
-                assert.is_false(ns.db.characterLive, "the live settings are Main's, nobody's own")
+            it("gets its own profile, a copy of the live settings, and keeps buff back on: " .. case[1], function()
+                local db = mainActive(case[2], case[3])
+                local before = copy(db.profiles)
+                login(db)
+                assert.are.equal("Ann", ns.Profiles.Active(), "its own, named after it")
+                assert.are.equal("Ann", ns.db.characters[MY_KEY].profile, "recorded as its choice")
+                assert.are.same(ALL_ON, switches(ns.db), "the live settings, never the stale Default's")
+                assert.are.same(ALL_ON, switches(ns.db.profiles.Ann), "its profile is a copy of them")
+                assert.are.same(before.Main, ns.db.profiles.Main, "Main is left as it was")
+                assert.are.same(before.Default, ns.db.profiles.Default, "Default is left as it was")
+                assert.is_false(ns.db.characterLive, "the live settings are its profile's, nobody's own")
                 -- A stranger who buffs you is offered a buff back.
                 wow.addUnit("nameplate1", { name = "Bob", surname = "Stone", id = "Bob-Stone", class = "PRIEST" })
                 wow.gainBuff({ sourceUnit = "nameplate1", name = "Power Word: Fortitude", spellId = 10938 })
@@ -79,17 +99,75 @@ describe("A character with no profile record (#519)", function()
             end)
         end
 
-        it("keeps it at the next login, even when another character left another profile active", function()
+        it("editing its profile never changes the shared one, and it comes back to it at the next login", function()
             login(mainActive(9))
-            ns.Profiles.New("Alt")
-            ns.db.buffBack.passersBy = false -- Alt's own
-            wow.fire("PLAYER_LOGOUT")
-            local db = _G.FriendlyForeverDB
-            db.activeProfile = "Alt" -- as if another character left it so
-            db.characters[MY_KEY].profile = "Main"
+            local main = copy(ns.db.profiles.Main)
+            ns.db.buffBack.passersBy = false
+            ns.db.buffBack.buffModeKey = "G"
+            local db = logout()
+            assert.are.same(main, db.profiles.Main, "Main is as it was")
+            assert.is_false(db.profiles.Ann.buffBack.passersBy, "the edit is in its own profile")
+            -- As if another character left Main active: its settings live.
+            db.activeProfile = "Main"
+            db.buffBack, db.buff = copy(main.buffBack), copy(main.buff)
             login(db)
-            assert.are.equal("Main", ns.Profiles.Active(), "its record names Main")
-            assert.are.same(ALL_ON, switches(ns.db), "Main's stored settings")
+            assert.are.equal("Ann", ns.Profiles.Active(), "its record names its own")
+            assert.are.same({ false, "G" }, { ns.db.buffBack.passersBy, ns.db.buffBack.buffModeKey })
+            assert.are.same(ALL_ON, switches(ns.db.profiles.Main), "Main's switches are as they were")
+        end)
+
+        it("takes the next free name when its own is taken: Ann 2, Ann 3", function()
+            local db = mainActive(9)
+            db.profiles.Ann = { schemaVersion = 9 }
+            db.profiles["Ann 2"] = { schemaVersion = 9 }
+            login(db)
+            assert.are.equal("Ann 3", ns.Profiles.Active())
+            assert.are.same({ schemaVersion = 9 }, ns.db.profiles.Ann, "the other Ann's is left as it was")
+        end)
+
+        it("never takes Default's name, or the active profile's, for its own", function()
+            local db = mainActive(9)
+            login(db, nil, { name = "Default", surname = "Vale", id = "Default-Vale" })
+            assert.are.equal("Default 2", ns.Profiles.Active(), "a character called Default")
+            assert.is_false(ns.db.profiles.Default.buffBack.enabled, "Default is left as it was")
+            db = mainActive(9)
+            db.profiles.Default = nil -- Default not stored: the name is still never its own
+            login(db, nil, { name = "Default", surname = "Vale", id = "Default-Vale" })
+            assert.are.equal("Default 2", ns.Profiles.Active())
+            assert.is_nil(ns.db.profiles.Default)
+            db = mainActive(9, { activeProfile = "Ann" })
+            db.profiles = nil -- Ann active but not stored: a damaged file
+            login(db)
+            assert.are.equal("Ann 2", ns.Profiles.Active())
+            assert.are.same(ALL_ON, switches(ns.db))
+        end)
+
+        it("ends an import's undo, which was for the profile that was active", function()
+            local db = mainActive(9)
+            db.importUndo = { profile = "Main", settings = { schemaVersion = 9 }, ignoreAdded = {},
+                who = "Forever Realm:Bo-Reed" }
+            login(db)
+            assert.is_nil(ns.db.importUndo)
+        end)
+
+        it("at the cap of profiles it keeps the active one, and chat says why", function()
+            local db = mainActive(9)
+            for i = 1, 18 do db.profiles["P" .. i] = { schemaVersion = 9 } end -- 20 with Main and Default
+            local before = copy(db.profiles)
+            login(db)
+            assert.are.equal("Main", ns.Profiles.Active(), "kept: no room for its own")
+            assert.are.equal("Main", ns.db.characters[MY_KEY].profile)
+            assert.are.same(ALL_ON, switches(ns.db))
+            assert.are.same(before, ns.db.profiles, "nothing stored is changed")
+            local said = false
+            for _, line in ipairs(wow.printed) do
+                if line:find("this character uses the profile Main, shared with your other characters", 1, true)
+                    and line:find("the most profiles allowed (20)", 1, true) then
+                    said = true
+                end
+            end
+            assert.is_true(said, "chat says why")
+            assert.are.same({}, wow.errors)
         end)
 
         it("a plain account (Default only) behaves as before: Default, its own settings, nothing switched", function()
@@ -114,15 +192,23 @@ describe("A character with no profile record (#519)", function()
             end
         end)
 
-        it("logs which profile a new character keeps", function()
+        it("a 1.5.x choice is still kept: it switches to that profile, and makes none", function()
+            local db = mainActive(8, { charProfiles = { ["Ann-Vale"] = "Main" } })
+            login(db)
+            assert.are.equal("Main", ns.Profiles.Active())
+            assert.is_nil(ns.db.profiles.Ann)
+        end)
+
+        it("logs the profile a new character gets", function()
             login(mainActive(9, { debug = true }))
             local found = false
             for _, line in ipairs(ns.db.diagLog) do
-                if line:find("Ann-Vale is new here", 1, true) and line:find("its profile Main", 1, true) then
+                if line:find("Forever Realm:Ann-Vale gets its own profile Ann, a copy of Main's live settings", 1, true)
+                then
                     found = true
                 end
             end
-            assert.is_true(found, "the debug log names the profile kept")
+            assert.is_true(found, "the debug log names the profile made")
         end)
     end)
 
@@ -134,31 +220,46 @@ describe("A character with no profile record (#519)", function()
                 db.buffBack.renewPercent, db.guildLogin = 40, { delay = 22 }
                 login(db)
                 local label = tostring(junk)
-                assert.are.equal("Main", ns.Profiles.Active(), label)
+                assert.are.equal("Ann", ns.Profiles.Active(), label)
                 assert.are.same(ALL_ON, switches(ns.db), label)
                 assert.are.same({ 40, 22 }, { ns.db.buffBack.renewPercent, ns.db.guildLogin.delay }, label)
                 assert.are.same({}, wow.errors, label)
             end
         end)
 
-        it("a record naming a profile that is gone keeps the active one, and records it", function()
+        it("a record naming a profile that is gone gets its own profile from the live settings", function()
             for _, junk in ipairs({ "nil", "x", { Default = { buffBack = { enabled = false } } } }) do
                 local db = mainActive(9, { characters = { [MY_KEY] = { profile = "Gone" } } })
                 db.profiles = junk ~= "nil" and junk or nil
                 login(db)
                 local label = type(junk) == "table" and "with Default stored" or tostring(junk)
-                assert.are.equal("Main", ns.Profiles.Active(), label)
+                assert.are.equal("Ann", ns.Profiles.Active(), label)
                 assert.are.same(ALL_ON, switches(ns.db), label)
-                assert.are.equal("Main", ns.db.characters[MY_KEY].profile, label)
+                assert.are.equal("Ann", ns.db.characters[MY_KEY].profile, label)
+                if type(junk) == "table" then
+                    assert.is_false(ns.db.profiles.Default.buffBack.enabled, label .. ": Default as it was")
+                end
             end
         end)
 
-        it("a damaged 1.5.x list or character list is read as no choice: the active profile is kept", function()
+        it("a damaged 1.5.x list or character list is read as no choice: a profile of its own", function()
             for _, junk in ipairs({ 42, "x", { 1, 2 }, { ["Ann-Vale"] = 5 }, { ["Ann-Vale"] = "" } }) do
                 login(mainActive(8, { charProfiles = junk, characters = junk }))
-                assert.are.equal("Main", ns.Profiles.Active(), tostring(junk))
+                assert.are.equal("Ann", ns.Profiles.Active(), tostring(junk))
                 assert.are.same(ALL_ON, switches(ns.db), tostring(junk))
             end
+        end)
+
+        it("a damaged record of whose settings are live never keeps them as that character's", function()
+            local bo = "Forever Realm:Bo-Reed"
+            local db = mainActive(9, { characterLive = bo,
+                characters = { [bo] = { settings = { buffModeKey = "B" } } } })
+            db.buffBack.buffModeKey = "M"
+            login(db)
+            assert.are.equal("Ann", ns.Profiles.Active())
+            assert.is_false(ns.db.characterLive, "the live settings are Ann's profile's")
+            db = logout()
+            assert.are.equal("B", db.characters[bo].settings.buffModeKey, "Bo's own are as they were")
         end)
 
         it("a record that chose Default still goes back to it, the stored copy and all", function()
@@ -188,10 +289,12 @@ describe("A character with no profile record (#519)", function()
         end
         local function valid(name) return type(name) == "string" and name ~= "" end
 
-        local reach = { noRecord = 0, kept = 0, toRecorded = 0, toDefault = 0, own = 0, gone = 0, damagedProfiles = 0 }
+        local reach = { noRecord = 0, ownProfile = 0, kept = 0, toRecorded = 0, toDefault = 0, own = 0, gone = 0,
+            damagedProfiles = 0 }
 
         for _, seed in ipairs({ 1, 5, 19, 519, 2026, 31337 }) do
-            it("seed " .. seed .. ": never turns off a Favours switch unless a record names another profile",
+            it("seed " .. seed .. ": never turns off a Favours switch or changes a stored profile, unless a record "
+                .. "names another profile",
                 function()
                 random.seed(seed)
                 for round = 1, 30 do
@@ -250,19 +353,24 @@ describe("A character with no profile record (#519)", function()
                         want = valid(recordProfile) and recordProfile or nil
                     else
                         reach.noRecord = reach.noRecord + 1
-                        want = valid(listChoice) and listChoice or (active ~= "Default" and active or nil)
+                        want = valid(listChoice) and listChoice or nil
                     end
                     local shared = want ~= nil and want ~= "Default"
                     local expected -- the switches after login, or nil: what a stored copy holds
                     local from
-                    if shared and want ~= active and stored[want] then
-                        from = stored[want]
+                    local own -- it gets a profile of its own, "Ann" (none of NAMES, and far from the cap)
+                    local switching -- a record says to switch: the active profile is saved first
+                    if not hasRecord and want == nil and active ~= "Default" then
+                        expected, own = live, true
+                        reach.ownProfile = reach.ownProfile + 1
+                    elseif shared and want ~= active and stored[want] then
+                        from, switching = stored[want], true
                         reach.toRecorded = reach.toRecorded + 1
                     elseif shared and active ~= "Default" then
                         expected = live
-                        if want == active then reach.kept = reach.kept + 1 else reach.gone = reach.gone + 1 end
+                        if want == active then reach.kept = reach.kept + 1 else reach.gone, own = reach.gone + 1, true end
                     elseif active ~= "Default" then
-                        from = stored.Default
+                        from, switching = stored.Default, true
                         expected = not from and live or nil
                         reach.toDefault = reach.toDefault + 1
                     else
@@ -278,9 +386,24 @@ describe("A character with no profile record (#519)", function()
                         end
                     end
 
+                    local storedBefore = {}
+                    for name, snap in pairs(stored) do storedBefore[name] = switches(snap) end
+
                     login(db)
                     assert.are.same({}, wow.errors, at)
                     assert.are.same(expected, switches(ns.db), at)
+                    if own then
+                        assert.are.equal("Ann", ns.Profiles.Active(), at .. ": its own profile")
+                        assert.are.equal("Ann", ns.db.characters[MY_KEY].profile, at .. ": recorded")
+                        assert.are.same(live, switches(ns.db.profiles.Ann), at .. ": a copy of the live settings")
+                    end
+                    -- Every stored profile is left as it was, but the one that was
+                    -- active when a record says to switch (it is saved first).
+                    for name, was in pairs(storedBefore) do
+                        if not switching or name ~= active then
+                            assert.are.same(was, switches(ns.db.profiles[name]), at .. ": " .. name .. " changed")
+                        end
+                    end
                     if not from then
                         for name, on in pairs(live) do
                             assert.is_false(on and ns.db[name:match("^(%a+)")][name:match("%.(%a+)$")] ~= true,

@@ -354,7 +354,7 @@ describe("Phase 1 chaos (red tests)", function()
             saved = nil,       -- { line, ignored } from the last export
         }
         local seen = { greeted = 0, thanked = 0, ignoredOnline = 0, imports = 0, undos = 0, switches = 0,
-            reloads = 0, snoozedSteps = 0, offWhileLent = 0 }
+            reloads = 0, snoozedSteps = 0, offWhileLent = 0, ownProfiles = 0 }
         local thanksSinceClear = 0
         local sentBefore = 0
 
@@ -369,20 +369,42 @@ describe("Phase 1 chaos (red tests)", function()
             local clock = _G.time()
             ns = boot(_G.FriendlyForeverDB, clock)
             sentBefore = 0
-            -- The login switch (#508, #519): a character with no record keeps
-            -- the active profile as its own; then its shared profile, if it's
-            -- still there; a shared profile that is gone keeps the active one;
-            -- a character whose own choice is Default goes back to it.
-            if not m.hasRecord then
-                m.charLast = m.active ~= "Default" and m.active or nil
-                m.hasRecord = true
+            -- The login switch (#508, #519): a character with no record, while
+            -- a shared profile is active, gets a profile of its own (Nikki,
+            -- Nikki 2, ...: a copy of the live settings; at the cap of 20 it
+            -- keeps the active one); then its shared profile, if it's still
+            -- there; one that is gone, while a shared profile is active, gets a
+            -- profile of its own too; a character whose own choice is Default
+            -- goes back to it.
+            local function ownProfile()
+                local count = 0
+                for _ in pairs(m.profiles) do count = count + 1 end
+                local name
+                for i = 1, 21 do
+                    local candidate = i == 1 and "Nikki" or ("Nikki " .. i)
+                    if count < 20 and not m.profiles[candidate] and candidate ~= m.active then
+                        name = candidate
+                        break
+                    end
+                end
+                if not name then
+                    m.charLast = m.active
+                    return
+                end
+                m.profiles[name] = true
+                m.active, m.undo, m.charLast = name, nil, name
+                seen.ownProfiles = seen.ownProfiles + 1
             end
+            local newHere = not m.hasRecord
+            if newHere then m.charLast, m.hasRecord = nil, true end
             local shared = m.charLast and m.charLast ~= "Default"
-            if shared and m.charLast ~= m.active and m.profiles[m.charLast] then
+            if newHere and not m.charLast and m.active ~= "Default" then
+                ownProfile()
+            elseif shared and m.charLast ~= m.active and m.profiles[m.charLast] then
                 storeActive()
                 m.active, m.undo = m.charLast, nil
             elseif shared and m.active ~= "Default" then
-                m.charLast = m.active
+                if m.charLast ~= m.active then ownProfile() end
             elseif m.active ~= "Default" then
                 storeActive()
                 m.active, m.undo, m.charLast = "Default", nil, "Default"
@@ -679,7 +701,7 @@ describe("Phase 1 chaos (red tests)", function()
         end
         -- The storms really reached what they test, not just the edges.
         for _, key in ipairs({ "greeted", "thanked", "ignoredOnline", "imports", "undos", "switches", "reloads",
-            "snoozedSteps", "offWhileLent" }) do
+            "snoozedSteps", "offWhileLent", "ownProfiles" }) do
             assert.is_true((total[key] or 0) > 0, key .. ": " .. tostring(total[key]))
         end
     end)
