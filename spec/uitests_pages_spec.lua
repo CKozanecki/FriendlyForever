@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383, #408, #45, #491, #508, #521
+-- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383, #408, #45, #491, #508, #521, #497
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -806,5 +806,37 @@ describe("the UI simulator's blocked-action report (#160)", function()
         load()
         assert.is_nil(_G.DisplayInterfaceActionBlockedMessage)
         assert.are.same({}, Pages.blockedMessage)
+    end)
+end)
+
+describe("the UI simulator's raid assignments window (#497)", function()
+    local ns, Pages
+
+    before_each(function()
+        ns = wow.boot()
+        dofile("uitests/pages.lua")
+        Pages = _G.FriendlyForeverUIPages
+    end)
+
+    after_each(function()
+        _G.FriendlyForeverUIPages = nil
+    end)
+
+    it("opens the raid assignments window read only, or filled and enabled as the leader's copy shows it (#497)",
+        function()
+        local window = Pages.ShowRaidWindow("member")
+        assert.are.equal(_G[Pages.RAID_WINDOW], window)
+        assert.is_true(window:IsShown())
+        assert.is_false(window.save:IsEnabled())
+        window:Hide()
+        window = Pages.ShowRaidWindow("leader")
+        assert.is_true(window.save:IsEnabled())
+        for i, row in ipairs(window.rows) do
+            assert.is_true(row.box:IsEnabled())
+            assert.is_truthy(row.box:GetText():find(" ", 1, true), "line " .. i .. " names a whole name")
+        end
+        -- Only the widgets: the addon keeps no assignments from it.
+        assert.are.equal(0, #ns.RaidLead.Items())
+        window:Hide()
     end)
 end)

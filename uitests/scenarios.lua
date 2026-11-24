@@ -1498,6 +1498,25 @@ test("the copy window keeps its text inside it, for export, import and the bug r
     end
 end)
 
+-- The raid leader's assignments window (#497): as /friendly raid opens it
+-- out of a raid (read only), and filled as the leader's copy shows it, at the
+-- longest names (pages.lua's ShowRaidWindow). Its title, hint, the buffs'
+-- names, the status line and the buttons stay inside it, and it's on the
+-- screen.
+test("the raid assignments window keeps its text inside it and is on the screen (#497)", function()
+    for _, view in ipairs({ "member", "leader" }) do
+        local window, why = FriendlyForeverUIPages.ShowRaidWindow(view)
+        local ok, err = pcall(function()
+            check(window ~= nil, tostring(why))
+            local label = "raid assignments window (" .. view .. ")"
+            OnScreen(window, label)
+            FrameTextInside(window, label, 2)
+        end)
+        if window then window:Hide() end
+        if not ok then error(err, 0) end
+    end
+end)
+
 -- The main panel's tabs (#112), each opened by clicking its button the way
 -- a player would (pages.lua's OpenTab). Each tab's own rows are on the
 -- panel's scrolling content, and the rows of the other tabs are hidden.
