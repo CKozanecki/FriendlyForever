@@ -22,7 +22,7 @@ globals = {
 -- WoW API the addon reads.
 read_globals = {
     "C_ChatInfo", "UnitFullName", "GetUnitName", "C_GuildInfo", "C_Timer", "CreateFrame",
-    "DEFAULT_CHAT_FRAME", "GameTooltip", "GetCursorPosition", "GetGuildRosterInfo",
+    "DEFAULT_CHAT_FRAME", "GameTooltip", "GetCursorPosition", "GetGuildRosterInfo", "GetGuildInfo", "GetServerTime",
     "GetNumGuildMembers", "GetTime", "GuildRoster", "InCombatLockdown",
     "InterfaceOptionsFrame_OpenToCategory", "InterfaceOptions_AddCategory",
     "IsInGroup", "IsInGuild", "IsInInstance", "IsInRaid", "LE_PARTY_CATEGORY_INSTANCE", "LE_PARTY_CATEGORY_HOME",

@@ -38,6 +38,8 @@ Exchange.lua
 RaidSplit.lua
 Receipts.lua
 GuildHellos.lua
+Versioned.lua
+GuildLead.lua
 Parser.lua
 Announcer.lua
 Greeter.lua
