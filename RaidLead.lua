@@ -48,6 +48,7 @@ RaidLead.SEND_WAIT_MIN = 2     -- seconds a leader's copy waits, at random, befo
 RaidLead.SEND_WAIT_MAX = 10
 RaidLead.SEND_GAP = 60         -- the shortest time between two catch-up sends
 RaidLead.EDIT_WAIT = 2         -- seconds an edit waits before going out, so quick edits go as one
+RaidLead.RETRY = 5             -- seconds before looking again at a roster update that couldn't be read
 
 -- Overridable so tests can make the waits deterministic: () -> [0, 1).
 RaidLead.random = math.random
@@ -356,9 +357,19 @@ local function OnCheckIn(sender, fields)
 end
 
 -- After each roster update and login (Core.lua): forget, clear or check
--- in (Check), and show the window's state.
+-- in (Check), and show the window's state. An update whose raid answer
+-- can't be read may be the only one for a leave or a join (#372): look
+-- again every RETRY seconds until the answer can be read.
+local retrying = false
 function RaidLead.OnRosterUpdate()
     Check()
+    if InRaid() == nil and not retrying then
+        retrying = true
+        C_Timer.After(RaidLead.RETRY, ns.Diag.Wrap(function()
+            retrying = false
+            RaidLead.OnRosterUpdate()
+        end))
+    end
     RaidLead.Refresh()
 end
 

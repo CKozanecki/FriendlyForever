@@ -469,6 +469,27 @@ describe("The raid leader's buff assignments (#497)", function()
         end)
     end)
 
+    describe("a Blessing a paladin left out (black)", function()
+        it("assigned to a paladin who chose other Blessings by hand, it can't be met: he doesn't offer it, "
+            .. "and it stays with the split", function()
+            copies({
+                { name = "Lea", surname = "Dorn", class = "WARRIOR", group = 1 },
+                { name = "Ann", surname = "Vale", class = "PALADIN", known = PALADIN_SPELLS, group = 1 },
+                { name = "Bob", surname = "Lake", class = "PALADIN", known = PALADIN_SPELLS, group = 5 },
+            })
+            form()
+            assert.is_true(on(byName[BOB], function(ns) return ns.BuffRules.SetRaidBlessings({ "kings" }) end))
+            wow.advanceAll(net, 15, 0.5)
+            local before = offeredTo(byName[ANN], "might")
+            assert.is_true(#before > 0)
+            assign(byName[LEADER], { item("might", groups(1, 8), BOB) })
+            assert.same({}, offeredTo(byName[BOB], "might"))
+            assert.same(before, offeredTo(byName[ANN], "might"))
+            assert.is_false(on(byName[ANN], function(ns) return ns.RaidSplit.Assigned(ns.BuffData.ByKey("might")) end))
+            assert.is_false(on(byName[BOB], function(ns) return ns.RaidSplit.Assigned(ns.BuffData.ByKey("might")) end))
+        end)
+    end)
+
     describe("clearing (white)", function()
         it("leaving the raid forgets the assignments", function()
             usual()
@@ -528,6 +549,56 @@ describe("The raid leader's buff assignments (#497)", function()
             assert.equal(version, ns.RaidLead.Version())
             assert.equal(2, #on(byName[CID], function(n) return n.RaidLead.Assignments() end))
             assert.equal("none", shareOf(byName[CID], "fortitude"))
+        end)
+
+        it("a leave whose one roster update can't be read checks in to the next raid, with buff mode off and "
+            .. "nothing else looking", function()
+            usual()
+            form()
+            assign(byName[LEADER], FORT_SPLIT)
+            wow.use(byName[CID])
+            byName[CID].ns.BuffMode.Set(false)
+            local checks = sentOf("RCHECK")
+            wow.setGroup(nil)
+            wow.state.inRaidUnreadable = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(1)
+            wow.state.inRaidUnreadable = false
+            wow.advance(300)
+            form()
+            wow.advanceAll(net, 60, 0.5)
+            wow.use(byName[CID])
+            assert.equal(checks + 1, sentOf("RCHECK"))
+        end)
+
+        it("roster updates that can't be read look again once every few seconds, however many come, "
+            .. "and every time they happen", function()
+            usual()
+            form()
+            wow.use(byName[CID])
+            byName[CID].ns.BuffMode.Set(false)
+            wow.state.inRaidUnreadable = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(0.1)
+            local timers = #wow.timers
+            for _ = 1, 10 do wow.fire("GROUP_ROSTER_UPDATE") end
+            assert.equal(timers, #wow.timers, "one look again, not ten")
+            wow.state.inRaidUnreadable = false
+            -- Twice in one session: an unreadable leave, then the next raid.
+            for round = 1, 2 do
+                wow.use(byName[CID])
+                local checks = sentOf("RCHECK")
+                wow.setGroup(nil)
+                wow.state.inRaidUnreadable = true
+                wow.fire("GROUP_ROSTER_UPDATE")
+                wow.advance(1)
+                wow.state.inRaidUnreadable = false
+                wow.advance(300)
+                form()
+                wow.advanceAll(net, 60, 0.5)
+                wow.use(byName[CID])
+                assert.equal(checks + 1, sentOf("RCHECK"), "round " .. round)
+            end
         end)
 
         it("a leave whose one roster update can't be read still checks in to the next raid", function()

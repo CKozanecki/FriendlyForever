@@ -316,10 +316,11 @@ end
 -- groups, by = { [name] = { [g] = true } } }. One is met when its player is
 -- the one raid member with that hash, online and of your class, and gives
 -- that buff: you, if it's among the buffs you offer, or a copy whose last
--- share, heard lately, names it. Anything else (offline, gone, without the
+-- share, heard lately, names it. A player who set Blessings by hand gives
+-- only those: the leader can't widen their choice. Anything else (offline, gone, without the
 -- addon or the spell, or unreadable) can't be met, and that buff stays
 -- with the automatic split.
-local function Met(class, me, myKeys, roster)
+local function Met(class, me, myKeys, myFixed, roster)
     local out = {}
     local items = ns.RaidLead and ns.RaidLead.Assignments() or {}
     if #items == 0 then return out end
@@ -336,10 +337,11 @@ local function Met(class, me, myKeys, roster)
         local gives = false
         if name and Eligible(roster, name, class) then
             if name == me then
-                gives = myKeys[a.key] == true
+                gives = myKeys[a.key] == true and (myFixed == nil or myFixed[a.key] == true)
             else
                 local peer = peers[name]
                 gives = peer ~= nil and Fresh(peer, now) and Has(peer.keys, a.key)
+                    and (peer.fixed == nil or peer.fixed[a.key] == true)
             end
         end
         if gives then
@@ -400,8 +402,9 @@ local function Compute()
     local myKeys = {}
     -- (Out of a raid, or while the answer can't be read, there are no assignments.)
     if class and me then
-        for _, key in ipairs(MyEntry(class).keys) do myKeys[key] = true end
-        c.met = Met(class, me, myKeys, Roster())
+        local mine = MyEntry(class)
+        for _, key in ipairs(mine.keys) do myKeys[key] = true end
+        c.met = Met(class, me, myKeys, mine.fixed, Roster())
     end
     local shares
     if players then
