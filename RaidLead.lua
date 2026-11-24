@@ -61,9 +61,12 @@ for i = 1, 40 do RAID_UNITS[i] = "raid" .. i end
 
 -- [key] = buff for every buff the raid split shares, of any class: not
 -- cast on yourself, not offered only when asked for (RaidSplit's Shared).
+-- (After an update and a /reload without a restart, BuffData may be
+-- missing: the addon then stays inert, Core.lua, and there are none.)
 local SHARED, ORDER = {}, {}
+local CLASSES = ns.BuffData and ns.BuffData.CLASSES or {}
 for _, class in ipairs({ "PRIEST", "MAGE", "DRUID", "PALADIN", "SHAMAN", "WARLOCK", "HUNTER", "WARRIOR", "ROGUE" }) do
-    for _, buff in ipairs(ns.BuffData.CLASSES[class] or {}) do
+    for _, buff in ipairs(CLASSES[class] or {}) do
         if not buff.selfCast and not buff.requestOnly and #buff.key <= 10 and buff.key:find("^[a-z]+$")
             and not SHARED[buff.key] then
             SHARED[buff.key] = buff
