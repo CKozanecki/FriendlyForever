@@ -622,7 +622,7 @@ Options.PASSERS_BY_HELP = "Players nearby who aren't in your group and are missi
     .. "is half gone. Uses your rules for strangers (Buffs tab). Needs friendly nameplates."
 -- The live note under the passers-by switch while it's on and friendly
 -- nameplates are off, or the game won't say (which counts as off): passers-by
--- can't be seen then (#521). %s: the key, or /friendly nameplates.
+-- can't be seen then (#521). %s: Nameplates.HowToShow (#532).
 Options.PASSERS_BY_NAMEPLATES_OFF = "Not working now: friendly nameplates are off. Show them with %s."
 Options.PASSERS_BY_NAMEPLATES_UNREAD = "Not working now: the game won't say whether friendly nameplates are on, "
     .. "so they count as off. Show them with %s."

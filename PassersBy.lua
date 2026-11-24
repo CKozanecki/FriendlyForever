@@ -186,8 +186,15 @@ function PassersBy.Watch(fightStarting)
     if not hinted and PassersBy.On() and ns.BuffMode.LentKey() and ns.Nameplates.FriendlyShown() ~= true then
         hinted = true
         local toggle = ns.Nameplates.ToggleKeyText()
-        ns.Print("passers-by need friendly player nameplates to be seen: /friendly nameplates shows them"
-            .. (toggle and (", or press " .. toggle) or "") .. ".")
+        if ns.Nameplates.FriendlyShown() == nil then
+            -- The game won't say: /friendly nameplates can't help then (#532).
+            ns.Print("passers-by need friendly player nameplates to be seen: "
+                .. (toggle and ("press " .. toggle .. " to show them.")
+                    or ("turn them on in " .. ns.Nameplates.GAME_SETTING .. ".")))
+        else
+            ns.Print("passers-by need friendly player nameplates to be seen: /friendly nameplates shows them"
+                .. (toggle and (", or press " .. toggle) or "") .. ".")
+        end
     end
 end
 

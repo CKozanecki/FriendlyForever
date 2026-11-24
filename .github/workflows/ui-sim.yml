@@ -762,9 +762,14 @@ jobs:
               grep -E "✓|✗|tests," "$report/layout-$size.log" | awk '!seen[$0]++' || true
             done
             echo "--- load errors naming FriendlyForever"
-            grep -i -B2 -A8 "FriendlyForever" "$report/lua-errors.json" | head -80 || echo "none"
+            # Through a file, so it says none under the runner's bash -e, which has no
+            # pipefail: there `grep | head || echo none` never does (#527).
+            named="$RUNNER_TEMP/named.txt"
+            grep -i -B2 -A8 "FriendlyForever" "$report/lua-errors.json" > "$named" || true
+            if [ -s "$named" ]; then head -n 80 "$named"; else echo "none"; fi
             echo "--- frame tree lines naming FriendlyForever"
-            grep -i "FriendlyForever" "$report/frame-tree.txt" | head -40 || echo "none"
+            grep -i "FriendlyForever" "$report/frame-tree.txt" > "$named" || true
+            if [ -s "$named" ]; then head -n 40 "$named"; else echo "none"; fi
             # Last, so the end of the job's log holds them (#308).
             echo "--- client facts"
             grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
@@ -840,7 +845,11 @@ jobs:
             timeouts
             echo "### Lua errors while loading (from FriendlyForever files)"
             echo '```'
-            { grep -i "FriendlyForever" "$report/lua-errors.json" | head -50 || echo "none"; } | shown
+            # Through a file, so it says none under the runner's bash -e, which has no
+            # pipefail: there `grep | head || echo none` never does (#527).
+            errors="$RUNNER_TEMP/errors-named.txt"
+            grep -i "FriendlyForever" "$report/lua-errors.json" > "$errors" || true
+            { if [ -s "$errors" ]; then head -n 50 "$errors"; else echo "none"; fi; } | shown
             echo '```'
             # What a reader needs first: the results and the client's facts (#473). The layout
             # sections, about 480k a pass on #479's run, come last and are each cut at 150,000
