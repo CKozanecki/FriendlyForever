@@ -940,6 +940,48 @@ describe("the UI simulator's Guild page (#496)", function()
         assert.has_no.errors(function() Pages.PutBackGuild() end)
     end)
 
+    -- #536's testing review: on a new install the addon is off until its
+    -- walkthrough is skipped, and takes no addon message until then.
+    it("on a first start, skips the walkthrough before the guild's messages, so the lines shot has lines (white)",
+        function()
+            ns = wow.boot({ walkthrough = true })
+            dofile("uitests/pages.lua")
+            Pages = _G.FriendlyForeverUIPages
+            assert.is_false(_G.FriendlyForeverDB.enabled == true)
+            assert.is_truthy(Pages.ShowGuildLines())
+            assert.is_true(_G.FriendlyForeverDB.enabled)
+            local f = ns.GuildPanel.frames
+            local veto, undo = 0, 0
+            for _, row in ipairs(f.lines) do
+                if row:IsShown() then
+                    if row.button:GetText() == "Veto" then veto = veto + 1 else undo = undo + 1 end
+                end
+            end
+            assert.is_true(veto >= 1)
+            assert.is_true(undo >= 1)
+            -- The guildmate's check-in arrived: its version is the one it sent.
+            local key = wow.state.realm .. ":" .. Pages.GUILD_NAME
+            -- The fixture's first guildmate, who sends it (its FullName(1)).
+            local mate = _G.FriendlyForeverDB.guilds[key].mates["Aerendhiliel-Stormwhisper"]
+            assert.are.equal(Pages.GUILD_CHECK_IN_VERSION, mate.version)
+        end)
+
+    it("fails loudly when the addon stays off, rather than shoot a page its messages never reached (black)", function()
+        ns.db.enabled = false
+        assert.has_error(function() Pages.FillGuild("leader") end,
+            "the addon is off, so it would take none of the guild's messages")
+        assert.is_false(ns.GuildPanel.Role() == "master")
+    end)
+
+    it("fails loudly when the guildmate's check-in isn't taken, as a message dropped in the simulator would be (black)",
+        function()
+            _G.A_Admin = { FireEvent = function(event, ...)
+                if event ~= "CHAT_MSG_ADDON" then wow.fire(event, ...) end
+            end }
+            assert.has_error(function() Pages.FillGuild("member") end,
+                "the addon didn't take the guildmate's check-in, so nothing shows it kept the guild's settings")
+        end)
+
     it("fails loudly, rather than shoot an empty page, when the simulator can't fire events (black)", function()
         _G.A_Admin = nil
         assert.has_error(function() Pages.FillGuild("leader") end, "the simulator has no A_Admin.FireEvent")

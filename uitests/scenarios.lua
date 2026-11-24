@@ -1553,8 +1553,24 @@ test("the Guild page scrolled to its lines shows them in its view, with Veto and
         local line = ("LAYOUT Guild page lines: header at %.0f, view %.0f..%.0f"):format(top, viewBottom, viewTop)
         report(line)
         check(top <= viewTop + 1 and top >= viewBottom - 1, line .. ": the lines header isn't in the view")
-        check(ShowsTextBelow(content, "Undo"), "the Guild page shows no Undo")
-        check(ShowsTextBelow(content, "Veto"), "the Guild page shows no Veto")
+        -- A line said recently, shown with its own Veto or Undo button (not
+        -- only the "Vetoed lines" header, which also says Veto).
+        local buttons = {}
+        local function Look(frame)
+            for _, child in ipairs({ frame:GetChildren() }) do
+                if child:IsShown() then
+                    if child:GetObjectType() == "Button" and child.GetText then
+                        buttons[child:GetText() or ""] = (buttons[child:GetText() or ""] or 0) + 1
+                    end
+                    Look(child)
+                end
+            end
+        end
+        Look(content)
+        report(("LAYOUT Guild page lines: %d Veto, %d Undo buttons shown"):format(buttons.Veto or 0,
+            buttons.Undo or 0))
+        check((buttons.Veto or 0) >= 1, "the Guild page shows no line with Veto")
+        check((buttons.Undo or 0) >= 1, "the Guild page shows no Undo")
     end)
     local panel = _G[FriendlyForeverUIPages.GUILD]
     if panel and panel:IsShown() then panel:Hide() end

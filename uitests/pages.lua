@@ -887,6 +887,7 @@ Pages.GUILD_LINES = 11 -- lines said, more than a page of them
 Pages.GUILD_CUSTOM_WORDS = "Welcome back to the Watch, Aerendhiliel Stormwhisper! The fires of the Long Night burn "
     .. "brighter with you here, and the sentinels on the walls raise their lanterns for your return. Rest by the "
     .. "hearth, mend your gear, and tell us of the roads."
+Pages.GUILD_CHECK_IN_VERSION = "1.6.1" -- a guildmate's check-in that no saved mate has
 Pages.GUILD_CUSTOM_TOKEN = "c1f2e3d4a" -- its token, as GuildLead names a custom line: "c" and any eight hex digits
 
 local function PlayerFullName()
@@ -904,6 +905,13 @@ function Pages.FillGuild(view)
     if guildUndo then guildUndo() end
     if type(A_Admin) ~= "table" or type(A_Admin.FireEvent) ~= "function" then
         error("the simulator has no A_Admin.FireEvent", 2)
+    end
+    -- The addon takes no addon message while it's off, as it is on a new
+    -- install until its walkthrough is skipped (#536's testing review: every
+    -- message below was dropped in the shot runs).
+    Pages.SkipWalkthrough()
+    if type(FriendlyForeverDB) ~= "table" or FriendlyForeverDB.enabled ~= true then
+        error("the addon is off, so it would take none of the guild's messages", 2)
     end
     local me = PlayerFullName()
     local roster, rank = { me }, { [me] = view == "member" and 4 or 0 }
@@ -978,10 +986,17 @@ function Pages.FillGuild(view)
     -- A guildmate's check-in, with the same versions, has the addon read its
     -- memory now: it keeps a section it takes as it is, and puts a fresh one
     -- in the place of one it refuses.
+    -- Its version, which the saved file doesn't hold, shows it arrived.
     local mate = FullName(1)
-    A_Admin.FireEvent("CHAT_MSG_ADDON", "FriendlyFvr", ("1;GCHECK;%s;1.6.0;%d;%d;%d"):format(mate,
-        sections.ranks.version, sections.caps.version, sections.vetoes.version), "GUILD", mate)
+    A_Admin.FireEvent("CHAT_MSG_ADDON", "FriendlyFvr", ("1;GCHECK;%s;%s;%d;%d;%d"):format(mate,
+        Pages.GUILD_CHECK_IN_VERSION, sections.ranks.version, sections.caps.version, sections.vetoes.version),
+        "GUILD", mate)
     local kept = db.guilds[key]
+    local heard = type(kept) == "table" and type(kept.mates) == "table" and kept.mates[mate]
+    if type(heard) ~= "table" or heard.version ~= Pages.GUILD_CHECK_IN_VERSION then
+        guildUndo()
+        error("the addon didn't take the guildmate's check-in, so nothing shows it kept the guild's settings", 2)
+    end
     for name, section in pairs(sections) do
         if type(kept) ~= "table" or kept[name] ~= section then
             guildUndo()
