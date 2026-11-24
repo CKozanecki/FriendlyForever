@@ -1482,45 +1482,51 @@ end
 -- The Guild page (#496) in each of its views, filled as long as a guild
 -- gets (uitests/pages.lua's FillGuild): its text stays inside it, each
 -- list's row and each rank's names on one line inside the page.
-local GUILD_VIEWS = {
-    { view = "leader", who = "its guild master", shows = "Welcome back to the Watch" },
-    { view = "ask", who = "its guild master on a first look", shows = "Pick the ranks that lead with you" },
-    { view = "member", who = "a member", shows = "Only the guild master and the ranks" },
-}
-for _, case in ipairs(GUILD_VIEWS) do
-    test("the Guild page, as " .. case.who .. " sees it with a long roster, keeps its text inside it (#496)", function()
-        local undo = FriendlyForeverUIPages.FillGuild(case.view)
-        local ok, err = pcall(function()
-            local page = FriendlyForeverUIPages.Open("guild")
-            check(page:IsVisible(), "the Guild page didn't open")
-            local content = page.content
-            local label = "Guild page (" .. case.view .. ")"
-            check(ShowsTextBelow(content, case.shows), label .. " doesn't show \"" .. case.shows .. "\"")
-            check(ShowsTextBelow(content, "Lieutenant Wing"), label .. " doesn't show the guild's ranks")
-            OnScreen(page, label)
-            local checks = {
-                function() FrameTextInside(content, label) end,
-                function() PushedDownInside(content, label) end,
-            }
-            for _, child in ipairs({ content:GetChildren() }) do
-                if child:IsShown() and child:GetObjectType() == "Frame" then
-                    checks[#checks + 1] = function() FrameTextInside(child, label .. " row", 1) end
-                elseif child:IsShown() and child:GetObjectType() == "CheckButton" then
-                    for _, region in ipairs({ child:GetRegions() }) do
-                        if region:GetObjectType() == "FontString" and (region:GetText() or "") ~= "" then
-                            checks[#checks + 1] = function()
-                                TextInside(content, region, label .. " rank \"" .. Short(region:GetText()) .. "\"", 1)
-                            end
+local function GuildPageInside(view, shows)
+    local undo = FriendlyForeverUIPages.FillGuild(view)
+    local ok, err = pcall(function()
+        local page = FriendlyForeverUIPages.Open("guild")
+        check(page:IsVisible(), "the Guild page didn't open")
+        local content = page.content
+        local label = "Guild page (" .. view .. ")"
+        check(ShowsTextBelow(content, shows), label .. " doesn't show \"" .. shows .. "\"")
+        check(ShowsTextBelow(content, "Lieutenant Wing"), label .. " doesn't show the guild's ranks")
+        OnScreen(page, label)
+        local checks = {
+            function() FrameTextInside(content, label) end,
+            function() PushedDownInside(content, label) end,
+        }
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child:IsShown() and child:GetObjectType() == "Frame" then
+                checks[#checks + 1] = function() FrameTextInside(child, label .. " row", 1) end
+            elseif child:IsShown() and child:GetObjectType() == "CheckButton" then
+                for _, region in ipairs({ child:GetRegions() }) do
+                    if region:GetObjectType() == "FontString" and (region:GetText() or "") ~= "" then
+                        checks[#checks + 1] = function()
+                            TextInside(content, region, label .. " rank \"" .. Short(region:GetText()) .. "\"", 1)
                         end
                     end
                 end
             end
-            CheckAll(checks)
-        end)
-        undo()
-        if not ok then error(err, 0) end
+        end
+        CheckAll(checks)
     end)
+    undo()
+    if not ok then error(err, 0) end
 end
+
+test("the Guild page, as its guild master sees it with a long roster, keeps its text inside it (#496)", function()
+    GuildPageInside("leader", "Welcome back to the Watch")
+end)
+
+test("the Guild page, as its guild master first sees it, asks for the ranks and keeps its text inside it (#496)",
+function()
+    GuildPageInside("ask", "Pick the ranks that lead with you")
+end)
+
+test("the Guild page, as a member sees it, keeps its text inside it (#496)", function()
+    GuildPageInside("member", "Only the guild master and the ranks")
+end)
 
 -- With the lists as a new player has them, the page's last line must still
 -- be inside its scrolling content once every note has wrapped as it does in
