@@ -88,7 +88,8 @@ end
 -- An item's parts: its buff key, its groups ({ [g] = true }, at least one)
 -- and its player's hash; nil when it isn't an item.
 local function Parse(text)
-    if type(text) ~= "string" or #text < 11 or #text > RaidLead.ITEM_BYTES then return nil end
+    if type(text) ~= "string" then return nil end
+    -- (Shorter or longer items leave a key that isn't a shared buff's.)
     local key, mask, hash = text:sub(1, -11), text:sub(-10, -9), text:sub(-8)
     if not SHARED[key] or not (mask .. hash):find("^[0-9a-f]+$") then return nil end
     local bits = tonumber(mask, 16)
@@ -130,23 +131,21 @@ local function InRaid()
 end
 
 -- The raid as its roster says now: [full name] = { unit, rank (2 the
--- leader, 1 an assistant, 0 neither, nil unreadable), class }, and the
+-- leader, 1 an assistant, anything else neither), class }, and the
 -- leader's full name: nil when it can't be read, or no one or more than
 -- one slot reads as leading.
 local function Roster()
     local out, leader, leaders = {}, nil, 0
     for i, unit in ipairs(RAID_UNITS) do
-        if Read(UnitExists, unit) == true then
-            local name = Util.UnitFullName(unit)
+        -- An empty or unreadable slot has no name.
+        local name = Util.UnitFullName(unit)
+        if name and not out[name] then
             local _, rank = Read(GetRaidRosterInfo, i)
-            if name and not out[name] then
-                if rank ~= 0 and rank ~= 1 and rank ~= 2 then rank = nil end
-                local _, class = Read(UnitClass, unit)
-                out[name] = { unit = unit, rank = rank, class = type(class) == "string" and class or nil }
-                if rank == 2 then
-                    leaders = leaders + 1
-                    leader = name
-                end
+            local _, class = Read(UnitClass, unit)
+            out[name] = { unit = unit, rank = rank, class = type(class) == "string" and class or nil }
+            if rank == 2 then
+                leaders = leaders + 1
+                leader = name
             end
         end
     end
@@ -311,10 +310,8 @@ local function ScheduleCheckIn(wait)
     if checkPending then return end
     local now = GetTime()
     if lastCheck and now >= lastCheck then wait = math.max(wait, lastCheck + RaidLead.CHECKIN_GAP - now) end
-    local token = {}
-    checkPending = token
+    checkPending = true
     C_Timer.After(wait, ns.Diag.Wrap(function()
-        if checkPending ~= token then return end
         checkPending = nil
         RaidLead.CheckIn()
     end))
@@ -359,10 +356,10 @@ if Comm and Versioned then
         item = function(text) return Parse(text) ~= nil end,
         itemBytes = RaidLead.ITEM_BYTES, whole = Together, maxItems = RaidLead.MAX_ITEMS,
         authority = RaidLead.MayAssign,
-        -- Nowhere to keep them out of a raid: nothing is taken.
+        -- (Out of a raid, or while that can't be told, nobody has the
+        -- authority, which Versioned asks first: nothing is taken.)
         get = function()
             Check()
-            if InRaid() ~= true then return nil end
             return kept
         end,
         set = function(version, items)
@@ -482,8 +479,8 @@ function RaidLead.ParseLine(key, text, roster)
             for i, word in ipairs(words) do
                 if i < first then nameWords[#nameWords + 1] = word else groupWords[#groupWords + 1] = word end
             end
+            -- No name ("1-4") finds nobody.
             local typed = Util.StripChat(table.concat(nameWords, " "))
-            if typed == "" then return nil, "a group with no one to give it" end
             local name, why = FindMember(roster, typed)
             if not name then return nil, why end
             local groups = ParseGroups(groupWords)

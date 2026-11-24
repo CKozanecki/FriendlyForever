@@ -104,6 +104,17 @@ local function unitOf(full)
     end
 end
 
+-- How many messages of this type the live client has sent.
+local function sentOf(msgType)
+    local n = 0
+    for _, m in ipairs(wow.addonSent) do
+        if m.text:find(";" .. msgType .. ";", 1, true) then n = n + 1 end
+    end
+    return n
+end
+
+local INTELLECT = 10157
+
 describe("The raid leader's buff assignments (#497)", function()
     local clients, net, byName
 
@@ -335,6 +346,103 @@ describe("The raid leader's buff assignments (#497)", function()
         end)
     end)
 
+    describe("assigning, the finer points (white)", function()
+        it("two players given the same groups of a buff: the groups nobody was given still go to the split",
+            function()
+            usual()
+            form()
+            assign(byName[LEADER], { item("fortitude", groups(1, 4), ANN), item("fortitude", groups(1, 4), BOB) })
+            -- Groups 5-8 are nobody's: Ann, who drafts Fortitude, keeps them.
+            assert.equal("all", shareOf(byName[ANN], "fortitude"))
+            assert.equal("1,2,3,4", shareOf(byName[BOB], "fortitude"))
+            -- Ann offers it to groups 5-8 too (Mia in 6, Pip in 7).
+            local names = offeredTo(byName[ANN], "fortitude")
+            assert.truthy(table.concat(names, ","):find("Mia-Fire,Pip-Holt", 1, true))
+        end)
+
+        it("a split that shares out groups keeps its groups less the assigned ones", function()
+            copies({
+                { name = "Lea", surname = "Dorn", class = "WARRIOR", group = 1 },
+                { name = "Ann", surname = "Vale", class = "MAGE", known = { [INTELLECT] = true }, group = 1 },
+                { name = "Bob", surname = "Lake", class = "MAGE", known = { [INTELLECT] = true }, group = 5 },
+            })
+            form()
+            -- Two mages: Ann groups 1-4, Bob 5-8.
+            assert.equal("1,2,3,4", shareOf(byName[ANN], "intellect"))
+            assign(byName[LEADER], { item("intellect", groups(8), BOB) })
+            assert.equal("1,2,3,4", shareOf(byName[ANN], "intellect"))
+            assert.equal("5,6,7,8", shareOf(byName[BOB], "intellect"))
+        end)
+
+        it("with the split switched off, the assignments still narrow your copy's offers (#497 question 1)", function()
+            copies({
+                { name = "Lea", surname = "Dorn", class = "WARRIOR", group = 1 },
+                { name = "Ann", surname = "Vale", class = "PRIEST", known = PRIEST_SPELLS, group = 1,
+                    db = { buffBack = { raidSplit = false } } },
+                { name = "Bob", surname = "Lake", class = "PRIEST", known = PRIEST_SPELLS, group = 5 },
+            })
+            form()
+            assign(byName[LEADER], { item("fortitude", groups(1, 8), BOB) })
+            -- No split for Ann: every buff she gives, less Fortitude.
+            assert.equal("none", shareOf(byName[ANN], "fortitude"))
+            assert.equal("all", shareOf(byName[ANN], "spirit"))
+            assert.same({}, offeredTo(byName[ANN], "fortitude"))
+            assert.is_true(#offeredTo(byName[ANN], "spirit") > 0)
+            wow.use(byName[ANN])
+            local ns = byName[ANN].ns
+            assert.truthy(ns.RaidSplit.ShareText(true):find("Bob Lake has Power Word: Fortitude", 1, true))
+            -- A buff no assignment covers is still offered as without the split.
+            assert.is_true(ns.RaidSplit.Covers(ns.BuffData.ByKey("innerfire")))
+        end)
+
+        it("a member's offer is refused with the reason the leader's assignment gives", function()
+            usual()
+            form()
+            assign(byName[LEADER], FORT_SPLIT)
+            local fort = byName[CID].ns.BuffData.ByKey("fortitude")
+            local ok, why = on(byName[CID], function(ns)
+                return ns.RaidSplit.CoversMember(fort, { unit = wow.tokenFor(unitOf("Tor-Axe")) })
+            end)
+            assert.is_false(ok)
+            assert.equal("the raid leader gave it to someone else", why)
+            ok, why = on(byName[ANN], function(ns)
+                return ns.RaidSplit.CoversMember(fort, { unit = wow.tokenFor(unitOf("Mia-Fire")) })
+            end)
+            assert.is_false(ok)
+            assert.equal("the raid leader gave their group to someone else", why)
+        end)
+
+        it("the leader's edits: the same list again changes nothing, and a new version is always above the kept one",
+            function()
+            usual()
+            form()
+            wow.use(byName[LEADER])
+            local ns = byName[LEADER].ns
+            assert.is_true(ns.RaidLead.Set(FORT_SPLIT))
+            local version = ns.RaidLead.Version()
+            wow.advance(30)
+            local sent = sentOf("RASSIGN")
+            assert.is_true(ns.RaidLead.Set({ FORT_SPLIT[2], FORT_SPLIT[1] }))
+            wow.advance(30)
+            assert.equal(version, ns.RaidLead.Version())
+            assert.equal(sent, sentOf("RASSIGN"))
+            -- Kept from an assistant whose clock ran far ahead: ours goes above it.
+            receive(part(CID, 5000000000, { FORT_SPLIT[1] }), CID)
+            assert.equal(0, ns.RaidLead.Version() - version, "Cid isn't an assistant yet")
+            unitOf(CID).assistant = true
+            receive(part(CID, 5000000000, { FORT_SPLIT[1] }), CID)
+            assert.equal(5000000000, ns.RaidLead.Version())
+            assert.is_true(ns.RaidLead.Set(FORT_SPLIT))
+            assert.equal(5000000001, ns.RaidLead.Version())
+            -- Lists the addon can't share are refused.
+            assert.is_false((ns.RaidLead.Set({ "junk" })))
+            local many = {}
+            for i = 1, 31 do many[i] = item("fortitude", groups(1), "Aaa-B" .. string.rep("b", i)) end
+            assert.is_false((ns.RaidLead.Set(many)))
+            assert.equal(5000000001, ns.RaidLead.Version())
+        end)
+    end)
+
     describe("a Blessing assigned (white)", function()
         it("the leader's assignment of Kings comes before a paladin's own choice of it", function()
             copies({
@@ -351,6 +459,9 @@ describe("The raid leader's buff assignments (#497)", function()
             assert.is_false(on(byName[BOB], function(ns) return ns.BuffRules.CoversInRaid(kings) end))
             assert.is_true(on(byName[ANN], function(ns) return ns.BuffRules.CoversInRaid(kings) end))
             assert.same({}, offeredTo(byName[BOB], "kings"))
+            -- Bob's hand-set Kings is the leader's to give: he drafts the others instead.
+            local mine = on(byName[BOB], function(ns) return ns.RaidSplit.Current() end)
+            assert.is_truthy(mine and (mine.wisdom or mine.might))
         end)
     end)
 
@@ -474,6 +585,89 @@ describe("The raid leader's buff assignments (#497)", function()
         end)
     end)
 
+    describe("assignments that can't be met, and readings that can't be trusted (black)", function()
+        it("a player who hasn't been heard from lately can't be counted: their groups go back to the split",
+            function()
+            usual()
+            form()
+            assign(byName[LEADER], FORT_SPLIT)
+            net.lose = function(_, sender) return sender == byName[BOB] end
+            wow.advanceAll(net, 200, 1)
+            -- Bob silent for longer than the split waits: Ann gives Fortitude to everyone.
+            assert.equal("all", shareOf(byName[ANN], "fortitude"))
+        end)
+
+        it("two raid members whose names share a hash: an assignment to either can't be met", function()
+            copies({
+                { name = "Lea", surname = "Dorn", class = "WARRIOR", group = 1 },
+                { name = "Ann", surname = "Vale", class = "PRIEST", known = PRIEST_SPELLS, group = 1 },
+                { name = "Lia", surname = "Ezmo", class = "PRIEST", known = PRIEST_SPELLS, group = 5 },
+            })
+            assert.equal(hash("Lia-Ezmo"), hash("Lia-FYmo"))
+            EXTRAS[#EXTRAS + 1] = { "Lia-FYmo", "PRIEST", 6 }
+            local ok, err = pcall(function()
+                form()
+                local before = shareOf(byName[ANN], "fortitude")
+                assert.equal("all", before)
+                assign(byName[LEADER], { item("fortitude", groups(1, 8), "Lia-Ezmo") })
+                assert.equal(before, shareOf(byName[ANN], "fortitude"))
+            end)
+            EXTRAS[#EXTRAS] = nil
+            assert(ok, err)
+        end)
+
+        it("the window's names and groups: a first name two members share, and groups outside 1 to 8", function()
+            local ns = wow.boot({})
+            local roster = { ["Ann-Vale"] = { class = "PRIEST" }, ["Ann-Moss"] = { class = "PRIEST" } }
+            local items, why = ns.RaidLead.ParseLine("fortitude", "Ann 1-4", roster)
+            assert.is_nil(items)
+            assert.equal("more than one member is called Ann", why)
+            assert.equal(1, #ns.RaidLead.ParseLine("fortitude", "Ann Moss 1-4", roster))
+            assert.is_nil(ns.RaidLead.ParseLine("fortitude", "Ann Moss 0-3", roster))
+            assert.is_nil(ns.RaidLead.ParseLine("fortitude", "Ann Moss 5-9", roster))
+            assert.is_nil(ns.RaidLead.ParseLine("fortitude", "Ann Moss 9", roster))
+        end)
+
+        it("while the raid answer can't be read, nothing kept is used, nothing new is taken, and the leader can't edit",
+            function()
+            usual()
+            form()
+            assign(byName[LEADER], FORT_SPLIT)
+            wow.use(byName[ANN])
+            local ns = byName[ANN].ns
+            local version = ns.RaidLead.Version()
+            wow.state.inRaidUnreadable = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.equal(0, #ns.RaidLead.Assignments())
+            assert.equal(2, #ns.RaidLead.Items(), "kept, not forgotten")
+            receive(part(LEADER, version + 1, { FORT_SPLIT[1] }), LEADER)
+            assert.equal(version, ns.RaidLead.Version())
+            wow.state.inRaidUnreadable = false
+            assert.equal(2, #ns.RaidLead.Assignments())
+            wow.use(byName[LEADER])
+            wow.state.inRaidUnreadable = true
+            assert.is_false((byName[LEADER].ns.RaidLead.Set({})))
+        end)
+
+        it("a leader who can't be read after setting them doesn't clear them; two leaders let nobody assign",
+            function()
+            usual()
+            form()
+            assign(byName[LEADER], FORT_SPLIT)
+            wow.use(byName[ANN])
+            local ns = byName[ANN].ns
+            unitOf(LEADER).secrets = { rank = true }
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.equal(2, #ns.RaidLead.Items())
+            unitOf(LEADER).secrets = nil
+            -- Bob reads as a second leader: nobody may assign, the leader included.
+            unitOf(BOB).raidRank = 2
+            receive(part(LEADER, ns.RaidLead.Version() + 1, { FORT_SPLIT[1] }), LEADER)
+            assert.equal(2, #ns.RaidLead.Items())
+            assert.is_false(ns.RaidLead.MayAssign(LEADER))
+        end)
+    end)
+
     describe("untrusted messages (red)", function()
         -- Ann's copy alone, in the usual raid as her game shows it.
         local function solo(opts)
@@ -555,6 +749,115 @@ describe("The raid leader's buff assignments (#497)", function()
             receive(part(CID, 5, { six[4], six[5], six[6] }, 2, 2), CID)
             assert.equal(0, #ns.RaidLead.Items())
             assert.is_true(count(ns, "syncNoAuthority") >= 1)
+        end)
+
+        it("an item of a buff the split doesn't share, a hash or groups that aren't hex, or one player twice "
+            .. "for one buff, changes nothing", function()
+            local ns = solo()
+            for _, list in ipairs({
+                { "innerfire0f" .. hash(ANN) },                                     -- a self-buff
+                { "zz0f" .. hash(ANN) },                                            -- no such buff
+                { "fortitude0fzzzzzzzz" },                                          -- the hash isn't hex
+                { "fortitudezz" .. hash(ANN) },                                     -- the groups aren't hex
+                { item("fortitude", groups(1, 4), ANN), item("fortitude", groups(5, 8), ANN) },
+            }) do
+                receive(part(LEADER, 5, list), LEADER)
+                assert.equal(0, #ns.RaidLead.Items(), list[1])
+            end
+            -- One player for two buffs is fine.
+            receive(part(LEADER, 5, { item("fortitude", groups(1, 4), ANN), item("spirit", groups(1, 4), ANN) }),
+                LEADER)
+            assert.equal(2, #ns.RaidLead.Items())
+        end)
+
+        it("check-ins: once per raid joined, and again after leaving and coming back", function()
+            local ns = solo()
+            assert.equal(1, sentOf("RCHECK"))
+            for _ = 1, 4 do
+                wow.fire("GROUP_ROSTER_UPDATE")
+                wow.advance(70)
+            end
+            assert.equal(1, sentOf("RCHECK"))
+            wow.setGroup(nil)
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.setGroup("raid", { LEADER, BOB, CID, "Tor-Axe" })
+            wow.state.leader = LEADER
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(30)
+            assert.equal(2, sentOf("RCHECK"))
+            assert.is_not_nil(ns)
+        end)
+
+        it("check-ins a leader's copy hears: only a raid member's older version makes it send; a malformed one "
+            .. "is dropped", function()
+            local ns = wow.boot({ name = "Lea", surname = "Dorn", before = function(state) state.class = "WARRIOR" end })
+            ns.RaidLead.random = function() return 0 end
+            wow.setGroup("raid", { ANN, BOB, CID, "Tor-Axe" })
+            wow.state.leader, wow.state.isLeader = LEADER, true
+            unitOf(CID).assistant = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(ns.RaidLead.Set(FORT_SPLIT))
+            wow.advance(120)
+            local version = string.format("%.0f", ns.RaidLead.Version())
+            local sent, checks = sentOf("RASSIGN"), sentOf("RCHECK")
+            local function check(sender, stamp)
+                receive(table.concat({ "1", "RCHECK", sender, stamp }, ";"), sender)
+                wow.advance(70)
+            end
+            check("Sly-Fox", "0")        -- not in the raid
+            check(ANN, version)          -- already up to date
+            check(ANN, "abc")            -- malformed
+            check(ANN, "0123")           -- malformed
+            assert.equal(sent, sentOf("RASSIGN"))
+            assert.equal(1, count(ns, "raidLeadNotMember"))
+            assert.is_true(count(ns, "commMalformed") >= 2)
+            -- A plain member with a newer version doesn't make us ask; an assistant does.
+            check(ANN, "99999999999")
+            assert.equal(checks, sentOf("RCHECK"))
+            check(CID, "99999999999")
+            assert.equal(checks + 1, sentOf("RCHECK"))
+            -- And a flood of those asks at most once a minute.
+            for _ = 1, 12 do
+                receive(table.concat({ "1", "RCHECK", CID, "99999999999" }, ";"), CID)
+                wow.advance(10)
+            end
+            assert.is_true(sentOf("RCHECK") - checks - 1 <= 2, "at most once a minute")
+            -- Out of date: it catches Ann up.
+            check(ANN, "0")
+            assert.equal(sent + 1, sentOf("RASSIGN"))
+        end)
+
+        it("a send another copy made first, or one its own copy may no longer make, isn't sent", function()
+            local ns = wow.boot({ name = "Lea", surname = "Dorn", before = function(state) state.class = "WARRIOR" end })
+            ns.RaidLead.random = function() return 0 end
+            wow.setGroup("raid", { ANN, BOB, CID, "Tor-Axe" })
+            wow.state.leader, wow.state.isLeader = LEADER, true
+            unitOf(CID).assistant = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(ns.RaidLead.Set(FORT_SPLIT))
+            wow.advance(5)
+            local sent = sentOf("RASSIGN")
+            local version = string.format("%.0f", ns.RaidLead.Version())
+            -- Ann is behind; Cid's copy catches her up before ours does.
+            receive(table.concat({ "1", "RCHECK", ANN, "0" }, ";"), ANN)
+            wow.advance(1)
+            receive(part(CID, version, ns.RaidLead.Items()), CID)
+            wow.advance(120)
+            assert.equal(sent, sentOf("RASSIGN"))
+        end)
+
+        it("an assistant's edit doesn't go out once they're demoted before it does", function()
+            local ns = wow.boot({ name = "Cid", surname = "Rock", before = function(state) state.class = "PRIEST" end })
+            ns.RaidLead.random = function() return 0 end
+            wow.setGroup("raid", { LEADER, ANN, BOB, "Tor-Axe" })
+            wow.state.leader = LEADER
+            wow.state.units.player.assistant = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(30)
+            assert.is_true(ns.RaidLead.Set(FORT_SPLIT))
+            wow.state.units.player.assistant = false
+            wow.advance(30)
+            assert.equal(0, sentOf("RASSIGN"))
         end)
 
         it("chaos: storms of forged, oversized, replayed and genuine messages, with promotions and unreadable "

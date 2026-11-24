@@ -329,11 +329,12 @@ local function Met(class, me, myKeys, roster)
         if byHash[hash] then clash[hash] = true end
         byHash[hash] = name
     end
-    local mine, now = ClassKeys(class), GetTime()
+    local now = GetTime()
     for _, a in ipairs(items) do
         local name = not clash[a.hash] and byHash[a.hash]
+        -- (Another class's buff is never among yours, nor in a share of your class.)
         local gives = false
-        if name and mine[a.key] and Eligible(roster, name, class) then
+        if name and Eligible(roster, name, class) then
             if name == me then
                 gives = myKeys[a.key] == true
             else
@@ -400,7 +401,8 @@ local function Compute()
     local c = { why = why, met = {} }
     local class, me = MyClass(), Util.UnitFullName("player")
     local myKeys = {}
-    if class and me and InRaid() == true then
+    -- (Out of a raid, or while the answer can't be read, there are no assignments.)
+    if class and me then
         for _, key in ipairs(MyEntry(class).keys) do myKeys[key] = true end
         c.met = Met(class, me, myKeys, Roster())
     end
@@ -418,12 +420,9 @@ local function Compute()
     if shares then
         for key, m in pairs(c.met) do
             for name in pairs(m.by) do shares[name] = shares[name] or {} end
-            for name, share in pairs(shares) do
-                -- Without the split only your own automatic share is known.
-                local auto = share[key]
-                if not c.split and name ~= me then auto = nil end
-                share[key] = Final(auto, m.by[name], m.covered)
-            end
+            -- Without the split only your own automatic share is known: the
+            -- others' shares are only their assignments.
+            for name, share in pairs(shares) do share[key] = Final(share[key], m.by[name], m.covered) end
         end
         c.shares, c.mine = shares, shares[me]
     end
