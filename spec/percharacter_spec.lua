@@ -208,7 +208,8 @@ describe("Each character's own buff settings (#508)", function()
         end)
 
         it("tells a character on a shared profile that these settings are the profile's", function()
-            login("Ann", v150(nil, { charProfiles = { ["Ann-Vale"] = "Healer" }, activeProfile = "Healer",
+            login("Ann", v150(nil, { charProfiles = { ["Ann-Vale"] = "Healer", ["Bo-Reed"] = "Healer" },
+                activeProfile = "Healer",
                 profiles = { Healer = { schemaVersion = 8 }, Default = { schemaVersion = 8 } } }),
                 { walkthrough = true })
             local text = ns.Walkthrough.Frame().stepText:GetText()
@@ -456,7 +457,7 @@ describe("Each character's own buff settings (#508)", function()
         it("on a shared profile, the #408 step says the choice is the profile's", function()
             local db = v150({ whoGets = { motw = { rule = "tanks" } } }, { schemaVersion = 7,
                 walkthrough = { seen = 2, firstRun = false }, activeProfile = "Party",
-                charProfiles = { ["Ann-Vale"] = "Party" },
+                charProfiles = { ["Ann-Vale"] = "Party", ["Bo-Reed"] = "Party" },
                 profiles = { Party = { schemaVersion = 7 }, Default = { schemaVersion = 7 } } })
             db.buffBack.whoChoice = nil
             login("Ann", db, { walkthrough = true })
@@ -464,6 +465,20 @@ describe("Each character's own buff settings (#508)", function()
             assert.is_truthy(text:find("The choice is for the shared profile Party, and every character on it.", 1,
                 true))
             assert.is_falsy(text:find("The choice is for this character", 1, true))
+        end)
+
+        it("on a profile only this character uses, the #408 step says the choice is that profile's alone (#519)",
+            function()
+            local db = v150({ whoGets = { motw = { rule = "tanks" } } }, { schemaVersion = 7,
+                walkthrough = { seen = 2, firstRun = false }, activeProfile = "Party",
+                profiles = { Party = { schemaVersion = 7 }, Default = { schemaVersion = 7 } } })
+            db.buffBack.whoChoice = nil
+            login("Ann", db, { walkthrough = true }) -- new, with Party active: a profile of its own
+            local text = ns.Walkthrough.Frame().stepText:GetText()
+            assert.are.equal("Ann", ns.Profiles.Active())
+            assert.is_truthy(text:find("The choice is for the profile Ann, which only this character uses.", 1, true),
+                text)
+            assert.is_falsy(text:find("shared profile", 1, true))
         end)
 
         it("each character makes the keep-or-reset choice of #408 for its own rules", function()

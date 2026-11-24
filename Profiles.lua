@@ -598,6 +598,25 @@ function Profiles.SharedProfile()
     return nil
 end
 
+-- Whether another character uses the profile in use (#519): its record, or
+-- its 1.5.x choice not yet recorded, names it. false on Default, and for a
+-- profile of a character's own that no other has chosen. The walkthrough calls
+-- a profile shared only then.
+function Profiles.SharedWithOthers()
+    Check()
+    local active = ns.db.activeProfile
+    if active == Profiles.DEFAULT then return false end
+    local key = MyKey()
+    for other, record in pairs(ns.db.characters) do
+        if other ~= key and record.profile == active then return true end
+    end
+    local me = Util.UnitFullName("player")
+    for who, name in pairs(ns.db.charProfiles) do
+        if who ~= me and name == active then return true end
+    end
+    return false
+end
+
 -- The walkthrough's step about each character's own settings (#508): whether
 -- this character hasn't seen it yet, and marking that it has. Shown once per
 -- character.

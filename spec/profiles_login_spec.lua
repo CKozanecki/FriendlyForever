@@ -20,9 +20,9 @@ local INTELLECT = 10157
 local SWITCHES = { { "buffBack", "enabled" }, { "buffBack", "passersBy" }, { "buffBack", "requests" },
     { "buff", "enabled" } }
 
-local function login(db, class, who)
+local function login(db, class, who, welcome)
     who = who or ME
-    ns = wow.boot({ db = db, before = function(state)
+    ns = wow.boot({ db = db, walkthrough = welcome, welcome = welcome, before = function(state)
         state.units.player = { name = who.name, surname = who.surname, id = who.id, isPlayer = true, level = ME.level }
         state.class = class or "MAGE"
         state.knownSpells = { [INTELLECT] = true }
@@ -148,6 +148,54 @@ describe("A character with no profile record (#519)", function()
                 who = "Forever Realm:Bo-Reed" }
             login(db)
             assert.is_nil(ns.db.importUndo)
+        end)
+
+        -- The architecture review of #524: the walkthrough and chat called every
+        -- profile but Default shared, so a new character was told its own
+        -- profile was "the same for each character on it".
+        it("tells the new character its profile is its own, and shared only once another uses it", function()
+            local function welcomed(extra)
+                local db = mainActive(9, extra)
+                db.walkthrough = { seen = 5, firstRun = false } -- the step about each character's own buffs: new
+                login(db, nil, nil, true)
+                local said = {}
+                for _, line in ipairs(wow.printed) do
+                    if line:find("buff settings", 1, true) then said[#said + 1] = line end
+                end
+                return ns.Walkthrough.Frame().stepText:GetText() or "", table.concat(said, "\n")
+            end
+            local text, chat = welcomed()
+            assert.are.equal("Ann", ns.Profiles.Active())
+            assert.is_false(ns.Profiles.SharedWithOthers())
+            assert.is_truthy(text:find("This character uses the profile Ann, which only this character uses, so "
+                .. "these settings are that profile's, and changing them changes no other character", 1, true), text)
+            assert.is_falsy(text:find("shared profile Ann", 1, true), text)
+            assert.is_truthy(chat:find("this character uses its own profile's buff settings", 1, true), chat)
+            assert.is_falsy(chat:find("shared", 1, true), chat)
+            -- Another character chose Main in 1.5.x and Ann went there too: shared.
+            text, chat = welcomed({ charProfiles = { ["Ann-Vale"] = "Main", ["Bo-Reed"] = "Main" } })
+            assert.are.equal("Main", ns.Profiles.Active())
+            assert.is_true(ns.Profiles.SharedWithOthers())
+            assert.is_truthy(text:find("This character uses the shared profile Main, so these settings are that "
+                .. "profile's, the same for each character on it", 1, true), text)
+            assert.is_truthy(chat:find("this character uses a shared profile's buff settings", 1, true), chat)
+        end)
+
+        it("calls a profile shared only when another character's record or 1.5.x choice names it", function()
+            local bo = "Forever Realm:Bo-Reed"
+            for _, case in ipairs({
+                { "no other", {}, {}, false },
+                { "another's record", { [bo] = { profile = "Main" } }, {}, true },
+                { "another's record names another profile", { [bo] = { profile = "Alt" } }, {}, false },
+                { "another's 1.5.x choice", {}, { ["Bo-Reed"] = "Main" }, true },
+                { "only its own 1.5.x choice", {}, { ["Ann-Vale"] = "Main" }, false },
+            }) do
+                login(mainActive(9, { characters = case[2], charProfiles = case[3] }))
+                ns.Profiles.Use("Main")
+                assert.are.equal(case[4], ns.Profiles.SharedWithOthers(), case[1])
+            end
+            login(mainActive(9, { activeProfile = "Default", characters = { [bo] = { profile = "Default" } } }))
+            assert.is_false(ns.Profiles.SharedWithOthers(), "Default is each character's own")
         end)
 
         it("at the cap of profiles it keeps the active one, and chat says why", function()
