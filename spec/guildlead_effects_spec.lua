@@ -631,6 +631,7 @@ describe("Guild leader controls: the caps and vetoes take effect (#496)", functi
         it("a malformed report, or one from outside the roster, adds nothing", function()
             local ns = Leader()
             report("1;GLINE;Ann-Vale;x;bjd2", "Ann-Vale")
+            report("1;GLINE;Ann-Vale;x;cdeadbeef", "Ann-Vale")
             report("1;GLINE;Ann-Vale;j;say this", "Ann-Vale")
             report("1;GLINE;Ann-Vale;j;bjd2;extra", "Ann-Vale")
             report("1;GLINE;Sly-Fox;j;bjd2", "Sly-Fox")
