@@ -618,7 +618,8 @@ local function Create()
             if text == "" then return end
             GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
             GameTooltip:SetText(label:GetText())
-            GameTooltip:AddLine(text, 1, 1, 1, true)
+            local r, g, b = ns.Colours.RGB("bright")
+            GameTooltip:AddLine(text, r, g, b, true)
             GameTooltip:Show()
         end
         local function Leave() GameTooltip:Hide() end
