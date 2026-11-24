@@ -202,11 +202,11 @@ function GuildPanel.LineType(token)
     return nil
 end
 
--- How long ago a time on the clock GuildLead keeps was, in words.
+-- How long ago a time on the clock GuildLead keeps was, in words. A time
+-- in the future, or a clock that can't be read (0), reads as just now.
 function GuildPanel.Ago(seen)
-    local now = ns.GuildLead.Now()
-    if type(seen) ~= "number" or now <= 0 or seen >= now then return "just now" end
-    local seconds = now - seen
+    if type(seen) ~= "number" then return "just now" end
+    local seconds = ns.GuildLead.Now() - seen
     if seconds < 60 then return "just now" end
     if seconds < 3600 then return string.format("%d min ago", math.floor(seconds / 60)) end
     if seconds < 2 * 86400 then return string.format("%d h ago", math.floor(seconds / 3600)) end
