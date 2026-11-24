@@ -1,4 +1,4 @@
--- Spec: #521
+-- Spec: #521, #532
 -- Passers-by switched on but stopped say why (#521, the owner's report of 20
 -- Nov: friendly nameplates were off, and nothing said so): the buff button's
 -- line, the debug log once each time the reason changes, a chat line once a
@@ -62,6 +62,18 @@ describe("Passers-by say why they're stopped (#521)", function()
         ns.BuffButton.Refresh()
     end
 
+    -- The chat hint, the last one said, after the addon's name, or nil.
+    local function hint()
+        local said
+        for _, text in ipairs(wow.printed) do
+            said = text:match("(passers%-by need friendly player nameplates.*)$") or said
+        end
+        return said
+    end
+
+    -- Forever's own setting, as its options name it, written out here (#532: docs/forever-facts.md).
+    local GAME_SETTING = "Esc > Options > Nameplates > Friendly Players"
+
     local OFF = "friendly nameplates are off"
     local UNREAD = "friendly nameplates can't be read, so count as off"
 
@@ -91,6 +103,20 @@ describe("Passers-by say why they're stopped (#521)", function()
                 if text:find("passers-by need", 1, true) then said = text end
             end
             assert.is_truthy(said and said:find("/friendly nameplates shows them, or press Shift-V.", 1, true), said)
+        end)
+
+        -- #532: a readable "0" still names /friendly nameplates (or the key, above), never the game's setting.
+        it("a readable setting of 0: the button, the note and chat still name /friendly nameplates", function()
+            boot({ plates = "0" })
+            ns.Options.Open()
+            ns.Options.OpenTab(ns.Options.FAVOURS_TAB)
+            local note = ns.Options.widgets.passersByNote:GetText()
+            assert.is_true(has(line(), "Passers-by need friendly nameplates (/friendly nameplates)"), line())
+            assert.is_true(has(note, "Not working now: friendly nameplates are off. Show them with /friendly nameplates."),
+                note)
+            assert.are.equal("passers-by need friendly player nameplates to be seen: /friendly nameplates shows them.",
+                hint())
+            for _, text in ipairs({ line(), note, hint() }) do assert.is_false(has(text, GAME_SETTING), text) end
         end)
 
         it("turning nameplates on clears the note, and passers-by work without a reload", function()
@@ -204,6 +230,49 @@ describe("Passers-by say why they're stopped (#521)", function()
                 assert.is_true(note:IsShown())
                 assert.is_true(has(note:GetText(), "the game won't say whether friendly nameplates are on"))
                 assert.are.same({}, wow.errors)
+            end)
+
+            -- #532: /friendly nameplates refuses in this state, so no hint names it.
+            it("a CVar that can't be read (" .. case[1] .. "): the button, the note and chat name the game's own "
+                .. "setting, never /friendly nameplates", function()
+                boot({ noBuffMode = true })
+                case[2]()
+                slash("buffmode on")
+                ns.BuffButton.Refresh()
+                wow.advance(10)
+                ns.Options.Open()
+                ns.Options.OpenTab(ns.Options.FAVOURS_TAB)
+                local note = ns.Options.widgets.passersByNote:GetText()
+                assert.is_true(has(line(), "Passers-by need friendly nameplates (" .. GAME_SETTING .. ")"), line())
+                assert.is_true(has(note, "so they count as off. Show them with " .. GAME_SETTING .. "."), note)
+                assert.are.equal("passers-by need friendly player nameplates to be seen: turn them on in "
+                    .. GAME_SETTING .. ".", hint())
+                for _, text in ipairs({ line(), note, hint() }) do
+                    assert.is_false(has(text, "/friendly nameplates"), text)
+                end
+                assert.are.same({}, wow.errors)
+            end)
+
+            it("a CVar that can't be read (" .. case[1] .. ") with the key bound: each names the key", function()
+                boot({ noBuffMode = true, before = function(state)
+                    state.bindings["SHIFT-V"] = "FRIENDNAMEPLATES"
+                    state.bindingText = { ["SHIFT-V"] = "Shift-V" }
+                end })
+                case[2]()
+                slash("buffmode on")
+                ns.BuffButton.Refresh()
+                wow.advance(10)
+                ns.Options.Open()
+                ns.Options.OpenTab(ns.Options.FAVOURS_TAB)
+                local note = ns.Options.widgets.passersByNote:GetText()
+                assert.is_true(has(line(), "Passers-by need friendly nameplates (Shift-V)"), line())
+                assert.is_true(has(note, "so they count as off. Show them with Shift-V."), note)
+                assert.are.equal("passers-by need friendly player nameplates to be seen: press Shift-V to show them.",
+                    hint())
+                for _, text in ipairs({ line(), note, hint() }) do
+                    assert.is_false(has(text, "/friendly nameplates"), text)
+                    assert.is_false(has(text, GAME_SETTING), text)
+                end
             end)
         end
 

@@ -1,4 +1,4 @@
--- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #360, #345, #308, #343, #367, #371, #375, #408, #415, #478, #491, #508, #492, #522
+-- Spec: #49, #50, #65, #77, #80, #82, #89, #95, #103, #104, #106, #117, #118, #119, #122, #127, #130, #147, #153, #154, #170, #172, #173, #178, #182, #186, #197, #215, #218, #226, #229, #241, #242, #261, #318, #160, #309, #310, #164, #317, #347, #356, #360, #345, #308, #343, #367, #371, #375, #408, #415, #478, #491, #508, #492, #522, #527
 -- Checks the GitHub workflows, the CurseForge packager config and the release
 -- scripts. Mistakes here only show up on GitHub or after a release ships, so
 -- they're caught here instead.
@@ -1977,7 +1977,8 @@ describe("UI simulator workflow", function()
     -- The log's digest (#473), run for real: the main pass prints a failed check on two lines, and
     -- the error line holds the failed LAYOUT line, so both are kept.
     describe("the scenario job's log digest, run for real (#473)", function()
-        local function digest(files)
+        -- shellFlags: "set -e" by default, as the runner runs a step with no shell: (#527).
+        local function digest(files, shellFlags)
             local step = wow.readFile(path):match("name: Digest %(client facts[^\n]*\n%s*run: |\n(.-)\n\n")
             assert.is_truthy(step, "no digest step")
             local dir = os.tmpname()
@@ -1989,7 +1990,8 @@ describe("UI simulator workflow", function()
                 f:close()
             end
             local f = assert(io.open(dir .. "/run.sh", "wb"))
-            f:write("set -e\nRUNNER_TEMP='" .. dir .. "'\nLAYOUT_SIZES='1024x768 1920x1080'\n" .. step .. "\n")
+            f:write((shellFlags or "set -e") .. "\nRUNNER_TEMP='" .. dir .. "'\nLAYOUT_SIZES='1024x768 1920x1080'\n"
+                .. step .. "\n")
             f:close()
             local p = io.popen("bash '" .. dir .. "/run.sh' 2>&1")
             local out = p:read("*a")
@@ -2013,6 +2015,23 @@ describe("UI simulator workflow", function()
             assert.is_falsy(out:find("LAYOUT main one", 1, true), "the main pass's lines are in the log")
             assert.is_truthy(out:find("FACT sim a fact", 1, true), out)
         end)
+
+        -- #527: under the runner's bash -e, without pipefail, `grep | head || echo none` never said none.
+        for _, shellFlags in ipairs({ "set -e", "set -eo pipefail" }) do
+            it("says none when no report line names FriendlyForever, run with " .. shellFlags .. " (white)", function()
+                local out = digest({ ["run-tests.log"] = "1 tests, 1 passed\n", ["layout-1024x768.log"] = "",
+                    ["layout-1920x1080.log"] = "", ["lua-errors.json"] = "[]\nSomeOtherAddon: oops\n",
+                    ["frame-tree.txt"] = "UIParent\n" }, shellFlags)
+                assert.is_truthy(out:find("| --- load errors naming FriendlyForever\n| none\n| --- frame tree lines naming "
+                    .. "FriendlyForever\n| none\n", 1, true), out)
+                out = digest({ ["run-tests.log"] = "", ["layout-1024x768.log"] = "", ["layout-1920x1080.log"] = "",
+                    ["lua-errors.json"] = "a\nb\nFriendlyForever\\Core.lua:1: boom\nc\n",
+                    ["frame-tree.txt"] = "FriendlyForeverButton\n" }, shellFlags)
+                assert.is_truthy(out:find("| b\n| FriendlyForever\\Core.lua:1: boom\n| c\n", 1, true), out)
+                assert.is_truthy(out:find("| FriendlyForeverButton\n", 1, true), out)
+                assert.is_falsy(out:find("| none\n", 1, true), out)
+            end)
+        end
     end)
 
     -- The summary step's own shell, as the job runs it, on a report in which
@@ -2026,7 +2045,9 @@ describe("UI simulator workflow", function()
             .. "START 7 ::error::seven\n```\n::warning::hostile\nx ##[set-env name=A;]b\r::error::carriage\n"
             .. "START 12::error::bad\nthe last line\n"
 
-        local function summarize(runs, logs)
+        -- shellFlags: "set -e" by default, as the runner runs the step: it has no
+        -- shell:, so bash -e without pipefail (#527).
+        local function summarize(runs, logs, shellFlags)
             local workflow = wow.readFile(path)
             local step = workflow:match("name: Summary\n%s*run: |\n(.-)\n\n")
             assert.is_truthy(step, "no summary step")
@@ -2044,7 +2065,7 @@ describe("UI simulator workflow", function()
             end
             for name, content in pairs(logs or {}) do write("report/" .. name, content) end
             if runs then write("runs.txt", runs) end
-            write("run.sh", "set -eo pipefail\nRUNNER_TEMP='" .. dir .. "'\nLAYOUT_SIZES=1024x768\n"
+            write("run.sh", (shellFlags or "set -e") .. "\nRUNNER_TEMP='" .. dir .. "'\nLAYOUT_SIZES=1024x768\n"
                 .. "GITHUB_STEP_SUMMARY='" .. dir .. "/summary.md'\n" .. step .. "\n")
             local status = os.execute("bash '" .. dir .. "/run.sh' > '" .. dir .. "/step.log' 2>&1")
             local function read(name)
@@ -2174,6 +2195,21 @@ describe("UI simulator workflow", function()
             assert.is_truthy(head:find("| first tree\n", 1, true), head)
             assert.is_truthy(head:find("| the tree end\n", 1, true), head)
         end)
+
+        -- #527: under the runner's bash -e, without pipefail, `grep | head || echo none` never said none.
+        for _, shellFlags in ipairs({ "set -e", "set -eo pipefail" }) do
+            it("says none under Lua errors when no line names FriendlyForever, run with " .. shellFlags .. " (black)",
+                function()
+                local r = summarize(ALL_FINISHED, { ["lua-errors.json"] = "[]\nSomeOtherAddon: oops\n" }, shellFlags)
+                assert.are.equal(0, r.status)
+                assert.is_truthy(r.summary:find("### Lua errors while loading (from FriendlyForever files)\n```\n| none\n```",
+                    1, true), r.summary)
+                r = summarize(ALL_FINISHED, { ["lua-errors.json"] = "x\nFriendlyForever\\Core.lua:1: boom\n" }, shellFlags)
+                assert.are.equal(0, r.status)
+                assert.is_truthy(r.summary:find("### Lua errors while loading (from FriendlyForever files)\n```\n"
+                    .. "| FriendlyForever\\Core.lua:1: boom\n```", 1, true), r.summary)
+            end)
+        end
 
         it("says none when the stopped run started no scenario (black)", function()
             local r = summarize("lua-errors 1 124 130\nlua-errors 2 124 130\nrun-tests 1 0 20\ndump-tree 1 0 3\n"
