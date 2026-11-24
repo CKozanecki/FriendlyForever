@@ -41,6 +41,17 @@
 -- level: BuffButton.RefusalKind, #483) they wait HELD_BACK_SECONDS; one
 -- about you (no mana, the global cooldown) holds nobody.
 --
+-- Saying why (#521, the owner's report of 20 Nov): while the switch and buff
+-- mode are on but passers-by can't be offered, OffReason says why, from the
+-- place, the fight and friendly nameplates (Nameplates.lua: one the game
+-- won't read counts as off). The button's line says so when nobody else is
+-- offered (BuffButton.lua), the Favours tab notes nameplates off by the
+-- switch (Options.lua), debug logs "passersBy: off: <reason>" each time the
+-- reason changes (Watch), and once a session chat says how to show
+-- nameplates. A resting area stops nothing (they're still offered), but
+-- they don't keep buff mode on there (BuffModeAuto.lua, #484): logged too.
+-- The words are fixed text, never a player's name; nothing here casts.
+--
 -- Limits: at most MAX_CHECKED players get the costly checks (auras, range)
 -- per look, at most MAX_LISTED are listed, and a look runs at most once
 -- every INTERVAL seconds unless a press asks afresh (Fresh). Skips are kept
@@ -69,6 +80,8 @@ local heldBack = {}   -- [full name] = GetTime() the game refused a cast to them
 local given = {}      -- [name .. "\1" .. buff key] = GetTime() your buff reached them
 local logged = {}     -- [name .. "\1" .. why] = GetTime() it was said in debug
 local cache           -- { at, offers = { ... }, reason }: the last look
+local lastOff         -- the OffReason key last logged (Watch), or nil
+local hinted = false  -- the once-a-session chat line about nameplates was said
 
 local function Recently(at, seconds)
     return at ~= nil and GetTime() - at >= 0 and GetTime() - at < seconds
@@ -105,13 +118,77 @@ function PassersBy.On()
         and cfg.passersBy == true
 end
 
--- Why passers-by can't be offered now, or nil when they may be.
+-- Why passers-by can't be offered now, or nil when they may be, and its
+-- OffReason key (#521) for the reasons that aren't a switch.
 local function WhyNotNow(anyMode)
     if not PassersBy.On() then return "passers-by are off" end
     if not anyMode and not ns.BuffMode.LentKey() then return "buff mode is off" end
-    if Read(InCombatLockdown) ~= false then return "you're in a fight" end
-    if Read(IsInInstance) ~= false then return "you're not in the open world" end
-    if ns.Cities.MapId() == nil or ns.Cities.Capital() ~= nil then return "you're in a capital city" end
+    if Read(InCombatLockdown) ~= false then return "you're in a fight", "combat" end
+    local inside = Read(IsInInstance)
+    if inside == true then return "you're not in the open world", "instance" end
+    if inside ~= false or ns.Cities.MapId() == nil then return "the game won't say where you are", "place" end
+    if ns.Cities.Capital() ~= nil then return "you're in a capital city", "capital" end
+end
+
+-- The reasons (#521): for the debug log, and for the button's line ("button":
+-- nil for one that stops nothing). Fixed text only.
+PassersBy.OFF_REASONS = {
+    nameplates = { log = "friendly nameplates are off", button = "need friendly nameplates" },
+    nameplatesUnread = { log = "friendly nameplates can't be read, so count as off",
+        button = "need friendly nameplates" },
+    combat = { log = "you're in a fight", button = "not in a fight" },
+    instance = { log = "you're in an instance (dungeon, raid, battleground or arena)",
+        button = "not in a dungeon, raid or battleground" },
+    place = { log = "the place can't be read (instance or map)", button = "the game won't say where you are" },
+    capital = { log = "you're in a capital city", button = "not in a capital city" },
+    resting = { log = "you're in a resting area: they don't keep buff mode on here" },
+}
+
+-- Why passers-by, switched on, aren't being offered while buff mode is on
+-- (#521): a key of OFF_REASONS, or nil (they may be, or their switch or buff
+-- mode is off). Buff mode counts as on while it waits out a fight, its key
+-- handed back (BuffMode.IsOn). The place and the fight first (nameplates
+-- wouldn't help there), then nameplates, then a resting area. fightStarting:
+-- the fight's first event, which comes just before the lockdown.
+function PassersBy.OffReason(fightStarting)
+    if not PassersBy.On() or not (ns.BuffMode.IsOn() or ns.BuffMode.LentKey()) then return nil end
+    if fightStarting then return "combat" end
+    local _, key = WhyNotNow(true)
+    if key then return key end
+    local shown = ns.Nameplates.FriendlyShown()
+    if shown == nil then return "nameplatesUnread" end
+    if shown ~= true then return "nameplates" end
+    if Read(IsResting) ~= false then return "resting" end
+end
+
+-- The button's words for why, or nil: "Passers-by: not in a capital city".
+function PassersBy.OffText()
+    local key = PassersBy.OffReason()
+    local reason = key and PassersBy.OFF_REASONS[key]
+    if not reason or not reason.button then return nil end
+    if key == "nameplates" or key == "nameplatesUnread" then
+        return "Passers-by " .. reason.button .. " (" .. ns.Nameplates.HowToShow() .. ")"
+    end
+    return "Passers-by: " .. reason.button
+end
+
+-- Each refresh (BuffButton.Refresh), and as a fight starts (OnCombatStart,
+-- fightStarting): debug logs the reason each time it changes, and chat says
+-- once a session how to show friendly nameplates when passers-by need them.
+-- The reason is forgotten while it is nil, so the same one starting again is
+-- logged again.
+function PassersBy.Watch(fightStarting)
+    local key = PassersBy.OffReason(fightStarting)
+    if key ~= lastOff and key then
+        ns.Diag.Log("passersBy", "off: %s", PassersBy.OFF_REASONS[key].log)
+    end
+    lastOff = key
+    if not hinted and PassersBy.On() and ns.BuffMode.LentKey() and ns.Nameplates.FriendlyShown() ~= true then
+        hinted = true
+        local toggle = ns.Nameplates.ToggleKeyText()
+        ns.Print("passers-by need friendly player nameplates to be seen: /friendly nameplates shows them"
+            .. (toggle and (", or press " .. toggle) or "") .. ".")
+    end
 end
 
 -- Everyone in your group by full name, or nil when a slot can't be read.

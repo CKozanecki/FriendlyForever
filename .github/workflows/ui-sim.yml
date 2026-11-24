@@ -927,7 +927,7 @@ jobs:
         run: |
           states="$RUNNER_TEMP/shot-lua"
           mkdir -p "$states"
-          for state in favour buffmode bufflist buffgroup alreadydone longreason asked weapon formback formrefused formkey; do
+          for state in favour buffmode bufflist buffgroup alreadydone longreason asked weapon formback formrefused formkey passersby; do
             { cat uitests/button_states.lua; printf '\nFriendlyForeverUIStates.Show("%s")\n' "$state"; } \
               > "$states/$state.lua"
           done
@@ -953,6 +953,9 @@ jobs:
           # A message line's hover (#441): the Favours tab with the pointer over its line 4.
           { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowMessageHover("favours")\n'; } \
             > "$states/tab-favours-hover.lua"
+          # The passers-by note under its switch, friendly nameplates off (#521).
+          { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowPassersByNameplates()\n'; } \
+            > "$states/tab-favours-nameplates.lua"
           # The Buffs tab (#408): each place, a who-gets list and names open,
           # and the choice before it's made.
           for shot in $BUFFS_SHOTS; do
@@ -987,8 +990,8 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Every shot
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so a pass of 51 shots can take about 170 minutes in the
-        # worst case, and both passes together about 340. No shot starts
+        # clean-up, so a pass of 53 shots can take about 177 minutes in the
+        # worst case, and both passes together about 354. No shot starts
         # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
         # so the last one ends by about 4400 s with the probe: inside this
         # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a
@@ -1089,6 +1092,8 @@ jobs:
             done
             # A message line's hover (#441): what its placeholders can turn into for your character.
             shoot options-favours-hover --exec-lua "@/shot-lua/tab-favours-hover.lua"
+            # The passers-by note, friendly nameplates off (#521).
+            shoot options-favours-nameplates --exec-lua "@/shot-lua/tab-favours-nameplates.lua"
             # The Buffs tab (#408): options-buffs-party, options-buffs-party-list...
             for shot in $BUFFS_SHOTS; do
               shoot "options-buffs-$shot" --exec-lua "@/shot-lua/buffs-$shot.lua"
@@ -1120,6 +1125,8 @@ jobs:
             shoot button-formback --exec-lua @/shot-lua/formback.lua
             shoot button-formrefused --exec-lua @/shot-lua/formrefused.lua
             shoot button-formkey --exec-lua @/shot-lua/formkey.lua
+            # Passers-by stopped for want of friendly nameplates (#521).
+            shoot button-passersby --exec-lua @/shot-lua/passersby.lua
             # The General and Favour Ledger pages, filled with long names and
             # many entries, and the copy window as /friendly export opens it (#52).
             shoot options-general --exec-lua @/shot-lua/page-general.lua
