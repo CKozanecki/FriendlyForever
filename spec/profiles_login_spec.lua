@@ -188,6 +188,10 @@ describe("A character with no profile record (#519)", function()
                 { "another's record", { [bo] = { profile = "Main" } }, {}, true },
                 { "another's record names another profile", { [bo] = { profile = "Alt" } }, {}, false },
                 { "another's 1.5.x choice", {}, { ["Bo-Reed"] = "Main" }, true },
+                -- The architecture review of #524: a record is the character's choice
+                -- now; the 1.5.x one it was made from no longer counts.
+                { "another's 1.5.x choice, since replaced by its record", { [bo] = { profile = "Default" } },
+                    { ["Bo-Reed"] = "Main" }, false },
                 { "only its own 1.5.x choice", {}, { ["Ann-Vale"] = "Main" }, false },
             }) do
                 login(mainActive(9, { characters = case[2], charProfiles = case[3] }))

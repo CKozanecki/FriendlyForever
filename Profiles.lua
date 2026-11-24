@@ -607,12 +607,15 @@ function Profiles.SharedWithOthers()
     local active = ns.db.activeProfile
     if active == Profiles.DEFAULT then return false end
     local key = MyKey()
+    local recorded = {} -- full names with a record: their record is their choice now
     for other, record in pairs(ns.db.characters) do
         if other ~= key and record.profile == active then return true end
+        local name = other:match(":(.+)$")
+        if name then recorded[name] = true end
     end
     local me = Util.UnitFullName("player")
     for who, name in pairs(ns.db.charProfiles) do
-        if who ~= me and name == active then return true end
+        if who ~= me and not recorded[who] and name == active then return true end
     end
     return false
 end
