@@ -1,4 +1,4 @@
--- Spec: #47, #169, #330, #40, #408, #45, #491, #508
+-- Spec: #47, #169, #330, #40, #408, #45, #491, #508, #496
 -- The Start here page and the walkthrough: the page's controls change the
 -- same settings as their full pages, the walkthrough reaches buff mode's key
 -- and triggers, skipping or finishing it is remembered, it can be replayed,
@@ -62,7 +62,7 @@ describe("Start here", function()
     it("is the first page listed under Friendly Forever, and fills when shown", function()
         local names = {}
         for _, sub in ipairs(wow.settings.subcategories) do names[#names + 1] = sub.name end
-        assert.are.same({ "Start here", "General", "Favour Ledger", "Weapon buffs" }, names)
+        assert.are.same({ "Start here", "General", "Favour Ledger", "Weapon buffs", "Guild" }, names)
         assert.are.equal(ns.Options.StartPage(), _G.FriendlyForeverStartPage)
         ns.db.enabled = false
         wow.run(ns.Options.StartPage(), "OnShow")
