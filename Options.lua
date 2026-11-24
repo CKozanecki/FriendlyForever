@@ -1227,10 +1227,12 @@ function Options.Create()
             local r, g, b = ns.Colours.RGB(colour)
             GameTooltip:AddLine(text, r, g, b, true)
         end
-        -- A guild line your guild vetoed is never said (#496).
-        if ns.GuildLead and ns.GuildLead.IsLineVetoed(LinesType(), box:GetText()) then
-            Line("bad", Options.VETOED_TIP)
-        end
+        -- A guild line your guild vetoed is never said (#496). A box that
+        -- errors as it's read shows no such line, as it shows no preview.
+        local readable, vetoed = pcall(function()
+            return ns.GuildLead and ns.GuildLead.IsLineVetoed(LinesType(), box:GetText())
+        end)
+        if readable and vetoed then Line("bad", Options.VETOED_TIP) end
         if not ok then
             Line("muted", "No preview for this line.")
         elseif preview.empty then
