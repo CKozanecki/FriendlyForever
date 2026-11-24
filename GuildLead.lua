@@ -628,6 +628,9 @@ function GuildLead.ReportLine(msgType, template)
 end
 
 local function OnLine(sender, fields)
+    -- A built-in line's token names its own type: it must agree with the letter.
+    local tokenKind = fields[2]:match("^b(%a)")
+    if tokenKind and tokenKind ~= fields[1] then return end
     local me = Util.UnitFullName("player")
     if not me or not GuildLead.IsLeader(me) then return end
     if not ns.Greeter.IsGuildMember(sender) then return end

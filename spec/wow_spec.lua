@@ -2073,6 +2073,70 @@ describe("The simulated client's guild ranks, guild name and server clock (#496)
     end)
 end)
 
+describe("The simulated client's guild chat and guild sync default (#496)", function()
+    it("a line said in guild chat reaches every client in the guild, its sender included, and no one else", function()
+        local heard = {}
+        local function Client(name, surname, inGuild)
+            local c = wow.newClient({ name = name, surname = surname, before = function(state)
+                state.inGuild = inGuild
+            end })
+            heard[c.full] = {}
+            local f = CreateFrame("Frame")
+            f:RegisterEvent("CHAT_MSG_GUILD")
+            f:SetScript("OnEvent", function(_, _, text, sender)
+                table.insert(heard[c.full], { text = text, sender = sender })
+            end)
+            return c
+        end
+        local ann = Client("Ann", "Vale", true)
+        local bo = Client("Bo", "Lake", true)
+        local cid = Client("Cid", "Moor", false)
+        local net = wow.network({ ann, bo, cid })
+        wow.use(ann)
+        _G.SendChatMessage("Hello guild", "GUILD")
+        wow.deliver(net)
+        assert.are.same({ { text = "Hello guild", sender = "Ann-Vale" } }, heard["Ann-Vale"])
+        assert.are.same({ { text = "Hello guild", sender = "Ann-Vale" } }, heard["Bo-Lake"])
+        assert.are.same({}, heard["Cid-Moor"])
+        -- Delivering again carries nothing new: each line goes once.
+        wow.deliver(net)
+        assert.are.equal(1, #heard["Bo-Lake"])
+    end)
+
+    it("wow.guildChat fires CHAT_MSG_GUILD with the text and the sender first", function()
+        wow.boot()
+        local got
+        local f = CreateFrame("Frame")
+        f:RegisterEvent("CHAT_MSG_GUILD")
+        f:SetScript("OnEvent", function(_, event, text, sender) got = { event, text, sender } end)
+        wow.guildChat("hi", "Ann-Vale")
+        assert.are.same({ "CHAT_MSG_GUILD", "hi", "Ann-Vale" }, got)
+    end)
+
+    it("holds back guild check-ins and line reports unless opts.guildSync", function()
+        local function guildMessages()
+            local n = 0
+            for _, msg in ipairs(wow.addonSent) do
+                if msg.text:find(";GCHECK;", 1, true) or msg.text:find(";GLINE;", 1, true) then n = n + 1 end
+            end
+            return n
+        end
+        local leaderSeen = { enabled = true, guilds = { ["Forever Realm:Friends Forever"] = {
+            mates = { ["Gina-Moss"] = { version = "1.6.0", seen = 1793000000 } } } } }
+        for _, sync in ipairs({ false, true }) do
+            local ns = wow.boot({ guildSync = sync, db = leaderSeen, before = function(state)
+                state.guildRoster = { "Me", "Gina-Moss" }
+                state.guildRanks = { ["Gina-Moss"] = 0 }
+            end })
+            ns.GuildLead.random = function() return 0 end
+            wow.fire("GUILD_ROSTER_UPDATE")
+            ns.GuildLead.ReportLine("guildLogin", "Hi {name}")
+            wow.advance(30)
+            assert.are.equal(sync and 2 or 0, guildMessages(), tostring(sync))
+        end
+    end)
+end)
+
 describe("The simulated client's layout edges, children and scroll bars (#482)", function()
     before_each(function() wow.boot() end)
 

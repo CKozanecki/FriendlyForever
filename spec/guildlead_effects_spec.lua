@@ -121,6 +121,34 @@ describe("Guild leader controls: the caps and vetoes take effect (#496)", functi
             end)
         end)
 
+        it("a copy that heard the guild's welcome cap of announcements before its turn announces nothing", function()
+            local clients, net = Guild(1)
+            Lead(clients, net, "caps", { "w1" })
+            clients[1].ns.GuildHellos.random = function() return 0 end
+            clients[2].ns.GuildHellos.random = function() return 0.9 end
+            local before = on(clients[2], function() return #wow.addonSent end)
+            Arrive(clients, JOINER, JOINER .. " has joined the guild.")
+            wow.advanceAll(net, 60, 0.1)
+            assert.are.equal(1, #Said(clients, JOINER))
+            on(clients[2], function()
+                for i = before + 1, #wow.addonSent do
+                    assert.is_nil(wow.addonSent[i].text:find(";GREET;", 1, true))
+                end
+            end)
+        end)
+
+        it("a copy in an instance (its channel closed) that heard the welcome cap reached doesn't welcome", function()
+            local clients, net = Guild(1)
+            Lead(clients, net, "caps", { "w1" })
+            clients[1].ns.GuildHellos.random = function() return 0 end
+            clients[2].ns.GuildHellos.random = function() return 0.9 end
+            Arrive(clients, JOINER, JOINER .. " has joined the guild.")
+            wow.advanceAll(net, 3, 0.1)
+            on(clients[2], function() wow.enterDungeon(1, "Deadmines") end)
+            wow.advanceAll(net, 60, 0.1)
+            assert.are.equal(1, #Said(clients, JOINER))
+        end)
+
         it("a player's own lower setting stays under a higher cap", function()
             local clients, net = Guild(5, { own = 1 })
             Lead(clients, net, "caps", { "g3" })
@@ -544,6 +572,13 @@ describe("Guild leader controls: the caps and vetoes take effect (#496)", functi
                 assert.are.equal(0, reports())
             end)
 
+            it("a check-in saved as later than now (a damaged file) doesn't count", function()
+                local ns = Copy({ ["Gina-Moss"] = -600 })
+                assert.is_false(ns.GuildLead.ReportLine("guildLogin", "Hi {name}"))
+                wow.advance(25)
+                assert.are.equal(0, reports())
+            end)
+
             it("you lead and only your own check-in is kept: you keep the line, and send nothing", function()
                 local ns = Copy({ Me = 60 })
                 wow.state.guildRanks.Me = 0
@@ -601,8 +636,13 @@ describe("Guild leader controls: the caps and vetoes take effect (#496)", functi
             report("1;GLINE;Sly-Fox;j;bjd2", "Sly-Fox")
             report("1;GLINE;Ann-Vale;l;bjd2", "Sly-Fox")
             assert.are.same({}, ns.GuildLead.RecentLines())
+            -- A built-in token must be of the type its letter says.
+            report("1;GLINE;Ann-Vale;l;bjd2", "Ann-Vale")
+            assert.are.same({}, ns.GuildLead.RecentLines())
             report("1;GLINE;Ann-Vale;l;cdeadbeef", "Ann-Vale")
             assert.are.equal(1, #ns.GuildLead.RecentLines())
+            report("1;GLINE;Ann-Vale;j;bjd2", "Ann-Vale")
+            assert.are.equal(2, #ns.GuildLead.RecentLines())
         end)
 
         it("a report never makes a copy say or veto anything, and words come only from its sender's own chat", function()
@@ -650,6 +690,28 @@ describe("Guild leader controls: the caps and vetoes take effect (#496)", functi
             assert.are.equal(0, ns.GuildLead.ChatKept(), "nothing left once escapes are taken out")
             for i = 1, 120 do wow.guildChat("hi", "Mate-" .. string.char(97 + i % 26, 97 + math.floor(i / 26))) end
             assert.are.equal(100, ns.GuildLead.ChatKept())
+        end)
+
+        it("when the guild chat it keeps is full, the line kept longest goes first", function()
+            local ns = Leader()
+            local names = {}
+            for i = 1, 101 do
+                names[i] = "Mate-" .. string.char(97 + i % 26, 97 + math.floor(i / 26))
+                wow.state.guildRoster[#wow.state.guildRoster + 1] = names[i]
+            end
+            wow.fire("GUILD_ROSTER_UPDATE")
+            for i = 1, 101 do
+                wow.guildChat("words " .. i, names[i])
+                wow.advance(0.05)
+            end
+            assert.are.equal(100, ns.GuildLead.ChatKept())
+            wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;GLINE;" .. names[1] .. ";l;cdeadbeef", "GUILD", names[1],
+                "", 0, 0, "", 0)
+            wow.fire("CHAT_MSG_ADDON", "FriendlyFvr", "1;GLINE;" .. names[2] .. ";l;cdeadbeef", "GUILD", names[2],
+                "", 0, 0, "", 0)
+            local lines = ns.GuildLead.RecentLines()
+            assert.is_nil(lines[1].text, "the first went")
+            assert.are.equal("words 2", lines[2].text)
         end)
 
         it("guild chat words are plain text, cut short, and an unreadable line is passed over", function()
@@ -711,12 +773,14 @@ describe("Guild leader controls: the caps and vetoes take effect (#496)", functi
             end
             local stats = { rounds = 0, greeted = 0, capped = 0, vetoedSome = 0, off = 0 }
             for round = 1, rounds do
-                if random.random(2) == 1 then
+                -- Round 2 always turns hellos off and has a login, so every seed reaches it.
+                local forceOff = round == 2
+                if forceOff or random.random(2) == 1 then
                     local caps = {}
                     model.greeters, model.welcomes, model.off = nil, nil, false
                     if random.random(2) == 1 then model.greeters = random.random(1, 3); caps[#caps + 1] = "g" .. model.greeters end
                     if random.random(2) == 1 then model.welcomes = random.random(1, 3); caps[#caps + 1] = "w" .. model.welcomes end
-                    if random.random(5) == 1 then model.off = true; caps[#caps + 1] = "h0" end
+                    if forceOff or random.random(3) == 1 then model.off = true; caps[#caps + 1] = "h0" end
                     Lead(clients, net, "caps", caps)
                     local vetoes = {}
                     model.vetoed = {}
@@ -736,7 +800,7 @@ describe("Guild leader controls: the caps and vetoes take effect (#496)", functi
                 forge("1;GCAPS;Gina-Moss;999999999998;1;1;-", member)
                 forge("1;GRANKS;" .. member .. ";999999999998;1;1;1,2,3,4,5", member)
                 forge("1;GLINE;" .. member .. ";l;" .. Token("Hi {fullname} #1"), member)
-                local join = random.random(2) == 1
+                local join = not forceOff and random.random(2) == 1
                 local name = (join and "Joiner" or "Login") .. string.char(96 + round % 26 + 1, 96 + math.floor(round / 26) + 1)
                 -- The roster lists them, so a login is greeted.
                 for _, c in ipairs(clients) do
@@ -790,6 +854,7 @@ describe("Guild leader controls: the caps and vetoes take effect (#496)", functi
                 assert.is_true(stats.greeted >= 4, "rounds where someone greeted: " .. stats.greeted)
                 assert.is_true(stats.capped >= 2, "rounds that met their cap: " .. stats.capped)
                 assert.is_true(stats.vetoedSome >= 4, "rounds with vetoes: " .. stats.vetoedSome)
+                assert.is_true(stats.off >= 1, "logins with hellos off: " .. stats.off)
             end)
         end
     end)
