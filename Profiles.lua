@@ -163,8 +163,10 @@ end
 -- which the code only compares, or reads as a key.
 local function CharactersHealthy(db)
     if type(db.characters) ~= "table" then return false end
-    for _, record in pairs(db.characters) do
-        if type(record) ~= "table" then return false end
+    for key, record in pairs(db.characters) do
+        -- A key that isn't a string can't be read as one (#519's
+        -- SharedWithOthers reads each key's name): repaired with the rest.
+        if type(key) ~= "string" or type(record) ~= "table" then return false end
     end
     local seed = db.characterSeed
     return seed == nil or (type(seed) == "table" and type(seed.settings) == "table")
@@ -610,7 +612,7 @@ function Profiles.SharedWithOthers()
     local recorded = {} -- full names with a record: their record is their choice now
     for other, record in pairs(ns.db.characters) do
         if other ~= key and record.profile == active then return true end
-        local name = other:match(":(.+)$")
+        local name = other:match(":(.+)$") -- a string: Check() repairs any other key
         if name then recorded[name] = true end
     end
     local me = Util.UnitFullName("player")

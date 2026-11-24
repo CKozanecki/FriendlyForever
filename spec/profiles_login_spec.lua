@@ -314,6 +314,20 @@ describe("A character with no profile record (#519)", function()
             assert.are.equal("B", db.characters[bo].settings.buffModeKey, "Bo's own are as they were")
         end)
 
+        -- The architecture review of #524: a key that isn't a string, put in
+        -- mid-session (another addon, a bad /run), is repaired before it is read.
+        it("a character list damaged mid-session is repaired before it is read, never raising an error", function()
+            login(mainActive(9, { characters = { ["Forever Realm:Bo-Reed"] = { profile = "Ann" } } }))
+            for _, junk in ipairs({ 7, true, 1.5 }) do
+                ns.db.characters[junk] = { profile = "Ann" }
+                local ok, shared = pcall(ns.Profiles.SharedWithOthers)
+                assert.is_true(ok, tostring(shared))
+                assert.is_true(shared, tostring(junk) .. ": Bo's record still names Ann")
+                assert.is_nil(ns.db.characters[junk], tostring(junk) .. ": repaired")
+            end
+            assert.are.same({}, wow.errors)
+        end)
+
         it("a record that chose Default still goes back to it, the stored copy and all", function()
             login(mainActive(9, { characters = { [MY_KEY] = { profile = "Default" } } }))
             assert.are.equal("Default", ns.Profiles.Active(), "a record says to")
