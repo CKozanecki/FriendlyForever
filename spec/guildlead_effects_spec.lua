@@ -497,6 +497,72 @@ describe("Guild leader controls: the caps and vetoes take effect (#496)", functi
             for _, c in ipairs(clients) do assert.are.equal(0, c.ns.Comm.CrowdDrops()) end
         end)
 
+        describe("only while another leader's copy has checked in lately", function()
+            local KEY = "Forever Realm:Friends Forever"
+            -- A member's copy whose saved guild memory says who checked in when.
+            local function Copy(mates, ranks)
+                local now = 1793000000
+                local saved = {}
+                for name, ago in pairs(mates) do saved[name] = { version = "1.6.0", seen = now - ago } end
+                local ns = wow.boot({ guildSync = true, db = { enabled = true, guilds = { [KEY] = {
+                    used = now, mates = saved, ranks = { version = 5, items = ranks or {} } } } },
+                    before = function(state)
+                        state.guildRoster = { "Me", "Gina-Moss", "Otto-Bell" }
+                        state.guildRanks = { Me = 4, ["Gina-Moss"] = 0, ["Otto-Bell"] = 1 }
+                    end })
+                wow.fire("GUILD_ROSTER_UPDATE")
+                ns.GuildLead.random = function() return 0 end
+                return ns
+            end
+            local function reports()
+                local n = 0
+                for _, msg in ipairs(wow.addonSent) do
+                    if msg.text:find(";GLINE;", 1, true) then n = n + 1 end
+                end
+                return n
+            end
+
+            it("the guild master checked in a minute ago: a report goes", function()
+                local ns = Copy({ ["Gina-Moss"] = 60 })
+                assert.is_true(ns.GuildLead.ReportLine("guildLogin", "Hi {name}"))
+                wow.advance(25)
+                assert.are.equal(1, reports())
+            end)
+
+            it("an officer of a rank that leads checked in: a report goes", function()
+                local ns = Copy({ ["Otto-Bell"] = 60 }, { "1" })
+                assert.is_true(ns.GuildLead.ReportLine("guildLogin", "Hi {name}"))
+                wow.advance(25)
+                assert.are.equal(1, reports())
+            end)
+
+            it("the leader's check-in is older than LEADER_SEEN, or the officer's rank doesn't lead: none goes", function()
+                local ns = Copy({ ["Gina-Moss"] = 1801, ["Otto-Bell"] = 60 })
+                assert.are.equal(1800, ns.GuildLead.LEADER_SEEN)
+                assert.is_false(ns.GuildLead.ReportLine("guildLogin", "Hi {name}"))
+                wow.advance(25)
+                assert.are.equal(0, reports())
+            end)
+
+            it("you lead and only your own check-in is kept: you keep the line, and send nothing", function()
+                local ns = Copy({ Me = 60 })
+                wow.state.guildRanks.Me = 0
+                wow.fire("GUILD_ROSTER_UPDATE")
+                assert.is_false(ns.GuildLead.ReportLine("guildLogin", "Hi {name}"))
+                wow.advance(25)
+                assert.are.equal(0, reports())
+                assert.are.equal(1, #ns.GuildLead.RecentLines())
+            end)
+
+            it("the guild changes while a report waits: it isn't sent to the new one", function()
+                local ns = Copy({ ["Gina-Moss"] = 60 })
+                assert.is_true(ns.GuildLead.ReportLine("guildLogin", "Hi {name}"))
+                wow.state.guildName = "Night Watch"
+                wow.advance(25)
+                assert.are.equal(0, reports())
+            end)
+        end)
+
         it("a built-in line whose chat line wasn't seen shows its shipped words", function()
             local ns = wow.boot({ guildSync = true, before = function(state)
                 state.guildRoster = { "Me", "Ann-Vale" }
