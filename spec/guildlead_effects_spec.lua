@@ -34,10 +34,12 @@ end
 -- greeter setting, the roster read, and a network carrying what they send.
 local function Guild(n, opts)
     opts = opts or {}
-    local people = { GM }
+    local people = opts.noLeader and {} or { GM }
     for i = 1, n do people[#people + 1] = MEMBERS[i] end
-    local roster = { LOGIN }
-    for _, p in ipairs(people) do roster[#roster + 1] = p.name .. "-" .. p.surname end
+    local roster = { LOGIN, "Gina-Moss" }
+    for _, p in ipairs(people) do
+        if p ~= GM then roster[#roster + 1] = p.name .. "-" .. p.surname end
+    end
     for _, name in ipairs(opts.alsoInRoster or {}) do roster[#roster + 1] = name end
     local clients = {}
     for i, p in ipairs(people) do
@@ -52,7 +54,7 @@ local function Guild(n, opts)
         c.ns.db.guildJoin.messages = Lines("Welcome")
         c.ns.Messages.random = random.random
         c.ns.GuildHellos.random = random.random
-        c.ns.GuildLead.random = function() return 0 end
+        c.ns.GuildLead.random = opts.randomWaits and random.random or function() return 0 end
         wow.fire("GUILD_ROSTER_UPDATE")
         clients[i] = c
     end
@@ -226,6 +228,21 @@ describe("Guild leader controls: the caps and vetoes take effect (#496)", functi
             for _, s in ipairs(said) do assert.is_nil(s.text:find("from", 1, true)) end
         end)
 
+        for _, order in ipairs({ "joins, then comes online", "comes online, then joins" }) do
+            it("a new member who " .. order .. " is welcomed under the welcome cap, and not greeted too", function()
+                local clients, net = Guild(5)
+                Lead(clients, net, "caps", { "w1" })
+                local joined = JOINER .. " has joined the guild."
+                local online = "|Hplayer:" .. JOINER .. "|h[" .. JOINER .. "]|h has come online."
+                local lines = order:find("^joins") and { joined, online } or { online, joined }
+                for _, line in ipairs(lines) do Arrive(clients, JOINER, line) end
+                wow.advanceAll(net, 60, 0.1)
+                local said = Said(clients, JOINER)
+                assert.are.equal(1, #said)
+                assert.is_truthy(said[1].text:find("^Welcome"), said[1].text)
+            end)
+        end
+
         it("without a welcome cap every copy welcomes, as before", function()
             local clients, net = Guild(3)
             Arrive(clients, JOINER, JOINER .. " has joined the guild.")
@@ -357,6 +374,22 @@ describe("Guild leader controls: the caps and vetoes take effect (#496)", functi
             for _, s in ipairs(Said(clients, LOGIN)) do assert.are.equal("Hi Thrall back", s.text) end
         end)
 
+        it("keeps the shipped guild lines where their veto IDs point: only ever added to at the end", function()
+            local ns = wow.boot()
+            local pinned = {
+                DefaultMessages = { guildLogin = "cbc77c17f", guildJoin = "ce81c11cb" },
+                CasualMessages = { guildLogin = "cdb9dd034", guildJoin = "ca879061c" },
+            }
+            for set, lists in pairs(pinned) do
+                for msgType, fingerprint in pairs(lists) do
+                    local list = ns[set][msgType]
+                    assert.is_true(#list >= 30)
+                    assert.are.equal(fingerprint, Token(table.concat(list, "\n", 1, 30)),
+                        set .. "." .. msgType .. ": a vetoed line is named by its place, so lines 1 to 30 can't change")
+                end
+            end
+        end)
+
         it("names each line by the token a leader vetoes it with", function()
             local ns = wow.boot()
             for i, text in ipairs(ns.DefaultMessages.guildLogin) do
@@ -408,6 +441,46 @@ describe("Guild leader controls: the caps and vetoes take effect (#496)", functi
             end
         end)
 
+        it("no leader's copy online: no copy sends a report", function()
+            local clients, net = Guild(3, { sync = true, noLeader = true })
+            Arrive(clients, LOGIN)
+            wow.advanceAll(net, 90, 0.5)
+            assert.is_true(#Said(clients, LOGIN) >= 1)
+            for _, c in ipairs(clients) do
+                wow.use(c)
+                for _, msg in ipairs(wow.addonSent) do assert.is_nil(msg.text:find(";GLINE;", 1, true)) end
+            end
+        end)
+
+        it("a report waits a random while, REPORT_WAIT_MIN to REPORT_WAIT_MAX seconds", function()
+            local clients, net = Guild(1, { sync = true })
+            assert.are.same({ 2, 20 }, { clients[1].ns.GuildLead.REPORT_WAIT_MIN, clients[1].ns.GuildLead.REPORT_WAIT_MAX })
+            clients[2].ns.GuildLead.random = function() return 0.5 end
+            Arrive(clients, LOGIN)
+            wow.advanceAll(net, 90, 0.1)
+            wow.use(clients[2])
+            local saidAt, reportAt
+            for _, sent in ipairs(wow.sent) do if sent.channel == "GUILD" then saidAt = sent.time end end
+            for _, msg in ipairs(wow.addonSent) do
+                if msg.text:find(";GLINE;", 1, true) then reportAt = msg.time end
+            end
+            assert.is_not_nil(saidAt)
+            assert.is_not_nil(reportAt)
+            assert.is_true(math.abs(reportAt - saidAt - 11) <= 0.5, string.format("%.1f s after", reportAt - saidAt))
+        end)
+
+        it("a crowd of copies welcoming at once doesn't crowd out a guild hello", function()
+            -- Check-ins spread over their 5 to 20 seconds, as in the game.
+            local clients, net = Guild(5, { sync = true, noLeader = true, randomWaits = true })
+            for _, c in ipairs(clients) do c.ns.Comm.ALL_BURST = 3 end
+            Arrive(clients, LOGIN)
+            wow.advanceAll(net, 2, 0.5)
+            Arrive(clients, JOINER, JOINER .. " has joined the guild.")
+            wow.advanceAll(net, 60, 0.1)
+            assert.is_true(#Said(clients, LOGIN) >= 1, "the login is still greeted")
+            for _, c in ipairs(clients) do assert.are.equal(0, c.ns.Comm.CrowdDrops()) end
+        end)
+
         it("a built-in line whose chat line wasn't seen shows its shipped words", function()
             local ns = wow.boot({ guildSync = true, before = function(state)
                 state.guildRoster = { "Me", "Ann-Vale" }
@@ -418,9 +491,9 @@ describe("Guild leader controls: the caps and vetoes take effect (#496)", functi
             local lines = ns.GuildLead.RecentLines()
             assert.are.equal(1, #lines)
             assert.are.equal(ns.DefaultMessages.guildJoin[2], lines[1].text)
-            -- Their chat line arriving after the report fills in its words.
-            wow.guildChat("Welcome, Bob!", "Ann-Vale")
-            assert.are.equal("Welcome, Bob!", ns.GuildLead.RecentLines()[1].text)
+            -- A built-in line keeps its shipped words, whatever they last typed.
+            wow.guildChat("Brb, kettle", "Ann-Vale")
+            assert.are.equal(ns.DefaultMessages.guildJoin[2], ns.GuildLead.RecentLines()[1].text)
         end)
     end)
 

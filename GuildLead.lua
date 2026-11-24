@@ -572,6 +572,9 @@ GuildLead.MAX_LINES = 50      -- recent lines a leader's copy keeps for its pane
 GuildLead.MAX_CHAT = 100      -- guildmates whose last guild chat line is kept, to show a report's words
 GuildLead.CHAT_MATCH = 10     -- the most seconds between a report and its line in guild chat
 GuildLead.MAX_LINE_BYTES = 255
+GuildLead.REPORT_WAIT_MIN = 2  -- seconds a report waits, at random, so many copies' reports are spread out
+GuildLead.REPORT_WAIT_MAX = 20
+GuildLead.LEADER_SEEN = 2 * GuildLead.CHECKIN_EVERY -- seconds a leader's check-in counts them as online
 
 local recent = {}            -- { sender, msgType, token, at (GetTime), seen (Clock), text }
 local chat, chatCount = {}, 0 -- [sender] = { text, at }: their last line in guild chat
@@ -588,16 +591,40 @@ local function Record(sender, msgType, token)
     while #recent > GuildLead.MAX_LINES do table.remove(recent, 1) end
 end
 
+-- Whether another guildmate who leads has checked in within LEADER_SEEN:
+-- only then is a report any use. Their rank is read from the roster now.
+local function LeaderOnline(g, me)
+    local now = Clock()
+    local leads = { [0] = true }
+    for _, item in ipairs(g.ranks.items) do leads[tonumber(item)] = true end
+    for name, mate in pairs(g.mates) do
+        local seen = type(mate) == "table" and mate.seen
+        if name ~= me and type(seen) == "number" and now >= seen and now - seen <= GuildLead.LEADER_SEEN then
+            local rank = GuildLead.Rank(name)
+            if rank and leads[rank] then return true end
+        end
+    end
+    return false
+end
+
 -- After one of our guild lines is said (Announcer): tell the guild which
--- line it was, by its token, never its text. A leader's copy also keeps
--- its own.
+-- line it was, by its token, never its text, after a random wait, and only
+-- while another leader's copy is online to keep it, so the reports of a
+-- guild that doesn't use these controls never crowd out its other messages.
+-- A leader's copy also keeps its own. Returns true when a report waits to go.
 function GuildLead.ReportLine(msgType, template)
     local letter = GuildLead.LINE_TYPES[msgType]
     local token = GuildLead.LineToken(msgType, template)
     local me = Util.UnitFullName("player")
-    if not letter or not token or not me or not GuildLead.Memory() then return false end
+    local g = GuildLead.Memory()
+    if not letter or not token or not me or not g then return false end
     if GuildLead.IsLeader(me) then Record(me, msgType, token) end
-    return Comm.Send("GLINE", { letter, token }, "GUILD")
+    if not LeaderOnline(g, me) then return false end
+    local key = GuildKey()
+    C_Timer.After(Wait(GuildLead.REPORT_WAIT_MIN, GuildLead.REPORT_WAIT_MAX), ns.Diag.Wrap(function()
+        if GuildKey() == key then Comm.Send("GLINE", { letter, token }, "GUILD") end
+    end))
+    return true
 end
 
 local function OnLine(sender, fields)
@@ -645,13 +672,14 @@ function GuildLead.ChatKept()
 end
 
 -- A copy of the recent lines, newest last: { sender, msgType, token, seen,
--- text }. text is what guild chat showed, or the shipped line's own words
--- for a built-in line whose chat line wasn't seen, or nil.
+-- text }. text is a built-in line's own shipped words, or for a custom
+-- line what guild chat showed from its sender (their last line there,
+-- within CHAT_MATCH seconds), or nil.
 function GuildLead.RecentLines()
     local out = {}
     for i, entry in ipairs(recent) do
         out[i] = { sender = entry.sender, msgType = entry.msgType, token = entry.token, seen = entry.seen,
-            text = entry.text or GuildLead.BuiltInText(entry.token) }
+            text = GuildLead.BuiltInText(entry.token) or entry.text }
     end
     return out
 end

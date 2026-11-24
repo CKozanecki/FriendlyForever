@@ -93,6 +93,11 @@ end
 -- (#496): the same announce-and-count, with the welcome lines and that cap.
 -- A relog starts afresh: GREETs for the last login don't count for this one.
 function GuildHellos.OnLogin(name, kind)
+    -- A new member's "has come online" line, before or after their join
+    -- line, is the same arrival (as Greeter's TakeWelcome has it, #196): it
+    -- leaves a welcome being counted as it is.
+    local live = Live(name)
+    if live and live.kind == "guildJoin" and kind ~= "guildJoin" then return end
     if not logins[name] and loginCount >= GuildHellos.MAX_LOGINS then MakeRoom() end
     if not logins[name] then loginCount = loginCount + 1 end
     logins[name] = { at = GetTime(), greets = {}, order = {}, count = 0, lines = {}, crowd = ns.Comm.CrowdDrops(),
