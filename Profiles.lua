@@ -29,7 +29,20 @@
 -- (saved by Config's migration 9, with weapon buffs reset there once for
 -- everyone); with no seed (a new install), unset (Config.UnsetCharacter).
 -- Its profile is the one 1.5.x remembered for it (db.charProfiles, by full
--- name, only read now); with none, it starts on Default, with its own.
+-- name, only read now). With none, and Default active, it starts on Default,
+-- with its own. With none, and a shared profile active, it gets a profile of
+-- its own (#519, the owner's decision of 24 Nov 2026, "B1"): named after the
+-- character ("Ann", or "Ann 2" when that name is taken), a copy of the live
+-- settings, and recorded as its choice. So it keeps what was live (buff back,
+-- passers-by and the rest), never joins the shared profile, and Default and
+-- every other profile are left as they were. At the cap of profiles
+-- (Profiles.MAX) it keeps the active profile, and chat says why.
+--
+-- At login the live settings are the active profile's, and a stored copy is
+-- put over them only when the character's record names another profile, or
+-- names Default (its own) while a shared profile is active (#519). A record
+-- naming a profile that is gone, while a shared profile is active, gets a
+-- profile of its own the same way.
 --
 -- db.characterLive is the key of the character whose own settings are the
 -- live ones (ns.db.buffBack), so they are kept as that character's when
@@ -150,8 +163,10 @@ end
 -- which the code only compares, or reads as a key.
 local function CharactersHealthy(db)
     if type(db.characters) ~= "table" then return false end
-    for _, record in pairs(db.characters) do
-        if type(record) ~= "table" then return false end
+    for key, record in pairs(db.characters) do
+        -- A key that isn't a string can't be read as one (#519's
+        -- SharedWithOthers reads each key's name): repaired with the rest.
+        if type(key) ~= "string" or type(record) ~= "table" then return false end
     end
     local seed = db.characterSeed
     return seed == nil or (type(seed) == "table" and type(seed.settings) == "table")
@@ -360,18 +375,18 @@ local function FirstSettings()
     return ns.Config.UnsetCharacter(), "unset"
 end
 
--- This character's record, made the first time (it is then new).
+-- This character's record, made the first time (it is then new: the second
+-- answer is true).
 local function Record(key)
     local db = ns.db
     local record = db.characters[key]
-    if record then return record end
+    if record then return record, false end
     local settings, how = FirstSettings()
     local me = Util.UnitFullName("player")
-    record = { settings = ns.Config.ValidCharacter(settings),
-        profile = me and db.charProfiles[me] or nil }
+    record = { settings = ns.Config.ValidCharacter(settings), profile = me and db.charProfiles[me] or nil }
     db.characters[key] = record
     ns.Diag.Log("profiles", "%s is new here: its own buff settings %s", key, how)
-    return record
+    return record, true
 end
 
 -- Keep the live settings as the character's own, when they are.
@@ -493,9 +508,50 @@ function Profiles.Delete(input)
     return name
 end
 
+-- A free name for this character's own profile (#519): its first name, or
+-- that with " 2", " 3"... when taken; nil when none is free or it can't be read.
+local function OwnName()
+    local me = Util.UnitFullName("player")
+    local base = me and Profiles.CleanName(Util.FirstName(me))
+    if not base then return nil end
+    for i = 1, Profiles.MAX + 1 do
+        local name = i == 1 and base or (base .. " " .. i)
+        if Profiles.CleanName(name) == name and name ~= Profiles.DEFAULT and name ~= ns.db.activeProfile
+            and not ns.db.profiles[name] then
+            return name
+        end
+    end
+end
+
+-- A profile of this character's own, a copy of the live settings, recorded
+-- as its choice and made the active one (#519, see the top). Nothing stored
+-- is changed or applied. At the cap, it keeps the active profile, and says so.
+local function OwnProfile(key, record)
+    local db = ns.db
+    local kept = db.activeProfile
+    local name = Count() < Profiles.MAX and OwnName() or nil
+    db.characterLive = false -- the live settings are the active profile's, then this one's
+    if not name then
+        record.profile = kept
+        ns.Diag.Log("profiles", "%s keeps %s: no profile of its own could be made", key, kept)
+        ns.Print(("this character uses the profile %s, shared with your other characters: you have the most "
+            .. "profiles allowed (%d), so it couldn't have one of its own. Delete one, then /friendly profile new "
+            .. "<name>."):format(kept, Profiles.MAX))
+        return
+    end
+    db.profiles[name] = Profiles.Snapshot(db)
+    db.activeProfile = name
+    db.importUndo = nil -- it was for the profile that was active
+    record.profile = name
+    ns.Diag.Log("profiles", "%s gets its own profile %s, a copy of %s's live settings", key, name, kept)
+end
+
 -- At login (and after a reload): a character on a shared profile switches to
--- it, if it still exists; any other goes back to Default, with its own
--- settings (#508). A new character gets its record first (see the top).
+-- it, if it still exists; one whose record names Default goes back to it,
+-- with its own settings (#508). A new character gets its record first, and,
+-- while a shared profile is active, a profile of its own (see the top, #519).
+-- A record naming a profile that is gone does too. Nothing stored is put over
+-- the live settings unless a record says to.
 function Profiles.OnLogin()
     Check()
     local db = ns.db
@@ -506,14 +562,25 @@ function Profiles.OnLogin()
         if db.activeProfile ~= Profiles.DEFAULT then return Profiles.Use(Profiles.DEFAULT) end
         return Unreadable()
     end
-    local want = Record(key).profile
-    if want and want ~= Profiles.DEFAULT and db.profiles[want] then
-        if want ~= db.activeProfile then
-            Profiles.Use(want)
-            ns.Diag.Log("profiles", "switched to %s, the profile %s chose", want, key)
-        end
+    local record, new = Record(key)
+    local want = record.profile
+    if new and want == nil and db.activeProfile ~= Profiles.DEFAULT then return OwnProfile(key, record) end
+    local shared = want ~= nil and want ~= Profiles.DEFAULT
+    if shared and want ~= db.activeProfile and db.profiles[want] then
+        Profiles.Use(want)
+        ns.Diag.Log("profiles", "switched to %s, the profile %s chose", want, key)
         -- The live settings are the active profile's, whatever a damaged
         -- file says: never keep them as a character's own.
+        db.characterLive = false
+        return
+    end
+    if shared and db.activeProfile ~= Profiles.DEFAULT then
+        -- Its own choice: the live settings stay as they are, stored copy or
+        -- not. One that is gone: a profile of its own, from them (#519).
+        if want ~= db.activeProfile then
+            ns.Diag.Log("profiles", "%s chose %s, which is gone", key, want)
+            return OwnProfile(key, record)
+        end
         db.characterLive = false
         return
     end
@@ -531,6 +598,28 @@ function Profiles.SharedProfile()
     Check()
     if ns.db.activeProfile ~= Profiles.DEFAULT then return ns.db.activeProfile end
     return nil
+end
+
+-- Whether another character uses the profile in use (#519): its record, or
+-- its 1.5.x choice not yet recorded, names it. false on Default, and for a
+-- profile of a character's own that no other has chosen. The walkthrough calls
+-- a profile shared only then.
+function Profiles.SharedWithOthers()
+    Check()
+    local active = ns.db.activeProfile
+    if active == Profiles.DEFAULT then return false end
+    local key = MyKey()
+    local recorded = {} -- full names with a record: their record is their choice now
+    for other, record in pairs(ns.db.characters) do
+        if other ~= key and record.profile == active then return true end
+        local name = other:match(":(.+)$") -- a string: Check() repairs any other key
+        if name then recorded[name] = true end
+    end
+    local me = Util.UnitFullName("player")
+    for who, name in pairs(ns.db.charProfiles) do
+        if who ~= me and not recorded[who] and name == active then return true end
+    end
+    return false
 end
 
 -- The walkthrough's step about each character's own settings (#508): whether

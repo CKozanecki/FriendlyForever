@@ -1,4 +1,4 @@
--- Spec: #508
+-- Spec: #508, #519
 -- Each character's own buff settings (#508, the owner's decisions of 19 Nov
 -- 2026): weapon buffs, buff mode's key, self-buffs, the buff order and who
 -- gets each buff are each character's. A character on a shared profile uses
@@ -138,24 +138,35 @@ describe("Each character's own buff settings (#508)", function()
             ns.db.buffBack.weaponMain = "manaOil"
             ns.db.guildLogin.delay = 9
             login("Bo", logout())
-            assert.are.equal("Default", ns.Profiles.Active(), "Bo uses no shared profile")
-            assert.are.equal("none", ns.db.buffBack.weaponMain)
+            assert.are.equal("Bo", ns.Profiles.Active(), "a new character gets a profile of its own (#519)")
+            assert.are.equal("manaOil", ns.db.buffBack.weaponMain, "a copy of the live settings, Party's")
+            ns.db.buffBack.weaponMain = "windfury"
+            slash("profile use Default")
+            assert.are.equal("none", ns.db.buffBack.weaponMain, "Bo's own")
             slash("profile use Party")
             assert.are.equal("manaOil", ns.db.buffBack.weaponMain, "Bo reads Party's")
             assert.are.equal(9, ns.db.guildLogin.delay)
             ns.db.buffBack.weaponOff = "weightstone"
             login("Cy", logout())
-            assert.are.equal("Default", ns.Profiles.Active(), "a new character starts on its own")
-            assert.are.same(V150C, live())
+            assert.are.equal("Cy", ns.Profiles.Active(), "a new character gets a profile of its own (#519)")
+            assert.are.equal("weightstone", ns.db.buffBack.weaponOff, "a copy of Party's, as Bo left it")
+            slash("profile use Default")
+            assert.are.same(V150C, live(), "Cy's own")
             login("Ann", logout())
             assert.are.equal("Party", ns.Profiles.Active())
             assert.are.equal("weightstone", ns.db.buffBack.weaponOff, "Ann sees what Bo wrote to Party")
+            login("Cy", logout())
+            assert.are.equal("Default", ns.Profiles.Active(), "Cy chose its own: it switches back")
+            assert.are.same(V150C, live())
+            login("Ann", logout())
             slash("profile use Default")
             assert.are.equal("wizardOil", ns.db.buffBack.weaponMain, "Ann's own are back")
             assert.are.equal("none", ns.db.buffBack.weaponOff)
             login("Bo", logout())
             assert.are.equal("Party", ns.Profiles.Active(), "Bo still chose Party")
             assert.are.equal("weightstone", ns.db.buffBack.weaponOff)
+            assert.are.equal("windfury", ns.db.profiles.Bo.buffBack.weaponMain, "Bo's own profile kept its edit")
+            assert.are.equal("manaOil", ns.db.buffBack.weaponMain, "never reaching Party")
             assert.are.same({}, wow.errors)
         end)
 
@@ -197,7 +208,8 @@ describe("Each character's own buff settings (#508)", function()
         end)
 
         it("tells a character on a shared profile that these settings are the profile's", function()
-            login("Ann", v150(nil, { charProfiles = { ["Ann-Vale"] = "Healer" }, activeProfile = "Healer",
+            login("Ann", v150(nil, { charProfiles = { ["Ann-Vale"] = "Healer", ["Bo-Reed"] = "Healer" },
+                activeProfile = "Healer",
                 profiles = { Healer = { schemaVersion = 8 }, Default = { schemaVersion = 8 } } }),
                 { walkthrough = true })
             local text = ns.Walkthrough.Frame().stepText:GetText()
@@ -284,8 +296,13 @@ describe("Each character's own buff settings (#508)", function()
         end)
 
         -- The architecture review of #514: a 1.5.x account whose last
-        -- character was on a shared profile.
-        it("a character with no 1.5.x choice starts on Default, with a copy of Default's settings", function()
+        -- character was on a shared profile. #519 (the owner's "B1", 24 Nov
+        -- 2026): a character with no 1.5.x choice never joins the shared
+        -- profile, and never has Default's stored copy put over the live
+        -- settings: it gets a profile of its own, a copy of them. Its own
+        -- settings (on Default) are still a copy of Default's.
+        it("a character with no 1.5.x choice gets a profile of its own, with a copy of Default's on Default",
+            function()
             local healer = { weaponBuffs = true, weaponMain = "manaOil", buffModeKey = "H", buffOrder = { "fortitude" } }
             local db = v150({ weaponBuffs = true, weaponMain = "manaOil", buffModeKey = "H",
                 buffOrder = { "fortitude" } }, { activeProfile = "Healer", charProfiles = { ["Bo-Reed"] = "Healer" },
@@ -293,16 +310,22 @@ describe("Each character's own buff settings (#508)", function()
                     Default = { schemaVersion = 8, buffBack = { buffModeKey = "M", buffOrder = { "intellect" },
                         weaponBuffs = true, weaponMain = "wizardOil" } } } })
             login("Ann", db) -- played on Default in 1.5.0, last to log in was Bo on Healer
-            assert.are.equal("Default", ns.Profiles.Active())
+            assert.are.equal("Ann", ns.Profiles.Active(), "its own (#519), never Healer")
+            assert.are.equal("Ann", rec("Ann").profile, "and recorded as Ann's")
+            assert.are.same({ "H", { "fortitude" } }, { ns.db.buffBack.buffModeKey, ns.db.buffBack.buffOrder },
+                "a copy of the live settings, never Default's stored copy")
+            slash("profile use Default")
             assert.are.same({ "M", { "intellect" }, false, "none" }, { ns.db.buffBack.buffModeKey,
                 ns.db.buffBack.buffOrder, ns.db.buffBack.weaponBuffs, ns.db.buffBack.weaponMain },
-                "Default's own, weapon buffs reset; never Healer's")
+                "Ann's own: Default's, weapon buffs reset; never Healer's")
             login("Bo", logout())
             assert.are.equal("Healer", ns.Profiles.Active(), "Bo chose Healer in 1.5.x")
             assert.are.same({ "H", false }, { ns.db.buffBack.buffModeKey, ns.db.buffBack.weaponBuffs })
             ns.db.buffBack.weaponBuffs = true
-            login("Cy", logout()) -- made after the update
-            assert.are.equal("Default", ns.Profiles.Active(), "a new character never joins a shared profile")
+            login("Ann", logout())
+            assert.are.equal("Default", ns.Profiles.Active(), "Ann chose her own")
+            login("Cy", logout()) -- made after the update, with Default left active
+            assert.are.equal("Default", ns.Profiles.Active(), "with Default active, a new character starts on it")
             assert.are.same({ "M", false }, { ns.db.buffBack.buffModeKey, ns.db.buffBack.weaponBuffs })
             ns.db.buffBack.weaponMain = "rockbiter"
             login("Ann", logout())
@@ -434,7 +457,7 @@ describe("Each character's own buff settings (#508)", function()
         it("on a shared profile, the #408 step says the choice is the profile's", function()
             local db = v150({ whoGets = { motw = { rule = "tanks" } } }, { schemaVersion = 7,
                 walkthrough = { seen = 2, firstRun = false }, activeProfile = "Party",
-                charProfiles = { ["Ann-Vale"] = "Party" },
+                charProfiles = { ["Ann-Vale"] = "Party", ["Bo-Reed"] = "Party" },
                 profiles = { Party = { schemaVersion = 7 }, Default = { schemaVersion = 7 } } })
             db.buffBack.whoChoice = nil
             login("Ann", db, { walkthrough = true })
@@ -442,6 +465,20 @@ describe("Each character's own buff settings (#508)", function()
             assert.is_truthy(text:find("The choice is for the shared profile Party, and every character on it.", 1,
                 true))
             assert.is_falsy(text:find("The choice is for this character", 1, true))
+        end)
+
+        it("on a profile only this character uses, the #408 step says the choice is that profile's alone (#519)",
+            function()
+            local db = v150({ whoGets = { motw = { rule = "tanks" } } }, { schemaVersion = 7,
+                walkthrough = { seen = 2, firstRun = false }, activeProfile = "Party",
+                profiles = { Party = { schemaVersion = 7 }, Default = { schemaVersion = 7 } } })
+            db.buffBack.whoChoice = nil
+            login("Ann", db, { walkthrough = true }) -- new, with Party active: a profile of its own
+            local text = ns.Walkthrough.Frame().stepText:GetText()
+            assert.are.equal("Ann", ns.Profiles.Active())
+            assert.is_truthy(text:find("The choice is for the profile Ann, which only this character uses.", 1, true),
+                text)
+            assert.is_falsy(text:find("shared profile", 1, true))
         end)
 
         it("each character makes the keep-or-reset choice of #408 for its own rules", function()
@@ -495,6 +532,7 @@ describe("Each character's own buff settings (#508)", function()
             login("Ann", v150())
             slash("profile new Party")
             login("Bo", logout())
+            slash("profile use Default") -- Bo, new, kept Party (#519): to Bo's own
             slash("buffmode key H")
             slash("profile new Other") -- Default's stored copy now holds Bo's key
             login("Ann", logout())
@@ -764,7 +802,7 @@ describe("Each character's own buff settings (#508)", function()
         end
 
         -- How often each path ran, over every seed: each must run.
-        local reach = { newLogin = 0, partyLogin = 0, toParty = 0, backToDefault = 0, recordDamage = 0,
+        local reach = { newLogin = 0, ownProfile = 0, partyLogin = 0, toParty = 0, backToDefault = 0, recordDamage = 0,
             liveDamage = 0, seedDamage = 0, lost = 0, shared = 0 }
 
         for _, seed in ipairs({ 1, 7, 9, 52, 508, 2026, 31337 }) do
@@ -777,17 +815,25 @@ describe("Each character's own buff settings (#508)", function()
                 local recorded = {}       -- characters with a record
                 local own = {}            -- each character's own settings, as the model has them
                 local onParty = {}        -- characters on the shared profile
+                local named = {}          -- characters on a profile of their own (#519): its settings
                 local party = start.party -- the shared profile's settings, once there is one
                 local seedLost = false
                 local current             -- who is logged in
+                -- The settings of the profile active at logout, when it isn't Default.
+                local activeShared = start.kind == "shared" and party or nil
+                local namedMade = 0       -- profiles of their own made: far from the cap of 20
+                local function settingsOf(who)
+                    if onParty[who] then return party end
+                    return named[who] or own[who]
+                end
                 local function expect(why)
-                    local want = onParty[current] and party or own[current]
-                    assert.are.same(want, live(), why)
+                    assert.are.same(settingsOf(current), live(), why)
                 end
                 for step = 1, 40 do
                     local roll = random.random(11)
                     local why = "seed " .. seed .. " step " .. step
                     if roll <= 4 or not current then
+                        if current then activeShared = (onParty[current] or named[current]) and settingsOf(current) or nil end
                         local saved = current and logout() or start.db
                         -- Damage to the saved file between sessions.
                         local damage = random.random(8)
@@ -801,11 +847,19 @@ describe("Each character's own buff settings (#508)", function()
                         end
                         current = names[random.random(#names)]
                         if not recorded[current] then
-                            -- New: a copy of Default's settings (or unset), and on
-                            -- Party only by a 1.5.x choice.
+                            -- New: a copy of Default's settings (or unset) as its
+                            -- own; on Party by a 1.5.x choice; with none, while a
+                            -- shared profile is active, a profile of its own, a
+                            -- copy of the live settings (#519).
                             recorded[current] = true
                             own[current] = copy(seedLost and UNSET or seedValues)
                             onParty[current] = start.legacy[current] and party ~= nil or nil
+                            if not onParty[current] and activeShared then
+                                named[current] = copy(activeShared)
+                                namedMade = namedMade + 1
+                                assert.is_true(namedMade < 17, "the model doesn't reach the cap of profiles")
+                                reach.ownProfile = reach.ownProfile + 1
+                            end
                             reach.newLogin = reach.newLogin + 1
                         end
                         if onParty[current] then reach.partyLogin = reach.partyLogin + 1 end
@@ -815,7 +869,7 @@ describe("Each character's own buff settings (#508)", function()
                         local field = CHECKED[random.random(#CHECKED)]
                         local value = VALID[field]()
                         ns.db.buffBack[field] = copy(value)
-                        if onParty[current] then party[field] = copy(value) else own[current][field] = copy(value) end
+                        settingsOf(current)[field] = copy(value)
                         expect(why .. ": edit " .. field)
                     elseif roll <= 9 then
                         if party == nil then
@@ -828,11 +882,12 @@ describe("Each character's own buff settings (#508)", function()
                             onParty[current] = true
                             reach.toParty = reach.toParty + 1
                         end
+                        named[current] = nil -- its own profile stays stored, unused
                         expect(why .. ": to Party")
                     elseif roll == 10 then
-                        if onParty[current] then
+                        if onParty[current] or named[current] then
                             slash("profile use Default")
-                            onParty[current] = nil
+                            onParty[current], named[current] = nil, nil
                             reach.backToDefault = reach.backToDefault + 1
                         end
                         expect(why .. ": to Default")
@@ -842,7 +897,7 @@ describe("Each character's own buff settings (#508)", function()
                         local other = names[random.random(#names)]
                         if other ~= current and type(ns.db.characters) == "table" then
                             ns.db.characters[key(other)] = JUNK[random.random(2)]
-                            recorded[other], own[other], onParty[other] = nil, nil, nil
+                            recorded[other], own[other], onParty[other], named[other] = nil, nil, nil, nil
                             reach.recordDamage = reach.recordDamage + 1
                         end
                     end

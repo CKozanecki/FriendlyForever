@@ -620,6 +620,12 @@ Options.PASSERS_BY_TIP = "In buff mode, after everyone else, offer your buffs to
     .. "for 10 minutes."
 Options.PASSERS_BY_HELP = "Players nearby who aren't in your group and are missing a buff, or whose buff "
     .. "is half gone. Uses your rules for strangers (Buffs tab). Needs friendly nameplates."
+-- The live note under the passers-by switch while it's on and friendly
+-- nameplates are off, or the game won't say (which counts as off): passers-by
+-- can't be seen then (#521). %s: the key, or /friendly nameplates.
+Options.PASSERS_BY_NAMEPLATES_OFF = "Not working now: friendly nameplates are off. Show them with %s."
+Options.PASSERS_BY_NAMEPLATES_UNREAD = "Not working now: the game won't say whether friendly nameplates are on, "
+    .. "so they count as off. Show them with %s."
 -- Without friendly nameplates the game can rarely name who buffed you, and
 -- nobody nearby can be seen (Nameplates.lua).
 Options.NAMEPLATES_OFF = "Friendly player nameplates are off, so the game can rarely tell you who buffed you, "
@@ -684,6 +690,20 @@ local function FillFavours()
 
     widgets.buffRequests:SetChecked(back.requests == true)
     widgets.passersBy:SetChecked(back.passersBy == true)
+    -- Switched on, but nameplates off or unreadable: a note under it, and the
+    -- help moves down under the note (#521).
+    local shown = ns.Nameplates.FriendlyShown()
+    local note = back.passersBy == true and shown ~= true
+        and (shown == nil and Options.PASSERS_BY_NAMEPLATES_UNREAD or Options.PASSERS_BY_NAMEPLATES_OFF)
+    widgets.passersByNote:SetText(note and ns.Colours.Text("warn", note:format(ns.Nameplates.HowToShow())) or "")
+    widgets.passersByNote:SetShown(note and true or false)
+    widgets.passersByHelp:ClearAllPoints()
+    if note then
+        widgets.passersByHelp:SetPoint("TOPLEFT", widgets.passersByNote, "BOTTOMLEFT", 0, -2)
+    else
+        widgets.passersByHelp:SetPoint("TOPLEFT", widgets.passersBy, "BOTTOMLEFT", 4, -2)
+    end
+    widgets.passersByHelp:SetPoint("RIGHT", widgets.content, "RIGHT", -24, 0)
     -- Without friendly nameplates the game can rarely name a buffer, and
     -- nobody nearby shows: say so under passers-by, and what follows moves
     -- down under it.
@@ -993,7 +1013,14 @@ function Options.CreateFavours(content, tabsBottom)
     end)
     widgets.passersBy:SetPoint("TOPLEFT", widgets.buffRequests, "BOTTOMLEFT", 0, -2)
     Tooltip(widgets.passersBy, Options.PASSERS_BY_TIP)
-    -- Pinned on both sides, so it wraps inside the page at any width.
+    -- Why it isn't working, while friendly nameplates are off (#521, Fill).
+    widgets.passersByNote = Label(content, "", "GameFontHighlightSmall")
+    widgets.passersByNote:SetPoint("TOPLEFT", widgets.passersBy, "BOTTOMLEFT", 4, -2)
+    widgets.passersByNote:SetPoint("RIGHT", content, "RIGHT", -24, 0)
+    widgets.passersByNote:SetWordWrap(true)
+    widgets.passersByNote:Hide()
+    -- Pinned on both sides, so it wraps inside the page at any width (Fill
+    -- anchors it, under the note when that shows).
     widgets.passersByHelp = Label(content, Options.PASSERS_BY_HELP, "GameFontHighlightSmall")
     widgets.passersByHelp:SetPoint("TOPLEFT", widgets.passersBy, "BOTTOMLEFT", 4, -2)
     widgets.passersByHelp:SetPoint("RIGHT", content, "RIGHT", -24, 0)

@@ -832,11 +832,67 @@ States.FormBack = DruidInForm({ hover = true })
 States.FormRefused = DruidInForm({ refuse = States.LONG_REFUSAL })
 States.FormKey = DruidInForm({ key = true })
 
+-- Passers-by stopped for want of friendly nameplates (#521): buff mode, alone,
+-- wearing your own Fortitude (added by the simulator, which names you as its
+-- caster), passers-by on, and the game answering "0" for the friendly
+-- nameplate setting (only that one: every other setting is the simulator's).
+-- The button says "you have your buffs; Passers-by need friendly nameplates
+-- (...)". Undo puts the setting's reads and the switch back.
+States.NAMEPLATE_CVAR = "nameplateShowFriendlyPlayers" -- Nameplates.SHOW_FRIENDLY
+local savedCVar
+local function NameplatesOff()
+    savedCVar = savedCVar or { cvar = _G.C_CVar and _G.C_CVar.GetCVar, global = _G.GetCVar }
+    local function Off(real)
+        return function(name, ...)
+            if name == States.NAMEPLATE_CVAR then return "0" end
+            if real then return real(name, ...) end
+        end
+    end
+    if _G.C_CVar then _G.C_CVar.GetCVar = Off(savedCVar.cvar) end
+    _G.GetCVar = Off(savedCVar.global)
+end
+local function NameplatesBack()
+    if not savedCVar then return end
+    if _G.C_CVar then _G.C_CVar.GetCVar = savedCVar.cvar end
+    _G.GetCVar = savedCVar.global
+    savedCVar = nil
+end
+States.NameplatesOff, States.NameplatesBack = NameplatesOff, NameplatesBack
+local passersBySaved
+States.PassersByNameplates = {
+    Set = function()
+        States.PassLoginGrace()
+        States.Learn()
+        States.Party(nil)
+        Admin("RemoveBuff", States.SPELL.id)
+        Admin("AddBuff", States.SPELL.id, States.SPELL.name, "135987", 3600, 1)
+        local back = type(FriendlyForeverDB) == "table" and FriendlyForeverDB.buffBack
+        if type(back) == "table" then
+            passersBySaved = { value = back.passersBy }
+            back.passersBy = true
+        end
+        NameplatesOff()
+        Command("buffmode on")
+    end,
+    Undo = function()
+        if InCombatLockdown() then States.Combat(false) end
+        Command("buffmode off")
+        NameplatesBack()
+        local back = type(FriendlyForeverDB) == "table" and FriendlyForeverDB.buffBack
+        if passersBySaved and type(back) == "table" then back.passersBy = passersBySaved.value end
+        passersBySaved = nil
+        States.RestoreParty()
+        States.Unbuff()
+        States.Unlearn()
+        States.Advance(States.RESULT_SECONDS)
+    end,
+}
+
 -- For the screenshot job: set a state up and leave it.
 local SHOWN = { favour = States.Favour, buffmode = States.GroupMissing, bufflist = States.ListFilled,
     buffgroup = States.ListGroupCast, alreadydone = States.AlreadyDone, longreason = States.LongReason,
     asked = States.Requested, weapon = States.WeaponOffer, formback = States.FormBack,
-    formrefused = States.FormRefused, formkey = States.FormKey }
+    formrefused = States.FormRefused, formkey = States.FormKey, passersby = States.PassersByNameplates }
 -- Each is staged and shot as button-<name> (.github/workflows/ui-sim.yml), as
 -- spec/uitests_states_spec.lua checks.
 States.SHOWN = SHOWN

@@ -225,9 +225,13 @@ Walkthrough.STEPS = {
                 end
                 lines[#lines + 1] = "  Keep my settings: your rules go to Party and Raid; PvP starts off."
                 lines[#lines + 1] = "  Use the new defaults: recommended if you never changed them, or aren't sure."
+                -- A profile of the character's own is shared with nobody (#519).
                 local shared = ns.Profiles.SharedProfile()
-                lines[#lines + 1] = shared and ("The choice is for the shared profile " .. ns.Util.StripChat(shared)
+                local others = shared and ns.Profiles.SharedWithOthers()
+                lines[#lines + 1] = others and ("The choice is for the shared profile " .. ns.Util.StripChat(shared)
                         .. ", and every character on it.")
+                    or shared and ("The choice is for the profile " .. ns.Util.StripChat(shared)
+                        .. ", which only this character uses.")
                     or "The choice is for this character; each of your others makes its own on its Buffs tab."
                 lines[#lines + 1] = ""
                 lines[#lines + 1] = "Finishing, skipping or closing without choosing changes nothing: your buffs "
@@ -284,11 +288,17 @@ Walkthrough.STEPS = {
             local shared = ns.Profiles.SharedProfile()
             local start
             if shared then
+                -- Shared only when another character uses it too (#519): a
+                -- new character's profile of its own is its alone.
+                local whose = ns.Profiles.SharedWithOthers()
+                    and ("the shared profile " .. ns.Util.StripChat(shared) .. ", so these settings are that "
+                        .. "profile's, the same for each character on it")
+                    or ("the profile " .. ns.Util.StripChat(shared) .. ", which only this character uses, so "
+                        .. "these settings are that profile's, and changing them changes no other character")
                 start = (Walkthrough.WhatsNew() and "Weapon buffs are now set for each character, and were "
                     .. "reset for every character, this profile's included: set them again here.\n\n" or "")
-                    .. "This character uses the shared profile " .. ns.Util.StripChat(shared) .. ", so these "
-                    .. "settings are that profile's, the same for each character on it: its weapon buffs, "
-                    .. "here on the Weapon buffs page, and:\n\n"
+                    .. "This character uses " .. whose .. ": its weapon buffs, here on the Weapon buffs page, "
+                    .. "and:\n\n"
             elseif Walkthrough.WhatsNew() then
                 start = "Weapon buffs are now set for each character, and were reset for every character: set "
                     .. "this character's again here, on the Weapon buffs page.\n\nThese are each character's own "
@@ -533,7 +543,9 @@ function Walkthrough.OnLogin()
     end
     if state.seen >= latest then
         if ns.Profiles.NeedsWelcome() then
-            ns.Print((ns.Profiles.SharedProfile() and "this character uses a shared profile's buff settings"
+            ns.Print((ns.Profiles.SharedProfile() and (ns.Profiles.SharedWithOthers()
+                    and "this character uses a shared profile's buff settings"
+                    or "this character uses its own profile's buff settings")
                 or "this character's weapon buffs aren't set yet, and some buff settings are its own")
                 .. ": the walkthrough shows where. Esc > Options > AddOns > " .. ns.TITLE .. " > Weapon buffs.")
             Walkthrough.Start("character")
