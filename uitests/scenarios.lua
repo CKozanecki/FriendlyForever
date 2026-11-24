@@ -1002,6 +1002,22 @@ test("a long reason the button shows wraps whole inside it", function()
     end)
 end)
 
+-- Passers-by stopped for want of friendly nameplates (#521): the button's line
+-- says so, whole and inside the button, at every size.
+test("the button says passers-by need friendly nameplates, inside it", function()
+    InState("passers-by, nameplates off", FriendlyForeverUIStates.PassersByNameplates, function(button, States)
+        Expect(button:IsShown(), "the button isn't up in buff mode")
+        Expect(States.Macro() == nil, "the button holds a macro")
+        local reason = button.subtitle:GetText() or ""
+        Expect(reason:find("Passers-by need friendly nameplates (", 1, true) ~= nil,
+            ("the line reads %q, not why passers-by are stopped"):format(reason))
+        local line = TextInside(button, button.subtitle, "passers-by reason")
+        Expect(not line:find("cut short", 1, true), line .. ": the reason is cut short")
+        OnScreen(button, "buff-back button (passers-by, nameplates off)")
+        report("LAYOUT passers-by nameplates: " .. reason)
+    end)
+end)
+
 -- A group cast is one row in the list (#227): who it reaches, how many are
 -- missing, and the spell; the members it covers have no rows of their own.
 test("the list shows a group cast as one row, and its text stays inside", function()

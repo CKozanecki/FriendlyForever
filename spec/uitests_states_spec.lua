@@ -1,4 +1,4 @@
--- Spec: #154, #223, #209, #160, #362, #424, #500
+-- Spec: #154, #223, #209, #160, #362, #424, #500, #521
 -- The UI scenarios' game-event helpers (uitests/button_states.lua), run here
 -- against a stand-in for the simulator's A_Admin that records each call and
 -- event in order. They follow what wow-ui-sim does itself (its admin.rs and
@@ -517,5 +517,36 @@ describe("UI scenarios: a druid in a form (#500, #452, #495)", function()
             assert.are.equal("Dire Bear Form", States.FORM.name)
             States.FormKey.Undo()
         end)
+    end)
+end)
+
+describe("UI scenarios: passers-by stopped for want of friendly nameplates (#521)", function()
+    it("answers \"0\" for that setting alone, turns passers-by and buff mode on, and Undo puts all back (white)",
+        function()
+        local cvar, global = _G.C_CVar, _G.GetCVar
+        local realGet = function(name) return "1 " .. name end
+        local realGlobal = function(name) return "g " .. name end
+        _G.C_CVar, _G.GetCVar = { GetCVar = realGet }, realGlobal
+        local ok, err = pcall(function()
+            local db = { buffBack = { passersBy = false } }
+            local States, log = load({ lenient = true, db = db })
+            assert.are.equal(States.PassersByNameplates, States.SHOWN.passersby)
+            States.PassersByNameplates.Set()
+            assert.are.equal("0", _G.C_CVar.GetCVar("nameplateShowFriendlyPlayers"))
+            assert.are.equal("0", _G.GetCVar("nameplateShowFriendlyPlayers"))
+            assert.are.equal("1 autoLootDefault", _G.C_CVar.GetCVar("autoLootDefault"), "every other setting is the client's")
+            assert.is_true(db.buffBack.passersBy)
+            local slashes = {}
+            for _, entry in ipairs(log) do
+                if entry:find("^slash ") then slashes[#slashes + 1] = entry end
+            end
+            assert.are.same({ "slash buffmode on" }, slashes)
+            States.PassersByNameplates.Undo()
+            assert.are.equal(realGet, _G.C_CVar.GetCVar)
+            assert.are.equal(realGlobal, _G.GetCVar)
+            assert.is_false(db.buffBack.passersBy)
+        end)
+        _G.C_CVar, _G.GetCVar = cvar, global
+        assert(ok, err)
     end)
 end)

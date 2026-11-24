@@ -527,6 +527,27 @@ function Pages.ShowTab(name)
     Pages.OpenTab(name)
 end
 
+-- The passers-by note (#521), for the screenshot job: the Favours tab, in
+-- its first view, with passers-by on and the game answering "0" for the
+-- friendly nameplate setting (only that one), so the note under the switch
+-- shows. Nothing is typed or clicked but the tab; the simulator's settings
+-- are left as they are. Returns the tab's content, or nil.
+Pages.NAMEPLATE_CVAR = "nameplateShowFriendlyPlayers" -- Nameplates.SHOW_FRIENDLY
+function Pages.ShowPassersByNameplates()
+    local function Off(real)
+        return function(name, ...)
+            if name == Pages.NAMEPLATE_CVAR then return "0" end
+            if real then return real(name, ...) end
+        end
+    end
+    if _G.C_CVar then _G.C_CVar.GetCVar = Off(_G.C_CVar.GetCVar) end
+    _G.GetCVar = Off(_G.GetCVar)
+    Pages.SkipWalkthrough()
+    local back = type(FriendlyForeverDB) == "table" and FriendlyForeverDB.buffBack
+    if type(back) == "table" then back.passersBy = true end
+    return (Pages.OpenTab("favours"))
+end
+
 -- A message line's hover (#441), for the screenshot job: the tab (by TABS name)
 -- with its line 4 holding a line that uses flavour placeholders, and the
 -- pointer over that box, as a player's would be. The text is put in the box

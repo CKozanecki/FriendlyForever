@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383, #408, #45, #491, #508
+-- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383, #408, #45, #491, #508, #521
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -152,6 +152,32 @@ describe("the UI simulator's options tabs", function()
         assert.is_truthy(table.concat(_G.GameTooltip.lines, "\n"):find("{greeting} can be:", 1, true))
         Pages.OpenTab = function() return nil end
         assert.is_nil(Pages.ShowMessageHover("nowhere"))
+    end)
+
+    it("shows the Favours tab with the passers-by note, friendly nameplates off, for its shot (white, #521)",
+        function()
+        local cvar, global = _G.C_CVar.GetCVar, _G.GetCVar
+        -- The simulated frames list no children, so the tab is opened here, as its button would.
+        local opened
+        Pages.OpenTab = function(name)
+            opened = name
+            ns.Options.Open()
+            ns.Options.OpenTab(ns.Options.FAVOURS_TAB)
+            return {}
+        end
+        local content = Pages.ShowPassersByNameplates()
+        local note = ns.Options.widgets.passersByNote
+        local shown, text = note:IsShown(), note:GetText() or ""
+        _G.C_CVar.GetCVar, _G.GetCVar = cvar, global
+        assert.is_truthy(content)
+        assert.are.equal("favours", opened)
+        assert.is_true(ns.db.buffBack.passersBy)
+        assert.is_true(shown, "the note shows")
+        assert.is_truthy(text:find("Not working now: friendly nameplates are off.", 1, true), text)
+        local workflow = wow.readFile(".github/workflows/ui-sim.yml")
+        assert.is_truthy(workflow:find("FriendlyForeverUIPages.ShowPassersByNameplates()", 1, true))
+        assert.is_truthy(workflow:find(
+            'shoot options-favours-nameplates --exec-lua "@/shot-lua/tab-favours-nameplates.lua"', 1, true))
     end)
 
     it("has the screenshot job shoot every tab, each named after it (white)", function()
