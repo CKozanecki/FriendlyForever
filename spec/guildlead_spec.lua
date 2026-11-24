@@ -937,7 +937,7 @@ describe("Guild leader controls: the shared memory (#496)", function()
     end)
 
     describe("check-ins and sends (white)", function()
-        it("keeps to the limits written on #496", function()
+        it("keeps to the limits this part sets (each written here as a number, so none drifts unseen)", function()
             local ns = Solo()
             local G, V = ns.GuildLead, ns.Versioned
             assert.are.same({ 10, 120, 500, 40, 20, 5, 20, 900, 60, 2, 10, 60, 2 }, {
@@ -965,8 +965,15 @@ describe("Guild leader controls: the shared memory (#496)", function()
             assert.are.equal(1, checkIns())
             wow.advance(0.2)
             assert.are.equal(2, checkIns())
-            wow.advance(900)
+            -- From here on each one re-arms the next, 900 seconds on.
+            wow.advance(899.8)
+            assert.are.equal(2, checkIns())
+            wow.advance(0.2)
             assert.are.equal(3, checkIns())
+            wow.advance(899.8)
+            assert.are.equal(3, checkIns())
+            wow.advance(0.2)
+            assert.are.equal(4, checkIns())
         end)
 
         local function sent(pattern)
