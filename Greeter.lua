@@ -264,10 +264,17 @@ local function RecentHelloWhy(name)
     end
 end
 
+-- Why the guild's leaders keep guild hellos off (#496), or nil.
+local function HellosOffWhy()
+    if ns.GuildLead.Caps().hellos == false then return "the guild's leaders have turned guild hellos off" end
+end
+
 -- Every copy in the guild greets, a random while apart and with different
 -- lines, and at most a few of them (GuildHellos.lua, #38).
 local function Greet(name)
     if Ignored("guildLogin", name) then return end
+    local off = HellosOffWhy()
+    if off then return ns.Diag.Log("guildLogin", "not sending for %s: %s", name, off) end
     if TakeWelcome(name) then
         ns.Diag.Log("guildLogin", "not sending for %s: just welcomed to the guild, one arrival", name)
         return
@@ -284,6 +291,8 @@ local function Greet(name)
         isValid = function()
             local ok, why = NotIgnored(name)()
             if not ok then return false, why end
+            local hellosOff = HellosOffWhy()
+            if hellosOff then return false, hellosOff end
             if TakeWelcome(name) then return false, "just welcomed to the guild, one arrival" end
             local again = RecentHelloWhy(name)
             if again then return false, again end
@@ -791,11 +800,20 @@ function Greeter.OnSystemMessage(msg)
     elseif kind == "guildJoin" then
         members[name] = members[name] or true
         if Ignored("guildJoin", name) then return end
-        if ns.Announcer.Schedule("guildJoin", name, {
+        local opts = {
             channel = GuildChannel, isValid = NotIgnored(name),
             vars = function() return ns.Config.NameVars("guildJoin", name) end,
             context = function() return GuildContext(name) end,
-        }) then
+        }
+        -- The guild caps its welcomes (#496): the copies announce and count
+        -- as for guild hellos, a random while apart, and at most that many welcome.
+        if ns.GuildLead.Caps().welcomes then
+            ns.GuildHellos.OnLogin(name, "guildJoin")
+            opts.delay = ns.db.guildJoin.delay + ns.GuildHellos.Stagger()
+            opts.taken = function() return ns.GuildHellos.Announced(name) end
+            opts.hold = function(go, line, drop) ns.GuildHellos.Hold(name, line, go, drop, "guildJoin") end
+        end
+        if ns.Announcer.Schedule("guildJoin", name, opts) then
             RememberWelcomed(name)
             -- A roster with the new member in it, for their zone (#486).
             Greeter.RequestRoster()

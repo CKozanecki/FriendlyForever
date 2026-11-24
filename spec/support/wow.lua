@@ -3019,9 +3019,13 @@ function M.boot(opts)
     -- A guild hello waits the shortest random extra (GuildHellos.STAGGER_MIN,
     -- #38), so specs know when it goes; opts.randomStagger keeps it random.
     if not opts.randomStagger then ns.GuildHellos.random = function() return 0 end end
-    -- Guild check-ins (#496) are addon messages on the guild route, which
-    -- specs written before them count: they stay unsent unless opts.guildSync.
-    if not opts.guildSync then ns.GuildLead.CheckIn = function() return false end end
+    -- Guild check-ins and line reports (#496) are addon messages on the guild
+    -- route, which specs written before them count: they stay unsent unless
+    -- opts.guildSync.
+    if not opts.guildSync then
+        ns.GuildLead.CheckIn = function() return false end
+        ns.GuildLead.ReportLine = function() return false end
+    end
     -- Each new character sees the walkthrough's step about its own settings
     -- once (#508), which specs don't want at every boot, the walkthrough's
     -- own included: unless opts.welcome, it counts as seen.
@@ -3184,6 +3188,8 @@ local function playerChat(event, text, sender)
         false, false, false, false)
 end
 function M.whisper(text, sender) playerChat("CHAT_MSG_WHISPER", text, sender) end
+-- A guildmate's line in guild chat (#496): CHAT_MSG_GUILD, text and sender first.
+function M.guildChat(text, sender) playerChat("CHAT_MSG_GUILD", text, sender) end
 function M.say(text, sender) playerChat("CHAT_MSG_SAY", text, sender) end
 function M.party(text, sender, leader)
     playerChat(leader and "CHAT_MSG_PARTY_LEADER" or "CHAT_MSG_PARTY", text, sender)
@@ -3547,10 +3553,11 @@ end
 -- net.lose = function(msg, sender, receiver) -> true drops that copy of a
 -- message on its way (a chaos test's message loss, #36).
 function M.network(clients)
-    local net = { clients = clients, seen = {} }
+    local net = { clients = clients, seen = {}, chatSeen = {} }
     local was = live
     for _, c in ipairs(clients) do
         net.seen[c] = 0
+        net.chatSeen[c] = 0
         -- Its own messages now come back through M.deliver.
         M.use(c)
         M.state.networked = true
@@ -3560,12 +3567,28 @@ function M.network(clients)
 end
 
 -- Carry every message sent so far to its recipients, as CHAT_MSG_ADDON,
--- until nothing new is sent (answers included). Leaves the live client as
--- it was. The event's last five arguments are placeholders: the addon reads
+-- until nothing new is sent (answers included), and every guild chat line
+-- to the guild, as CHAT_MSG_GUILD (#496). Leaves the live client as it was. The event's last five arguments are placeholders: the addon reads
 -- only the first four.
 function M.deliver(net)
     local was = assert(live, "M.deliver: no clients")
     for _ = 1, 1000 do
+        -- Lines said in guild chat reach every client in the guild, the
+        -- sender's own included, as CHAT_MSG_GUILD (#496).
+        local said = {}
+        for _, sender in ipairs(net.clients) do
+            M.use(sender)
+            for i = (net.chatSeen[sender] or 0) + 1, #M.sent do
+                if M.sent[i].channel == "GUILD" then said[#said + 1] = { sender = sender, text = M.sent[i].text } end
+            end
+            net.chatSeen[sender] = #M.sent
+        end
+        for _, line in ipairs(said) do
+            for _, r in ipairs(net.clients) do
+                M.use(r)
+                if M.state.inGuild == true then M.guildChat(line.text, line.sender.full) end
+            end
+        end
         local outbox = {}
         for _, sender in ipairs(net.clients) do
             M.use(sender)
