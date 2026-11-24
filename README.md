@@ -195,6 +195,7 @@ The button's macro is `/cleartarget`, `/targetexact First Surname`, `/cast [help
 
 **Not confirmed in game, and not planned** (closed on 18 and 19 Nov: the addon works from player feedback on these; each issue says how to check):
 
+- the guild rank facts the guild leader controls rely on: rank 0 is the guild master, what `GetGuildInfo` and `GetServerTime` return, and that the roster updates after a promotion ([#523](https://github.com/CKozanecki/FriendlyForever/issues/523));
 - Forever's Moonkin Form spell ID and form number, and three of Classic's cast-refusal texts ([#488](https://github.com/CKozanecki/FriendlyForever/issues/488));
 - when the guild roster's zone fills in for a guildmate, and whether it can be secret ([#487](https://github.com/CKozanecki/FriendlyForever/issues/487));
 - the form facts the return to form relies on ([#498](https://github.com/CKozanecki/FriendlyForever/issues/498));
