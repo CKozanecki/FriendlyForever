@@ -936,17 +936,22 @@ function Pages.FillGuild(view)
     db.guilds = type(db.guilds) == "table" and db.guilds or {}
     local key = GetRealmName() .. ":" .. Pages.GUILD_NAME
     local saved = db.guilds[key]
-    local now = type(GetServerTime) == "function" and GetServerTime() or time()
+    -- The sections' versions are fixed whole numbers: the addon drops a
+    -- section whose version isn't one (#536's testing review: versions
+    -- taken from the simulator's clock were thrown away). The guildmates'
+    -- last seen are on the clock, as the addon reads it, never below 0.
+    local now = math.floor(tonumber(type(GetServerTime) == "function" and GetServerTime() or time()) or 0)
     local mates = {}
     for i = 1, Pages.GUILD_MATES do
-        mates[FullName(i)] = { version = i % 3 == 0 and "1.5.2" or "1.6.0", seen = now - i * 1717 }
+        mates[FullName(i)] = { version = i % 3 == 0 and "1.5.2" or "1.6.0", seen = math.max(0, now - i * 1717) }
     end
-    db.guilds[key] = {
-        used = now, mates = mates, asked = view ~= "ask" or nil,
-        ranks = view == "ask" and { version = 0, items = {} } or { version = now - 9000, items = { "1" } },
-        caps = { version = now - 8000, items = { "g3", "w2" } },
-        vetoes = { version = now - 7000, items = { "bld2", "bld5", "blc1", Pages.GUILD_CUSTOM_TOKEN } },
+    local sections = {
+        ranks = view == "ask" and { version = 0, items = {} } or { version = 1, items = { "1" } },
+        caps = { version = 2, items = { "g3", "w2" } },
+        vetoes = { version = 3, items = { "bld2", "bld5", "blc1", Pages.GUILD_CUSTOM_TOKEN } },
     }
+    db.guilds[key] = { used = math.max(0, now), mates = mates, asked = view ~= "ask" or nil,
+        ranks = sections.ranks, caps = sections.caps, vetoes = sections.vetoes }
     A_Admin.FireEvent("GUILD_ROSTER_UPDATE")
 
     -- Lines guildmates' copies said, each reported once by its own sender
@@ -969,6 +974,20 @@ function Pages.FillGuild(view)
         db.guilds[key] = saved
         A_Admin.FireEvent("GUILD_ROSTER_UPDATE")
     end
+    -- Fail loudly, rather than shoot a page without the guild's settings.
+    -- A guildmate's check-in, with the same versions, has the addon read its
+    -- memory now: it keeps a section it takes as it is, and puts a fresh one
+    -- in the place of one it refuses.
+    local mate = FullName(1)
+    A_Admin.FireEvent("CHAT_MSG_ADDON", "FriendlyFvr", ("1;GCHECK;%s;1.6.0;%d;%d;%d"):format(mate,
+        sections.ranks.version, sections.caps.version, sections.vetoes.version), "GUILD", mate)
+    local kept = db.guilds[key]
+    for name, section in pairs(sections) do
+        if type(kept) ~= "table" or kept[name] ~= section then
+            guildUndo()
+            error("the addon didn't keep the guild's " .. name .. " section the fixture set", 2)
+        end
+    end
     return guildUndo
 end
 
@@ -976,6 +995,27 @@ end
 function Pages.ShowGuild(view)
     Pages.FillGuild(view)
     return Pages.Open("guild")
+end
+
+-- For the screenshot job: the guild master's Guild page scrolled to its
+-- lines said recently and its vetoed lines (#536's testing review: the
+-- page's first view shows neither), their Veto and Undo buttons.
+Pages.GUILD_LINES_HEADER = "Lines said recently"
+function Pages.ShowGuildLines()
+    Pages.FillGuild("leader")
+    local page = Pages.Open("guild")
+    local content = page.content
+    local header
+    for _, region in ipairs(content and { content:GetRegions() } or {}) do
+        if region.GetText and region:GetText() == Pages.GUILD_LINES_HEADER then header = region end
+    end
+    if not header then
+        local why = "the Guild page has no \"" .. Pages.GUILD_LINES_HEADER .. "\" header"
+        report(why)
+        return nil, why
+    end
+    Pages.ShowFrameAt(content, header)
+    return content
 end
 
 -- For the screenshot job: the Guild Login tab as a guild member sees it

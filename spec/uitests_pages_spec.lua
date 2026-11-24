@@ -899,6 +899,41 @@ describe("the UI simulator's Guild page (#496)", function()
         assert.is_nil(ns.GuildPanel.Role() == "master" or nil)
     end)
 
+    -- #536's testing review: versions taken from the clock were thrown away
+    -- in the simulator, whose clock may be small or not a whole number.
+    for _, clock in ipairs({ 500, 123456.5, 0 }) do
+        it("keeps the guild's settings whatever the simulator's clock reads (" .. clock .. ") (black)", function()
+            _G.GetServerTime = function() return clock end
+            _G.time = function() return clock end
+            Pages.FillGuild("leader")
+            Pages.Open("guild")
+            local f = ns.GuildPanel.frames
+            assert.are.equal("3", f.greeters.value:GetText())
+            assert.are.equal("2", f.welcomes.value:GetText())
+            assert.is_true(f.ranks[1]:GetChecked())
+            assert.are.equal(4, #ns.GuildPanel.VetoList())
+            assert.are.equal("Undo", f.lines[1].button:GetText())
+        end)
+    end
+
+    it("fails loudly, rather than shoot a page without them, when the addon refuses a section the fixture set (black)",
+        function()
+            Pages.GUILD_CUSTOM_TOKEN = "not a token"
+            assert.has_error(function() Pages.FillGuild("leader") end,
+                "the addon didn't keep the guild's vetoes section the fixture set")
+            -- And it put the game's reads back.
+            assert.is_false(ns.GuildPanel.Role() == "master")
+        end)
+
+    it("scrolls the guild master's page to its lines said recently for their shot (white)", function()
+        local content = Pages.ShowGuildLines()
+        assert.is_truthy(content)
+        assert.are.equal(ns.GuildPanel.Page().content, content)
+        local f = ns.GuildPanel.frames
+        assert.are.equal(Pages.GUILD_LINES_HEADER, f.linesHeader:GetText())
+        assert.is_true(f.lines[1]:IsShown())
+    end)
+
     it("fails loudly, rather than shoot an empty page, when the simulator can't fire events (black)", function()
         _G.A_Admin = nil
         assert.has_error(function() Pages.FillGuild("leader") end, "the simulator has no A_Admin.FireEvent")

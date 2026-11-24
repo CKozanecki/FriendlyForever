@@ -414,6 +414,53 @@ describe("Guild leader controls: the Guild page (#496)", function()
     end)
 
     describe("lines said recently and their vetoes (white)", function()
+        it("pages through more lines and vetoes than a page holds, and Undo on page 2 undoes that veto everywhere",
+            function()
+            local clients, net = Guild({ GM, MEMBER })
+            local tokens = {}
+            on(clients[1], function(ns)
+                for i = 1, 11 do tokens[i] = string.format("c%08x", i) end
+                assert.is_true(ns.GuildLead.Set("vetoes", tokens))
+            end)
+            -- Said a few seconds apart, as lines are: one copy's burst would
+            -- meet the flood limit (Comm.PEER_BURST).
+            for i = 1, 10 do
+                on(clients[2], function(ns) ns.GuildLead.ReportLine("guildLogin", ns.DefaultMessages.guildLogin[i]) end)
+                Settle(net)
+            end
+            local f, widgets = Page(clients[1])
+            -- Lines: newest first, 8 then 2.
+            assert.are.equal("1 to 8 of 10", Text(f.linesPager.count))
+            assert.truthy(Text(f.lines[1].words):find(clients[1].ns.DefaultMessages.guildLogin[10], 1, true))
+            widgets.linesPager.older:Click()
+            f = Page(clients[1])
+            assert.are.equal("9 to 10 of 10", Text(f.linesPager.count))
+            assert.truthy(Text(f.lines[1].words):find(clients[1].ns.DefaultMessages.guildLogin[2], 1, true))
+            assert.is_false(f.lines[3]:IsShown())
+            -- The mates' list didn't move.
+            assert.is_false(f.matesPager:IsShown())
+            widgets.linesPager.newer:Click()
+            f = Page(clients[1])
+            assert.are.equal("1 to 8 of 10", Text(f.linesPager.count))
+            -- Vetoes: sorted, 8 then 3; Undo on page 2's first row is the 9th.
+            assert.are.equal("1 to 8 of 11", Text(f.vetoesPager.count))
+            widgets.vetoesPager.older:Click()
+            f = Page(clients[1])
+            assert.are.equal("9 to 11 of 11", Text(f.vetoesPager.count))
+            assert.are.equal("1 to 8 of 10", Text(f.linesPager.count))
+            widgets.vetoes[1]:Click()
+            Settle(net)
+            local want = {}
+            for i, token in ipairs(tokens) do if i ~= 9 then want[#want + 1] = token end end
+            for _, c in ipairs(clients) do assert.are.same(want, Kept(c, "vetoes")) end
+            -- With 10 left, page 2 holds 2.
+            f = Page(clients[1])
+            assert.are.equal("9 to 10 of 10", Text(f.vetoesPager.count))
+            widgets.vetoesPager.newer:Click()
+            f = Page(clients[1])
+            assert.are.equal("1 to 8 of 10", Text(f.vetoesPager.count))
+        end)
+
         -- A member's copy says built-in guild login line i: its report reaches
         -- the leaders' copies.
         local function SayBuiltIn(c, net, i)
@@ -751,6 +798,27 @@ describe("Guild leader controls: the Guild page (#496)", function()
             assert.are.equal(MAX, #Kept(clients[1], "vetoes"))
         end)
 
+        it("keeps Undo on a vetoed line said recently while the list is full, and undoes it", function()
+            local clients, net = Guild({ GM, MEMBER })
+            local MAX = clients[1].ns.GuildLead.MAX_VETOES
+            on(clients[1], function(ns)
+                local items = { "bld1" }
+                for i = 2, MAX do items[i] = string.format("c%08x", i) end
+                assert.is_true(ns.GuildLead.Set("vetoes", items))
+            end)
+            on(clients[2], function(ns) ns.GuildLead.ReportLine("guildLogin", ns.DefaultMessages.guildLogin[1]) end)
+            Settle(net)
+            local f, widgets = Page(clients[1])
+            assert.are.equal("Undo", f.lines[1].button:GetText())
+            assert.is_true(f.lines[1].button:IsEnabled())
+            widgets.lines[1]:Click()
+            Settle(net)
+            for _, c in ipairs(clients) do
+                assert.are.equal(MAX - 1, #Kept(c, "vetoes"))
+                assert.is_false(on(c, function(ns) return ns.GuildLead.IsVetoed("bld1") end))
+            end
+        end)
+
         it("keeps the guild master's answer through a reload's check, and drops a damaged one", function()
             local clients = Guild({ GM })
             on(clients[1], function(ns)
@@ -775,6 +843,9 @@ describe("Guild leader controls: the Guild page (#496)", function()
             g.mates["Odd-Entry"] = { version = 7, seen = "soon" }
             g.mates["Nan-Entry"] = { version = "1.6.0", seen = 0 / 0 }
             g.mates["Num-Version"] = { version = 7, seen = 100 }
+            -- One fault each (#536's testing review): only the time, and only the name.
+            g.mates["Seen-Only"] = { version = "1.6.0", seen = "soon" }
+            g.mates[7] = { version = "1.6.0", seen = g.mates["Mia-Lund"].seen }
             local f
             assert.has_no.errors(function() f = Page(clients[1]) end)
             local names = {}
@@ -854,7 +925,8 @@ describe("Guild leader controls: the Guild page (#496)", function()
                 local model = { ranks = {}, caps = { h = true }, vetoes = {}, recent = {} }
                 for _, c in ipairs(clients) do model.recent[c] = {} end
                 local builtIn = clients[1].ns.DefaultMessages.guildLogin
-                local stats = { rank = 0, cap = 0, refused = 0, veto = 0, undo = 0, said = 0, forged = 0, officer = 0 }
+                local stats = { rank = 0, cap = 0, refused = 0, veto = 0, undo = 0, said = 0, forged = 0, officer = 0,
+                    ["forged ranks"] = 0, ["forged caps"] = 0, ["forged vetoes"] = 0 }
 
                 for round = 1, 60 do
                     local pick = random.random(1, 8)
@@ -863,11 +935,15 @@ describe("Guild leader controls: the Guild page (#496)", function()
                     -- The first rounds reach each case once, the rest at random:
                     -- lines said, the officer's rank picked, the officer's
                     -- click, a veto, an undo from the veto list, a forgery.
-                    local forced = ({ { 7 }, { 7 }, { 7 }, { 1, 1, 1 }, { 2, 2 }, { 5, 1 }, { 6, 1 }, { 8 } })[round]
+                    -- A forgery of each section too (#536's testing review).
+                    local forced = ({ { 7 }, { 7 }, { 7 }, { 1, 1, 1 }, { 2, 2 }, { 5, 1 }, { 6, 1 },
+                        { 8, nil, nil, "ranks" }, { 8, nil, nil, "caps" }, { 8, nil, nil, "vetoes" } })[round]
+                    local forgedSection = ({ "ranks", "caps", "vetoes" })[random.random(1, 3)]
                     if forced then
                         pick = forced[1]
                         if forced[2] then actor = clients[forced[2]] end
                         if forced[3] then rank = forced[3] end
+                        if forced[4] then forgedSection = forced[4] end
                     end
                     if pick == 1 then
                         -- The guild master ticks or unticks a rank (rank 1 is Otto's, 4 the members').
@@ -940,7 +1016,7 @@ describe("Guild leader controls: the Guild page (#496)", function()
                             if not Leads(model, c) then forger = c end
                         end
                         if forger then
-                            local section = ({ "ranks", "caps", "vetoes" })[random.random(1, 3)]
+                            local section = forgedSection
                             local items = ({ ranks = { "4" }, caps = { "h0" }, vetoes = { "bld1", "bld2" } })[section]
                             on(forger, function(ns)
                                 local g = ns.GuildLead.Memory()
@@ -950,6 +1026,7 @@ describe("Guild leader controls: the Guild page (#496)", function()
                                 g[section] = kept
                             end)
                             stats.forged = stats.forged + 1
+                            stats["forged " .. section] = (stats["forged " .. section] or 0) + 1
                         end
                     end
                     Settle(net)

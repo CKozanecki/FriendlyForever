@@ -951,6 +951,9 @@ jobs:
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowGuild("%s")\n' "$view"; } \
               > "$states/page-guild-$view.lua"
           done
+          # The guild master's Guild page scrolled to its lines and vetoes, their Veto and Undo rows (#496).
+          { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowGuildLines()\n'; } \
+            > "$states/page-guild-lines.lua"
           # The Guild Login tab while the guild limits a member's settings (#496).
           { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowGuildTab()\n'; } \
             > "$states/tab-guild-login-limited.lua"
@@ -1007,8 +1010,8 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Every shot
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so a pass of 57 shots can take about 190 minutes in the
-        # worst case, and both passes together about 380. No shot starts
+        # clean-up, so a pass of 58 shots can take about 193 minutes in the
+        # worst case, and both passes together about 387. No shot starts
         # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
         # so the last one ends by about 4400 s with the probe: inside this
         # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a
@@ -1155,6 +1158,7 @@ jobs:
             shoot options-guild --exec-lua @/shot-lua/page-guild.lua
             shoot options-guild-ask --exec-lua @/shot-lua/page-guild-ask.lua
             shoot options-guild-member --exec-lua @/shot-lua/page-guild-member.lua
+            shoot options-guild-lines --exec-lua @/shot-lua/page-guild-lines.lua
             shoot options-guild-login-limited --exec-lua @/shot-lua/tab-guild-login-limited.lua
             # Start here, and the walkthrough at each step in WALKTHROUGH_STEPS (#47), the last as
             # What's new shows it to a returning player (#362).

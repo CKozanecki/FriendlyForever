@@ -1491,6 +1491,8 @@ local function GuildPageInside(view, shows)
         local label = "Guild page (" .. view .. ")"
         check(ShowsTextBelow(content, shows), label .. " doesn't show \"" .. shows .. "\"")
         check(ShowsTextBelow(content, "Lieutenant Wing"), label .. " doesn't show the guild's ranks")
+        -- The guild's settings the fixture set, not a fresh memory (#536's testing review).
+        check(ShowsTextBelow(content, "4 of at most 40"), label .. " doesn't show the guild's 4 vetoed lines")
         OnScreen(page, label)
         local checks = {
             function() FrameTextInside(content, label) end,
@@ -1526,6 +1528,37 @@ end)
 
 test("the Guild page, as a member sees it, keeps its text inside it (#496)", function()
     GuildPageInside("member", "Only the guild master and the ranks")
+end)
+
+-- The guild master's lines said recently and vetoed lines, scrolled into
+-- view for their shot (#536's testing review): the header in the view, and
+-- a vetoed line's Undo shown with the page's other rows.
+test("the Guild page scrolled to its lines shows them in its view, with Veto and Undo (#496)", function()
+    local content, why = FriendlyForeverUIPages.ShowGuildLines()
+    local ok, err = pcall(function()
+        check(content ~= nil, "couldn't scroll the Guild page to its lines: " .. tostring(why))
+        local scroll = content:GetParent()
+        local header
+        local wanted = FriendlyForeverUIPages.GUILD_LINES_HEADER
+        for _, region in ipairs({ content:GetRegions() }) do
+            if region:GetObjectType() == "FontString" and region:GetText() == wanted then header = region end
+        end
+        check(header ~= nil, "no lines header")
+        local top = Edges(header, "GetTop", "GetBottom")
+        local viewTop, viewBottom = Edges(scroll, "GetTop", "GetBottom")
+        if not (top and viewTop) then
+            report("LAYOUT Guild page lines: edges can't be read here")
+            check(false, "Guild page lines: edges can't be read here")
+        end
+        local line = ("LAYOUT Guild page lines: header at %.0f, view %.0f..%.0f"):format(top, viewBottom, viewTop)
+        report(line)
+        check(top <= viewTop + 1 and top >= viewBottom - 1, line .. ": the lines header isn't in the view")
+        check(ShowsTextBelow(content, "Undo"), "the Guild page shows no Undo")
+        check(ShowsTextBelow(content, "Veto"), "the Guild page shows no Veto")
+    end)
+    local panel = _G[FriendlyForeverUIPages.GUILD]
+    if panel and panel:IsShown() then panel:Hide() end
+    if not ok then error(err, 0) end
 end)
 
 -- With the lists as a new player has them, the page's last line must still
