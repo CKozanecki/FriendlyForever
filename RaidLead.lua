@@ -137,9 +137,10 @@ end
 local function Roster()
     local out, leader, leaders = {}, nil, 0
     for i, unit in ipairs(RAID_UNITS) do
-        -- An empty or unreadable slot has no name.
+        -- An empty or unreadable slot has no name. (A name in two slots would
+        -- count twice: two leaders, so nobody may assign.)
         local name = Util.UnitFullName(unit)
-        if name and not out[name] then
+        if name then
             local _, rank = Read(GetRaidRosterInfo, i)
             local _, class = Read(UnitClass, unit)
             out[name] = { unit = unit, rank = rank, class = type(class) == "string" and class or nil }
