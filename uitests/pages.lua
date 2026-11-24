@@ -875,6 +875,7 @@ function Pages.ShowRaidWindow(view)
         for i, row in ipairs(window.rows) do
             local first, second = FullName(i):gsub("%-", " "), FullName(i + 1):gsub("%-", " ")
             row.box:SetEnabled(leader)
+            row.cover:SetFrameLevel(row.box:GetFrameLevel() + 2)
             row.cover:SetShown(not leader)
             row.box:SetText(i % 2 == 1 and (first .. " 1-4, " .. second .. " 5-8") or first)
         end

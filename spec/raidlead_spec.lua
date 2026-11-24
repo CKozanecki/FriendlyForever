@@ -746,6 +746,7 @@ describe("The raid leader's buff assignments (#497)", function()
             local row = ns.RaidLead.Frame().rows[1]
             assert.equal("fortitude", row.key)
             assert.is_true(row.cover:IsShown(), "a read only box is covered, so the pointer reaches the line")
+            assert.is_true(row.cover:GetFrameLevel() > row.box:GetFrameLevel(), "the cover is above the box")
             row.cover:GetScript("OnEnter")(row.cover)
             assert.is_true(_G.GameTooltip:IsShown())
             assert.same({ "Ann Vale 1-4, Bob Lake 5-8" }, _G.GameTooltip.lines)

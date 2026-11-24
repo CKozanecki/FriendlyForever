@@ -625,6 +625,9 @@ local function Create()
         local function Leave() GameTooltip:Hide() end
         local cover = CreateFrame("Frame", nil, frame)
         cover:SetAllPoints(box)
+        -- Above the box, explicitly: siblings on one level have no defined
+        -- winner for the pointer (#427).
+        cover:SetFrameLevel(box:GetFrameLevel() + 2)
         cover:EnableMouse(true)
         cover:SetScript("OnEnter", Hover)
         cover:SetScript("OnLeave", Leave)
@@ -671,6 +674,7 @@ function RaidLead.Refresh()
     local may = me ~= nil and RaidLead.MayAssign(me)
     for _, row in ipairs(frame.rows) do
         row.box:SetEnabled(may)
+        row.cover:SetFrameLevel(row.box:GetFrameLevel() + 2)
         row.cover:SetShown(not may)
     end
     frame.save:SetEnabled(may)
