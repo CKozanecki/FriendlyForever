@@ -1508,13 +1508,15 @@ end)
 -- line clears).
 local function StatusClears(window, label)
     local status, last = window.status, window.rows[#window.rows].box
-    local _, size = status:GetFont()
-    local bottom, lastBottom = Measure(status, "GetBottom"), Measure(last, "GetBottom")
-    if not (bottom and lastBottom and type(size) == "number") then
+    -- A line as tall as the status measures with one, the pessimistic size,
+    -- not its font's size (#116).
+    local bottom, oneTop = Measure(status, "GetBottom"), Measure(status, "GetTop")
+    local lastBottom = Measure(last, "GetBottom")
+    if not (bottom and oneTop and lastBottom) then
         report("LAYOUT " .. label .. " status: edges can't be read here")
         return
     end
-    local top = bottom + 2 * size + 2
+    local top = bottom + 2 * (oneTop - bottom)
     local line = ("LAYOUT %s status, two lines: %.0f..%.0f, last row from %.0f"):format(label, bottom, top, lastBottom)
     report(line)
     check(top <= lastBottom, line .. ": runs into the last row")
