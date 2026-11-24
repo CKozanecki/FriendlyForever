@@ -287,6 +287,31 @@ describe("Guild leader controls: the Guild page (#496)", function()
             local note = Text(clients[2].ns.Options.widgets.guildNote)
             assert.truthy(note:find("at most 2", 1, true), note)
         end)
+
+        it("the guild master's open page lists a guildmate's check-in, a line and its words as they arrive", function()
+            local clients, net = Guild({ GM, MEMBER })
+            on(clients[1], function(ns) ns.GuildPanel.Open() end)
+            local f = clients[1].ns.GuildPanel.frames
+            assert.is_false(f.lines[1]:IsShown())
+            -- A new check-in: Mia's copy, a newer version.
+            on(clients[2], function(ns)
+                ns.VERSION = "9.9.9"
+                ns.GuildLead.CheckIn()
+            end)
+            Settle(net)
+            wow.use(clients[1])
+            assert.truthy(Text(f.mates[1].words):find("version 9.9.9", 1, true), Text(f.mates[1].words))
+            -- A line reported, then the words guild chat showed for it.
+            on(clients[2], function(ns) ns.GuildLead.ReportLine("guildLogin", "All mine, {name}") end)
+            Settle(net)
+            wow.use(clients[1])
+            assert.is_true(f.lines[1]:IsShown())
+            assert.truthy(Text(f.lines[1].words):find("weren't seen here", 1, true))
+            on(clients[1], function() wow.guildChat("All mine, Thrall", "Mia-Lund") end)
+            Settle(net)
+            wow.use(clients[1])
+            assert.truthy(Text(f.lines[1].words):find("All mine, Thrall", 1, true), Text(f.lines[1].words))
+        end)
     end)
 
     describe("who has Friendly Forever (white)", function()
@@ -409,6 +434,55 @@ describe("Guild leader controls: the Guild page (#496)", function()
             for _, c in ipairs(clients) do assert.are.same({ token }, Kept(c, "vetoes")) end
         end)
 
+        it("vetoes a line once: a second veto changes nothing", function()
+            local clients, net = Guild({ GM, MEMBER })
+            on(clients[1], function(ns)
+                assert.is_true(ns.GuildPanel.Veto("bld4"))
+                local version = ns.GuildLead.Version("vetoes")
+                assert.is_true(ns.GuildPanel.Veto("bld4"))
+                assert.are.equal(version, ns.GuildLead.Version("vetoes"))
+            end)
+            Settle(net)
+            assert.are.same({ "bld4" }, Kept(clients[2], "vetoes"))
+        end)
+
+        it("names a vetoed line's type, and its words even on a copy whose own lines are all different", function()
+            local clients, net = Guild({ GM, MEMBER })
+            on(clients[1], function(ns)
+                for i = 1, #ns.db.guildLogin.messages do ns.db.guildLogin.messages[i] = "Mine " .. i end
+                for i = 1, #ns.db.guildJoin.messages do ns.db.guildJoin.messages[i] = "Joined " .. i end
+                assert.is_true(ns.GuildPanel.Veto("bjd2"))
+                assert.is_true(ns.GuildPanel.Veto("bld1"))
+            end)
+            Settle(net)
+            local f = Page(clients[1])
+            local login, join = Text(f.vetoes[1].words), Text(f.vetoes[2].words)
+            assert.truthy(login:find("^Guild Join: "), login)
+            assert.truthy(login:find(clients[1].ns.DefaultMessages.guildJoin[2], 1, true), login)
+            assert.truthy(join:find("^Guild Login: "), join)
+            assert.truthy(join:find(clients[1].ns.DefaultMessages.guildLogin[1], 1, true), join)
+        end)
+
+        it("shows a custom vetoed line with the words guild chat showed, and a line of its own's escapes as text", function()
+            local clients, net = Guild({ GM, MEMBER })
+            local custom = "Over here, {name}!"
+            on(clients[2], function(ns) ns.GuildLead.ReportLine("guildLogin", custom) end)
+            on(clients[1], function() wow.guildChat("Over here, Thrall!", "Mia-Lund") end)
+            Settle(net)
+            local token = on(clients[1], function(ns) return ns.GuildLead.LineToken("guildLogin", custom) end)
+            on(clients[1], function(ns) assert.is_true(ns.GuildPanel.Veto(token)) end)
+            local mine = "Hi |cffff0000{name}|r"
+            on(clients[1], function(ns)
+                ns.db.guildLogin.messages[1] = mine
+                assert.is_true(ns.GuildPanel.Veto(ns.GuildLead.LineToken("guildLogin", mine)))
+            end)
+            Settle(net)
+            local f = Page(clients[1])
+            local text = Text(f.vetoes[1].words) .. "\n" .. Text(f.vetoes[2].words)
+            assert.truthy(text:find("Over here, Thrall!", 1, true), text)
+            assert.truthy(text:find("Hi ||cffff0000{name}||r", 1, true), text)
+        end)
+
         it("shows a custom line with the words guild chat showed from its sender", function()
             local clients, net = Guild({ GM, MEMBER })
             local custom = "Look who it is, {name}!"
@@ -489,10 +563,30 @@ describe("Guild leader controls: the Guild page (#496)", function()
         end)
 
         it("shows no note on other tabs, or with nothing limiting", function()
-            local clients = Guild({ GM, MEMBER })
+            local clients, net = Guild({ GM, MEMBER })
             assert.is_nil(Note(clients[2], "guildLogin"))
             assert.is_nil(Note(clients[2], "guildJoin"))
             assert.is_nil(Note(clients[2], "partyJoin"))
+            -- The guild's welcome cap is about Guild Join only.
+            on(clients[1], function(ns) assert.is_true(ns.GuildPanel.SetCap("w", 2)) end)
+            Settle(net)
+            assert.is_nil(Note(clients[2], "partyJoin"))
+            assert.is_nil(on(clients[2], function(ns) return ns.GuildPanel.LimitNote("partyJoin") end))
+            assert.is_nil(Note(clients[2], "guildLogin"))
+        end)
+
+        it("says nothing about a greeter cap the same as yours, and counts one vetoed line as one", function()
+            local clients, net = Guild({ GM, MEMBER })
+            on(clients[2], function(ns) ns.db.guildLogin.maxGreeters = 4 end)
+            local first = on(clients[2], function(ns) return ns.db.guildLogin.messages[1] end)
+            on(clients[1], function(ns)
+                assert.is_true(ns.GuildPanel.SetCap("g", 4))
+                assert.is_true(ns.GuildPanel.Veto(ns.GuildLead.LineToken("guildLogin", first)))
+            end)
+            Settle(net)
+            local note = Note(clients[2], "guildLogin")
+            assert.are.equal(nil, note and note:find("greet one login", 1, true))
+            assert.truthy(note and note:find("One of these lines is vetoed", 1, true), note)
         end)
     end)
 
@@ -559,6 +653,38 @@ describe("Guild leader controls: the Guild page (#496)", function()
             assert.is_false(f.ranks[6]:IsShown())
         end)
 
+        it("treats you as a member when your own name can't be read yet: the page only shows", function()
+            local clients = Guild({ GM }, { before = function(state) state.units.player.nameLoading = true end })
+            assert.are.equal("member", on(clients[1], function(ns) return ns.GuildPanel.Role() end))
+            local f, widgets = Page(clients[1])
+            assert.is_false(f.ranks[1]:IsEnabled())
+            assert.is_false(widgets.hellos:IsEnabled())
+        end)
+
+        it("falls back to the roster when the game's rank count isn't a whole number from 1 to 10", function()
+            for _, bad in ipairs({ 0, 11, 2.5, "5", -3 }) do
+                local clients = Guild({ GM, OFFICER, MEMBER }, { before = function(state)
+                    state.guildNumRanks = bad
+                end, ranks = { ["Mia-Lund"] = 6 } })
+                local shown = {}
+                for index, cb in ipairs(Page(clients[1]).ranks) do
+                    if cb:IsShown() then shown[#shown + 1] = index end
+                end
+                assert.are.same({ 1, 2, 3, 4, 5, 6 }, shown, tostring(bad))
+                wow.reset()
+            end
+        end)
+
+        it("names a rank whose name is empty, or only escapes, by its number", function()
+            local clients = Guild({ GM }, { before = function(state)
+                state.guildRankNames[1] = ""
+                state.guildRankNames[2] = "||"
+            end })
+            local f = Page(clients[1])
+            assert.are.equal("Rank 2", Text(f.ranks[1].label))
+            assert.are.equal("Rank 3", Text(f.ranks[2].label))
+        end)
+
         it("treats you as a member when your own rank can't be read: the page only shows", function()
             local clients = Guild({ GM }, { before = function(state) state.guildRankSecret = true end })
             assert.are.equal("member", on(clients[1], function(ns) return ns.GuildPanel.Role() end))
@@ -594,6 +720,9 @@ describe("Guild leader controls: the Guild page (#496)", function()
                 assert.is_true(ns.GuildLead.RanksAsked())
                 local g = ns.GuildLead.Memory()
                 g.asked = "yes"
+                -- Damaged mid-session: not an answer, even before the check.
+                g.ranks = { version = 0, items = {} }
+                assert.is_false(ns.GuildLead.RanksAsked())
                 ns.GuildLead.Validate(ns.db)
                 assert.is_false(ns.GuildLead.RanksAsked())
                 assert.is_nil(ns.GuildLead.Memory().asked)
