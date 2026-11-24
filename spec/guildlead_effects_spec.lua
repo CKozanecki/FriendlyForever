@@ -243,6 +243,22 @@ describe("Guild leader controls: the caps and vetoes take effect (#496)", functi
             end)
         end
 
+        for _, case in ipairs({ { delay = 15, gap = 0 }, { delay = 4, gap = 12 } }) do
+            it(string.format("a member the roster lists comes online, then joins %d s later (welcome delay %d s): "
+                .. "one welcome under the cap, and no hello", case.gap, case.delay), function()
+                local clients, net = Guild(5, { alsoInRoster = { JOINER } })
+                Lead(clients, net, "caps", { "w1" })
+                for _, c in ipairs(clients) do c.ns.db.guildJoin.delay = case.delay end
+                Arrive(clients, JOINER)
+                wow.advanceAll(net, case.gap, 0.1)
+                Arrive(clients, JOINER, JOINER .. " has joined the guild.")
+                wow.advanceAll(net, 90, 0.1)
+                local said = Said(clients, JOINER)
+                assert.are.equal(1, #said)
+                assert.is_truthy(said[1].text:find("^Welcome"), said[1].text)
+            end)
+        end
+
         it("without a welcome cap every copy welcomes, as before", function()
             local clients, net = Guild(3)
             Arrive(clients, JOINER, JOINER .. " has joined the guild.")

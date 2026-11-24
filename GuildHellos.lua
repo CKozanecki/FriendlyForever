@@ -219,10 +219,14 @@ local function Decide(name, login)
 end
 
 -- After the delay and stagger, with the line Announcer picked: claim a
--- place, or greet at once without the channel, or drop it.
-function GuildHellos.Hold(name, line, go, drop)
+-- place, or greet at once without the channel, or drop it. kind: what this
+-- copy holds a place for, "guildLogin" (the default) or "guildJoin". A
+-- hello never takes a welcome's place: a new member's online line and join
+-- line are one arrival, and the welcome is it (#496).
+function GuildHellos.Hold(name, line, go, drop, kind)
     local login = Live(name)
     if not login then return drop("lost track of this login") end
+    if login.kind ~= (kind or "guildLogin") then return drop("one arrival: they're being welcomed to the guild") end
     if login.mine then return drop("already greeting this login") end
     if login.count >= Cap(login.kind) then
         return drop(string.format("%d other copies already greet them (most: %d)", login.count, Cap(login.kind)))

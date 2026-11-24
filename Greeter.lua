@@ -811,7 +811,7 @@ function Greeter.OnSystemMessage(msg)
             ns.GuildHellos.OnLogin(name, "guildJoin")
             opts.delay = ns.db.guildJoin.delay + ns.GuildHellos.Stagger()
             opts.taken = function() return ns.GuildHellos.Announced(name) end
-            opts.hold = function(go, line, drop) ns.GuildHellos.Hold(name, line, go, drop) end
+            opts.hold = function(go, line, drop) ns.GuildHellos.Hold(name, line, go, drop, "guildJoin") end
         end
         if ns.Announcer.Schedule("guildJoin", name, opts) then
             RememberWelcomed(name)
