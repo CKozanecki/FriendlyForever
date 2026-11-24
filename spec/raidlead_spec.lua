@@ -459,9 +459,13 @@ describe("The raid leader's buff assignments (#497)", function()
             assert.is_false(on(byName[BOB], function(ns) return ns.BuffRules.CoversInRaid(kings) end))
             assert.is_true(on(byName[ANN], function(ns) return ns.BuffRules.CoversInRaid(kings) end))
             assert.same({}, offeredTo(byName[BOB], "kings"))
-            -- Bob's hand-set Kings is the leader's to give: he drafts the others instead.
-            local mine = on(byName[BOB], function(ns) return ns.RaidSplit.Current() end)
-            assert.is_truthy(mine and (mine.wisdom or mine.might))
+            -- Bob chose only Kings, which is now Ann's: he gives none (the
+            -- leader only narrows his choice), and Ann drafts the rest.
+            for _, key in ipairs({ "kings", "wisdom", "might" }) do
+                assert.same({}, offeredTo(byName[BOB], key), key)
+                assert.equal("all", shareOf(byName[ANN], key), key)
+                assert.is_true(#offeredTo(byName[ANN], key) > 0, key)
+            end
         end)
     end)
 
@@ -491,6 +495,70 @@ describe("The raid leader's buff assignments (#497)", function()
                 receive(part(LEADER, version, FORT_SPLIT), LEADER)
             end)
             assert.equal(0, #on(byName[ANN], function(ns) return ns.RaidLead.Items() end))
+        end)
+    end)
+
+    describe("battlegrounds, leaves the game can't read, and groups with gaps (black)", function()
+        it("a battleground keeps your raid's assignments without using them, and they apply again back in the raid",
+            function()
+            usual()
+            form()
+            assign(byName[LEADER], FORT_SPLIT)
+            wow.use(byName[CID])
+            local ns = byName[CID].ns
+            local version = ns.RaidLead.Version()
+            wow.state.inInstance, wow.state.instanceType = true, "pvp"
+            wow.setGroup("raid", { "Wes-Gulch", "Tor-Axe" })
+            wow.state.leader, wow.state.isLeader = "Wes-Gulch", false
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(30)
+            assert.equal(0, #ns.RaidLead.Assignments())
+            assert.equal(2, #ns.RaidLead.Items())
+            assert.is_false(ns.RaidLead.MayAssign("Wes-Gulch"))
+            -- An arena too, and while the game won't say where you are.
+            wow.state.instanceType = "arena"
+            assert.equal(0, #ns.RaidLead.Assignments())
+            local isIn = _G.IsInInstance
+            _G.IsInInstance = function() error("unreadable") end
+            wow.state.inInstance = false
+            assert.equal(0, #ns.RaidLead.Assignments())
+            _G.IsInInstance = isIn
+            wow.state.inInstance, wow.state.instanceType = false, nil
+            form()
+            assert.equal(version, ns.RaidLead.Version())
+            assert.equal(2, #on(byName[CID], function(n) return n.RaidLead.Assignments() end))
+            assert.equal("none", shareOf(byName[CID], "fortitude"))
+        end)
+
+        it("a leave whose one roster update can't be read still checks in to the next raid", function()
+            usual()
+            form()
+            assign(byName[LEADER], FORT_SPLIT)
+            wow.use(byName[CID])
+            local ns = byName[CID].ns
+            local checks = sentOf("RCHECK")
+            -- The leave's update can't be read; a later look reads it.
+            wow.setGroup(nil)
+            wow.state.inRaidUnreadable = true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.state.inRaidUnreadable = false
+            assert.equal(0, #ns.RaidLead.Assignments())
+            assert.equal(0, ns.RaidLead.Version())
+            form()
+            wow.advanceAll(net, 60, 0.5)
+            wow.use(byName[CID])
+            assert.equal(checks + 1, sentOf("RCHECK"))
+            assert.equal(2, #ns.RaidLead.Items())
+        end)
+
+        it("the button's share text names groups with a gap as runs", function()
+            usual()
+            form()
+            assign(byName[LEADER], { item("fortitude", groups(2), BOB) })
+            assert.equal("Your share: Power Word: Fortitude (groups 1, 3-8)",
+                on(byName[ANN], function(ns) return ns.RaidSplit.ShareText(false) end))
+            assert.equal("Your share: Power Word: Fortitude (group 2), Divine Spirit",
+                on(byName[BOB], function(ns) return ns.RaidSplit.ShareText(false) end))
         end)
     end)
 

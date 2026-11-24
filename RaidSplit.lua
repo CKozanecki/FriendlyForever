@@ -357,21 +357,18 @@ local function Met(class, me, myKeys, roster)
 end
 
 -- A player's list without the buffs assigned for every group: those aren't
--- drafted, so the rest share out among the others (new tables: peers'
--- entries stay as they were heard).
+-- drafted, so the rest share out among the others (a new list: peers'
+-- entries stay as they were heard). A player who set Blessings by hand
+-- still holds exactly those (Final then takes away the ones assigned to
+-- others): with all of them assigned away, none. Their own copy offers
+-- only what they chose (BuffRules.CoversInRaid), and the leader's choice
+-- only narrows it, never widens it.
 local function Strip(p, met)
     local keys = {}
     for _, key in ipairs(p.keys) do
         if not (met[key] and met[key].count == RaidSplit.GROUPS) then keys[#keys + 1] = key end
     end
-    local fixed
-    for key in pairs(p.fixed or {}) do
-        if not (met[key] and met[key].count == RaidSplit.GROUPS) then
-            fixed = fixed or {}
-            fixed[key] = true
-        end
-    end
-    return { name = p.name, keys = keys, fixed = fixed, me = p.me }
+    return { name = p.name, keys = keys, fixed = p.fixed, me = p.me }
 end
 
 -- A player's share of an assigned buff: the groups assigned to them, and
@@ -725,16 +722,19 @@ local function ShareItem(key, value)
     local buff = ns.BuffData.ByKey(key)
     local name = buff and ns.BuffData.SpellName(buff) or key
     if type(value) ~= "table" then return name end
-    local from, to
-    for g = 1, RaidSplit.GROUPS do
+    -- Runs of groups: an assignment can leave a gap (#497), "groups 1, 3-8".
+    local runs, count, g = {}, 0, 1
+    while g <= RaidSplit.GROUPS do
         if value[g] then
-            from = from or g
-            to = g
+            local from = g
+            while g < RaidSplit.GROUPS and value[g + 1] do g = g + 1 end
+            runs[#runs + 1] = from == g and tostring(from) or (from .. "-" .. g)
+            count = count + g - from + 1
         end
+        g = g + 1
     end
-    if not from then return name end
-    if from == to then return name .. " (group " .. from .. ")" end
-    return name .. " (groups " .. from .. "-" .. to .. ")"
+    if #runs == 0 then return name end
+    return name .. " (" .. (count == 1 and "group " or "groups ") .. table.concat(runs, ", ") .. ")"
 end
 
 -- A share as text, in the class's own order of buffs.

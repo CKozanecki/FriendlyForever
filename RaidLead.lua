@@ -130,6 +130,16 @@ local function InRaid()
     return ns.GroupBuffs.RaidAnswer()
 end
 
+-- In a battleground or an arena, whose group isn't your raid: true or
+-- false, or nil when IsInInstance() can't be read. Your raid's assignments
+-- are kept there but not used, nobody may set any, and nothing there clears
+-- them: they apply again back in your raid (as hand-set Blessings, #376).
+local function InBattleground()
+    local _, kind = Read(IsInInstance)
+    if type(kind) ~= "string" then return nil end
+    return kind == "pvp" or kind == "arena"
+end
+
 -- The raid as its roster says now: [full name] = { unit, rank (2 the
 -- leader, 1 an assistant, anything else neither), class }, and the
 -- leader's full name: nil when it can't be read, or no one or more than
@@ -159,7 +169,7 @@ RaidLead.Roster = Roster
 -- roster readable enough to name one leader, and theirs the leader's or an
 -- assistant's rank. False whenever it can't be told.
 function RaidLead.MayAssign(name)
-    if type(name) ~= "string" or InRaid() ~= true then return false end
+    if type(name) ~= "string" or InRaid() ~= true or InBattleground() ~= false then return false end
     local roster, leader = Roster()
     local member = roster[name]
     return leader ~= nil and member ~= nil and (member.rank == 1 or member.rank == 2)
@@ -189,14 +199,25 @@ local function Changed()
     if ns.RaidSplit.Changed then ns.RaidSplit.Changed() end
 end
 
--- Forget them as you leave the raid, and clear them when its leader
--- changes. Run before every use, so neither waits for a roster update. Only
--- on positive evidence: a believable "not in a raid", or a leader read now
--- and when they were set, and different. Clearing keeps a higher version,
--- so the old list, sent again, is old.
+local function Wait(min, max)
+    return min + RaidLead.random() * (max - min)
+end
+
+local section         -- the Versioned section, below
+local ScheduleCheckIn -- below
+local joined = false  -- whether we've checked in to the raid we're in
+
+-- Forget them as you leave the raid, clear them when its leader changes,
+-- and check in to a raid you've joined. Run before every use and at each
+-- roster update, so none of it waits for an update the game may not send
+-- (#372: a leave whose one update can't be read). Only on positive
+-- evidence: a believable "not in a raid", or a leader read now and when
+-- they were set, and different. Clearing keeps a higher version, so the
+-- old list, sent again, is old.
 local function Check()
     local inRaid = InRaid()
     if inRaid == false then
+        joined = false
         if kept.version > 0 then
             kept, pending = { version = 0, items = {} }, nil
             Changed()
@@ -204,7 +225,12 @@ local function Check()
         end
         return
     end
-    if inRaid ~= true or not kept.leader then return end
+    if inRaid ~= true or InBattleground() ~= false then return end
+    if not joined and section then
+        joined = true
+        ScheduleCheckIn(Wait(RaidLead.CHECKIN_WAIT_MIN, RaidLead.CHECKIN_WAIT_MAX))
+    end
+    if not kept.leader then return end
     local _, leader = Roster()
     if leader and leader ~= kept.leader then
         kept = { version = math.min(kept.version + 1, Versioned.MAX_VERSION), items = {}, leader = leader }
@@ -215,11 +241,11 @@ local function Check()
 end
 
 -- The assignments in force: a list of { key, groups = { [g] = true }, hash }.
--- Empty out of a raid, or while the game won't say you're in one.
+-- Empty out of a raid, in a battleground, or while the game won't say.
 function RaidLead.Assignments()
     Check()
     local out = {}
-    if InRaid() ~= true then return out end
+    if InRaid() ~= true or InBattleground() ~= false then return out end
     for _, item in ipairs(kept.items) do
         local key, groups, hash = Parse(item)
         if key then out[#out + 1] = { key = key, groups = groups, hash = hash } end
@@ -241,12 +267,6 @@ end
 ------------------------------------------------------------------------
 -- Sending
 ------------------------------------------------------------------------
-
-local section -- the Versioned section, below
-
-local function Wait(min, max)
-    return min + RaidLead.random() * (max - min)
-end
 
 local function SendNow(p)
     if pending ~= p then return end -- cancelled, or replaced
@@ -299,7 +319,6 @@ end
 ------------------------------------------------------------------------
 
 local checkPending, lastCheck
-local joined = false -- whether we've checked in to the raid we're in
 
 function RaidLead.CheckIn()
     if InRaid() ~= true then return false end
@@ -307,7 +326,7 @@ function RaidLead.CheckIn()
     return Comm.Send("RCHECK", { string.format("%.0f", kept.version) }, "RAID")
 end
 
-local function ScheduleCheckIn(wait)
+function ScheduleCheckIn(wait)
     if checkPending then return end
     local now = GetTime()
     if lastCheck and now >= lastCheck then wait = math.max(wait, lastCheck + RaidLead.CHECKIN_GAP - now) end
@@ -336,16 +355,10 @@ local function OnCheckIn(sender, fields)
     end
 end
 
--- After each roster update and login (Core.lua): forget or clear (Check),
--- and check in once to a raid we've joined.
+-- After each roster update and login (Core.lua): forget, clear or check
+-- in (Check), and show the window's state.
 function RaidLead.OnRosterUpdate()
     Check()
-    local inRaid = InRaid()
-    if inRaid == false then joined = false end
-    if inRaid == true and not joined and section then
-        joined = true
-        ScheduleCheckIn(Wait(RaidLead.CHECKIN_WAIT_MIN, RaidLead.CHECKIN_WAIT_MAX))
-    end
     RaidLead.Refresh()
 end
 
