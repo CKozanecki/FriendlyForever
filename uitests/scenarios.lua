@@ -1503,14 +1503,41 @@ end)
 -- longest names (pages.lua's ShowRaidWindow). Its title, hint, the buffs'
 -- names, the status line and the buttons stay inside it, and it's on the
 -- screen.
+-- Two lines of status, which a long error can take, end below the last row:
+-- the status grows up from the buttons (TextInside doesn't check what a
+-- line clears).
+local function StatusClears(window, label)
+    local status, last = window.status, window.rows[#window.rows].box
+    local _, size = status:GetFont()
+    local bottom, lastBottom = Measure(status, "GetBottom"), Measure(last, "GetBottom")
+    if not (bottom and lastBottom and type(size) == "number") then
+        report("LAYOUT " .. label .. " status: edges can't be read here")
+        return
+    end
+    local top = bottom + 2 * size + 2
+    local line = ("LAYOUT %s status, two lines: %.0f..%.0f, last row from %.0f"):format(label, bottom, top, lastBottom)
+    report(line)
+    check(top <= lastBottom, line .. ": runs into the last row")
+end
+
 test("the raid assignments window keeps its text inside it and is on the screen (#497)", function()
-    for _, view in ipairs({ "member", "leader" }) do
+    for _, view in ipairs({ "member", "leader", "member-hover" }) do
         local window, why = FriendlyForeverUIPages.ShowRaidWindow(view)
         local ok, err = pcall(function()
             check(window ~= nil, tostring(why))
             local label = "raid assignments window (" .. view .. ")"
             OnScreen(window, label)
             FrameTextInside(window, label, 2)
+            StatusClears(window, label)
+            if view == "member-hover" then
+                -- The pointer over a read only line shows all of it.
+                local whole = window.rows[1].box:GetText()
+                check(GameTooltip:IsShown(), label .. ": no tooltip over the first line")
+                local shown = _G.GameTooltipTextLeft2 and _G.GameTooltipTextLeft2:GetText()
+                report("LAYOUT " .. label .. " tooltip: " .. tostring(shown))
+                check(shown == whole, label .. ": the tooltip doesn't hold the whole line")
+                GameTooltip:Hide()
+            end
         end)
         if window then window:Hide() end
         if not ok then error(err, 0) end

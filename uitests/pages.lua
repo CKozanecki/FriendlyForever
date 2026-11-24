@@ -858,7 +858,9 @@ end
 -- screenshot job. "member": as /friendly raid opens it out of a raid, read
 -- only. "leader": its lines filled at the longest names Forever allows
 -- (FullName), one or two players a line, and its controls enabled, as the
--- raid leader's copy shows them. The simulator has no raids, so it can't
+-- raid leader's copy shows them. "member-hover": the same lines, read only
+-- as a raid member sees them, with the pointer over the first, its tooltip
+-- showing the whole line. The simulator has no raids, so it can't
 -- make you a raid leader: the fill and the enabling are this script's own,
 -- set on the window's widgets, never the addon's saved settings or its
 -- assignments. Returns the window, or nil and why.
@@ -868,15 +870,23 @@ function Pages.ShowRaidWindow(view)
     SlashCmdList.FRIENDLYFOREVER("raid")
     local window = _G[Pages.RAID_WINDOW]
     if not (window and window:IsShown()) then return nil, "/friendly raid opened no window" end
-    if view == "leader" then
+    if view == "leader" or view == "member-hover" then
+        local leader = view == "leader"
         for i, row in ipairs(window.rows) do
             local first, second = FullName(i):gsub("%-", " "), FullName(i + 1):gsub("%-", " ")
-            row.box:SetEnabled(true)
+            row.box:SetEnabled(leader)
+            row.cover:SetShown(not leader)
             row.box:SetText(i % 2 == 1 and (first .. " 1-4, " .. second .. " 5-8") or first)
         end
-        window.save:SetEnabled(true)
-        window.clear:SetEnabled(true)
-        window.status:SetText("Saved and sent to the raid.")
+        window.save:SetEnabled(leader)
+        window.clear:SetEnabled(leader)
+        window.status:SetText(leader and "Saved and sent to the raid."
+            or "Only the raid leader and assistants can change these.")
+        if not leader then
+            local row = window.rows[1]
+            local enter = row.cover:GetScript("OnEnter")
+            if enter then enter(row.cover) end
+        end
     end
     return window
 end

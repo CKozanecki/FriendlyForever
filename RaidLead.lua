@@ -473,18 +473,26 @@ end
 
 -- The raid member a typed name means: their whole name ("Ann Vale" or
 -- "Ann-Vale"), or their first name when only one member has it.
+-- A typed name in a message: at most ECHO_BYTES, so a reply stays short
+-- enough for the window's two status lines.
+local ECHO_BYTES = 40
+local function Echo(typed)
+    if #typed <= ECHO_BYTES then return typed end
+    return Util.Utf8Truncate(typed, ECHO_BYTES) .. "..."
+end
+
 local function FindMember(roster, typed)
     local want = typed:lower():gsub("%-", " ")
     local byFirst
     for name in pairs(roster) do
         if Util.DisplayName(name):lower() == want then return name end
         if Util.FirstName(name):lower() == want then
-            if byFirst then return nil, "more than one member is called " .. typed end
+            if byFirst then return nil, "more than one member is called " .. Echo(typed) end
             byFirst = name
         end
     end
     if byFirst then return byFirst end
-    return nil, "nobody called " .. typed .. " is in the raid"
+    return nil, "nobody called " .. Echo(typed) .. " is in the raid"
 end
 
 -- The items one buff's line of the window means ("Ann Vale 1-4, Bob 5 6"),
@@ -530,6 +538,8 @@ end
 
 RaidLead.WINDOW = "FriendlyForeverRaidWindow"
 local ROW_HEIGHT = 30
+-- Room under the last row for two lines of status above the buttons.
+local STATUS_ROOM = 134
 local frame
 
 local function SetStatus(text, colour)
@@ -563,7 +573,7 @@ end
 local function Create()
     frame = CreateFrame("Frame", RaidLead.WINDOW, UIParent, "BasicFrameTemplateWithInset")
     if type(UISpecialFrames) == "table" then table.insert(UISpecialFrames, RaidLead.WINDOW) end
-    frame:SetSize(560, 120 + #ORDER * ROW_HEIGHT)
+    frame:SetSize(560, STATUS_ROOM + #ORDER * ROW_HEIGHT)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     frame:SetMovable(true)
@@ -600,7 +610,26 @@ local function Create()
         box:SetMaxLetters(200)
         box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
         box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-        frame.rows[i] = { key = buff.key, label = label, box = box }
+        -- The whole line on hover: a box shows only what fits, and a
+        -- member's box is read only, so it can't be scrolled. Over a read
+        -- only box, a plain frame takes the pointer (Refresh shows it).
+        local function Hover(owner)
+            local text = Util.StripChat(box:GetText() or "")
+            if text == "" then return end
+            GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+            GameTooltip:SetText(label:GetText())
+            GameTooltip:AddLine(text, 1, 1, 1, true)
+            GameTooltip:Show()
+        end
+        local function Leave() GameTooltip:Hide() end
+        local cover = CreateFrame("Frame", nil, frame)
+        cover:SetAllPoints(box)
+        cover:EnableMouse(true)
+        cover:SetScript("OnEnter", Hover)
+        cover:SetScript("OnLeave", Leave)
+        box:SetScript("OnEnter", Hover)
+        box:SetScript("OnLeave", Leave)
+        frame.rows[i] = { key = buff.key, label = label, box = box, cover = cover }
     end
 
     frame.status = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -639,7 +668,10 @@ function RaidLead.Refresh()
     if not frame or not frame:IsShown() then return end
     local me = Util.UnitFullName("player")
     local may = me ~= nil and RaidLead.MayAssign(me)
-    for _, row in ipairs(frame.rows) do row.box:SetEnabled(may) end
+    for _, row in ipairs(frame.rows) do
+        row.box:SetEnabled(may)
+        row.cover:SetShown(not may)
+    end
     frame.save:SetEnabled(may)
     frame.clear:SetEnabled(may)
     if not may then

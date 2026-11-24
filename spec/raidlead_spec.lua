@@ -735,6 +735,37 @@ describe("The raid leader's buff assignments (#497)", function()
             assert.same({}, ns.RaidLead.ParseLine("fortitude", "  ", roster))
         end)
 
+        it("a member sees each whole line in a tooltip, though the box is read only and too narrow for it",
+            function()
+            usual()
+            form()
+            assign(byName[LEADER], FORT_SPLIT)
+            wow.use(byName[CID])
+            local ns = byName[CID].ns
+            ns.RaidLead.Open()
+            local row = ns.RaidLead.Frame().rows[1]
+            assert.equal("fortitude", row.key)
+            assert.is_true(row.cover:IsShown(), "a read only box is covered, so the pointer reaches the line")
+            row.cover:GetScript("OnEnter")(row.cover)
+            assert.is_true(_G.GameTooltip:IsShown())
+            assert.same({ "Ann Vale 1-4, Bob Lake 5-8" }, _G.GameTooltip.lines)
+            row.cover:GetScript("OnLeave")(row.cover)
+            assert.is_false(_G.GameTooltip:IsShown())
+            -- The leader's box takes the pointer itself.
+            wow.use(byName[LEADER])
+            byName[LEADER].ns.RaidLead.Open()
+            assert.is_false(byName[LEADER].ns.RaidLead.Frame().rows[1].cover:IsShown())
+        end)
+
+        it("a typed name echoed in an error is cut short, so the reply keeps to the window's status lines", function()
+            local ns = wow.boot({})
+            local long = string.rep("Aerendhiliel ", 12)
+            local items, why = ns.RaidLead.ParseLine("fortitude", long .. "1-4", {})
+            assert.is_nil(items)
+            assert.is_true(#why <= 80, why)
+            assert.truthy(why:find("...", 1, true))
+        end)
+
         it("members see the window read-only, and can't set anything", function()
             usual()
             form()

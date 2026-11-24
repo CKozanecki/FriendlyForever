@@ -963,7 +963,7 @@ jobs:
               > "$states/buffs-$shot.lua"
           done
           # The raid leader's assignments window (#497): as a member sees it, and as the leader's copy does.
-          for view in member leader; do
+          for view in member leader member-hover; do
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowRaidWindow("%s")\n' "$view"; } \
               > "$states/raid-window-$view.lua"
           done
@@ -995,8 +995,8 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Every shot
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so a pass of 55 shots can take about 183 minutes in the
-        # worst case, and both passes together about 367. No shot starts
+        # clean-up, so a pass of 56 shots can take about 187 minutes in the
+        # worst case, and both passes together about 373. No shot starts
         # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
         # so the last one ends by about 4400 s with the probe: inside this
         # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a
@@ -1133,9 +1133,11 @@ jobs:
             # Passers-by stopped for want of friendly nameplates (#521).
             shoot button-passersby --exec-lua @/shot-lua/passersby.lua
             # The raid leader's assignments window (#497): read only, as /friendly raid opens it out of a raid,
-            # and filled at the longest names, as the leader's copy shows it.
+            # filled at the longest names, as the leader's copy shows it, and as a member sees those lines, the
+            # pointer over the first and its tooltip showing the whole line.
             shoot raid-window --exec-lua @/shot-lua/raid-window-member.lua
             shoot raid-window-leader --exec-lua @/shot-lua/raid-window-leader.lua
+            shoot raid-window-hover --exec-lua @/shot-lua/raid-window-member-hover.lua
             # The General and Favour Ledger pages, filled with long names and
             # many entries, and the copy window as /friendly export opens it (#52).
             shoot options-general --exec-lua @/shot-lua/page-general.lua

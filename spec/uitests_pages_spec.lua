@@ -835,6 +835,14 @@ describe("the UI simulator's raid assignments window (#497)", function()
             assert.is_true(row.box:IsEnabled())
             assert.is_truthy(row.box:GetText():find(" ", 1, true), "line " .. i .. " names a whole name")
         end
+        window:Hide()
+        -- As a member sees those lines: read only, the pointer over the first.
+        window = Pages.ShowRaidWindow("member-hover")
+        assert.is_false(window.save:IsEnabled())
+        assert.is_false(window.rows[1].box:IsEnabled())
+        assert.is_true(_G.GameTooltip:IsShown())
+        assert.same({ window.rows[1].box:GetText() }, _G.GameTooltip.lines)
+        _G.GameTooltip:Hide()
         -- Only the widgets: the addon keeps no assignments from it.
         assert.are.equal(0, #ns.RaidLead.Items())
         window:Hide()
