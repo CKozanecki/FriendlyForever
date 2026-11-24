@@ -202,8 +202,21 @@ describe("A character with no profile record (#519)", function()
             assert.is_false(ns.Profiles.SharedWithOthers(), "Default is each character's own")
         end)
 
-        it("at the cap of profiles it keeps the active one, and chat says why", function()
+        it("with 19 profiles stored it still gets its own, the 20th", function()
             local db = mainActive(9)
+            for i = 1, 17 do db.profiles["P" .. i] = { schemaVersion = 9 } end -- 19 with Main and Default
+            login(db)
+            assert.are.equal("Ann", ns.Profiles.Active())
+            local n = 0
+            for _ in pairs(ns.db.profiles) do n = n + 1 end
+            assert.are.equal(20, n)
+        end)
+
+        it("at the cap of profiles it keeps the active one, and chat says why", function()
+            local bo = "Forever Realm:Bo-Reed"
+            local db = mainActive(9, { characterLive = bo, -- damaged: Bo's own settings aren't live
+                characters = { [bo] = { settings = { buffModeKey = "B" } } } })
+            db.buffBack.buffModeKey = "M"
             for i = 1, 18 do db.profiles["P" .. i] = { schemaVersion = 9 } end -- 20 with Main and Default
             local before = copy(db.profiles)
             login(db)
@@ -211,6 +224,7 @@ describe("A character with no profile record (#519)", function()
             assert.are.equal("Main", ns.db.characters[MY_KEY].profile)
             assert.are.same(ALL_ON, switches(ns.db))
             assert.are.same(before, ns.db.profiles, "nothing stored is changed")
+            assert.is_false(ns.db.characterLive, "the live settings are Main's, never Bo's own")
             local said = false
             for _, line in ipairs(wow.printed) do
                 if line:find("this character uses the profile Main, shared with your other characters", 1, true)
@@ -220,6 +234,8 @@ describe("A character with no profile record (#519)", function()
             end
             assert.is_true(said, "chat says why")
             assert.are.same({}, wow.errors)
+            db = logout()
+            assert.are.equal("B", db.characters[bo].settings.buffModeKey, "Bo's own are as they were")
         end)
 
         it("a plain account (Default only) behaves as before: Default, its own settings, nothing switched", function()

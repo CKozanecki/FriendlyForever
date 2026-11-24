@@ -1,4 +1,4 @@
--- Spec: #39, #451, #459, #462, #484
+-- Spec: #39, #451, #459, #462, #484, #521
 -- Passers-by: in buff mode, the button also offers your buffs to players on a
 -- nameplate who aren't in your group, haven't buffed you and haven't asked.
 local wow = require("spec.support.wow")
@@ -474,6 +474,11 @@ describe("Passers-by (#39)", function()
             wow.state.inInstanceSecret = nil
             _G.IsInInstance = function() error("no answer") end
             assert.is_nil(offer(), "the instance answer errors")
+            -- #524's testing review: an answer that isn't a boolean (#521 split the check).
+            for _, odd in ipairs({ 1, "yes", 0 }) do
+                _G.IsInInstance = function() return odd, "party" end
+                assert.is_nil(offer(), "the instance answer is " .. tostring(odd))
+            end
         end)
 
         it("never offers a buff their class can't use, a self-buff, Water Walking, or a Never offer buff", function()

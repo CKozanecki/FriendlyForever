@@ -97,11 +97,16 @@ describe("Passers-by say why they're stopped (#521)", function()
             boot({ plates = "0" })
             ns.Options.Open()
             ns.Options.OpenTab(ns.Options.FAVOURS_TAB)
-            local note = ns.Options.widgets.passersByNote
+            local w = ns.Options.widgets
+            local note = w.passersByNote
             assert.is_true(note:IsShown())
             assert.is_true(has(note:GetText(), "Not working now: friendly nameplates are off."))
+            -- The simulator has no vertical layout: the chain of anchors says the order.
+            assert.are.equal(w.passersBy, select(2, note:GetPoint()), "the note under the switch")
+            assert.are.equal(note, select(2, w.passersByHelp:GetPoint()), "the help under the note")
             setPlates("1")
             assert.is_false(note:IsShown(), "the note goes as the setting changes")
+            assert.are.equal(w.passersBy, select(2, w.passersByHelp:GetPoint()), "the help back under the switch")
             assert.is_false(has(line(), "Passers-by"), line())
             stranger()
             ns.PassersBy.Fresh()
@@ -142,6 +147,16 @@ describe("Passers-by say why they're stopped (#521)", function()
                 assert.are.same({ logged, logged }, offLines(), name .. ": again")
                 assert.are.equal(0, hints(), name .. ": nameplates are on")
                 assert.are.same({}, wow.errors, name)
+            end
+        end)
+
+        it("an instance answer that isn't a boolean is an unreadable place, and says so", function()
+            for _, odd in ipairs({ 1, "yes" }) do
+                boot()
+                _G.IsInInstance = function() return odd, "party" end
+                ns.BuffButton.Refresh()
+                assert.are.same({ "the place can't be read (instance or map)" }, offLines(), tostring(odd))
+                assert.is_true(has(line(), "Passers-by: the game won't say where you are"), line())
             end
         end)
 
