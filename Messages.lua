@@ -25,15 +25,22 @@ local function Shuffled(list)
     return list
 end
 
--- The non-blank lines: a set of their indexes, and the indexes in order.
--- (A list that isn't a table, from damaged settings, has no usable lines.)
-local function Usable(messages)
+-- Whether a line can be said: not blank, and, for a line said in guild
+-- chat, not vetoed by the guild (#496).
+function Messages.Sayable(msgType, text)
+    if type(text) ~= "string" or not text:find("%S") then return false end
+    return not (msgType and ns.GuildLead and ns.GuildLead.IsLineVetoed(msgType, text))
+end
+
+-- The lines that can be said: a set of their indexes, and the indexes in
+-- order. (A list that isn't a table, from damaged settings, has none.)
+local function Usable(messages, msgType)
     local usable = {}
     local candidates = {}
     if type(messages) ~= "table" then return usable, candidates end
     for i = 1, #messages do
         local text = messages[i]
-        if type(text) == "string" and text:find("%S") then
+        if Messages.Sayable(msgType, text) then
             usable[i] = true
             candidates[#candidates + 1] = i
         end
@@ -50,12 +57,13 @@ function Messages.Preview(messages)
     return messages[index], index
 end
 
+-- A vetoed guild line counts as blank (#496): it is never picked.
 -- avoid: an optional set of line numbers to pass over (lines other copies
 -- of the addon have said they'll use: #38). The bag's next line that isn't
 -- avoided; if the bag holds only avoided ones, a random line that isn't
 -- (the bag is left as it was); if every line is avoided, the bag's next.
 function Messages.Pick(msgType, messages, avoid)
-    local usable, candidates = Usable(messages)
+    local usable, candidates = Usable(messages, msgType)
     if #candidates == 0 then return nil end
 
     local bags = Bags()

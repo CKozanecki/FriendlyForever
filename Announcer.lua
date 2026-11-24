@@ -199,6 +199,11 @@ function Announcer.Schedule(msgType, key, opts)
                     if type(said) ~= "string" or not said:find("%S") then return nil end
                     template = said
                 end
+                -- A line the guild vetoed while it waited is not said (#496).
+                if template and ns.GuildLead.IsLineVetoed(msgType, template) then
+                    ns.Diag.Log(msgType, "not saying a line the guild vetoed")
+                    return nil
+                end
                 local vars = opts.vars and opts.vars() or Util.NameVars(key)
                 local ctx
                 if opts.context then
@@ -216,7 +221,13 @@ function Announcer.Schedule(msgType, key, opts)
                 if opts.isValid then return opts.isValid() end
                 return true
             end,
-            onDone = opts.onDone,
+            onDone = function(sent, reason)
+                -- Which guild line was said, for the leaders' list (#496).
+                if sent and template and ns.GuildLead.LINE_TYPES[msgType] then
+                    ns.GuildLead.ReportLine(msgType, template)
+                end
+                if opts.onDone then opts.onDone(sent, reason) end
+            end,
             maxAge = (opts.maxAge and opts.ageFrom)
                 and math.max(0, opts.maxAge - (GetTime() - opts.ageFrom)) or opts.maxAge,
             label = msgType .. (opts.emote and " emote" or "") .. " for " .. key,

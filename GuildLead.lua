@@ -297,6 +297,60 @@ function GuildLead.IsVetoed(token)
     return false
 end
 
+------------------------------------------------------------------------
+-- Lines and their vetoes (decision 4)
+------------------------------------------------------------------------
+
+-- The message types whose lines are said in guild chat, and each one's
+-- letter in a line's token.
+GuildLead.LINE_TYPES = { guildLogin = "l", guildJoin = "j" }
+local LINE_TYPE_OF = { l = "guildLogin", j = "guildJoin" }
+
+-- A line's text as a hash: eight lower-case hex digits. Whole-number
+-- arithmetic only, below 2^38, so it is exact and the same on every copy.
+local function Hash(text)
+    local h = 5381
+    for i = 1, #text do h = (h * 33 + text:byte(i)) % 4294967296 end
+    return string.format("%04x%04x", math.floor(h / 65536), h % 65536)
+end
+
+-- The sets a built-in line can come from, in the order they're looked in.
+local BUILT_IN = { { letter = "d", list = "DefaultMessages" }, { letter = "c", list = "CasualMessages" } }
+
+-- The token a guild line is vetoed by: a built-in line's ID ("b", its
+-- type, its set, its number) when the text is exactly one of the shipped
+-- lines, else "c" and a hash of its exact text. Nil for a line that isn't
+-- a string, or of a type not said in guild chat.
+function GuildLead.LineToken(msgType, text)
+    local letter = GuildLead.LINE_TYPES[msgType]
+    if not letter or type(text) ~= "string" then return nil end
+    for _, set in ipairs(BUILT_IN) do
+        local list = ns[set.list] and ns[set.list][msgType]
+        if type(list) == "table" then
+            for i = 1, math.min(#list, 99) do
+                if list[i] == text then return "b" .. letter .. set.letter .. i end
+            end
+        end
+    end
+    return "c" .. Hash(text)
+end
+
+-- The shipped text of a built-in line's token, or nil.
+function GuildLead.BuiltInText(token)
+    if type(token) ~= "string" then return nil end
+    local kind, setLetter, n = token:match("^b([lj])([dc])([1-9]%d?)$")
+    if not kind then return nil end
+    local list = ns[setLetter == "d" and "DefaultMessages" or "CasualMessages"]
+    list = list and list[LINE_TYPE_OF[kind]]
+    return type(list) == "table" and list[tonumber(n)] or nil
+end
+
+-- Whether the guild you're in has vetoed this line of this type.
+function GuildLead.IsLineVetoed(msgType, text)
+    local token = GuildLead.LineToken(msgType, text)
+    return token ~= nil and GuildLead.IsVetoed(token)
+end
+
 -- A copy of the guildmates seen with the addon: [full name] = { version, seen }.
 function GuildLead.Mates()
     local g = GuildLead.Memory()
@@ -510,10 +564,109 @@ local function OnCheckIn(sender, fields)
     end
 end
 
+------------------------------------------------------------------------
+-- Line reports: the lines each copy said in guild chat (decision 4)
+------------------------------------------------------------------------
+
+GuildLead.MAX_LINES = 50      -- recent lines a leader's copy keeps for its panel, newest last
+GuildLead.MAX_CHAT = 100      -- guildmates whose last guild chat line is kept, to show a report's words
+GuildLead.CHAT_MATCH = 10     -- the most seconds between a report and its line in guild chat
+GuildLead.MAX_LINE_BYTES = 255
+
+local recent = {}            -- { sender, msgType, token, at (GetTime), seen (Clock), text }
+local chat, chatCount = {}, 0 -- [sender] = { text, at }: their last line in guild chat
+
+local function Within(a, b)
+    return math.abs(a - b) <= GuildLead.CHAT_MATCH
+end
+
+local function Record(sender, msgType, token)
+    local entry = { sender = sender, msgType = msgType, token = token, at = GetTime(), seen = Clock() }
+    local said = chat[sender]
+    if said and Within(said.at, entry.at) then entry.text = said.text end
+    recent[#recent + 1] = entry
+    while #recent > GuildLead.MAX_LINES do table.remove(recent, 1) end
+end
+
+-- After one of our guild lines is said (Announcer): tell the guild which
+-- line it was, by its token, never its text. A leader's copy also keeps
+-- its own.
+function GuildLead.ReportLine(msgType, template)
+    local letter = GuildLead.LINE_TYPES[msgType]
+    local token = GuildLead.LineToken(msgType, template)
+    local me = Util.UnitFullName("player")
+    if not letter or not token or not me or not GuildLead.Memory() then return false end
+    if GuildLead.IsLeader(me) then Record(me, msgType, token) end
+    return Comm.Send("GLINE", { letter, token }, "GUILD")
+end
+
+local function OnLine(sender, fields)
+    local me = Util.UnitFullName("player")
+    if not me or not GuildLead.IsLeader(me) then return end
+    if not ns.Greeter.IsGuildMember(sender) then return end
+    Record(sender, LINE_TYPE_OF[fields[1]], fields[2])
+end
+
+-- CHAT_MSG_GUILD: text, sender. Kept only to show the words of a line a
+-- copy reports, so only while you lead; plain text, no escapes, cut short.
+function GuildLead.OnGuildChat(text, sender)
+    if Util.IsSecret(text) or Util.IsSecret(sender) or type(text) ~= "string" then return end
+    local name = Util.FullName(sender)
+    local me = Util.UnitFullName("player")
+    if not name or not me or not GuildLead.IsLeader(me) then return end
+    local clean = Util.Utf8Truncate(Util.StripChat(text), GuildLead.MAX_LINE_BYTES)
+    if clean == "" then return end
+    local now = GetTime()
+    if not chat[name] then
+        if chatCount >= GuildLead.MAX_CHAT then
+            local oldest
+            for other, said in pairs(chat) do
+                if not oldest or said.at < chat[oldest].at then oldest = other end
+            end
+            chat[oldest] = nil
+            chatCount = chatCount - 1
+        end
+        chatCount = chatCount + 1
+    end
+    chat[name] = { text = clean, at = now }
+    -- The report may have come first: the newest of theirs without words.
+    for i = #recent, 1, -1 do
+        local entry = recent[i]
+        if entry.sender == name then
+            if not entry.text and Within(entry.at, now) then entry.text = clean end
+            break
+        end
+    end
+end
+
+-- How many guildmates' last guild chat lines are kept (at most MAX_CHAT).
+function GuildLead.ChatKept()
+    return chatCount
+end
+
+-- A copy of the recent lines, newest last: { sender, msgType, token, seen,
+-- text }. text is what guild chat showed, or the shipped line's own words
+-- for a built-in line whose chat line wasn't seen, or nil.
+function GuildLead.RecentLines()
+    local out = {}
+    for i, entry in ipairs(recent) do
+        out[i] = { sender = entry.sender, msgType = entry.msgType, token = entry.token, seen = entry.seen,
+            text = entry.text or GuildLead.BuiltInText(entry.token) }
+    end
+    return out
+end
+
 -- GCHECK: our addon version and the version of each section we keep ("0":
 -- none). It can only record the sender as having the addon, ask a
 -- leader's copy to send what it keeps, or prompt our own check-in.
 if loaded then
+    -- GLINE: which line we just said in guild chat, by its type's letter and
+    -- its token. It can only add an entry to a leader's list of recent lines.
+    Comm.RegisterType("GLINE", {
+        fields = { function(text) return LINE_TYPE_OF[text] ~= nil end, VetoItem },
+        routes = { GUILD = true },
+        handler = OnLine,
+    })
     Comm.RegisterType("GCHECK", {
         fields = { Comm.Field.Version, Versioned.StampField, Versioned.StampField, Versioned.StampField },
         routes = { GUILD = true },
