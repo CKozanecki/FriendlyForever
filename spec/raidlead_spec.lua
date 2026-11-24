@@ -120,6 +120,25 @@ describe("The raid leader's buff assignments (#497)", function()
 
     after_each(function() wow.reset() end)
 
+    it("asks for a restart when only RaidLead.lua is new, and nothing errors in a raid (black)", function()
+        wow.reset()
+        local loaded = {}
+        local _, files = wow.parseToc()
+        for _, file in ipairs(files) do
+            if file ~= "RaidLead.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+        end
+        wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+        wow.fire("PLAYER_ENTERING_WORLD", true, false)
+        wow.advance(60)
+        wow.setGroup("raid", { LEADER, BOB })
+        wow.fire("GROUP_ROSTER_UPDATE")
+        _G.SlashCmdList.FRIENDLYFOREVER("status")
+        _G.SlashCmdList.FRIENDLYFOREVER("raid")
+        wow.advance(10)
+        assert.are.same({}, wow.errors)
+        assert.is_truthy(table.concat(wow.printed, "\n"):find("Restart the game (not /reload)", 1, true))
+    end)
+
     -- Copies of the addon: { name, surname, class, known, group, db, buffModeOff }.
     local function copies(list)
         clients, byName = {}, {}
@@ -549,6 +568,41 @@ describe("The raid leader's buff assignments (#497)", function()
             assert.equal(version, ns.RaidLead.Version())
             assert.equal(2, #on(byName[CID], function(n) return n.RaidLead.Assignments() end))
             assert.equal("none", shareOf(byName[CID], "fortitude"))
+        end)
+
+        it("while the game won't say whether this is a battleground, nobody may assign: parts and edits are refused",
+            function()
+            usual()
+            form()
+            local isIn = _G.IsInInstance
+            local ok, err = pcall(function()
+                wow.use(byName[ANN])
+                _G.IsInInstance = function() error("unreadable") end
+                receive(part(LEADER, 5, FORT_SPLIT), LEADER)
+                assert.equal(0, #byName[ANN].ns.RaidLead.Items())
+                wow.use(byName[LEADER])
+                _G.IsInInstance = function() error("unreadable") end
+                assert.is_false((byName[LEADER].ns.RaidLead.Set(FORT_SPLIT)))
+            end)
+            _G.IsInInstance = isIn
+            assert(ok, err)
+        end)
+
+        it("an assignee whose own raid slot reads as offline still gives its groups the buff", function()
+            usual()
+            form()
+            wow.use(byName[CID])
+            unitOf(CID).offline = true -- his own raid slot, in his own game only
+            assign(byName[LEADER], { item("fortitude", groups(1, 4), CID), item("fortitude", groups(5, 8), BOB) })
+            assert.equal("1,2,3,4", shareOf(byName[CID], "fortitude"))
+            assert.same({ ANN, LEADER, "Tor-Axe" }, offeredTo(byName[CID], "fortitude"))
+            assert.same({}, offeredTo(byName[ANN], "fortitude"))
+            -- And when that slot's name can't be read at all.
+            wow.use(byName[CID])
+            local own = unitOf(CID)
+            own.offline, own.secrets = false, { name = true }
+            wow.advance(1)
+            assert.equal("1,2,3,4", shareOf(byName[CID], "fortitude"))
         end)
 
         it("a leave whose one roster update can't be read checks in to the next raid, with buff mode off and "
@@ -985,6 +1039,22 @@ describe("The raid leader's buff assignments (#497)", function()
             assert.equal(sent, sentOf("RASSIGN"))
         end)
 
+        it("a check-in arriving while an edit waits doesn't hold the edit back", function()
+            local ns = wow.boot({ name = "Lea", surname = "Dorn", before = function(state) state.class = "WARRIOR" end })
+            ns.RaidLead.random = function() return 0 end
+            wow.setGroup("raid", { ANN, BOB, CID, "Tor-Axe" })
+            wow.state.leader, wow.state.isLeader = LEADER, true
+            wow.fire("GROUP_ROSTER_UPDATE")
+            assert.is_true(ns.RaidLead.Set(FORT_SPLIT))
+            wow.advance(30)
+            local sent = sentOf("RASSIGN")
+            assert.is_true(ns.RaidLead.Set({ FORT_SPLIT[1] }))
+            wow.advance(1)
+            receive(table.concat({ "1", "RCHECK", ANN, "0" }, ";"), ANN)
+            wow.advance(4)
+            assert.equal(sent + 1, sentOf("RASSIGN"), "the edit went out at once")
+        end)
+
         it("an assistant's edit doesn't go out once they're demoted before it does", function()
             local ns = wow.boot({ name = "Cid", surname = "Rock", before = function(state) state.class = "PRIEST" end })
             ns.RaidLead.random = function() return 0 end
@@ -1003,14 +1073,15 @@ describe("The raid leader's buff assignments (#497)", function()
             .. "ranks, keep only what the model says, and nothing is cast", function()
             for _, seed in ipairs({ 1, 2, 3, 4, 5, 6 }) do
                 wow.reset()
-                local ns = solo()
+                -- Bob starts as an assistant; promotions and demotions flip him and the others.
+                local ns = solo({ assistants = { [BOB] = true } })
                 random.seed(seed)
                 local SENDERS = { LEADER, BOB, CID, "Tor-Axe", "Sly-Fox" }
                 local POOL = { FORT_SPLIT[1], FORT_SPLIT[2], item("spirit", groups(1, 8), CID),
                     item("kings", groups(2, 3), BOB), item("motw", groups(8), "Tor-Axe") }
                 local model = { version = 0, encoded = "-" }
                 local casts = #wow.casts
-                local cases = { taken = 0, refused = 0, old = 0, junk = 0 }
+                local cases = { taken = 0, refused = 0, old = 0, junk = 0, assistant = 0, leaderUnread = 0 }
                 for _ = 1, 250 do
                     local roll = random.random(1, 10)
                     if roll == 1 then
@@ -1028,7 +1099,8 @@ describe("The raid leader's buff assignments (#497)", function()
                                 list[#list + 1] = it
                             end
                         end
-                        local version = random.random(1, 40)
+                        -- Near the version kept, so newer and older both keep coming.
+                        local version = math.max(1, model.version + random.random(-3, 3))
                         local junk = roll == 2
                         local text = part(sender, version, list)
                         if junk then text = text:sub(1, random.random(1, #text - 1)) .. string.rep("z", random.random(0, 300)) end
@@ -1044,9 +1116,11 @@ describe("The raid leader's buff assignments (#497)", function()
                             cases.junk = cases.junk + 1
                         elseif not (rank == 1 or rank == 2) or not leaderReadable then
                             cases.refused = cases.refused + 1
+                            if (rank == 1 or rank == 2) then cases.leaderUnread = cases.leaderUnread + 1 end
                         elseif version > model.version or (version == model.version and encoded > model.encoded) then
                             model = { version = version, encoded = encoded }
                             cases.taken = cases.taken + 1
+                            if rank == 1 then cases.assistant = cases.assistant + 1 end
                         else
                             cases.old = cases.old + 1
                         end
@@ -1060,8 +1134,11 @@ describe("The raid leader's buff assignments (#497)", function()
                     wow.advance(random.random(0, 3))
                 end
                 assert.equal(casts, #wow.casts, "nothing is cast without a press")
-                assert.is_true(cases.taken >= 3 and cases.refused >= 10 and cases.old >= 10 and cases.junk >= 5,
-                    "seed " .. seed .. " reached every case")
+                assert.is_true(cases.taken >= 3 and cases.refused >= 10 and cases.old >= 10 and cases.junk >= 5
+                    and cases.assistant >= 1 and cases.leaderUnread >= 1,
+                    "seed " .. seed .. " reached every case: " .. cases.taken .. " taken, " .. cases.assistant
+                    .. " from an assistant, " .. cases.refused .. " refused, " .. cases.leaderUnread
+                    .. " with the leader unreadable, " .. cases.old .. " old, " .. cases.junk .. " junk")
             end
         end)
 

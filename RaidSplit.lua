@@ -317,15 +317,19 @@ end
 -- the one raid member with that hash, online and of your class, and gives
 -- that buff: you, if it's among the buffs you offer, or a copy whose last
 -- share, heard lately, names it. A player who set Blessings by hand gives
--- only those: the leader can't widen their choice. Anything else (offline, gone, without the
--- addon or the spell, or unreadable) can't be met, and that buff stays
--- with the automatic split.
+-- only those: the leader can't widen their choice. Anything else (offline,
+-- gone, without the addon or the spell, or unreadable) can't be met, and
+-- that buff stays with the automatic split.
 local function Met(class, me, myKeys, myFixed, roster)
     local out = {}
     local items = ns.RaidLead and ns.RaidLead.Assignments() or {}
     if #items == 0 then return out end
+    -- You, whether or not your own raid slot can be read: the others count
+    -- you from your share, so you never read yourself as unmet when they don't.
+    local names = { [me] = true }
+    for name in pairs(roster) do names[name] = true end
     local byHash, clash = {}, {}
-    for name in pairs(roster) do
+    for name in pairs(names) do
         local hash = ns.RaidLead.Hash(name)
         if byHash[hash] then clash[hash] = true end
         byHash[hash] = name
@@ -335,14 +339,12 @@ local function Met(class, me, myKeys, myFixed, roster)
         local name = not clash[a.hash] and byHash[a.hash]
         -- (Another class's buff is never among yours, nor in a share of your class.)
         local gives = false
-        if name and Eligible(roster, name, class) then
-            if name == me then
-                gives = myKeys[a.key] == true and (myFixed == nil or myFixed[a.key] == true)
-            else
-                local peer = peers[name]
-                gives = peer ~= nil and Fresh(peer, now) and Has(peer.keys, a.key)
-                    and (peer.fixed == nil or peer.fixed[a.key] == true)
-            end
+        if name == me then
+            gives = myKeys[a.key] == true and (myFixed == nil or myFixed[a.key] == true)
+        elseif name and Eligible(roster, name, class) then
+            local peer = peers[name]
+            gives = peer ~= nil and Fresh(peer, now) and Has(peer.keys, a.key)
+                and (peer.fixed == nil or peer.fixed[a.key] == true)
         end
         if gives then
             local m = out[a.key] or { covered = {}, count = 0, by = {} }
