@@ -1558,6 +1558,8 @@ test("the Guild page scrolled to its lines shows them in its view, with Veto and
     end)
     local panel = _G[FriendlyForeverUIPages.GUILD]
     if panel and panel:IsShown() then panel:Hide() end
+    -- The guild the fixture set up goes, as after the other Guild scenarios.
+    FriendlyForeverUIPages.PutBackGuild()
     if not ok then error(err, 0) end
 end)
 

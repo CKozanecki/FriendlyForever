@@ -991,6 +991,11 @@ function Pages.FillGuild(view)
     return guildUndo
 end
 
+-- Puts back whatever the last FillGuild set up, if it's still in place.
+function Pages.PutBackGuild()
+    if guildUndo then guildUndo() end
+end
+
 -- For the screenshot job: the Guild page in one view.
 function Pages.ShowGuild(view)
     Pages.FillGuild(view)

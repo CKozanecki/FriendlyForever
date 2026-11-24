@@ -932,6 +932,12 @@ describe("the UI simulator's Guild page (#496)", function()
         local f = ns.GuildPanel.frames
         assert.are.equal(Pages.GUILD_LINES_HEADER, f.linesHeader:GetText())
         assert.is_true(f.lines[1]:IsShown())
+        -- And the guild can be put back after, as the scenarios do.
+        local real = _G.GetGuildRosterInfo
+        Pages.PutBackGuild()
+        assert.are_not.equal(real, _G.GetGuildRosterInfo)
+        assert.is_nil(_G.FriendlyForeverDB.guilds[wow.state.realm .. ":" .. Pages.GUILD_NAME])
+        assert.has_no.errors(function() Pages.PutBackGuild() end)
     end)
 
     it("fails loudly, rather than shoot an empty page, when the simulator can't fire events (black)", function()
