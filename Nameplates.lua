@@ -14,6 +14,9 @@ Nameplates.NAMES_ONLY = "nameplateShowOnlyNameForFriendlyPlayerUnits"
 -- The key binding that toggles them (Key Bindings, Targeting).
 Nameplates.TOGGLE_BINDING = "FRIENDNAMEPLATES"
 Nameplates.MAX_KEY_TEXT = 24 -- a key's name, as shown, at most this long
+-- The game's own setting, as its options show it: the Esc menu's Options,
+-- the Nameplates page, the Friendly Players box (#532: docs/forever-facts.md).
+Nameplates.GAME_SETTING = "Esc > Options > Nameplates > Friendly Players"
 
 local function GetSetting(name)
     if C_CVar and C_CVar.GetCVar then return C_CVar.GetCVar(name) end
@@ -45,9 +48,14 @@ function Nameplates.ToggleKeyText()
     return text
 end
 
--- How to show them, for a note: the key, or the slash command.
+-- How to show them, for a note: the key, or the slash command. When the
+-- game won't say whether they're shown, the slash command can't help
+-- (EnableFriendlyNames refuses then), so the game's own setting (#532).
 function Nameplates.HowToShow()
-    return Nameplates.ToggleKeyText() or "/friendly nameplates"
+    local key = Nameplates.ToggleKeyText()
+    if key then return key end
+    if Nameplates.FriendlyShown() == nil then return Nameplates.GAME_SETTING end
+    return "/friendly nameplates"
 end
 
 -- Turn on friendly player nameplates, as names only (no health bars).
