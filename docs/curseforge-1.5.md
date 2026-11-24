@@ -1,5 +1,6 @@
 <!-- Draft CurseForge description for 1.5, for the owner to paste (not shipped: docs/ is in .pkgmeta's ignore list).
      Started from the 1.4 draft (docs/curseforge-1.4.md), itself based on the approved 1.3 draft's layout and voice.
+     Updated for 1.5.3 on 24 Nov from its changelog notes: a profile of its own per character, why passers-by stop, the guild leader groundwork, and the restart.
      Updated for 1.5.2 on 20 Nov from its changelog notes: per-character buff settings and profiles, and the welcome step.
      Updated for 1.5.1 on 20 Nov from its changelog notes: the Key Bindings section, the idle icon and the shift back.
      Updated for 1.5.0 (#491): the Buff Thanks and Buff Back tabs became one Favours tab. Facts come from the merged code, README and PR descriptions.
@@ -17,6 +18,13 @@
 ## Description
 
 Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets, welcomes and thanks for you, and returns every kindness with a buff. It's built to stay friendly when a whole guild runs it, without flooding chat.
+
+**New in 1.5.3:**
+
+- a character that never chose a profile, logging in while a shared profile is active, now gets a profile of its own, named after it, instead of being dropped to Default;
+- passers-by say why they can't run: friendly nameplates off, a capital city, a dungeon, raid or battleground, and so on;
+- groundwork for guild leaders to quiet the guild's greetings: the messaging and the guild's shared memory are in, and the caps and vetoes take effect, but the panel where a leader sets them comes in 1.6, so nothing changes until a leader sets limits;
+- this version adds files, so restart the game after updating.
 
 **New in 1.5.2:**
 
@@ -149,6 +157,6 @@ When a whole guild runs Friendly Forever, it should feel warm, not noisy:
 
 ## Updating
 
-Coming from 1.3 or earlier, restart the game after updating: 1.4 adds new files, and /reload isn't enough. From 1.4.0 or later, a /reload is enough.
+Coming from 1.5.2 or earlier, restart the game after updating: 1.5.3 adds new files (Versioned.lua and GuildLead.lua), and /reload isn't enough. Coming from 1.3 or earlier, the same went for 1.4. Otherwise a /reload is enough.
 
 _In active development for WoW Forever. See the changelog for what's in each release._
