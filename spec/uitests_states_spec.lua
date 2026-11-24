@@ -1,4 +1,4 @@
--- Spec: #154, #223, #209, #160, #362, #424
+-- Spec: #154, #223, #209, #160, #362, #424, #500
 -- The UI scenarios' game-event helpers (uitests/button_states.lua), run here
 -- against a stand-in for the simulator's A_Admin that records each call and
 -- event in order. They follow what wow-ui-sim does itself (its admin.rs and
@@ -446,5 +446,76 @@ describe("UI scenarios: a weapon buff picked in the list (#424)", function()
             button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText))
         local list = ns.BuffList.Frame()
         assert.are.equal(("> You: %s (%s)"):format(W.name, W.row), list.rows[1].text:GetText())
+    end)
+end)
+
+-- #500: a druid in a form, for the shift back, a refused one and the key's click to buff.
+describe("UI scenarios: a druid in a form (#500, #452, #495)", function()
+    local function withButton(fn)
+        local saved = { button = _G.FriendlyForeverBuffButton, form = _G.GetShapeshiftForm,
+            info = _G.GetShapeshiftFormInfo, id = _G.GetShapeshiftFormID, C_Spell = _G.C_Spell }
+        local pressed = {}
+        _G.FriendlyForeverBuffButton = {
+            GetScript = function(_, script)
+                return function(_, mouseButton, isDown)
+                    pressed[#pressed + 1] = { script, mouseButton, isDown }
+                end
+            end,
+            GetAttribute = function() return nil end,
+        }
+        _G.GetShapeshiftForm = function() return "simulator's form" end
+        _G.GetShapeshiftFormInfo = function() return "simulator's info" end
+        _G.GetShapeshiftFormID = function() return "simulator's id" end
+        local ok, err = pcall(fn, pressed)
+        _G.FriendlyForeverBuffButton, _G.GetShapeshiftForm = saved.button, saved.form
+        _G.GetShapeshiftFormInfo, _G.GetShapeshiftFormID, _G.C_Spell = saved.info, saved.id, saved.C_Spell
+        assert.is_true(ok, tostring(err))
+    end
+
+    it("shows the three states, each staged and shot by name (white)", function()
+        local States = load({ lenient = true, db = { buffBack = {} } })
+        assert.are.equal(States.FormBack, States.SHOWN.formback)
+        assert.are.equal(States.FormRefused, States.SHOWN.formrefused)
+        assert.are.equal(States.FormKey, States.SHOWN.formkey)
+        -- The tooltip is drawn over the mode line, so only the shift back's shot hovers (#500).
+        assert.is_function(States.FormBack.Hover)
+        assert.is_nil(States.FormRefused.Hover)
+        assert.is_nil(States.FormKey.Hover)
+    end)
+
+    it("leaves the form on a buff press, then buffs you, then presses again for the refusal (white)", function()
+        withButton(function(pressed)
+            local db = { buffBack = { fastCastInForm = false } }
+            local States, log = load({ lenient = true, db = db })
+            States.FormRefused.Set()
+            assert.is_true(db.buffBack.fastCastInForm)
+            assert.are.equal(2, #pressed, "a buff press, then a press of the shift back")
+            assert.are.same({ "PreClick", "LeftButton", false }, pressed[1])
+            local whole = table.concat(log, "\n")
+            local sent = whole:find("event UNIT_SPELLCAST_SENT", 1, true)
+            local buff = whole:find("AddBuff 9885", 1, true)
+            local error = whole:find("event UI_ERROR_MESSAGE", 1, true)
+            assert.is_truthy(sent and buff and error and sent < buff and buff < error, whole)
+            -- Out of the form by now; the refusal's text is the long one.
+            assert.are.equal(0, GetShapeshiftForm())
+            States.FormRefused.Undo()
+            assert.are.equal("simulator's form", GetShapeshiftForm())
+            assert.is_false(db.buffBack.fastCastInForm)
+        end)
+    end)
+
+    it("answers the form reads for its own form only, and the key's state never presses (white)", function()
+        withButton(function(pressed)
+            local db = { buffBack = {} }
+            local States = load({ lenient = true, db = db })
+            States.FormKey.Set()
+            assert.are.equal(0, #pressed)
+            assert.is_false(db.buffBack.fastCastInForm, "the key waits only with the setting off")
+            assert.are.equal(1, GetShapeshiftForm())
+            assert.are.equal(States.FORM.spell, select(4, GetShapeshiftFormInfo(1)))
+            assert.are.equal("simulator's info", GetShapeshiftFormInfo(2))
+            assert.are.equal("Dire Bear Form", States.FORM.name)
+            States.FormKey.Undo()
+        end)
     end)
 end)
