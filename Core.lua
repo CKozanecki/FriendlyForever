@@ -94,7 +94,7 @@ function handlers.ADDON_LOADED(name)
         "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "Versioned", "GuildLead", "OptionsIndex",
         "Colours", "Walkthrough",
         "BuffList", "GroupCasts", "RaidSplit", "LevelUps", "SelfBuffs", "Requests", "BuffsTab", "WeaponBuffs",
-        "PassersBy" }) do
+        "PassersBy", "GuildPanel" }) do
         if ns[module] == nil then
             local text = "this update added files. Restart the game (not /reload) to finish updating."
             ns.Print(ns.Colours and ns.Colours.Text("bad", text) or text)

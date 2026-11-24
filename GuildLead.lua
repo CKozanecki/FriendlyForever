@@ -540,8 +540,10 @@ local function Periodic()
 end
 
 -- After each roster update (Core.lua): in a guild we haven't checked in to
--- since logging in, check in after a random wait.
+-- since logging in, check in after a random wait. Who leads, and your own
+-- rank, may have changed with it: the Guild page follows (Changed).
 function GuildLead.OnRosterUpdate()
+    Changed()
     local key = GuildKey()
     if not key or key == checkedKey then return end
     checkedKey = key

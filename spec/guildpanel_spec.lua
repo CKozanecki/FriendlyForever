@@ -324,6 +324,35 @@ describe("Guild leader controls: the Guild page (#496)", function()
         end)
     end)
 
+    describe("following the roster (white)", function()
+        it("an open page shows a member promoted to guild master as the guild master, and a demoted officer read-only",
+            function()
+            local clients, net = Guild({ GM, OFFICER, MEMBER })
+            on(clients[1], function(ns) assert.is_true(ns.GuildPanel.SetRankLeads(1, true)) end)
+            Settle(net)
+            on(clients[3], function(ns) ns.GuildPanel.Open() end)
+            on(clients[2], function(ns) ns.GuildPanel.Open() end)
+            local member, officer = clients[3].ns.GuildPanel.frames, clients[2].ns.GuildPanel.frames
+            wow.use(clients[2])
+            assert.is_true(clients[2].ns.Options.widgets.guild.hellos:IsEnabled())
+            -- Mia becomes guild master; Otto drops to rank 4.
+            for _, c in ipairs({ clients[3], clients[2] }) do
+                wow.use(c)
+                wow.state.guildRanks[Full(MEMBER)] = 0
+                wow.state.guildRanks[Full(OFFICER)] = 4
+                wow.fire("GUILD_ROSTER_UPDATE")
+                wow.advance(0.1)
+            end
+            wow.use(clients[3])
+            assert.are.equal(clients[3].ns.GuildPanel.ROLE_TEXT.master, Text(member.role))
+            assert.is_true(member.ranks[1]:IsEnabled())
+            assert.is_true(clients[3].ns.Options.widgets.guild.hellos:IsEnabled())
+            wow.use(clients[2])
+            assert.are.equal(clients[2].ns.GuildPanel.ROLE_TEXT.member, Text(officer.role))
+            assert.is_false(clients[2].ns.Options.widgets.guild.hellos:IsEnabled())
+        end)
+    end)
+
     describe("who has Friendly Forever (white)", function()
         it("lists the copies that checked in, newest first, with their version and when they were last seen", function()
             local clients = Guild({ GM, OFFICER, MEMBER })
@@ -737,6 +766,40 @@ describe("Guild leader controls: the Guild page (#496)", function()
                 assert.is_false(ns.GuildLead.RanksAsked())
                 assert.is_nil(ns.GuildLead.Memory().asked)
             end)
+        end)
+
+        it("leaves out a guildmate's entry damaged mid-session, and still fills", function()
+            local clients = Guild({ GM, MEMBER })
+            local g = on(clients[1], function(ns) return ns.GuildLead.Memory() end)
+            g.mates["Bad-Entry"] = 5
+            g.mates["Odd-Entry"] = { version = 7, seen = "soon" }
+            g.mates["Nan-Entry"] = { version = "1.6.0", seen = 0 / 0 }
+            g.mates["Num-Version"] = { version = 7, seen = 100 }
+            local f
+            assert.has_no.errors(function() f = Page(clients[1]) end)
+            local names = {}
+            for _, mate in ipairs(clients[1].ns.GuildPanel.MateList()) do names[#names + 1] = mate.name end
+            assert.are.same({ "Mia-Lund" }, names)
+            assert.truthy(Text(f.matesCount):find("1 guildmates", 1, true))
+        end)
+
+        it("after an update that adds GuildPanel.lua and a /reload (no restart): asks for a restart, nothing breaks",
+            function()
+            wow.reset()
+            local loaded = {}
+            local _, files = wow.parseToc()
+            for _, file in ipairs(files) do
+                if file ~= "GuildPanel.lua" then assert(loadfile(wow.ROOT .. file))(wow.ADDON_NAME, loaded) end
+            end
+            wow.fire("ADDON_LOADED", wow.ADDON_NAME)
+            wow.fire("PLAYER_LOGIN")
+            wow.fire("PLAYER_ENTERING_WORLD", true, false)
+            wow.fire("GUILD_ROSTER_UPDATE")
+            wow.advance(30)
+            _G.SlashCmdList.FRIENDLYFOREVER("status")
+            assert.are.same({}, wow.errors)
+            assert.is_nil(_G.FriendlyForeverDB)
+            assert.is_truthy(table.concat(wow.printed, "\n"):find("Restart the game", 1, true))
         end)
 
         it("says how long ago for times it can't place, or in the future, as just now", function()

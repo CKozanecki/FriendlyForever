@@ -214,11 +214,15 @@ function GuildPanel.Ago(seen)
 end
 
 -- The guildmates seen with the addon, most recently first: { name,
--- version, seen }.
+-- version, seen }. An entry damaged mid-session (the file is checked only
+-- as it loads) is left out.
 function GuildPanel.MateList()
     local list = {}
     for name, mate in pairs(ns.GuildLead.Mates()) do
-        list[#list + 1] = { name = name, version = mate.version, seen = mate.seen }
+        if type(name) == "string" and type(mate) == "table" and type(mate.version) == "string"
+            and type(mate.seen) == "number" and mate.seen == mate.seen then
+            list[#list + 1] = { name = name, version = mate.version, seen = mate.seen }
+        end
     end
     table.sort(list, function(a, b)
         if a.seen ~= b.seen then return a.seen > b.seen end
