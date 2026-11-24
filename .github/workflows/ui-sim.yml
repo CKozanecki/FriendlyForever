@@ -205,7 +205,7 @@ jobs:
                 case "$file" in
                   .pkgmeta | *.toc | *.xml) hit=yes ;;
                   Battleground.lua | BuffButton.lua | BuffData.lua | BuffList.lua | BuffMode.lua | BuffModeAuto.lua | BuffRules.lua | BuffsTab.lua | ChatQueue.lua | Core.lua \
-                    | Colours.lua | Minimap.lua | Nameplates.lua | Options.lua | OptionsIndex.lua | Walkthrough.lua | Water.lua \
+                    | Colours.lua | GuildPanel.lua | Minimap.lua | Nameplates.lua | Options.lua | OptionsIndex.lua | Walkthrough.lua | Water.lua \
                     | Window.lua) hit=yes ;;
                 esac ;;
             esac
@@ -932,11 +932,19 @@ jobs:
               > "$states/$state.lua"
           done
           # The phase 1 options pages (#52), filled by uitests/pages.lua,
-          # Start here (#47) and Weapon buffs (#45).
-          for page in general ledger start weapon; do
+          # Start here (#47), Weapon buffs (#45) and Guild (#496, as its guild master sees it).
+          for page in general ledger start weapon guild; do
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.Show("%s")\n' "$page"; } \
               > "$states/page-$page.lua"
           done
+          # The Guild page's other views (#496): the guild master's first look, and a member's.
+          for view in ask member; do
+            { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowGuild("%s")\n' "$view"; } \
+              > "$states/page-guild-$view.lua"
+          done
+          # The Guild Login tab while the guild limits a member's settings (#496).
+          { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowGuildTab()\n'; } \
+            > "$states/tab-guild-login-limited.lua"
           # Each tab of the main panel, opened by clicking its button (#112).
           for tab in $OPTIONS_TABS; do
             { cat uitests/pages.lua; printf '\nFriendlyForeverUIPages.ShowTab("%s")\n' "$tab"; } \
@@ -990,8 +998,8 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Every shot
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so a pass of 53 shots can take about 177 minutes in the
-        # worst case, and both passes together about 354. No shot starts
+        # clean-up, so a pass of 57 shots can take about 190 minutes in the
+        # worst case, and both passes together about 380. No shot starts
         # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
         # so the last one ends by about 4400 s with the probe: inside this
         # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a
@@ -1133,6 +1141,12 @@ jobs:
             shoot options-ledger --exec-lua @/shot-lua/page-ledger.lua
             # The Weapon buffs page (#45), switched on with a kind for each hand.
             shoot options-weapon --exec-lua @/shot-lua/page-weapon.lua
+            # The Guild page (#496): as its guild master sees it, on a first look, and as a member;
+            # and the Guild Login tab's note while the guild limits a member's settings.
+            shoot options-guild --exec-lua @/shot-lua/page-guild.lua
+            shoot options-guild-ask --exec-lua @/shot-lua/page-guild-ask.lua
+            shoot options-guild-member --exec-lua @/shot-lua/page-guild-member.lua
+            shoot options-guild-login-limited --exec-lua @/shot-lua/tab-guild-login-limited.lua
             # Start here, and the walkthrough at each step in WALKTHROUGH_STEPS (#47), the last as
             # What's new shows it to a returning player (#362).
             shoot options-start --exec-lua @/shot-lua/page-start.lua

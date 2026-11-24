@@ -2071,6 +2071,31 @@ describe("The simulated client's guild ranks, guild name and server clock (#496)
         wow.state.serverTimeSecret = true
         assert.is_true(_G.issecretvalue(_G.GetServerTime()))
     end)
+
+    -- #496 part 3: the Guild page names the ranks.
+    it("GuildControlGetNumRanks answers the guild's count, and GuildControlGetRankName names rank i from 1, the "
+        .. "guild master's", function()
+        assert.are.equal(5, _G.GuildControlGetNumRanks())
+        assert.are.equal("Guild Master", _G.GuildControlGetRankName(1))
+        assert.are.equal("Officer", _G.GuildControlGetRankName(2))
+        assert.are.equal("Rank 5", _G.GuildControlGetRankName(5))
+        -- Roster rank index r is name r + 1, matching GetGuildRosterInfo's own name.
+        local _, rosterName, index = _G.GetGuildRosterInfo(2)
+        assert.are.equal(rosterName, _G.GuildControlGetRankName(index + 1))
+    end)
+
+    it("GuildControlGetRankName answers nothing past the count or below 1, and secret names when asked", function()
+        assert.is_nil(_G.GuildControlGetRankName(6))
+        assert.is_nil(_G.GuildControlGetRankName(0))
+        assert.is_nil(_G.GuildControlGetRankName("2"))
+        wow.state.guildNumRanks = 2
+        assert.is_nil(_G.GuildControlGetRankName(3))
+        wow.state.guildNumRanks = nil
+        assert.is_nil(_G.GuildControlGetNumRanks())
+        assert.are.equal("Rank 9", _G.GuildControlGetRankName(9))
+        wow.state.guildRankNameSecret = true
+        assert.is_true(_G.issecretvalue(_G.GuildControlGetRankName(1)))
+    end)
 end)
 
 describe("The simulated client's guild chat and guild sync default (#496)", function()

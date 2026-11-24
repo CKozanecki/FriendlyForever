@@ -75,6 +75,7 @@ end
 Pages.GENERAL = "FriendlyForeverGeneralPage"
 Pages.LEDGER = "FriendlyForeverLedgerPage"
 Pages.WEAPON = "FriendlyForeverWeaponPage" -- weapon buffs (#45)
+Pages.GUILD = "FriendlyForeverGuildPage" -- the Guild page (#496)
 Pages.START = "FriendlyForeverStartPage"
 Pages.WINDOW = "FriendlyForeverTextWindow"
 Pages.WALKTHROUGH = "FriendlyForeverWalkthrough"
@@ -171,7 +172,8 @@ end
 
 -- Opens one of the options pages ("general", "ledger", "weapon" or "start") as
 -- clicking it in the AddOns options would. Returns the page.
-local PAGE_FRAMES = { general = Pages.GENERAL, ledger = Pages.LEDGER, weapon = Pages.WEAPON, start = Pages.START }
+local PAGE_FRAMES = { general = Pages.GENERAL, ledger = Pages.LEDGER, weapon = Pages.WEAPON, start = Pages.START,
+    guild = Pages.GUILD }
 function Pages.Open(which)
     local page = _G[PAGE_FRAMES[which] or Pages.GENERAL]
     if type(page) ~= "table" then error("no options page called " .. tostring(which), 2) end
@@ -184,9 +186,11 @@ function Pages.Open(which)
     return page
 end
 
--- For the screenshot job: fill the pages, then show one.
+-- For the screenshot job: fill the pages, then show one. The Guild page
+-- shows as its guild master sees it (Pages.ShowGuild has the other views).
 function Pages.Show(which)
     Pages.Fill()
+    if which == "guild" then Pages.FillGuild("leader") end
     Pages.Open(which)
 end
 
@@ -852,4 +856,134 @@ end
 -- For the screenshot job: the walkthrough at one step.
 function Pages.ShowWalkthrough(name)
     Pages.OpenWalkthrough(name)
+end
+
+------------------------------------------------------------------------
+-- The Guild page (#496)
+------------------------------------------------------------------------
+
+-- The simulator's player is in no guild. For the Guild page's shots and
+-- scenarios, the game's guild reads answer for one as long as Forever lets
+-- one get: a 24-letter guild name, rank names of 15 letters, and a roster
+-- of the longest names, the player among them. Everything the addon then
+-- shows comes through its own code: the roster through GUILD_ROSTER_UPDATE,
+-- the lines guildmates' copies said through the addon messages and guild
+-- chat their copies would send (A_Admin.FireEvent), and the guild's
+-- settings and who has the addon from its saved file, as a copy that had
+-- been in the guild a while would have them.
+--
+-- The views: "leader" (you're the guild master, an officer rank picked, the
+-- limits set, lines said and some vetoed), "ask" (the guild master's first
+-- look: no rank picked yet, so the page asks) and "member" (a member's
+-- copy: everything read-only, no lines listed).
+Pages.GUILD_VIEWS = { leader = true, ask = true, member = true }
+Pages.GUILD_NAME = "Keepers of the Long Watch" -- 24 letters and spaces, as long as guild names get
+Pages.GUILD_RANKS = { "Grandmaster Ash", "Lieutenant Wing", "Sergeant Vigils", "Watchkeeper Six", "Sentinel Recrut",
+    "Initiate Embers", "Pilgrim Wayfare" }
+Pages.GUILD_MATES = 16 -- guildmates with the addon: more than the page lists at once (GuildPanel.ROWS, 8)
+Pages.GUILD_LINES = 11 -- lines said, more than a page of them
+-- A custom line a guildmate's copy said, as guild chat showed it, at the
+-- longest a line gets in chat (255 bytes; GuildLead.MAX_LINE_BYTES).
+Pages.GUILD_CUSTOM_WORDS = "Welcome back to the Watch, Aerendhiliel Stormwhisper! The fires of the Long Night burn "
+    .. "brighter with you here, and the sentinels on the walls raise their lanterns for your return. Rest by the "
+    .. "hearth, mend your gear, and tell us of the roads."
+Pages.GUILD_CUSTOM_TOKEN = "c1f2e3d4a" -- its token, as GuildLead names a custom line: "c" and any eight hex digits
+
+local function PlayerFullName()
+    local name, surname = UnitName("player")
+    if type(surname) == "string" and surname ~= "" then return name .. "-" .. surname end
+    return name
+end
+
+local guildUndo
+-- Sets the guild up for a view; returns a function that puts the game's
+-- reads and the saved settings back (its lines said stay, in the addon's
+-- memory, until a reload, but show only to a guild leader).
+function Pages.FillGuild(view)
+    view = Pages.GUILD_VIEWS[view] and view or "leader"
+    if guildUndo then guildUndo() end
+    if type(A_Admin) ~= "table" or type(A_Admin.FireEvent) ~= "function" then
+        error("the simulator has no A_Admin.FireEvent", 2)
+    end
+    local me = PlayerFullName()
+    local roster, rank = { me }, { [me] = view == "member" and 4 or 0 }
+    for i = 1, Pages.GUILD_MATES + 4 do
+        local name = FullName(i)
+        roster[#roster + 1] = name
+        -- The guild master (in the member's view), three of the officer
+        -- rank, two of rank 2, the rest of rank 4.
+        rank[name] = (i == 1 and view == "member") and 0 or (i <= 4 and 1) or (i <= 6 and 2) or 4
+    end
+    local real = { IsInGuild = _G.IsInGuild, GetGuildInfo = _G.GetGuildInfo, GetNumGuildMembers = _G.GetNumGuildMembers,
+        GetGuildRosterInfo = _G.GetGuildRosterInfo, GuildControlGetNumRanks = _G.GuildControlGetNumRanks,
+        GuildControlGetRankName = _G.GuildControlGetRankName }
+    _G.IsInGuild = function() return true end
+    _G.GetGuildInfo = function(unit)
+        if unit ~= "player" then return nil end
+        return Pages.GUILD_NAME, Pages.GUILD_RANKS[rank[me] + 1], rank[me], nil
+    end
+    _G.GetNumGuildMembers = function() return #roster end
+    _G.GetGuildRosterInfo = function(i)
+        local name = roster[i]
+        if not name then return nil end
+        return name, Pages.GUILD_RANKS[rank[name] + 1], rank[name], 60, "Warrior", "Stormwind City", "", "", true
+    end
+    _G.GuildControlGetNumRanks = function() return #Pages.GUILD_RANKS end
+    _G.GuildControlGetRankName = function(i) return Pages.GUILD_RANKS[i] end
+
+    -- The guild's settings and who has the addon, as the saved file keeps them.
+    local db = FriendlyForeverDB
+    db.guilds = type(db.guilds) == "table" and db.guilds or {}
+    local key = GetRealmName() .. ":" .. Pages.GUILD_NAME
+    local saved = db.guilds[key]
+    local now = type(GetServerTime) == "function" and GetServerTime() or time()
+    local mates = {}
+    for i = 1, Pages.GUILD_MATES do
+        mates[FullName(i)] = { version = i % 3 == 0 and "1.5.2" or "1.6.0", seen = now - i * 1717 }
+    end
+    db.guilds[key] = {
+        used = now, mates = mates, asked = view ~= "ask" or nil,
+        ranks = view == "ask" and { version = 0, items = {} } or { version = now - 9000, items = { "1" } },
+        caps = { version = now - 8000, items = { "g3", "w2" } },
+        vetoes = { version = now - 7000, items = { "bld2", "bld5", "blc1", Pages.GUILD_CUSTOM_TOKEN } },
+    }
+    A_Admin.FireEvent("GUILD_ROSTER_UPDATE")
+
+    -- Lines guildmates' copies said, each reported once by its own sender
+    -- (a leader's copy keeps them), and a custom one with what guild chat showed.
+    if view == "leader" then
+        for i = 1, Pages.GUILD_LINES - 1 do
+            local sender = FullName(i + 2)
+            local token = (i % 2 == 0 and "blc" or "bld") .. i
+            A_Admin.FireEvent("CHAT_MSG_ADDON", "FriendlyFvr", "1;GLINE;" .. sender .. ";l;" .. token, "GUILD", sender)
+        end
+        local sender = FullName(1)
+        A_Admin.FireEvent("CHAT_MSG_GUILD", Pages.GUILD_CUSTOM_WORDS, sender)
+        A_Admin.FireEvent("CHAT_MSG_ADDON", "FriendlyFvr", "1;GLINE;" .. sender .. ";l;" .. Pages.GUILD_CUSTOM_TOKEN,
+            "GUILD", sender)
+    end
+
+    guildUndo = function()
+        guildUndo = nil
+        for field, fn in pairs(real) do _G[field] = fn end
+        db.guilds[key] = saved
+        A_Admin.FireEvent("GUILD_ROSTER_UPDATE")
+    end
+    return guildUndo
+end
+
+-- For the screenshot job: the Guild page in one view.
+function Pages.ShowGuild(view)
+    Pages.FillGuild(view)
+    return Pages.Open("guild")
+end
+
+-- For the screenshot job: the Guild Login tab as a guild member sees it
+-- while the guild limits greeters to fewer than theirs and vetoed two of
+-- their lines: the note under its settings (decision 6).
+function Pages.ShowGuildTab()
+    Pages.FillGuild("member")
+    local panel = _G[Pages.PANEL]
+    if type(panel) == "table" and panel.IsShown and panel:IsShown() then panel:Hide() end
+    return Pages.OpenTab("guild-login")
 end

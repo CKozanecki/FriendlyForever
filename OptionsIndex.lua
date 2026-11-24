@@ -24,6 +24,7 @@ local GENERAL = "the General page"
 local LEDGER = "the Favour Ledger page"
 local START = "the Start here page"
 local WEAPON = "the Weapon buffs page"
+local GUILD = "the Guild page" -- #496
 
 -- name: as the page shows it. page: where it is. keywords: more words to find
 -- it by, the Favours tab's settings including the old tabs' names, "buff
@@ -175,6 +176,33 @@ OptionsIndex.SETTINGS = {
         controls = { "weapon.off" } },
     { name = "Clear the ledger", page = LEDGER, keywords = "favour ledger history clear",
         controls = { "ledger.clear" } },
+
+    -- The Guild page (#496): what a guild's leaders set for every copy in
+    -- the guild. Everyone sees it; only leaders can change it.
+    { name = "Only me for now", page = GUILD,
+        keywords = "guild master leader leaders officer officers rank ranks pick lead",
+        controls = { "guild.onlyMe" } },
+    { name = "Ranks that lead with the guild master", page = GUILD,
+        keywords = "guild master leader leaders officer officers rank ranks pick lead who",
+        controls = { "guild.ranks" } },
+    { name = "Guild limit: most copies that greet one login", page = GUILD,
+        keywords = "guild leader cap limit hello hellos greet greeters login copies",
+        controls = { "guild.greeters" } },
+    { name = "Guild limit: most copies that welcome a new member", page = GUILD,
+        keywords = "guild leader cap limit welcome welcomes join new member copies",
+        controls = { "guild.welcomes" } },
+    { name = "Guild hellos on for the whole guild", page = GUILD,
+        keywords = "guild leader hello hellos greet login off on whole quiet",
+        controls = { "guild.hellos" } },
+    { name = "Veto a line said recently", page = GUILD,
+        keywords = "guild leader veto vetoes line lines said recent block never undo",
+        controls = { "guild.lines" } },
+    { name = "Vetoed lines: undo a veto", page = GUILD,
+        keywords = "guild leader veto vetoes vetoed line lines undo allow again",
+        controls = { "guild.vetoes" } },
+    { name = "Newer and Older", page = GUILD,
+        keywords = "guild who has friendly forever addon version last seen roster lines vetoes page more",
+        controls = { "guild.matesPager", "guild.linesPager", "guild.vetoesPager" } },
 
     -- Start here (#47) changes no setting: it shows them, links to each page
     -- and replays the walkthrough.

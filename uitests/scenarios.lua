@@ -1470,6 +1470,58 @@ test("the Favour Ledger page, with a full page of long entries, keeps its text i
     end)
 end)
 
+-- Whether any shown text on frame or below it has fragment in it.
+local function ShowsTextBelow(frame, fragment)
+    if ShowsText(frame, fragment) then return true end
+    for _, child in ipairs({ frame:GetChildren() }) do
+        if child:IsShown() and ShowsTextBelow(child, fragment) then return true end
+    end
+    return false
+end
+
+-- The Guild page (#496) in each of its views, filled as long as a guild
+-- gets (uitests/pages.lua's FillGuild): its text stays inside it, each
+-- list's row and each rank's names on one line inside the page.
+local GUILD_VIEWS = {
+    { view = "leader", who = "its guild master", shows = "Welcome back to the Watch" },
+    { view = "ask", who = "its guild master on a first look", shows = "Pick the ranks that lead with you" },
+    { view = "member", who = "a member", shows = "Only the guild master and the ranks" },
+}
+for _, case in ipairs(GUILD_VIEWS) do
+    test("the Guild page, as " .. case.who .. " sees it with a long roster, keeps its text inside it (#496)", function()
+        local undo = FriendlyForeverUIPages.FillGuild(case.view)
+        local ok, err = pcall(function()
+            local page = FriendlyForeverUIPages.Open("guild")
+            check(page:IsVisible(), "the Guild page didn't open")
+            local content = page.content
+            local label = "Guild page (" .. case.view .. ")"
+            check(ShowsTextBelow(content, case.shows), label .. " doesn't show \"" .. case.shows .. "\"")
+            check(ShowsTextBelow(content, "Lieutenant Wing"), label .. " doesn't show the guild's ranks")
+            OnScreen(page, label)
+            local checks = {
+                function() FrameTextInside(content, label) end,
+                function() PushedDownInside(content, label) end,
+            }
+            for _, child in ipairs({ content:GetChildren() }) do
+                if child:IsShown() and child:GetObjectType() == "Frame" then
+                    checks[#checks + 1] = function() FrameTextInside(child, label .. " row", 1) end
+                elseif child:IsShown() and child:GetObjectType() == "CheckButton" then
+                    for _, region in ipairs({ child:GetRegions() }) do
+                        if region:GetObjectType() == "FontString" and (region:GetText() or "") ~= "" then
+                            checks[#checks + 1] = function()
+                                TextInside(content, region, label .. " rank \"" .. Short(region:GetText()) .. "\"", 1)
+                            end
+                        end
+                    end
+                end
+            end
+            CheckAll(checks)
+        end)
+        undo()
+        if not ok then error(err, 0) end
+    end)
+end
+
 -- With the lists as a new player has them, the page's last line must still
 -- be inside its scrolling content once every note has wrapped as it does in
 -- the game (#35). The filled page above is the worst case (#52).
@@ -2000,6 +2052,38 @@ function()
         end
     end)
     if SetCVar and had then pcall(SetCVar, "nameplateShowFriendlyPlayers", had) end
+    OpenTab(FriendlyForeverUIPages.TABS[1].label)
+    if not ok then error(err, 0) end
+end)
+
+-- The Guild Login and Guild Join tabs as a guild member sees them while
+-- the guild limits theirs (#496, decision 6): the guild's note under each
+-- tab's settings, inside the panel, with the lines below it in order.
+test("the Guild Login and Guild Join tabs show the guild's note inside the panel, their lines below it (#496)",
+function()
+    local Pages = FriendlyForeverUIPages
+    local undo = Pages.FillGuild("member")
+    local ok, err = pcall(function()
+        for _, tab in ipairs({ { name = "guild-login", label = "Guild Login", shows = "vetoed by your guild" },
+            { name = "guild-join", label = "Guild Join", shows = "welcome a new member" } }) do
+            -- Shown afresh, so the tab fills from the guild just set up.
+            local panel = _G[Pages.PANEL]
+            if type(panel) == "table" and panel:IsShown() then panel:Hide() end
+            local content = Pages.OpenTab(tab.name)
+            check(content ~= nil, "couldn't open the " .. tab.label .. " tab")
+            Settle(content)
+            local name = tab.label .. " tab, the guild's note"
+            check(ShowsText(content, tab.shows), name .. ": the note isn't shown")
+            RowsInOrder(content, name, "Preview random")
+            CheckAll({
+                function() TabTextInside(content, name) end,
+                function() PushedDownInside(content, name) end,
+            })
+        end
+    end)
+    undo()
+    local panel = _G[FriendlyForeverUIPages.PANEL]
+    if type(panel) == "table" and panel:IsShown() then panel:Hide() end
     OpenTab(FriendlyForeverUIPages.TABS[1].label)
     if not ok then error(err, 0) end
 end)

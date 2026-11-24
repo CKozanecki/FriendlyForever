@@ -143,6 +143,14 @@ function Greeter.MemberRank(name)
     return ranks[name]
 end
 
+-- A copy of every guildmate's rank index from the last readable roster
+-- update (#496): [full name] = rank. The Guild page lists who is at each.
+function Greeter.MemberRanks()
+    local out = {}
+    for name, rank in pairs(ranks) do out[name] = rank end
+    return out
+end
+
 -- {name}, {fullname} and, when the roster says, {class}.
 local function MemberVars(name)
     local vars = ns.Config.NameVars("guildLogin", name)
