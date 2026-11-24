@@ -708,10 +708,135 @@ States.WeaponOffer = {
     end,
 }
 
+-- A druid in a form, in buff mode (#500, for #452's and #495's words on the
+-- button): the shift back into your form, a refused one, and the key's "click
+-- to buff". The simulator has no shapeshift forms, so while the state is set
+-- its form reads are answered here (GetShapeshiftForm and its info, the form's
+-- name), and every other question goes to the simulator. The addon's own flow
+-- does the rest: a press of the button in the form is noted (PreClick, the
+-- cast's SENT and SUCCEEDED events), the form is left (the read now says
+-- none), the buff lands, and the button offers the form. The game's refusal
+-- is its UI_ERROR_MESSAGE after a press of the shift back.
+-- The longest form name the addon goes back into (BuffButton.RETURN_FORMS).
+States.FORM = { spell = 9634, name = "Dire Bear Form", number = 8 }
+-- The buff a druid casts, its highest rank (BuffData.lua), and every rank
+-- the simulator might have seeded on the player.
+States.DRUID, States.MOTW = 11, { id = 9885, name = "Mark of the Wild" }
+States.MOTW_IDS = { 1126, 5232, 6756, 5234, 8907, 9884, 9885 }
+-- A refusal's words that are long (the game's own reasons are short, "Can
+-- only use outside."): the mode line is one line, anchored by its bottom only.
+States.LONG_REFUSAL = "You can't shift into Dire Bear Form while something stops you from changing shape"
+local formSaved
+local formIn = false
+
+local function FormReads(saved)
+    Replace(saved, _G, "GetShapeshiftForm", function()
+        return function() return formIn and 1 or 0 end
+    end)
+    Replace(saved, _G, "GetShapeshiftFormInfo", function(real)
+        return function(index, ...)
+            if index == 1 then return 132276, formIn, true, States.FORM.spell end
+            return PassOn(real, index, ...)
+        end
+    end)
+    Replace(saved, _G, "GetShapeshiftFormID", function()
+        return function() return formIn and States.FORM.number or nil end
+    end)
+    Replace(saved, _G.C_Spell, "GetSpellName", function(real)
+        return function(spell, ...)
+            if spell == States.FORM.spell then return States.FORM.name end
+            return PassOn(real, spell, ...)
+        end
+    end)
+end
+
+local function Shapeshift(into)
+    formIn = into
+    States.Fire("UPDATE_SHAPESHIFT_FORM")
+end
+
+-- A click as the game delivers it: the button's PreClick, which notes the
+-- press and arms the offer. Nothing is cast: the sim runs no secure macro.
+local function PressButton()
+    local button = States.Button()
+    local pre = button and button:GetScript("PreClick")
+    if not pre then error("the button has no PreClick", 3) end
+    pre(button, "LeftButton", false)
+end
+
+-- opts.hover: the pointer over the button, for its tooltip.
+-- opts.key: the key's "click to buff" only (the setting off, in the form).
+-- opts.refuse: the game's words, for a refused shift back.
+local function DruidInForm(opts)
+    return {
+        Set = function()
+            States.PassLoginGrace()
+            States.Learn()
+            Admin("SetPlayerClass", States.DRUID)
+            for _, id in ipairs({ States.MOTW.id, States.FORM.spell }) do Admin("LearnSpell", id) end
+            States.Fire("SPELLS_CHANGED")
+            States.Party(nil)
+            States.Target(nil)
+            for _, id in ipairs(States.MOTW_IDS) do Admin("RemoveBuff", id) end
+            if not formSaved then
+                local buffBack = FriendlyForeverDB.buffBack
+                formSaved = { reads = {}, fastCast = buffBack.fastCastInForm }
+                FormReads(formSaved.reads)
+                buffBack.fastCastInForm = not opts.key
+            end
+            Shapeshift(true)
+            Command("buffmode on")
+            if opts.key then return end
+            -- A buff press in the form: the game takes you out of it, the buff lands.
+            PressButton()
+            local guid, id = "Cast-form-" .. tostring(GetTime()), States.MOTW.id
+            States.Fire("UNIT_SPELLCAST_SENT", "player", UnitName("player"), guid, id)
+            Shapeshift(false)
+            Admin("AddBuff", id, States.MOTW.name, "136078", 3600, 1)
+            States.Fire("UNIT_AURA", "player", { isFullUpdate = true })
+            States.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, id)
+            States.Advance(2)
+            if opts.refuse then
+                PressButton()
+                States.Fire("UI_ERROR_MESSAGE", 0, opts.refuse)
+                States.Advance(1)
+            end
+        end,
+        -- Only the shift back's shot has the tooltip: it is drawn over the mode line (#500).
+        Hover = opts.hover and function()
+            local button = States.Button()
+            if button then button:GetScript("OnEnter")(button) end
+        end or nil,
+        Undo = function()
+            if InCombatLockdown() then States.Combat(false) end
+            if GameTooltip then GameTooltip:Hide() end
+            Command("buffmode off")
+            for _, id in ipairs(States.MOTW_IDS) do Admin("RemoveBuff", id) end
+            if formSaved then
+                FriendlyForeverDB.buffBack.fastCastInForm = formSaved.fastCast
+                for i = #formSaved.reads, 1, -1 do
+                    local put = formSaved.reads[i]
+                    put.holder[put.key] = put.value
+                end
+                formSaved = nil
+            end
+            formIn = false
+            for _, id in ipairs({ States.MOTW.id, States.FORM.spell }) do Admin("UnlearnSpell", id) end
+            States.RestoreParty()
+            States.Unlearn()
+            States.Advance(States.RESULT_SECONDS)
+        end,
+    }
+end
+States.FormBack = DruidInForm({ hover = true })
+States.FormRefused = DruidInForm({ refuse = States.LONG_REFUSAL })
+States.FormKey = DruidInForm({ key = true })
+
 -- For the screenshot job: set a state up and leave it.
 local SHOWN = { favour = States.Favour, buffmode = States.GroupMissing, bufflist = States.ListFilled,
     buffgroup = States.ListGroupCast, alreadydone = States.AlreadyDone, longreason = States.LongReason,
-    asked = States.Requested, weapon = States.WeaponOffer }
+    asked = States.Requested, weapon = States.WeaponOffer, formback = States.FormBack,
+    formrefused = States.FormRefused, formkey = States.FormKey }
 -- Each is staged and shot as button-<name> (.github/workflows/ui-sim.yml), as
 -- spec/uitests_states_spec.lua checks.
 States.SHOWN = SHOWN

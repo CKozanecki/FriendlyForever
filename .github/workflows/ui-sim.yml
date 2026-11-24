@@ -774,7 +774,8 @@ jobs:
         run: |
           report="$RUNNER_TEMP/report"
           # Simulator output, shown as in the steps above (#153). In the
-          # summary its mark also stops a line from closing a code block.
+          # summary its mark also stops a line from closing a code block, so every
+          # line of simulator text in it goes through shown (#492).
           shown() { tr '\r' '\n' | sed -e "s/^/${1:-| }/" -e 's/##\[/##(/g'; }
           # What each run is, and the report file it writes (the run step's names).
           what() {
@@ -839,7 +840,7 @@ jobs:
             timeouts
             echo "### Lua errors while loading (from FriendlyForever files)"
             echo '```'
-            grep -i "FriendlyForever" "$report/lua-errors.json" | head -50 || echo "none"
+            { grep -i "FriendlyForever" "$report/lua-errors.json" | head -50 || echo "none"; } | shown
             echo '```'
             # What a reader needs first: the results and the client's facts (#473). The layout
             # sections, about 480k a pass on #479's run, come last and are each cut at 150,000
@@ -847,26 +848,26 @@ jobs:
             # and cuts from the end.
             echo "### UI scenarios"
             echo '```'
-            tail -60 "$report/run-tests.log"
+            tail -60 "$report/run-tests.log" | shown
             echo '```'
             for size in $LAYOUT_SIZES; do
               echo "### Scenario results at $size"
               echo '```'
-              grep -E "✗|tests," "$report/layout-$size.log" | awk '!seen[$0]++' || true
+              { grep -E "✗|tests," "$report/layout-$size.log" | awk '!seen[$0]++' || true; } | shown
               echo '```'
             done
             echo "### Client facts"
             echo '```'
-            grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"
+            { grep "FACT " "$report/run-tests.log" | awk '!seen[$0]++' | grep . || echo "none printed"; } | shown
             echo '```'
             echo "### Layout checks (each cut at 150,000 bytes; all of them are in the ui-sim-report artifact)"
             echo '```'
-            layoutLines "$report/run-tests.log"
+            layoutLines "$report/run-tests.log" | shown
             echo '```'
             for size in $LAYOUT_SIZES; do
               echo "### Layout checks at $size"
               echo '```'
-              layoutLines "$report/layout-$size.log"
+              layoutLines "$report/layout-$size.log" | shown
               echo '```'
             done
             # A reader's errors, which name its file, go to the summary too (#375).
@@ -926,7 +927,7 @@ jobs:
         run: |
           states="$RUNNER_TEMP/shot-lua"
           mkdir -p "$states"
-          for state in favour buffmode bufflist buffgroup alreadydone longreason asked weapon; do
+          for state in favour buffmode bufflist buffgroup alreadydone longreason asked weapon formback formrefused formkey; do
             { cat uitests/button_states.lua; printf '\nFriendlyForeverUIStates.Show("%s")\n' "$state"; } \
               > "$states/$state.lua"
           done
@@ -986,12 +987,12 @@ jobs:
       - name: Take screenshots (no network, addon read-only)
         # A backstop: the shots below stop themselves inside this. Every shot
         # that hits its own 180 s limit takes about 200 s with its checks and
-        # clean-up, so a pass of 48 shots can take about 160 minutes in the
-        # worst case, and both passes together about 320. No shot starts
+        # clean-up, so a pass of 51 shots can take about 170 minutes in the
+        # worst case, and both passes together about 340. No shot starts
         # after SHOT_CUTOFF (4200 s, 70 minutes) of the step, in either pass,
         # so the last one ends by about 4400 s with the probe: inside this
         # step's 75 minutes (4500 s). (Each usually takes about 8 s, so a
-        # normal run takes about 8 minutes and never nears the cut-off.)
+        # normal run takes about 14 minutes and never nears the cut-off.)
         # spec/repo_spec.lua counts the shots and checks these numbers (#309).
         timeout-minutes: 75
         run: |
@@ -1114,6 +1115,11 @@ jobs:
             shoot button-asked --exec-lua @/shot-lua/asked.lua
             # A weapon buff picked in the list (#424): "You" over the stone and the hand, its row, and the tooltip.
             shoot button-weapon --exec-lua @/shot-lua/weapon.lua
+            # A druid in a form (#500): the shift back into the longest form name (#495), the same
+            # refused with a long reason, and the key's "click to buff (you're in a form)" (#452).
+            shoot button-formback --exec-lua @/shot-lua/formback.lua
+            shoot button-formrefused --exec-lua @/shot-lua/formrefused.lua
+            shoot button-formkey --exec-lua @/shot-lua/formkey.lua
             # The General and Favour Ledger pages, filled with long names and
             # many entries, and the copy window as /friendly export opens it (#52).
             shoot options-general --exec-lua @/shot-lua/page-general.lua
