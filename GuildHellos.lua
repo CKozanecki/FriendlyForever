@@ -88,12 +88,20 @@ local function MakeRoom()
     if loginCount >= GuildHellos.MAX_LOGINS and oldest then Forget(oldest) end
 end
 
--- A guildmate came online (Greeter, before it knows whether to greet). A
--- relog starts afresh: GREETs for the last login don't count for this one.
-function GuildHellos.OnLogin(name)
+-- A guildmate came online (Greeter, before it knows whether to greet), or,
+-- with kind "guildJoin", joined the guild while the guild caps its welcomes
+-- (#496): the same announce-and-count, with the welcome lines and that cap.
+-- A relog starts afresh: GREETs for the last login don't count for this one.
+function GuildHellos.OnLogin(name, kind)
+    -- A new member's "has come online" line, before or after their join
+    -- line, is the same arrival (as Greeter's TakeWelcome has it, #196): it
+    -- leaves a welcome being counted as it is.
+    local live = Live(name)
+    if live and live.kind == "guildJoin" and kind ~= "guildJoin" then return end
     if not logins[name] and loginCount >= GuildHellos.MAX_LOGINS then MakeRoom() end
     if not logins[name] then loginCount = loginCount + 1 end
-    logins[name] = { at = GetTime(), greets = {}, order = {}, count = 0, lines = {}, crowd = ns.Comm.CrowdDrops() }
+    logins[name] = { at = GetTime(), greets = {}, order = {}, count = 0, lines = {}, crowd = ns.Comm.CrowdDrops(),
+        kind = kind == "guildJoin" and "guildJoin" or "guildLogin" }
 end
 
 -- How many other copies' GREETs were counted for a login being tracked, or nil.
@@ -122,15 +130,26 @@ function GuildHellos.Stagger()
 end
 
 -- The cap K: the most copies that greet one login. Read through its limits:
--- settings damaged since loading can't turn the cap off.
-local function Cap()
+-- settings damaged since loading can't turn the cap off. The guild's cap
+-- (#496) can lower it, never raise it: your own lower setting stays.
+-- For a guild join, the guild's cap on welcomes.
+function GuildHellos.Cap(kind)
+    local caps = ns.GuildLead.Caps()
+    if kind == "guildJoin" then return caps.welcomes or math.huge end
     local limits = ns.Config.LIMITS.maxGreeters
-    return Util.ClampNumber(ns.db.guildLogin.maxGreeters, limits.min, limits.max,
+    local own = Util.ClampNumber(ns.db.guildLogin.maxGreeters, limits.min, limits.max,
         ns.Config.DEFAULTS.guildLogin.maxGreeters)
+    return caps.greeters and math.min(own, caps.greeters) or own
+end
+local Cap = GuildHellos.Cap
+
+local function Log(kind, fmt, ...)
+    ns.Diag.Log(kind, fmt, ...)
 end
 
-local function Log(fmt, ...)
-    ns.Diag.Log("guildLogin", fmt, ...)
+-- The lines of a login's kind.
+local function Lines(login)
+    return ns.db[login.kind].messages
 end
 
 -- Whether a GREET can go out and come back: otherwise the stagger is all
@@ -148,7 +167,7 @@ end
 -- Our line, or another if some other copy announced it.
 local function FreeLine(login, line)
     if line and not login.lines[line] then return line end
-    local _, other = ns.Messages.Pick("guildLogin", ns.db.guildLogin.messages, login.lines)
+    local _, other = ns.Messages.Pick(login.kind, Lines(login), login.lines)
     return other or line
 end
 
@@ -174,15 +193,14 @@ local function Taken(login)
     return taken, announced
 end
 
--- Our line by the same rule, if it isn't blank here; else any line no copy
--- before us took.
+-- Our line by the same rule, if it can be said here (not blank, not
+-- vetoed: #496); else any line no copy before us took.
 local function OurLine(login, line)
     local taken, announced = Taken(login)
     if not taken[line] then return line end
     local lowest = Lowest(taken, announced)
-    local text = lowest and ns.db.guildLogin.messages[lowest]
-    if type(text) == "string" and text:find("%S") then return lowest end
-    local _, other = ns.Messages.Pick("guildLogin", ns.db.guildLogin.messages, taken)
+    if lowest and ns.Messages.Sayable(login.kind, Lines(login)[lowest]) then return lowest end
+    local _, other = ns.Messages.Pick(login.kind, Lines(login), taken)
     return other or line
 end
 
@@ -193,25 +211,29 @@ local function Decide(name, login)
     if ns.Comm.CrowdDrops() ~= login.crowd then
         return mine.drop("addon messages were dropped in a crowd; can't count the other copies")
     end
-    if login.count >= Cap() then
-        return mine.drop(string.format("%d other copies announced first (most: %d)", login.count, Cap()))
+    if login.count >= Cap(login.kind) then
+        return mine.drop(string.format("%d other copies announced first (most: %d)", login.count, Cap(login.kind)))
     end
-    Log("greeting %s: %d other copies announced first", name, login.count)
+    Log(login.kind, "greeting %s: %d other copies announced first", name, login.count)
     mine.go(OurLine(login, mine.line))
 end
 
 -- After the delay and stagger, with the line Announcer picked: claim a
--- place, or greet at once without the channel, or drop it.
-function GuildHellos.Hold(name, line, go, drop)
+-- place, or greet at once without the channel, or drop it. kind: what this
+-- copy holds a place for, "guildLogin" (the default) or "guildJoin". A
+-- hello never takes a welcome's place: a new member's online line and join
+-- line are one arrival, and the welcome is it (#496).
+function GuildHellos.Hold(name, line, go, drop, kind)
     local login = Live(name)
     if not login then return drop("lost track of this login") end
+    if login.kind ~= (kind or "guildLogin") then return drop("one arrival: they're being welcomed to the guild") end
     if login.mine then return drop("already greeting this login") end
-    if login.count >= Cap() then
-        return drop(string.format("%d other copies already greet them (most: %d)", login.count, Cap()))
+    if login.count >= Cap(login.kind) then
+        return drop(string.format("%d other copies already greet them (most: %d)", login.count, Cap(login.kind)))
     end
     local open, why = ChannelOpen()
     if not open then
-        Log("greeting %s with the random wait only: %s", name, why)
+        Log(login.kind, "greeting %s with the random wait only: %s", name, why)
         return go(FreeLine(login, line))
     end
     if ns.Comm.CrowdDrops() ~= login.crowd then
@@ -222,12 +244,12 @@ function GuildHellos.Hold(name, line, go, drop)
     if not sent then return drop("couldn't announce it: " .. tostring(sendWhy)) end
     local mine = { line = line, go = go, drop = drop }
     login.mine = mine
-    Log("announced greeting %s with line %d", name, line)
+    Log(login.kind, "announced greeting %s with line %d", name, line)
     C_Timer.After(GuildHellos.ECHO_WAIT, ns.Diag.Wrap(function()
         if mine.done then return end
         mine.done = true
         if echoed then return drop("my announcement never came back") end
-        Log("greeting %s with the random wait only: no announcement of mine has come back yet", name)
+        Log(login.kind, "greeting %s with the random wait only: no announcement of mine has come back yet", name)
         go(OurLine(login, line))
     end))
 end
@@ -238,13 +260,15 @@ function GuildHellos.OnGreet(sender, name, line)
     local me = sender == Util.UnitFullName("player")
     if me then echoed = true end
     local login = Live(name)
-    if not login then return Log("ignored %s's greeting of %s: not a login I'm tracking", sender, name) end
+    if not login then
+        return Log("guildLogin", "ignored %s's greeting of %s: not a login I'm tracking", sender, name)
+    end
     if me then
         local mine = login.mine
         if mine and not mine.done and mine.line == line then Decide(name, login) end
         return
     end
-    if sender == name then return Log("ignored %s's greeting of themselves", sender) end
+    if sender == name then return Log(login.kind, "ignored %s's greeting of themselves", sender) end
     if login.greets[sender] or login.count >= GuildHellos.MAX_GREETS then return end
     login.greets[sender] = line
     login.order[#login.order + 1] = { line = line }

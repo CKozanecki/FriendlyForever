@@ -7,6 +7,11 @@
 -- placeholders from Flavour.lua. CasualMessages: the 0.5.0-0.6.x defaults,
 -- kept word for word: anyone can load them again, and the 0.8.0 migration
 -- recognises them in saved files.
+--
+-- A guild can veto a shipped Guild Login or Guild Join line by its place in
+-- its list (#496, GuildLead.LineToken): only add lines to the end of those
+-- four lists, never reword, reorder or remove one, or a veto would name
+-- another line. spec/guildlead_effects_spec.lua pins them.
 local _, ns = ...
 
 local DefaultMessages = {}
