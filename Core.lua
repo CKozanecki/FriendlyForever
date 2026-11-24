@@ -92,7 +92,7 @@ function handlers.ADDON_LOADED(name)
     for _, module in ipairs({ "Flavour", "Ignore", "Ledger", "Serialize", "Profiles", "Window",
         "BuffTable", "BuffData", "Water", "Offers", "BuffButton", "Battleground", "Cities",
         "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "Versioned", "GuildLead", "OptionsIndex",
-        "Colours", "Walkthrough",
+        "Colours", "Walkthrough", "RaidLead",
         "BuffList", "GroupCasts", "RaidSplit", "LevelUps", "SelfBuffs", "Requests", "BuffsTab", "WeaponBuffs",
         "PassersBy" }) do
         if ns[module] == nil then
@@ -126,6 +126,8 @@ function handlers.ADDON_LOADED(name)
             ns.Walkthrough.OnLogin()
             -- After a reload in a raid, say what you give and hear the others'.
             ns.RaidSplit.OnRosterUpdate()
+            -- And catch up on the raid leader's assignments (#497).
+            ns.RaidLead.OnRosterUpdate()
         end
     end)
     Register("CHAT_MSG_SYSTEM", ns.Greeter.OnSystemMessage)
@@ -136,6 +138,8 @@ function handlers.ADDON_LOADED(name)
         ns.BuffRules.CheckRaid()
         -- Who shares out the raid's buffs (RaidSplit.lua, #70).
         ns.RaidSplit.OnRosterUpdate()
+        -- The raid leader's assignments (#497): forgotten as you leave, cleared by a new leader.
+        ns.RaidLead.OnRosterUpdate()
         ns.Options.Refresh() -- the raid Blessing boxes work only in a raid
         ns.Greeter.OnGroupRosterUpdate(...)
         ns.LevelUps.OnGroupRosterUpdate()
@@ -314,6 +318,8 @@ local function StatusLines()
         c("commMalformed"), c("commWrongVersion"), c("commUnknownType"), c("commWrongRoute"), c("commSpoofed"),
         c("commFlood")))
     add(string.format("%s; %d shares ignored", ns.RaidSplit.StatusLine(), c("splitIgnored")))
+    add(string.format("raid assignments (#497): version %s, %d in force", string.format("%.0f", ns.RaidLead.Version()),
+        #ns.RaidLead.Assignments()))
     add(string.format("Lua errors in this addon: %d%s", c("luaErrors"),
         ns.Diag.lastError and (" (last: " .. ns.Diag.lastError .. ")") or ""))
     add(string.format("APIs: SendChatMessage %s, chat lockdown check %s, aura query %s, secret check %s, emote %s",
@@ -658,6 +664,7 @@ local commands = {
         ns.Print("/friendly move - unlock or lock the buff button to drag it")
         ns.Print("/friendly buffmode [on | off | key <key>] - lend a key (the mouse wheel) to the buff button")
         ns.Print("/friendly blessings [all | might wisdom ...] - paladins: the Blessings you give in this raid")
+        ns.Print("/friendly raid - the raid leader's buff assignments (experimental)")
     end,
     profile = ProfileCommand,
     export = function() ns.ShowExport() end,
@@ -667,6 +674,7 @@ local commands = {
     move = MoveCommand,
     buffmode = BuffModeCommand,
     blessings = BlessingsCommand,
+    raid = function() ns.RaidLead.Open() end,
     snooze = SnoozeCommand,
     ignore = IgnoreCommand,
     unignore = UnignoreCommand,

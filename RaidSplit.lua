@@ -29,6 +29,11 @@
 -- priests, mages and druids holding the same buff split the raid's groups
 -- 1-8; an extra paladin is a backup.
 --
+-- The raid leader and assistants can assign buffs by hand (#497,
+-- RaidLead.lua): an assignment that can be met decides who offers that buff
+-- to the groups it covers, over the split and over Blessings set by hand;
+-- the split shares out the rest.
+--
 -- Raids only: in a party, or alone, nothing changes.
 local _, ns = ...
 local Util = ns.Util
@@ -298,38 +303,176 @@ local function Players()
     return list
 end
 
--- Your share now: { [key] = true }, and the whole split ([name] = share),
--- or nil and why there's none (you're offered everything). Worked out once
--- per moment (GetTime()): buff mode asks for every buff and member at each
--- refresh. Anything that changes it (a share heard, the roster, your
--- settings) clears it.
-local cache
-function RaidSplit.Current()
-    local now = GetTime()
-    if not (cache and cache.at == now) then
-        local players, why = Players()
-        cache = { at = now, why = why }
-        if players then
-            cache.shares = RaidSplit.Split(players)
-            cache.mine = cache.shares[players[1].name]
+-- Whether keys (a list) has key.
+local function Has(keys, key)
+    for _, k in ipairs(keys) do
+        if k == key then return true end
+    end
+    return false
+end
+
+-- The raid leader's assignments (#497, RaidLead.lua) for your class's buffs
+-- that can be met now: [key] = { covered = { [g] = true }, count = how many
+-- groups, by = { [name] = { [g] = true } } }. One is met when its player is
+-- the one raid member with that hash, online and of your class, and gives
+-- that buff: you, if it's among the buffs you offer, or a copy whose last
+-- share, heard lately, names it. Anything else (offline, gone, without the
+-- addon or the spell, or unreadable) can't be met, and that buff stays
+-- with the automatic split.
+local function Met(class, me, myKeys, roster)
+    local out = {}
+    local items = ns.RaidLead and ns.RaidLead.Assignments() or {}
+    if #items == 0 then return out end
+    local byHash, clash = {}, {}
+    for name in pairs(roster) do
+        local hash = ns.RaidLead.Hash(name)
+        if byHash[hash] then clash[hash] = true end
+        byHash[hash] = name
+    end
+    local mine, now = ClassKeys(class), GetTime()
+    for _, a in ipairs(items) do
+        local name = not clash[a.hash] and byHash[a.hash]
+        local gives = false
+        if name and mine[a.key] and Eligible(roster, name, class) then
+            if name == me then
+                gives = myKeys[a.key] == true
+            else
+                local peer = peers[name]
+                gives = peer ~= nil and Fresh(peer, now) and Has(peer.keys, a.key)
+            end
+        end
+        if gives then
+            local m = out[a.key] or { covered = {}, count = 0, by = {} }
+            out[a.key] = m
+            m.by[name] = m.by[name] or {}
+            for g in pairs(a.groups) do
+                if not m.covered[g] then m.count = m.count + 1 end
+                m.covered[g] = true
+                m.by[name][g] = true
+            end
         end
     end
-    if not cache.mine then return nil, cache.why end
-    return cache.mine, cache.shares
+    return out
+end
+
+-- A player's list without the buffs assigned for every group: those aren't
+-- drafted, so the rest share out among the others (new tables: peers'
+-- entries stay as they were heard).
+local function Strip(p, met)
+    local keys = {}
+    for _, key in ipairs(p.keys) do
+        if not (met[key] and met[key].count == RaidSplit.GROUPS) then keys[#keys + 1] = key end
+    end
+    local fixed
+    for key in pairs(p.fixed or {}) do
+        if not (met[key] and met[key].count == RaidSplit.GROUPS) then
+            fixed = fixed or {}
+            fixed[key] = true
+        end
+    end
+    return { name = p.name, keys = keys, fixed = fixed, me = p.me }
+end
+
+-- A player's share of an assigned buff: the groups assigned to them, and
+-- of their automatic share (auto: true for the whole raid, or groups), the
+-- groups no assignment covers. Nil when that's none, true when it's all.
+local function Final(auto, assigned, covered)
+    local out, n = {}, 0
+    local function Add(g)
+        if not out[g] then
+            out[g] = true
+            n = n + 1
+        end
+    end
+    for g in pairs(assigned or {}) do Add(g) end
+    for g = 1, RaidSplit.GROUPS do
+        if not covered[g] and (auto == true or (type(auto) == "table" and auto[g])) then Add(g) end
+    end
+    if n == 0 then return nil end
+    if n == RaidSplit.GROUPS then return true end
+    return out
+end
+
+-- The split and the assignments now: { mine, shares, split = whether the
+-- automatic split runs, met = Met's, why }.
+local function Compute()
+    local players, why = Players()
+    local c = { why = why, met = {} }
+    local class, me = MyClass(), Util.UnitFullName("player")
+    local myKeys = {}
+    if class and me and InRaid() == true then
+        for _, key in ipairs(MyEntry(class).keys) do myKeys[key] = true end
+        c.met = Met(class, me, myKeys, Roster())
+    end
+    local shares
+    if players then
+        local list = {}
+        for i, p in ipairs(players) do list[i] = Strip(p, c.met) end
+        shares = RaidSplit.Split(list)
+        c.split = true
+    elseif next(c.met) then
+        -- No split: you'd give every buff, less what's assigned to others.
+        shares = { [me] = {} }
+        for key in pairs(myKeys) do shares[me][key] = true end
+    end
+    if shares then
+        for key, m in pairs(c.met) do
+            for name in pairs(m.by) do shares[name] = shares[name] or {} end
+            for name, share in pairs(shares) do
+                -- Without the split only your own automatic share is known.
+                local auto = share[key]
+                if not c.split and name ~= me then auto = nil end
+                share[key] = Final(auto, m.by[name], m.covered)
+            end
+        end
+        c.shares, c.mine = shares, shares[me]
+    end
+    return c
+end
+
+-- Your share now: { [key] = true or { [group] = true } }, and the whole
+-- split ([name] = share), or nil and why there's none (you're offered
+-- everything). The raid leader's assignments (#497) decide the buffs they
+-- cover; the automatic split the rest. Worked out once per moment
+-- (GetTime()): buff mode asks for every buff and member at each refresh.
+-- Anything that changes it (a share heard, the roster, your settings, an
+-- assignment) clears it.
+local cache
+local function Now()
+    local now = GetTime()
+    if not (cache and cache.at == now) then
+        cache = Compute()
+        cache.at = now
+    end
+    return cache
+end
+
+function RaidSplit.Current()
+    local c = Now()
+    if not c.mine then return nil, c.why end
+    return c.mine, c.shares
 end
 
 local function Changed()
     cache = nil
 end
+RaidSplit.Changed = Changed
+
+-- Whether a met assignment of the raid leader's (#497) decides buff.
+function RaidSplit.Assigned(buff)
+    return Now().met[buff.key] ~= nil
+end
 
 -- Whether buff mode may offer buff (it's yours to give in this raid): every
 -- buff when there's no split, else your share (a buff the split doesn't
 -- share, such as Battle Shout, is never in it; buff mode never offers those
--- to the group).
+-- to the group). Without the split, the assignments decide only the buffs
+-- they cover.
 function RaidSplit.Covers(buff)
-    local mine = RaidSplit.Current()
-    if not mine then return true end
-    return mine[buff.key] ~= nil
+    local c = Now()
+    if not c.mine then return true end
+    if not c.split and not c.met[buff.key] then return true end
+    return c.mine[buff.key] ~= nil
 end
 
 -- The raid group (1-8) unit is in, or nil when it can't be read.
@@ -352,14 +495,20 @@ end
 
 -- Whether buff may go to member ({ unit, ... }) under the split (BuffRules.Allows):
 -- true; or false and why, when your share of it is some of the raid's groups
--- and theirs isn't one. A group that can't be read is offered (the split
--- only narrows what it can tell).
+-- and theirs isn't one, or the raid leader gave the whole buff to someone
+-- else (#497). A group that can't be read is offered (the split only
+-- narrows what it can tell).
 function RaidSplit.CoversMember(buff, member)
-    local mine = RaidSplit.Current()
-    local groups = mine and mine[buff.key]
+    local c = Now()
+    local assigned = c.met[buff.key] ~= nil
+    local groups = c.mine and c.mine[buff.key]
+    if assigned and groups == nil then return false, "the raid leader gave it to someone else" end
     if type(groups) ~= "table" then return true end
     local group = GroupOf(member.unit)
     if group == nil or groups[group] then return true end
+    if assigned and c.met[buff.key].covered[group] then
+        return false, "the raid leader gave their group to someone else"
+    end
     return false, "another copy has their group"
 end
 

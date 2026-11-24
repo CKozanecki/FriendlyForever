@@ -2702,13 +2702,26 @@ function M.reset()
     -- secret; state.rosterSecret makes the whole answer one; specs remove the
     -- function for a client without it. The slot number is the raid unit's number, as in
     -- the game. Whether Forever behaves so is unconfirmed (#202).
+    -- The rank, second (#497): 2 for the raid's leader (you, when
+    -- state.isLeader; another, when state.leader names them, as
+    -- UnitIsGroupLeader answers), 1 for an assistant (unit.assistant), 0 for
+    -- the rest; unit.raidRank sets it outright (even to a value the game
+    -- never gives), and unit.secrets.rank makes it a secret. Unconfirmed on
+    -- Forever (#528).
     _G.GetRaidRosterInfo = function(i)
         local u = M.state.units["raid" .. tostring(i)]
         if not u then return nil end
         if M.state.rosterSecret then return M.secret(u.name) end
         local subgroup = u.subgroup or 1
         if u.secrets and u.secrets.subgroup then subgroup = M.secret(subgroup) end
-        return u.name, 0, subgroup, 60, u.class, u.class, "Zone", not u.offline, u.dead == true
+        local rank = u.raidRank
+        if rank == nil then
+            local leads = (u == M.state.units.player and M.state.isLeader == true)
+                or (M.state.leader ~= nil and u.id == M.state.leader)
+            rank = leads and 2 or u.assistant and 1 or 0
+        end
+        if u.secrets and u.secrets.rank then rank = M.secret(rank) end
+        return u.name, rank, subgroup, 60, u.class, u.class, "Zone", not u.offline, u.dead == true
     end
     -- Passers-by (#39; see ASSUMPTIONS): unit.cantAssist, unit.inCombat.
     _G.UnitCanAssist = restricted(function(_, unit)
