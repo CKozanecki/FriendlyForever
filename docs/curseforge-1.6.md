@@ -56,7 +56,7 @@ One tab holds all of it: thanking players who buff you, offering your buff back,
 - **Paladin-aware:** gives one Blessing each, never overwriting yours.
 - **Even underwater breathing:** offers Unending Breath or Water Breathing only near water, so you're never asked to cast them in the desert.
 - **Dungeons and raids:** turns on as you enter with your group and stays on until everyone is in and buffed, or the first pull.
-- **Battlegrounds and arenas:** every buff starts off in PvP; turn on the ones you want on the Buffs tab's PvP place. Once the gates open, the addon goes quiet for the rest of the battle.
+- **Battlegrounds and arenas:** every buff starts off in PvP; turn on the ones you want on the Buffs tab's PvP place. In a battleground, once the gates open, the addon goes quiet for the rest of the battle.
 
 **Turns itself on and off:**
 
@@ -81,7 +81,7 @@ When a whole guild runs Friendly Forever, it should feel warm, not noisy:
 - **Each character its own:** buff order, weapon buffs, buff mode's key and who gets each buff are set per character, so a priest and a druid never share them.
 - **Easy to read:** one colour palette chosen to read well on the game's dark backgrounds and with colour blindness, and "on" and "off" are always spelled out.
 - **Stays out of the way:** respects AFK, the game's chat lockdown and combat. Settings are checked on load and repaired if damaged.
-- **Safe with untrusted input:** never runs text as code, and other players can't control it. A buff request, a passer-by, a guild leader or a raid leader can only narrow or quiet what your copy does; you still press every cast.
+- **Safe with untrusted input:** never runs text as code, and other players can't control it. A buff request or a passer-by can only put someone on your button; a guild leader or a raid leader can only narrow or quiet what your copy does. You still press every cast.
 
 ## Updating
 
