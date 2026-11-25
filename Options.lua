@@ -1492,6 +1492,13 @@ local function ButtonKeyText()
     return ns.BuffMode.KeyText(key)
 end
 
+-- Start here's nameplates line when the game won't say whether they're on
+-- (an error, a secret, not a string: #521 counts that as off), so it never
+-- says they're on then. %s: Nameplates.HowToShow, the key or the game's own
+-- setting, never /friendly nameplates, which can't help then (#532, #537).
+Options.START_NAMEPLATES_UNREAD_LEAD = "The game won't say whether friendly player nameplates are on,"
+Options.START_NAMEPLATES_UNREAD = " so they count as off, and it can rarely tell you who buffed you. Show them with %s."
+
 -- Fills Start here from the saved settings, read through damage: a section
 -- that isn't a table reads as empty.
 FillStart = function()
@@ -1504,10 +1511,16 @@ FillStart = function()
         and ("Thanks are on (Favours tab): you thank people who buff you with "
             .. (Options.THANK_STYLE_TEXT[buff.thankStyle] or Options.THANK_STYLE_TEXT.message) .. ".")
         or "Thanks are off (Favours tab): people who buff you aren't thanked.")
-    w.nameplates:SetText(ns.Nameplates.FriendlyShown() == false
-        and ns.Colours.Text("warn", "Friendly player nameplates are off,")
-            .. " so the game can rarely tell you who buffed you. The Favours tab can show them."
-        or "Friendly player nameplates are on, so the game can tell you who buffed you.")
+    local shown = ns.Nameplates.FriendlyShown()
+    if shown == nil then
+        w.nameplates:SetText(ns.Colours.Text("warn", Options.START_NAMEPLATES_UNREAD_LEAD)
+            .. Options.START_NAMEPLATES_UNREAD:format(ns.Nameplates.HowToShow()))
+    else
+        w.nameplates:SetText(shown == false
+            and ns.Colours.Text("warn", "Friendly player nameplates are off,")
+                .. " so the game can rarely tell you who buffed you. The Favours tab can show them."
+            or "Friendly player nameplates are on, so the game can tell you who buffed you.")
+    end
     local buttonKey = ButtonKeyText()
     w.buttonKey:SetText(buttonKey and ("Buff button key: " .. buttonKey .. " (Key Bindings > Friendly Forever).")
         or "Buff button key: none yet. Set one in Key Bindings > Friendly Forever, or click the button.")
