@@ -1057,6 +1057,12 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         or "space"). An addon whisper reaches anyone by full
 --                         name; whether it reaches a stranger was confirmed in
 --                         game at launch.
+--   Guild chat from outside a guild (#531): the game refuses a GUILD line
+--                         from a player in no guild ("You are not in a guild."),
+--                         so M.deliver carries it to no one, its sender
+--                         included. The refusal and its error message are
+--                         modelled only as that drop; SendChatMessage still
+--                         records the line in wow.sent.
 --   Buffs between clients (#37; deliverBuffs): a buff that lands on another
 --                         client arrives there as a new aura (UNIT_AURA's
 --                         addedAuras), replacing any of the same spell, even
@@ -3621,7 +3627,11 @@ function M.deliver(net)
         for _, sender in ipairs(net.clients) do
             M.use(sender)
             for i = (net.chatSeen[sender] or 0) + 1, #M.sent do
-                if M.sent[i].channel == "GUILD" then said[#said + 1] = { sender = sender, text = M.sent[i].text } end
+                -- A player in no guild is refused ("You are not in a
+                -- guild."): the line reaches no one, its sender included (#531).
+                if M.sent[i].channel == "GUILD" and M.state.inGuild == true then
+                    said[#said + 1] = { sender = sender, text = M.sent[i].text }
+                end
             end
             net.chatSeen[sender] = #M.sent
         end

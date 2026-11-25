@@ -2155,6 +2155,37 @@ describe("The simulated client's guild chat and guild sync default (#496)", func
         assert.are.equal(1, #heard["Bo-Lake"])
     end)
 
+    it("a guild line from a client in no guild reaches no one, the sender included (#531)", function()
+        local heard = {}
+        local function Client(name, surname, inGuild)
+            local c = wow.newClient({ name = name, surname = surname, before = function(state)
+                state.inGuild = inGuild
+            end })
+            heard[c.full] = 0
+            local f = CreateFrame("Frame")
+            f:RegisterEvent("CHAT_MSG_GUILD")
+            f:SetScript("OnEvent", function() heard[c.full] = heard[c.full] + 1 end)
+            return c
+        end
+        local ann = Client("Ann", "Vale", true)
+        local cid = Client("Cid", "Moor", false)
+        local net = wow.network({ ann, cid })
+        wow.use(cid)
+        _G.SendChatMessage("Anyone?", "GUILD")
+        assert.are.equal(1, #wow.sent) -- the call is recorded; the game refuses it
+        wow.deliver(net)
+        assert.are.same({ ["Ann-Vale"] = 0, ["Cid-Moor"] = 0 }, heard)
+        -- Joining a guild later doesn't revive the refused line.
+        wow.state.inGuild = true
+        wow.deliver(net)
+        assert.are.same({ ["Ann-Vale"] = 0, ["Cid-Moor"] = 0 }, heard)
+        -- A guild member's line still goes to the guild.
+        wow.use(ann)
+        _G.SendChatMessage("Hi", "GUILD")
+        wow.deliver(net)
+        assert.are.same({ ["Ann-Vale"] = 1, ["Cid-Moor"] = 1 }, heard)
+    end)
+
     it("wow.guildChat fires CHAT_MSG_GUILD with the text and the sender first", function()
         wow.boot()
         local got
