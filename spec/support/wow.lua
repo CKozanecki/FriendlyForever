@@ -1057,6 +1057,17 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         or "space"). An addon whisper reaches anyone by full
 --                         name; whether it reaches a stranger was confirmed in
 --                         game at launch.
+--   Guild chat from outside a guild (#531): the game refuses a GUILD line
+--                         from a player in no guild ("You are not in a guild."),
+--                         so SendChatMessage marks the line refused (record.refused) when it
+--                         is sent, and M.deliver carries it to no one, its
+--                         sender included, even if the player joins a guild
+--                         later. The error message isn't modelled; the line
+--                         is still recorded in wow.sent.
+--                         Only state.inGuild == true is a guild, as on the
+--                         receiving side (#496): an unset or secret answer is
+--                         refused too, the pessimistic reading (a hidden
+--                         IsInGuild answer is still a guild in the game).
 --   Buffs between clients (#37; deliverBuffs): a buff that lands on another
 --                         client arrives there as a new aura (UNIT_AURA's
 --                         addedAuras), replacing any of the same spell, even
@@ -1974,6 +1985,10 @@ local function SendChat(text, channel, _, target)
         M.blocked[#M.blocked + 1] = record
         return
     end
+    -- A player in no guild is refused ("You are not in a guild.") when the
+    -- line is sent, so a later join revives nothing (#531). It stays in
+    -- M.sent, marked, and M.deliver carries it to no one.
+    if channel == "GUILD" and M.state.inGuild ~= true then record.refused = true end
     M.sent[#M.sent + 1] = record
 end
 
@@ -3621,7 +3636,10 @@ function M.deliver(net)
         for _, sender in ipairs(net.clients) do
             M.use(sender)
             for i = (net.chatSeen[sender] or 0) + 1, #M.sent do
-                if M.sent[i].channel == "GUILD" then said[#said + 1] = { sender = sender, text = M.sent[i].text } end
+                -- A line refused at send time reaches no one (#531).
+                if M.sent[i].channel == "GUILD" and not M.sent[i].refused then
+                    said[#said + 1] = { sender = sender, text = M.sent[i].text }
+                end
             end
             net.chatSeen[sender] = #M.sent
         end
