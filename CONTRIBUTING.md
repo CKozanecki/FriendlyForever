@@ -233,3 +233,11 @@ To release:
 1. In a PR: bump `## Version` in `FriendlyForever.toc`, run `make changelog-preview VERSION=x.y.z` and then `make changelog VERSION=x.y.z` to gather the notes into `## x.y.z` at the top of `CHANGELOG.md` ([Changelog notes](#changelog-notes)), and add notes there for anything missing. CurseForge shows only that section (`make release-notes RELEASE=1` previews it, and fails if a note was left behind).
 2. After it merges, tag the merge commit and push the tag: `git tag vx.y.z && git push origin vx.y.z`. Version tags can't be moved or deleted once pushed, so double-check the commit first. The GitHub release isn't made by hand: the workflow makes it in step 3.
 3. The Release workflow's `verify` job checks that the tag is on `main` and matches the TOC, with read-only access and no secrets. Then it asks GitHub whether `main`'s required `check` passed on that exact commit (#241): if it did, lint and the tests already ran there and aren't run again; if that run hasn't finished, or there is none, `verify` runs lint and the tests itself, as before; if it failed, the release stops (re-run `main`'s failed CI jobs on that commit, then re-run the Release workflow). After that, the `release` job waits for your approval in the `release` environment, checks that the CurseForge project ID and key are set, and uploads. The packager uploads to CurseForge and creates the GitHub release for the tag, with the same notes and the zip attached. Once the job is green, there's nothing left to do.
+
+**The CurseForge description** (`docs/curseforge-<major.minor>.md`, the owner pastes it into CurseForge's editor set to Markdown; not shipped) describes what the addon does. It is not part of every release:
+
+- A release updates it only when it adds or changes a feature, and describes that feature in its own section or bullet.
+- It never gets patch notes, a "New in" list or version history: the changelog has those.
+- The restart-after-update note stays the one generic line under Updating.
+- If a new major.minor release changes the description, rename the file to that version with `git mv`.
+- Every list needs a blank line before it; `spec/repo_spec.lua` checks this for every `docs/curseforge-*.md` (#522).
