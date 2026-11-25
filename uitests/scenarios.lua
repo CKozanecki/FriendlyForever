@@ -1607,6 +1607,54 @@ test("the copy window keeps its text inside it, for export, import and the bug r
     end
 end)
 
+-- The raid leader's assignments window (#497): as /friendly raid opens it
+-- out of a raid (read only), and filled as the leader's copy shows it, at the
+-- longest names (pages.lua's ShowRaidWindow). Its title, hint, the buffs'
+-- names, the status line and the buttons stay inside it, and it's on the
+-- screen.
+-- Two lines of status, which a long error can take, end below the last row:
+-- the status grows up from the buttons (TextInside doesn't check what a
+-- line clears).
+local function StatusClears(window, label)
+    local status, last = window.status, window.rows[#window.rows].box
+    -- A line as tall as the status measures with one, the pessimistic size,
+    -- not its font's size (#116).
+    local bottom, oneTop = Measure(status, "GetBottom"), Measure(status, "GetTop")
+    local lastBottom = Measure(last, "GetBottom")
+    if not (bottom and oneTop and lastBottom) then
+        report("LAYOUT " .. label .. " status: edges can't be read here")
+        return
+    end
+    local top = bottom + 2 * (oneTop - bottom)
+    local line = ("LAYOUT %s status, two lines: %.0f..%.0f, last row from %.0f"):format(label, bottom, top, lastBottom)
+    report(line)
+    check(top <= lastBottom, line .. ": runs into the last row")
+end
+
+test("the raid assignments window keeps its text inside it and is on the screen (#497)", function()
+    for _, view in ipairs({ "member", "leader", "member-hover" }) do
+        local window, why = FriendlyForeverUIPages.ShowRaidWindow(view)
+        local ok, err = pcall(function()
+            check(window ~= nil, tostring(why))
+            local label = "raid assignments window (" .. view .. ")"
+            OnScreen(window, label)
+            FrameTextInside(window, label, 2)
+            StatusClears(window, label)
+            if view == "member-hover" then
+                -- The pointer over a read only line shows all of it.
+                local whole = window.rows[1].box:GetText()
+                check(GameTooltip:IsShown(), label .. ": no tooltip over the first line")
+                local shown = _G.GameTooltipTextLeft2 and _G.GameTooltipTextLeft2:GetText()
+                report("LAYOUT " .. label .. " tooltip: " .. tostring(shown))
+                check(shown == whole, label .. ": the tooltip doesn't hold the whole line")
+                GameTooltip:Hide()
+            end
+        end)
+        if window then window:Hide() end
+        if not ok then error(err, 0) end
+    end
+end)
+
 -- The main panel's tabs (#112), each opened by clicking its button the way
 -- a player would (pages.lua's OpenTab). Each tab's own rows are on the
 -- panel's scrolling content, and the rows of the other tabs are hidden.
