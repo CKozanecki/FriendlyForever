@@ -1,4 +1,4 @@
--- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383, #408, #45, #491, #508, #521, #497
+-- Spec: #52, #112, #158, #47, #169, #208, #209, #254, #160, #44, #343, #362, #383, #408, #45, #491, #508, #521, #496, #497
 -- The UI simulator's fill (uitests/pages.lua), loaded against the simulated
 -- client. The addon checks saved settings when it uses them and repairs what
 -- it can't trust, so a fill it would throw away leaves the simulator's
@@ -673,7 +673,7 @@ describe("the UI simulator's walkthrough steps", function()
         assert.are.equal(table.concat(names, " "), steps)
         assert.is_truthy(workflow:find('for step in $WALKTHROUGH_STEPS; do\n%s*shoot "walkthrough%-$step" '
             .. '%-%-exec%-lua "@/shot%-lua/walkthrough%-$step%.lua"\n'))
-        assert.is_truthy(workflow:find("\n%s*for page in general ledger start weapon; do\n"), "Start here's script")
+        assert.is_truthy(workflow:find("\n%s*for page in general ledger start weapon guild; do\n"), "Start here's script")
         assert.is_truthy(workflow:find("\n%s*shoot options%-weapon %-%-exec%-lua @/shot%-lua/page%-weapon%.lua\n"),
             "the Weapon buffs page's shot (#45)")
         assert.is_truthy(workflow:find("\n%s*shoot options%-start %-%-exec%-lua @/shot%-lua/page%-start%.lua\n"))
@@ -806,6 +806,213 @@ describe("the UI simulator's blocked-action report (#160)", function()
         load()
         assert.is_nil(_G.DisplayInterfaceActionBlockedMessage)
         assert.are.same({}, Pages.blockedMessage)
+    end)
+end)
+
+-- The Guild page's shots (#496): the guild the fixture sets up, through the
+-- addon's own handlers, in each view, and put back after.
+describe("the UI simulator's Guild page (#496)", function()
+    local ns, Pages
+
+    before_each(function()
+        ns = wow.boot()
+        _G.A_Print = function() end
+        _G.A_Admin = { FireEvent = function(event, ...) wow.fire(event, ...) end }
+        dofile("uitests/pages.lua")
+        Pages = _G.FriendlyForeverUIPages
+    end)
+
+    after_each(function()
+        _G.FriendlyForeverUIPages = nil
+        _G.A_Print = nil
+        _G.A_Admin = nil
+    end)
+
+    local function Shown(rows)
+        local n = 0
+        for _, row in ipairs(rows) do if row:IsShown() then n = n + 1 end end
+        return n
+    end
+
+    it("shows the guild master's view: the ranks, the limits, more lines and guildmates than a page, the vetoes (white)",
+        function()
+            local undo = Pages.FillGuild("leader")
+            local page = Pages.Open("guild")
+            assert.is_true(page:IsVisible())
+            assert.are.equal("master", ns.GuildPanel.Role())
+            local f = ns.GuildPanel.frames
+            assert.are.equal(Pages.GUILD_RANKS[2], f.ranks[1].label:GetText())
+            assert.is_true(f.ranks[1]:GetChecked())
+            assert.is_false(f.ask:IsShown())
+            assert.are.equal("3", f.greeters.value:GetText())
+            assert.are.equal("2", f.welcomes.value:GetText())
+            assert.are.equal(ns.GuildPanel.ROWS, Shown(f.lines))
+            assert.is_true(f.linesPager:IsShown())
+            assert.are.equal("1 to 8 of " .. Pages.GUILD_LINES, f.linesPager.count:GetText())
+            -- The newest line is the custom one, with the words guild chat showed.
+            assert.truthy(f.lines[1].words:GetText():find(Pages.GUILD_CUSTOM_WORDS:sub(1, 40), 1, true))
+            assert.are.equal("Undo", f.lines[1].button:GetText())
+            assert.are.equal(ns.GuildPanel.ROWS, Shown(f.mates))
+            assert.truthy(f.matesCount:GetText():find(tostring(Pages.GUILD_MATES), 1, true))
+            assert.are.equal(4, Shown(f.vetoes))
+            undo()
+        end)
+
+    it("asks the guild master on a first look, and shows a member everything read-only with no lines (white)", function()
+        Pages.FillGuild("ask")
+        Pages.Open("guild")
+        local f, w = ns.GuildPanel.frames, ns.Options.widgets.guild
+        assert.is_true(f.ask:IsShown())
+        assert.is_true(w.onlyMe:IsShown())
+        Pages.FillGuild("member")
+        Pages.Open("guild")
+        assert.are.equal("member", ns.GuildPanel.Role())
+        assert.is_false(f.ask:IsShown())
+        assert.is_false(w.greeters.minus:IsEnabled())
+        assert.is_false(f.ranks[1]:IsEnabled())
+        assert.are.equal(0, Shown(f.lines))
+        assert.are.equal(4, Shown(f.vetoes))
+        for _, row in ipairs(f.vetoes) do
+            if row:IsShown() then assert.is_false(row.button:IsShown()) end
+        end
+    end)
+
+    it("shows the Guild Login tab's note to a member the guild limits (white)", function()
+        -- The shipped lines, as the simulator's new install has them.
+        for i, line in ipairs(ns.DefaultMessages.guildLogin) do ns.db.guildLogin.messages[i] = line end
+        Pages.ShowGuildTab()
+        local note = ns.Options.widgets.guildNote
+        assert.is_true(note:IsShown())
+        assert.truthy(note:GetText():find("at most 3 greet one login", 1, true), note:GetText())
+        assert.truthy(note:GetText():find("vetoed by your guild", 1, true), note:GetText())
+    end)
+
+    it("puts the game's guild reads and the saved guild back (white)", function()
+        local real = _G.GetGuildRosterInfo
+        local key = wow.state.realm .. ":" .. Pages.GUILD_NAME
+        local undo = Pages.FillGuild("leader")
+        assert.are_not.equal(real, _G.GetGuildRosterInfo)
+        assert.is_truthy(_G.FriendlyForeverDB.guilds[key])
+        undo()
+        assert.are.equal(real, _G.GetGuildRosterInfo)
+        assert.is_nil(_G.FriendlyForeverDB.guilds[key])
+        assert.is_nil(ns.GuildPanel.Role() == "master" or nil)
+    end)
+
+    -- #536's testing review: versions taken from the clock were thrown away
+    -- in the simulator, whose clock may be small or not a whole number.
+    for _, clock in ipairs({ 500, 123456.5, 0 }) do
+        it("keeps the guild's settings whatever the simulator's clock reads (" .. clock .. ") (black)", function()
+            _G.GetServerTime = function() return clock end
+            _G.time = function() return clock end
+            Pages.FillGuild("leader")
+            Pages.Open("guild")
+            local f = ns.GuildPanel.frames
+            assert.are.equal("3", f.greeters.value:GetText())
+            assert.are.equal("2", f.welcomes.value:GetText())
+            assert.is_true(f.ranks[1]:GetChecked())
+            assert.are.equal(4, #ns.GuildPanel.VetoList())
+            assert.are.equal("Undo", f.lines[1].button:GetText())
+        end)
+    end
+
+    it("fails loudly, rather than shoot a page without them, when the addon refuses a section the fixture set (black)",
+        function()
+            Pages.GUILD_CUSTOM_TOKEN = "not a token"
+            assert.has_error(function() Pages.FillGuild("leader") end,
+                "the addon didn't keep the guild's vetoes section the fixture set")
+            -- And it put the game's reads back.
+            assert.is_false(ns.GuildPanel.Role() == "master")
+        end)
+
+    it("scrolls the guild master's page to its lines said recently for their shot (white)", function()
+        local content = Pages.ShowGuildLines()
+        assert.is_truthy(content)
+        assert.are.equal(ns.GuildPanel.Page().content, content)
+        local f = ns.GuildPanel.frames
+        assert.are.equal(Pages.GUILD_LINES_HEADER, f.linesHeader:GetText())
+        assert.is_true(f.lines[1]:IsShown())
+        -- And the guild can be put back after, as the scenarios do.
+        local real = _G.GetGuildRosterInfo
+        Pages.PutBackGuild()
+        assert.are_not.equal(real, _G.GetGuildRosterInfo)
+        assert.is_nil(_G.FriendlyForeverDB.guilds[wow.state.realm .. ":" .. Pages.GUILD_NAME])
+        assert.has_no.errors(function() Pages.PutBackGuild() end)
+    end)
+
+    -- #536's testing review: on a new install the addon is off until its
+    -- walkthrough is skipped, and takes no addon message until then.
+    it("on a first start, skips the walkthrough before the guild's messages, so the lines shot has lines (white)",
+        function()
+            ns = wow.boot({ walkthrough = true })
+            dofile("uitests/pages.lua")
+            Pages = _G.FriendlyForeverUIPages
+            assert.is_false(_G.FriendlyForeverDB.enabled == true)
+            assert.is_truthy(Pages.ShowGuildLines())
+            assert.is_true(_G.FriendlyForeverDB.enabled)
+            local f = ns.GuildPanel.frames
+            local veto, undo = 0, 0
+            for _, row in ipairs(f.lines) do
+                if row:IsShown() then
+                    if row.button:GetText() == "Veto" then veto = veto + 1 else undo = undo + 1 end
+                end
+            end
+            assert.is_true(veto >= 1)
+            assert.is_true(undo >= 1)
+            -- The guildmate's check-in arrived: its version is the one it sent.
+            local key = wow.state.realm .. ":" .. Pages.GUILD_NAME
+            local mate = _G.FriendlyForeverDB.guilds[key].mates[Pages.guildCheckIn]
+            assert.are.equal(Pages.GUILD_CHECK_IN_VERSION, mate.version)
+        end)
+
+    -- #536's testing review: the ui-sim scenarios fill the guild in one
+    -- session with almost no game time between, and one guildmate's
+    -- check-in in every fill was dropped by the fifth (Comm.PEER_BURST), so
+    -- the Guild tab scenario failed before its checks. Its fills, in
+    -- uitests/scenarios.lua's order: the page as leader, ask and member, the
+    -- lines (leader), then the tab (member).
+    it("takes every fill the scenarios make in one session, with no time between (black)", function()
+        local before = wow.now
+        local key = wow.state.realm .. ":" .. Pages.GUILD_NAME
+        local senders = {}
+        for step, fill in ipairs({
+            function() return Pages.FillGuild("leader") end,
+            function() return Pages.FillGuild("ask") end,
+            function() return Pages.FillGuild("member") end,
+            function() return Pages.ShowGuildLines() end,
+            function() return Pages.ShowGuildTab() end,
+        }) do
+            local ok, err = pcall(fill)
+            assert(ok, ("fill %d: %s"):format(step, tostring(err)))
+            local mate = _G.FriendlyForeverDB.guilds[key].mates[Pages.guildCheckIn]
+            assert.are.equal(Pages.GUILD_CHECK_IN_VERSION, mate.version)
+            senders[Pages.guildCheckIn] = (senders[Pages.guildCheckIn] or 0) + 1
+            Pages.PutBackGuild()
+        end
+        assert.are.equal(before, wow.now)
+        -- Each fill's check-in came from a guildmate of its own.
+        for name, n in pairs(senders) do assert.are.equal(1, n, name) end
+    end)
+
+    it("fails loudly when the addon stays off, rather than shoot a page its messages never reached (black)", function()
+        ns.db.enabled = false
+        assert.has_error(function() Pages.FillGuild("leader") end,
+            "the addon is off, so it would take none of the guild's messages")
+        assert.is_false(ns.GuildPanel.Role() == "master")
+    end)
+
+    it("fails loudly when the guildmate's check-in isn't taken, as a message dropped in the simulator would be (black)",
+        function()
+            _G.A_Admin = { FireEvent = function(event, ...)
+                if event ~= "CHAT_MSG_ADDON" then wow.fire(event, ...) end
+            end }
+            assert.has_error(function() Pages.FillGuild("member") end,
+                "the addon didn't take the guildmate's check-in, so nothing shows it kept the guild's settings")
+        end)
+
+    it("fails loudly, rather than shoot an empty page, when the simulator can't fire events (black)", function()
+        _G.A_Admin = nil
+        assert.has_error(function() Pages.FillGuild("leader") end, "the simulator has no A_Admin.FireEvent")
     end)
 end)
 

@@ -902,6 +902,17 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         server's clock in epoch seconds, here time() plus
 --                         state.serverSkew. All unconfirmed on Forever: the
 --                         quality issue #523.
+--   Guild rank names (#496 part 3): GuildControlGetNumRanks() is how many
+--                         ranks the guild has, the guild master's included
+--                         (state.guildNumRanks, 5 by default; nil makes it
+--                         unreadable), and GuildControlGetRankName(i) is rank
+--                         i's name, i = 1 the guild master's, so roster rank
+--                         index r is name r + 1: state.guildRankNames[i - 1],
+--                         else "Rank i"; nothing past the count.
+--                         state.guildRankNameSecret makes the names secrets.
+--                         Blizzard's Forever UI calls both as globals (its
+--                         `forever` branch, 1.60.1.71091); the index base and
+--                         whether they can be secret are unconfirmed: #533.
 --   The realm (#508): GetRealmName() answers state.realm, "Forever Realm"
 --                         by default, a plain string. The Classic Era API
 --                         (warcraft.wiki.gg); Forever's names carry no realm,
@@ -2164,6 +2175,7 @@ function M.reset()
         -- #496: the guild's name, and each member's rank index (0: the guild
         -- master); a member not in guildRanks has M.DEFAULT_GUILD_RANK.
         guildName = "Friends Forever", guildRanks = {}, guildRankNames = { [0] = "Guild Master", [1] = "Officer" },
+        guildNumRanks = 5, -- GuildControlGetNumRanks (#496 part 3)
         groupType = nil, groupMembers = {},
         inInstance = false, lockdown = false, inCombat = false,
         units = {}, cursorX = 0, cursorY = 0,
@@ -2418,6 +2430,16 @@ function M.reset()
         local full = me and me.surname and (me.name .. "-" .. me.surname) or (me and me.name)
         local rank = M.guildRank(full)
         return guild, M.state.guildRankNames[rank] or ("Rank " .. rank), rank, nil
+    end
+    -- Guild rank names (#496 part 3; see ASSUMPTIONS): i = 1 is the guild
+    -- master's, and nothing past the guild's count.
+    _G.GuildControlGetNumRanks = function() return M.state.guildNumRanks end
+    _G.GuildControlGetRankName = function(i)
+        local count = M.state.guildNumRanks
+        if type(i) ~= "number" or i < 1 or (type(count) == "number" and i > count) then return nil end
+        local name = M.state.guildRankNames[i - 1] or ("Rank " .. i)
+        if M.state.guildRankNameSecret then name = M.secret(name) end
+        return name
     end
     -- state.rosterReplyDelay: answer a roster request with a roster update
     -- after that many seconds, as the server does.

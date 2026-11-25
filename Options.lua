@@ -43,7 +43,8 @@ local panel, category, startPage, generalPage, ledgerPage
 local weaponPage -- Weapon buffs (#45)
 local currentType = Config.TYPES[1] -- the tab shown: a message type, Favours or Buffs
 local favourLines = Options.FAVOUR_LINES[1] -- the Favours tab's lines shown (#491)
-local widgets = { tabs = {}, edits = {}, steppers = {}, general = {}, ledger = {}, start = {}, weapon = {} }
+local widgets = { tabs = {}, edits = {}, steppers = {}, general = {}, ledger = {}, start = {}, weapon = {},
+    guild = {} }
 -- Every number box a Stepper makes, so ClearEditFocus can't miss one (#171).
 local numberBoxes = {}
 
@@ -91,6 +92,9 @@ Options.START_PAGE = "FriendlyForeverStartPage"
 Options.START_HEIGHT = 680
 Options.LEDGER_PAGE = "FriendlyForeverLedgerPage"
 Options.WEAPON_PAGE = "FriendlyForeverWeaponPage"
+
+-- A message line's hover, on a guild line the guild vetoed (#496).
+Options.VETOED_TIP = "Vetoed by your guild: no copy in the guild says this line."
 
 -- How to thank someone who buffs you, and what to do when that can't reach
 -- them (#101), in the order each dropdown lists them (#274).
@@ -664,8 +668,16 @@ local function FillMessageTab()
         cfg.repeatCooldown, widgets.steppers.repeatCooldown.box:GetText())
     -- The messages follow the last row this tab shows: a hidden row still
     -- takes its space, so following one would leave an empty gap.
-    if isGuildLogin then return widgets.greetersHelp, 0, -18 end
-    return widgets.steppers.repeatCooldown.label, 0, -18
+    local last = isGuildLogin and widgets.greetersHelp or widgets.steppers.repeatCooldown.label
+    -- When the guild's settings limit this tab's (#496, decision 6).
+    local note = ns.GuildPanel and ns.GuildPanel.LimitNote(currentType)
+    widgets.guildNote:SetShown(note ~= nil)
+    if not note then return last, 0, -18 end
+    widgets.guildNote:SetText(ns.Colours.Text("warn", note))
+    widgets.guildNote:ClearAllPoints()
+    widgets.guildNote:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -10)
+    widgets.guildNote:SetPoint("RIGHT", widgets.content, "RIGHT", -24, 0)
+    return widgets.guildNote, 0, -18
 end
 
 -- The Favours tab's own rows (#491), from the buff and buffBack sections;
@@ -778,6 +790,7 @@ function Options.Refresh()
     if IsOpen(generalPage) then FillGeneral() end
     if IsOpen(ledgerPage) then FillLedger() end
     if IsOpen(weaponPage) then FillWeapon() end
+    if ns.GuildPanel then ns.GuildPanel.Refresh() end
 end
 
 -- Fill the panel whenever it is shown, and once more on the next frame:
@@ -1184,6 +1197,10 @@ function Options.Create()
     widgets.greetersHelp:SetPoint("TOPLEFT", maxGreeters.label, "BOTTOMLEFT", 0, -10)
     widgets.greetersHelp:SetPoint("RIGHT", content, "RIGHT", -24, 0)
     widgets.greetersHelp:SetWordWrap(true)
+    -- Guild Login and Guild Join: how the guild's settings limit yours
+    -- (#496), anchored as the tab fills.
+    widgets.guildNote = Label(content, "", "GameFontHighlightSmall")
+    widgets.guildNote:SetWordWrap(true)
 
     -- The lines: a message tab's, or the Favours tab's sub-tab's. Anchored in Fill.
     Options.Collect(linesRows, content)
@@ -1210,6 +1227,12 @@ function Options.Create()
             local r, g, b = ns.Colours.RGB(colour)
             GameTooltip:AddLine(text, r, g, b, true)
         end
+        -- A guild line your guild vetoed is never said (#496). A box that
+        -- errors as it's read shows no such line, as it shows no preview.
+        local readable, vetoed = pcall(function()
+            return ns.GuildLead and ns.GuildLead.IsLineVetoed(LinesType(), box:GetText())
+        end)
+        if readable and vetoed then Line("bad", Options.VETOED_TIP) end
         if not ok then
             Line("muted", "No preview for this line.")
         elseif preview.empty then
@@ -1342,6 +1365,9 @@ function Options.Create()
     Options.CreateGeneralPage()
     Options.CreateLedgerPage()
     Options.CreateWeaponPage()
+    -- The Guild page (#496). After an update and a /reload without a
+    -- restart its file may be missing: then there's no page.
+    if ns.GuildPanel then ns.GuildPanel.Create() end
     ns.OptionsIndex.RegisterSearch(category)
 
     -- Filled straight away too, so nothing can ever show empty boxes.
@@ -1677,7 +1703,7 @@ end
 
 function Options.FillGeneral() FillGeneral() end
 function Options.FillLedger() FillLedger() end
-function Options.Pages() return generalPage, ledgerPage, weaponPage end
+function Options.Pages() return generalPage, ledgerPage, weaponPage, ns.GuildPanel and ns.GuildPanel.Page() end
 function Options.StartPage() return startPage end
 function Options.FillStart() FillStart() end
 
@@ -1792,3 +1818,9 @@ FillWeapon = function()
     w.main.Fill()
     w.off.Fill()
 end
+
+-- The page helpers the Guild page's file uses (GuildPanel.lua, #496).
+Options.UI.SubPage = SubPage
+Options.UI.ScrollArea = ScrollArea
+Options.UI.Refit = Refit
+Options.UI.IsOpen = IsOpen

@@ -1470,6 +1470,115 @@ test("the Favour Ledger page, with a full page of long entries, keeps its text i
     end)
 end)
 
+-- Whether any shown text on frame or below it has fragment in it.
+local function ShowsTextBelow(frame, fragment)
+    if ShowsText(frame, fragment) then return true end
+    for _, child in ipairs({ frame:GetChildren() }) do
+        if child:IsShown() and ShowsTextBelow(child, fragment) then return true end
+    end
+    return false
+end
+
+-- The Guild page (#496) in each of its views, filled as long as a guild
+-- gets (uitests/pages.lua's FillGuild): its text stays inside it, each
+-- list's row and each rank's names on one line inside the page.
+local function GuildPageInside(view, shows)
+    local undo = FriendlyForeverUIPages.FillGuild(view)
+    local ok, err = pcall(function()
+        local page = FriendlyForeverUIPages.Open("guild")
+        check(page:IsVisible(), "the Guild page didn't open")
+        local content = page.content
+        local label = "Guild page (" .. view .. ")"
+        check(ShowsTextBelow(content, shows), label .. " doesn't show \"" .. shows .. "\"")
+        check(ShowsTextBelow(content, "Lieutenant Wing"), label .. " doesn't show the guild's ranks")
+        -- The guild's settings the fixture set, not a fresh memory (#536's testing review).
+        check(ShowsTextBelow(content, "4 of at most 40"), label .. " doesn't show the guild's 4 vetoed lines")
+        OnScreen(page, label)
+        local checks = {
+            function() FrameTextInside(content, label) end,
+            function() PushedDownInside(content, label) end,
+        }
+        for _, child in ipairs({ content:GetChildren() }) do
+            if child:IsShown() and child:GetObjectType() == "Frame" then
+                checks[#checks + 1] = function() FrameTextInside(child, label .. " row", 1) end
+            elseif child:IsShown() and child:GetObjectType() == "CheckButton" then
+                for _, region in ipairs({ child:GetRegions() }) do
+                    if region:GetObjectType() == "FontString" and (region:GetText() or "") ~= "" then
+                        checks[#checks + 1] = function()
+                            TextInside(content, region, label .. " rank \"" .. Short(region:GetText()) .. "\"", 1)
+                        end
+                    end
+                end
+            end
+        end
+        CheckAll(checks)
+    end)
+    undo()
+    if not ok then error(err, 0) end
+end
+
+test("the Guild page, as its guild master sees it with a long roster, keeps its text inside it (#496)", function()
+    GuildPageInside("leader", "Welcome back to the Watch")
+end)
+
+test("the Guild page, as its guild master first sees it, asks for the ranks and keeps its text inside it (#496)",
+function()
+    GuildPageInside("ask", "Pick the ranks that lead with you")
+end)
+
+test("the Guild page, as a member sees it, keeps its text inside it (#496)", function()
+    GuildPageInside("member", "Only the guild master and the ranks")
+end)
+
+-- The guild master's lines said recently and vetoed lines, scrolled into
+-- view for their shot (#536's testing review): the header in the view, and
+-- a vetoed line's Undo shown with the page's other rows.
+test("the Guild page scrolled to its lines shows them in its view, with Veto and Undo (#496)", function()
+    local content, why = FriendlyForeverUIPages.ShowGuildLines()
+    local ok, err = pcall(function()
+        check(content ~= nil, "couldn't scroll the Guild page to its lines: " .. tostring(why))
+        local scroll = content:GetParent()
+        local header
+        local wanted = FriendlyForeverUIPages.GUILD_LINES_HEADER
+        for _, region in ipairs({ content:GetRegions() }) do
+            if region:GetObjectType() == "FontString" and region:GetText() == wanted then header = region end
+        end
+        check(header ~= nil, "no lines header")
+        local top = Edges(header, "GetTop", "GetBottom")
+        local viewTop, viewBottom = Edges(scroll, "GetTop", "GetBottom")
+        if not (top and viewTop) then
+            report("LAYOUT Guild page lines: edges can't be read here")
+            check(false, "Guild page lines: edges can't be read here")
+        end
+        local line = ("LAYOUT Guild page lines: header at %.0f, view %.0f..%.0f"):format(top, viewBottom, viewTop)
+        report(line)
+        check(top <= viewTop + 1 and top >= viewBottom - 1, line .. ": the lines header isn't in the view")
+        -- A line said recently, shown with its own Veto or Undo button (not
+        -- only the "Vetoed lines" header, which also says Veto).
+        local buttons = {}
+        local function Look(frame)
+            for _, child in ipairs({ frame:GetChildren() }) do
+                if child:IsShown() then
+                    if child:GetObjectType() == "Button" and child.GetText then
+                        buttons[child:GetText() or ""] = (buttons[child:GetText() or ""] or 0) + 1
+                    end
+                    Look(child)
+                end
+            end
+        end
+        Look(content)
+        report(("LAYOUT Guild page lines: %d Veto, %d Undo buttons shown"):format(buttons.Veto or 0,
+            buttons.Undo or 0))
+        check((buttons.Veto or 0) >= 1, "the Guild page shows no line with Veto")
+        check((buttons.Undo or 0) >= 1, "the Guild page shows no Undo")
+    end)
+    local panel = _G[FriendlyForeverUIPages.GUILD]
+    if panel and panel:IsShown() then panel:Hide() end
+    -- The guild the fixture set up goes, as after the other Guild scenarios.
+    FriendlyForeverUIPages.PutBackGuild()
+    if not ok then error(err, 0) end
+end)
+
 -- With the lists as a new player has them, the page's last line must still
 -- be inside its scrolling content once every note has wrapped as it does in
 -- the game (#35). The filled page above is the worst case (#52).
@@ -2048,6 +2157,38 @@ function()
         end
     end)
     if SetCVar and had then pcall(SetCVar, "nameplateShowFriendlyPlayers", had) end
+    OpenTab(FriendlyForeverUIPages.TABS[1].label)
+    if not ok then error(err, 0) end
+end)
+
+-- The Guild Login and Guild Join tabs as a guild member sees them while
+-- the guild limits theirs (#496, decision 6): the guild's note under each
+-- tab's settings, inside the panel, with the lines below it in order.
+test("the Guild Login and Guild Join tabs show the guild's note inside the panel, their lines below it (#496)",
+function()
+    local Pages = FriendlyForeverUIPages
+    local undo = Pages.FillGuild("member")
+    local ok, err = pcall(function()
+        for _, tab in ipairs({ { name = "guild-login", label = "Guild Login", shows = "vetoed by your guild" },
+            { name = "guild-join", label = "Guild Join", shows = "welcome a new member" } }) do
+            -- Shown afresh, so the tab fills from the guild just set up.
+            local panel = _G[Pages.PANEL]
+            if type(panel) == "table" and panel:IsShown() then panel:Hide() end
+            local content = Pages.OpenTab(tab.name)
+            check(content ~= nil, "couldn't open the " .. tab.label .. " tab")
+            Settle(content)
+            local name = tab.label .. " tab, the guild's note"
+            check(ShowsText(content, tab.shows), name .. ": the note isn't shown")
+            RowsInOrder(content, name, "Preview random")
+            CheckAll({
+                function() TabTextInside(content, name) end,
+                function() PushedDownInside(content, name) end,
+            })
+        end
+    end)
+    undo()
+    local panel = _G[FriendlyForeverUIPages.PANEL]
+    if type(panel) == "table" and panel:IsShown() then panel:Hide() end
     OpenTab(FriendlyForeverUIPages.TABS[1].label)
     if not ok then error(err, 0) end
 end)

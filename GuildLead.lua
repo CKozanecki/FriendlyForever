@@ -66,6 +66,14 @@ GuildLead.random = math.random
 local SECTIONS = {}
 GuildLead.ORDER = { "ranks", "caps", "vetoes" }
 
+-- Called after the memory, the guildmates seen or the recent lines change,
+-- so the Guild page (GuildPanel.lua, part 3) shows it: never with anything
+-- from a message, only that something changed.
+GuildLead.onChange = nil
+local function Changed()
+    if GuildLead.onChange then GuildLead.onChange() end
+end
+
 ------------------------------------------------------------------------
 -- Items
 ------------------------------------------------------------------------
@@ -130,6 +138,7 @@ local function Clock()
     if not Plain(now) then return 0 end
     return math.floor(now)
 end
+GuildLead.Now = Clock
 
 -- A guildmate's rank index from the roster as last read: 0 is the guild
 -- master. Nil out of a guild, or when it can't be told.
@@ -195,6 +204,7 @@ end
 local function CheckedGuild(g)
     local out = { mates = CheckedMates(g.mates) }
     out.used = Util.ClampNumber(g.used, 0, Versioned.MAX_VERSION, 0)
+    if g.asked == true then out.asked = true end
     for _, name in ipairs(GuildLead.ORDER) do
         out[name] = g[name]
         CheckedSection(out, name)
@@ -263,6 +273,19 @@ end
 function GuildLead.Version(name)
     local g = SECTIONS[name] and GuildLead.Memory()
     return g and g[name].version or 0
+end
+
+-- Whether the guild master has been asked to pick the ranks that lead with
+-- them (the Guild page, part 3): they picked some, or said only they lead
+-- for now. The page asks until then.
+function GuildLead.RanksAsked()
+    local g = GuildLead.Memory()
+    return g ~= nil and (g.asked == true or g.ranks.version > 0)
+end
+
+function GuildLead.MarkRanksAsked()
+    local g = GuildLead.Memory()
+    if g then g.asked = true end
 end
 
 -- Whether this player leads the guild you're in now: its guild master, or
@@ -432,6 +455,7 @@ function GuildLead.Set(name, items)
     pending[name] = nil
     ScheduleSend(name, GuildLead.EDIT_WAIT, true)
     ns.Diag.Log("sync", "set %s to version %s", name, version)
+    Changed()
     return true
 end
 
@@ -448,6 +472,7 @@ local function Define(name, spec)
         local g = GuildLead.Memory()
         if not g then return end
         g[name] = { version = version, items = items }
+        Changed()
         -- Who leads may have changed, so lists refused a moment ago (from a
         -- leader not known as one yet) may be taken now: check in again.
         if name == "ranks" then ScheduleCheckIn(Wait(GuildLead.SEND_WAIT_MIN, GuildLead.SEND_WAIT_MAX)) end
@@ -515,8 +540,10 @@ local function Periodic()
 end
 
 -- After each roster update (Core.lua): in a guild we haven't checked in to
--- since logging in, check in after a random wait.
+-- since logging in, check in after a random wait. Who leads, and your own
+-- rank, may have changed with it: the Guild page follows (Changed).
 function GuildLead.OnRosterUpdate()
+    Changed()
     local key = GuildKey()
     if not key or key == checkedKey then return end
     checkedKey = key
@@ -541,6 +568,7 @@ local function RecordMate(g, sender, version)
         if count >= GuildLead.MAX_MATES and oldest then mates[oldest.name] = nil end
     end
     mates[sender] = { version = version, seen = Clock() }
+    Changed()
 end
 
 local function OnCheckIn(sender, fields)
@@ -589,6 +617,7 @@ local function Record(sender, msgType, token)
     if said and Within(said.at, entry.at) then entry.text = said.text end
     recent[#recent + 1] = entry
     while #recent > GuildLead.MAX_LINES do table.remove(recent, 1) end
+    Changed()
 end
 
 -- Whether another guildmate who leads has checked in within LEADER_SEEN:
@@ -663,7 +692,10 @@ function GuildLead.OnGuildChat(text, sender)
     for i = #recent, 1, -1 do
         local entry = recent[i]
         if entry.sender == name then
-            if not entry.text and Within(entry.at, now) then entry.text = clean end
+            if not entry.text and Within(entry.at, now) then
+                entry.text = clean
+                Changed()
+            end
             break
         end
     end

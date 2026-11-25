@@ -1,4 +1,4 @@
--- Spec: #48, #47, #208, #274, #179, #408, #45, #491
+-- Spec: #48, #47, #208, #274, #179, #408, #45, #491, #496
 -- Finding a setting: /friendly find <word>, the game's Settings search where
 -- the client has one, and the one table both read (OptionsIndex.lua).
 local wow = require("spec.support.wow")
@@ -68,9 +68,10 @@ describe("Finding a setting (#48)", function()
     describe("the settings table", function()
         it("has every control on every options page, so it can't drift from the pages", function()
             local paths = ControlPaths(ns.Options.widgets)
-            local general, ledger = ns.Options.Pages()
+            local general, ledger, _, guild = ns.Options.Pages()
+            assert.is_truthy(guild)
             local pages = { [_G.FriendlyForeverOptionsPanel] = true, [general] = true, [ledger] = true,
-                [ns.Options.StartPage()] = true }
+                [ns.Options.StartPage()] = true, [guild] = true }
             local missing = {}
             for _, frame in ipairs(wow.frames) do
                 -- A dropdown's rows and click-away catcher (#274) belong to
@@ -120,7 +121,11 @@ describe("Finding a setting (#48)", function()
                 ["Blessings I give in this raid"] = true, ["Buff mode key"] = true,
                 ["Buff mode turns off again"] = true, ["Thank-you lines or When my buff lands"] = true,
                 ["Share your settings"] = true, ["Snooze"] = true, ["Profiles"] = true,
-                ["Never greet or thank"] = true }
+                ["Never greet or thank"] = true,
+                -- The Guild page's (#496): ranks named as the game gives
+                -- them, and each list's rows and Newer and Older.
+                ["Ranks that lead with the guild master"] = true, ["Veto a line said recently"] = true,
+                ["Vetoed lines: undo a veto"] = true, ["Newer and Older"] = true }
             for _, entry in ipairs(ns.OptionsIndex.SETTINGS) do
                 if not grouped[entry.name] then
                     local found = false
@@ -483,7 +488,7 @@ describe("Each setting's page is where its control is (#179)", function()
     -- when it is right), worked out from the simulated client.
     local function RealPages(entry)
         local widgets = ns.Options.widgets
-        local general, ledger, weapon = ns.Options.Pages()
+        local general, ledger, weapon, guild = ns.Options.Pages()
         local pages = {}
         CurrentEntry = entry
         for _, path in ipairs(entry.controls) do
@@ -493,7 +498,7 @@ describe("Each setting's page is where its control is (#179)", function()
             for _, frame in ipairs(frames) do
                 local places, placeCount = PlacesShowing(frame)
                 shownAny = shownAny or not (not Under(frame, general) and not Under(frame, ledger)
-                    and not Under(frame, weapon)
+                    and not Under(frame, weapon) and not Under(frame, guild)
                     and not Under(frame, ns.Options.StartPage()) and #TabsShowing(frame) == 0 and placeCount == 0)
                 if ns.BuffsTab.Owns(frame) then
                     if placeCount == #ns.BuffRules.PLACES then
@@ -505,6 +510,7 @@ describe("Each setting's page is where its control is (#179)", function()
                     end
                 elseif Under(frame, general) then pages["the General page"] = true
                 elseif Under(frame, weapon) then pages["the Weapon buffs page"] = true
+                elseif Under(frame, guild) then pages["the Guild page"] = true
                 elseif Under(frame, ledger) then pages["the Favour Ledger page"] = true
                 elseif Under(frame, ns.Options.StartPage()) then pages["the Start here page"] = true
                 else
