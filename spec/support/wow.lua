@@ -1064,6 +1064,10 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         sender included, even if the player joins a guild
 --                         later. The error message isn't modelled; the line
 --                         is still recorded in wow.sent.
+--                         Only state.inGuild == true is a guild, as on the
+--                         receiving side (#496): an unset or secret answer is
+--                         refused too, the pessimistic reading (a hidden
+--                         IsInGuild answer is still a guild in the game).
 --   Buffs between clients (#37; deliverBuffs): a buff that lands on another
 --                         client arrives there as a new aura (UNIT_AURA's
 --                         addedAuras), replacing any of the same spell, even

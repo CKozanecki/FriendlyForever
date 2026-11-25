@@ -2169,20 +2169,39 @@ describe("The simulated client's guild chat and guild sync default (#496)", func
         end
         local ann = Client("Ann", "Vale", true)
         local cid = Client("Cid", "Moor", false)
-        local net = wow.network({ ann, cid })
         wow.use(cid)
         _G.SendChatMessage("Anyone?", "GUILD")
         assert.are.equal(1, #wow.sent) -- the call is recorded; the game refuses it
         assert.is_true(wow.sent[1].refused)
+        -- Only `true` is a guild: an unset or secret answer is refused too.
+        local dee = Client("Dee", "Fen", true)
+        local eve = Client("Eve", "Ash", true)
+        local net = wow.network({ ann, cid, dee, eve })
+        wow.use(dee)
+        wow.state.inGuild = nil
+        _G.SendChatMessage("Unset", "GUILD")
+        wow.use(eve)
+        wow.state.inGuild = wow.secret(true)
+        _G.SendChatMessage("Secret", "GUILD")
+        assert.is_true(wow.sent[1].refused)
+        wow.use(dee)
+        assert.is_true(wow.sent[1].refused)
+        wow.use(ann)
+        wow.state.inGuild = true
+        wow.use(dee)
+        wow.state.inGuild = true
+        wow.use(eve)
+        wow.state.inGuild = true
+        wow.use(cid)
         -- Joining a guild before anything is delivered doesn't revive it.
         wow.state.inGuild = true
         wow.deliver(net)
-        assert.are.same({ ["Ann-Vale"] = 0, ["Cid-Moor"] = 0 }, heard)
+        assert.are.same({ ["Ann-Vale"] = 0, ["Cid-Moor"] = 0, ["Dee-Fen"] = 0, ["Eve-Ash"] = 0 }, heard)
         -- A guild member's line still goes to the guild.
         wow.use(ann)
         _G.SendChatMessage("Hi", "GUILD")
         wow.deliver(net)
-        assert.are.same({ ["Ann-Vale"] = 1, ["Cid-Moor"] = 1 }, heard)
+        assert.are.same({ ["Ann-Vale"] = 1, ["Cid-Moor"] = 1, ["Dee-Fen"] = 1, ["Eve-Ash"] = 1 }, heard)
     end)
 
     it("wow.guildChat fires CHAT_MSG_GUILD with the text and the sender first", function()
