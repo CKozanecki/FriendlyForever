@@ -1,4 +1,4 @@
--- Spec: #47, #169, #330, #40, #408, #45, #491, #508
+-- Spec: #47, #169, #330, #40, #408, #45, #491, #508, #537
 -- The Start here page and the walkthrough: the page's controls change the
 -- same settings as their full pages, the walkthrough reaches buff mode's key
 -- and triggers, skipping or finishing it is remembered, it can be replayed,
@@ -92,6 +92,19 @@ describe("Start here", function()
             assert.is_true(shown("Friendly player nameplates are off"))
         end)
 
+        -- #537: readable "1" and "0" say what they always said.
+        it("friendly nameplates readable as 1 or 0: the line is unchanged", function()
+            wow.state.cvars.nameplateShowFriendlyPlayers = "1"
+            ns.Options.FillStart()
+            assert.are.equal("Friendly player nameplates are on, so the game can tell you who buffed you.",
+                w.nameplates:GetText())
+            wow.state.cvars.nameplateShowFriendlyPlayers = "0"
+            ns.Options.FillStart()
+            assert.are.equal(ns.Colours.Text("warn", "Friendly player nameplates are off,")
+                .. " so the game can rarely tell you who buffed you. The Favours tab can show them.",
+                w.nameplates:GetText())
+        end)
+
         it("the buff button's key from Key Bindings, or that it has none, and buff mode's key", function()
             assert.is_true(shown("Buff button key: none yet"))
             wow.state.bindings[""] = BUTTON_BINDING
@@ -132,6 +145,46 @@ describe("Start here", function()
             ns.Walkthrough.Skip()
             assert.are.same(before, settingsBut(ns.db))
         end)
+    end)
+
+    -- #537: a setting the game won't read counts as off (#521), so Start
+    -- here never says they're on then, and names the key or the game's own
+    -- setting, never /friendly nameplates, which refuses then (#532).
+    describe("friendly nameplates the game won't read (black)", function()
+        -- Forever's own setting, as its options name it, written out here (docs/forever-facts.md).
+        local GAME_SETTING = "Esc > Options > Nameplates > Friendly Players"
+        local LEAD = "The game won't say whether friendly player nameplates are on,"
+        for _, case in ipairs({
+            { "missing", function() wow.state.cvars.nameplateShowFriendlyPlayers = nil end },
+            { "an error", function() _G.C_CVar.GetCVar = function() error("no") end end },
+            { "a secret", function() _G.C_CVar.GetCVar = function() return wow.secret("1") end end },
+            { "a number", function() _G.C_CVar.GetCVar = function() return 1 end end },
+        }) do
+            it(case[1] .. ": says the game won't say, and names the game's own setting", function()
+                case[2]()
+                ns.Options.FillStart()
+                local text = w.nameplates:GetText()
+                assert.are.equal(ns.Colours.Text("warn", LEAD) .. " so they count as off, and it can rarely tell you "
+                    .. "who buffed you. Show them with " .. GAME_SETTING .. ".", text)
+                assert.is_falsy(text:find("nameplates are on, so", 1, true), text)
+                assert.is_falsy(text:find("/friendly nameplates", 1, true), text)
+                assert.are.same({}, wow.errors)
+            end)
+
+            it(case[1] .. ", with the key bound: names the key", function()
+                boot({ before = function(state)
+                    state.bindings["SHIFT-V"] = "FRIENDNAMEPLATES"
+                    state.bindingText = { ["SHIFT-V"] = "Shift-V" }
+                end })
+                case[2]()
+                ns.Options.FillStart()
+                local text = w.nameplates:GetText()
+                assert.are.equal(ns.Colours.Text("warn", LEAD) .. " so they count as off, and it can rarely tell you "
+                    .. "who buffed you. Show them with Shift-V.", text)
+                assert.is_falsy(text:find("/friendly nameplates", 1, true), text)
+                assert.is_falsy(text:find(GAME_SETTING, 1, true), text)
+            end)
+        end
     end)
 end)
 
