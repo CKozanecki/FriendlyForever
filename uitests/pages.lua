@@ -897,6 +897,16 @@ local function PlayerFullName()
 end
 
 local guildUndo
+-- The scenarios fill the guild several times in one session, with almost
+-- no game time between, and the addon takes at most Comm.PEER_BURST
+-- messages from one sender at once (#536's testing review: one guildmate's
+-- check-in in every fill was dropped by the fifth). So each fill's check-in
+-- comes from the next of the guildmates who send nothing else in it: one
+-- each per #GUILD_CHECK_INS fills. The lines' senders each send one per
+-- leader fill, so a session can fill the leader's view Comm.PEER_BURST
+-- times; spec/uitests_pages_spec.lua runs the scenarios' fills in one boot.
+local GUILD_CHECK_INS = { 2, 13, 14, 15, 16 } -- FullName indexes: saved mates, none saying a line
+local guildFills = 0
 -- Sets the guild up for a view; returns a function that puts the game's
 -- reads and the saved settings back (its lines said stay, in the addon's
 -- memory, until a reload, but show only to a guild leader).
@@ -987,7 +997,9 @@ function Pages.FillGuild(view)
     -- memory now: it keeps a section it takes as it is, and puts a fresh one
     -- in the place of one it refuses.
     -- Its version, which the saved file doesn't hold, shows it arrived.
-    local mate = FullName(1)
+    guildFills = guildFills + 1
+    local mate = FullName(GUILD_CHECK_INS[(guildFills - 1) % #GUILD_CHECK_INS + 1])
+    Pages.guildCheckIn = mate
     A_Admin.FireEvent("CHAT_MSG_ADDON", "FriendlyFvr", ("1;GCHECK;%s;%s;%d;%d;%d"):format(mate,
         Pages.GUILD_CHECK_IN_VERSION, sections.ranks.version, sections.caps.version, sections.vetoes.version),
         "GUILD", mate)

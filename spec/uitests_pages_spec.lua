@@ -961,10 +961,38 @@ describe("the UI simulator's Guild page (#496)", function()
             assert.is_true(undo >= 1)
             -- The guildmate's check-in arrived: its version is the one it sent.
             local key = wow.state.realm .. ":" .. Pages.GUILD_NAME
-            -- The fixture's first guildmate, who sends it (its FullName(1)).
-            local mate = _G.FriendlyForeverDB.guilds[key].mates["Aerendhiliel-Stormwhisper"]
+            local mate = _G.FriendlyForeverDB.guilds[key].mates[Pages.guildCheckIn]
             assert.are.equal(Pages.GUILD_CHECK_IN_VERSION, mate.version)
         end)
+
+    -- #536's testing review: the ui-sim scenarios fill the guild in one
+    -- session with almost no game time between, and one guildmate's
+    -- check-in in every fill was dropped by the fifth (Comm.PEER_BURST), so
+    -- the Guild tab scenario failed before its checks. Its fills, in
+    -- uitests/scenarios.lua's order: the page as leader, ask and member, the
+    -- lines (leader), then the tab (member).
+    it("takes every fill the scenarios make in one session, with no time between (black)", function()
+        local before = wow.now
+        local key = wow.state.realm .. ":" .. Pages.GUILD_NAME
+        local senders = {}
+        for step, fill in ipairs({
+            function() return Pages.FillGuild("leader") end,
+            function() return Pages.FillGuild("ask") end,
+            function() return Pages.FillGuild("member") end,
+            function() return Pages.ShowGuildLines() end,
+            function() return Pages.ShowGuildTab() end,
+        }) do
+            local ok, err = pcall(fill)
+            assert(ok, ("fill %d: %s"):format(step, tostring(err)))
+            local mate = _G.FriendlyForeverDB.guilds[key].mates[Pages.guildCheckIn]
+            assert.are.equal(Pages.GUILD_CHECK_IN_VERSION, mate.version)
+            senders[Pages.guildCheckIn] = (senders[Pages.guildCheckIn] or 0) + 1
+            Pages.PutBackGuild()
+        end
+        assert.are.equal(before, wow.now)
+        -- Each fill's check-in came from a guildmate of its own.
+        for name, n in pairs(senders) do assert.are.equal(1, n, name) end
+    end)
 
     it("fails loudly when the addon stays off, rather than shoot a page its messages never reached (black)", function()
         ns.db.enabled = false
