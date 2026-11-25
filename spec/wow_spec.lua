@@ -2173,9 +2173,8 @@ describe("The simulated client's guild chat and guild sync default (#496)", func
         wow.use(cid)
         _G.SendChatMessage("Anyone?", "GUILD")
         assert.are.equal(1, #wow.sent) -- the call is recorded; the game refuses it
-        wow.deliver(net)
-        assert.are.same({ ["Ann-Vale"] = 0, ["Cid-Moor"] = 0 }, heard)
-        -- Joining a guild later doesn't revive the refused line.
+        assert.is_true(wow.sent[1].refused)
+        -- Joining a guild before anything is delivered doesn't revive it.
         wow.state.inGuild = true
         wow.deliver(net)
         assert.are.same({ ["Ann-Vale"] = 0, ["Cid-Moor"] = 0 }, heard)
