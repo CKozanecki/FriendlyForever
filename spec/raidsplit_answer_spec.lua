@@ -1,4 +1,4 @@
--- Spec: #372, #443
+-- Spec: #372, #443, #497
 -- The raid buff split reads the raid as buff mode does (#372):
 -- GroupBuffs.RaidAnswer, which believes IsInRaid() only when the raid's
 -- slots agree. Only a believable "not in a raid" ends the split or forgets
@@ -33,7 +33,8 @@ describe("The raid buff split reads the raid as buff mode does (#372)", function
         wow.use(c)
         local n = 0
         for _, msg in ipairs(wow.addonSent) do
-            if msg.channel == "RAID" then n = n + 1 end
+            -- Shares only: the raid assignments' check-ins (#497) go on the RAID route too.
+            if msg.channel == "RAID" and msg.text:find("^%d+;SHARE;") then n = n + 1 end
         end
         return n
     end

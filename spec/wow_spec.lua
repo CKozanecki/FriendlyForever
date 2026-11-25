@@ -1,4 +1,4 @@
--- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471, #485, #482, #486, #491, #496, #504, #510
+-- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471, #485, #482, #486, #491, #496, #497, #504, #510
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -557,6 +557,33 @@ describe("The simulated client's group versions (#41)", function()
         assert.is_true(issecretvalue(select(3, GetRaidRosterInfo(1))))
         wow.state.rosterSecret = true
         assert.is_true(issecretvalue(GetRaidRosterInfo(2)))
+    end)
+
+    it("answers the raid roster's ranks: the leader 2, an assistant 1, the rest 0, and hides them as asked (#497)",
+        function()
+        boot()
+        local function rank(i) return select(2, GetRaidRosterInfo(i)) end
+        assert.are.equal(0, rank(1))
+        assert.are.equal(0, rank(5), "your own slot")
+        wow.state.leader = wow.state.units.raid2.id
+        assert.are.equal(2, rank(2))
+        assert.is_true(UnitIsGroupLeader("raid2"))
+        wow.state.units.raid3.assistant = true
+        assert.are.equal(1, rank(3))
+        wow.state.leader, wow.state.isLeader = nil, true
+        assert.are.equal(2, rank(5), "you lead")
+        assert.is_true(UnitIsGroupLeader("player"))
+        wow.state.units.raid4.raidRank = 7
+        assert.are.equal(7, rank(4), "set outright")
+        wow.state.units.raid3.secrets = { rank = true }
+        assert.is_true(issecretvalue(rank(3)))
+        -- Who leads unreadable: the ranks too, your own slot or the others'.
+        wow.state.isLeaderUnreadable = true
+        assert.is_true(issecretvalue(rank(5)))
+        assert.are.equal(0, rank(1))
+        wow.state.isLeaderUnreadable, wow.state.leaderUnreadable = false, true
+        assert.are.equal(2, rank(5))
+        assert.is_true(issecretvalue(rank(1)))
     end)
 
     it("covers the target's subgroup, uses a reagent, and puts the buff on those reached", function()

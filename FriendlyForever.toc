@@ -40,6 +40,7 @@ Receipts.lua
 GuildHellos.lua
 Versioned.lua
 GuildLead.lua
+RaidLead.lua
 Parser.lua
 Announcer.lua
 Greeter.lua

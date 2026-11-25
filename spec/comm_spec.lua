@@ -1,4 +1,4 @@
--- Spec: #32, #46, #70, #325
+-- Spec: #32, #46, #70, #325, #497
 -- The hidden channel between copies of the addon: addon messages over the
 -- game's own routes, with every incoming message treated as untrusted.
 local wow = require("spec.support.wow")
@@ -60,7 +60,8 @@ describe("Hidden channel", function()
             wow.use(client)
             local out = {}
             for _, m in ipairs(wow.addonSent) do
-                if not m.text:find("^%d+;SHARE;") then out[#out + 1] = m end
+                -- The raid split's shares and the raid assignments' check-ins (#497) aren't hellos.
+                if not m.text:find("^%d+;SHARE;") and not m.text:find("^%d+;RCHECK;") then out[#out + 1] = m end
             end
             return out
         end
@@ -114,8 +115,8 @@ describe("Hidden channel", function()
                 assert.are.equal("1;HELLO;Ann-Vale;" .. TOC_VERSION .. ";0", sentBy(a)[1].text)
                 -- B answers on the same route and A learns of it too. Each
                 -- received one hello (in a raid, each also hears the other's
-                -- raid split share, #70).
-                local shares = case.route == "RAID" and 1 or 0
+                -- raid split share, #70, and its raid assignments check-in, #497).
+                local shares = case.route == "RAID" and 2 or 0
                 sayHelloFrom(b, case.route)
                 knows(a, b)
                 wow.use(b); assert.are.equal(1 + shares, count(b.ns, "commReceived"))

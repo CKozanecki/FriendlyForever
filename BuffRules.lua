@@ -945,10 +945,13 @@ end
 -- Whether you cover buff in this raid: the Blessings you chose, once you
 -- have; otherwise your share of the raid buff split (RaidSplit.lua, #70),
 -- which is every buff when there's no split (not in a raid, or no other
--- copy of your class in it).
+-- copy of your class in it). The raid leader's assignment of a Blessing
+-- (#497) comes before your own choice of it.
 function BuffRules.CoversInRaid(buff)
     local chosen = InForce()
-    if chosen and buff.family == "blessing" then return chosen[buff.key] == true end
+    if chosen and buff.family == "blessing" and not ns.RaidSplit.Assigned(buff) then
+        return chosen[buff.key] == true
+    end
     return ns.RaidSplit.Covers(buff)
 end
 
