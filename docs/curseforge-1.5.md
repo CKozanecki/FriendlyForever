@@ -1,5 +1,6 @@
 <!-- Draft CurseForge description for 1.5, for the owner to paste (not shipped: docs/ is in .pkgmeta's ignore list).
      Started from the 1.4 draft (docs/curseforge-1.4.md), itself based on the approved 1.3 draft's layout and voice.
+     Updated for 1.6.0 on 25 Nov from its changelog notes: the Guild page, raid assignments (experimental), the nameplate hints and the restart.
      Updated for 1.5.3 on 24 Nov from its changelog notes: a profile of its own per character, why passers-by stop, the guild leader groundwork, and the restart.
      Updated for 1.5.2 on 20 Nov from its changelog notes: per-character buff settings and profiles, and the welcome step.
      Updated for 1.5.1 on 20 Nov from its changelog notes: the Key Bindings section, the idle icon and the shift back.
@@ -19,11 +20,18 @@
 
 Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets, welcomes and thanks for you, and returns every kindness with a buff. It's built to stay friendly when a whole guild runs it, without flooding chat.
 
+**New in 1.6:**
+
+- a **Guild page** under the options: every guildmate with the addon sees who in the guild has it, who leads, the guild's limits and the vetoed lines; leaders set the limits, see the lines each copy said recently and veto one so no copy says it again; only the guild master picks which ranks lead;
+- the raid leader's buff assignments (experimental): in `/friendly raid`, the leader and assistants say who gives which buff to which groups, and copies offer an assigned buff only to those groups; anything unassigned keeps the raid buff split;
+- when the game won't say whether friendly nameplates are on, the buff button, the Favours tab and Start here now name your key for them, or the game's own setting;
+- this version adds files, so fully restart the game after updating; /reload isn't enough.
+
 **New in 1.5.3:**
 
 - a character that never chose a profile, logging in while a shared profile is active, now gets a profile of its own, named after it, instead of being dropped to Default;
 - passers-by say why they can't run: friendly nameplates off, a capital city, a dungeon, raid or battleground, and so on;
-- groundwork for guild leaders to quiet the guild's greetings: the messaging and the guild's shared memory are in, and the caps and vetoes take effect, but the panel where a leader sets them comes in 1.6, so nothing changes until a leader sets limits;
+- groundwork for guild leaders to quiet the guild's greetings: the messaging and the guild's shared memory are in, and the caps and vetoes take effect, but the panel where a leader sets them came in 1.6, so nothing changes until a leader sets limits;
 - this version adds files, so restart the game after updating.
 
 **New in 1.5.2:**
@@ -90,6 +98,7 @@ Friendly Forever makes you the friendliest adventurer in WoW Forever: it greets,
 ## Greetings and thanks
 
 - **Guild greetings:** says hello when guildmates log in, and welcomes new members to the guild. When a line names a zone, it's your guildmate's, from the guild roster.
+- **The Guild page:** every guildmate with the addon sees who has it (version, last seen), who leads, the guild's limits and the vetoed lines. The guild master picks which ranks lead; leaders cap how many copies greet a login or welcome a new member, turn guild hellos off for the whole guild, and veto a line so no copy says it again. Limits only ever make the addon quieter: your own lower setting stays, and nothing a guildmate sends can make your copy cast or say new words. The Guild Login and Guild Join tabs say when your guild's limits apply.
 - **Group welcomes:** says hello when you join a party or raid, with a different line when you rejoin the same group.
 - **Level-up cheers:** congratulates a party member who levels up.
 - **Thanks for buffs:** thanks whoever buffs you, by name and buff, with a line in /say, a whisper, a /thank emote, or a line and an emote. You choose what happens when it can't reach them.
@@ -126,6 +135,7 @@ One tab holds all of it. Top to bottom: **When someone buffs you** (thank them, 
 - **Druid forms and Ghost Wolf:** in cat, bear, travel or any other druid form except Moonkin (which casts as usual), or a shaman's Ghost Wolf, the key leaves your buffs alone so scrolling never knocks you out of the form. The button still shows the buff, and a click casts it. Turn on **Fast-cast buffs in form** on the Buffs tab (off by default) to let the key cast them in a form or Ghost Wolf too; once everyone who needed a buff when you left the form is done, the button offers your form back, before anyone who turns up later, and your next press shifts you into it; weapon buffs work with the key as before.
 - **Tops up before it runs out:** a buff of yours with under 5 minutes left (you choose) counts as missing, so you renew it in time. Set it with **Top up my buffs with under** in the Buff mode section of the Buffs tab.
 - **Shares the work in raids:** copies of Friendly Forever split the buffs between them, so three priests give Fortitude, Spirit and Shadow Protection between them, and paladins split their Blessings instead of all giving Kings.
+- **Raid assignments (experimental):** the raid leader and assistants can assign a buff to a player for chosen groups with `/friendly raid`. Copies offer an assigned buff only to its groups; an assignment to someone offline, out of the raid, without the addon or without the buff falls back to the split. Each copy checks the sender's rank itself, and an assignment can only narrow what your copy offers, never cast.
 - **Paladin-aware:** gives one Blessing each, never overwriting yours.
 - **Even underwater breathing:** offers Unending Breath or Water Breathing only near water, so you're never asked to cast them in the desert.
 - **Dungeons and raids:** turns on as you enter with your group and stays on until everyone is in and buffed, or the first pull. Once the whole group is inside, a PvP-flagged member gets buffed too, since nobody can attack you there.
@@ -157,6 +167,6 @@ When a whole guild runs Friendly Forever, it should feel warm, not noisy:
 
 ## Updating
 
-Coming from 1.5.2 or earlier, restart the game after updating: 1.5.3 adds new files (Versioned.lua and GuildLead.lua), and /reload isn't enough. Coming from 1.3 or earlier, the same went for 1.4. Otherwise a /reload is enough.
+Coming from 1.5.3 or earlier, restart the game after updating: 1.6.0 adds new files (GuildPanel.lua and RaidLead.lua), and /reload isn't enough. The same went for 1.5.3 (Versioned.lua and GuildLead.lua), so coming from 1.5.2 or earlier is covered too. Coming from 1.3 or earlier, the same went for 1.4. Otherwise a /reload is enough.
 
 _In active development for WoW Forever. See the changelog for what's in each release._

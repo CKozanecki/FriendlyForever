@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0
+
+- **A Guild page under Friendly Forever's options:** every guildmate with the addon sees who in the guild has it (their version and when they were last seen), who leads, the guild's limits and the vetoed lines. The guild master picks the ranks that lead with them (the page asks the first time), and leaders set the limits there, see the guild lines each copy said recently, veto one so no copy says it again, or undo a veto. The Guild Login and Guild Join tabs now say when your guild's settings limit yours, and a vetoed line's hover says so. (#496)
+- **Raid leader's buff assignments (experimental):** the raid leader and raid assistants can set who gives which buff to which groups, in `/friendly raid` (for example Fortitude: "Ann Vale 1-4, Bob Lake 5-8"). Copies in the raid then offer an assigned buff only to the groups it's assigned for; buffs nobody is assigned keep the raid buff split, and an assignment to someone offline, out of the raid, without the addon or without that buff falls back to the split for that buff. Each copy checks the sender's rank in its own raid roster on every message, and an assignment can only narrow what your copy offers, never cast. Leaving the raid forgets them; a new raid leader clears them. Tried in tests only so far: tell us how it goes in a raid. (#497)
+- **Friendly nameplates hints:** when the game won't say whether friendly nameplates are on, the buff button, the Favours tab's note and the chat line now name your key for them, or the game's own setting (Esc > Options > Nameplates > Friendly Players), instead of `/friendly nameplates`, which can't help then (#532)
+- **Start here and unreadable nameplates:** when the game won't say whether friendly nameplates are on, Start here no longer says they're on. It says the game won't say, that they count as off, and how to show them: your key for them, or the game's own setting (#537)
+- This version adds files (GuildPanel.lua and RaidLead.lua). After updating, restart the game; /reload isn't enough. (#496, #497)
+
 ## 1.5.3
 
 - **Groundwork for guild leaders to quiet the guild's Friendly Forever:** the guild master, and the officer ranks the guild master picks, will be able to cap how many copies greet a guildmate who logs in, cap how many welcome a new member, turn guild hellos off for the whole guild, and veto a line so no copy in the guild says it again. The messaging and the guild's shared memory are in this version, and the caps and vetoes take effect, but the guild panel where a leader sets them comes in 1.6, so nothing changes for players until a leader sets limits. These only ever make the addon quieter: your own lower setting stays, and nothing a guildmate sends can make your copy say new words or cast (#496)
