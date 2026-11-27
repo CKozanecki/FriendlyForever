@@ -176,7 +176,9 @@ describe("Food buffs", function()
         end)
 
         it("a druid taken out of Cat Form to eat isn't shifted back until the meal is over (#495)", function()
-            boot({ class = "DRUID", before = function(s) s.form = 1 end })
+            boot({ class = "DRUID", before = function(s)
+                s.form, s.formSpell = 1, wow.CAT_FORM -- so the press records a return (#495)
+            end })
             local keyMacro = function() return button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.keyMacroText) end
             ns.db.buffBack.fastCastInForm = true
             refresh()
@@ -269,6 +271,22 @@ describe("Food buffs", function()
             wow.advance(ns.FoodBuffs.HELD_BACK_SECONDS)
             refresh()
             assert.are.equal(WOLF_MACRO, macro(), "a first time again, not a second")
+        end)
+
+        it("a refusal holds back only the food refused: another chosen since is offered at once", function()
+            boot({ items = { [F.spicedWolfMeat] = 2, [F.monsterOmelet] = 2 },
+                before = function(s) s.foodRefusal = "You can't do that yet." end })
+            press()
+            nothingOffered("you couldn't eat your last Spiced Wolf Meat")
+            ns.db.buffBack.foodItem = F.monsterOmelet
+            refresh()
+            assert.are.equal("/use item:12218", macro())
+        end)
+
+        it("a target the game names that isn't a player (a one-word name) still answers your press", function()
+            boot({ before = function(s) s.foodSentTarget = "Bread" end })
+            press()
+            assert.matches("Eating Spiced Wolf Meat", button.result:GetText(), 1, true)
         end)
 
         it("a refusal by the game holds the food back a while, as for weapon buffs", function()
@@ -469,10 +487,28 @@ describe("Food buffs", function()
                 boot()
                 table.insert(wow.state.playerAuras, aura)
                 nothingOffered("can't tell whether you're Well Fed")
+                assert.are.same({}, wow.errors, "a secret is never read")
             end
             -- A junk aura (not a table) too.
             boot()
             _G.C_UnitAuras.GetAuraDataByIndex = function(_, i) if i == 1 then return "Well Fed" end end
+            nothingOffered("can't tell whether you're Well Fed")
+        end)
+
+        it("a secret aura the API hands back is never read: can't tell", function()
+            boot()
+            _G.C_UnitAuras.GetAuraDataByIndex = function(_, i)
+                if i == 1 then return wow.secret({ spellId = 1248420 }) end
+            end
+            nothingOffered("can't tell whether you're Well Fed")
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("a spell ID the game says is secret, even one that reads as a number, is can't tell", function()
+            boot()
+            local isSecret = ns.Util.IsSecret
+            ns.Util.IsSecret = function(v) return v == 777777 or isSecret(v) end -- a secret that keeps its type
+            table.insert(wow.state.playerAuras, { spellId = 777777, isHelpful = true })
             nothingOffered("can't tell whether you're Well Fed")
         end)
 
@@ -521,6 +557,10 @@ describe("Food buffs", function()
             end
             assert.is_nil(M({ foodItem = 2680 }), "not a food offer")
             assert.is_nil(M("2680"))
+            -- A secret that keeps its type (a whole number) is never used as an index.
+            local isSecret = ns.Util.IsSecret
+            ns.Util.IsSecret = function(v) return v == 2680 or isSecret(v) end
+            assert.is_nil(M({ food = true, foodItem = 2680 }), "a secret item")
         end)
 
         it("the spell the client names for the food is read safely: a secret one adds nothing", function()
@@ -574,6 +614,23 @@ describe("Food buffs", function()
             wow.state.items[F.goldthornTea] = 1
             wow.run(w.food, "OnClick")
             assert.are.same({ 0, F.goldthornTea, F.spicedWolfMeat }, shown(w.food))
+        end)
+
+        it("marks your choice in the list even after a food you loot moves its row", function()
+            boot({ food = F.spicedWolfMeat, items = { [F.spicedWolfMeat] = 1, [F.candyBar] = 1 } })
+            local _, _, page = ns.Options.Pages()
+            wow.run(page, "OnShow")
+            local w = ns.Options.widgets.weapon
+            local function marked()
+                for _, row in ipairs(w.food.rows) do
+                    if row:IsShown() and row.highlightLocked then return row.value end
+                end
+            end
+            assert.are.equal(F.spicedWolfMeat, marked())
+            wow.state.items[F.monsterOmelet] = 1 -- level 35: listed above your choice
+            wow.run(w.food, "OnClick")
+            assert.are.same({ 0, F.monsterOmelet, F.candyBar, F.spicedWolfMeat }, shown(w.food))
+            assert.are.equal(F.spicedWolfMeat, marked(), "still your choice, not the row it was on")
         end)
 
         it("lists at most FOOD_ROWS foods, so the list fits", function()

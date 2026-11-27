@@ -865,6 +865,8 @@ M.COMBAT_ERROR = "You can't do that while in combat."
 --                         the food (M.COMBAT_ERROR); state.foodRefusal (text)
 --                         makes the server refuse it. In a druid's form or
 --                         Ghost Wolf it acts as for a weapon buff's item.
+--                         UNIT_SPELLCAST_SENT names the food as its target
+--                         (state.foodSentTarget another name), never you.
 --                         Dying ends a meal and takes Well Fed away. A food
 --                         that gives none (M.PLAIN_FOOD) is eaten with no
 --                         Well Fed.
@@ -1770,7 +1772,8 @@ local function eat(item)
     local guid = "Food-" .. foodCastCount
     -- What the game names as its target is unconfirmed (#545): the food's
     -- name here, never a player's (the pessimistic reading, as a weapon buff's).
-    M.fire("UNIT_SPELLCAST_SENT", "player", food and food.name or "Tough Jerky", guid, spell)
+    M.fire("UNIT_SPELLCAST_SENT", "player", M.state.foodSentTarget or (food and food.name) or "Tough Jerky", guid,
+        spell)
     M.foodSends[#M.foodSends + 1] = { item = item, at = M.now }
     local refusal = M.state.foodRefusal
     if not refusal and M.state.alreadyFedRefuses and food and M.wellFedAura() then refusal = M.ALREADY_FED_ERROR end
