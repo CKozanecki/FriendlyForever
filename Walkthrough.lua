@@ -276,7 +276,7 @@ Walkthrough.STEPS = {
     {
         -- Each character's own buff settings (#508): weapon buffs were
         -- reset once for every character (the owner), so the step opens
-        -- the Weapon buffs page to set them, and names the settings each
+        -- the Weapon and food buffs page to set them, and names the settings each
         -- character copied. Each character sees it once (character = true:
         -- Walkthrough.OnLogin, Profiles.NeedsWelcome), in the walkthrough,
         -- What's new, or on its own.
@@ -297,15 +297,15 @@ Walkthrough.STEPS = {
                         .. "these settings are that profile's, and changing them changes no other character")
                 start = (Walkthrough.WhatsNew() and "Weapon buffs are now set for each character, and were "
                     .. "reset for every character, this profile's included: set them again here.\n\n" or "")
-                    .. "This character uses " .. whose .. ": its weapon buffs, here on the Weapon buffs page, "
+                    .. "This character uses " .. whose .. ": its weapon buffs, here on the Weapon and food buffs page, "
                     .. "and:\n\n"
             elseif Walkthrough.WhatsNew() then
                 start = "Weapon buffs are now set for each character, and were reset for every character: set "
-                    .. "this character's again here, on the Weapon buffs page.\n\nThese are each character's own "
-                    .. "too, and started as a copy of the settings you had: check or change them.\n\n"
+                    .. "this character's again here, on the Weapon and food buffs page.\n\nThese are each "
+                    .. "character's own too, and started as a copy of the settings you had: check or change them.\n\n"
             else
                 start = "This character's weapon buffs are its own, and start unset: set them here, on the Weapon "
-                    .. "buffs page.\n\nThese are its own too, a copy of your settings to start with: check or "
+                    .. "and food buffs page.\n\nThese are its own too, a copy of your settings to start with: check or "
                     .. "change them.\n\n"
             end
             return start
@@ -547,7 +547,8 @@ function Walkthrough.OnLogin()
                     and "this character uses a shared profile's buff settings"
                     or "this character uses its own profile's buff settings")
                 or "this character's weapon buffs aren't set yet, and some buff settings are its own")
-                .. ": the walkthrough shows where. Esc > Options > AddOns > " .. ns.TITLE .. " > Weapon buffs.")
+                .. ": the walkthrough shows where. Esc > Options > AddOns > " .. ns.TITLE
+                .. " > Weapon and food buffs.")
             Walkthrough.Start("character")
         end
         return

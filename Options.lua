@@ -203,7 +203,8 @@ end
 -- (or clicking anywhere else, or hiding the button) closes it. order lists
 -- the saved values, texts says how each reads. get() returns the saved
 -- value (anything damaged reads as the first, the default); pick(value)
--- saves the chosen one.
+-- saves the chosen one. dd.SetChoices(order, texts) lists others, for a
+-- list that changes (#544: the foods you carry).
 local ARROW = "Interface\\Buttons\\Arrow-Down-Up"
 local function Dropdown(parent, order, texts, width, get, pick)
     local dd = Button(parent, texts[order[1]], width, nil)
@@ -220,7 +221,6 @@ local function Dropdown(parent, order, texts, width, get, pick)
     local list = CreateFrame("Frame", nil, dd)
     list:SetFrameStrata("DIALOG")
     list:SetPoint("TOPLEFT", dd, "BOTTOMLEFT", 0, -2)
-    list:SetSize(width, 22 * #order)
     list:Hide()
     -- Behind the rows: a click anywhere else closes the list.
     local catcher = CreateFrame("Button", nil, list)
@@ -240,15 +240,32 @@ local function Dropdown(parent, order, texts, width, get, pick)
         for _, row in ipairs(dd.rows) do row:SetFrameLevel(base + 2) end
     end
     list:SetScript("OnShow", Layer)
-    for i, value in ipairs(order) do
-        local row = Button(list, texts[value], width, function()
-            list:Hide()
-            pick(value)
-        end)
-        row:SetPoint("TOPLEFT", list, "TOPLEFT", 0, -22 * (i - 1))
-        row.value = value
-        dd.rows[i] = row
+    -- One row per choice; rows a shorter list doesn't need are hidden.
+    function dd.SetChoices(newOrder, newTexts)
+        order, texts = newOrder, newTexts
+        for i, value in ipairs(order) do
+            local row = dd.rows[i]
+            if not row then
+                row = Button(list, "", width, nil)
+                row:SetScript("OnClick", function(self)
+                    list:Hide()
+                    pick(self.value)
+                end)
+                row:SetPoint("TOPLEFT", list, "TOPLEFT", 0, -22 * (i - 1))
+                dd.rows[i] = row
+            end
+            row:SetText(texts[value])
+            row.value = value
+            row:Show()
+        end
+        for i = #order + 1, #dd.rows do
+            dd.rows[i].value = nil
+            dd.rows[i]:Hide()
+        end
+        list:SetSize(width, 22 * #order)
+        if list:IsShown() then Layer() end
     end
+    dd.SetChoices(order, texts)
 
     -- The current choice on the button, and marked in the list.
     function dd.Fill()
@@ -260,7 +277,10 @@ local function Dropdown(parent, order, texts, width, get, pick)
         end
     end
     dd:SetScript("OnClick", function()
-        if not list:IsShown() then Layer() end
+        if not list:IsShown() then
+            if dd.BeforeOpen then dd.BeforeOpen() end
+            Layer()
+        end
         list:SetShown(not list:IsShown())
     end)
     dd:SetScript("OnHide", function() list:Hide() end)
@@ -1751,13 +1771,14 @@ function Options.OpenTab(tab, row)
 end
 
 ------------------------------------------------------------------------
--- Weapon buffs (#45): its own small page, experimental, off by default.
+-- Weapon and food buffs (#45, #544): their own small page, experimental, off
+-- by default.
 ------------------------------------------------------------------------
 
 Options.WEAPON_HELP = "Experimental. In buff mode, once your favours, your group and your self-buffs are done, "
     .. "the button offers the kind you choose for a hand that has none on it: the best one you carry and can "
-    .. "use. One press puts it on. Nothing is ever put on by itself. Right-click skips your weapon buffs for "
-    .. "5 minutes."
+    .. "use. One click on the button puts it on: buff mode's key never uses an item (a shaman's imbue goes on "
+    .. "with it, as any buff). Nothing is ever put on by itself. Right-click skips your weapon buffs for 5 minutes."
 Options.WEAPON_KIND_TEXT = { none = "nothing" }
 
 -- The hand's chosen kind, read from a section that may be damaged (#330).
@@ -1787,9 +1808,56 @@ local function WeaponDropdown(parent, slot, field)
     end)
 end
 
+-- Your food (#544): the list shows the foods that give Well Fed you carry
+-- now, the highest level first, at most FOOD_ROWS of them, and your choice
+-- even when you carry none. 0 is none.
+Options.FOOD_ROWS = 10
+Options.FOOD_HELP = "Experimental. Food that gives Well Fed (5% more experience on Forever), offered after your "
+    .. "weapon buffs while you have no Well Fed and carry it, out of combat and not where you rest. Solo, buff "
+    .. "mode turns on to offer it when Well Fed runs out. One click on the button eats it: buff mode's key never "
+    .. "does. Right-click skips your food for 5 minutes."
+Options.FOOD_NONE_TEXT = "nothing"
+
+-- The foods to list now: { 0, item, ... } and how each reads.
+function Options.FoodChoices()
+    local order, texts = { 0 }, { [0] = Options.FOOD_NONE_TEXT }
+    local carried = {}
+    for item, food in pairs(ns.FoodBuffs.FOODS) do
+        local count = ns.WeaponBuffs.Shared.Count(item)
+        if count and count > 0 then carried[#carried + 1] = { item = item, level = food.level, name = food.name } end
+    end
+    table.sort(carried, function(a, b)
+        if a.level ~= b.level then return a.level > b.level end
+        if a.name ~= b.name then return a.name < b.name end
+        return a.item < b.item
+    end)
+    for i = 1, math.min(#carried, Options.FOOD_ROWS) do
+        local item = carried[i].item
+        order[#order + 1] = item
+        texts[item] = ns.FoodBuffs.Name(item)
+    end
+    local chosen = ns.FoodBuffs.Chosen()
+    if chosen and not texts[chosen] then
+        order[#order + 1] = chosen
+        texts[chosen] = ns.FoodBuffs.Name(chosen) .. " (none carried)"
+    end
+    return order, texts
+end
+
+local function FoodDropdown(parent)
+    local order, texts = Options.FoodChoices()
+    local dd = Dropdown(parent, order, texts, 300, function() return ns.FoodBuffs.Chosen() or 0 end, function(value)
+        BuffBack().foodItem = value
+        Options.Refresh()
+        ns.BuffButton.Refresh()
+    end)
+    dd.BeforeOpen = function() dd.SetChoices(Options.FoodChoices()) end
+    return dd
+end
+
 function Options.CreateWeaponPage()
     local w = widgets.weapon
-    weaponPage = SubPage("Weapon buffs", "Weapon buffs (experimental)", Options.WEAPON_PAGE)
+    weaponPage = SubPage("Weapon and food buffs", "Weapon and food buffs (experimental)", Options.WEAPON_PAGE)
     local page = weaponPage
     w.help = Note(page, page.heading, Options.WEAPON_HELP)
     w.enabled = Checkbox(page, "Offer weapon buffs in buff mode, after my self-buffs", function(on)
@@ -1808,7 +1876,19 @@ function Options.CreateWeaponPage()
     w.off:SetPoint("LEFT", w.offLabel, "LEFT", 80, 0)
     w.note = Note(page, w.offLabel, "Stones and oils for anyone, poisons for rogues, a shaman's imbues for the "
         .. "main hand. A hand whose weapon has its own Use is left for you to do by hand. In a druid's form or "
-        .. "Ghost Wolf, a press may drop you out of the form to put it on, as doing it by hand would.")
+        .. "Ghost Wolf, a click may drop you out of the form to put it on, as doing it by hand would.")
+    w.foodHelp = Note(page, w.note, Options.FOOD_HELP)
+    w.foodEnabled = Checkbox(page, "Offer my food in buff mode, after my weapon buffs", function(on)
+        BuffBack().foodBuffs = on
+        Options.Refresh()
+        ns.BuffButton.Refresh()
+    end)
+    w.foodEnabled:SetPoint("TOPLEFT", w.foodHelp, "BOTTOMLEFT", -4, -10)
+    w.foodLabel = Label(page, "Food:")
+    w.foodLabel:SetPoint("TOPLEFT", w.foodEnabled, "BOTTOMLEFT", 4, -16)
+    w.food = FoodDropdown(page)
+    w.food:SetPoint("LEFT", w.foodLabel, "LEFT", 80, 0)
+    w.foodNote = Note(page, w.foodLabel, "The list shows the foods that give Well Fed you carry now.")
     page:SetScript("OnShow", function() FillWeapon() end)
 end
 
@@ -1817,6 +1897,9 @@ FillWeapon = function()
     w.enabled:SetChecked(Config.Field("buffBack", "weaponBuffs") == true)
     w.main.Fill()
     w.off.Fill()
+    w.foodEnabled:SetChecked(Config.Field("buffBack", "foodBuffs") == true)
+    w.food.SetChoices(Options.FoodChoices())
+    w.food.Fill()
 end
 
 -- The page helpers the Guild page's file uses (GuildPanel.lua, #496).

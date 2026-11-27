@@ -48,7 +48,8 @@ One tab holds all of it: thanking players who buff you, offering your buff back,
 - **Buffs your group:** fills in party and raid members missing your buffs, one per press, skipping anyone dead, out of range, out of sight or flagged for PvP. Group versions (Arcane Brilliance, Prayers, Gift of the Wild, Greater Blessings) are used when they cover enough of the group.
 - **Buffs you, too:** solo, it keeps your own Fortitude, Intellect, Mark or Blessing up, and turns itself on when one is missing or running low.
 - **Your self-buffs:** Inner Fire, mage and warlock armors, Lightning Shield, Battle Shout, Aspects, Trueshot Aura, paladin auras and Righteous Fury, after everyone else is done.
-- **Weapon buffs (experimental, off by default):** pick a stone, oil, poison or shaman imbue for each hand on the Weapon buffs page. Once everyone else is done, the button offers it for a hand with nothing on it, and one press puts it on. While you're resting in a city, an inn or a town, weapon buffs wait until you leave.
+- **Weapon buffs (experimental, off by default):** pick a stone, oil, poison or shaman imbue for each hand on the Weapon and food buffs page. Once everyone else is done, the button offers it for a hand with nothing on it, and one click puts it on. Anything that uses an item waits for a click: buff mode's key never uses one, while a shaman's imbue goes on with the key like any buff. While you're resting in a city, an inn or a town, weapon buffs wait until you leave.
+- **Food buffs (experimental, off by default):** pick a food that gives Well Fed (5% more experience on Forever) on the same page. While you have no Well Fed and carry it, out of combat and not resting, the button offers it after your weapon buffs, and one click eats it. Solo, buff mode turns on to offer it again when Well Fed runs out.
 - **Druid forms and Ghost Wolf:** in a druid form (except Moonkin, which casts as usual) or Ghost Wolf, the key leaves your buffs alone so scrolling never knocks you out of the form; a click still casts. Turn on **Fast-cast buffs in form** to let the key cast them too, and the button offers your form back once everyone is buffed.
 - **Tops up before it runs out:** a buff of yours with under 5 minutes left (you choose) counts as missing, so you renew it in time.
 - **Shares the work in raids:** copies of Friendly Forever split the buffs between them, so three priests give Fortitude, Spirit and Shadow Protection between them, and paladins split their Blessings instead of all giving Kings.
@@ -78,7 +79,7 @@ When a whole guild runs Friendly Forever, it should feel warm, not noisy:
 ## Control and safety
 
 - **One options panel:** every message type has its own tab, with on/off, delays, cooldowns and lines; plus snooze, an ignore list, profiles that follow the character, and export/import of your settings as one line of text.
-- **Each character its own:** buff order, weapon buffs, buff mode's key and who gets each buff are set per character, so a priest and a druid never share them.
+- **Each character its own:** buff order, weapon and food buffs, buff mode's key and who gets each buff are set per character, so a priest and a druid never share them.
 - **Easy to read:** one colour palette chosen to read well on the game's dark backgrounds and with colour blindness, and "on" and "off" are always spelled out.
 - **Stays out of the way:** respects AFK, the game's chat lockdown and combat. Settings are checked on load and repaired if damaged.
 - **Safe with untrusted input:** never runs text as code, and other players can't control it. A buff request or a passer-by can only put someone on your button; a guild leader or a raid leader can only narrow or quiet what your copy does. You still press every cast.

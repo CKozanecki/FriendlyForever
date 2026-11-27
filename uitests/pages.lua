@@ -74,7 +74,7 @@ end
 -- Options.WEAPON_PAGE, Options.START_PAGE, Window.NAME and Walkthrough.NAME).
 Pages.GENERAL = "FriendlyForeverGeneralPage"
 Pages.LEDGER = "FriendlyForeverLedgerPage"
-Pages.WEAPON = "FriendlyForeverWeaponPage" -- weapon buffs (#45)
+Pages.WEAPON = "FriendlyForeverWeaponPage" -- weapon and food buffs (#45, #544)
 Pages.GUILD = "FriendlyForeverGuildPage" -- the Guild page (#496)
 Pages.START = "FriendlyForeverStartPage"
 Pages.WINDOW = "FriendlyForeverTextWindow"
@@ -118,6 +118,7 @@ local RESULTS = {
 Pages.IGNORED = 14
 Pages.ENTRIES = 25
 Pages.PROFILES = 9 -- Options.PROFILES_SHOWN lists 6
+Pages.FOOD = 250075 -- Prehistoric Pulled Raptor, the longest name a food has (#544)
 
 local function Today()
     return type(date) == "function" and date("%Y-%m-%d") or ""
@@ -132,6 +133,10 @@ function Pages.Fill()
     local weapon = { weaponBuffs = db.buffBack.weaponBuffs, weaponMain = db.buffBack.weaponMain,
         weaponOff = db.buffBack.weaponOff }
     db.buffBack.weaponBuffs, db.buffBack.weaponMain, db.buffBack.weaponOff = true, "wizardOil", "sharpening"
+    -- Food buffs (#544) on the same page: switched on, with the longest name
+    -- a food has chosen. The simulator has no bags, so it reads "(none carried)".
+    local food = { foodBuffs = db.buffBack.foodBuffs, foodItem = db.buffBack.foodItem }
+    db.buffBack.foodBuffs, db.buffBack.foodItem = true, Pages.FOOD
 
     local ignore = {}
     for i = 1, Pages.IGNORED do
@@ -167,6 +172,7 @@ function Pages.Fill()
     return function()
         for key, value in pairs(saved) do db[key] = value end
         for key, value in pairs(weapon) do db.buffBack[key] = value end
+        for key, value in pairs(food) do db.buffBack[key] = value end
     end
 end
 

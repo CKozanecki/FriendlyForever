@@ -1444,14 +1444,21 @@ test("the General page, with a long ignore list and several profiles, keeps its 
     end)
 end)
 
-test("the Weapon buffs page, switched on with a kind for each hand, keeps its text inside it (#45)", function()
+test("the Weapon and food buffs page, switched on with a kind for each hand and a food, keeps its text inside it "
+    .. "(#45, #544)", function()
     WithPagesFilled(function()
         local page = FriendlyForeverUIPages.Open("weapon")
-        check(page:IsVisible(), "the Weapon buffs page didn't open")
-        OnScreen(page, "Weapon buffs page")
+        check(page:IsVisible(), "the Weapon and food buffs page didn't open")
+        check(ShowsText(page, "Weapon and food buffs (experimental)"), "the page isn't the renamed one")
+        local food = false
+        for _, child in ipairs({ page:GetChildren() }) do
+            if child:IsShown() and ShowsText(child, "Prehistoric Pulled Raptor (none carried)") then food = true end
+        end
+        check(food, "the chosen food isn't shown")
+        OnScreen(page, "Weapon and food buffs page")
         CheckAll({
-            function() FrameTextInside(page, "Weapon buffs page") end,
-            function() PushedDownInside(page, "Weapon buffs page") end,
+            function() FrameTextInside(page, "Weapon and food buffs page") end,
+            function() PushedDownInside(page, "Weapon and food buffs page") end,
         })
     end)
 end)

@@ -23,7 +23,7 @@ local BUFFS_PVP = "the Buffs tab's PvP place"
 local GENERAL = "the General page"
 local LEDGER = "the Favour Ledger page"
 local START = "the Start here page"
-local WEAPON = "the Weapon buffs page"
+local WEAPON = "the Weapon and food buffs page" -- #544: food buffs share it
 local GUILD = "the Guild page" -- #496
 
 -- name: as the page shows it. page: where it is. keywords: more words to find
@@ -174,6 +174,11 @@ OptionsIndex.SETTINGS = {
         controls = { "weapon.main" } },
     { name = "Off hand", page = WEAPON, keywords = "weapon buffs hand oil stone poison kind choose",
         controls = { "weapon.off" } },
+    { name = "Offer my food in buff mode, after my weapon buffs", page = WEAPON,
+        keywords = "food buffs well fed eat cooking cooked experience xp experimental",
+        controls = { "weapon.foodEnabled" } },
+    { name = "Food", page = WEAPON, keywords = "food well fed eat cooking cooked experience xp choose",
+        controls = { "weapon.food" } },
     { name = "Clear the ledger", page = LEDGER, keywords = "favour ledger history clear",
         controls = { "ledger.clear" } },
 

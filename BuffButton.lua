@@ -91,7 +91,8 @@ local lastResultText = "nothing pressed yet"
 local notArmedReason      -- why the button is empty, for /friendly buffback
 local recheckScheduled = false
 local chosenName          -- the player a row of the list was clicked for: the next offer if still offered (#43)
-local chosenKind          -- and the kind of that row's offer: "self" (a self-buff, #44), "weapon" (#45) or "other"
+local chosenKind          -- and the kind of that row's offer: "self" (a self-buff, #44), "weapon" (#45),
+                          -- "food" (#544) or "other"
 local alreadyDone         -- the "Already done by" note showing (#256): { title, spell, icon, shownAt, round, over }
 local offerList = {}      -- everyone the button would offer to now, in order (BuffList.lua shows it)
 
@@ -157,8 +158,8 @@ function BuffButton.BuildFormMacro(formName)
     return text
 end
 
--- The macro for an offer: a weapon buff's own (WeaponBuffs.Macro, #45), or
--- a cast as above. nil when it can't be put in a macro safely.
+-- The macro for an offer: a weapon buff's own (WeaponBuffs.Macro, #45), your
+-- food's (FoodBuffs.Macro, #544), or a cast as above. nil when it can't be put in a macro safely.
 -- A buff for a player, you included in buff mode, is cast as
 -- offer.castSpell (#459): the rank their level allows (BuffData.CastFor),
 -- "Mark of the Wild(Rank 5)" when stepping down for a low-level player, its
@@ -168,6 +169,7 @@ end
 -- self-buffs (SelfBuffs.lua) go on by name: no player's level limits them.
 function BuffButton.MacroFor(offer, hadTarget)
     if offer.weapon then return ns.WeaponBuffs.Macro(offer) end
+    if offer.food then return ns.FoodBuffs.Macro(offer) end
     if offer.formReturn then return BuffButton.BuildFormMacro(offer.spell) end
     local spell = offer.spell
     if not offer.cast and not offer.selfBuff then
@@ -256,15 +258,23 @@ end
 -- Why buff mode's key waits for this offer (#452, #466), or nil when it may
 -- press the button: a druid's buff while you're in a form, or a shaman's in
 -- Ghost Wolf, unless "Fast-cast buffs in form" is on. A click still casts it
--- (the game takes you out of the form). Weapon buffs never wait (#45's
--- choice B). A form or class the game won't say counts as a form: the key
--- waits. Ghost Wolf counts when either the game's form or your buffs say
--- so: which of the two Forever reports it by is unconfirmed (#467).
+-- (the game takes you out of the form). Anything that uses an item waits
+-- for a click, always (#544, the owner): your food, and a weapon buff from a
+-- stone, oil or poison, whatever "Fast-cast buffs in form" says, so the key
+-- never uses one by accident. A shaman's imbue is a spell: its key follows
+-- the form rules, as any buff's (#45's choice B, that the key applied every
+-- weapon buff, changed on #544). A form or class the game won't say counts
+-- as a form: the key waits. Ghost Wolf
+-- counts when either the game's form or your buffs say so: which of the
+-- two Forever reports it by is unconfirmed (#467).
 -- Moonkin Form never holds the key (#485, the owner): a druid casts every
 -- buff of ours in it without leaving it. Only a form the game says is
 -- Moonkin counts (InMoonkin); any doubt, the key waits.
+BuffButton.ITEM_WAITS = "it uses an item" -- why the key waits for an item (#544)
+
 function BuffButton.KeyWaits(offer)
-    if not offer or offer.weapon then return nil end
+    if not offer then return nil end
+    if offer.food or (offer.weapon and offer.item ~= nil) then return BuffButton.ITEM_WAITS end
     -- The shift back into your form (#495) waits only once the game has
     -- refused it: then a click tries again, never the key.
     if offer.formReturn then return offer.refused end
@@ -643,11 +653,14 @@ local function NextOffer()
         -- offers in the list: the button takes the first.
         _, selfReason = ns.SelfBuffs.Next(own)
         if selfReason then groupReason = (groupReason and (groupReason .. "; ") or "") .. "You: " .. selfReason end
-        -- Your weapon buffs (#45) come last of your own.
+        -- Your weapon buffs (#45) come after your self-buffs.
         local _, weaponReason = ns.WeaponBuffs.Next(own)
         if weaponReason then
             groupReason = (groupReason and (groupReason .. "; ") or "") .. "Weapons: " .. weaponReason
         end
+        -- Your food (#544) comes last of your own, after your weapon buffs.
+        local _, foodReason = ns.FoodBuffs.Next(own)
+        if foodReason then groupReason = (groupReason and (groupReason .. "; ") or "") .. "Food: " .. foodReason end
         -- Passers-by (#39) come after all of your own: only when nothing
         -- above is offered does the button reach them. Switched on but
         -- stopped, the line says why (#521).
@@ -841,7 +854,7 @@ local function ArmButton()
     armedOffer = { keyWaits = keyWaits, name = offer.name, spell = offer.spell, buff = offer.buff, group = offer.group,
         passerBy = offer.passerBy, cast = offer.cast, hint = offer.hint, self = offer.self, selfBuff = offer.selfBuff,
         macroText = macroText, weapon = offer.weapon, slot = offer.slot, hand = offer.hand, castIds = offer.castIds,
-        weaponItem = offer.weaponItem, weaponKind = offer.weaponKind,
+        weaponItem = offer.weaponItem, weaponKind = offer.weaponKind, food = offer.food, foodItem = offer.foodItem,
         formReturn = offer.formReturn, formSpell = offer.formSpell }
     notArmedReason = nil
     button.icon:SetTexture(offer.icon or (offer.buff and ns.BuffData.Icon(offer.buff)) or BuffButton.PLACEHOLDER_ICON)
@@ -851,6 +864,9 @@ local function ArmButton()
     elseif offer.weapon then
         -- A weapon buff (#45): which, and on which hand.
         SetLabels("You", offer.spell .. " on your " .. offer.hand)
+    elseif offer.food then
+        -- Your food (#544): which.
+        SetLabels("You", "eat " .. offer.spell .. " (no Well Fed)")
     elseif offer.cast then
         -- A group version (GroupCasts.lua): who it reaches on the first line,
         -- which spell on the second (the whole sentence, "Prayer of
@@ -985,6 +1001,8 @@ local function Unanswered(press)
         else
             if press.weapon then
                 ns.WeaponBuffs.NoteRefused(press.slot, press.weaponItem, press.weaponKind)
+            elseif press.food then
+                ns.FoodBuffs.NoteRefused(press.foodItem)
             elseif press.selfBuff then
                 ns.SelfBuffs.NoteRefused(press.buff)
             elseif press.group then
@@ -992,6 +1010,8 @@ local function Unanswered(press)
             end
             if press.weapon then
                 ShowResult("No answer: nothing was put on your " .. press.hand .. ".", true, press.name)
+            elseif press.food then
+                ShowResult("No answer: you didn't start eating your " .. press.spell .. ".", true, press.name)
             else
                 ShowResult("No answer: couldn't find " .. who .. " (out of sight?).", true, press.name)
             end
@@ -1020,6 +1040,7 @@ local function TakeArmedOffer(press)
     press.weapon, press.slot, press.hand, press.castIds =
         armedOffer.weapon, armedOffer.slot, armedOffer.hand, armedOffer.castIds
     press.weaponItem, press.weaponKind = armedOffer.weaponItem, armedOffer.weaponKind
+    press.food, press.foodItem = armedOffer.food, armedOffer.foodItem
     press.formReturn, press.formSpell = armedOffer.formReturn, armedOffer.formSpell
     -- A held key or a wheel notch presses many times: repeats fold (#453).
     ns.Diag.LogFolded("press", "buffBack", "pressed: %s", armedOffer.macroText)
@@ -1133,6 +1154,10 @@ local function OnPostClick(_, mouseButton, isDown)
         ns.WeaponBuffs.Skip()
         local minutes = ns.WeaponBuffs.SKIP_SECONDS / 60
         ShowResult(string.format("Skipping your weapon buffs for %d minutes.", minutes), nil, name)
+    elseif offer.food then
+        -- Your food (#544), for a while.
+        ns.FoodBuffs.Skip()
+        ShowResult(string.format("Skipping your food for %d minutes.", ns.FoodBuffs.SKIP_SECONDS / 60), nil, name)
     elseif offer.selfBuff then
         -- Your self-buffs (#44): all of them, for a while. Shift too: who
         -- gets a buff doesn't apply to them.
@@ -1204,8 +1229,9 @@ local function NewestPressFor(unit, spellId, wanted)
         if press.formReturn then
             -- The shift back (#495) is answered by its form's spell.
             if spellId == press.formSpell and wanted(press) then return press end
-        elseif press.weapon then
-            -- A weapon buff (#45) is answered by its item's spell or its imbue's ranks.
+        elseif press.weapon or press.food then
+            -- A weapon buff (#45) is answered by its item's spell or its imbue's
+            -- ranks, your food (#544) by its item's spell.
             if press.castIds[spellId] and wanted(press) then return press end
         -- A group version answers only a press of a group version (#41).
         elseif buff and press.buff == buff and (press.cast ~= nil) == (groupBuff ~= nil) and wanted(press) then
@@ -1243,9 +1269,9 @@ end
 -- cast of its own follows, the press says where that one went (Unanswered).
 function BuffButton.OnSpellcastSent(unit, castTargetName, castGUID, spellId)
     local press = NewestPressFor(unit, spellId, function(waiting) return not waiting.sent end)
-    -- A weapon buff (#45) goes on your own weapon, and a form (#495) on you:
-    -- the game names no player for either.
-    if press and not press.weapon and not press.formReturn
+    -- A weapon buff (#45) goes on your own weapon, and your food (#544) and
+    -- a form (#495) on you: the game names no player for any of them.
+    if press and not press.weapon and not press.food and not press.formReturn
         and BuffButton.IsIntendedPlayer(ReadableText(castTargetName), press.name) == false then
         press.elsewhere = { guid = ReadableText(castGUID), name = ReadableText(castTargetName) }
         press = nil
@@ -1324,6 +1350,10 @@ function BuffButton.OnSpellcastSucceeded(unit, castGUID, spellId)
         -- A weapon buff (#45): on your own weapon, no favour, no line.
         ns.WeaponBuffs.NoteGiven(press.slot)
         ShowResult("Applied " .. press.spell .. " to your " .. press.hand .. ".", nil, press.name)
+    elseif press.food then
+        -- Your food (#544): you're eating. Well Fed comes after 10 seconds of it.
+        ns.FoodBuffs.NoteEating(press.foodItem)
+        ShowResult("Eating " .. press.spell .. ": Well Fed after 10 seconds.", nil, press.name)
     elseif press.selfBuff then
         -- A self-buff (#44) can only be cast on you: no favour, no line, no
         -- thanks, and nobody else to note.
@@ -1439,6 +1469,9 @@ local function ReportRefusal(press, text)
         line = "Couldn't shift back into " .. press.spell .. ": " .. Util.StripChat(text)
     elseif press.weapon then
         ns.WeaponBuffs.NoteRefused(press.slot, press.weaponItem, press.weaponKind)
+    elseif press.food then
+        -- Your food (#544) keeps its own count, as a weapon buff does.
+        ns.FoodBuffs.NoteRefused(press.foodItem)
     elseif kind == "target" then
         if press.selfBuff then
             ns.SelfBuffs.NoteRefused(press.buff)
@@ -1575,6 +1608,9 @@ local function ShowTooltip(self)
             GameTooltip:AddLine("Shifts you back into " .. armedOffer.spell .. ".", r, g, b, true)
         elseif armedOffer.weapon then
             GameTooltip:AddLine("Puts " .. armedOffer.spell .. " on your " .. armedOffer.hand .. ".", r, g, b, true)
+        elseif armedOffer.food then
+            GameTooltip:AddLine("Eats your " .. armedOffer.spell .. ": Well Fed after 10 seconds of eating.", r, g,
+                b, true)
         elseif armedOffer.self then
             GameTooltip:AddLine("Casts " .. armedOffer.spell .. " on you; your target stays as it is.", r, g, b, true)
         else
@@ -1586,6 +1622,8 @@ local function ShowTooltip(self)
     local rightClick = "let them go."
     if armedOffer and armedOffer.weapon then
         rightClick = string.format("skip your weapon buffs for %d minutes.", ns.WeaponBuffs.SKIP_SECONDS / 60)
+    elseif armedOffer and armedOffer.food then
+        rightClick = string.format("skip your food for %d minutes.", ns.FoodBuffs.SKIP_SECONDS / 60)
     elseif armedOffer and armedOffer.formReturn then
         rightClick = "stay out of the form."
     elseif armedOffer and armedOffer.self then
@@ -1631,7 +1669,8 @@ local function CreateEventFrame()
         ZONE_CHANGED = RefreshSoon,
         ZONE_CHANGED_INDOORS = RefreshSoon,
         ZONE_CHANGED_NEW_AREA = RefreshSoon,
-        -- Into or out of a rested place, where weapon buffs aren't offered (#449).
+        -- Into or out of a rested place, where weapon buffs (#449) and your
+        -- food (#544) aren't offered.
         PLAYER_UPDATE_RESTING = RefreshSoon,
         PLAYER_REGEN_DISABLED = BuffButton.OnCombatStart,
         PLAYER_REGEN_ENABLED = BuffButton.Refresh,
@@ -1734,18 +1773,19 @@ end
 function BuffButton.Frame() return button end
 
 -- Why buff mode's key waits now (#452, #485), for buff mode's own lines:
--- for the offer the button holds, or with none, for a buff of yours (a
--- weapon buff never waits); nil when the key presses the button.
+-- for the offer the button holds, or with none, for a buff of yours (one
+-- that uses an item always waits, #544); nil when the key presses the button.
 function BuffButton.KeyWaitsNow()
     if armedOffer then return armedOffer.keyWaits end
     return BuffButton.KeyWaits({})
 end
 
--- An offer's kind, for a clicked row: your self-buffs (#44) and your weapon
--- buffs (#45) share your name with your own copy of a group buff, so each
--- stays chosen only while an offer of its own kind is there.
+-- An offer's kind, for a clicked row: your self-buffs (#44), your weapon
+-- buffs (#45) and your food (#544) share your name with your own copy of a
+-- group buff, so each stays chosen only while an offer of its own kind is there.
 function BuffButton.OfferKind(offer)
     if offer.weapon then return "weapon" end
+    if offer.food then return "food" end
     if offer.selfBuff then return "self" end
     return "other"
 end
@@ -1756,7 +1796,7 @@ end
 function BuffButton.Choose(name, kind)
     if InCombatLockdown() then return end
     chosenName = name
-    chosenKind = (kind == "self" or kind == "weapon") and kind or "other"
+    chosenKind = (kind == "self" or kind == "weapon" or kind == "food") and kind or "other"
     BuffButton.Refresh()
 end
 function BuffButton.ArmedOffer() return armedOffer end
