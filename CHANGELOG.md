@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.0
+
+- **Food buffs (experimental, off by default):** choose a food that gives Well Fed (5% more experience on Forever) on the Weapon buffs page, now called "Weapon and food buffs". In buff mode, once everyone else and your weapon buffs are done, the button offers it while you have no Well Fed and carry it, out of combat and not while you're resting; one click on the button eats it, and Well Fed comes after 10 seconds of eating; meanwhile the button offers nothing else, so no press stands you up mid-meal. Solo, buff mode turns on to offer it again when Well Fed runs out. A meal cut short (you moved, say) or refused waits a moment; right-click skips your food for 5 minutes. **Anything that uses an item now needs a click on the button:** buff mode's key never eats your food, or puts on a stone, oil or poison, in a form or not, whatever **Fast-cast buffs in form** says, so it can't happen by accident; the button says to click. A shaman's weapon imbues are spells, and go on with the key like any buff, by the same form rules. The foods and Well Fed buffs are read from Forever's own data. `/friendly find food` finds the page. (#544)
+- This version adds a file (FoodBuffs.lua). After updating, restart the game; /reload isn't enough. (#544)
+
 ## 1.6.0
 
 - **A Guild page under Friendly Forever's options:** every guildmate with the addon sees who in the guild has it (their version and when they were last seen), who leads, the guild's limits and the vetoed lines. The guild master picks the ranks that lead with them (the page asks the first time), and leaders set the limits there, see the guild lines each copy said recently, veto one so no copy says it again, or undo a veto. The Guild Login and Guild Join tabs now say when your guild's settings limit yours, and a vetoed line's hover says so. (#496)
