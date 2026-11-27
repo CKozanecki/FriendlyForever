@@ -1851,7 +1851,10 @@ local function FoodDropdown(parent)
         Options.Refresh()
         ns.BuffButton.Refresh()
     end)
-    dd.BeforeOpen = function() dd.SetChoices(Options.FoodChoices()) end
+    dd.BeforeOpen = function()
+        dd.SetChoices(Options.FoodChoices())
+        dd.Fill() -- the rows' values moved: mark the current choice again
+    end
     return dd
 end
 

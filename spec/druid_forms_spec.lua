@@ -3,7 +3,8 @@
 -- owner's decision of 17 Nov): the button still shows the buff and a click
 -- casts it (the game takes you out of the form), but scrolling never knocks
 -- a feral druid out of form. "Fast-cast buffs in form" (off by default) lets
--- the key cast in a form too. Weapon buffs keep #45's choice B. A form or
+-- the key cast in a form too. A weapon buff that uses an item always waits
+-- for a click (#544, which ended #45's choice B). A form or
 -- class the game won't say counts as a form. The key presses the button as a
 -- button of its own (BuffButton.KEY_BUTTON), whose action is written only
 -- when it may cast: no binding changes with the form.

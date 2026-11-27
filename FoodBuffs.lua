@@ -28,8 +28,9 @@
 --
 -- Eating (Forever's data, docs/forever-facts.md "Food buffs"): each food's
 -- spell triggers its Well Fed after 10 seconds of eating. After a press
--- lands, nothing is offered for EATING_SECONDS; a meal with no Well Fed by
--- then was cut short (you moved, say), and counts as a refusal: the food is
+-- lands, the button offers nothing at all for EATING_SECONDS, or until Well
+-- Fed shows (FoodBuffs.Eating: no buff, shift back into your form or
+-- passer-by stands you up mid-meal); a meal with no Well Fed by then was cut short (you moved, say), and counts as a refusal: the food is
 -- held back HELD_BACK_SECONDS, and after REFUSALS_TO_STOP in a row, until
 -- STOP_SECONDS pass, you change food, or Well Fed shows. Right-click skips
 -- your food for SKIP_SECONDS.
@@ -366,6 +367,15 @@ function FoodBuffs.Macro(offer)
     local item = Read.Id(offer.foodItem)
     if not item or not FoodBuffs.FOODS[item] then return nil end
     return string.format("/use item:%d", item)
+end
+
+-- Whether a meal a press started is under way: within EATING_SECONDS of it,
+-- and no Well Fed seen yet. Meanwhile the button offers nothing at all
+-- (BuffButton.lua): another press (a buff, the shift back into your form, a
+-- passer-by) would stand you up and cut the meal short. Reads only.
+function FoodBuffs.Eating()
+    if not eating or not Read.Recently(eating.at, FoodBuffs.EATING_SECONDS) then return false end
+    return FoodBuffs.WellFed() ~= true
 end
 
 -- A press of item landed: you're eating.

@@ -632,6 +632,13 @@ end
 -- rules, for the list; an offer that can't be put in a macro safely is left
 -- out of it, as the button could not cast it.
 local function NextOffer()
+    -- While a meal your press started is under way (#544), nothing: any
+    -- press would stand you up and cut it short, the shift back into your
+    -- form (#495) too. It lasts until Well Fed shows, 20 seconds at most.
+    if ns.FoodBuffs.Eating() then
+        offerList = {}
+        return nil, "you're eating: Well Fed after 10 seconds"
+    end
     -- Collected apart, then put in order: favours, your own and your
     -- group's (own), passers-by.
     local favours, own, passers = {}, {}, {}

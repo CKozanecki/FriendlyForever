@@ -3,7 +3,8 @@
 -- does for a druid in a form (#452; the owner's decision on #466, 17 Nov):
 -- the button still shows the buff and a click casts it (the game takes you
 -- out of Ghost Wolf), but scrolling never does. "Fast-cast buffs in form"
--- covers Ghost Wolf too. Weapon imbues keep #45's choice B. An unreadable
+-- covers Ghost Wolf too. Weapon imbues follow these rules as any buff does
+-- (#544, which ended #45's choice B). An unreadable
 -- form answer means the key waits. How Forever reports Ghost Wolf is
 -- unconfirmed (#467): the game's form, or Ghost Wolf's aura on you. The key
 -- waits when either says so, so every spec here runs each way the game might

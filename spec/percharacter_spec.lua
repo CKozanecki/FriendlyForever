@@ -655,6 +655,21 @@ describe("Each character's own buff settings (#508)", function()
             assert.are.same({}, wow.errors)
         end)
 
+        it("while the name or realm can't be read, another character's food is off too, and not offered (#544)",
+            function()
+            for _, opts in ipairs({ { nameUnread = true }, { secretRealm = true } }) do
+                login("Ann", v150())
+                ns.db.buffBack.foodBuffs = true
+                ns.db.buffBack.foodItem = 2680
+                login("Bo", _G.FriendlyForeverDB, opts) -- Ann's live settings, never saved by a logout
+                assert.are.same({ false, 0 }, { ns.db.buffBack.foodBuffs, ns.db.buffBack.foodItem }, "never Ann's")
+                assert.is_nil(ns.FoodBuffs.Next())
+                assert.are.same({ true, 2680 }, { rec("Ann").settings.foodBuffs, rec("Ann").settings.foodItem },
+                    "Ann's are kept as hers")
+                assert.are.same({}, wow.errors)
+            end
+        end)
+
         it("records nothing while the realm can't be read: a secret, none, empty, too long or no API", function()
             for _, how in ipairs({ "secret", "none", "empty", "long", "missing" }) do
                 ns = wow.boot({ db = v150(), before = function(state)
