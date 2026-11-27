@@ -416,17 +416,19 @@ local function LoadOwn(key)
 end
 
 -- While this character's key can't be read, its own settings can't be found:
--- the live ones are kept as nobody's, and its weapon buffs are off, so no
--- other character's are offered.
+-- the live ones are kept as nobody's, and its weapon and food buffs are off
+-- (#544), so no other character's are offered.
 local function Unreadable()
     StashOwn()
     ns.db.characterLive = false
     local section = ns.Config.Section("buffBack")
-    for _, field in ipairs(ns.Config.WEAPON_FIELDS) do
-        section[field] = Util.DeepCopy(ns.Config.DEFAULTS.buffBack[field])
+    for _, fields in ipairs({ ns.Config.WEAPON_FIELDS, ns.FoodBuffs.FIELDS }) do
+        for _, field in ipairs(fields) do
+            section[field] = Util.DeepCopy(ns.Config.DEFAULTS.buffBack[field])
+        end
     end
-    ns.Diag.Log("profiles", "your name or realm can't be read yet; weapon buffs are off until you log in or "
-        .. "/reload with it readable")
+    ns.Diag.Log("profiles", "your name or realm can't be read yet; weapon and food buffs are off until you log "
+        .. "in or /reload with it readable")
     ns.BuffButton.Refresh()
 end
 

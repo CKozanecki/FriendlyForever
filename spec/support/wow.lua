@@ -668,6 +668,33 @@ M.GEAR_INFO = {
 }
 M.WRONG_WEAPON_ERROR = "Invalid target."
 
+-- Food buffs (#544): some of the foods that give Well Fed, by item ID, with
+-- the spell each casts as you eat and the Well Fed it gives, from Forever's
+-- own data (docs/forever-facts.md, "Food buffs"). Kept apart from the addon's
+-- table (FoodBuffs.lua) so the specs check it rather than echo it.
+M.FOOD = { spicedWolfMeat = 2680, roastedBoarMeat = 2681, smokedDesertDumplings = 20452, monsterOmelet = 12218,
+    goldthornTea = 10841, candyBar = 7807 }
+M.FOOD_ITEMS = {
+    [2680] = { spell = 1248378, spellName = "Nutritious Food", wellFed = 1248420, name = "Spiced Wolf Meat" },
+    [2681] = { spell = 1248380, spellName = "Nutritious Food", wellFed = 1248422, name = "Roasted Boar Meat" },
+    [20452] = { spell = 1248401, spellName = "Nutritious Food", wellFed = 1248422, name = "Smoked Desert Dumplings" },
+    [12218] = { spell = 1248394, spellName = "Nutritious Food", wellFed = 1248406, name = "Monster Omelet" },
+    [10841] = { spell = 1249906, spellName = "Nutritious Drink", wellFed = 1249907, name = "Goldthorn Tea" },
+    [7807] = { spell = 5004, spellName = "Food", wellFed = 19705, name = "Candy Bar" },
+}
+-- Every Well Fed the client knows: the foods' above, and one Classic Era food
+-- of no item here (Smoked Desert Dumplings' old 24799), all named "Well Fed"
+-- in Forever's data. A food that gives none: Tough Jerky (117) casts "Food" (433).
+M.WELL_FED = { [1248420] = true, [1248422] = true, [1248406] = true, [1249907] = true, [19705] = true,
+    [24799] = true }
+M.PLAIN_FOOD = 117
+M.EATING_AURA = 433 -- "Food": what a buff food's spell puts on you while you eat (Forever's data)
+M.EATING_TICK = 10 -- seconds of eating before Well Fed (Forever's data: the effect's 10000 ms)
+M.EATING_SECONDS = 30 -- how long a meal lasts at most (unconfirmed: Classic's)
+M.WELL_FED_SECONDS = 900 -- how long Well Fed lasts (unconfirmed: 15 minutes, #544's research)
+M.ALREADY_FED_ERROR = "You are already Well Fed." -- Forever's SPELL_FAILED_CUSTOM_ERROR_239
+M.COMBAT_ERROR = "You can't do that while in combat."
+
 ------------------------------------------------------------------------
 -- ASSUMPTIONS ABOUT WOW FOREVER. Each is a state setting so specs can try the
 -- alternatives; the defaults are guesses, not facts. The launch test pass
@@ -821,6 +848,32 @@ M.WRONG_WEAPON_ERROR = "Invalid target."
 --                         state.unusableItems only, never from how many you
 --                         carry (whether Forever's does is unconfirmed: the
 --                         pessimistic reading).
+--   Food buffs (#544; the IDs and the 10 seconds are Forever's own data, the
+--                         rest UNCONFIRMED in game, #545 says how to
+--                         check each): "/use item:N" of a food (M.FOOD_ITEMS)
+--                         sends and lands a cast of its spell at once (or
+--                         after state.castLatency), takes one from your
+--                         bags, and puts the eating aura on you ("Food",
+--                         433, M.EATING_SECONDS); after M.EATING_TICK
+--                         seconds still eating, Well Fed (its spell, as an
+--                         aura of yours, lasting M.WELL_FED_SECONDS)
+--                         replaces any Well Fed you had: the pessimistic
+--                         choice (a food wasted), where Forever may refuse
+--                         with M.ALREADY_FED_ERROR (state.alreadyFedRefuses;
+--                         state.unlistedWellFed, a Well Fed spell the addon's
+--                         list lacks, counts as one).
+--                         M.interruptMeal (moving, standing up) ends the
+--                         meal with no Well Fed, and so does any cast, a
+--                         form or Ghost Wolf changing, or using another item:
+--                         any press stands you up (the owner, #544). In combat the game refuses
+--                         the food (M.COMBAT_ERROR); state.foodRefusal (text)
+--                         makes the server refuse it. In a druid's form or
+--                         Ghost Wolf it acts as for a weapon buff's item.
+--                         UNIT_SPELLCAST_SENT names the food as its target
+--                         (state.foodSentTarget another name), never you.
+--                         Dying ends a meal and takes Well Fed away. A food
+--                         that gives none (M.PLAIN_FOOD) is eaten with no
+--                         Well Fed.
 --   Resting (#449; the API is Forever's own UI data, docs/forever-facts.md;
 --                         true in an inn, confirmed in game in Brill on 18
 --                         Nov; elsewhere unconfirmed, #450 closed unchecked):
@@ -1292,6 +1345,8 @@ local imbue -- a shaman's imbue (#45), below
 local formStops -- whether your form stops an action (#45, #452), below
 local shift -- a form's spell (#495), below
 local function cast(args)
+    -- Any cast stands you up: a meal ends with no Well Fed (#544, the owner).
+    M.interruptMeal()
     local conds, name = args:match("^%[(.-)%]%s*(.+)$")
     local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
     -- [@unit] aims the cast at that unit instead of your target, whom the
@@ -1565,6 +1620,8 @@ M.formStops = formStops
 -- spell (M.MOONKIN_FORM, M.CAT_FORM...), which GetShapeshiftFormInfo and
 -- GetShapeshiftFormID read (#485); none for a form a spec doesn't name.
 function M.setForm(form, spellId)
+    -- A form changing ends a meal (#544; the pessimistic side).
+    if form ~= M.state.form then M.interruptMeal() end
     M.state.form = form
     M.state.formSpell = form ~= 0 and spellId or nil
     M.fire("UPDATE_SHAPESHIFT_FORM")
@@ -1642,6 +1699,7 @@ end
 -- state.ghostWolfAura false lists no aura of ID 2645 (Forever's ID differs).
 -- The game stops a cast in Ghost Wolf either way (formStops).
 function M.setGhostWolf(on)
+    if (on and true or false) ~= M.state.ghostWolf then M.interruptMeal() end -- as a form (#544)
     M.state.ghostWolf = on and true or false
     M.state.form = on and (M.state.ghostWolfForm or 1) or 0
     for i = #M.state.playerAuras, 1, -1 do
@@ -1680,13 +1738,100 @@ local function weaponCast(slot, spellId, onLanded)
     if (M.state.castLatency or 0) > 0 then M.gameAfter(M.state.castLatency, answer) else answer() end
 end
 
--- "/use item:N": takes the item up to be put on a weapon (the cursor waits
--- for one). "/use 16" or "/use 17": puts the waiting item on that slot's
+-- Food buffs (#544; see ASSUMPTIONS). M.meals: each meal started { item, at };
+-- M.fed: each Well Fed that went on { spell, at }; M.foodSends: each food
+-- cast sent { item, at } (only a macro, so only a press, sends one).
+M.meals, M.fed, M.foodSends = {}, {}, {}
+M.itemUses = {} -- each "/use item:N" run: { item, by = what pressed the button, at }
+
+-- The Well Fed you wear now, or nil (one past its time is gone, when the spec
+-- expires your auras).
+function M.wellFedAura()
+    for _, a in ipairs(M.state.playerAuras) do
+        -- state.unlistedWellFed: a Well Fed the game has that the addon's
+        -- list doesn't (a new one, say), as the game counts it.
+        if not isSecret(a) and (M.WELL_FED[a.spellId] or (a.spellId ~= nil and a.spellId == M.state.unlistedWellFed)) then
+            local over = M.state.expirePlayerAuras and type(a.expirationTime) == "number" and a.expirationTime > 0
+                and M.now >= a.expirationTime
+            if not over then return a end
+        end
+    end
+end
+
+-- The meal ends with no Well Fed: you moved, stood up, died.
+function M.interruptMeal()
+    if not M.state.eating then return end
+    M.state.eating = nil
+    M.loseBuff(M.EATING_AURA)
+end
+
+local foodCastCount = 0
+local function eat(item)
+    if (M.state.items[item] or 0) < 1 or M.state.useDoesNothing then return end
+    if formStops() then return end
+    if M.state.inCombat then
+        M.uiError(M.COMBAT_ERROR)
+        return
+    end
+    if M.state.unusableItems[item] then
+        M.uiError("You can't use that item yet.")
+        return
+    end
+    local food = M.FOOD_ITEMS[item]
+    local spell = food and food.spell or M.EATING_AURA
+    foodCastCount = foodCastCount + 1
+    local guid = "Food-" .. foodCastCount
+    -- What the game names as its target is unconfirmed (#545): the food's
+    -- name here, never a player's (the pessimistic reading, as a weapon buff's).
+    M.fire("UNIT_SPELLCAST_SENT", "player", M.state.foodSentTarget or (food and food.name) or "Tough Jerky", guid,
+        spell)
+    M.foodSends[#M.foodSends + 1] = { item = item, at = M.now }
+    local refusal = M.state.foodRefusal
+    if not refusal and M.state.alreadyFedRefuses and food and M.wellFedAura() then refusal = M.ALREADY_FED_ERROR end
+    local function answer()
+        if refusal then
+            M.fire("UNIT_SPELLCAST_FAILED", "player", guid, spell)
+            M.uiError(refusal)
+            return
+        end
+        M.state.items[item] = math.max(0, (M.state.items[item] or 0) - 1)
+        M.interruptMeal()
+        local meal = { item = item, at = M.now }
+        M.state.eating = meal
+        M.meals[#M.meals + 1] = meal
+        M.gainBuff({ spellId = M.EATING_AURA, name = "Food", duration = M.EATING_SECONDS,
+            expirationTime = M.now + M.EATING_SECONDS })
+        M.fire("UNIT_SPELLCAST_SUCCEEDED", "player", guid, spell)
+        if not food then return end
+        M.gameAfter(M.EATING_TICK, function()
+            if M.state.eating ~= meal then return end
+            for id in pairs(M.WELL_FED) do M.loseBuff(id) end
+            M.gainBuff({ spellId = food.wellFed, name = "Well Fed", duration = M.WELL_FED_SECONDS,
+                expirationTime = M.now + M.WELL_FED_SECONDS })
+            M.fed[#M.fed + 1] = { spell = food.wellFed, at = M.now }
+        end)
+        M.gameAfter(M.EATING_SECONDS, function()
+            if M.state.eating == meal then M.interruptMeal() end
+        end)
+    end
+    if (M.state.castLatency or 0) > 0 then M.gameAfter(M.state.castLatency, answer) else answer() end
+end
+
+-- "/use item:N": eats a food (above), or takes the item up to be put on a
+-- weapon (the cursor waits for one). "/use 16" or "/use 17": puts the waiting item on that slot's
 -- weapon, or, with none waiting, fires the weapon's own Use, if it has one.
 local function use(rest)
     local item = tonumber(rest:match("^item:(%d+)$") or "")
+    -- Every "/use item:N" a macro ran, and what pressed it (#544).
+    if item then M.itemUses[#M.itemUses + 1] = { item = item, by = M.pressing, at = M.now } end
+    if item and (M.FOOD_ITEMS[item] or item == M.PLAIN_FOOD) then
+        M.state.itemTargeting = nil
+        return eat(item)
+    end
     if item then
         M.state.itemTargeting = nil
+        -- Using another item stands you up too (#544).
+        M.interruptMeal()
         if (M.state.items[item] or 0) < 1 or M.state.useDoesNothing then return end
         if formStops() then return end
         if M.state.unusableItems[item] then
@@ -1801,6 +1946,12 @@ function M.installWeaponApi()
         end
         local buff = M.WEAPON_ITEMS[item]
         if buff then return read("itemSpell", buff.spellName), buff.spell end
+        -- A food's (#544): its spell, by Forever's names.
+        local food = M.FOOD_ITEMS[item]
+        if food then
+            if M.state.foodSecrets and M.state.foodSecrets.itemSpell then return M.secret("Food"), M.secret(food.spell) end
+            return food.spellName, food.spell
+        end
         return nil
     end
     _G.GetItemSpell = itemSpell
@@ -1914,8 +2065,13 @@ function M.press(button, mouseButton, mods)
     local held = M.state.mods
     if mods then M.state.mods = mods end
     M.hardware = true
+    -- What pressed it, for the macro it runs (#544): "LeftButton" for a
+    -- click, "BuffModeKey" for buff mode's key.
+    local was = M.pressing
+    M.pressing = mouseButton
     pressHalf(button, mouseButton, true, mods)
     pressHalf(button, mouseButton, false, mods)
+    M.pressing = was
     M.hardware = false
     M.state.mods = held
 end
@@ -2177,6 +2333,7 @@ function M.reset()
     M.casts = {}
     M.landed = {} -- casts the server said landed: { spell, id, target } (see cast; deliverBuffs)
     M.weaponUses, M.formsCancelled, M.applied, M.weaponCasts = {}, 0, {}, {} -- weapon buffs (#45)
+    M.meals, M.fed, M.foodSends, M.itemUses = {}, {}, {}, {} -- food buffs (#544)
     M.keyActions = {}
     M.flaggedBy = {} -- players whose PvP flag a buff of yours caught (see cast)
     M.flaggedElsewhere = {} -- the same, for casts state.castLandsOn sent elsewhere
@@ -3491,6 +3648,9 @@ end
 
 function M.die()
     M.state.units.player.dead = true
+    -- A meal and Well Fed end (#544; unconfirmed, the issue's research).
+    M.interruptMeal()
+    for id in pairs(M.WELL_FED) do M.loseBuff(id) end
     M.fire("PLAYER_DEAD")
 end
 

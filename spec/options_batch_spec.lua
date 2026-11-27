@@ -1,4 +1,4 @@
--- Spec: #425, #429, #491
+-- Spec: #425, #429, #491, #544
 -- Each page's Reset touches only its own settings (#425), and the buff mode
 -- key capture takes a click over every widget beneath it (#429).
 local wow = require("spec.support.wow")
@@ -6,7 +6,7 @@ local wow = require("spec.support.wow")
 -- Listed here, not read from the addon, so a field added to the Weapon buffs
 -- page and left off the kept list fails below (#425).
 local KIND -- a kind the rogue can use, found below
-local WEAPON_PAGE = { weaponBuffs = true, weaponMain = true, weaponOff = true }
+local WEAPON_PAGE = { weaponBuffs = true, weaponMain = true, weaponOff = true, foodBuffs = true, foodItem = true }
 -- The buffBack settings on the Favours tab, which its Reset does put back
 -- (the other buffBack settings belong to the Buffs tab, the Weapon buffs
 -- page, or are the button's place). Passers-by moved there from the Buffs
@@ -32,6 +32,14 @@ describe("Reset on the Favours tab (#425, #491)", function()
         assert.is_true(ns.db.buffBack.weaponBuffs)
         assert.are.equal(KIND, ns.db.buffBack.weaponMain)
         assert.are.equal(KIND, ns.db.buffBack.weaponOff)
+    end)
+
+    it("leaves the food buffs on that page as they are too (white, #544)", function()
+        ns.db.buffBack.foodBuffs = true
+        ns.db.buffBack.foodItem = 2680
+        ns.ResetType("buffBack")
+        assert.is_true(ns.db.buffBack.foodBuffs)
+        assert.are.equal(2680, ns.db.buffBack.foodItem)
     end)
 
     it("the Reset button does the same, and the page shows what it kept (white)", function()
@@ -84,9 +92,10 @@ describe("Reset on the Favours tab (#425, #491)", function()
         end
     end)
 
-    it("the list of kept Weapon fields is exactly the page's (white)", function()
+    it("the list of kept Weapon and food fields is exactly the page's (white)", function()
         local listed = {}
         for _, key in ipairs(ns.WeaponBuffs.FIELDS) do listed[key] = true end
+        for _, key in ipairs(ns.FoodBuffs.FIELDS) do listed[key] = true end
         assert.are.same(WEAPON_PAGE, listed)
     end)
 end)

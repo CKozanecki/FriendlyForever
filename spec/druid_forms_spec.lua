@@ -1,9 +1,10 @@
--- Spec: #452, #459, #461
+-- Spec: #452, #459, #461, #544
 -- In a druid's form, buff mode's key doesn't cast your buffs (#452, the
 -- owner's decision of 17 Nov): the button still shows the buff and a click
 -- casts it (the game takes you out of the form), but scrolling never knocks
 -- a feral druid out of form. "Fast-cast buffs in form" (off by default) lets
--- the key cast in a form too. Weapon buffs keep #45's choice B. A form or
+-- the key cast in a form too. A weapon buff that uses an item always waits
+-- for a click (#544, which ended #45's choice B). A form or
 -- class the game won't say counts as a form. The key presses the button as a
 -- button of its own (BuffButton.KEY_BUTTON), whose action is written only
 -- when it may cast: no binding changes with the form.
@@ -156,13 +157,18 @@ describe("Druid buffs in a form (#452)", function()
             assert.matches("Gave Thorns to Bob Stone, who asked for it.", button.result:GetText(), 1, true)
         end)
 
-        it("weapon buffs still work with the key in a form (#45's choice B)", function()
-            boot({ solo = true, form = CAT, known = {}, db = { buffBack = { weaponBuffs = true,
-                weaponMain = "wizardOil", soloOwnBuffs = false } },
-                before = function(s) s.items = { [W.brilliantWizardOil] = 2 } end })
-            assert.are.equal("/use item:20749\n/use 16", keyMacro())
-            scroll()
-            assert.are.equal(1, #wow.applied)
+        it("a weapon buff that uses an item waits for a click in a form, as everywhere (#544)", function()
+            for _, fast in ipairs({ false, true }) do
+                boot({ solo = true, form = CAT, known = {}, db = { buffBack = { weaponBuffs = true,
+                    weaponMain = "wizardOil", soloOwnBuffs = false, fastCastInForm = fast } },
+                    before = function(s) s.items = { [W.brilliantWizardOil] = 2 } end })
+                assert.are.equal("/use item:20749\n/use 16", clickMacro())
+                assert.is_nil(keyMacro(), "fast-cast " .. tostring(fast))
+                scroll()
+                assert.are.equal(0, #wow.applied, "the key never uses it")
+                click()
+                assert.are.equal(1, #wow.applied, "a click puts it on: the game takes you out of the form")
+            end
         end)
 
         it("another class's form doesn't hold the key: a priest in Shadowform still casts", function()

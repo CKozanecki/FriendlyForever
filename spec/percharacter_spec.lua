@@ -1,4 +1,4 @@
--- Spec: #508, #519
+-- Spec: #508, #519, #544
 -- Each character's own buff settings (#508, the owner's decisions of 19 Nov
 -- 2026): weapon buffs, buff mode's key, self-buffs, the buff order and who
 -- gets each buff are each character's. A character on a shared profile uses
@@ -87,6 +87,27 @@ describe("Each character's own buff settings (#508)", function()
             assert.are.same({ true, "manaOil", "none" }, weapons())
             login("Bo", logout())
             assert.are.same({ true, "windfury", "sharpening" }, weapons())
+            assert.are.same({}, wow.errors)
+        end)
+
+        it("food buffs are each character's own too, as weapon buffs (#544)", function()
+            local function food() return { ns.db.buffBack.foodBuffs, ns.db.buffBack.foodItem } end
+            login("Ann", v150())
+            assert.are.same({ false, 0 }, food(), "off, with no food, from settings saved before food buffs")
+            ns.db.buffBack.foodBuffs = true
+            ns.db.buffBack.foodItem = 2680
+            login("Bo", logout())
+            assert.are.same({ false, 0 }, food(), "Bo's start unset, not Ann's")
+            ns.db.buffBack.foodBuffs = true
+            ns.db.buffBack.foodItem = 12218
+            login("Ann", logout())
+            assert.are.same({ true, 2680 }, food())
+            login("Bo", logout())
+            assert.are.same({ true, 12218 }, food())
+            -- A character's saved food that isn't one of the list loads as none.
+            rec("Ann").settings.foodItem = 117
+            login("Ann", logout())
+            assert.are.same({ true, 0 }, food())
             assert.are.same({}, wow.errors)
         end)
 
@@ -255,7 +276,7 @@ describe("Each character's own buff settings (#508)", function()
             assert.are.equal(ns.Config.WALKTHROUGH_VERSION, step.since)
             local text = step.text()
             for _, page in ipairs({ "The Buffs tab", "buff order", "\"Never offer\"", "who gets each buff",
-                "buff mode's key", "\"Offer my self-buffs\"", "Weapon buffs page", "Weapon buffs are",
+                "buff mode's key", "\"Offer my self-buffs\"", "Weapon and food buffs page", "Weapon buffs are",
                 "shared profile" }) do
                 assert.is_truthy(text:find(page, 1, true), page)
             end
@@ -632,6 +653,21 @@ describe("Each character's own buff settings (#508)", function()
             assert.are.same({ true, "manaOil", "none" }, { rec("Ann").settings.weaponBuffs,
                 rec("Ann").settings.weaponMain, rec("Ann").settings.weaponOff }, "Ann's are kept as hers")
             assert.are.same({}, wow.errors)
+        end)
+
+        it("while the name or realm can't be read, another character's food is off too, and not offered (#544)",
+            function()
+            for _, opts in ipairs({ { nameUnread = true }, { secretRealm = true } }) do
+                login("Ann", v150())
+                ns.db.buffBack.foodBuffs = true
+                ns.db.buffBack.foodItem = 2680
+                login("Bo", _G.FriendlyForeverDB, opts) -- Ann's live settings, never saved by a logout
+                assert.are.same({ false, 0 }, { ns.db.buffBack.foodBuffs, ns.db.buffBack.foodItem }, "never Ann's")
+                assert.is_nil(ns.FoodBuffs.Next())
+                assert.are.same({ true, 2680 }, { rec("Ann").settings.foodBuffs, rec("Ann").settings.foodItem },
+                    "Ann's are kept as hers")
+                assert.are.same({}, wow.errors)
+            end
         end)
 
         it("records nothing while the realm can't be read: a secret, none, empty, too long or no API", function()

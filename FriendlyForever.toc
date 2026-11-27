@@ -54,6 +54,7 @@ GroupBuffs.lua
 GroupCasts.lua
 SelfBuffs.lua
 WeaponBuffs.lua
+FoodBuffs.lua
 BuffModeAuto.lua
 Battleground.lua
 OptionsIndex.lua

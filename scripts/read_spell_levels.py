@@ -343,6 +343,13 @@ def wdc5(data):
                     k = bits(rec, boff, bsize)
                     a = pal_off[f] + 4 * k
                     vals.append(struct.unpack("<I", pallet[a:a + 4])[0])
+                elif comp == 4:
+                    # A pallet array (#544: SpellEffect's): v3 values per entry.
+                    k = bits(rec, boff, bsize)
+                    a = pal_off[f] + 4 * k * v3
+                    if v3 < 1 or a + 4 * v3 > pal_off[f] + add:
+                        raise ValueError("a pallet array entry outside its pallet")
+                    vals.append(list(struct.unpack(f"<{v3}I", pallet[a:a + 4 * v3])))
                 else:
                     raise ValueError(f"compression {comp} not handled")
             rid = ids[i] if ids else vals[idx]

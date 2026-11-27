@@ -5,7 +5,9 @@
 -- rogue's poison, or a shaman's weapon imbue. You choose one kind per hand
 -- (buffBack.weaponMain, buffBack.weaponOff); the best rank of it you carry
 -- and can use is offered. One press, one application, through the same
--- secure button. Nothing here uses or casts anything.
+-- secure button: a click for a stone, oil or poison, as buff mode's key
+-- never uses an item (the owner, #544: BuffButton.KeyWaits); the key or a
+-- click for a shaman's imbue, a spell. Nothing here uses or casts anything.
 --
 -- The press: "/use item:<id>" then "/use 16" (main hand) or "/use 17" (off
 -- hand), built from fixed text and two whole numbers, the item one of the
@@ -453,3 +455,10 @@ end
 function WeaponBuffs.Skip()
     skippedAt = GetTime()
 end
+
+-- The readers your food buffs share (FoodBuffs.lua, #544): the same
+-- answers, read the same pessimistic way.
+WeaponBuffs.Shared = {
+    Recently = Recently, Id = Id, Setting = Setting, YouCant = YouCant, Resting = Resting, Count = Count,
+    UsableItem = UsableItem, ItemName = ItemName, ItemIcon = ItemIcon,
+}

@@ -27,7 +27,7 @@ function ns.SetEnabled(on)
 end
 
 -- Back to defaults, keeping settings about this screen (the button's place)
--- and, for buffBack, the Buffs tab's and the Weapon buffs page's: each
+-- and, for buffBack, the Buffs tab's and the Weapon and food buffs page's: each
 -- page's Reset is for its own settings only (#408, #425). The Favours tab's
 -- Reset resets buff and buffBack this way (#491).
 function ns.ResetType(msgType)
@@ -41,6 +41,7 @@ function ns.ResetType(msgType)
     if msgType == "buffBack" then
         Keep(ns.BuffsTab.FIELDS)
         Keep(ns.WeaponBuffs.FIELDS)
+        Keep(ns.FoodBuffs.FIELDS)
     end
     ns.db[msgType] = fresh
     ns.RefreshEvents()
@@ -94,7 +95,7 @@ function handlers.ADDON_LOADED(name)
         "Comm", "RateLimit", "Exchange", "Receipts", "GuildHellos", "Versioned", "GuildLead", "OptionsIndex",
         "Colours", "Walkthrough", "RaidLead",
         "BuffList", "GroupCasts", "RaidSplit", "LevelUps", "SelfBuffs", "Requests", "BuffsTab", "WeaponBuffs",
-        "PassersBy", "GuildPanel" }) do
+        "FoodBuffs", "PassersBy", "GuildPanel" }) do
         if ns[module] == nil then
             local text = "this update added files. Restart the game (not /reload) to finish updating."
             ns.Print(ns.Colours and ns.Colours.Text("bad", text) or text)

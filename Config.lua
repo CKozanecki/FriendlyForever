@@ -265,6 +265,12 @@ Config.DEFAULTS = {
         weaponBuffs = false,
         weaponMain = "none",
         weaponOff = "none",
+        -- Food buffs (FoodBuffs.lua, #544): in buff mode, after your weapon
+        -- buffs, offer the food you chose while you have no Well Fed.
+        -- Experimental, off by default (the owner). foodItem: the food's item
+        -- ID, one of FoodBuffs.FOODS; 0 is none.
+        foodBuffs = false,
+        foodItem = 0,
         -- buffOrder: buff keys, offered first in this order (empty: each
         -- class's own order). neverOffer: [buff key] = true, or false for a
         -- buff that's "Never offer" by default and you unticked (Righteous
@@ -296,12 +302,13 @@ Config.DEFAULTS = {
 
 -- The buffBack settings each character keeps for itself (#508, the owner's
 -- decision of 19 Nov 2026): weapon buffs, buff mode's key, self-buffs, the
--- buff order with its "Never offer" marks, and who gets each buff. The live
+-- buff order with its "Never offer" marks, and who gets each buff; food
+-- buffs too, as weapon buffs (#544). The live
 -- ones in ns.db.buffBack are the current character's (Profiles.lua keeps
 -- each character's in db.characters), unless it uses a shared profile,
 -- whose own they then are.
-Config.CHARACTER_FIELDS = { "weaponBuffs", "weaponMain", "weaponOff", "buffModeKey", "selfBuffs", "buffOrder",
-    "neverOffer", "whoGets", "whoChoice", "whoStrangers", "whoParty", "whoRaid", "whoPvP" }
+Config.CHARACTER_FIELDS = { "weaponBuffs", "weaponMain", "weaponOff", "foodBuffs", "foodItem", "buffModeKey",
+    "selfBuffs", "buffOrder", "neverOffer", "whoGets", "whoChoice", "whoStrangers", "whoParty", "whoRaid", "whoPvP" }
 Config.MAX_CHARACTERS = 200 -- characters whose own settings are kept, and characters seen
 -- The weapon buff settings, reset once for every character by migration 9
 -- (the owner's decision on #508, 19 Nov 2026).
@@ -361,6 +368,15 @@ local function WeaponKind(value, default)
     if type(value) == "string" and WEAPON_KIND_SET[value] then return value end
     return default
 end
+-- The food a character chose (#544): 0, or an item ID of FoodBuffs.FOODS;
+-- anything else is the default. Read when settings load, after every file
+-- has (FoodBuffs.lua comes after this one).
+local function FoodItem(value, default)
+    if value == 0 then return 0 end
+    local foods = ns.FoodBuffs and ns.FoodBuffs.FOODS
+    if foods and value ~= nil and foods[value] then return value end
+    return default
+end
 
 local function Limited(field)
     return function(value, default)
@@ -393,6 +409,8 @@ Config.FIELD_VALIDATORS = {
     weaponBuffs = Bool,
     weaponMain = WeaponKind,
     weaponOff = WeaponKind,
+    foodBuffs = Bool,
+    foodItem = FoodItem,
     unlocked = Bool,
     listBuffNames = Bool,
     quietInCities = Bool,

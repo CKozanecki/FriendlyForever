@@ -1,4 +1,4 @@
--- Spec: #45, #483
+-- Spec: #45, #483, #544
 -- Weapon buffs (experimental, off by default): in buff mode, after your
 -- group and your self-buffs, the button offers the kind you chose for a hand
 -- with no temporary enchant: the best you carry and can use. One press puts
@@ -39,7 +39,9 @@ describe("Weapon buffs", function()
     local function macro() return button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.leftButtonMacroText) end
     local function subtitle() return button.subtitle:GetText() end
     local function refresh() ns.BuffButton.Refresh() end
-    local function press() wow.pressKey("MOUSEWHEELUP") end
+    -- A click: anything that uses an item needs one (#544, the owner).
+    local function press() wow.press(button, "LeftButton") end
+    local function pressKey() wow.pressKey("MOUSEWHEELUP") end
 
     describe("offering and pressing (white)", function()
         it("offers the best wizard oil you carry for a bare main hand, and a press puts it on", function()
@@ -167,6 +169,33 @@ describe("Weapon buffs", function()
             local shown = ns.BuffList.ShownOffers()
             assert.are.equal(1, #shown, "one row for you")
             assert.are.equal("main hand", shown[1].hand)
+        end)
+
+        it("buff mode's key casts a shaman's imbue: it's a spell, not an item (#544)", function()
+            boot({ class = "SHAMAN", main = "rockbiter", known = { ROCKBITER_4 } })
+            local key = button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.keyMacroText)
+            assert.are.equal("/cast [@player,nodead] Rockbiter Weapon\n/use 16", key)
+            pressKey()
+            assert.are.equal(503, wow.enchantOn(16).id)
+        end)
+
+        it("buff mode's key never puts on an item, whatever Fast-cast buffs in form says; a click does (#544)",
+            function()
+            for _, case in ipairs({ { "MAGE", "wizardOil", false }, { "MAGE", "wizardOil", true },
+                { "ROGUE", "deadlyPoison", false }, { "ROGUE", "deadlyPoison", true } }) do
+                local what = table.concat({ case[1], case[2], tostring(case[3]) }, " ")
+                boot({ class = case[1], main = case[2], items = { [W.brilliantWizardOil] = 1, [W.deadlyPoison5] = 1 } })
+                ns.db.buffBack.fastCastInForm = case[3]
+                refresh()
+                assert.is_truthy(macro():find("^/use item:"), what)
+                assert.is_nil(button:GetAttribute(ns.BuffButton.SECURE_ATTRIBUTE.keyMacroText), what)
+                assert.are.equal(ns.BuffButton.ITEM_WAITS, ns.BuffButton.KeyWaitsNow(), what)
+                pressKey()
+                assert.are.equal(0, #wow.applied, what .. ": the key put it on")
+                assert.are.equal(0, #wow.itemUses, what)
+                press()
+                assert.are.equal(1, #wow.applied, what .. ": a click does")
+            end
         end)
 
         it("does nothing outside buff mode", function()
@@ -890,7 +919,8 @@ describe("Weapon buffs", function()
                         ns.db.buffBack.weaponBuffs = true
                         for _, item in ipairs(ITEMS) do s.items[item] = 2 end
                     elseif roll <= 19 then
-                        wow.pressKey("MOUSEWHEELUP")
+                        -- A click, or buff mode's key, which never uses an item (#544).
+                        if int(1, 2) == 1 then press() else pressKey() end
                     elseif roll == 20 then
                         wow.press(button, "RightButton")
                     else
@@ -901,6 +931,10 @@ describe("Weapon buffs", function()
                     local text = macro()
                     if text and (text:find("^/use ") or text:find("Weapon\n/use 16$")) then checkMacro(text, seed, step) end
                     assert.are.equal(0, #wow.weaponUses, "seed " .. seed .. ": a weapon's own Use fired")
+                    for _, use in ipairs(wow.itemUses) do
+                        assert.are.equal("LeftButton", use.by, "seed " .. seed .. " step " .. step .. ": an item used by "
+                            .. tostring(use.by))
+                    end
                     -- "Never errors": anything caught on the way (Diag.Call) is an error too.
                     assert.are.same({}, wow.errors, "seed " .. seed .. " step " .. step)
                 end
@@ -939,7 +973,7 @@ describe("Weapon buffs", function()
                     elseif roll == 3 then
                         s.imbuePicks = int(1, 2) == 1
                     elseif roll == 4 then
-                        wow.pressKey("MOUSEWHEELUP")
+                        if int(1, 2) == 1 then press() else pressKey() end
                     else
                         wow.advance(int(1, 30))
                     end

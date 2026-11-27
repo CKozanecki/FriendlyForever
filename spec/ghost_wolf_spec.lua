@@ -1,9 +1,10 @@
--- Spec: #466
+-- Spec: #466, #544
 -- In Ghost Wolf, buff mode's key waits for a shaman's spell buffs, as it
 -- does for a druid in a form (#452; the owner's decision on #466, 17 Nov):
 -- the button still shows the buff and a click casts it (the game takes you
 -- out of Ghost Wolf), but scrolling never does. "Fast-cast buffs in form"
--- covers Ghost Wolf too. Weapon imbues keep #45's choice B. An unreadable
+-- covers Ghost Wolf too. Weapon imbues follow these rules as any buff does
+-- (#544, which ended #45's choice B). An unreadable
 -- form answer means the key waits. How Forever reports Ghost Wolf is
 -- unconfirmed (#467): the game's form, or Ghost Wolf's aura on you. The key
 -- waits when either says so, so every spec here runs each way the game might
@@ -159,11 +160,14 @@ describe("A shaman's buffs in Ghost Wolf (#466)", function()
         end)
 
         for _, reading in ipairs(READINGS) do
-            it(reading.name .. ": weapon imbues still work with the key (#45's choice B)", function()
+            it(reading.name .. ": a weapon imbue is a spell: it waits for a click, as any buff (#544)", function()
                 boot({ solo = true, wolf = true, reading = reading, known = { [WINDFURY_4] = true },
                     db = { buffBack = { weaponBuffs = true, weaponMain = "windfury", soloOwnBuffs = false } } })
-                assert.are.equal("/cast [@player,nodead] Windfury Weapon\n/use 16", keyMacro())
+                assert.are.equal("/cast [@player,nodead] Windfury Weapon\n/use 16", clickMacro())
+                assert.is_nil(keyMacro())
                 scroll()
+                assert.are.equal(0, #wow.applied)
+                click()
                 assert.are.equal(1, #wow.applied)
                 assert.are.equal(1, wow.formsCancelled, "the game took you out of Ghost Wolf, as by hand")
             end)
@@ -190,6 +194,14 @@ describe("A shaman's buffs in Ghost Wolf (#466)", function()
                 assert.are.equal(1, wow.formsCancelled)
             end)
         end
+
+        it("the key casts a weapon imbue in Ghost Wolf too, as any buff (#544)", function()
+            boot({ solo = true, wolf = true, known = { [WINDFURY_4] = true }, db = { buffBack = {
+                weaponBuffs = true, weaponMain = "windfury", soloOwnBuffs = false, fastCastInForm = true } } })
+            assert.are.equal("/cast [@player,nodead] Windfury Weapon\n/use 16", keyMacro())
+            scroll()
+            assert.are.equal(1, #wow.applied)
+        end)
 
         it("its tooltip names druid forms and Ghost Wolf, and the options search finds it by Ghost Wolf", function()
             boot({ wolf = true })

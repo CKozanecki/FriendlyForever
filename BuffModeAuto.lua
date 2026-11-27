@@ -30,7 +30,9 @@
 --   give while "Offer my own buffs when I'm not in a group" is on (#329),
 --   and your self-buffs while "Offer my self-buffs" is on (#44), as the
 --   button would offer them; a self-buff counts solo only (in a group a
---   missing self-buff alone never turns it on, #44 Q6). Leaving a group,
+--   missing self-buff alone never turns it on, #44 Q6). So does your Well
+--   Fed (#544, the owner's decision 4), solo only, while food buffs would
+--   offer your food (you carry it, and aren't resting). Leaving a group,
 --   the first look only notes what you're missing;
 --   a campfire aura added to you (#39, the owner): UNIT_AURA's list of
 --   auras added to you holds one of CAMPFIRE_AURAS, a near-the-fire aura or
@@ -186,6 +188,10 @@ local function Settled(inside, withSelf, withPassersBy)
         -- Your weapon buffs (#45) too, the same way: never a trigger.
         local weapon, _, weaponSettled = ns.WeaponBuffs.Next()
         if weapon ~= nil or weaponSettled ~= true then return false end
+        -- Your food (#544) too: solo, its missing Well Fed is a trigger
+        -- (MissingNow), as a self-buff is.
+        local food, _, foodSettled = ns.FoodBuffs.Next()
+        if food ~= nil or foodSettled ~= true then return false end
     end
     if inside and not EveryoneInside() then return false end
     -- Your water buff waits for water (Water.lua): nobody has it, so say so.
@@ -340,13 +346,14 @@ end
 -- first look only notes who is (buff mode is off after one), unless a
 -- fight has ended; while the group can't be told, it notes nothing.
 -- The key a missing buff is remembered by: the member's name, and the
--- buff's key (or, for a self-buff, its slot: its family or key, #426).
+-- buff's key (or, for a self-buff, its slot: its family or key, #426; for
+-- your Well Fed, FoodBuffs.SLOT, #544).
 local function KeyOf(offer)
     return offer.name .. "\1" .. (offer.slot or offer.buff.key)
 end
 
 -- GroupBuffs.Missing's answer and, solo (#426), your missing self-buffs
--- merged into it, in its shape: list, worn, whether the group was known,
+-- and your missing Well Fed (#544) merged into it, in its shape: list, worn, whether the group was known,
 -- and the pairs only running low; fifth, whether this look saw you solo.
 -- inGroup is only the last answer read (#373): a group joined in a fight,
 -- or a game that won't say now, isn't solo. Self-buffs count only when the
@@ -357,11 +364,13 @@ local function MissingNow()
     local list, worn, groupKnown, low = ns.GroupBuffs.Missing()
     local solo = inGroup == false and GroupAnswer() == false
     if solo then
-        local mine, mineWorn, mineLow = ns.SelfBuffs.Missing()
-        if mine then
-            for _, offer in ipairs(mine) do list[#list + 1] = offer end
-            for key, at in pairs(mineWorn) do worn[key] = at end
-            for key, at in pairs(mineLow) do low[key] = at end
+        for _, missing in ipairs({ ns.SelfBuffs.Missing, ns.FoodBuffs.Missing }) do
+            local mine, mineWorn, mineLow = missing()
+            if mine then
+                for _, offer in ipairs(mine) do list[#list + 1] = offer end
+                for key, at in pairs(mineWorn) do worn[key] = at end
+                for key, at in pairs(mineLow) do low[key] = at end
+            end
         end
     end
     return list, worn, groupKnown, low, solo
@@ -409,9 +418,12 @@ local function CheckMissing(fightEnded)
     -- note nobody, so a buff missing all along would count as new.
     if lastMissing ~= nil or (roster ~= nil and groupKnown) then lastMissing = now end
     if not first then return end
-    local spell = ns.BuffData.SpellName(first.buff) or "buff"
     local why
-    if low[KeyOf(first)] then
+    local spell = not first.food and ns.BuffData.SpellName(first.buff) or "buff"
+    if first.food then
+        -- Your Well Fed (#544): never running low, only gone.
+        why = "you're no longer Well Fed"
+    elseif low[KeyOf(first)] then
         why = (first.self and "your" or (ns.Util.DisplayName(first.name) .. "'s")) .. " " .. spell
             .. " is running low"
     else
