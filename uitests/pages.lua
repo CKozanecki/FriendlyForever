@@ -119,6 +119,7 @@ Pages.IGNORED = 14
 Pages.ENTRIES = 25
 Pages.PROFILES = 9 -- Options.PROFILES_SHOWN lists 6
 Pages.FOOD = 250075 -- Prehistoric Pulled Raptor, the longest name a food has (#544)
+Pages.FOOD_NAME = "Prehistoric Pulled Raptor"
 
 local function Today()
     return type(date) == "function" and date("%Y-%m-%d") or ""
@@ -134,9 +135,19 @@ function Pages.Fill()
         weaponOff = db.buffBack.weaponOff }
     db.buffBack.weaponBuffs, db.buffBack.weaponMain, db.buffBack.weaponOff = true, "wizardOil", "sharpening"
     -- Food buffs (#544) on the same page: switched on, with the longest name
-    -- a food has chosen. The simulator has no bags, so it reads "(none carried)".
+    -- a food has chosen. The simulator has no bags, so it reads "(none
+    -- carried)", and names every item "Unknown" (docs/ui-simulator.md): the
+    -- client's name for the food is answered here while the pages are filled.
     local food = { foodBuffs = db.buffBack.foodBuffs, foodItem = db.buffBack.foodItem }
     db.buffBack.foodBuffs, db.buffBack.foodItem = true, Pages.FOOD
+    local items = _G.C_Item
+    local itemName = type(items) == "table" and items.GetItemNameByID or nil
+    if type(items) == "table" then
+        items.GetItemNameByID = function(item, ...)
+            if item == Pages.FOOD then return Pages.FOOD_NAME end
+            if type(itemName) == "function" then return itemName(item, ...) end
+        end
+    end
 
     local ignore = {}
     for i = 1, Pages.IGNORED do
@@ -173,6 +184,7 @@ function Pages.Fill()
         for key, value in pairs(saved) do db[key] = value end
         for key, value in pairs(weapon) do db.buffBack[key] = value end
         for key, value in pairs(food) do db.buffBack[key] = value end
+        if type(items) == "table" then items.GetItemNameByID = itemName end
     end
 end
 

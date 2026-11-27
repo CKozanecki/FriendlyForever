@@ -1,4 +1,4 @@
--- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471, #485, #482, #486, #491, #496, #497, #504, #510, #531
+-- Spec: #427, #434, #76, #84, #136, #42, #47, #169, #198, #219, #41, #256, #270, #274, #255, #260, #265, #296, #44, #322, #285, #40, #39, #45, #452, #449, #459, #466, #471, #485, #482, #486, #491, #496, #497, #504, #510, #531, #544
 -- The simulated client itself, where its test hooks could fool other specs.
 local wow = require("spec.support.wow")
 
@@ -2302,5 +2302,130 @@ describe("The simulated client's indoors (#510)", function()
         wow.state.indoors = false
         wow.advance(5)
         assert.are.same({}, heard)
+    end)
+end)
+
+describe("The simulated client's eating and Well Fed (#544)", function()
+    local WOLF, WELL_FED_WOLF = 2680, 1248420
+    before_each(function()
+        wow.boot()
+        wow.state.items[WOLF] = 2
+        wow.state.expirePlayerAuras = true
+    end)
+
+    it("eats with /use item: a cast of the food's spell, one from the bags, the eating aura, Well Fed after 10 s", function()
+        wow.runMacro("/use item:" .. WOLF)
+        assert.are.equal(1, #wow.foodSends)
+        assert.are.equal(1, #wow.meals)
+        assert.are.equal(1, wow.state.items[WOLF])
+        assert.is_not_nil(wow.state.eating)
+        local eating = false
+        for _, a in ipairs(wow.state.playerAuras) do if a.spellId == wow.EATING_AURA then eating = true end end
+        assert.is_true(eating, "the eating aura")
+        wow.advance(wow.EATING_TICK - 1)
+        assert.is_nil(wow.wellFedAura(), "not yet")
+        wow.advance(1)
+        assert.are.equal(WELL_FED_WOLF, wow.wellFedAura().spellId)
+        assert.are.equal(1, #wow.fed)
+        wow.advance(wow.WELL_FED_SECONDS)
+        assert.is_nil(wow.wellFedAura(), "it runs out")
+    end)
+
+    it("a new Well Fed replaces the old one", function()
+        wow.state.items[wow.FOOD.monsterOmelet] = 1
+        wow.runMacro("/use item:" .. WOLF)
+        wow.advance(10)
+        wow.runMacro("/use item:" .. wow.FOOD.monsterOmelet)
+        wow.advance(10)
+        local count = 0
+        for _, a in ipairs(wow.state.playerAuras) do if wow.WELL_FED[a.spellId] then count = count + 1 end end
+        assert.are.equal(1, count)
+        assert.are.equal(1248406, wow.wellFedAura().spellId)
+    end)
+
+    it("a meal ends with no Well Fed when interrupted, on a cast, a form change, another item or death", function()
+        local cuts = {
+            interrupt = function() wow.interruptMeal() end,
+            cast = function()
+                wow.state.knownSpells[10157] = true
+                wow.runMacro("/cast [@player,nodead] Arcane Intellect")
+            end,
+            form = function() wow.setForm(1, wow.CAT_FORM) end,
+            item = function()
+                wow.state.items[wow.WEAPON.roughWeightstone] = 1
+                wow.runMacro("/use item:" .. wow.WEAPON.roughWeightstone)
+            end,
+            death = function() wow.die() end,
+        }
+        for name, cut in pairs(cuts) do
+            wow.boot()
+            wow.state.items[WOLF] = 1
+            wow.runMacro("/use item:" .. WOLF)
+            wow.advance(5)
+            cut()
+            assert.is_nil(wow.state.eating, name)
+            wow.advance(10)
+            assert.is_nil(wow.wellFedAura(), name .. ": no Well Fed")
+        end
+    end)
+
+    it("dying takes Well Fed away", function()
+        wow.runMacro("/use item:" .. WOLF)
+        wow.advance(10)
+        assert.is_not_nil(wow.wellFedAura())
+        wow.die()
+        assert.is_nil(wow.wellFedAura())
+    end)
+
+    it("refuses food in combat, and by state.foodRefusal, with the game's text and no meal", function()
+        wow.enterCombat()
+        wow.runMacro("/use item:" .. WOLF)
+        assert.are.equal(0, #wow.meals)
+        assert.are.equal(2, wow.state.items[WOLF])
+        wow.leaveCombat()
+        wow.state.foodRefusal = "You can't do that yet."
+        wow.runMacro("/use item:" .. WOLF)
+        assert.are.equal(1, #wow.foodSends, "sent, then refused")
+        assert.are.equal(0, #wow.meals)
+        assert.are.equal(2, wow.state.items[WOLF])
+    end)
+
+    it("with state.alreadyFedRefuses, refuses while Well Fed, counting state.unlistedWellFed as one", function()
+        wow.state.alreadyFedRefuses = true
+        wow.state.unlistedWellFed = 9999999
+        wow.gainBuff({ spellId = 9999999, name = "Well Fed" })
+        assert.is_not_nil(wow.wellFedAura(), "the game counts it")
+        wow.runMacro("/use item:" .. WOLF)
+        assert.are.equal(0, #wow.meals)
+        wow.state.alreadyFedRefuses = false
+        wow.runMacro("/use item:" .. WOLF)
+        assert.are.equal(1, #wow.meals, "replaces it otherwise")
+    end)
+
+    it("names the food as the cast's target, or state.foodSentTarget", function()
+        local heard = {}
+        local frame = wow.newFrame("Frame")
+        frame:RegisterEvent("UNIT_SPELLCAST_SENT")
+        frame:SetScript("OnEvent", function(_, _, _, target) heard[#heard + 1] = target end)
+        wow.runMacro("/use item:" .. WOLF)
+        wow.state.foodSentTarget = "Bread"
+        wow.runMacro("/use item:" .. WOLF)
+        assert.are.same({ "Spiced Wolf Meat", "Bread" }, heard)
+    end)
+
+    it("records each /use item: with what pressed the button: a click, or buff mode's key", function()
+        local b = _G.CreateFrame("Button", "FFFoodTestButton", UIParent, "SecureActionButtonTemplate")
+        b:RegisterForClicks("AnyUp", "AnyDown")
+        b:SetAttribute("*type1", "macro")
+        b:SetAttribute("*macrotext1", "/use item:" .. WOLF)
+        b:SetAttribute("*type-BuffModeKey", "macro")
+        b:SetAttribute("*macrotext-BuffModeKey", "/use item:" .. WOLF)
+        wow.press(b, "LeftButton")
+        wow.press(b, "BuffModeKey")
+        assert.are.equal(2, #wow.itemUses)
+        assert.are.equal("LeftButton", wow.itemUses[1].by)
+        assert.are.equal("BuffModeKey", wow.itemUses[2].by)
+        wow.runMacro("/use item:" .. WOLF)
+        assert.is_nil(wow.itemUses[3].by, "no press: nothing")
     end)
 end)

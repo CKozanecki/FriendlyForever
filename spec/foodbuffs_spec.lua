@@ -147,15 +147,25 @@ describe("Food buffs", function()
             assert.are.equal(WOLF_MACRO, macro())
         end)
 
-        it("a clicked food row is its own kind, so it never takes another row's place", function()
-            boot()
-            assert.are.equal("food", ns.BuffButton.OfferKind({ food = true, name = "Me" }))
-            local rows = ns.BuffList.Rows()
-            for i, offer in ipairs(ns.BuffList.ShownOffers()) do
-                if offer.food then rows[i].scripts.OnClick(rows[i]) end
-            end
+        it("a clicked food row puts your food on the button ahead of Ann's buff, and is its own kind", function()
+            boot({ known = { INTELLECT } })
+            wow.setGroup("party", { "Ann-Vale" })
+            wow.fire("GROUP_ROSTER_UPDATE")
+            wow.advance(0)
+            wow.gainBuff({ spellId = INTELLECT, sourceUnit = "player" })
             refresh()
-            assert.are.equal(WOLF_MACRO, macro(), "chosen and still offered")
+            assert.is_truthy(macro():find("Arcane Intellect", 1, true), "Ann first")
+            assert.are.equal("food", ns.BuffButton.OfferKind({ food = true, name = "Me" }))
+            local rows, clicked = ns.BuffList.Rows(), false
+            for i, offer in ipairs(ns.BuffList.ShownOffers()) do
+                if offer.food then
+                    rows[i].scripts.OnClick(rows[i])
+                    clicked = true
+                end
+            end
+            assert.is_true(clicked, "the food is listed")
+            refresh()
+            assert.are.equal(WOLF_MACRO, macro(), "chosen: your food")
         end)
 
         it("while you eat, the button offers nothing at all, not even your own buff, until Well Fed shows", function()
@@ -173,6 +183,31 @@ describe("Food buffs", function()
             assert.is_not_nil(wow.wellFedAura())
             assert.is_false(ns.FoodBuffs.Eating())
             assert.are.equal("/cast [@player,nodead] Arcane Intellect", macro(), "fed: your Intellect")
+        end)
+
+        it("mid-meal, an aura that can't be read still holds the button: Ann missing your buff waits (black)",
+            function()
+            for _, how in ipairs({ "secret aura", "restricted" }) do
+                boot({ known = { INTELLECT } })
+                wow.setGroup("party", { "Ann-Vale" })
+                wow.fire("GROUP_ROSTER_UPDATE")
+                wow.advance(0)
+                wow.gainBuff({ spellId = INTELLECT, sourceUnit = "player" })
+                wow.wearBuff("party1", INTELLECT, { source = "player" })
+                refresh()
+                assert.are.equal(WOLF_MACRO, macro(), how)
+                press()
+                wow.state.units.party1.auras = {} -- Ann's runs out mid-meal
+                if how == "restricted" then
+                    wow.state.aurasRestricted = true
+                else
+                    table.insert(wow.state.playerAuras, { spellId = wow.secret(1), isHelpful = true })
+                end
+                refresh()
+                assert.is_nil(macro(), how .. ": a press would stand you up")
+                assert.matches("you're eating", subtitle(), 1, true)
+                assert.is_true(ns.FoodBuffs.Eating(), how)
+            end
         end)
 
         it("a druid taken out of Cat Form to eat isn't shifted back until the meal is over (#495)", function()
@@ -287,6 +322,26 @@ describe("Food buffs", function()
             boot({ before = function(s) s.foodSentTarget = "Bread" end })
             press()
             assert.matches("Eating Spiced Wolf Meat", button.result:GetText(), 1, true)
+        end)
+
+        it("a Well Fed the list lacks: the game says you're already Well Fed, twice, and the food stops a while",
+            function()
+            boot({ items = { [F.spicedWolfMeat] = 5 }, before = function(s)
+                s.alreadyFedRefuses = true
+                s.unlistedWellFed = 9999999
+            end })
+            wow.gainBuff({ spellId = 9999999, name = "Well Fed", duration = 900, expirationTime = wow.now + 900 })
+            refresh()
+            assert.are.equal(WOLF_MACRO, macro(), "the addon can't tell it's Well Fed")
+            press()
+            assert.matches("You are already Well Fed.", button.result:GetText(), 1, true)
+            wow.advance(ns.FoodBuffs.HELD_BACK_SECONDS)
+            refresh()
+            press()
+            wow.advance(ns.FoodBuffs.HELD_BACK_SECONDS)
+            nothingOffered("you couldn't eat your Spiced Wolf Meat twice")
+            assert.are.equal(0, #wow.meals)
+            assert.are.equal(5, wow.state.items[F.spicedWolfMeat], "nothing wasted")
         end)
 
         it("a refusal by the game holds the food back a while, as for weapon buffs", function()

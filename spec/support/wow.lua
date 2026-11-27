@@ -859,9 +859,13 @@ M.COMBAT_ERROR = "You can't do that while in combat."
 --                         aura of yours, lasting M.WELL_FED_SECONDS)
 --                         replaces any Well Fed you had: the pessimistic
 --                         choice (a food wasted), where Forever may refuse
---                         with M.ALREADY_FED_ERROR (state.alreadyFedRefuses).
+--                         with M.ALREADY_FED_ERROR (state.alreadyFedRefuses;
+--                         state.unlistedWellFed, a Well Fed spell the addon's
+--                         list lacks, counts as one).
 --                         M.interruptMeal (moving, standing up) ends the
---                         meal with no Well Fed. In combat the game refuses
+--                         meal with no Well Fed, and so does any cast, a
+--                         form or Ghost Wolf changing, or using another item:
+--                         any press stands you up (the owner, #544). In combat the game refuses
 --                         the food (M.COMBAT_ERROR); state.foodRefusal (text)
 --                         makes the server refuse it. In a druid's form or
 --                         Ghost Wolf it acts as for a weapon buff's item.
@@ -1341,6 +1345,8 @@ local imbue -- a shaman's imbue (#45), below
 local formStops -- whether your form stops an action (#45, #452), below
 local shift -- a form's spell (#495), below
 local function cast(args)
+    -- Any cast stands you up: a meal ends with no Well Fed (#544, the owner).
+    M.interruptMeal()
     local conds, name = args:match("^%[(.-)%]%s*(.+)$")
     local elsewhere = M.state.castLandsOn and M.state.units[M.state.castLandsOn]
     -- [@unit] aims the cast at that unit instead of your target, whom the
@@ -1614,6 +1620,8 @@ M.formStops = formStops
 -- spell (M.MOONKIN_FORM, M.CAT_FORM...), which GetShapeshiftFormInfo and
 -- GetShapeshiftFormID read (#485); none for a form a spec doesn't name.
 function M.setForm(form, spellId)
+    -- A form changing ends a meal (#544; the pessimistic side).
+    if form ~= M.state.form then M.interruptMeal() end
     M.state.form = form
     M.state.formSpell = form ~= 0 and spellId or nil
     M.fire("UPDATE_SHAPESHIFT_FORM")
@@ -1691,6 +1699,7 @@ end
 -- state.ghostWolfAura false lists no aura of ID 2645 (Forever's ID differs).
 -- The game stops a cast in Ghost Wolf either way (formStops).
 function M.setGhostWolf(on)
+    if (on and true or false) ~= M.state.ghostWolf then M.interruptMeal() end -- as a form (#544)
     M.state.ghostWolf = on and true or false
     M.state.form = on and (M.state.ghostWolfForm or 1) or 0
     for i = #M.state.playerAuras, 1, -1 do
@@ -1739,7 +1748,9 @@ M.itemUses = {} -- each "/use item:N" run: { item, by = what pressed the button,
 -- expires your auras).
 function M.wellFedAura()
     for _, a in ipairs(M.state.playerAuras) do
-        if not isSecret(a) and M.WELL_FED[a.spellId] then
+        -- state.unlistedWellFed: a Well Fed the game has that the addon's
+        -- list doesn't (a new one, say), as the game counts it.
+        if not isSecret(a) and (M.WELL_FED[a.spellId] or (a.spellId ~= nil and a.spellId == M.state.unlistedWellFed)) then
             local over = M.state.expirePlayerAuras and type(a.expirationTime) == "number" and a.expirationTime > 0
                 and M.now >= a.expirationTime
             if not over then return a end
@@ -1819,6 +1830,8 @@ local function use(rest)
     end
     if item then
         M.state.itemTargeting = nil
+        -- Using another item stands you up too (#544).
+        M.interruptMeal()
         if (M.state.items[item] or 0) < 1 or M.state.useDoesNothing then return end
         if formStops() then return end
         if M.state.unusableItems[item] then
