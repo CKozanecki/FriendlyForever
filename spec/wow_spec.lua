@@ -2343,7 +2343,8 @@ describe("The simulated client's eating and Well Fed (#544)", function()
         assert.are.equal(1248406, wow.wellFedAura().spellId)
     end)
 
-    it("a meal ends with no Well Fed when interrupted, on a cast, a form change, another item or death", function()
+    it("a meal ends with no Well Fed when interrupted, on a cast, a form or Ghost Wolf change, another item or death",
+        function()
         local cuts = {
             interrupt = function() wow.interruptMeal() end,
             cast = function()
@@ -2351,6 +2352,7 @@ describe("The simulated client's eating and Well Fed (#544)", function()
                 wow.runMacro("/cast [@player,nodead] Arcane Intellect")
             end,
             form = function() wow.setForm(1, wow.CAT_FORM) end,
+            ghostWolf = function() wow.setGhostWolf(true) end,
             item = function()
                 wow.state.items[wow.WEAPON.roughWeightstone] = 1
                 wow.runMacro("/use item:" .. wow.WEAPON.roughWeightstone)
