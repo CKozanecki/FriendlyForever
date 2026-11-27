@@ -1444,8 +1444,7 @@ test("the General page, with a long ignore list and several profiles, keeps its 
     end)
 end)
 
-test("the Weapon and food buffs page, switched on with a kind for each hand and a food, keeps its text inside it "
-    .. "(#45, #544)", function()
+test("the Weapon and food buffs page, on with both hands' kinds and a food, keeps its text in (#45, #544)", function()
     WithPagesFilled(function()
         local page = FriendlyForeverUIPages.Open("weapon")
         check(page:IsVisible(), "the Weapon and food buffs page didn't open")
