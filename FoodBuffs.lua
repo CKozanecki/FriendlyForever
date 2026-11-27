@@ -30,8 +30,9 @@
 -- spell triggers its Well Fed after 10 seconds of eating. After a press
 -- lands, the button offers nothing at all for EATING_SECONDS, or until Well
 -- Fed shows (FoodBuffs.Eating: no buff, shift back into your form or
--- passer-by stands you up mid-meal); a meal with no Well Fed by then was cut short (you moved, say), and counts as a refusal: the food is
--- held back HELD_BACK_SECONDS, and after REFUSALS_TO_STOP in a row, until
+-- passer-by stands you up mid-meal); a meal with no Well Fed by then was
+-- cut short (you moved, say), and counts as a refusal: the food is held back
+-- HELD_BACK_SECONDS, and after REFUSALS_TO_STOP in a row, until
 -- STOP_SECONDS pass, you change food, or Well Fed shows. Right-click skips
 -- your food for SKIP_SECONDS.
 --
